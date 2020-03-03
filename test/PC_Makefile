@@ -1,0 +1,59 @@
+SRC_PATH=/home/midas-zhou/Ctest/wegi
+
+# !!!--- to be created and cleaned ---!!!
+CFLAGS  = -I$(SRC_PATH) -I$(SRC_PATH)/utils -I$(SRC_PATH)/sound
+## for libasound.h
+CFLAGS += -I/home/midas-zhou/openwrt_widora/staging_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/usr/include
+CFLAGS += -I/usr/local/include/freetype2
+CFLAGS += -I/usr/local/include/libpng12
+
+CFLAGS  += -Wall -O2
+CFLAGS  += -D_GNU_SOURCE -DLETS_NOTE
+
+LDFLAGS = -L$(SRC_PATH)/pclib
+LDFLAGS += -L/lib
+LDFLAGS += -L/usr/lib/i386-linux-gnu
+
+#LIBS	=  -lepages
+#LIBS    += -lesound
+#LIBS    += -lasound
+#LIBS    =  -lsndfile
+
+LIBS    += -lpng12
+LIBS    += -lz -lm -pthread -ljpeg
+LIBS    += -lfreetype
+
+
+#--- use static or dynamic libs -----
+EGILIB=dynamic
+
+#### --- use dynamic and static libs in compilatoin!!! ---
+# 1. Exclude dynamic -legi first.
+# 2. Use -Wl,Bdynamic and -Wl,Bstatic to switch to dynamic/static libs
+# 3. At last, we must switch back to dynamic libs, as default for Linux system runtime setup.
+# 4. Source/obj files must be put before all -Wl.
+
+### 		----- A template for making test app -----
+###	Usage example: make test TEST_NAME=test_resizeimg EGILIB=static
+###
+test:	$(TEST_NAME).c
+ifeq ($(EGILIB),static)
+	$(CC) $(TEST_NAME).c -o $(TEST_NAME) $(CFLAGS) $(LDFLAGS) \
+-Wl,-Bstatic -legi -Wl,-Bdynamic $(LIBS)
+else
+	$(CC) -o $(TEST_NAME) $(TEST_NAME).c $(CFLAGS) $(LDFLAGS) -legi $(LIBS)
+endif
+
+
+### 			------ template end -----
+
+
+
+### !!! NOTE: put '-o $@  $@.c' ahead of FLAGS and LIBS !!!!
+%:%.c
+	$(CC) -o $@  $@.c $(CFLAGS) $(LDFLAGS) $(LIBS) -legi
+#	$(CC)  $(CFLAGS) $(LDFLAGS) $(LIBS)  $@.c -o $@
+
+clean:
+	rm -rf *.o $(APPS)
+

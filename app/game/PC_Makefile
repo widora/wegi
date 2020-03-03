@@ -1,0 +1,67 @@
+CC=gcc
+
+SRC_PATH=/home/midas-zhou/Ctest/wegi
+
+#### ----- 产生文件列表 ------
+SRC_FILES = $(wildcard *.c)
+OBJS = $(patsubst %.c, %.o, $(SRC_FILES))
+DEP_FILES = $(patsubst %.c,%.dep,$(SRC_FILES))
+
+CFLAGS  = -I$(SRC_PATH) -I$(SRC_PATH)/sound -I$(SRC_PATH)/utils -I$(SRC_PATH)/page
+## for libasound.h
+CFLAGS += -I/home/midas-zhou/openwrt_widora/staging_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/usr/include
+CFLAGS += -I/usr/local/include/freetype2
+CFLAGS += -I/usr/local/include/libpng12
+CFLAGS += -Wall -O2 -DLETS_NOTE
+
+LDFLAGS = -L$(SRC_PATH)/pclib
+LDFLAGS += -L/lib
+LDFLAGS += -L/usr/lib/i386-linux-gnu
+
+## for libpng12.so
+
+LIBS	=  -lsndfile
+LIBS    += -lpng12
+LIBS    += -lasound
+LIBS	+= -lz -lm -pthread -ljpeg
+LIBS 	+= -lfreetype
+#LIBS	+= -legi
+
+#--- use static or dynamic libs -----
+EGILIB=dynamic
+
+#---!!! OBJS will be made and cleaned !!!---
+APPS = app_avenger
+
+all:	$(APPS)
+### !!! NOTE: put '-o $@  $@.c' ahead of FLAGS and LIBS in LD !!!!
+
+app_avenger:  app_avenger.c $(OBJS)
+###  Use dynamic or static egi_libs
+ifeq ($(EGILIB),static)
+	$(CC) -o app_avenger $(OBJS) $(CFLAGS) $(LDFLAGS) \
+-Wl,-Bstatic -legi -lesound -Wl,-Bdynamic $(LIBS)
+else
+	$(CC)  $(CFLAGS) $(LDFLAGS) -o app_avenger $(OBJS)  -legi -lesound $(LIBS)
+endif
+
+
+#### ----- 目标文件自动生成规则 -----
+%:%.c $(DEP_FILES)
+	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBS) -c -o $@ $@.c
+
+
+#### ---- 依赖文件自动生成规则 -----
+include $(DEP_FILES)
+$(warning "----- %.dep: %.c -----")
+%.dep: %.c
+	@set -e; rm -f $@
+	@$(CC) -MM $(CFLAGS) $< > $@.123
+	@sed 's,\($*\)\.o[: ]*,\1 : ,g' < $@.123 > $@
+	cat $@.123
+#------- \1 表示第一个$(*)所代表的内容
+	@rm -f $@.123
+
+clean:
+	rm -rf *.o $(APPS) *.dep $(OBJS)
+

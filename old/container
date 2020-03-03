@@ -1,0 +1,9 @@
+egi.h:         * 4. In a type_slider ebox, it is coupled/linked with ebox->x0,y0, they are concentric.
+egi.h:	   	1. initialization job for the ebox and ebox->egi_data.
+egi.h:		2. update ebox->egi_data and do some job here ---------.
+egi.h:	   	   	 * of those chars should not exceeds ebox->width, ---xxx-- or it may display in
+egi.h://	uint16_t font_color; 	use ebox->tag_color instead  /* tag font color, defaul is black */
+egi.h:	 * if ebox->prmcolor <0 && data_btn->icon ==NULL
+egi.h://	EGI_IMGBUF *imgbuf;  !!! Apply ebox->frame_img instead  !!!
+egi_image.h:	frame_none=100,		/* incoporate with ebox->frame, <100  */
+egi_slider.h: 	int twidth, int theight, /* for touch area,which is coupled with ebox->x0,y0 */

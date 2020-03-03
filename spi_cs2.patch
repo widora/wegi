@@ -1,0 +1,140 @@
+Index: linux-3.18.29/drivers/spi/spi-mt7621.c
+===================================================================
+--- linux-3.18.29.orig/drivers/spi/spi-mt7621.c
++++ linux-3.18.29/drivers/spi/spi-mt7621.c
+@@ -1,3 +1,4 @@
++////
+ /*
+  * spi-mt7621.c -- MediaTek MT7621 SPI controller driver
+  *
+@@ -27,6 +28,8 @@
+ #include <linux/swab.h>
+ 
+ #include <ralink_regs.h>
++#include <linux/gpio.h>
++
+ 
+ #define SPI_BPW_MASK(bits) BIT((bits) - 1)
+ 
+@@ -103,9 +106,21 @@ static void mt7621_spi_set_cs(struct spi
+ 	u32 polar = 0;
+ 
+         mt7621_spi_reset(rs);
+-	if (enable)
+-		polar = BIT(cs);
+-	mt7621_spi_write(rs, MT7621_SPI_POLAR, polar);
++
++	// I'M HERE:  ~/openwrt_widora/build_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/linux-ramips_mt7688/linux-3.18.29/drivers/spi/spi-mt7621.c
++	//--- ----
++	if(cs >= 2) //if use GPIO as select pin
++	{
++		//printk("--- SPI_CS_HIGH as enable = %d\n",enable);
++		gpio_set_value_cansleep(spi->cs_gpio, (spi->mode & SPI_CS_HIGH) ? enable : !enable);
++	}
++	//else
++	//{
++		if (enable)
++			polar = BIT(cs);
++		mt7621_spi_write(rs, MT7621_SPI_POLAR, polar);
++	//}
++	//--- ---
+ }
+ 
+ static int mt7621_spi_prepare(struct spi_device *spi, unsigned int speed)
+@@ -265,14 +280,18 @@ static int mt7621_spi_transfer_one_messa
+ 					   struct spi_message *m)
+ {
+ 	struct spi_device *spi = m->spi;
+-	int cs = spi->chip_select;
+ 
+ 	return mt7621_spi_transfer_half_duplex(master, m);
+ }
+ 
++
++
++
++
+ static int mt7621_spi_setup(struct spi_device *spi)
+ {
+ 	struct mt7621_spi *rs = spidev_to_mt7621_spi(spi);
++	int status=0;
+ 
+ 	if ((spi->max_speed_hz == 0) ||
+ 		(spi->max_speed_hz > (rs->sys_freq / 2)))
+@@ -284,9 +303,29 @@ static int mt7621_spi_setup(struct spi_d
+ 		return -EINVAL;
+ 	}
+ 
+-	return 0;
++	//--- ---
++	if(spi->chip_select >= 2)
++	{
++	//  --- devm_gpio_request() will casue core dump !!!!
++	//	status=devm_gpio_request(&spi->dev, spi->cs_gpio, dev_name(&spi->dev));
++
++/*		// gpio_request() will fail !!!!!
++		status=gpio_request(spi->cs_gpio, dev_name(&spi->dev));
++		dev_info(&spi->dev,"%s: cs_gpio=%d, status=%d\n",__func__,spi->cs_gpio,status);
++		if(status){
++ 			dev_info(&spi->dev,"%s: gpio_request() failed! GPIO %d is not available!\n",__func__,spi->cs_gpio);
++			return status;
++		}
++*/
++		status = gpio_direction_output(spi->cs_gpio,1);
++	}
++	return status;
++	//--- ---
++
+ }
+ 
++
++
+ static const struct of_device_id mt7621_spi_match[] = {
+ 	{ .compatible = "ralink,mt7621-spi" },
+ 	{},
+@@ -338,7 +377,10 @@ static int mt7621_spi_probe(struct platf
+ 	master->transfer_one_message = mt7621_spi_transfer_one_message;
+ 	master->bits_per_word_mask = SPI_BPW_RANGE_MASK(8, 16);
+ 	master->dev.of_node = pdev->dev.of_node;
+-	master->num_chipselect = 2;
++	//--------
++	master->num_chipselect = 5;
++	printk("------ %s changed master->num_chipselect to %d.\n", __func__,master->num_chipselect);
++	//--------
+ 
+ 	dev_set_drvdata(&pdev->dev, master);
+ 
+@@ -389,3 +431,4 @@ module_platform_driver(mt7621_spi_driver
+ MODULE_DESCRIPTION("MT7621 SPI driver");
+ MODULE_AUTHOR("Felix Fietkau <nbd@openwrt.org>");
+ MODULE_LICENSE("GPL");
++
+Index: linux-3.18.29/drivers/spi/spi.c
+===================================================================
+--- linux-3.18.29.orig/drivers/spi/spi.c
++++ linux-3.18.29/drivers/spi/spi.c
+@@ -1313,6 +1313,11 @@ static void of_register_spi_devices(stru
+ 			continue;
+ 		}
+ 		spi->chip_select = value;
++		//--------
++		dev_info(&spi->dev,"--- read dts get spi device cs=%d\n",value);
++		spi->cs_gpio = of_get_named_gpio(nc,"cs-gpios",0); //get gpio num(first) for chip select
++		dev_info(&spi->dev,"--- get cs_gpio = %d\n",spi->cs_gpio);
++		//------
+ 
+ 		/* Mode (clock phase/polarity/etc.) */
+ 		if (of_find_property(nc, "spi-cpha", NULL))
+@@ -1558,6 +1563,7 @@ static int of_spi_register_master(struct
+ 		return 0;
+ 
+ 	nb = of_gpio_named_count(np, "cs-gpios");
++//	printk("of_gpio_named_count  cs-gpios =%d\n",nb);
+ 	master->num_chipselect = max_t(int, nb, master->num_chipselect);
+ 
+ 	/* Return error only for an incorrectly formed cs-gpios property */
+@@ -2414,3 +2420,4 @@ err0:
+  */
+ postcore_initcall(spi_init);
+ 
++

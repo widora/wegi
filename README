@@ -1,0 +1,170 @@
+			----- 1. Basic Concepts -----
+
+0. EBOX is the basic graphic element, and all other elements such as Buttons, Txtbox, Slider, 
+   List ... are derived from and based on it.
+   Please see basic EBOX concept in egi.h/egi.c, see symbol concept in symbol.c/FTsymbol.c
+
+   Note: EBOX is a heavy element for button application, and it's not necessary for a simple 
+	 button/keypad application. See such an example in test_keypad.c.
+
+1. The EGI mainly focus on EGI_IMGBUF/EGI_PCMBUF data processing and PAGE managing/displaying, 
+   Always try to avoid processing other type data and handling other events, which shall be
+   taken on by specific APPs.
+
+2. An APP will handle/process its own business data, and convert to EGI_IMGBUF/EGI_PCMBUF first
+   when it need to display image or playback sound.
+
+3. or, The EGI prepare/set PAGE environment according to APP's request, then the APP
+   will use EGI interface to displaying any content by itself. ERING will be applied
+   as a way of IPC	 ---NOPE
+
+4. An APP consists of two kinds of components: EGI_UI PAGEs, and executable APP files.
+   They will be forked and launched as child processes of homepage program.
+   By such a way that we can code and develop APPs independently, To install them, we only
+   need to inform homepage programe its icons and bin file location/address. It can also
+   run independently without the HOME PAGE.
+   Examples: wegi/app/ffmusic  wegi/app/ebook
+
+5. All child processes to be handled by ULOOP_PROCESSE?		---TBD
+
+6. Since APP processes will be suspended and reactivated by signals(STOP/CONT), and data 
+   transfering will be cut off and leg go abruptly by the signals. For example, LCD displays 
+   with SPI transfering color data, sound card plays with I2S transfering pcm data.
+   Take care of those situations, so broken dataflow will not cause any disfunction.
+
+7. Any loosely coupled and standing_by processes, such as weather info, IoT client interface, 
+   media_player... etc,  will be started from init scripts as a deamon and managed by Openwrt 
+   PROCD therefore. 
+   In such cases, ERING may be a way of IPC.
+
+
+NOTE:
+1. Difference between OpenWRT uClibc and Glibc may cause some trouble!?
+2. In uClibc calling malloc(0) returns NULL, while Glibc returs a valid pointer? same
+   situation for realloc().
+3. uClibc can run on MMU-less systems.
+4. The homepage main process shall be as small as possible, most heavier codes and jobs
+   are to be carried out by the APP, so it will be fast enough to fork()/vfork() and execv() a
+   new APP. 
+5. For little_endian system only.  ---NOW
+6. For 32-bit processor/system only.  ---NOW
+
+			-----   2. TODO List   -----
+
+1. Spport for multilayer frame buffer.
+
+2. A module using UBUS as a mechanism to manage and communicate with external processes, 
+   as such a way to substitue system() and popen() to launch and control process with no PAGE(unvisiable).
+   for system() and popen() also call fork() to launch a new process, and it's too slow!
+
+3. A private memory allocation module.  necessary???
+
+4. A simple RPC based on UBUS for remote control and data transfer.
+
+5. To improve touch_read() logic, from time_consuming polling to event_driven. 
+
+6. A List operation for PAGE switchover.
+
+		----- 3. Main Source Files ( GPL v2 ) -----
+
+			( --- 3.1 Basics --- )
+
+egi.conf	An example of EGI TOUCH config file
+xtp2046.c	touch controller interface funcs
+egi.c		concept ebox functions
+egi_fbdev.c	fb basic functions
+egi_fbgeom.c	fb basic geometry functions
+egi_color.c	color definition and conversion functions
+egi_symbol.c	fonts/icons/symbols...definition and functions
+egi_FTsymbol.c  FreeType2 fonts handling functions
+egi_bjp.c	funcs for processing bmp,jpg and png files
+egi_gif.c	funcs for GIF, derived from  GIFLIB ( Gershon Elber <gershon[AT]cs.technion.sc.il> ).
+egi_image.c	EGI_IMGBUF functions
+egi_timer.c	timer and delay 
+egi_debug.c	for debug
+egi_log.c	for logger operation 
+egi_math.c	a common math function module
+egi_iotclient.c		A BIGIOT client application.
+egi_ring.c	a ERING mechanism ( for process communication between UI and APPs --- TDB )
+egi_txt.c	type_txt ebox functions
+egi_btn.c	type_btn ebox	
+egi_slider.c	type_slier ebox, for sliding bar.
+egi_list.c	type_list ebox
+egi_pic.c	type_pic ebox
+egi_procman.c   subprocess handling and its signal actions.
+
+egi_utils.c	some helper functions
+egi_fifo.c	a common fifo module for EGI
+egi_filo.c	a common filo module for EGI
+egi_cstring.c   string helper
+egi_shmem.c	share memory helper functions
+egi_https.c	curl https API
+egi_iwinfo.c	wifi info. extraction
+
+
+sys_list.h	list operation derived from Linux kernel codes. 
+
+
+			( --- 3.2 Derived EBOXs --- )
+
+egi_objtxt.c	type_txt objects creation functions
+egi_objlist.c   list objects 
+
+
+			( --- 3.3 PAGEs --- )
+
+egi_pagehome.c		PAGE home
+egi_pagemplay.c	        PAGE mplayer
+egi_pageopenwrt.c	PAGE openwrt info.
+egi_pagetest.c		PAGE test
+egi_pageslide.c		PAGE sliding bar test (obselete)
+
+
+			( --- 3.4 APP Engines  --- )
+
+egi_appstock.c		a real time stock data display app.
+he_weather.c		API for www.heweather.com 
+juhe_news.c		API for www.juhe.cn
+
+			( --- 3.5 APP Suites --- )
+
+app_ffmusic		A music player
+app_ffmotion		A video player
+app_ebook		An ebook
+app_avenger		A game
+app_news		A simple netnews viewer powered by www.juhe.cn
+
+
+
+		   -----   4. Dependency   -----
+libubox, 
+libubus,               
+libpng, libjpeg, 
+libasound,
+libjson-c, 
+libfreetype2		/* Option,  or use EGI_SYMPAGE instead */
+libffmpeg,		/* Option,  for FFMUSIC and FFMOTION */
+libshine,		/* Option,  for fixed point MP3 enconding */
+libcurl,		/* Option,  for HTTP and HTTPS */ 
+... ... 
+
+			-----  5. OTHERS  -----
+
+prototype.jpg		A prototype with Widora_NEO
+neo_lcd_wiring.png	Wiring for Widora_NEO to TFT LCD with touch
+
+spi_cs2.patch		A patch to add two more SPI select pin ( dts to be modified accordingly ),
+			one is for LCD touch SPI selection.
+			With reference to: https://blog.csdn.net/liuchen_csdn/article/details/51248049
+dts_spidev.jpg		dts for additional SPI devices.
+
+FB device		Create a FB device according to https://www.widora.io/zh/ips
+
+
+
+Midas Zhou
+midaszhou@yahoo.com
+
+
+Don't forget why we start! ---Just for FUN!
+知之者不如好之者,好之者不如乐之者.

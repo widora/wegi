@@ -1,0 +1,154 @@
+/*---------------------------------------------------------------
+0. TOUCH Y edge doesn't have good homogeneous property along X,
+   try to draw a horizontal line and check visually, it will bend.
+1. if sx0=sy0=0, it means that last TOUCH coordinate is invalid.
+2. Linear piont to piont mapping from TOUCH to LCD. There are
+   unmapped points on LCD.
+3. point to an oval area mapping form TOUCH to LCD.
+
+
+Midas Zhou
+----------------------------------------------------------------*/
+#include <stdio.h> //fflush
+#include <stdlib.h>
+#include <string.h>
+#include "spi.h"
+#include "fblines.h"
+#include "bmpjpg.h"
+
+/*--------------   8BITS CONTROL FOR XPT2046   -------------------
+[7] 	S 		-- 1:  new control bits,
+	     		   0:  ignore data on pins
+
+[6-4]   A2-A0 		-- 101: X-position
+		   	   001: Y-position
+
+[3]	MODE 		-- 1:  8bits resolution
+		 	   0:  12bits resolution
+
+[2]	SER/(-)DFR	-- 1:  normal mode
+			   0:  differential mode
+
+[1-0]	PD1-PD0		-- 11: normal power
+			   00: power saving mode
+----------------------------------------------------------------*/
+#define XPT_CMD_READXP	0xD0 //0xD0 //1101,0000  /* read X position data */
+#define XPT_CMD_READYP	0x90 //0x90 //1001,0000 /* read Y position data */
+
+#define XPT_XP_MIN 7  //set limit value for X,Y
+#define XPT_XP_MAX 116 //actual 116
+#define XPT_YP_MIN 17
+#define XPT_YP_MAX 116  //actual 116
+#define LCD_SIZE_X 240
+#define LCD_SIZE_Y 320
+
+
+#define JPG_WIDTH 70
+#define JPG_HEIGHT 56
+/*-------------------  MAIN  ---------------------*/
+int main(int argc, char **argv)
+{
+	FILE *fd;
+	int k,j;
+        FBDEV fr_dev;
+	char *fbmap;
+	char *fstr="/home/motion_fifo";
+	char *jpgstr="/tmp/coffee1.jpg";//70x56
+	int x0=0,y0=0; //previous center
+	int cx,cy;
+	//cx=atoi(argv[1]), cy=atoi(argv[2]); //center coordinate.
+	int mw,mh;
+	//mw=atoi(argv[3]), mh=atoi(argv[4]); //motion area width and height
+	int xl,yl,xh,yh; //four points of a rect
+	int xl0,yl0,xh0,yh0; //previous data
+	int xpic0,ypic0; //bmp and jpg original coordinate of LCD
+	int xpic00,ypic00;//previous data
+
+
+	/* open spi dev for */
+//	SPI_Open();
+
+	/* prepare fb device */
+        fr_dev.fdfd=-1;
+        init_dev(&fr_dev);
+
+	/* test */
+//	draw_rect(&fr_dev,0,0,20,20);
+//	show_jpg(jpgstr,&fr_dev,120,0);
+//	exit(1);
+
+	while(1){
+//		usleep(100000);
+		fd=fopen(fstr,"r");
+		if(fd<0){
+			printf("%s: open error!\n",fstr);
+			exit(1);
+		}
+		else
+			printf("%s: open successfully!\n",fstr);
+
+		k=fscanf(fd,"%d,%d,%d,%d",&cx,&cy,&mw,&mh);
+
+		printf("%d data received!\n",k);
+
+		if(k>0){
+			/* draw jpg according to motion area center */
+			printf("cx=%d,cy=%d,mw=%d,mh=%d\n",cx,cy,mw,mh);
+			if( (cx-JPG_WIDTH/2)<0 )
+				xpic0 = 0;
+			else if( (cx+JPG_WIDTH/2)>=240 )
+				xpic0 = (240-1) - JPG_WIDTH;
+			else
+				xpic0=cx - JPG_WIDTH/2;
+
+			if( cy < JPG_HEIGHT/2 )
+				ypic0 = 0;
+			else if( cy > (320-1)-JPG_HEIGHT/2 )
+				ypic0 = (320-1) - JPG_HEIGHT;
+			else
+				ypic0 =cy - JPG_HEIGHT/2;
+			printf("xpic0=%d, ypci0=%d\n",xpic0,ypic0);
+
+			/* erase old pic first */
+/*
+			fbset_color(0);//black
+			draw_filled_rect(&fr_dev,xpic00,ypic00,xpic00+JPG_WIDTH,ypic00+JPG_HEIGHT);
+*/
+			system("jpgshow /tmp/sincere1.jpg");
+			show_jpg(jpgstr,&fr_dev,xpic0,ypic0);
+
+#if 0		//----------------------------------------------------------
+			//mw=10;mh=10;
+		        xl=cx-(mw>>1); xh=cx+(mw>>1);
+        		yl=cy-(mh>>1); yh=cy+(mh>>1);
+			if( xl<0 || xh<0 || yl<0 || yh<0 )continue;
+
+			if(xh>=240)xh=240-1;
+			printf("xl=%d,yl=%d,xh=%d,yh=%d \n", xl,yl,xh,yh);
+			/*---- track motion -----*/
+			if(!(x0==0 && y0==0)) {
+				// cx=1-240, cy=1-320
+				fbset_color(0);//black
+				draw_rect(&fr_dev,xl0,yl0,xh0,yh0);//erase previous rect
+
+				fbset_color((cx<<3<<11)|(cy<<2<<5)|cx<<3);//R5-G6-B5  32-64-32
+				draw_rect(&fr_dev,xl,yl,xh,yh);
+				//draw_line(&fr_dev,cx,cy,x0,y0);
+			}
+#endif		//-----------------------------------------------------------------------------
+			/* recorde old data */
+			x0=cx;y0=cy;
+			xl0=xl;yl0=yl;xh0=xh;yh0=yh;
+
+			xpic00=xpic0;ypic00=ypic0;
+		}
+
+		fclose(fd);
+	}
+
+
+	/* delete fb map and close fb dev */
+	release_dev(&fr_dev);
+
+	return 0;
+}

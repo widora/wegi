@@ -1,0 +1,24 @@
+#include <stdio.h>
+#include <stdint.h>
+#include "egi_fbgeom.h"
+#include "egi_image.h"
+#include "egi_bmpjpg.h"
+
+
+extern void *_binary_buttons_img_start;
+
+
+void main(void)
+{
+
+  EGI_IMGBUF imgbuf;
+  imgbuf.imgbuf=(uint16_t *)_binary_buttons_img_start;
+
+/*
+int egi_imgbuf_windisplay(const EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int xp, int yp,
+                                int xw, int yw, int winw, int winh)
+*/
+
+  egi_imgbuf_windisplay( &imgbuf, &gv_fb_dev, 0, 0, 0, 0, 240, 320 );
+
+}
