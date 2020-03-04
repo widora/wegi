@@ -82,6 +82,21 @@ int main(int argc, char ** argv)
 
 
 
+#if 1	/* <<<<<<<<<<<<<<  test fb_position_rotate()  <<<<<<<<<<<<<<< */
+	 int k=0;
+	 EGI_IMGBUF *eimg=egi_imgbuf_readfile("/mmc/linuxpet.jpg");
+
+	 //fb_init_FBbuffers(&gv_fb_dev);
+    while(1) {
+        fb_position_rotate(&gv_fb_dev, (k++)&3);
+	fbclear_bkBuff(&gv_fb_dev, 0);
+	egi_subimg_writeFB(eimg, &gv_fb_dev, 0, -1, 0, 0);    /* imgbuf, fbdev, subnum, subcolor, x0, y0 */
+	//clear_screen(&gv_fb_dev,0);
+	fb_page_refresh(&gv_fb_dev,0);
+	egi_sleep(1,0,100);
+    }
+	exit(0);
+#endif
 
 
 #if 0  /* <<<<<<<<<<<<<<  1. test inbox  <<<<<<<<<<<<<<<*/
@@ -223,7 +238,7 @@ while(1) {
  	draw_arc(&gv_fb_dev, x0, y0, 15, -ka-da, -ka, 30); //0.5-MATH_PI*2.0, -0.5, 30); //MATH_PI-0.5, 0, 3);
 
  	//display_slogan();
-  	fb_page_refresh(&gv_fb_dev);
+  	fb_page_refresh(&gv_fb_dev,0);
 	tm_delayms(10);
  }
 
@@ -233,12 +248,12 @@ while(1) {
  	fbset_color(WEGI_COLOR_PINK); //egi_color_random(color_deep));
 	draw_filled_pieSlice(&gv_fb_dev, x0, y0, 65, MATH_PI/10*i, MATH_PI/10*(i+1));  //MATH_PI*2.0-ka);//  0.5-da );
  	//display_slogan();
-  	fb_page_refresh(&gv_fb_dev);
+  	fb_page_refresh(&gv_fb_dev,0);
 	tm_delayms(10);
  }
 
  //display_slogan();
- fb_page_refresh(&gv_fb_dev);
+ fb_page_refresh(&gv_fb_dev,0);
 
  tm_delayms(3000);
 

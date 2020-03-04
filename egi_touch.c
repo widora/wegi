@@ -235,10 +235,6 @@ int egi_touch_timeWait_release(unsigned int s, unsigned int ms, EGI_TOUCH_DATA *
 }
 
 
-
-
-
-
 /*-----------------------------------------------------------------
 @nowati
 Ture:	Touch_loopread thread will not check live_touch_data.updated
@@ -370,6 +366,69 @@ bool egi_touch_getdata(EGI_TOUCH_DATA *data)
 	//printf("--------- touch get data -----------\n");
 
 	return true;
+}
+
+
+/*---------------------------------------------------------------
+Map touch data(coord,dx,dy) to the same coord sys as current
+FBDEV's pos_rotate set.
+
+Note: We suppose that default/HW_set coord sys of FB and TOUCH PAD
+      were set as the same!
+
+
+(screen's)
+
+return:
+	0	OK
+	<0	Fails
+----------------------------------------------------------------*/
+int egi_touch_fbpos_data(FBDEV *fbdev, EGI_TOUCH_DATA *touch_data)
+{
+	int pxres,pyres;
+	int tx,ty;
+	int dx,dy;
+
+	if(fbdev==NULL || touch_data==NULL)
+		return -1;
+
+	/* Resultion for X and Y direction, as per pos_rotate */
+        pxres=fbdev->pos_xres;
+        pyres=fbdev->pos_yres;
+
+	/* get original touch data */
+	tx=touch_data->coord.x;
+	ty=touch_data->coord.y;
+	dx=touch_data->dx;
+	dy=touch_data->dy;
+
+        /* check FB.pos_rotate, and map touch_data to FB pos_rotate coord.
+         * IF FB 90 Deg rotated: touch_Y maps to POS_FB.X,  touch_X maps to POS_FB.Y
+         */
+        switch(fbdev->pos_rotate) {
+                case 0:                 /* FB defaul position */
+                        break;
+                case 1:                 /* Clockwise 90 deg */
+			touch_data->dx = dy;
+			touch_data->dy = -dx;
+			touch_data->coord.x = ty;
+			touch_data->coord.y = (pyres-1)-tx;
+                        break;
+                case 2:                 /* Clockwise 180 deg */
+			touch_data->dx = -dx;
+                        touch_data->dy = -dy;
+			touch_data->coord.x = (pxres-1)-tx;
+			touch_data->coord.y = (pyres-1)-ty;
+                        break;
+                case 3:                 /* Clockwise 270 deg */
+                        touch_data->dx = -dy;
+                        touch_data->dy = dx;
+			touch_data->coord.x = (pxres-1)-ty;
+			touch_data->coord.y =  tx;
+                        break;
+        }
+
+	return 0;
 }
 
 

@@ -1,4 +1,4 @@
-/*--------------------------------------------------------------------
+/*-----------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
@@ -30,9 +30,8 @@ Note:
 
 4. Two sound playing threads
 
-
 Midas Zhou
---------------------------------------------------------------------*/
+----------------------------------------------------------------------*/
 #include <stdio.h>
 #include <getopt.h>
 #include <signal.h>
@@ -78,7 +77,6 @@ typedef struct {
 etimer_t timer1={ .SetLights[0]=1, .SetLights[1]=1, .SetLights[2]=1 };
 
 
-
 /* lights */
 static EGI_16BIT_COLOR light_colors[]={ WEGI_COLOR_BLUE, WEGI_COLOR_RED, WEGI_COLOR_GREEN };
 
@@ -91,7 +89,6 @@ static void writefb_lights(void);
 static void parse_utxtCmd(const char *utxt);
 static void writefb_utxtCmd(const char *utxt);
 static void touch_event(void);
-
 
 
 /*=====================================
@@ -738,6 +735,15 @@ static void *timer_process(void *arg)
 	if(ts<0)ts=0; /* Loop for displaying 00:00:00 */
   }
 
+	/* say Bye Bye */
+	fb_shift_buffPage(&gv_fb_dev,2);
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
+                                        24, 24,(const unsigned char *)"Bye Bye ...",    /* fw,fh, pstr */
+                                        160, 1, 0,                           /* pixpl, lines, gap */
+                                        180, 200,                                /* x0,y0, */
+                                        WEGI_COLOR_ORANGE, -1, -1,      /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
+
 	/* restore screen */
 	fb_page_restoreFromBuff(&gv_fb_dev, 2);
 
@@ -1008,28 +1014,72 @@ static void writefb_utxtCmd(const char *utxt)
                                         NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
 }
 
+
 /*----------------------------
-	Timer touch event
+      Timer touch event
 ----------------------------*/
 static void touch_event(void)
 {
+	int vc=0; 			/* pseudo_curvature */
+        static EGI_POINT pts[3];        /* 3 points */
 	EGI_TOUCH_DATA touch_data;
+	EGI_POINT center={100,120};
 
 	/* center(100,120) r=80 */
 	int rad=80;
 	static EGI_IMGBUF *imgbuf_circle=NULL; /* Duration: until end of main() */
 
-	if(imgbuf_circle==NULL)
+	static int angle=0;
+	EGI_IMGBUF *rotimg=NULL;
+
+	#if 0
+	if(imgbuf_circle==NULL) {
 		imgbuf_circle=egi_imgbuf_newFrameImg( 160, 160,					/* height, width */
                                  		      200,  WEGI_COLOR_PINK,frame_round_rect,	/* alpha, color, imgframe_type */
                                  		      1, &rad ); 				/* pn, *param */
+	}
+	#else
+	if(imgbuf_circle==NULL) {
+		imgbuf_circle=egi_imgbuf_readfile("/mmc/linuxpet.jpg");
+		if( egi_imgbuf_setFrame(imgbuf_circle, frame_round_rect, 255, 1, &rad) !=0 )
+			return;
+	}
+	#endif
 
 	if( egi_touch_getdata(&touch_data) ) {
 		if( touch_data.status==pressed_hold || touch_data.status==pressing ) {
+
+			if( touch_data.status==pressing ) {
+	                	/* reset points coordinates */
+        	        	pts[2]=pts[1]=pts[0]=(EGI_POINT){ touch_data.coord.x, touch_data.coord.y };
+			}
+
+			if( touch_data.status==pressed_hold ) {
+	                	/* check circling motion */
+        	        	pts[0]=pts[1]; pts[1]=pts[2];
+                		pts[2].x=touch_data.coord.x; pts[2].y=touch_data.coord.y;
+                		//printf( " pts0(%d,%d) pts1(%d,%d) pts2(%d,%d).\n",pts[0].x, pts[0].y, pts[1].x, pts[1].y,
+                        	//                                           pts[2].x, pts[2].y );
+                		vc=mat_pseudo_curvature(pts);
+                		printf(" vc=%d ",vc);
+			}
+
+			/* rotate the image */
+			rotimg=egi_imgbuf_rotate(imgbuf_circle, angle+=(vc>>6));
+
+			/* map touch XY to pos_rotate FB */
+			egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+
+			/* Now TOUCH_PAD and POS_ROTATE FB are at the same coord, check if touch inside the circle */
+			if ( point_incircle( &touch_data.coord, &center, 80)==false ) {
+				printf("Out of circe!\n");
+				return;
+			}
 			printf(" 	--- Circle touched ---\n");
+
 			/* center(100,120) r=80 */
 			//SLOW: draw_blend_filled_circle(&gv_fb_dev, 100, 120, 80, WEGI_COLOR_TURQUOISE, 200);
-			egi_subimg_writeFB(imgbuf_circle, &gv_fb_dev, 0, -1, 100-80, 120-80);	 /* imgbuf, fbdev, subnum, subcolor, x0, y0 */
+			egi_subimg_writeFB(rotimg, &gv_fb_dev, 0, -1, 100-rotimg->width/2, 120-rotimg->height/2);	 /* imgbuf, fbdev, subnum, subcolor, x0, y0 */
 
 		}
 	}

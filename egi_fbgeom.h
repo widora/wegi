@@ -38,14 +38,15 @@ void    fbprint_fbpix(FBDEV *dev);
 
 void 	fbset_color(uint16_t color);
 void	fbset_color2(FBDEV *dev, uint16_t color);
-void 	clear_screen(FBDEV *dev, uint16_t color);
 void 	fbclear_bkBuff(FBDEV *dev, uint16_t color);
+
+void 	clear_screen(FBDEV *dev, uint16_t color);
 
 //bool 	point_inbox(int px,int py,int x1,int y1,int x2,int y2);
 bool 	pxy_inbox(int px,int py,int x1,int y1,int x2,int y2);
 //bool 	point_inbox2(const EGI_POINT *point, const EGI_BOX* box);
 bool 	point_inbox(const EGI_POINT *point, const EGI_BOX* box);
-
+bool 	point_incircle(const EGI_POINT *pxy, const EGI_POINT *pc, int r);
 bool    box_inbox(EGI_BOX* box, EGI_BOX* container);
 bool    box_outbox(EGI_BOX* box, EGI_BOX* container);
 
@@ -80,7 +81,6 @@ void 	draw_filled_circle2(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR color
 void 	draw_blend_filled_circle(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR color, uint8_t alpha);
 void 	draw_blend_filled_annulus( FBDEV *dev, int x0, int y0, int r, unsigned int w,
                                 				EGI_16BIT_COLOR color, uint8_t alpha );
-
 
 int 	fb_cpyto_buf(FBDEV *fb_dev, int x1, int y1, int x2, int y2, uint16_t *buf);
 int 	fb_cpyfrom_buf(FBDEV *fb_dev, int x1, int y1, int x2, int y2, const uint16_t *buf);

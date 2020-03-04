@@ -362,7 +362,8 @@ struct egi_touch_data
         enum egi_touch_status   status;
 
         /* the latest touched point coordinate */
-        struct egi_point_coord coord;
+        //struct egi_point_coord coord;
+	EGI_POINT	coord;
 
         /* the sliding deviation of coordXY from the beginnig touch point,
         in LCD coordinate */

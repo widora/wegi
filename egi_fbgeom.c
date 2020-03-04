@@ -31,7 +31,7 @@ midaszhou@yahoo.com
 #include <math.h>
 #include <stdlib.h>
 
-/* global variale, Frame buffer device */
+/* global variale */
 EGI_BOX gv_fb_box;
 
 /* default color set */
@@ -104,22 +104,62 @@ bool pxy_inbox(int px,int py, int x1, int y1,int x2, int y2)
  check if an EGI_POINT is in an EGI_BOX
  return:
 	 True:  within the box or on the edge
-	 False
+	 False  or Fails!
 
  Midas Zhou
 ------------------------------------------------*/
-inline bool point_inbox(const EGI_POINT *pxy, const EGI_BOX* box)
+inline bool point_inbox(const EGI_POINT *pxy, const const EGI_BOX* box)
 {
+	if(pxy==NULL || box==NULL)
+		return false;
+
 	return pxy_inbox( pxy->x, pxy->y,
 			    box->startxy.x, box->startxy.y,
 			    box->endxy.x, box->endxy.y
 			   );
 }
 
+
+/*------------------------------------------------------------------------
+ check if an EGI_POINT is within a circle. If the point is just on the edge
+ of the circle, it deems as NOT within the circle.
+
+ @pxy:	checking point.
+ @pc:   Center point of the circle.
+ @r:    Radius of the circle.
+
+ return:
+	 True:  the point is totally within the circle
+	 False
+
+ Midas Zhou
+-------------------------------------------------------------------------*/
+inline bool point_incircle(const EGI_POINT *pxy, const EGI_POINT *pc, int r)
+{
+	if(pxy==NULL || pc==NULL)
+		return false;
+
+	if( r*r > (pxy->x - pc->x)*(pxy->x - pc->x)+(pxy->y - pc->y)*(pxy->y - pc->y) )
+		return true;
+
+	else
+		return false;
+}
+
+
 /*---------------------------------------------------------------
 Check whether the box is totally WITHIN the container.
 If there is an overlap of any sides, it is deemed as NOT within!
-Midas
+
+@inbox:		checking box
+@container:	containing box
+
+Return:
+	True:	the box is totally WITHIN the container.
+	False:  NOT totally WITHIN the container.
+		or fails!
+
+Midas Zhou
 ----------------------------------------------------------------*/
 bool  box_inbox(EGI_BOX* inbox, EGI_BOX* container)
 {
@@ -127,6 +167,9 @@ bool  box_inbox(EGI_BOX* inbox, EGI_BOX* container)
 	int xiu,xid;
 	int ycu,ycd;
 	int yiu,yid;
+
+	if( inbox==NULL || container==NULL )
+		return false;
 
 	/* 1. get Max. and Min X coord of the container */
      	if( container->startxy.x > container->endxy.x ) {
@@ -182,7 +225,16 @@ bool  box_inbox(EGI_BOX* inbox, EGI_BOX* container)
 /*--------------------------------------------------------------------
 Check whether the box is totally out of the container.
 If there is an overlap of any sides, it is deemed as NOT totally out!
-Midas
+
+@inbox:		checking box
+@container:	containing box
+
+Return:
+	True:	the box is totally out of the container.
+	False:  NOT totally out of the container.
+		or fails!
+
+Midas Zhou
 --------------------------------------------------------------------*/
 bool  box_outbox(EGI_BOX* inbox, EGI_BOX* container)
 {
@@ -191,6 +243,8 @@ bool  box_outbox(EGI_BOX* inbox, EGI_BOX* container)
 	int ycu,ycd;
 	int yiu,yid;
 
+	if( inbox==NULL || container==NULL )
+		return false;
 
 	/* 1. get Max. and Min X coord of the container */
      	if( container->startxy.x > container->endxy.x ) {
@@ -284,7 +338,7 @@ void fbclear_bkBuff(FBDEV *fb_dev, uint16_t color)
 @x,y:		Pixel coordinate value
 
 Return 16bit color value for the pixel with
-with given coordinates (x,y).
+given coordinates (x,y).
 
 Midas
 --------------------------------------------------------*/
@@ -349,9 +403,10 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 
 	/* check FB.pos_rotate
 	 * IF 90 Deg rotated: Y maps to (xres-1)-FB.X,  X maps to FB.Y
+	 * Note: Here xres/yres is default/HW_set FB x/y resolustion!
          */
 	switch(fb_dev->pos_rotate) {
-		case 0:			/* FB defaul position */
+		case 0:			/* FB default position */
 			fx=x;
 			fy=y;
 			break;
@@ -1069,7 +1124,6 @@ void draw_filled_pieSlice(FBDEV *dev, int x0, int y0, int r, float Sang, float E
 {
 	int 		n,i;
 	double 		step_angle;
-	double 		x[2],y[2];
 	EGI_POINT 	points[3];
 	points[0].x=x0;
 	points[0].y=y0;

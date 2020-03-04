@@ -1133,13 +1133,16 @@ circling curvature. ( No mathematic analysis yet )
 	     VC>0, a->b->c is countercolocwise.
 	     VC=0, straight line
 
-2. Notice that we are under LCD coord system:
+2. Notice that we are under TOUCH PAD coord system:
 	when VC<0, a->b->c is counterclockwise.
 	     VC>0, a->b->c is colocwise.
 	     VC=0, straight line
 
 3. !!! The caller MUST ensure *pt holds 3 EGI_POINTs.
 
+4. If system or touch sampling speed is rather slow, then too
+   fast circling may cause sampling points NOT in right order
+   and get ps.curv opposite in sign.
 
 @pt	A pointer to an array with 3 EGI_POINTs.
 

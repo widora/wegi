@@ -5,7 +5,7 @@ CC= $(STAGING_DIR)/toolchain-mipsel_24kec+dsp_gcc-4.8-linaro_uClibc-0.9.33.2/bin
 AR= $(STAGING_DIR)/toolchain-mipsel_24kec+dsp_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mipsel-openwrt-linux-ar
 LD= $(STAGING_DIR)/toolchain-mipsel_24kec+dsp_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mipsel-openwrt-linux-ld
 
-SRC_PATH = /home/midas-zhou/Ctest/wegi
+SRC_PATH = /home/midas-zhou/wegi
 
 #### ----- 产生文件列表 ------
 SRC_FILES = $(wildcard *.c)
