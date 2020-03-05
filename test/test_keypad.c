@@ -4,6 +4,9 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 
+An example of alphabets/numbers keypad input.
+
+
 Midas Zhou
 ------------------------------------------------------------------*/
 #include <stdio.h>
@@ -116,8 +119,8 @@ int main(int argc, char **argv)
 	int lnleft;
 
 	/* Set FB mode: default */
-	//fb_set_directFB(&gv_fb_dev, true);
-	//gv_fb_dev.pos_rotate=3;
+        //fb_set_directFB(&gv_fb_dev, true);
+        //fb_position_rotate(&gv_fb_dev,3);
 
 	/* <<<<<<<<<<<<<<<<<<<<<<<<   Draw Alphabets keypad  >>>>>>>>>>>>>>>>>>>> */
 	//gv_fb_dev.map_bk=gv_fb_dev.map_buff+gv_fb_dev.screensize*2;

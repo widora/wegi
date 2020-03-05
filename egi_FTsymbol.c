@@ -134,6 +134,7 @@ int  FTsymbol_load_allpages(void)
 	}
 }
 
+
 /* --------------------------------------
      Release all TF type symbol pages
 ----------------------------------------*/
@@ -145,8 +146,6 @@ void FTsymbol_release_allpages(void)
 		free(sympg_ascii.symwidth);
 
 }
-
-
 
 
 /*-------------------------------------------------------------
@@ -198,7 +197,8 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
 //		goto FT_FAIL;
 		ret=2;
         }
-        EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] REGULAR font file '%s'.",
+	else
+        	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] REGULAR font file '%s'.",
  							__func__, symlib->ftname, symlib->fpath_regular);
 
 	/* 3. create face object: Light */
@@ -215,7 +215,8 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
 //		goto FT_FAIL;
 		ret=4;
         }
-        EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] LIGHT font file '%s'.",
+	else
+        	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] LIGHT font file '%s'.",
 						 	__func__, symlib->ftname, symlib->fpath_light);
 
 	/* 4. create face object: Bold */
@@ -232,7 +233,8 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
 //		goto FT_FAIL;
 		ret=6;
         }
-        EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] BOLD font file '%s'.",
+	else
+        	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] BOLD font file '%s'.",
 							__func__, symlib->ftname,symlib->fpath_bold);
 
 	/* 5. create face object: Special */
@@ -249,7 +251,8 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
 //		goto FT_FAIL;
 		ret=8;
         }
-        EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] SPECIAL font file '%s'.\n",
+	else
+        	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] SPECIAL font file '%s'.\n",
 							__func__, symlib->ftname, symlib->fpath_special);
 
 	return ret;
@@ -1209,6 +1212,3 @@ int  FTsymbol_uft8strings_pixlen( FT_Face face, int fw, int fh, const unsigned c
 
 	return (1<<30)-xleft;
 }
-
-
-

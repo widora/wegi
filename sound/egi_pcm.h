@@ -81,7 +81,7 @@ int 	egi_pcm_period_size(void);
 void 	egi_close_pcm_device(void);
 void 	egi_play_pcm_buff(void** buffer, int nf);
 int  	egi_getset_pcm_volume(int *pvol, int *percnt);
-
+int 	egi_adjust_pcm_volume(int vdelt);
 snd_pcm_t*  	egi_open_playback_device(  const char *dev_name, snd_pcm_format_t sformat,
                                         snd_pcm_access_t access_type, bool soft_resample,
                                         unsigned int nchanl, unsigned int srate, unsigned int latency

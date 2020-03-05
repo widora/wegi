@@ -31,6 +31,7 @@ Note:
 4. Two sound playing threads
 
 Midas Zhou
+midaszhou@yahoo.com
 ----------------------------------------------------------------------*/
 #include <stdio.h>
 #include <getopt.h>
@@ -75,6 +76,10 @@ typedef struct {
 	bool	SetHidden;	/*  set hidden as ON/OFF */
 } etimer_t;
 etimer_t timer1={ .SetLights[0]=1, .SetLights[1]=1, .SetLights[2]=1 };
+
+/* rotating image */
+EGI_IMGBUF *imgbuf_circle;
+int img_angle;
 
 
 /* lights */
@@ -227,8 +232,8 @@ int main(int argc, char **argv)
         tm_start_egitick();                     /* start sys tick */
 #if 0
         printf("egi_init_log()...\n");
-        if(egi_init_log("/mmc/log_gif") != 0) {        /* start logger */
-                printf("Fail to init logger,quit.\n");
+        if(egi_init_log("/mmc/log_timer") != 0) {        /* start logger */
+                printf("Fail to init egi logger,quit.\n");
                 return -1;
         }
         printf("symbol_load_allpages()...\n");
@@ -548,6 +553,8 @@ static void *timer_process(void *arg)
         	writefb_lights();
 
 		/* Check touch  */
+		img_angle+=3;
+			if(img_angle>360) img_angle%=360;
 		touch_event();
 
 		/* refresh FB */
@@ -615,7 +622,7 @@ static void *timer_process(void *arg)
 
 	/* Draw a small dot. draw_filled_circle(FBDEV *dev, int x, int y, int r) */
 	draw_filled_circle(&gv_fb_dev, 100+75*cos(sang), 120-75*sin(sang), 10);
-	fbprint_fbcolor();
+	//fbprint_fbcolor();
 	//fbprint_fbpix(&gv_fb_dev);
 
 	/* Timing Display */
@@ -961,21 +968,23 @@ static void parse_utxtCmd(const char *utxt)
 		timer1.SetHidden=true;
 		system("/home/vmplay.sh start &");
 	}
-	/* MPLAYER volume control */
-	else if( strstr(utxt,"声") || strstr(utxt,"音") ) {
+
+	/* General volume control */
+	if( strstr(utxt,"声") || strstr(utxt,"音") ) {
 		if( strstr(utxt,"大") || strstr(utxt,"高") || strstr(utxt,"增") ) {
 			printf("Timer NLU: increase volume...\n");
-			system("/home/mp_vol.sh up &");
-			system("/home/myradio.sh up &");
+			//system("/home/mp_vol.sh up &");
+			//system("/home/myradio.sh up &");
+                        egi_adjust_pcm_volume(+5);
+
 		}
 		else if( strstr(utxt,"小") || strstr(utxt,"低") ||  strstr(utxt,"减") ) {
 			printf("Timer NLU: decrease volume...\n");
-			system("/home/mp_vol.sh down &");
-			system("/home/myradio.sh down &");
+			//system("/home/mp_vol.sh down &");
+			//system("/home/myradio.sh down &");
+			egi_adjust_pcm_volume(-5);
 		}
 	}
-	else
-		printf("Timer NLU: no command for MP.\n");
 
 }
 
@@ -1027,9 +1036,8 @@ static void touch_event(void)
 
 	/* center(100,120) r=80 */
 	int rad=80;
-	static EGI_IMGBUF *imgbuf_circle=NULL; /* Duration: until end of main() */
-
-	static int angle=0;
+//	static EGI_IMGBUF *imgbuf_circle=NULL; /* Duration: until end of main() */
+//	static int angle=0;
 	EGI_IMGBUF *rotimg=NULL;
 
 	#if 0
@@ -1040,7 +1048,7 @@ static void touch_event(void)
 	}
 	#else
 	if(imgbuf_circle==NULL) {
-		imgbuf_circle=egi_imgbuf_readfile("/mmc/linuxpet.jpg");
+		imgbuf_circle=egi_imgbuf_readfile("/mmc/linuxpet.png");
 		if( egi_imgbuf_setFrame(imgbuf_circle, frame_round_rect, 255, 1, &rad) !=0 )
 			return;
 	}
@@ -1061,11 +1069,15 @@ static void touch_event(void)
                 		//printf( " pts0(%d,%d) pts1(%d,%d) pts2(%d,%d).\n",pts[0].x, pts[0].y, pts[1].x, pts[1].y,
                         	//                                           pts[2].x, pts[2].y );
                 		vc=mat_pseudo_curvature(pts);
-                		printf(" vc=%d ",vc);
+                		printf(" vc=%d, dx=%d, dy=%d",vc, touch_data.dx, touch_data.dy);
 			}
 
+			/* update img_angle */
+			img_angle+=(vc>>6);
+				if(img_angle>360) img_angle%=360;
+
 			/* rotate the image */
-			rotimg=egi_imgbuf_rotate(imgbuf_circle, angle+=(vc>>6));
+			rotimg=egi_imgbuf_rotate(imgbuf_circle, img_angle);
 
 			/* map touch XY to pos_rotate FB */
 			egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
@@ -1079,10 +1091,18 @@ static void touch_event(void)
 
 			/* center(100,120) r=80 */
 			//SLOW: draw_blend_filled_circle(&gv_fb_dev, 100, 120, 80, WEGI_COLOR_TURQUOISE, 200);
-			egi_subimg_writeFB(rotimg, &gv_fb_dev, 0, -1, 100-rotimg->width/2, 120-rotimg->height/2);	 /* imgbuf, fbdev, subnum, subcolor, x0, y0 */
+			//egi_subimg_writeFB(rotimg, &gv_fb_dev, 0, -1, 100-rotimg->width/2, 120-rotimg->height/2);	 /* imgbuf, fbdev, subnum, subcolor, x0, y0 */
 
+			//egi_imgbuf_free(rotimg);
 		}
 	}
+
+	/* rotate the image */
+	rotimg=egi_imgbuf_rotate(imgbuf_circle, img_angle);
+
+	//SLOW: draw_blend_filled_circle(&gv_fb_dev, 100, 120, 80, WEGI_COLOR_TURQUOISE, 200);
+	egi_subimg_writeFB(rotimg, &gv_fb_dev, 0, -1, 100-rotimg->width/2, 120-rotimg->height/2);  /* imgbuf, fbdev, subnum, subcolor, x0, y0 */
+	egi_imgbuf_free(rotimg);
 
 }
 

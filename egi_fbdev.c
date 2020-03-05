@@ -68,11 +68,16 @@ int init_fbdev(FBDEV *fb_dev)
                 close(fb_dev->fbfd);
                 return -2;
 	}
+	fb_dev->npg=0;	/* init current back buffer page number */
+	fb_dev->map_bk=fb_dev->map_buff;  /* Point map_bk to map_buff */
+	#else /* -- DISABLE BACK BUFFER -- */
+	fb_dev->npg=0;  	/* not applicable */
+	fb_dev->map_bk=NULL;    /* not applicable */
 	#endif
 
-	/* init current back buffer page */
-	fb_dev->npg=0;
-	fb_dev->map_bk=fb_dev->map_buff;
+	/* Init current back buffer page */
+	//fb_dev->npg=0;
+	//fb_dev->map_bk=fb_dev->map_buff;
 
 	/* reset virtual FB, as EGI_IMGBUF */
 	fb_dev->virt_fb=NULL;
@@ -262,15 +267,15 @@ inline void fb_shift_buffPage(FBDEV *fb_dev, unsigned int numpg)
 /*-----------------------------------------------------
 		Set/Reset DirectFB mode
 
-@NoBuff:	True,  set map_bk to map_fb
+@directFB:	True,  set map_bk to map_fb
 		False, set map_bk to map_buff
 ------------------------------------------------------*/
-void fb_set_directFB(FBDEV *fb_dev, bool NoBuff)
+void fb_set_directFB(FBDEV *fb_dev, bool directFB)
 {
-        if( fb_dev==NULL || fb_dev->map_bk==NULL)
+        if( fb_dev==NULL || fb_dev->map_bk==NULL || fb_dev->map_buff==NULL )
                 return;
 
-	if(NoBuff)
+	if(directFB)
 		fb_dev->map_bk=fb_dev->map_fb;
 	else
 		fb_dev->map_bk=fb_dev->map_buff;  /* Default as in init_fbdev() */
@@ -283,7 +288,7 @@ Init buffers with current FB mmap data.
 -------------------------------------------*/
 void fb_init_FBbuffers(FBDEV *fb_dev)
 {
-        if( fb_dev==NULL || fb_dev->map_bk==NULL)
+        if( fb_dev==NULL || fb_dev->map_bk==NULL || fb_dev->map_buff==NULL )
                 return;
 
          /* Prepare FB background buffer */
@@ -294,9 +299,29 @@ void fb_init_FBbuffers(FBDEV *fb_dev)
 }
 
 
+/*---------------------------------------------------
+Copy between buffer pages in a FB dev.
+----------------------------------------------------*/
+void fb_copy_FBbuffer(FBDEV *fb_dev,unsigned int from_numpg, unsigned int to_numpg)
+{
+        if( fb_dev==NULL || fb_dev->map_bk==NULL || fb_dev->map_buff==NULL )
+                return;
+
+	if(from_numpg==to_numpg)
+		return;
+
+        from_numpg=from_numpg%FBDEV_BUFFER_PAGES; /* Note: Modulo result is compiler depended */
+        to_numpg=to_numpg%FBDEV_BUFFER_PAGES;
+
+	memcpy( fb_dev->map_buff+to_numpg*fb_dev->screensize,
+		fb_dev->map_buff+from_numpg*fb_dev->screensize,
+		fb_dev->screensize );
+
+}
+
 
 /*-----------------------------------------------------------
-    Clear all FB back buffs by filling with given color
+    Clear FB back buffs by filling with given color
 
 @fb_dev:	struct FBDEV whose buffer to be cleared.
 @color:		Color used to fill the buffer, 16bit or 32bits.
@@ -306,8 +331,8 @@ void fb_init_FBbuffers(FBDEV *fb_dev)
 ------------------------------------------------------------*/
 void fb_clear_backBuff(FBDEV *fb_dev, uint32_t color)
 {
-        unsigned int pixels; /* Total pixels in the buffer */
 	int i;
+        unsigned int pixels; /* Total pixels in the buffer */
 
         if( fb_dev==NULL || fb_dev->map_bk==NULL)
                 return;
@@ -328,15 +353,39 @@ void fb_clear_backBuff(FBDEV *fb_dev, uint32_t color)
 }
 
 
-/*-------------------------------------------------
+
+/*-------------------------------------------------------
+	Clear map_buff[numpg] with given color
+For 16bit color only.
+--------------------------------------------------------*/
+void fb_clear_mapBuffer(FBDEV *dev, unsigned int numpg, uint16_t color)
+{
+	int i;
+        unsigned int pixels; /* Total pixels in the buffer */
+	unsigned long buffpos;
+
+        if( dev==NULL || dev->map_bk==NULL || dev->map_buff==NULL )
+                return;
+
+        pixels=dev->screensize>>1; /* for 16bit color only */
+
+        numpg=numpg%FBDEV_BUFFER_PAGES; /* Note: Modulo result is compiler depended */
+
+	buffpos= dev->screensize*numpg;
+	for(i=0; i<pixels; i++)
+			*(uint16_t *)(dev->map_buff + buffpos + i)=color;
+}
+
+
+/*----------------------------------------------------
  Refresh FB screen with FB back buffer map_buff[numpg]
---------------------------------------------------*/
+-----------------------------------------------------*/
 void fb_page_refresh(FBDEV *dev, unsigned int numpg)
 {
 	if(dev==NULL)
 		return;
 
-	if( dev->map_bk==NULL || dev->map_fb==NULL )
+	if( dev->map_bk==NULL || dev->map_fb==NULL || dev->map_buff==NULL )
 		return;
 
         numpg=numpg%FBDEV_BUFFER_PAGES; /* Note: Modulo result is compiler depended */
@@ -380,7 +429,7 @@ void fb_lines_refresh(FBDEV *dev, unsigned int numpg, unsigned int sind, unsigne
 
         if(dev==NULL)
                 return;
-        if( dev->map_bk==NULL || dev->map_fb==NULL )
+        if( dev->map_bk==NULL || dev->map_fb==NULL || dev->map_buff==NULL )
                 return;
 	if( n==0 || sind > dev->vinfo.yres-1 )
 		return;
@@ -485,7 +534,7 @@ int fb_page_refresh_flyin(FBDEV *dev, int speed)
 	if(dev==NULL)
 		return -1;
 
-	if( dev->map_bk==NULL || dev->map_fb==NULL )
+	if( dev->map_bk==NULL || dev->map_fb==NULL || dev->map_buff==NULL )
 		return -2;
 
 	/* numbers of fly steps */

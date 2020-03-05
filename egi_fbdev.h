@@ -53,13 +53,18 @@ typedef struct fbdev{
 					 * Default:
 					 *    1st buff page as working buffer.
 					 *    2nd buff page as background buffer.
+					 * Only when ENABLE_BACK_BUFFER is defined, then map_buff will be allocated.
 					 */
 	unsigned char   *map_bk;	/* Pointer to curret working back buffer page, mmap mem
-					 * Default/init FB: map_bk=map_buff
-					 * When ENABLE_BACK_BUFFER is defined, all write/read operation to
-					 * the FB will be directed to the map_buff through map_bk,
-					 * The map_fb will be updated only when fb_refresh() is called, or
-					 * memcpy back buffer to it explicitly.
+					 * 1. When ENABLE_BACK_BUFFER is defined, map_bk is pointed to map_buff; all write/read
+					 *    operation to the FB will be directed to the map_buff through map_bk,
+					 *    The map_fb will be updated only when fb_refresh() is called, or
+					 *    memcpy back buffer to it explicitly.
+					 * 2. If ENABLE_BACK_BUFFER not defined, map_buff will not be allocated and map_bk is set to NULL.
+					 *    All write/read operation will affect to FB mem directly throuhg map_fb.
+ 					 * 3. When fb_set_directFB() is called after init_fbdev(), then map_bk will be re-appointed to map_fb
+					 *    or map_buff. However, if ENABLE_BACK_BUFFER is not defined, then it will be invalid/fail to call
+					 *    fb_set_directFB(false), for map_buff and map_bk are all NULL.
 					 */
 	unsigned int	npg;		/* index of back buffer page, Now npg=0 or 1, maybe 2  */
 
@@ -126,9 +131,11 @@ void    release_fbdev(FBDEV *dev);
 int 	init_virt_fbdev(FBDEV *fr_dev, EGI_IMGBUF *eimg);
 void	release_virt_fbdev(FBDEV *dev);
 void 	fb_shift_buffPage(FBDEV *fb_dev, unsigned int numpg);
-void 	fb_set_directFB(FBDEV *fb_dev, bool NoBuff);
+void 	fb_set_directFB(FBDEV *fb_dev, bool directFB);
 void 	fb_init_FBbuffers(FBDEV *fb_dev);
+void 	fb_copy_FBbuffer(FBDEV *fb_dev,unsigned int from_numpg, unsigned int to_numpg);
 void 	fb_clear_backBuff(FBDEV *dev, uint32_t color);
+void 	fb_clear_mapBuffer(FBDEV *dev, unsigned int numpg, uint16_t color); /* for 16bit color only */
 void 	fb_page_refresh(FBDEV *dev, unsigned int numpg);
 void 	fb_lines_refresh(FBDEV *dev, unsigned int numpg, unsigned int sind, unsigned int n);
 //void	fb_render()
