@@ -26,6 +26,9 @@ Control key:
 	'O' --- OCR detect
 	'P' --- Face detect
 
+TODO: To move image totally out of screen, forth and back, ...then
+      the bug appears.
+
 Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/

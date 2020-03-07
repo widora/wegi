@@ -178,7 +178,7 @@ int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg)
 //	int i;
 
 	/* check input data */
-	if(eimg==NULL || eimg->width<=0 || eimg->height<=0 ) {
+	if( eimg==NULL || eimg->imgbuf==NULL || eimg->width<=0 || eimg->height<=0 ) {
 		printf("%s: Input EGI_IMGBUF is invalid!\n",__func__);
 		return -1;
 	}
@@ -223,8 +223,8 @@ int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg)
 //		fb_dev->buffer[i]=NULL;
 //	}
 
-#if 0
-        printf(" \n--- Virtal FB Parameters ---\n");
+#if 1
+        printf(" \n--- Virtual FB Parameters ---\n");
         printf(" bits_per_pixel: %d bits \n",		fb_dev->vinfo.bits_per_pixel);
         printf(" line_length: %d bytes\n",		fb_dev->finfo.line_length);
         printf(" xres: %d pixels, yres: %d pixels \n", 	fb_dev->vinfo.xres, fb_dev->vinfo.yres);
@@ -418,10 +418,11 @@ void fb_page_refresh(FBDEV *dev, unsigned int numpg)
  Refresh FB screen lines with FB back buffer map_buff[numpg]
  !!! NOTE: Soft Pos_roation has NO effect for this function. !!!
 
-@sind:	Starting Line index. [0  FBDEV.vinfo.yres-1]
-@n: 	Number of lines to be refreshed.
+@startln:	Starting Line index. [0  FBDEV.vinfo.yres-1]
+@n: 		Number of lines to be refreshed.
+
 -------------------------------------------------------------------------------------*/
-void fb_lines_refresh(FBDEV *dev, unsigned int numpg, unsigned int sind, unsigned int n)
+void fb_lines_refresh(FBDEV *dev, unsigned int numpg, unsigned int startln, int n)
 {
 	unsigned int xres;
 	unsigned int Bpp; /* byte per pixel */
@@ -431,13 +432,17 @@ void fb_lines_refresh(FBDEV *dev, unsigned int numpg, unsigned int sind, unsigne
                 return;
         if( dev->map_bk==NULL || dev->map_fb==NULL || dev->map_buff==NULL )
                 return;
-	if( n==0 || sind > dev->vinfo.yres-1 )
+	if( n<=0 || startln > dev->vinfo.yres-1 )
 		return;
 
-	if( sind+n > dev->vinfo.yres ) /* sind+n-1 > dev->vinfo.yres-1 */
-		n=dev->vinfo.yres-sind;
+	if( startln+n > dev->vinfo.yres ) /* startln+n-1 > dev->vinfo.yres-1 */
+		n=dev->vinfo.yres-startln;
+	if(n<=0)
+		return;
 
-        numpg=numpg%FBDEV_BUFFER_PAGES; /* Note: Modulo result is compiler depended */
+	if(numpg>FBDEV_BUFFER_PAGES-1)
+        	numpg=numpg%FBDEV_BUFFER_PAGES; /* Note: Modulo result is compiler depended */
+
 	xres=dev->vinfo.xres;
 	Bpp=dev->vinfo.bits_per_pixel>>3;
 	Bpl=Bpp*xres;
@@ -450,16 +455,16 @@ void fb_lines_refresh(FBDEV *dev, unsigned int numpg, unsigned int sind, unsigne
 #endif
 		switch(numpg) {
 			case 0:
-				memcpy(dev->map_fb+sind*Bpl, dev->map_buff+sind*Bpl, n*Bpl);
+				memcpy(dev->map_fb+startln*Bpl, dev->map_buff+startln*Bpl, n*Bpl);
 				break;
 			case 1:
-				memcpy(dev->map_fb+sind*Bpl, dev->map_buff+dev->screensize+sind*Bpl, n*Bpl);
+				memcpy(dev->map_fb+startln*Bpl, dev->map_buff+dev->screensize+startln*Bpl, n*Bpl);
 				break;
 			case 2:
-				memcpy(dev->map_fb+sind*Bpl, dev->map_buff+(dev->screensize<<1)+sind*Bpl, n*Bpl);
+				memcpy(dev->map_fb+startln*Bpl, dev->map_buff+(dev->screensize<<1)+startln*Bpl, n*Bpl);
 				break;
 			default:
-				memcpy(dev->map_fb+sind*Bpl, dev->map_buff+dev->screensize*numpg+sind*Bpl, n*Bpl);
+				memcpy(dev->map_fb+startln*Bpl, dev->map_buff+dev->screensize*numpg+startln*Bpl, n*Bpl);
 				break;
 		}
 	}

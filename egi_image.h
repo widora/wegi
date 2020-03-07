@@ -37,7 +37,7 @@ EGI_IMGBOX*	egi_imgboxes_alloc(int n);
 void 		egi_imgboxes_free(EGI_IMGBOX *imboxes);
 void 		egi_imgbuf_cleardata(EGI_IMGBUF *egi_imgbuf); /* free data inside */
 void 		egi_imgbuf_free(EGI_IMGBUF *egi_imgbuf);
-int 		egi_imgbuf_init(EGI_IMGBUF *egi_imgbuf, int height, int width);
+int 		egi_imgbuf_init(EGI_IMGBUF *egi_imgbuf, int height, int width,  bool AlphaON);
 int 		egi_imgbuf_addBoundaryBox(EGI_IMGBUF *ineimg, EGI_16BIT_COLOR color, int lw);
 EGI_IMGBUF*	egi_imgbuf_create( int height, int width, unsigned char alpha, EGI_16BIT_COLOR color );
 EGI_IMGBUF*	egi_imgbuf_readfile(const char* fpath);

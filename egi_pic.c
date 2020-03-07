@@ -91,7 +91,7 @@ EGI_DATA_PIC *egi_picdata_new( int offx, int offy,
 
 	/* set default height and width for imgbuf */
 	EGI_PDEBUG(DBG_PIC,"egi_picdata_new(): egi_imgbuf_init()...\n");
-	if ( egi_imgbuf_init(eimg, 60, 120)!=0 ) {	/* no mutex lock needed */
+	if ( egi_imgbuf_init(eimg, 60, 120, true)!=0 ) {	/* no mutex lock needed */
 		printf("%s: egi_imgbuf_init() fails!\n",__func__);
 		egi_imgbuf_free(eimg);
 		return NULL;

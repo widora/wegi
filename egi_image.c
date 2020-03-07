@@ -153,8 +153,9 @@ void egi_imgbuf_free(EGI_IMGBUF *egi_imgbuf)
 }
 
 
-/*-------------------------------------------------------------
+/*-----------------------------------------------------------------------------
 Initiate/alloc imgbuf as an image canvas, with all alpha=0!!!
+If egi_imgbuf has old data, then it will be cleared/freed first.
 
 NOTE:
   1. !!!!WARNING!!!: No mutex operation here, the caller shall take
@@ -162,12 +163,13 @@ NOTE:
 
 @height		height of image
 @width		width of image
+@AlphaON	If ture, egi_imgbuf->alpha will be allocated.
 
 Return:
 	0	OK
 	<0	Fails
-----------------------------------------------------------------*/
-int egi_imgbuf_init(EGI_IMGBUF *egi_imgbuf, int height, int width)
+-----------------------------------------------------------------------------*/
+int egi_imgbuf_init(EGI_IMGBUF *egi_imgbuf, int height, int width, bool AlphaON)
 {
 	if(egi_imgbuf==NULL)
 		return -1;
@@ -186,12 +188,14 @@ int egi_imgbuf_init(EGI_IMGBUF *egi_imgbuf, int height, int width)
         }
 
         /* calloc imgbuf->alpha, alpha=0, 100% canvas color. */
-        egi_imgbuf->alpha= calloc(1, height*width*sizeof(unsigned char)); /* alpha value 8bpp */
-        if(egi_imgbuf->alpha == NULL) {
-                printf("%s: fail to calloc egi_imgbuf->alpha.\n",__func__);
-		free(egi_imgbuf->imgbuf);
-                return -3;
-        }
+	if(AlphaON) {
+	        egi_imgbuf->alpha= calloc(1, height*width*sizeof(unsigned char)); /* alpha value 8bpp */
+        	if(egi_imgbuf->alpha == NULL) {
+	                printf("%s: fail to calloc egi_imgbuf->alpha.\n",__func__);
+			free(egi_imgbuf->imgbuf);
+                	return -3;
+        	}
+	}
 
         /* retset height and width for imgbuf */
         egi_imgbuf->height=height;
@@ -280,7 +284,7 @@ EGI_IMGBUF *egi_imgbuf_create( int height, int width,
 		return NULL;
 
 	/* init the struct, initial color and alpha all to be 0! */
-	if ( egi_imgbuf_init(imgbuf, height, width) !=0 )
+	if ( egi_imgbuf_init(imgbuf, height, width, true) !=0 )
 		return NULL;
 
 	/* set alpha and color */
