@@ -93,7 +93,7 @@ EGI_PCMBUF* 	egi_pcmbuf_create(  unsigned long size, unsigned int nchanl, unsign
 void 	        egi_pcmbuf_free(EGI_PCMBUF **pcmbuf);
 EGI_PCMBUF*     egi_pcmbuf_readfile(char *path);
 int  		egi_pcmbuf_playback(const char* dev_name, const EGI_PCMBUF *pcmbuf, int vstep, unsigned int nf,
-				  				int nloop, bool *sigstop, bool *sigsynch);
+				  				int nloop, bool *sigstop, bool *sigsynch, bool* sigtrigger);
 
 
 #endif

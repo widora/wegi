@@ -941,6 +941,7 @@ Playback a EGI_PCMIMG
 @vstep:		Volume step up/down, each step is 1/16 strength of original PCM value.
 		So Min. value of vstep is -16.  If vstep<-16, then the sign of PCM value
 		will reverse!
+		vstep=0 as neutral.
 		Note:
 		1. For SND_PCM_FORMAT_S16 only!
 		2. Shift operation is compiler depended!
@@ -952,18 +953,23 @@ Playback a EGI_PCMIMG
 @nloop:         loop times:
                 	<=0 : loop forever
                 	>0 :  nloop times
+
 @sigstop:       Quit if Ture
                 If NULL, ignore.
 @sigsynch:	If true, synchronize to play from the beginning of the pcmbuf.
 		and reset *sigsynch to false then.
 		If nf is a big value, then it maybe nonsense!
 		If NULL, ignore.
+@sigtrigger	If not NULL, wait till it's True, then start playing.
+		It resets to False after playing 1 loop, then wait for True again,
+		until finish playing nloop or forever.
+		If NULL, ignore.
 Return:
 	0	OK
 	<0	Fails
 ----------------------------------------------------------------------*/
 int  egi_pcmbuf_playback( const char* dev_name, const EGI_PCMBUF *pcmbuf, int vstep,
-			  unsigned int nf , int nloop, bool *sigstop, bool *sigsynch)
+			  unsigned int nf , int nloop, bool *sigstop, bool *sigsynch, bool* sigtrigger)
 {
 	int		i;
 	int 		ret;
@@ -997,7 +1003,6 @@ int  egi_pcmbuf_playback( const char* dev_name, const EGI_PCMBUF *pcmbuf, int vs
 		EGI_PLOG(LOGLV_WARN,"%s: Soft volume adjustment only supports SND_PCM_FORMAT_S16!",__func__);
 	}
 
-
 	/* open pcm device */
 	//printf("%s: open playback device...\n",__func__);
 	pcm_handle=egi_open_playback_device( dev_name, pcmbuf->sformat,     /* dev_name, sformat */
@@ -1016,12 +1021,19 @@ int  egi_pcmbuf_playback( const char* dev_name, const EGI_PCMBUF *pcmbuf, int vs
 
    	count=0; /* for nloop count */
    	do {
+		/* check sigtrigger */
+		if( sigtrigger != NULL)
+			while( *sigtrigger == false ){usleep(1000);}; /* !!!FAINT!!! must put some codes here! { }; */
+
 		wf=nf;	/* reset frames for each iwrite */
 		frames=pcmbuf->size/pcmbuf->depth/pcmbuf->nchanl; /* Total frames */
 		//pos=0;
 		pbuf=pcmbuf->pcmbuf;
 
-		while( frames !=0 )
+		/* If pcmbuf size too small */
+		if(frames<nf)wf=frames;
+
+		while( frames >0 ) //!=0 )
 		{
 			/* check sigstop */
 			if( sigstop!=NULL && *sigstop==true)
@@ -1073,21 +1085,25 @@ int  egi_pcmbuf_playback( const char* dev_name, const EGI_PCMBUF *pcmbuf, int vs
 
 			/* move pbuf forward */
 			frames -= ret;
-			if(frames<nf)wf=frames; /* for the last write session */
+			if( frames<nf && frames>0 )wf=frames; /* for the last write session */
 
 			pbuf += ret*(pcmbuf->nchanl)*(pcmbuf->depth);
-	   	}
+	   	} /* end while() */
 
 	  	/* check sigstop */
 	  	if( sigstop!=NULL && *sigstop==true)
 			break;
 
+		/* check sigtrigger */
+		if( sigtrigger != NULL)
+			*sigtrigger=false;
+
 	  	/* loop count */
 	  	count++;
-
-  	} while ( nloop<=0 || count<nloop );
+  	} while ( nloop<=0 || count<nloop );  /* end loops */
 
 	/* close pcm handle */
+	snd_pcm_drain(pcm_handle);
 	snd_pcm_close(pcm_handle);
 
 	/* free vbuf */

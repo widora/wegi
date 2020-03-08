@@ -779,7 +779,7 @@ static void *thread_ticking(void *arg)
      etimer_t *etimer=(etimer_t *)arg;
 
 //    pthread_detach(pthread_self());  To avoid multimixer error
-     egi_pcmbuf_playback(PCM_MIXER, (const EGI_PCMBUF *)etimer->pcmtick, etimer->vstep, 1024, 0, &etimer->sigNoTick, NULL); //&etimer->tickSynch);
+     egi_pcmbuf_playback(PCM_MIXER, (const EGI_PCMBUF *)etimer->pcmtick, etimer->vstep, 1024, 0, &etimer->sigNoTick, NULL,NULL); //&etimer->tickSynch);
 
 //     pthread_exit((void *)0);
 	return (void *)0;
@@ -796,7 +796,7 @@ static void *thread_alarming(void *arg)
 //    pthread_detach(pthread_self());  To avoid multimixer error
 
      /* Alarm, Max. 100 loops */
-     egi_pcmbuf_playback(PCM_MIXER, (const EGI_PCMBUF *)etimer->pcmalarm, etimer->vstep, 1024, 100, &etimer->sigNoAlarm, NULL);
+     egi_pcmbuf_playback(PCM_MIXER, (const EGI_PCMBUF *)etimer->pcmalarm, etimer->vstep, 1024, 100, &etimer->sigNoAlarm, NULL,NULL);
      etimer->sigStop=true;
 
 //     pthread_exit((void *)0);
@@ -1048,7 +1048,7 @@ static void touch_event(void)
 	}
 	#else
 	if(imgbuf_circle==NULL) {
-		imgbuf_circle=egi_imgbuf_readfile("/mmc/linuxpet.png");
+		imgbuf_circle=egi_imgbuf_readfile("/mmc/linuxpet.jpg");
 		if( egi_imgbuf_setFrame(imgbuf_circle, frame_round_rect, 255, 1, &rad) !=0 )
 			return;
 	}
