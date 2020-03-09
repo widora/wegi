@@ -1067,7 +1067,7 @@ int  egi_pcmbuf_playback( const char* dev_name, const EGI_PCMBUF *pcmbuf, int vs
 
 		        if (ret == -EPIPE) {
         		    /* EPIPE means underrun */
-	        	    fprintf(stderr,"snd_pcm_writen() or snd_pcm_writei(): underrun occurred\n");
+//	        	    fprintf(stderr,"snd_pcm_writen() or snd_pcm_writei(): underrun occurred\n");
 	        	    //EGI_PDEBUG(DBG_PCM,"snd_pcm_writen() or snd_pcm_writei(): underrun occurred\n" );
 		            snd_pcm_prepare(pcm_handle);
 		    	    continue;

@@ -513,7 +513,151 @@ int egi_imgbuf_setFrame( EGI_IMGBUF *eimg, enum imgframe_type type,
 	return 0;
 }
 
+/*----------------------------------------------------------
+Get alpha value on a certain X-Alpha mapping curve.
+@range:	 The range of input X, [0 range-1]
+@typge:  Mapping curve type
+@x:	 Input X.
 
+Return:  Mapped alpha value.
+	 or 255 if no match.
+-----------------------------------------------------------*/
+unsigned char get_alpha_mapCurve( int range, int type, int x)
+{
+	/* check input range */
+	if(range<=0) return 255;
+
+	/* check input x */
+	if(x<0)
+		x=0;
+	else if(x>range-1)
+		x=range-1;
+
+	/* 1. Linear curve: Linear transition */
+	if(type==0)
+		return 255*x/range;
+
+	/* 2. Cubic curve: GOOD_Smooth transition at start, Fast transition at end */
+	if(type==1)
+		return 255*x*x*x/(range*range*range);
+
+	/* 3. Circle point curve:  Faster transition at end, to emphasize end border line. */
+	else if(type==2)
+		return ( 1.0- sqrt(1.0-(1.0*x/range)*(1.0*x/range)) )*255;
+
+	/* 4. (1-COS(x))/2  curve: GOOD_Smooth transition at both start and end. */
+	else if(type==3)
+		return (1.0-cos(1.0*x*MATH_PI/range))*255/2;
+
+	else
+		return 255;
+}
+
+/*--------------------------------------------------------------
+Modify alpha values for an EGI_IMGBUF, in order to make the 4
+edges of the image fade out (hide) smoothly.
+
+@eimg: 	Pointer to an EGI_IMGBUF
+@width: Width of the gradient transition belt.
+
+@ssmode:  --- Side select mode ---
+	0b0001  effective for Top side only.
+	0b0010  effective for Right side only.
+	0b0100  effective for Bottom side only.
+	ob1000  effective for Left side only.
+
+	OR use operator '|' to combine them.
+@type:  Type of fading transition as defined in get_alpha_mapCurve().
+
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------------------------*/
+int egi_imgbuf_fadeOutEdges(EGI_IMGBUF *eimg, unsigned int width, unsigned int ssmode, int type)
+{
+	int i,j;
+	int wb;  	/* width of transition belt, may be different from width.  */
+	unsigned char alpha;
+
+
+	if( eimg==NULL || eimg->imgbuf==NULL )
+			return -1;
+
+	if( ssmode==0 || width==0 )
+		return 1;
+
+	/* Create alpha data if NULL */
+	if(eimg->alpha==NULL) {
+                eimg->alpha=calloc(1, eimg->height*eimg->width*sizeof(unsigned char)); /* alpha value 8bpp */
+                if(eimg->alpha == NULL) {
+                        printf("%s: fail to calloc eimg->alpha.\n",__func__);
+                        return -2;
+		}
+		memset(eimg->alpha,255,eimg->height*eimg->width); /* init. value 255 */
+	}
+	/* Set top side */
+	if( ssmode & 0b0001 ) {
+		if(width>eimg->height)
+			wb=eimg->height;
+		else
+			wb=width;
+
+		for(i=0; i<wb; i++) {
+			alpha=get_alpha_mapCurve(wb, type, i);
+			for(j=0; j < eimg->width; j++) {
+				if( alpha < eimg->alpha[i*eimg->width+j] )
+					eimg->alpha[i*eimg->width+j]=alpha;
+			}
+		}
+	}
+	/* Set right side */
+	if( ssmode & 0b0010 ) {
+		if(width>eimg->width)
+			wb=eimg->width;
+		else
+			wb=width;
+
+		for(i=0; i<wb; i++) {
+			alpha=get_alpha_mapCurve(wb, type, i);
+			for(j=0; j < eimg->height; j++) {
+				if( alpha < eimg->alpha[ (j+1)*eimg->width-1 -i ] )
+					eimg->alpha[ (j+1)*eimg->width-1 -i ]=alpha;
+			}
+		}
+	}
+	/* Set bottom side */
+	if( ssmode & 0b0100 ) {
+		if(width>eimg->height)
+			wb=eimg->height;
+		else
+			wb=width;
+
+		for(i=0; i<wb; i++) {
+			alpha=get_alpha_mapCurve(wb, type, i);
+			for(j=0; j < eimg->width; j++) {
+				if( alpha < eimg->alpha[ (eimg->height-i)*eimg->width-1 -j ] )
+					eimg->alpha[ (eimg->height-i)*eimg->width-1 -j ]=alpha;
+			}
+		}
+	}
+	/* Set left side */
+	if( ssmode & 0b1000 ) {
+		if(width>eimg->width)
+			wb=eimg->width;
+		else
+			wb=width;
+
+		for(i=0; i<wb; i++) {
+			alpha=get_alpha_mapCurve(wb, type, i);
+			for(j=0; j < eimg->height; j++) {
+				if( alpha < eimg->alpha[ j*eimg->width +i ] )
+					eimg->alpha[ j*eimg->width +i ]=alpha;
+			}
+		}
+	}
+
+	return 0;
+}
 
 /*--------------------------------------------------------
 Create a new imgbuf with certain shape/frame.
@@ -2248,7 +2392,7 @@ int egi_imgbuf_reset(EGI_IMGBUF *egi_imgbuf, int subindex, int color, int alpha)
    or pixels out of the canvas will be omitted.
 
 3.   		!!! -----   WARNING   ----- !!!
-   In order to algin all characters in same horizontal level, every char bitmap must be
+   In order to align all characters in same horizontal level, every char bitmap must be
    align to the same baseline, i.e. the vertical position of each char's origin
    (baseline) MUST be the same.
    So (xb,yb) should NOT be left top coordinate of a char bitmap,

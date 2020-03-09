@@ -46,7 +46,8 @@ EGI_IMGBUF*	egi_imgbuf_blockCopy( const EGI_IMGBUF *ineimg,
 EGI_IMGBUF*	egi_imgbuf_subImgCopy( const EGI_IMGBUF *eimg, int index );
 int 		egi_imgbuf_setFrame( EGI_IMGBUF *eimg, enum imgframe_type type,
                          	     int alpha, int pn, const int *param );
-
+unsigned char 	get_alpha_mapCurve( int range, int type, int x);
+int 		egi_imgbuf_fadeOutEdges(EGI_IMGBUF *eimg, unsigned int width, unsigned int ssmode, int type);
 EGI_IMGBUF*	egi_imgbuf_newFrameImg( int height, int width,
                 	             unsigned char alpha, EGI_16BIT_COLOR color,
                         	     enum imgframe_type type,

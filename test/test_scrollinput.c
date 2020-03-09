@@ -100,6 +100,11 @@ int main(void)
   if(egi_start_touchread() !=0)
 	return -1;
 
+   /* Set sys FB mode: default */
+   fb_set_directFB(&gv_fb_dev,false);
+   fb_position_rotate(&gv_fb_dev,3);
+
+
  /* <<<<<  End of EGI general init  >>>>>> */
 
 
@@ -151,20 +156,25 @@ int main(void)
 		// fbset_color(WEGI_COLOR_BLACK);
 		// draw_wline_nc(&vfb, 0, 60*i, 60-1, 60*i, 1);
 	}
-	//TEST: egi_imgbuf_savepng("/tmp/band.png", vfbimg);  /* You can use showpic.c to display and check it. */
+	egi_imgbuf_savepng("/tmp/band.png", vfbimg);  /* You can use showpic.c to display and check it. */
 
         /* Set sys FB mode: default */
-        fb_set_directFB(&gv_fb_dev,false);
-        fb_position_rotate(&gv_fb_dev,3);
+//        fb_set_directFB(&gv_fb_dev,false);
+//        fb_position_rotate(&gv_fb_dev,3);
 
 	/* Draw scene backgroud  */
         fb_clear_backBuff(&gv_fb_dev, WEGI_COLOR_GRAY5);    /*  GRAY3 COLOR_RGB_TO16BITS(0x99,0x99,0x99) , GRAY4 0x88*/
 
 	/* Fading bands */
 	xp=20; /* - xp - */
-	EGI_BOX hour_band = {{xp,0},{xp+60,240-1}};
-	EGI_BOX min_band  = {{xp+80,0},{xp+140,240-1}};
-	EGI_BOX sec_band  = {{xp+160,0},{xp+220,240-1}};
+	EGI_BOX hour_band = {{xp,0}, {xp+60,240-1}};
+	EGI_BOX min_band  = {{xp+80,0}, {xp+140,240-1}};
+	EGI_BOX sec_band  = {{xp+160,0}, {xp+220,240-1}};
+
+	/* BUTTON OK box */
+	EGI_BOX btn_ok	  = {{xp+240+2, 10}, {320-1-2, 60+10}};
+
+	/* Draw bands */
 	int lw=1;
 	for(i=0; i<3; i++) {
 		/* from top, downward */
@@ -187,16 +197,17 @@ int main(void)
 
 	/* Draw time displaying block */
 	for(i=0; i<3; i++)
-	        draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYC, xp+80*i, 90+1, xp+60+80*i-1, 240-90);  /* number zones */
+	        draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYC,xp+80*i, 90+1, xp+60+80*i-1, 240-90);  /* number zones */
 
 	/* Draw OK button */
-	draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYB, xp+240, 90+1, 320-1, 240-90);  /* number zones */
+	draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAY, xp+240, 0, 320-1, 240-1);
+	draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYB, btn_ok.startxy.x, btn_ok.startxy.y, btn_ok.endxy.x, btn_ok.endxy.y);  /* ok btn */
         fbset_color(WEGI_COLOR_BLACK);
-	draw_wrect(&gv_fb_dev, xp+240+2, 90+1+2, 320-1-2, 240-90-2, 1);
+	draw_wrect(&gv_fb_dev,btn_ok.startxy.x, btn_ok.startxy.y, btn_ok.endxy.x, btn_ok.endxy.y, 1);
         FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
                                         32, 32,(const unsigned char *)"OK",   //"确认",     /* fw,fh, pstr */
-                                        100,1, 0,                           /* pixpl, lines, gap */
-                                        xp+240+5, 90+10,                   /* x0,y0, */
+                                        100,1, 0,                           	/* pixpl, lines, gap */
+                                        xp+240+5, 20,    // touch effective area               	/* x0,y0, */
                                         WEGI_COLOR_BLACK, -1, -1,               /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
 
@@ -241,7 +252,8 @@ while(1){
 				/*Check if reach threshold */
 				if(tmp != (mark+30)/60) {
 					tmp=(mark+30)/60;
-					sigTrigger=true;  /* To trigger click sound */
+					if(sigTrigger==false)
+						sigTrigger=true;  /* To trigger click sound */
 					egi_sleep(1,0,30);
 				}
 				/* To make a sluggish effect */
@@ -290,6 +302,13 @@ while(1){
 			sec =(mark+30)/60;
 			printf("reset sec=%d\n",sec);
 			refresh_digits(SECOND_ZONE, xp, sec*60, vfbimg);
+		}
+		/* Button OK */
+		else if(point_inbox(&touch_data.coord,&btn_ok) && touch_data.status==pressing) {
+			printf(" -- ok --  x=%d,y=%d \n",touch_data.coord.x, touch_data.coord.y);
+			//fbset_color(WEGI_COLOR_RED);
+			//draw_filled_circle(&gv_fb_dev, touch_data.coord.x, touch_data.coord.y, 5);
+			//fb_lines_refresh(&gv_fb_dev, 0, 0, 80); /* fbdev, numpg, startln, n */
 		}
 		/* Touch missed! */
 		else {
