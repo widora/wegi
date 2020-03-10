@@ -152,6 +152,19 @@ void egi_imgbuf_free(EGI_IMGBUF *egi_imgbuf)
 	egi_imgbuf=NULL; /* ineffective though...*/
 }
 
+/*------------------------------------------
+	Free EGI_IMGBUF and itsef
+-------------------------------------------*/
+void egi_imgbuf_free2(EGI_IMGBUF **pimg)
+{
+	if(pimg==NULL || *pimg==NULL)
+		return;
+
+	egi_imgbuf_free(*pimg);
+
+	*pimg=NULL;
+}
+
 
 /*-----------------------------------------------------------------------------
 Initiate/alloc imgbuf as an image canvas, with all alpha=0!!!
@@ -513,17 +526,27 @@ int egi_imgbuf_setFrame( EGI_IMGBUF *eimg, enum imgframe_type type,
 	return 0;
 }
 
-/*----------------------------------------------------------
+/*-----------------------------------------------------------
 Get alpha value on a certain X-Alpha mapping curve.
-@range:	 The range of input X, [0 range-1]
-@typge:  Mapping curve type
-@x:	 Input X.
 
-Return:  Mapped alpha value.
+Note:
+1. Distribution smothness of result alpha values (smothness of
+   image transition) depends not only on fading 'type'(algorithm),
+   but also on 'range' value, the bigger the better!
+
+@range:  The width of image transition area on edges.
+@typge:  Mapping curve type
+@x:	 Input X, distance from image side, in pixels.
+	 The range of input X, [0 range-1]
+
+Return:  Mapped alpha value. [0 255] <-- [0 range-1]
 	 or 255 if no match.
 -----------------------------------------------------------*/
 unsigned char get_alpha_mapCurve( int range, int type, int x)
 {
+	unsigned char alpha; /* mapped alpha value */
+	long tx;
+
 	/* check input range */
 	if(range<=0) return 255;
 
@@ -533,24 +556,46 @@ unsigned char get_alpha_mapCurve( int range, int type, int x)
 	else if(x>range-1)
 		x=range-1;
 
-	/* 1. Linear curve: Linear transition */
-	if(type==0)
-		return 255*x/range;
+	switch(type)
+	{
+		/* 0. Linear curve: Linear transition */
+		case 0:
+			alpha=255*x/range;
+			break;
 
-	/* 2. Cubic curve: GOOD_Smooth transition at start, Fast transition at end */
-	if(type==1)
-		return 255*x*x*x/(range*range*range);
+		/* 1. Cubic curve: GOOD_Smooth transition at start, Fast transition at end
+				   but rather bigger invisible edge areas.
+		 */
+		case 1:
+			alpha=255*x*x*x/(range*range*range);
+			break;
 
-	/* 3. Circle point curve:  Faster transition at end, to emphasize end border line. */
-	else if(type==2)
-		return ( 1.0- sqrt(1.0-(1.0*x/range)*(1.0*x/range)) )*255;
+		/* 2. Reversed cubic curve: GOOD_Smooth transition at end, Fast transition at start
+					    and rather smaller invisible edge areas.
+		*/
+		case 2:
+			tx=range-x;
+			alpha=255-(long)255*tx*tx*tx/((long)range*range*range);  /* abrupt at end */
+			break;
 
-	/* 4. (1-COS(x))/2  curve: GOOD_Smooth transition at both start and end. */
-	else if(type==3)
-		return (1.0-cos(1.0*x*MATH_PI/range))*255/2;
+		/* 3. Circle point curve:  Faster transition at end, to emphasize end border line.
+		  			   but rather bigger invisible edge areas.
+		 */
+		case 3:
+			alpha=( 1.0- sqrt(1.0-(1.0*x/range)*(1.0*x/range)) )*255;
+			break;
 
-	else
-		return 255;
+		/* 4. (1-COS(x))/2  curve: GOOD_Smooth transition at both start and end. */
+		case 4:
+			alpha=(1.0-cos(1.0*x*MATH_PI/range))*255/2;
+			break;
+
+		default:
+			alpha=255;
+	}
+
+
+	return alpha;
 }
 
 /*--------------------------------------------------------------

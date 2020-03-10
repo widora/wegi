@@ -68,63 +68,54 @@ int main(int argc, char **argv)
 
 #if 1 ////////////   TEST egi_imgbuf_fadeOutEdges()  /////////////.
 
-	EGI_POINT tripts[3]={ {95, 100 }, {95, 140}, {145, 120} }; /* a triangle mark */
+        int width=100; 	   // alpha transition belt width.  atoi(argv[1]);
+        int ssmode=0b1111; // 4 sides.	//atoi(argv[2]);
+        int type=0; 	//atoi(argv[3]);
+	char strtmp[32];
 
-	int k;
-	printf("Usage: %s   width ssmode type file\n", argv[0]);
-	if(argc<2) {
-		printf("Please input width of fading belt, ssmod, type and file path!\n");
-		exit(1);
-	}
+	EGI_IMGBUF *frontimg=NULL;
+	EGI_IMGBUF *backimg=NULL;
+	backimg=egi_imgbuf_readfile("/mmc/backimg.jpg");
 
-	int width=atoi(argv[1]);
-	int ssmode=atoi(argv[2]);
-	int type=atoi(argv[3]);
+	if(argc>1)
+		width=atoi(argv[1]);
 
-
-	EGI_IMGBUF *imgbuf=NULL;
-	imgbuf=egi_imgbuf_readfile("/mmc/band.png");
-
-	EGI_IMGBUF *imgbk=egi_imgbuf_readfile("/mmc/linux.jpg");
-	egi_subimg_writeFB( imgbk, &gv_fb_dev, 0, -1, 0, 0);  /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
-
-
-	EGI_IMGBUF *tmpimg=NULL;  /* to backup */
-	tmpimg=egi_imgbuf_blockCopy( imgbk, (320-imgbuf->width)/2, 0, 240, imgbuf->width);   /* imgbuf, px, py, height, width */
-
-	EGI_IMGBUF *ptimg=NULL;
-
-	int py=0;
-	int step=7;
 
 while(1) {
 
-	ptimg=egi_imgbuf_blockCopy( imgbuf, 0, py, 240, imgbuf->width);   /* imgbuf, px, py, height, width */
+	printf("fade type=%d\n", type);
 
-	egi_imgbuf_fadeOutEdges(ptimg, width, ssmode, type); //0b0101, 60);
+	/* WriteFB backimg */
+	egi_subimg_writeFB( backimg, &gv_fb_dev, 0, -1, (320-backimg->width)/2, (240-backimg->height)/2);  /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
 
-	egi_subimg_writeFB( tmpimg, &gv_fb_dev, 0, -1, (320-ptimg->width)/2, 0); /* restor backup bkimg  */
-	egi_subimg_writeFB( ptimg, &gv_fb_dev, 0, -1, (320-ptimg->width)/2, 0);//(240-imgbuf->height)/2 );  /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
+	/* Read in frontimg */
+	frontimg=egi_imgbuf_readfile("/mmc/frontimg.jpg");
 
-        fbset_color(WEGI_COLOR_RED);
-        draw_filled_triangle(&gv_fb_dev, tripts); /* draw a triangle mark */
+	/* Add fading_out effect to frontimg */
+	egi_imgbuf_fadeOutEdges(frontimg, width, ssmode, type);
 
+	/* WriteFB frontimg */
+	egi_subimg_writeFB( frontimg, &gv_fb_dev, 0, -1, (320-frontimg->width)/2, (240-frontimg->height)/2); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
 
-	egi_sleep(1,0, 55);
+	/* WriteFB fading type */
+        snprintf(strtmp, sizeof(strtmp)-1, "type=%d", type);
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,             /* FBdev, fontface */
+                                          24, 24,(const unsigned char *)strtmp,    /* fw,fh, pstr */
+                                          300, 1, 0,                               /* pixpl, lines, gap */
+                                          10, 5,                              	   /* x0,y0, */
+                                          WEGI_COLOR_RED, -1, -1,                /* fontcolor, transcolor,opaque */
+                                          NULL, NULL, NULL, NULL  );          /* int *cnt, int *lnleft, int* penx, int* peny */
 
-	py += step;
-	if( py > imgbuf->height-240+1 ) {
-		step=-step;
-	}
-	else if(py < 0) {
-		step=-step;
-		py=0;
-	}
+	/* Free  frontimg */
+	egi_imgbuf_free2(&frontimg);
+
+	egi_sleep(1, 1, 500);
+
+	type++;
+	if(type>4)type=0;
 }
 	//fb_page_refresh(&gv_fb_dev,0);
 #endif
-
-
 
 
 
