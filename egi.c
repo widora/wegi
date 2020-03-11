@@ -72,7 +72,7 @@ const char *egi_str_touch_status(enum egi_touch_status touch_status)
 }
 
 
-/*---------------------------------------
+/*---- !!! put to egi_math.c :  mat_random_max() !!! ---------
 return a random value not great than max
 
 Example:
@@ -83,7 +83,7 @@ max>0: 	1<= ret <=max
 max=0:  1
 max<0:  max+2 <= ret <=1
 
----------------------------------------*/
+------------------------------------------------------------*/
 int egi_random_max(int max)
 {
         int ret;

@@ -19,6 +19,7 @@ Midas Zhou
 /* color definition */
 typedef uint16_t			 EGI_16BIT_COLOR;
 typedef uint32_t			 EGI_24BIT_COLOR;
+typedef unsigned char			 EGI_8BIT_ALPHA;
 
 /* convert 24bit rgb(3*8bits) to 16bit LCD rgb */
 #if 0  /* Just truncate other bits to get 565 RBG bits */

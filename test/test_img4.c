@@ -64,9 +64,50 @@ int main(int argc, char **argv)
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
+#if 1 ////////////   TEST egi_imgbuf_copyBlock()  /////////////
+
+	/* block size */
+	int bw=60;
+	int bh=60;
+	int xd,yd,xs,ys; /* block left top point coord. of dest and soruce image */
+
+	EGI_IMGBUF *srcimg=egi_imgbuf_readfile("/mmc/linuxpet.jpg");
+	EGI_IMGBUF *destimg=NULL; //egi_imgbuf_readfile("/mmc/linux.jpg");
+
+while(1) {
+	destimg=egi_imgbuf_readfile("/mmc/linux.jpg");
+	if(destimg==NULL) {
+		printf("Fail to read destimg!\n");
+		exit(1);
+	}
+	printf("destimg size WxH=%dx%d \n", destimg->width, destimg->height);
+	printf("srcimg size WxH=%dx%d \n", srcimg->width, srcimg->height);
+
+	xd=egi_random_max(destimg->width -1);
+	yd=egi_random_max(destimg->height -1);
+
+        xs=egi_random_max(srcimg->width -1);
+        ys=egi_random_max(srcimg->height -1);
 
 
-#if 1 ////////////   TEST egi_imgbuf_fadeOutEdges()  /////////////.
+	printf(" xd,yd=%d,%d   xs,ys=%d,%d \n", xd,yd, xs, ys);
+
+	if( egi_imgbuf_copyBlock(destimg, srcimg, bw, bh, xd, yd, xs, ys) ==0 ) /* destimg, srcimg, bw, bh, xd, yd, xs, ys */
+		egi_subimg_writeFB(destimg, &gv_fb_dev, 0, -1, 0, 0); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
+	else
+		printf("Block position out of image!\n");
+
+	egi_imgbuf_free2(&destimg);
+
+	egi_sleep(1,0,500);
+}
+
+
+exit(0);
+#endif
+
+
+#if 1 ////////////   TEST egi_imgbuf_fadeOutEdges()  /////////////
 
         int width=100; 	   // alpha transition belt width.  atoi(argv[1]);
         int ssmode=0b1111; // 4 sides.	//atoi(argv[2]);

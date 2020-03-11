@@ -10,6 +10,7 @@ Midas Zhou
 -----------------------------------------------------------------*/
 #include "egi_utils.h"
 #include "egi_log.h"
+#include "egi_math.h"
 #include "egi_cstring.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,6 +35,55 @@ inline void egi_free_char(char **p)
 		free(*p);
 		*p=NULL;
 	}
+}
+
+
+/*---------------------------------------------
+Shuffle an integer array.
+
+@size:	size of array.
+@in:	Input array
+@out:	Shuffled array.
+
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------*/
+int egi_shuffle_intArray(int *array, int size)
+{
+	int i;
+	int index;
+	int *tmp=NULL;
+
+	if(array==NULL || size < 1)
+		return -1;
+
+	tmp=calloc(1,size*sizeof(int));
+	if(tmp==NULL)
+		return -2;
+
+	/* Copy original array to tmp */
+	for(i=0; i<size; i++)
+		tmp[i]=array[i];
+
+	/* shuffle index of tmp[], then copy tmp[index] to array[] */
+	for( i=0; i<size; i++ ) {
+		/* if last one */
+		if(i==size-1) {
+			array[i]=tmp[0];
+			break;
+		}
+		/* Shuffle index, and assign tmp[index] to array[i] */
+		index=mat_random_max(size-i)-1;
+		array[i]=tmp[index];
+
+		/* Fill up empty tmp[index] slot by moving followed members foreward */
+		if( index != size-i-1)
+			memmove((char *)tmp+index*sizeof(int), (char *)tmp+(index+1)*sizeof(int), (size-i-index-1)*sizeof(int));
+
+	}
+
+	return 0;
 }
 
 

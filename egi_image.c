@@ -21,7 +21,7 @@ Midas Zhou
 typedef struct fbdev FBDEV; /* Just a declaration, referring to definition in egi_fbdev.h */
 
 /*--------------------------------------------
-   	   Allocate  a EGI_IMGBUF
+   	   Allocate an EGI_IMGBUF
 ---------------------------------------------*/
 EGI_IMGBUF *egi_imgbuf_alloc(void) //new(void)
 {
@@ -312,6 +312,38 @@ EGI_IMGBUF *egi_imgbuf_create( int height, int width,
 }
 
 
+/* -----------------------------------------------------------
+Create an EGI_IMGBUF without alpha space.
+
+@height,width:	height and width of the imgbuf.
+@color:		>0 basic color of the imgbuf.
+		(else, default 0)
+
+Return:
+	A pointer to EGI_IMGBUF		OK
+			   FULL		Fails
+---------------------------------------------------------------*/
+EGI_IMGBUF *egi_imgbuf_createWithoutAlpha( int height, int width, EGI_16BIT_COLOR color)
+{
+	int i;
+
+	EGI_IMGBUF *imgbuf=egi_imgbuf_alloc();
+	if(imgbuf==NULL)
+		return NULL;
+
+	/* init the struct, initial color and alpha all to be 0! */
+	if ( egi_imgbuf_init(imgbuf, height, width, false) !=0 )
+		return NULL;
+
+	/* set alpha and color */
+	if(color>0) {   /* color default calloced as 0 already */
+		for(i=0; i< height*width; i++)
+			*(imgbuf->imgbuf+i)=color;
+	}
+
+	return imgbuf;
+}
+
 
 /*--------------------------------------------------------------
 Read an image file and load data to an EGI_IMGBUF as for return.
@@ -404,6 +436,101 @@ EGI_IMGBUF *egi_imgbuf_blockCopy( const EGI_IMGBUF *ineimg,
 	return outeimg;
 }
 
+
+
+/*---------------------------------------------------------------------
+Copy a block from an EGI_IMGBUF and paste it to another one.
+
+Note:
+1. If destimg has alpha values,then copy it also. while if original
+   destimg dose not has alpha space, then allocate it first.
+2. The destination image and srouce image may be the same.
+
+@destimg:  	The destination EGI_IMGBUF.
+@srcimg:  	The source EGI_IMGBUF.
+@xd, yd:	Block left top point coord relative to destimg.
+@xs, ys:	Block left top point coord relative to srcimg.
+@bw:   		Width of the copying block
+@bh:	  	Height of the copying block
+
+Return:
+        0         Ok
+        <0        Fails
+-----------------------------------------------------------------------*/
+int  egi_imgbuf_copyBlock( EGI_IMGBUF *destimg, const EGI_IMGBUF *srcimg,
+			   int bw, int bh,
+                           int xd, int yd, int xs, int ys )
+{
+	int i,j;
+	int destimg_size; 	/* image size, in pixels */
+	//int srcimg_size;
+	int pos_dest;		/* offset position  */
+	int pos_src;
+
+	/* Check input */
+        if( destimg==NULL || destimg->imgbuf==NULL || srcimg==NULL || srcimg->imgbuf==NULL )
+                return -1;
+
+	/* check block size */
+	if( bw <=0 || bh <=0 )
+		return -1;
+
+	/* Assume width/heigth of EGI_IMGBUF are sane! */
+
+	/* Check (xd,yd) and  (xs,ys), rule out situations that block does NOT cover any part of the image. */
+	if( xd+bw-1<0 || yd+bh-1<0 || xd > destimg->width-1 || yd > destimg->height-1 ) {
+		printf("%s: Block covers no part of destimg! please check positon xd,yd. \n",__func__);
+		return -2;
+	}
+	if( xs+bw-1<0 || ys+bh-1<0 || xs > srcimg->width-1 || ys > srcimg->height-1 ) {
+		printf("%s: Block covers no part of srcimg! please check postion xs,ys. \n",__func__);
+		return -2;
+	}
+
+	/* Get image size, in pixels */
+	//srcimg_size=srcimg->height*srcimg->width;
+	destimg_size=destimg->height*destimg->width;
+
+	/* If srcimg has alpha values while destimg dose not, then allocate and memset with 255 */
+	if( srcimg->alpha != NULL && destimg->alpha == NULL ) {
+		destimg->alpha=calloc(1, destimg_size*sizeof(EGI_8BIT_ALPHA));
+		if(destimg->alpha==NULL) {
+			printf("%s: Fail to calloc destimg->alpha!\n",__func__);
+			return -3;
+		}
+		memset(destimg->alpha, 255, destimg_size*sizeof(EGI_8BIT_ALPHA));
+	}
+
+	/* Copy pixels */
+	for(i=0; i<bh; i++) {
+		for(j=0; j<bw; j++) {
+			/* If pixel coord. out of srcimg */
+			if( xs+j < 0 || ys+i <0 )
+				continue;
+			else if( xs+j > srcimg->width-1 || ys+i > srcimg->height-1 )
+				continue;
+
+			/* If pixel coord. out of destimg */
+			if( xd+j < 0 || yd+i <0 )
+				continue;
+			else if( xd+j >destimg->width-1 || yd+i > destimg->height-1 )
+				continue;
+
+			//printf("i=%d, j=%d\n",i,j);
+
+			/* Get offset position of data */
+			pos_src=(ys+i)*srcimg->width+xs +j;
+			pos_dest=(yd+i)*destimg->width+xd +j;
+
+			/* copy color and alpha data */
+			destimg->imgbuf[pos_dest]=srcimg->imgbuf[pos_src];
+			if(srcimg->alpha)
+				destimg->alpha[pos_dest]=srcimg->alpha[pos_src];
+		}
+	}
+
+	return 0;
+}
 
 
 /*-------------------------------------------------------------------

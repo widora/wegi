@@ -1167,3 +1167,30 @@ inline int mat_pseudo_curvature(const EGI_POINT *pt)
 
 	return vc;
 }
+
+
+/*---------------------------------------
+return a random value not great than max
+
+Example:
+egi_random_max(5):  1,2,3,4,5
+egi_random_max(-5): -3,-2,-1,0,1
+
+max>0:  1<= ret <=max
+max=0:  1
+max<0:  max+2 <= ret <=1
+
+---------------------------------------*/
+int mat_random_max(int max)
+{
+        int ret;
+        struct timeval tmval;
+
+        gettimeofday(&tmval,NULL);
+        srand(tmval.tv_usec);
+        ret = 1+(int)((float)max*rand()/(RAND_MAX+1.0));
+        //printf("random max ret=%d\n",ret);
+
+        return ret;
+}
+

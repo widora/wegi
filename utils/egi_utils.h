@@ -19,6 +19,7 @@ Midas Zhou
 #define EGI_FEXTBUFF_MAX 16 /* Max items of separated extension names  */
 
 void 	egi_free_char(char **p);
+int 	egi_shuffle_intArray(int *array, int size);
 int 	egi_util_mkdir(char *dir, mode_t mode);
 int 	egi_copy_file(char const *fsrc_path, char const *fdest_path);
 unsigned char** egi_malloc_buff2D(int items, int item_size) __attribute__((__malloc__));
