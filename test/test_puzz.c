@@ -11,7 +11,7 @@ midaszhou@yahoo.com
 #include <egi_common.h>
 #include <egi_utils.h>
 #include <egi_FTsymbol.h>
-
+#include <egi_pcm.h>
 
 int main(int argc, char **argv)
 {
@@ -61,7 +61,7 @@ int main(int argc, char **argv)
         return -1;
 
    /* Set sys FB mode */
-   fb_set_directFB(&gv_fb_dev,true);
+   fb_set_directFB(&gv_fb_dev,false);
    fb_position_rotate(&gv_fb_dev,3);
 
  /* <<<<<  End of EGI general init  >>>>>> */
@@ -84,10 +84,14 @@ int main(int argc, char **argv)
 
 
 #if 0  /* ----- TEST  egi_shuffle_intArray() ----- */
-	int test[10]={0,1,2,3,4,5,6,7,8,9};
-	egi_shuffle_intArray(test, 10);
+	int nt=50;
+	int test[50];
+	for(i=0; i<nt; i++)
+		test[i]=i;
+
+	egi_shuffle_intArray(test, nt);
 	printf("Shuffled test[]");
-	for(i=0; i<10; i++)
+	for(i=0; i<nt; i++)
 		printf(" %d",test[i]);
 	printf("\n");
 	exit(1);
@@ -101,6 +105,8 @@ int main(int argc, char **argv)
 	EGI_IMGBUF *swapimg=egi_imgbuf_createWithoutAlpha(bh, bw, 0);
 	EGI_IMGBUF *padimg=egi_imgbuf_create(80, 320, 180, WEGI_COLOR_GRAY3);
 
+	EGI_PCMBUF *pcmwin=egi_pcmbuf_readfile("/mmc/sound/yougreat.wav");
+
 	if(!originimg ) {
 		printf("Fail to read image file!\n");
 		exit(1);
@@ -112,19 +118,20 @@ int main(int argc, char **argv)
 
 	/* Shuffer originimg to playimg */
 	egi_shuffle_intArray(cells, 6); /* shuffle index */
-	for(j=0; j<6; j++)
+	printf("Cells[]: ");
+	for(j=0; j<6; j++) {
+		printf(" %d",cells[j]);
 		/* destimg, srcimg, bw, bh, xd, yd, xs, ys */
-		egi_imgbuf_copyBlock(playimg, originimg, bw, bh, cells[j]%3*bw, cells[j]/3*bh, j%3*bw, j/3*bh);
-
+		egi_imgbuf_copyBlock(playimg, originimg, bw, bh, j%3*bw, j/3*bh, cells[j]%3*bw, cells[j]/3*bh);
+	}
+	printf("/n");
 	/* display playimg */
 	egi_subimg_writeFB(playimg, &gv_fb_dev, 0, -1, 0, 0); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
+	fb_page_refresh(&gv_fb_dev, 0);
 
 	n=0;
 while(1) {
         if( egi_touch_timeWait_press(0, 100, &touch_data)==0 ) {
-
-        	//if( egi_touch_getdata(&touch_data) && touch_data.status != released_hold ) {
-                //	if(touch_data.status == releasing)continue;
 
 		/* touch_data change to same coord as of FB */
 		egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
@@ -137,6 +144,7 @@ while(1) {
 		yp=(swap_index[n-1]/3)*bh;
         	fbset_color(WEGI_COLOR_PINK);
         	draw_wrect(&gv_fb_dev, xp, yp, xp+bw-1, yp+bh-1, 5);
+		fb_page_refresh(&gv_fb_dev, 0);
 		egi_sleep(1,0,50);
 
 		/* Swap block image */
@@ -153,6 +161,7 @@ while(1) {
 
 			/* Display update playimg */
 			egi_subimg_writeFB(playimg, &gv_fb_dev, 0, -1, 0, 0); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
+			fb_page_refresh(&gv_fb_dev, 0);
 
 			/* Swap cell[] */
 			tmp=cells[swap_index[0]];
@@ -176,21 +185,34 @@ while(1) {
                         	        40, 85,                                    /* x0,y0, */
                                 	WEGI_COLOR_PINK, -1, -1,       /* fontcolor, transcolor,opaque */
 	                                NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
+				fb_page_refresh(&gv_fb_dev, 0);
+				egi_pcmbuf_playback("default", pcmwin, 0, 2048, /* dev_name, pcmbuf, int vstep, unsigned int nf */
+                                                     1, NULL, NULL, NULL);      /* int nloop, bool *sigstop, bool *sigsynch, bool* sigtrigger */
 
-				egi_sleep(1,5,0);
+				egi_sleep(1,2,0);
 
+				/* --- Start Next Puzz --- */
 				/* Shuffer originimg to playimg */
 				egi_shuffle_intArray(cells, 6); /* shuffle index */
 				for(j=0; j<6; j++)
 					/* destimg, srcimg, bw, bh, xd, yd, xs, ys */
-					egi_imgbuf_copyBlock(playimg, originimg, bw, bh, cells[j]%3*bw, cells[j]/3*bh, j%3*bw, j/3*bh);
+					egi_imgbuf_copyBlock(playimg, originimg, bw, bh, j%3*bw, j/3*bh, cells[j]%3*bw, cells[j]/3*bh);
 
 				/* display playimg */
 				egi_subimg_writeFB(playimg, &gv_fb_dev, 0, -1, 0, 0); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
+				fb_page_refresh(&gv_fb_dev, 0);
 			}
 		}
 	}
 }
+
+ /* --- my releae --- */
+ egi_imgbuf_free(originimg);
+ egi_imgbuf_free(playimg);
+ egi_imgbuf_free(swapimg);
+ egi_imgbuf_free(padimg);
+
+ egi_pcmbuf_free(&pcmwin);
 
 
  /* <<<<<  EGI general release 	 >>>>>> */
@@ -204,10 +226,10 @@ while(1) {
  printf("fb_filo_flush() and release_fbdev()...\n");
  fb_filo_flush(&gv_fb_dev);
  release_fbdev(&gv_fb_dev);
-
- //printf("release virtual fbdev...\n");
- //release_virt_fbdev(&vfb);
-
+ #if 0
+ printf("release virtual fbdev...\n");
+ release_virt_fbdev(&vfb);
+ #endif
  printf("egi_end_touchread()...\n");
  egi_end_touchread();
  #if 0
@@ -221,53 +243,3 @@ return 0;
 }
 
 
-
-#if 0
-/*---------------------------------------------
-Shuffle an integer array.
-
-@size:	size of array.
-@in:	Input array
-@out:	Shuffled array.
-
-Return:
-	0	OK
-	<0	Fails
----------------------------------------------*/
-int egi_shuffle_intArray(int *array, int size)
-{
-	int i,j;
-	int index;
-	int *tmp=NULL;
-
-	if(array==NULL || size < 1)
-		return -1;
-
-	tmp=calloc(1,size*sizeof(int));
-	if(tmp==NULL)
-		return -2;
-
-	/* Copy original array to tmp */
-	for(i=0; i<size; i++)
-		tmp[i]=array[i];
-
-	/* shuffle index of tmp[], then copy tmp[index] to array[] */
-	for( i=0; i<size; i++ ) {
-		/* if last one */
-		if(i==size-1) {
-			array[i]=tmp[0];
-			break;
-		}
-		/* Shuffle index, and assign tmp[index] to array[i] */
-		index=egi_random_max(size-i)-1;
-		array[i]=tmp[index];
-
-		/* Fill up empty tmp[index] slot by moving followed members foreward */
-		if( index != size-i-1)
-			memmove((char *)tmp+index*sizeof(int), (char *)tmp+(index+1)*sizeof(int), (size-i-index-1)*sizeof(int));
-
-	}
-
-	return 0;
-}
-#endif 
