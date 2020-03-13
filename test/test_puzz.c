@@ -236,6 +236,7 @@ while(1) {
 				/* <---    Start Next Puzz    ---> */
 
 				/* load new picture for puzz */
+				egi_imgbuf_free(originimg); originimg=NULL;
 				do {
 					if(picnum>pictotal-1) {
 						picnum=0;
