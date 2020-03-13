@@ -58,9 +58,12 @@ int egi_shuffle_intArray(int *array, int size)
 	if(array==NULL || size < 1)
 		return -1;
 
+	/* Calloc tmp */
 	tmp=calloc(1,size*sizeof(int));
-	if(tmp==NULL)
+	if(tmp==NULL) {
+		printf("%s: Fail to calloc tmp.\n",__func__);
 		return -2;
+	}
 
 	/* Copy original array to tmp */
 	for(i=0; i<size; i++)
@@ -74,13 +77,12 @@ int egi_shuffle_intArray(int *array, int size)
 			break;
 		}
 		/* Shuffle index, and assign tmp[index] to array[i] */
-		index=mat_random_max(size-i)-1;
+		index=mat_random_range(size-i);
 		array[i]=tmp[index];
 
-		/* Fill up empty tmp[index] slot by moving followed members foreward */
-		if( index != size-i-1)
+		/* Fill up empty tmp[index] slot by moving followed members forward */
+		if( index != size-i-1) /* if not the last one */
 			memmove((char *)tmp+index*sizeof(int), (char *)tmp+(index+1)*sizeof(int), (size-i-index-1)*sizeof(int));
-
 	}
 
 	return 0;

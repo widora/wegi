@@ -1170,27 +1170,32 @@ inline int mat_pseudo_curvature(const EGI_POINT *pt)
 
 
 /*---------------------------------------
-return a random value not great than max
+Return a random integer within in range:
+ [0, max)   (when max >0)
+	OR
+ (max, 0]   (when max <0)
 
 Example:
-egi_random_max(5):  1,2,3,4,5
-egi_random_max(-5): -3,-2,-1,0,1
+egi_random_range(5):  0,1,2,3,4
+egi_random_range(-5): -4,-3,-2,-1,0
 
-max>0:  1<= ret <=max
-max=0:  1
-max<0:  max+2 <= ret <=1
-
+max>0:  0<= ret <=max-1
+max=0:  0
+max<0:  max+1 <= ret <=0
 ---------------------------------------*/
-int mat_random_max(int max)
+int mat_random_range(int max)
 {
-        int ret;
-        struct timeval tmval;
+	/* It seems Method 1 is better! */
 
+    #if 1 /* Randomize seeds:  Method 1 */
+        struct timeval tmval;
         gettimeofday(&tmval,NULL);
         srand(tmval.tv_usec);
-        ret = 1+(int)((float)max*rand()/(RAND_MAX+1.0));
-        //printf("random max ret=%d\n",ret);
+    #else /* Randomize seed:  Method 2 */
+	//usleep(10000); /* diff time seeds, necessary?? */
+	srand((int)time(NULL));
+    #endif
 
-        return ret;
+	return  (int)((float)max*rand()/(RAND_MAX+1.0));
 }
 

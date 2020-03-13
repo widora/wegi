@@ -5,6 +5,12 @@ published by the Free Software Foundation.
 
 A simple puzz game to test egi_imgbuf_copyBlock().
 
+		--- Game Rules ---
+1. Touch two image blocks to swap them.
+2. Touch the same block to cancel selection.
+3. If all blocks are in right position, then you win!
+
+
 Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
@@ -12,6 +18,14 @@ midaszhou@yahoo.com
 #include <egi_utils.h>
 #include <egi_FTsymbol.h>
 #include <egi_pcm.h>
+#include <egi_gif.h>
+
+
+#define PCM_DEVICE	 "default"
+#define PUZZPIC_PATH	 "/mmc/puzzpic"
+#define PUZZWIN_GIF	 "/mmc/puzzwin.gif"
+#define PUZZWIN_SOUND	 "/mmc/sound/puzzwin.wav"
+
 
 int main(int argc, char **argv)
 {
@@ -66,6 +80,14 @@ int main(int argc, char **argv)
 
  /* <<<<<  End of EGI general init  >>>>>> */
 	int i,j;
+	int pictotal; /* total number of puzz pictures */
+	int picnum=0;   /* index number of current picture */
+
+	char**  picfiles=egi_alloc_search_files(PUZZPIC_PATH, "jpg,png", &pictotal);
+	if(picfiles==NULL) {
+		printf("No file found in %s\n",PUZZPIC_PATH);
+		exit(1);
+	}
 
 	/* block size */
 	int bw=106; /* 320/3 */
@@ -78,14 +100,14 @@ int main(int argc, char **argv)
 				      * Also the Screen or image canvas is devide into 6 blocks. The cells[] contain the
 				      * index numbers of those separated image blocks which located in the cells respectively.
 				      */
-	int swap_index[2];  /* containing screen/canvas block numbers, for swap operation. */
+	int swap_index[2]={0,0};  /* containing screen/canvas block numbers, for swap operation. */
 	int xp,yp;
 	int tmp;
 
 
-#if 0  /* ----- TEST  egi_shuffle_intArray() ----- */
-	int nt=50;
-	int test[50];
+#if 0 /* ----- TEST  egi_shuffle_intArray() ----- */
+	int nt=6;
+	int test[6];
 	for(i=0; i<nt; i++)
 		test[i]=i;
 
@@ -99,13 +121,14 @@ int main(int argc, char **argv)
 
 	EGI_TOUCH_DATA touch_data;
 
-	EGI_IMGBUF *originimg=egi_imgbuf_readfile("/mmc/puzz.jpg");
+	EGI_IMGBUF *originimg=egi_imgbuf_readfile(picfiles[picnum]);
+	picnum++;
 
 	EGI_IMGBUF *playimg=egi_imgbuf_createWithoutAlpha(240, 320, 0);
 	EGI_IMGBUF *swapimg=egi_imgbuf_createWithoutAlpha(bh, bw, 0);
 	EGI_IMGBUF *padimg=egi_imgbuf_create(80, 320, 180, WEGI_COLOR_GRAY3);
 
-	EGI_PCMBUF *pcmwin=egi_pcmbuf_readfile("/mmc/sound/yougreat.wav");
+	EGI_PCMBUF *pcmwin=egi_pcmbuf_readfile(PUZZWIN_SOUND);
 
 	if(!originimg ) {
 		printf("Fail to read image file!\n");
@@ -117,8 +140,9 @@ int main(int argc, char **argv)
 	}
 
 	/* Shuffer originimg to playimg */
+	printf("egi_shuffle_intArray()...\n");
 	egi_shuffle_intArray(cells, 6); /* shuffle index */
-	printf("Cells[]: ");
+	printf("Cells[]:");
 	for(j=0; j<6; j++) {
 		printf(" %d",cells[j]);
 		/* destimg, srcimg, bw, bh, xd, yd, xs, ys */
@@ -127,13 +151,14 @@ int main(int argc, char **argv)
 	printf("/n");
 	/* display playimg */
 	egi_subimg_writeFB(playimg, &gv_fb_dev, 0, -1, 0, 0); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
+
 	fb_page_refresh(&gv_fb_dev, 0);
 
 	n=0;
 while(1) {
         if( egi_touch_timeWait_press(0, 100, &touch_data)==0 ) {
 
-		/* touch_data change to same coord as of FB */
+		/* touch_data converted to the same coord as of FB */
 		egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
 
 		/* Get index number of the touched block area, of the screen  */
@@ -144,8 +169,20 @@ while(1) {
 		yp=(swap_index[n-1]/3)*bh;
         	fbset_color(WEGI_COLOR_PINK);
         	draw_wrect(&gv_fb_dev, xp, yp, xp+bw-1, yp+bh-1, 5);
+
+		/* Draw a link line */
+		if( n==2 &&  swap_index[0] != swap_index[1]) {
+			fbset_color(WEGI_COLOR_WHITE);
+			draw_filled_circle(&gv_fb_dev, bw*(swap_index[0]%3)+60, bh*(swap_index[0]/3)+60, 6);
+			draw_filled_circle(&gv_fb_dev, bw*(swap_index[1]%3)+60, bh*(swap_index[1]/3)+60, 6);
+			draw_wline(&gv_fb_dev, bw*(swap_index[0]%3)+60, bh*(swap_index[0]/3)+60, bw*(swap_index[1]%3)+60, bh*(swap_index[1]/3)+60, 3);
+		}
+
 		fb_page_refresh(&gv_fb_dev, 0);
-		egi_sleep(1,0,50);
+
+		/* Wait for touch_release */
+		egi_touch_timeWait_release(0, 1000, &touch_data);
+		//egi_sleep(1,0,50);
 
 		/* Swap block image */
 		if(n==2) {
@@ -161,9 +198,10 @@ while(1) {
 
 			/* Display update playimg */
 			egi_subimg_writeFB(playimg, &gv_fb_dev, 0, -1, 0, 0); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
+
 			fb_page_refresh(&gv_fb_dev, 0);
 
-			/* Swap cell[] */
+			/* Swap cell[] index */
 			tmp=cells[swap_index[0]];
 			cells[swap_index[0]] = cells[swap_index[1]];
 			cells[swap_index[1]] = tmp;
@@ -176,7 +214,7 @@ while(1) {
 				if(cells[i]!=i) break;
 				else if(i < 6-1 ) continue;
 
-				/*  --- YOU WIN --- */
+				/*  <---	 YOU WIN : Music & GIF	  ---> */
 				printf("   --- YOU WIN --- \n");
 				egi_subimg_writeFB(padimg, &gv_fb_dev, 0, -1, 0, 80); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
 			        FTsymbol_uft8strings_writeFB(  &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
@@ -186,19 +224,40 @@ while(1) {
                                 	WEGI_COLOR_PINK, -1, -1,       /* fontcolor, transcolor,opaque */
 	                                NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
 				fb_page_refresh(&gv_fb_dev, 0);
-				egi_pcmbuf_playback("default", pcmwin, 0, 2048, /* dev_name, pcmbuf, int vstep, unsigned int nf */
-                                                     1, NULL, NULL, NULL);      /* int nloop, bool *sigstop, bool *sigsynch, bool* sigtrigger */
+				egi_pcmbuf_playback(PCM_DEVICE, pcmwin, 0, 2048, /* dev_name, pcmbuf, int vstep, unsigned int nf */
+                                                     2, NULL, NULL, NULL);      /* int nloop, bool *sigstop, bool *sigsynch, bool* sigtrigger */
 
-				egi_sleep(1,2,0);
+				/* play puzzwin gif */
+				fb_copy_FBbuffer(&gv_fb_dev, 0, 1); /* Init back ground buffer before calling egi_gif_playFile() */
+				egi_gif_playFile(PUZZWIN_GIF, false, true, NULL, 1, NULL); /* fpath, bool Silent_Mode, ImgTransp_ON, *ImageCount, nloop , *sigstop) */
+				//egi_sleep(1,2,0);
 
-				/* --- Start Next Puzz --- */
+
+				/* <---    Start Next Puzz    ---> */
+
+				/* load new picture for puzz */
+				do {
+					if(picnum>pictotal-1) {
+						picnum=0;
+						printf(" -------  New Round ------\n");
+					}
+					originimg=egi_imgbuf_readfile(picfiles[picnum]);
+					picnum++;
+				}while(originimg==NULL);
+
 				/* Shuffer originimg to playimg */
-				egi_shuffle_intArray(cells, 6); /* shuffle index */
+				do {
+					egi_shuffle_intArray(cells, 6); /* shuffle index */
+					/* In case that we fail to shuffle the right order */
+	                        	for(i=0; i<6; i++)
+         	                       		if(cells[i]!=i) break;
+				}while(i==6);
+
 				for(j=0; j<6; j++)
 					/* destimg, srcimg, bw, bh, xd, yd, xs, ys */
 					egi_imgbuf_copyBlock(playimg, originimg, bw, bh, j%3*bw, j/3*bh, cells[j]%3*bw, cells[j]/3*bh);
 
-				/* display playimg */
+				/* Display playimg */
 				egi_subimg_writeFB(playimg, &gv_fb_dev, 0, -1, 0, 0); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
 				fb_page_refresh(&gv_fb_dev, 0);
 			}
@@ -213,6 +272,8 @@ while(1) {
  egi_imgbuf_free(padimg);
 
  egi_pcmbuf_free(&pcmwin);
+
+ egi_free_buff2D((unsigned char **)picfiles, pictotal);
 
 
  /* <<<<<  EGI general release 	 >>>>>> */

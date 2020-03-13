@@ -81,6 +81,8 @@ Note:
    EGI_GIF_DATA.
 
 2. The passed ImageCount starts from 1, and ends with the total number of images.
+3. For a GIF with transparent area, you shall initialize FB back groud buffer before calling
+   the function. One way is to run fb_copy_FBbuffer(&gv_fb_dev, 0, 1) first.
 
 @fpath: 	 File path
 @Silent_Mode:	 TRUE: Do NOT display or delay, just read frame by frame and pass
@@ -92,14 +94,16 @@ Note:
 		 Suggest to turn OFF only when no transparency setting in the GIF file,
 		 to show SBackGroundColor.
 
-@ImageCount:	 Number of images that have been displayed/parsed.
+@ImageCount:	 To pass out number of images that have been displayed/parsed in real time.
 		 If NULL, ignore.
 
 @nloop:          loop times for each function call:
                  <=0 : loop displaying GIF frames forever
                  >0 : nloop times
-@sigstop:	 Quit if Ture
+
+@sigstop:	 Quit if Ture.
 		 If NULL, ignore.
+		 Check every time before get RecordType.
 
 				( --- Basic Procedure --- )
 

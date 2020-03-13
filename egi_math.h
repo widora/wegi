@@ -13,6 +13,7 @@ Midas Zhou
 #include "egi.h"
 #include "egi_fbgeom.h"
 #include <inttypes.h>
+#include <unistd.h> /* usleep */
 
 #define MATH_PI 	3.1415926535897932
 #define MATH_DIVEXP   	11  /* An odd number!!  exponent of 2, as for divisor of fixed point number */
@@ -85,7 +86,7 @@ int 		mat_egiFFFT( uint16_t np, const EGI_FCOMPLEX *wang,
 void 		mat_create_fpTrigonTab(void);
 uint64_t 	mat_fp16_sqrtu32(uint32_t x);
 void 		mat_floatArray_limits(float *data, int num, float *min, float *max);
-int 		mat_random_max(int max);
+int 		mat_random_range(int max);
 
 
 /*

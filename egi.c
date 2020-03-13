@@ -72,7 +72,7 @@ const char *egi_str_touch_status(enum egi_touch_status touch_status)
 }
 
 
-/*---- !!! put to egi_math.c :  mat_random_max() !!! ---------
+/*---- !!! OBOSELETE:  See to egi_math.c: mat_random_range() !!! ---------
 return a random value not great than max
 
 Example:

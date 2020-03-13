@@ -913,6 +913,8 @@ EGI_PCMBUF* egi_pcmbuf_readfile(char *path)
         else if( ret != sinfo.frames/(2/depth) ) {
 		printf("%s: WARNING!!! sf_readf_short() return uncomplete frames!\n",__func__);
         }
+	else
+	 	printf("%s: ...finish sf_read_short()!\n",__func__);
 #else
 	printf("%s: sf_readf_raw...\n",__func__);
 	ret=sf_read_raw(snf, (void *)pcmbuf->pcmbuf, (sf_count_t)(sinfo.frames*sinfo.channels*depth) ) ;
@@ -925,8 +927,9 @@ EGI_PCMBUF* egi_pcmbuf_readfile(char *path)
         else if( ret != sinfo.frames*sinfo.channels*depth ) {
 		printf("%s: WARNING!!! sf_read_raw() return uncomplete frames!\n",__func__);
         }
+	else
+	 	printf("%s: ...finish sf_read_raw()!\n",__func__);
 #endif
-
 	sf_close(snf);
 	return pcmbuf;
 }
