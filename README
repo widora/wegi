@@ -1,3 +1,5 @@
+Start with Hello World:  test/egi_helloworld.c
+
 			----- 1. Basic Concepts -----
 
 0. EBOX is the basic graphic element, and all other elements such as Buttons, Txtbox, Slider, 
