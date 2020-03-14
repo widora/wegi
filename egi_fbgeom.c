@@ -673,6 +673,56 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 }
 
 
+/*-----------------------------------------------------
+Draw a frame for rectangluar button, to illustrate
+bright/shadowy side lines.
+
+@dev:   	pointer to FBDEV
+@type:  	0  Released button frame
+		1  Pressed button frame
+
+@x0,y0:  	Left top point coord.
+@width:		Width of the button
+@Height:	Height of the button
+@w:		Width for side lines.
+
+Midas
+------------------------------------------------------*/
+void draw_button_frame( FBDEV *dev, unsigned int type,
+			int x0, int y0, unsigned int width, unsigned int height, unsigned int w)
+{
+     	EGI_POINT       points[3];
+
+	/* 1. Draw lower lines */
+        if(type==1)
+		fbset_color2(dev, WEGI_COLOR_GRAYC); /* For pressed button, bright. */
+	else
+		fbset_color2(dev, WEGI_COLOR_DARKGRAY);    /* For released button, shadowy */
+
+     	draw_filled_rect( dev,  x0, y0+height-w,  x0+width-1, y0+height-1 );
+     	draw_filled_rect( dev,  x0+width-w, y0, x0+width-1, y0+height-w-1 );
+
+	/* 2. Draw upper lines */
+        if(type==1)
+		fbset_color2(dev, WEGI_COLOR_DARKGRAY);  /* For pressed button, shadowy */
+	else
+		fbset_color2(dev, WEGI_COLOR_GRAYC);	 /* For released button, bright */
+
+     	draw_filled_rect( dev,  x0, y0,      x0+w-1, y0+height-w-1 );
+     	draw_filled_rect( dev,  x0+w, y0,  x0+width-w-1, y0+w-1  );
+
+     	/* covered triangles */
+     	points[0]=(EGI_POINT){x0, y0+height-w};
+     	points[1]=(EGI_POINT){x0+w-1, y0+height-w};
+     	points[2]=(EGI_POINT){x0, y0+height-1};
+     	draw_filled_triangle(dev, points);
+
+     	points[0]=(EGI_POINT){x0+width-w, y0};
+     	points[1]=(EGI_POINT){x0+width-1, y0};
+     	points[2]=(EGI_POINT){x0+width-w, y0+w-1};
+     	draw_filled_triangle(dev, points);
+}
+
 
 /*--------------------------------------------------------------------
 Draw A Line with width, draw no circle at two points
