@@ -680,33 +680,46 @@ bright/shadowy side lines.
 @dev:   	pointer to FBDEV
 @type:  	0  Released button frame
 		1  Pressed button frame
-
+@color:		Button color, usually same as the back
+		ground color.
 @x0,y0:  	Left top point coord.
 @width:		Width of the button
 @Height:	Height of the button
 @w:		Width for side lines.
 
-Midas
+Midas Zhou
 ------------------------------------------------------*/
-void draw_button_frame( FBDEV *dev, unsigned int type,
+void draw_button_frame( FBDEV *dev, unsigned int type, EGI_16BIT_COLOR color,
 			int x0, int y0, unsigned int width, unsigned int height, unsigned int w)
 {
+
+	/* Note: R,G,B contributes differently to the luminance, with G the most and B the least !
+	 *       and lum_adjust is NOT a linear brightness adjustment as to human's visual sense.
+         */
+	int deltY=egi_color_getY(color)<<2; /* 1/4 of original Y  */
      	EGI_POINT       points[3];
 
 	/* 1. Draw lower lines */
-        if(type==1)
-		fbset_color2(dev, WEGI_COLOR_GRAYC); /* For pressed button, bright. */
-	else
-		fbset_color2(dev, WEGI_COLOR_DARKGRAY);    /* For released button, shadowy */
-
+        if(type==1) {	/* For pressed button, bright. */
+		fbset_color2(dev, egi_colorLuma_adjust(color, +deltY));
+		//fbset_color2(dev, WEGI_COLOR_GRAYC);
+	}
+	else {		/* For released button, shadowy */
+		fbset_color2(dev, egi_colorLuma_adjust(color, -deltY));
+		//fbset_color2(dev, WEGI_COLOR_DARKGRAY);
+	}
      	draw_filled_rect( dev,  x0, y0+height-w,  x0+width-1, y0+height-1 );
      	draw_filled_rect( dev,  x0+width-w, y0, x0+width-1, y0+height-w-1 );
 
 	/* 2. Draw upper lines */
-        if(type==1)
-		fbset_color2(dev, WEGI_COLOR_DARKGRAY);  /* For pressed button, shadowy */
-	else
-		fbset_color2(dev, WEGI_COLOR_GRAYC);	 /* For released button, bright */
+        if(type==1) {	/* For pressed button, shadowy */
+		//fbset_color2(dev, WEGI_COLOR_DARKGRAY);
+		fbset_color2(dev, egi_colorLuma_adjust(color, -deltY));
+	}
+	else {		/* For released button, bright */
+		fbset_color2(dev, egi_colorLuma_adjust(color, +deltY));
+		//fbset_color2(dev, WEGI_COLOR_GRAYC);
+	}
 
      	draw_filled_rect( dev,  x0, y0,      x0+w-1, y0+height-w-1 );
      	draw_filled_rect( dev,  x0+w, y0,  x0+width-w-1, y0+w-1  );

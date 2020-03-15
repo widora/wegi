@@ -703,6 +703,42 @@ FT_FAILS:
 }
 
 
+/*--------------------------------------------------------
+To get actual symHeight/bitmapHeight for a dedicated FT_Face
+and font size.
+Return:
+	>0	OK
+	<0	Fails
+---------------------------------------------------------*/
+int FTsymbol_get_symheight(FT_Face face, int fw, int fh )
+{
+	wchar_t wcode[]=L"O";
+  	FT_Error      error;
+  	FT_GlyphSlot slot = face->glyph;
+
+	/* set character size in pixels */
+	error = FT_Set_Pixel_Sizes(face, fw, fh);
+   	/* OR set character size in 26.6 fractional points, and resolution in dpi
+   	   error = FT_Set_Char_Size( face, 32*32, 0, 100,0 ); */
+	if(error) {
+		printf("%s: FT_Set_Pixel_Sizes() fails!\n",__func__);
+		return -1;
+	}
+
+	/* Do not set transform, keep up_right and pen position(0,0)
+    		FT_Set_Transform( face, &matrix, &pen ); */
+
+	/* Load char and render, old data in face->glyph will be cleared */
+    	error = FT_Load_Char( face, wcode[0], FT_LOAD_RENDER );
+    	if (error) {
+		printf("%s: FT_Load_Char() fails!\n",__func__);
+		return -2;
+	}
+
+	return slot->bitmap.rows;
+}
+
+
 /*-----------------------------------------------------------------------------------------------
 1. Render a CJK character presented in UNICODE with the specified face type, then write the
    bitmap to FB.
@@ -743,10 +779,9 @@ use following COLOR:
                 <0      Use symbol alpha data, or none.
                 0       100% back ground color/transparent
                 255     100% front color
-
 --------------------------------------------------------------------------------------------------*/
 void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar_t wcode, int *xleft,
-				int x0, int y0, int fontcolor, int transpcolor,int opaque)
+				int x0, int y0, int fontcolor, int transpcolor,int opaque )
 {
   	FT_Error      error;
   	FT_GlyphSlot slot = face->glyph;
@@ -811,15 +846,17 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 		return;
 	/* taken bbox_H as fh */
 
-#if 0 /* ----TEST: Display Boundary BOX------- */
-	/* Note: Assume boundary box start from x0,y0(same as bitmap)
-	 */
-	draw_rect(fb_dev, x0, y0, x0+bbox_W, y0+fh );
-
-#endif
 	/* adjust bitmap position relative to boundary box */
 	delX= slot->bitmap_left;
 	delY= -slot->bitmap_top + fh;
+
+#if 0 /* ----TEST: Display Boundary BOX------- */
+	/* Note: Assume boundary box start from x0,y0(same as bitmap)
+	 */
+	draw_rect(fb_dev, x0, y0, x0+bbox_W, y0+fh);  /* space size */
+	//draw_rect(fb_dev, x0, y0+delY, x0+bbox_W, y0+ftsympg.symheight+delY);  /* bitmap size */
+
+#endif
 
 	/* write to FB,  symcode =0, whatever  */
 	if(fb_dev != NULL) {
@@ -827,7 +864,6 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 		symbol_writeFB(fb_dev, &ftsympg, fontcolor, transpcolor, x0+delX, y0+delY, 0, opaque);
 	}
 }
-
 
 
 /*-----------------------------------------------------------------------------------------

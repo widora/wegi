@@ -60,7 +60,7 @@ int  	FTsymbol_load_sysfonts(void);
 int  	FTsymbol_load_appfonts(void);
 void	FTsymbol_release_allfonts(void);
 int  	FTsymbol_load_asciis_from_fontfile( EGI_SYMPAGE *symfont_page, const char *font_path, int Wp, int Hp );
-
+int 	FTsymbol_get_symheight(FT_Face face, int fw, int fh );
 void 	FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar_t wcode, int *xleft,
 				int x0, int y0, int fontcolor, int transpcolor,int opaque);
 

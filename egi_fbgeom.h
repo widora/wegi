@@ -33,13 +33,14 @@ extern EGI_BOX gv_fb_box;
 
 /* simple rectangular button data */
 typedef struct {
-        int x0;
-        int y0;
-        int btnw;
-        int btnh;
-        int sw;   	/* width for bright/shadowy lines */
-        bool pressed;
-        void (* callback)(void *arg);
+	EGI_16BIT_COLOR	color;
+        int 		x0;				/* left top coordinate */
+        int 		y0;
+        unsigned int	width;				/* button width and height */
+        unsigned int	height;
+        unsigned int	sw;   				/* width for bright/shadowy lines */
+        bool 		pressed;   			/* button status */
+        void 		(* callback)(void *arg);	/* Callback function */
 } EGI_RECTBTN;
 
 
@@ -66,7 +67,7 @@ bool    box_outbox(EGI_BOX* box, EGI_BOX* container);
    /******  NOTE: for 16bit color only!  ******/
 int 	draw_dot(FBDEV *dev,int x,int y);
 void 	draw_line(FBDEV *dev,int x1,int y1,int x2,int y2);
-void 	draw_button_frame( FBDEV *dev, unsigned int type,
+void 	draw_button_frame( FBDEV *dev, unsigned int type, EGI_16BIT_COLOR color,
                         int x0, int y0, unsigned int width, unsigned int height, unsigned int w);
 void 	draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned w);
 void 	draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned w);

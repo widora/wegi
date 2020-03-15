@@ -292,6 +292,7 @@ Note:
 1. Permit Y<0, otherwise R,G,or B MAY never get  to 0, when you need
    to obtain a totally BLACK RGB(000) color in conversion, as of a check
    point, say.
+2. R,G,B each contributes differently to the luminance, with G the most and B the least !
 
 	--- RGB to YUV ---
 Y=0.30R+0.59G+0.11B=(307R+604G+113G)>>10   [0-255]

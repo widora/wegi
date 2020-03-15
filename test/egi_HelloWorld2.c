@@ -15,6 +15,9 @@ midaszhou@yahoo.com
 #include <egi_FTsymbol.h>
 
 
+void writeFB_button(EGI_RECTBTN *btn0, char *tag, EGI_16BIT_COLOR tagcolor);
+
+
 int main(int argc, char **argv)
 {
  /* <<<<<<  EGI general init  >>>>>> */
@@ -63,26 +66,28 @@ int main(int argc, char **argv)
         return -1;
 
   /* Set sys FB mode */
-  fb_set_directFB(&gv_fb_dev,true);
+  fb_set_directFB(&gv_fb_dev,false);
   fb_position_rotate(&gv_fb_dev,3);
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
-  EGI_TOUCH_DATA touch_data;
-  EGI_RECTBTN btn0={ .x0=110, .y0=60, .btnw=100, .btnh=50, .sw=4, .pressed=false };
+
+
+	    		  /*-----------------------------------
+    			   *            Main Program
+    			   -----------------------------------*/
+
+  EGI_TOUCH_DATA  touch_data;
+  EGI_16BIT_COLOR bkcolor=WEGI_COLOR_OCEAN; //WEGI_COLOR_GRAY1
+
+  /* A rectangular button */
+  EGI_RECTBTN 	  btn0={ .color=WEGI_COLOR_OCEAN, .x0=110, .y0=60, .width=100, .height=50, .sw=4, .pressed=false };
+  btn0.color=bkcolor;
 
   /* Clear screen */
-  clear_screen( &gv_fb_dev, WEGI_COLOR_GRAY1);
-
-  /* Draw button */
-  draw_button_frame( &gv_fb_dev, btn0.pressed, btn0.x0, btn0.y0, btn0.btnw, btn0.btnh, btn0.sw); 	/* fbdev, type, x0, y0, width, height, w */
-  FTsymbol_uft8strings_writeFB(  &gv_fb_dev, egi_sysfonts.bold,         /* FBdev, fontface */
-                                 25, 25,(const unsigned char *)"OK",    /* fw,fh, pstr */
-                                 100, 1, 0,                             /* pixpl, lines, gap */
-                                 btn0.x0+28, btn0.y0+10,                /* x0,y0, */
-                                 WEGI_COLOR_BLACK, -1, -1,       	/* fontcolor, transcolor,opaque */
-                                 NULL, NULL, NULL, NULL);      		/* int *cnt, int *lnleft, int* penx, int* peny */
-
+  fb_clear_backBuff(&gv_fb_dev, bkcolor);
+  writeFB_button(&btn0, "OK", WEGI_COLOR_BLACK);
+  fb_page_refresh(&gv_fb_dev, 0);
 
 while(1) {
   	if(egi_touch_timeWait_press(0, 500, &touch_data)!=0)
@@ -91,21 +96,15 @@ while(1) {
         egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
 
 	/* Check if touched the button */
-	if( !pxy_inbox( touch_data.coord.x, touch_data.coord.y, btn0.x0, btn0.y0, btn0.x0+btn0.btnw, btn0.y0+btn0.btnh) )
+	if( !pxy_inbox( touch_data.coord.x, touch_data.coord.y, btn0.x0, btn0.y0, btn0.x0+btn0.width, btn0.y0+btn0.height) )
 		continue;
 
 	/* Toggle button */
         btn0.pressed=!btn0.pressed;
 
 	/* Draw button */
-  	clear_screen( &gv_fb_dev, WEGI_COLOR_GRAY1);
-  	draw_button_frame( &gv_fb_dev, btn0.pressed, btn0.x0, btn0.y0, btn0.btnw, btn0.btnh, btn0.sw); 	/* fbdev, type, x0, y0, width, height, w */
-  	FTsymbol_uft8strings_writeFB(  &gv_fb_dev, egi_sysfonts.bold,           /* FBdev, fontface */
-        	                        25, 25,(const unsigned char *)"OK",     /* fw,fh, pstr */
-                	                100, 1, 0,                              /* pixpl, lines, gap */
-                        	        btn0.x0+28, btn0.y0+10,                 /* x0,y0, */
-                                	WEGI_COLOR_BLACK, -1, -1,       	/* fontcolor, transcolor,opaque */
-                                 	NULL, NULL, NULL, NULL);      		/* int *cnt, int *lnleft, int* penx, int* peny */
+  	fb_clear_backBuff(&gv_fb_dev, bkcolor);
+  	writeFB_button(&btn0, "OK", WEGI_COLOR_BLACK);
 
 	/* Write Hello World! */
   	if(btn0.pressed)
@@ -115,9 +114,10 @@ while(1) {
                                  		20, 150,                                    /* x0,y0, */
                                  		WEGI_COLOR_RED, -1, -1,       /* fontcolor, transcolor,opaque */
                                  		NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
-
+  	fb_page_refresh(&gv_fb_dev, 0);
 
 }
+
 
 
  /* --- my releae --- */
@@ -150,3 +150,32 @@ return 0;
 }
 
 
+
+/*-----------------------------------
+    Draw button and put tag
+-----------------------------------*/
+void writeFB_button(EGI_RECTBTN *btn, char *tag, EGI_16BIT_COLOR tagcolor)
+{
+	int fw=25;
+	int fh=25;
+	int pixlen;
+
+	if(btn==NULL)return;
+
+	/* Draw frame ( fbdev, type, x0, y0, width, height, w ) */
+  	draw_button_frame( &gv_fb_dev, btn->pressed, btn->color, btn->x0, btn->y0, btn->width, btn->height, btn->sw);
+
+	int bith=FTsymbol_get_symheight(egi_sysfonts.bold, fw, fh);
+	printf("bith=%d\n",bith);
+
+	pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.bold, fw, fh,(const unsigned char *)tag);
+
+ 	/* Write tag */
+  	FTsymbol_uft8strings_writeFB(  &gv_fb_dev, egi_sysfonts.bold,          	/* FBdev, fontface */
+        	                       fw, fh,(const unsigned char *)tag,      	/* fw,fh, pstr */
+                	               320, 1, 0,                              	/* pixpl, lines, gap */
+				       btn->x0+(btn->width-pixlen)/2,		/* x0 */
+				btn->y0+(btn->height-fh)/2-(fh-bith)/2 +(btn->pressed?2:0),		/* y0 */
+                                       tagcolor, -1, -1,       			/* fontcolor, transcolor,opaque */
+                                       NULL, NULL, NULL, NULL);      		/* int *cnt, int *lnleft, int* penx, int* peny */
+}
