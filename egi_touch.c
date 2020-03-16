@@ -18,6 +18,7 @@ TODO:
 Midas Zhou
 -----------------------------------------------------------------------*/
 #include "egi.h"
+#include "egi_fbgeom.h"
 #include "spi.h"
 #include "egi_debug.h"
 #include "egi_timer.h"
@@ -41,19 +42,38 @@ static pthread_cond_t	cond_touch;	/* To indicate that touch_status 'pressing' is
 					 * XXX or 'pressed_hold' is detected */
 static pthread_mutex_t	mutex_lockCond; /* mutex lock for pthread cond */
 static int		flag_cond=-1;	/* predicate for pthread cond, set in egi_touch_loopread()
-					 * flag_cond == 0, untouched,  ==1 touched
-					 * flag_cond == -1, idle.
+					 * flag_cond:  == 0, untouched,  ==1 touched
+					 * flag_cond:  == -1, idle.
 					 */
 static bool tok_loopread_nowait;	/* If ture, touch_loopread will run nonstop,
 					 * otherwise it will wait until live_touch_data.updated becomes false,
 					 * after last data is read out.
 					 */
 
+/*--------------------------------------------------------------
+To check whether it touchs/moves on an EGI_RECTBTN
+
+
+Return:
+	true	Yes
+	flas	No OR Fails
+---------------------------------------------------------------*/
+bool egi_touch_on_rectBTN(EGI_TOUCH_DATA *touch_data, EGI_RECTBTN *btn)
+{
+	if(touch_data==NULL || btn==NULL)
+		return false;
+
+       return pxy_inbox( touch_data->coord.x, touch_data->coord.y, btn->x0, btn->y0,
+				 		btn->x0+btn->width, btn->y0+btn->height );
+}
+
+
 /*----------------------------------------------------------------------------------
 Wait for a touch 'pressing' event, return on the event or
 when time is out.
 
 @s:	      Timeout in secondes.
+	      If s<0, persistent wait.
 @ms:	      Timeout in Millisecond.
 @touch_data   Touch data on the event
 	      If NULL, ignored.
@@ -63,7 +83,7 @@ Retrun:
 	<0	Fails / Errors
 	>0	Time out.
 -------------------------------------------------------------------------------------*/
-int egi_touch_timeWait_press(unsigned int s, unsigned int ms, EGI_TOUCH_DATA *touch_data) //EGI_POINT *pxy)
+int egi_touch_timeWait_press( int s, unsigned int ms, EGI_TOUCH_DATA *touch_data) //EGI_POINT *pxy)
 {
 	int ret=0;
 	int wait_ret=0;
@@ -87,20 +107,26 @@ int egi_touch_timeWait_press(unsigned int s, unsigned int ms, EGI_TOUCH_DATA *to
 
 		/* wait flag and timeout:  flag_cond and cond_signal to be received simutaneously */
 		while(flag_cond==0) {
-			/* ??? If invoked by incorrect signal, then outtime will reset ?!!! */
-			gettimeofday(&now, NULL);
-			ns=now.tv_usec*1000+ms*1000000;
-			if(ms ==0 ) {
-				outtime.tv_sec = now.tv_sec + s;
-				outtime.tv_nsec = ns; //now.tv_usec*1000+ms*1000000;
-			} else {
-				outtime.tv_sec = now.tv_sec+s+ns/1000000000;
-				outtime.tv_nsec = ns%1000000000;
+			if( s<0 ) { 	/* --- persistent wait --- */
+				if(pthread_cond_wait(&cond_touch, &mutex_lockCond)==0 && flag_cond==1)
+					break;
 			}
-			/* timedwait, wait_ret==0 if cond_touch is received.*/
-			wait_ret=pthread_cond_timedwait(&cond_touch, &mutex_lockCond, &outtime);
-			if(wait_ret==ETIMEDOUT)
-				break;
+			else {		/* --- Time wait --- */
+				/* ??? If invoked by incorrect signal, then outtime will reset ?!!! */
+				gettimeofday(&now, NULL);
+				ns=now.tv_usec*1000+ms*1000000;
+				if(ms ==0 ) {
+					outtime.tv_sec = now.tv_sec + s;
+					outtime.tv_nsec = ns; //now.tv_usec*1000+ms*1000000;
+				} else {
+					outtime.tv_sec = now.tv_sec+s+ns/1000000000;
+					outtime.tv_nsec = ns%1000000000;
+				}
+				/* timedwait, wait_ret==0 if cond_touch is received.*/
+				wait_ret=pthread_cond_timedwait(&cond_touch, &mutex_lockCond, &outtime);
+				if(wait_ret==ETIMEDOUT)
+					break;
+			}
 		}
 
 		/* Reset loopread to wait mode */
@@ -148,6 +174,7 @@ int egi_touch_timeWait_press(unsigned int s, unsigned int ms, EGI_TOUCH_DATA *to
 Wait for a touch 'releasing' event, return on the event or when time is out.
 
 @s:	      Timeout in secondes.
+	      If s<0, persistent wait.
 @ms:	      Timeout in Millisecond.
 @touch_data   Touch data on the event
 	      If NULL, ignored.
@@ -156,7 +183,7 @@ Retrun:
 	<0	Fails / Errors
 	>0	Time out.
 ------------------------------------------------------------------------*/
-int egi_touch_timeWait_release(unsigned int s, unsigned int ms, EGI_TOUCH_DATA *touch_data)
+int egi_touch_timeWait_release(int s, unsigned int ms, EGI_TOUCH_DATA *touch_data)
 {
 	int ret=0;
 	int wait_ret=0;
@@ -180,20 +207,26 @@ int egi_touch_timeWait_release(unsigned int s, unsigned int ms, EGI_TOUCH_DATA *
 
 		/* wait flag and timeout:  flag_cond and cond_signal to be received simutaneously */
 		while(flag_cond==1) {
-			/* ??? If invoked by incorrect signal, then outtime will reset ?!!! */
-			gettimeofday(&now, NULL);
-			ns=now.tv_usec*1000+ms*1000000;
-			if(ms ==0 ) {
-				outtime.tv_sec = now.tv_sec + s;
-				outtime.tv_nsec = ns; //now.tv_usec*1000+ms*1000000;
-			} else {
-				outtime.tv_sec = now.tv_sec+s+ns/1000000000;
-				outtime.tv_nsec = ns%1000000000;
+			if( s<0 ) { /* --- persistent wait --- */
+				if(pthread_cond_wait(&cond_touch, &mutex_lockCond)==0 && flag_cond==0)
+					break;
 			}
-			/* timedwait, wait_ret==0 if cond_touch is received.*/
-			wait_ret=pthread_cond_timedwait(&cond_touch, &mutex_lockCond, &outtime);
-			if(wait_ret==ETIMEDOUT)
-				break;
+			else {	/* --- Time wait --- */
+				/* ??? If invoked by incorrect signal, then outtime will reset ?!!! */
+				gettimeofday(&now, NULL);
+				ns=now.tv_usec*1000+ms*1000000;
+				if(ms ==0 ) {
+					outtime.tv_sec = now.tv_sec + s;
+					outtime.tv_nsec = ns; //now.tv_usec*1000+ms*1000000;
+				} else {
+					outtime.tv_sec = now.tv_sec+s+ns/1000000000;
+					outtime.tv_nsec = ns%1000000000;
+				}
+				/* timedwait, wait_ret==0 if cond_touch is received.*/
+				wait_ret=pthread_cond_timedwait(&cond_touch, &mutex_lockCond, &outtime);
+				if(wait_ret==ETIMEDOUT)
+					break;
+			}
 		}
 
 		/* Reset loopread to wait mode */

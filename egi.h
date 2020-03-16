@@ -113,7 +113,7 @@ enum egi_slid_type
 };
 
 
-/* button touch status */
+/* button touch status and events */
 /* !!! SET str_touch_status[] in egi.c according !!! */
 enum egi_touch_status
 {

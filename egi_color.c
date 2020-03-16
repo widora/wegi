@@ -106,7 +106,8 @@ inline EGI_16BIT_COLOR egi_16bitColor_blend(int front, int back, int alpha)
 	alpha = alpha*3/2;
         if(alpha>255)
                 alpha=255;
-
+	//if(alpha<10)
+	//	alpha=0;
 #endif
 
         return COLOR_16BITS_BLEND(front, back, alpha);

@@ -44,7 +44,7 @@ midaszhou@yahoo.com
 #include "egi_symbol.h"
 #include "egi_color.h"
 
-/* button touch status:
+/* button touch status and events:
  * corresponding to enum egi_touch_status in egi.h
  */
 static const char *str_touch_status[]=

@@ -696,8 +696,12 @@ void draw_button_frame( FBDEV *dev, unsigned int type, EGI_16BIT_COLOR color,
 	/* Note: R,G,B contributes differently to the luminance, with G the most and B the least !
 	 *       and lum_adjust is NOT a linear brightness adjustment as to human's visual sense.
          */
-	int deltY=egi_color_getY(color)<<2; /* 1/4 of original Y  */
+	int deltY=egi_color_getY(color)>>2; /* 1/4 of original Y  */
+	if(deltY<50)deltY=50;
+
      	EGI_POINT       points[3];
+
+
 
 	/* 1. Draw lower lines */
         if(type==1) {	/* For pressed button, bright. */
@@ -721,7 +725,7 @@ void draw_button_frame( FBDEV *dev, unsigned int type, EGI_16BIT_COLOR color,
 		//fbset_color2(dev, WEGI_COLOR_GRAYC);
 	}
 
-     	draw_filled_rect( dev,  x0, y0,      x0+w-1, y0+height-w-1 );
+     	draw_filled_rect( dev,  x0, y0,    x0+w-1, y0+height-w-1 );
      	draw_filled_rect( dev,  x0+w, y0,  x0+width-w-1, y0+w-1  );
 
      	/* covered triangles */
@@ -1053,6 +1057,7 @@ int draw_filled_rect2(FBDEV *dev, uint16_t color, int x1,int y1,int x2,int y2)
 		for(j=xl;j<=xr;j++)
 		{
 			fb_color=color;
+			/* TODO: dev->pixcolor_on */
                 	draw_dot(dev,j,i); /* ignore range check */
 		}
 	}
@@ -1395,6 +1400,7 @@ draw a filled annulus.
 Note:
 	1. When w=1, the result annulus is a circle with some
 	   unconnected dots.!!!
+	2. Distance is defined as pixel center to pixel center.
 Midas
 --------------------------------------------------------------------------*/
 void draw_filled_annulus(FBDEV *dev, int x0, int y0, int r, unsigned int w)
@@ -1409,32 +1415,34 @@ void draw_filled_annulus(FBDEV *dev, int x0, int y0, int r, unsigned int w)
 		/* distance from Xcenter to the point on outer circle */
 	        m=round(sqrt( ro*ro-j*j ));
 		//m=mat_fp16_sqrtu32(ro*ro-j*j)>>16; /* Seems no effect */
-		m-=1; /* diameter is odd */
+		//m-=1; /* diameter is odd */
 
 		/* distance from Xcenter to the point on inner circle */
                 if(j<ri) {
                         k=round(sqrt( ri*ri-j*j));
 			//k=mat_fp16_sqrtu32(ri*ri-j*j)>>16;
-			k-=1; /* diameter is odd */
+			//k-=1; /* diameter is odd */
 		}
                 else
                         k=0;
 
-		/*erase tips*/
-//		if(j==0) {
-//			m-=1;
-//			k-=1;
-//		}
-
-
   		/* draw 4th quadrant */
 		draw_line(dev,x0+k,y0+j,x0+m,y0+j);
 		/* draw 3rd quadrant */
-	   	draw_line(dev,x0-k,y0+j,x0-m,y0+j);
+		if(j>=ri) /* exclude overlapped line between 4th/3rd quadrant */
+			draw_line(dev,x0-1,y0+j,x0-m,y0+j);
+		else
+	   		draw_line(dev,x0-k,y0+j,x0-m,y0+j);
 		/* draw 2nd quadrant */
-		draw_line(dev,x0-k,y0-j,x0-m,y0-j);
+		if(j>0)  /* exclude overlapped line between 3rd/2nd quadrant */
+			draw_line(dev,x0-k,y0-j,x0-m,y0-j);
 		/* draw 1st quadrant */
-		draw_line(dev,x0+k,y0-j,x0+m,y0-j);
+		if(j>0) { /* exclude overlapped line between 1st/4th quadrant */
+			if(j>=ri)  /* exclude overlapped line between 1st/2nd quadrant */
+				draw_line(dev,x0+1,y0-j,x0+m,y0-j);
+			else
+				draw_line(dev,x0+k,y0-j,x0+m,y0-j);
+		}
 	}
 }
 

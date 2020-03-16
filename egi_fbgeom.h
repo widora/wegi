@@ -32,7 +32,8 @@ midaszhou@yahoo.com
 extern EGI_BOX gv_fb_box;
 
 /* simple rectangular button data */
-typedef struct {
+typedef struct egi_rectbtn EGI_RECTBTN;
+struct egi_rectbtn {
 	EGI_16BIT_COLOR	color;
         int 		x0;				/* left top coordinate */
         int 		y0;
@@ -40,8 +41,8 @@ typedef struct {
         unsigned int	height;
         unsigned int	sw;   				/* width for bright/shadowy lines */
         bool 		pressed;   			/* button status */
-        void 		(* callback)(void *arg);	/* Callback function */
-} EGI_RECTBTN;
+	void		(* reaction)(EGI_RECTBTN *);	/* button reaction callback */
+};
 
 
 /* functions */
