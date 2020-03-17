@@ -34,6 +34,7 @@ extern EGI_BOX gv_fb_box;
 /* simple rectangular button data */
 typedef struct egi_rectbtn EGI_RECTBTN;
 struct egi_rectbtn {
+	int		id;				/* button ID */
 	EGI_16BIT_COLOR	color;
         int 		x0;				/* left top coordinate */
         int 		y0;
@@ -41,6 +42,11 @@ struct egi_rectbtn {
         unsigned int	height;
         unsigned int	sw;   				/* width for bright/shadowy lines */
         bool 		pressed;   			/* button status */
+	int		type;
+	int 		effect;				/* Transforming effect when being touched.
+							 * 0:	Defalt, normal.
+							 * 1:   Ink effect.
+							 */
 	void		(* reaction)(EGI_RECTBTN *);	/* button reaction callback */
 };
 

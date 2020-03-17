@@ -674,8 +674,9 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 
 
 /*-----------------------------------------------------
-Draw a frame for rectangluar button, to illustrate
-bright/shadowy side lines.
+Only draw a frame for rectangluar button, to illustrate
+bright/shadowy side lines. Area inside the frame will
+keep unchanged.
 
 @dev:   	pointer to FBDEV
 @type:  	0  Released button frame
@@ -686,18 +687,21 @@ bright/shadowy side lines.
 @width:		Width of the button
 @Height:	Height of the button
 @w:		Width for side lines.
+		If w=0, return.
 
 Midas Zhou
 ------------------------------------------------------*/
 void draw_button_frame( FBDEV *dev, unsigned int type, EGI_16BIT_COLOR color,
 			int x0, int y0, unsigned int width, unsigned int height, unsigned int w)
 {
+	if(dev==NULL || w==0)
+		return;
 
 	/* Note: R,G,B contributes differently to the luminance, with G the most and B the least !
 	 *       and lum_adjust is NOT a linear brightness adjustment as to human's visual sense.
          */
 	int deltY=egi_color_getY(color)>>2; /* 1/4 of original Y  */
-	if(deltY<50)deltY=50;
+	if(deltY<50)deltY=75;
 
      	EGI_POINT       points[3];
 

@@ -145,8 +145,8 @@ int main(int argc, char **argv)
 	printf("Cells[]:");
 	for(j=0; j<6; j++) {
 		printf(" %d",cells[j]);
-		/* destimg, srcimg, bw, bh, xd, yd, xs, ys */
-		egi_imgbuf_copyBlock(playimg, originimg, bw, bh, j%3*bw, j/3*bh, cells[j]%3*bw, cells[j]/3*bh);
+		/* destimg, srcimg, blendON, bw, bh, xd, yd, xs, ys */
+		egi_imgbuf_copyBlock(playimg, originimg, false, bw, bh, j%3*bw, j/3*bh, cells[j]%3*bw, cells[j]/3*bh);
 	}
 	printf("/n");
 	/* display playimg */
@@ -190,11 +190,11 @@ while(1) {
 			n=0;
 
 			/* copy swap_index[0] block to swapimg */
-			egi_imgbuf_copyBlock(swapimg, playimg, bw, bh, 0, 0, bw*(swap_index[0]%3), bh*(swap_index[0]/3)); /* destimg, srcimg, bw, bh, xd, yd, xs, ys */
+			egi_imgbuf_copyBlock(swapimg, playimg, false, bw, bh, 0, 0, bw*(swap_index[0]%3), bh*(swap_index[0]/3)); /* destimg, srcimg, blendON, bw, bh, xd, yd, xs, ys */
 			/* copy swap_index[1] block to swap_index[0] block area */
-			egi_imgbuf_copyBlock(playimg, playimg, bw, bh,  bw*(swap_index[0]%3), bh*(swap_index[0]/3), bw*(swap_index[1]%3), bh*(swap_index[1]/3)); /* destimg, srcimg, bw, bh, xd, yd, xs, ys */
+			egi_imgbuf_copyBlock(playimg, playimg, false, bw, bh,  bw*(swap_index[0]%3), bh*(swap_index[0]/3), bw*(swap_index[1]%3), bh*(swap_index[1]/3)); /* destimg, srcimg, blendON, bw, bh, xd, yd, xs, ys */
 			/* copy swapimg to swap_index[1] block area */
-			egi_imgbuf_copyBlock(playimg, swapimg, bw, bh,  bw*(swap_index[1]%3), bh*(swap_index[1]/3), 0, 0); /* destimg, srcimg, bw, bh, xd, yd, xs, ys */
+			egi_imgbuf_copyBlock(playimg, swapimg, false, bw, bh,  bw*(swap_index[1]%3), bh*(swap_index[1]/3), 0, 0); /* destimg, srcimg, blendON ,bw, bh, xd, yd, xs, ys */
 
 			/* Display update playimg */
 			egi_subimg_writeFB(playimg, &gv_fb_dev, 0, -1, 0, 0); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
@@ -255,8 +255,8 @@ while(1) {
 				}while(i==6);
 
 				for(j=0; j<6; j++)
-					/* destimg, srcimg, bw, bh, xd, yd, xs, ys */
-					egi_imgbuf_copyBlock(playimg, originimg, bw, bh, j%3*bw, j/3*bh, cells[j]%3*bw, cells[j]/3*bh);
+					/* destimg, srcimg, blendON, bw, bh, xd, yd, xs, ys */
+					egi_imgbuf_copyBlock(playimg, originimg, false, bw, bh, j%3*bw, j/3*bh, cells[j]%3*bw, cells[j]/3*bh);
 
 				/* Display playimg */
 				egi_subimg_writeFB(playimg, &gv_fb_dev, 0, -1, 0, 0); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */

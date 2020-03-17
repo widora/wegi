@@ -45,9 +45,8 @@ EGI_IMGBUF*	egi_imgbuf_createWithoutAlpha( int height, int width, EGI_16BIT_COLO
 EGI_IMGBUF*	egi_imgbuf_readfile(const char* fpath);
 EGI_IMGBUF*	egi_imgbuf_blockCopy( const EGI_IMGBUF *ineimg,
                 	              int px, int py, int height, int width );
-int  		egi_imgbuf_copyBlock( EGI_IMGBUF *destimg,   const EGI_IMGBUF *srcimg, int bw, int bh,
-                	              						       int xd, int yd, int xs, int ys );
-
+int  		egi_imgbuf_copyBlock( EGI_IMGBUF *destimg, const EGI_IMGBUF *srcimg, bool blendON,
+							 	int bw, int bh, int xd, int yd, int xs, int ys );
 EGI_IMGBUF*	egi_imgbuf_subImgCopy( const EGI_IMGBUF *eimg, int index );
 int 		egi_imgbuf_setFrame( EGI_IMGBUF *eimg, enum imgframe_type type,
                          	     int alpha, int pn, const int *param );

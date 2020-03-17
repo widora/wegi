@@ -448,6 +448,14 @@ Note:
 
 @destimg:  	The destination EGI_IMGBUF.
 @srcimg:  	The source EGI_IMGBUF.
+@blendON:	True: Applicable only when srcimg has alpha values.
+		      Pixels of two images will be blended together.
+		      The copied pixels will be merged to destimg by callying
+		      egi_16bitColor_blend(), where only destimg->alpha
+		      takes effect, and alpha value of srcimg (if it has)
+		      will not be changed.
+
+		False: Copied pixels will replace old pixels.
 @xd, yd:	Block left top point coord relative to destimg.
 @xs, ys:	Block left top point coord relative to srcimg.
 @bw:   		Width of the copying block
@@ -457,7 +465,7 @@ Return:
         0         Ok
         <0        Fails
 -----------------------------------------------------------------------*/
-int  egi_imgbuf_copyBlock( EGI_IMGBUF *destimg, const EGI_IMGBUF *srcimg,
+int  egi_imgbuf_copyBlock( EGI_IMGBUF *destimg, const EGI_IMGBUF *srcimg, bool blendON,
 			   int bw, int bh,
                            int xd, int yd, int xs, int ys )
 {
@@ -523,9 +531,17 @@ int  egi_imgbuf_copyBlock( EGI_IMGBUF *destimg, const EGI_IMGBUF *srcimg,
 			pos_dest=(yd+i)*destimg->width+xd +j;
 
 			/* copy color and alpha data */
-			destimg->imgbuf[pos_dest]=srcimg->imgbuf[pos_src];
-			if(srcimg->alpha)
-				destimg->alpha[pos_dest]=srcimg->alpha[pos_src];
+			if( blendON && srcimg->alpha ) { /* If need to blend together */
+				destimg->imgbuf[pos_dest]=egi_16bitColor_blend( srcimg->imgbuf[pos_src],
+										destimg->imgbuf[pos_dest], srcimg->alpha[pos_src]);
+				/* Alpha values of destimg NOT changes */
+			}
+			else {
+				destimg->imgbuf[pos_dest]=srcimg->imgbuf[pos_src];
+				if(srcimg->alpha)
+					destimg->alpha[pos_dest]=srcimg->alpha[pos_src];
+			}
+
 		}
 	}
 

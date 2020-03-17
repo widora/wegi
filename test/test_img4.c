@@ -92,7 +92,7 @@ while(1) {
 
 	printf(" xd,yd=%d,%d   xs,ys=%d,%d \n", xd,yd, xs, ys);
 
-	if( egi_imgbuf_copyBlock(destimg, srcimg, bw, bh, xd, yd, xs, ys) ==0 ) /* destimg, srcimg, bw, bh, xd, yd, xs, ys */
+	if( egi_imgbuf_copyBlock(destimg, srcimg, false, bw, bh, xd, yd, xs, ys) ==0 ) /* destimg, srcimg, blendON, bw, bh, xd, yd, xs, ys */
 		egi_subimg_writeFB(destimg, &gv_fb_dev, 0, -1, 0, 0); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
 	else
 		printf("Block position out of image!\n");
