@@ -9,7 +9,7 @@ Midas Zhou
 #define __EGI_TOUCH_H__
 
 #include "egi.h"
-#include "egi_fbgeom.h"
+#include "egi_sbtn.h"
 #include <stdbool.h>
 
 /* typedef struct egi_touch_data EGI_TOUCH_DATA in "egi.h" */

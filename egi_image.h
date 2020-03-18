@@ -51,7 +51,13 @@ EGI_IMGBUF*	egi_imgbuf_subImgCopy( const EGI_IMGBUF *eimg, int index );
 int 		egi_imgbuf_setFrame( EGI_IMGBUF *eimg, enum imgframe_type type,
                          	     int alpha, int pn, const int *param );
 unsigned char 	get_alpha_mapCurve( int range, int type, int x);
+
+#define 	FADEOUT_EDGE_TOP	(1<<0)
+#define 	FADEOUT_EDGE_RIGHT	(1<<1)
+#define 	FADEOUT_EDGE_BOTTOM	(1<<2)
+#define 	FADEOUT_EDGE_LEFT	(1<<3)
 int 		egi_imgbuf_fadeOutEdges(EGI_IMGBUF *eimg, unsigned int width, unsigned int ssmode, int type);
+
 EGI_IMGBUF*	egi_imgbuf_newFrameImg( int height, int width,
                 	             unsigned char alpha, EGI_16BIT_COLOR color,
                         	     enum imgframe_type type,

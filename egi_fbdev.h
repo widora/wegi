@@ -48,6 +48,7 @@ typedef struct fbdev{
         struct 		fb_fix_screeninfo finfo;
 
         unsigned long 	screensize;	/* in bytes */
+					/* TODO: To hook up map_fb and map_buff[] with EGI_IMGBUFs */
         unsigned char 	*map_fb;  	/* Pointer to kernel FB buffer, mmap to FB data */
 	unsigned char 	*map_buff;	/* Pointer to user FB buffers, 1-3 pages, maybe more.
 					 * Default:
@@ -122,7 +123,11 @@ typedef struct fbpixel {
 	#endif
 }FBPIX;
 
-/* Default FBDEV, global variale, Frame buffer device */
+/* Default sys FBDEV, global variale, Frame buffer device
+ * Note: Most EGI advanced elements only support gv_fb_dev as default FBDEV,
+ *       however, you can create a new FBDEV by init_fbdev(), and write data to it by calling
+ *       supportive functions, which are usually basic element functions.
+ */
 extern FBDEV   gv_fb_dev;
 
 /* functions */

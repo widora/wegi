@@ -678,7 +678,7 @@ Note:
    but also on 'range' value, the bigger the better!
 
 @range:  The width of image transition area on edges.
-@typge:  Mapping curve type
+@typge:  Mapping curve type, see in function codes.
 @x:	 Input X, distance from image side, in pixels.
 	 The range of input X, [0 range-1]
 
@@ -743,16 +743,16 @@ unsigned char get_alpha_mapCurve( int range, int type, int x)
 
 /*--------------------------------------------------------------
 Modify alpha values for an EGI_IMGBUF, in order to make the 4
-edges of the image fade out (hide) smoothly.
+edges of the image fade out (hide) smoothly into its surrounding.
 
 @eimg: 	Pointer to an EGI_IMGBUF
 @width: Width of the gradient transition belt.
 
 @ssmode:  --- Side select mode ---
-	0b0001  effective for Top side only.
-	0b0010  effective for Right side only.
-	0b0100  effective for Bottom side only.
-	ob1000  effective for Left side only.
+	FADEOUT_EDGE_TOP 	0b0001  effective for Top side only.
+	FADEOUT_EDGE_RIGHT 	0b0010  effective for Right side only.
+	FADEOUT_DEGE_BOTTOM	0b0100  effective for Bottom side only.
+	FADEOUT_DEGE_LEFT	0b1000  effective for Left side only.
 
 	OR use operator '|' to combine them.
 @type:  Type of fading transition as defined in get_alpha_mapCurve().
@@ -2456,6 +2456,9 @@ int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha )
 	if( egi_imgbuf==NULL || egi_imgbuf->alpha==NULL )
 		return -1;
 
+	/* limit */
+	if(color>0xFFFF) color=0xFFFF;
+	if(alpha>0xFF) alpha=0xFF;
 
 	if(alpha>=0 && color>=0) {
 		for(i=0; i< egi_imgbuf->height*egi_imgbuf->width; i++) {

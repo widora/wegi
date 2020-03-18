@@ -20,6 +20,7 @@
 #include "egi_txt.h"
 #include "egi_list.h"
 #include "egi_btn.h"
+#include "egi_sbtn.h"
 #include "egi_slider.h"
 #include "egi_objbtn.h"
 #include "egi_objlist.h"

@@ -30,20 +30,24 @@ midaszhou@yahoo.com
 #include <egi_common.h>
 #include <egi_utils.h>
 #include <egi_FTsymbol.h>
+#include <egi_pcm.h>
 
 #define PANEL_BKGCOLOR 	WEGI_COLOR_DARKGRAY 	/* The panel back ground color */
+#define MAX_BTNS		4
 
-#define ID_ONOFF	0
-#define	ID_NEXT		1
-#define ID_MODE		2
+static EGI_RECTBTN	  btns[MAX_BTNS];
+#define BTNID_ONOFF		0
+#define	BTNID_NEXT		1
+#define BTNID_MODE		2
+#define BTNID_SLIDE		3
 
-static EGI_RECTBTN	  btns[3];
 static EGI_IMGBUF	  *blockimg=NULL;		/* To store save banner area image */
 static int play_mode;					/* 0- radio, 1-mp3 */
 
-void writeFB_button(EGI_RECTBTN *btn0, char *tag, EGI_16BIT_COLOR tagcolor);
+/* Reaction functions */
 void switch_button_react(EGI_RECTBTN *btn);
 void bounceback_button_react(EGI_RECTBTN *btn);
+void slide_button_react(EGI_RECTBTN *btn);
 void ripple_mark(EGI_POINT touch_pxy, uint8_t alpha, EGI_16BIT_COLOR color);
 
 
@@ -62,6 +66,8 @@ int main(int argc, char **argv)
         printf("Fail to init egi logger, quit.\n");
         return -1;
   }
+  #endif
+
   /* Load symbol pages */
   printf("FTsymbol_load_allpages()...\n");
   if(FTsymbol_load_allpages() !=0) /* FT derived sympg_ascii */
@@ -71,7 +77,7 @@ int main(int argc, char **argv)
         printf("Fail to load sym pages, quit.\n");
         return -1;
   }
-  #endif
+
   /* Load freetype fonts */
   printf("FTsymbol_load_sysfonts()...\n");
   if(FTsymbol_load_sysfonts() !=0) {
@@ -111,12 +117,15 @@ int main(int argc, char **argv)
   EGI_IMGBUF	  *bkimg=NULL;  	/* Backgroud image */
   EGI_TOUCH_DATA  touch_data;
   EGI_IMGBUF	  *bannerMask=NULL;	/* A banner mask */
+  EGI_IMGBUF	  *slideMask=NULL;	/* A mask, for sliding operation. */
 
 
-  /* Init. bannerimg */
+  /* Init. bannerMask and slidMask */
+  slideMask=egi_imgbuf_create( 240-190, 320, 220, WEGI_COLOR_ORANGE); /* height, width, alpha, color */
+  egi_imgbuf_fadeOutEdges(slideMask, 320, FADEOUT_EDGE_LEFT, 4); /* imgbuf, width, ssmode, type */
   bannerMask=egi_imgbuf_create( 240-190, 320, 55, WEGI_COLOR_BLACK);//DARKGRAY); /* height, width, alpha, color */
-  if(bannerMask==NULL)
-	printf("Fail to create bannerMask!\n");
+  if( bannerMask==NULL || slideMask==NULL )
+	printf("Fail to create Mask image!\n");
 
   /* Assign buttons' attributors */
   for(i=0; i<3; i++) {
@@ -127,9 +136,13 @@ int main(int argc, char **argv)
 	btns[i].reaction=(i%2==0?switch_button_react:bounceback_button_react);
 	btns[i].pressed=false;
   }
-  btns[ID_ONOFF].color=COLOR_24TO16BITS(0x66cc99);	/* ON /OFF */
-  btns[ID_NEXT].color=COLOR_24TO16BITS(0x6666ff);	/* NEXT */
-  btns[ID_MODE].color=COLOR_24TO16BITS(0xff6699);	/* Mode: Radio/MP3 */
+  /* Slide button */
+  btns[BTNID_SLIDE]=(EGI_RECTBTN){.id=3, .x0=0, .y0=190, .width=320, .height=50, .reaction=slide_button_react };
+  /* button color */
+  btns[BTNID_ONOFF].color=COLOR_24TO16BITS(0x66cc99);	/* ON /OFF */
+  btns[BTNID_NEXT].color=COLOR_24TO16BITS(0x6666ff);	/* NEXT */
+  btns[BTNID_MODE].color=COLOR_24TO16BITS(0xff6699);	/* Mode: Radio/MP3 */
+
 
   /* Clear screen and init. scene */
   if( (bkimg=egi_imgbuf_readfile("/mmc/linux.jpg")) != NULL ) {
@@ -143,10 +156,15 @@ int main(int argc, char **argv)
   else  /* If no bkimage then use pure color */
   	fb_clear_backBuff(&gv_fb_dev, PANEL_BKGCOLOR);
 
+
+  /* TEST: pressimg and releaseimg */
+  btns[BTNID_SLIDE].releaseimg=blockimg;
+  btns[BTNID_SLIDE].pressimg=slideMask;
+
   /* Put buttuns */
-  writeFB_button(&btns[0], "OFF", WEGI_COLOR_BLACK);
-  writeFB_button(&btns[1], "NEXT", WEGI_COLOR_BLACK);
-  writeFB_button(&btns[2], "RADIO", WEGI_COLOR_BLACK);
+  egi_sbtn_refresh(&btns[0], "PLAY" );
+  egi_sbtn_refresh(&btns[1], "NEXT" );
+  egi_sbtn_refresh(&btns[2], "RADIO" );
 
   /* Bring to screen */
   fb_page_refresh(&gv_fb_dev, 0);
@@ -159,8 +177,8 @@ int main(int argc, char **argv)
         egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
 
 	/* Check if touched any of the buttons */
-	for(i=0; i<3; i++) {
-		if( egi_touch_on_rectBTN(&touch_data, &btns[i]) && touch_data.status==pressing ) {  /* Re_check event! */
+	for(i=0; i<MAX_BTNS; i++) {
+		if( egi_touch_on_rectBTN(&touch_data, &btns[i]) ) { //&& touch_data.status==pressing ) {  /* Re_check event! */
 			printf("Button_%d touched!\n",i);
 			btns[i].reaction(&btns[i]);
 	  		fb_page_refresh(&gv_fb_dev, 0);
@@ -168,9 +186,9 @@ int main(int argc, char **argv)
 		}
 	}
 
-	/* i==3 No button touched!  Assume that only one button may be touched each time!  */
+	/* i==MAX_BTNS No button touched!  Assume that only one button may be touched each time!  */
        	/* Touch missed: Ripple effect */
-	if( i==3 ) {
+	if( i==MAX_BTNS ) {
 	        ripple_mark(touch_data.coord, 185, WEGI_COLOR_YELLOW);
 		continue;
 	}
@@ -218,61 +236,28 @@ return 0;
 
 
 
-/*-----------------------------------
-    Draw button and put tag
------------------------------------*/
-void writeFB_button(EGI_RECTBTN *btn, char *tag, EGI_16BIT_COLOR tagcolor)
-{
-	int fw=22;
-	int fh=22;
-	int pixlen;
-	int bith;
-
-	if(btn==NULL)return;
-
-	/* Always clear before write */
-	draw_filled_rect2(&gv_fb_dev, btn->color, btn->x0, btn->y0, btn->x0+btn->width-1, btn->y0+btn->height-1);
-
-	/* Draw frame ( fbdev, type, x0, y0, width, height, w ) */
-  	draw_button_frame( &gv_fb_dev, btn->pressed, btn->color, btn->x0, btn->y0, btn->width, btn->height, btn->sw);
-
-	bith=FTsymbol_get_symheight(egi_sysfonts.bold, fw, fh);
-
-	pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.bold, fw, fh,(const unsigned char *)tag);
-
- 	/* Write tag */
-  	FTsymbol_uft8strings_writeFB(  &gv_fb_dev, egi_sysfonts.bold,          	/* FBdev, fontface */
-        	                       fw, fh,(const unsigned char *)tag,      	/* fw,fh, pstr */
-                	               320, 1, 0,                              	/* pixpl, lines, gap */
-				       btn->x0+(btn->width-pixlen)/2,		/* x0 */
-				btn->y0+(btn->height-fh)/2-(fh-bith)/2 +(btn->pressed?2:0),		/* y0 */
-                                       tagcolor, -1, 255,       			/* fontcolor, transcolor,opaque */
-                                       NULL, NULL, NULL, NULL);      		/* int *cnt, int *lnleft, int* penx, int* peny */
-}
-
-
 /*----------------------------------------
 	Switch/Toggle button reaction
 
-For btns[ID_ONOFF] and btns[ID_MODE]
+For btns[BTNID_ONOFF] and btns[BTNID_MODE]
 -----------------------------------------*/
 void switch_button_react(EGI_RECTBTN *btn)
 {
 	if(btn==NULL)
 		return;
 
-	/* ID_MODE button only applicable when btns[ID_ONOFF] if released! */
-	if(btn->id==ID_MODE && btns[ID_ONOFF].pressed==true)
+	/* BTNID_MODE button only applicable when btns[BTNID_ONOFF] if released! */
+	if(btn->id==BTNID_MODE && btns[BTNID_ONOFF].pressed==true)
 		return;
 
         /* Toggle/switch button */
         btn->pressed=!btn->pressed;
 
         /* Draw button */
-	if(btn->id == ID_ONOFF)
-	        writeFB_button(btn, btn->pressed?"ON":"OFF", WEGI_COLOR_BLACK);
-	else if(btn->id == ID_MODE)
-	        writeFB_button(btn, btn->pressed?"MP3":"RADIO", WEGI_COLOR_BLACK);
+	if(btn->id == BTNID_ONOFF)
+		egi_sbtn_refresh(btn, btn->pressed?"STOP":"PLAY");
+	else if(btn->id == BTNID_MODE)
+		egi_sbtn_refresh(btn, btn->pressed?"MP3":"RADIO");
 
         /* Write Hello World! */
         if(btn->pressed) {
@@ -297,34 +282,38 @@ void switch_button_react(EGI_RECTBTN *btn)
 
 	/* --- My command --- */
 	if(btn->pressed) {
-		if(btn->id==ID_ONOFF) {
+		if(btn->id==BTNID_ONOFF) {
 			if(play_mode==0)
 				system("/home/myradio.sh start &");
 			else if(play_mode==1)
 				system("/home/mp3.sh &");
 		}
-		else if(btn->id==ID_MODE)
+		else if(btn->id==BTNID_MODE)
 			play_mode=1;
 	}
 	else {
-		if(btn->id==ID_ONOFF) {
+		if(btn->id==BTNID_ONOFF) {
 			if(play_mode==0)
 				system("/home/myradio.sh quit &");
 			else if(play_mode==1)
 				system("/home/mp_quit.sh &");
 		}
-		else if(btn->id==ID_MODE)
+		else if(btn->id==BTNID_MODE)
 			play_mode=0;
 	}
 }
 
 
-/*----------------------------------------------
+/*-----------------------------------------------------------------
 	Bounce_back button reaction
 Pressed_hold then wait for releasing touch event.
 
-For btns[ID_NEXT]
------------------------------------------------*/
+Note:
+1. There shall be no time delay before egi_touch_timeWait_release()!
+   or it may miss the releasing event!
+
+For btns[BTNID_NEXT]
+-----------------------------------------------------------------*/
 void bounceback_button_react(EGI_RECTBTN *btn)
 {
 	EGI_TOUCH_DATA touch_data;
@@ -333,7 +322,7 @@ void bounceback_button_react(EGI_RECTBTN *btn)
         btn->pressed=true;
 
 	/* Draw button */
-  	writeFB_button(btn, "next", WEGI_COLOR_BLACK);
+  	egi_sbtn_refresh(btn, "next");
 
 	/* Write Hello World! clear banner area first */
 	if(blockimg!=NULL)
@@ -348,15 +337,13 @@ void bounceback_button_react(EGI_RECTBTN *btn)
                        			NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
   	fb_page_refresh(&gv_fb_dev, 0);
 
-
 	/* Wait for touch releasing events */
-	printf("Wait for release...\n");
   	egi_touch_timeWait_release(-1, 0, &touch_data);
-	printf("...touch released!\n");
         btn->pressed=false;
 
 	/* Draw released button */
-  	writeFB_button(btn, "NEXT", WEGI_COLOR_BLACK);
+	tm_delayms(60); /*  hold on for a while before refresh, in case a too fast 'touch_and_release' event! */
+  	egi_sbtn_refresh(btn, "NEXT");
 
 	/* Clear Hello World with PANEL_BKGCOLOR */
 	if(blockimg!=NULL)
@@ -369,6 +356,57 @@ void bounceback_button_react(EGI_RECTBTN *btn)
 		system("/home/myradio.sh next &");
 	else if(play_mode==1)
 		system("/home/mp_next.sh 1 &");
+}
+
+
+/*-----------------------------------------------------------------
+		Slide button reaction
+This is just a slide area. bounceback reaction.
+
+For btns[BTNID_SLIDE]
+-----------------------------------------------------------------*/
+void slide_button_react(EGI_RECTBTN *btn)
+{
+	EGI_TOUCH_DATA touch_data;
+	int vol;
+	int adjvol;
+	char strtmp[16];
+
+	/* Draw pressed button */
+        btn->pressed=true;
+
+	/* Draw button */
+  	egi_sbtn_refresh(btn, NULL);
+  	fb_page_refresh(&gv_fb_dev, 0);
+
+	/* slide control : Volum  UP/DOWN */
+	egi_getset_pcm_volume(&vol, NULL);
+	while(1) {
+		while(egi_touch_getdata(&touch_data)==false);
+		if(touch_data.status!=pressed_hold)
+			break;
+		adjvol=-25*touch_data.dy/320+vol;  /* 50 MAX to  [0 100] */
+		egi_getset_pcm_volume(NULL, &adjvol);
+
+		memset(strtmp,0,sizeof(strtmp));
+		sprintf(strtmp,"VOL: %d",adjvol);
+		egi_subimg_writeFB(blockimg, &gv_fb_dev, 0, -1, 0, 190);  /* Use saved image block */
+		egi_sbtn_refresh(btn, NULL);
+                symbol_string_writeFB(&gv_fb_dev, &sympg_ascii,
+                                      WEGI_COLOR_WHITE, -1,     /* fontcolor, int transpcolor */
+                                      320-80, 190+10,                    /* int x0, int y0 */
+		                      strtmp, -1);                 /* string, opaque */
+  		fb_page_refresh(&gv_fb_dev, 0);
+
+	}
+	/* Wait for touch releasing events */
+  	//egi_touch_timeWait_release(-1, 0, &touch_data);
+
+	/* Draw released button */
+        btn->pressed=false;
+	tm_delayms(60); /*  hold on for a while before refresh, in case a too fast 'touch_and_release' event! */
+  	egi_sbtn_refresh(btn, NULL);
+
 }
 
 
