@@ -380,13 +380,14 @@ void fb_clear_mapBuffer(FBDEV *dev, unsigned int numpg, uint16_t color)
 /*----------------------------------------------------
  Refresh FB screen with FB back buffer map_buff[numpg]
 -----------------------------------------------------*/
-void fb_page_refresh(FBDEV *dev, unsigned int numpg)
+int fb_page_refresh(FBDEV *dev, unsigned int numpg)
 {
 	if(dev==NULL)
-		return;
+		return -1;
 
+	/* only for ENABLE_BACK_BUFFER */
 	if( dev->map_bk==NULL || dev->map_fb==NULL || dev->map_buff==NULL )
-		return;
+		return -2;
 
         numpg=numpg%FBDEV_BUFFER_PAGES; /* Note: Modulo result is compiler depended */
 
@@ -411,6 +412,8 @@ void fb_page_refresh(FBDEV *dev, unsigned int numpg)
 				break;
 		}
 	}
+
+	return 0;
 }
 
 
@@ -616,6 +619,27 @@ int fb_slide_refresh(FBDEV *dev, int offl)
                 memcpy( dev->map_fb+line_length*(yres*FBDEV_BUFFER_PAGES-offl), dev->map_buff,
                                                    line_length*(offl-yres*(FBDEV_BUFFER_PAGES-1)) );
         }
+
+	return 0;
+}
+
+
+/*---------------------------------------------
+Render image and bring it to screen.
+Now it only copys working buffer map_buff[0]
+to FB driver.
+
+TODO: works with other FB map_buffers
+
+Return:
+	0	OK
+	<0	Fails
+
+Midas Zhou
+---------------------------------------------*/
+int fb_render(FBDEV *dev)
+{
+	fb_page_refresh(dev, 0);  /* Input data check inside */
 
 	return 0;
 }

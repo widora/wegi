@@ -1,4 +1,4 @@
-/*-------------------------------------------------------------------
+/*-----------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
@@ -26,7 +26,7 @@ NOTES:
 
 Midas Zhou
 midaszhou@yahoo.com
---------------------------------------------------------------------*/
+-----------------------------------------------------------------------*/
 #include <egi_common.h>
 #include <egi_utils.h>
 #include <egi_FTsymbol.h>
@@ -42,6 +42,7 @@ static EGI_RECTBTN	  btns[MAX_BTNS];
 #define BTNID_SLIDE		3
 
 static EGI_IMGBUF	  *blockimg=NULL;		/* To store save banner area image */
+static EGI_IMGBUF  	  *slideEffect=NULL;    	/* A sliding effect image */
 static int play_mode;					/* 0- radio, 1-mp3 */
 
 /* Reaction functions */
@@ -55,7 +56,6 @@ int main(int argc, char **argv)
 {
 
  /* <<<<<<  EGI general init  >>>>>> */
-
   /* Start sys tick */
   printf("tm_start_egitick()...\n");
   tm_start_egitick();
@@ -91,6 +91,7 @@ int main(int argc, char **argv)
         return -1;
   }
   #endif
+
   /* Initilize sys FBDEV */
   printf("init_fbdev()...\n");
   if(init_fbdev(&gv_fb_dev))
@@ -106,8 +107,8 @@ int main(int argc, char **argv)
   fb_position_rotate(&gv_fb_dev,3);
 
  /* <<<<<  End of EGI general init  >>>>>> */
-
-
+  int vol=30;
+  egi_getset_pcm_volume(NULL, &vol);
 
 	    		  /*-----------------------------------
     			   *            Main Program
@@ -119,11 +120,13 @@ int main(int argc, char **argv)
   EGI_IMGBUF	  *bannerMask=NULL;	/* A banner mask */
   EGI_IMGBUF	  *slideMask=NULL;	/* A mask, for sliding operation. */
 
-
   /* Init. bannerMask and slidMask */
-  slideMask=egi_imgbuf_create( 240-190, 320, 220, WEGI_COLOR_ORANGE); /* height, width, alpha, color */
-  egi_imgbuf_fadeOutEdges(slideMask, 320, FADEOUT_EDGE_LEFT, 4); /* imgbuf, width, ssmode, type */
-  bannerMask=egi_imgbuf_create( 240-190, 320, 55, WEGI_COLOR_BLACK);//DARKGRAY); /* height, width, alpha, color */
+  slideMask=egi_imgbuf_create( 240-190, 320, 220, WEGI_COLOR_GREEN); /* height, width, alpha, color */
+  egi_imgbuf_fadeOutEdges(slideMask, 320, FADEOUT_EDGE_LEFT, 0); /* imgbuf, width, ssmode, type */
+  bannerMask=egi_imgbuf_create( 240-190, 320, 55, WEGI_COLOR_BLACK); /* height, width, alpha, color */
+  slideEffect=egi_imgbuf_create( 240-190, 60, 255, WEGI_COLOR_WHITE); /* height, width, alpha, color */
+  egi_imgbuf_fadeOutEdges(slideEffect, 35, FADEOUT_EDGE_LEFT|FADEOUT_EDGE_RIGHT, 0); /* imgbuf, width, ssmode, type */
+
   if( bannerMask==NULL || slideMask==NULL )
 	printf("Fail to create Mask image!\n");
 
@@ -200,7 +203,7 @@ int main(int argc, char **argv)
  egi_imgbuf_free2(&bkimg);
  egi_imgbuf_free2(&blockimg);
  egi_imgbuf_free2(&bannerMask);
-
+ egi_imgbuf_free2(&slideEffect);
 
 	    		  /*-----------------------------------
     			   *         End of Main Program
@@ -385,17 +388,23 @@ void slide_button_react(EGI_RECTBTN *btn)
 		while(egi_touch_getdata(&touch_data)==false);
 		if(touch_data.status!=pressed_hold)
 			break;
-		adjvol=-25*touch_data.dy/320+vol;  /* 50 MAX to  [0 100] */
+
+	        /* Touch_data converted to the same coord as of FB */
+        	egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+
+		//adjvol=-25*touch_data.dy/320+vol;  /* 25 MAX to  [0 100] */
+		adjvol=35*touch_data.dx/320+vol;     /* 30 MAX to  [0 100] */
 		egi_getset_pcm_volume(NULL, &adjvol);
 
 		memset(strtmp,0,sizeof(strtmp));
 		sprintf(strtmp,"VOL: %d",adjvol);
 		egi_subimg_writeFB(blockimg, &gv_fb_dev, 0, -1, 0, 190);  /* Use saved image block */
-		egi_sbtn_refresh(btn, NULL);
+		egi_sbtn_refresh(btn, NULL); 				  /* Add sbtn pressimg effect */
+		egi_subimg_writeFB(slideEffect, &gv_fb_dev, 0, -1, touch_data.coord.x-slideEffect->width/2, 190);
                 symbol_string_writeFB(&gv_fb_dev, &sympg_ascii,
                                       WEGI_COLOR_WHITE, -1,     /* fontcolor, int transpcolor */
                                       320-80, 190+10,                    /* int x0, int y0 */
-		                      strtmp, -1);                 /* string, opaque */
+		                      strtmp, 255);                 /* string, opaque */
   		fb_page_refresh(&gv_fb_dev, 0);
 
 	}

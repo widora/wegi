@@ -37,6 +37,9 @@ struct egi_rectbtn {
 
         int             x0;                             /* left top coordinate */
         int             y0;
+	int		offx;				/* Offset postion */
+	int		offy;
+
         unsigned int    width;                          /* button width and height */
         unsigned int    height;
         unsigned int    sw;                             /* width for bright/shadowy lines */

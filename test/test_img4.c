@@ -9,6 +9,7 @@ Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
 #include <egi_common.h>
+#include <unistd.h>
 #include <egi_FTsymbol.h>
 
 int main(int argc, char **argv)
@@ -64,7 +65,7 @@ int main(int argc, char **argv)
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
-#if 1 ////////////   TEST egi_imgbuf_copyBlock()  /////////////
+#if 0 ////////////   TEST egi_imgbuf_copyBlock()  /////////////
 
 	/* block size */
 	int bw=60;
@@ -108,18 +109,43 @@ exit(0);
 
 
 #if 1 ////////////   TEST egi_imgbuf_fadeOutEdges()  /////////////
-
+	int opt;
         int width=100; 	   // alpha transition belt width.  atoi(argv[1]);
         int ssmode=0b1111; // 4 sides.	//atoi(argv[2]);
         int type=0; 	//atoi(argv[3]);
 	char strtmp[32];
+	EGI_8BIT_ALPHA	 max_alpha=255;
 
 	EGI_IMGBUF *frontimg=NULL;
 	EGI_IMGBUF *backimg=NULL;
 	backimg=egi_imgbuf_readfile("/mmc/backimg.jpg");
 
-	if(argc>1)
-		width=atoi(argv[1]);
+
+        /* parse input option */
+        while( (opt=getopt(argc,argv,"hw:a:s:"))!=-1)
+        {
+                switch(opt)
+                {
+                        case 'h':
+                           printf("usage:  %s [-hw:a:] \n", argv[0]);
+                           printf("     -h   help \n");
+                           printf("     -w   width of transition band.\n");
+                           printf("     -a   max alpha value for transition bad.\n");
+                           printf("     -s   ssmode 1,2,4,8. or combined. \n");
+                           return 0;
+                        case 'w':
+                           width=atoi(optarg);
+                           break;
+                        case 'a':
+                           max_alpha=atoi(optarg);
+			   break;
+			case 's':
+			   ssmode=atoi(optarg);
+			   break;
+			default:
+			  break;
+		}
+	}
 
 
 while(1) {
@@ -133,7 +159,7 @@ while(1) {
 	frontimg=egi_imgbuf_readfile("/mmc/frontimg.jpg");
 
 	/* Add fading_out effect to frontimg */
-	egi_imgbuf_fadeOutEdges(frontimg, width, ssmode, type);
+	egi_imgbuf_fadeOutEdges(frontimg, max_alpha, width, ssmode, type);
 
 	/* WriteFB frontimg */
 	egi_subimg_writeFB( frontimg, &gv_fb_dev, 0, -1, (320-frontimg->width)/2, (240-frontimg->height)/2); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */

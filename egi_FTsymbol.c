@@ -703,39 +703,61 @@ FT_FAILS:
 }
 
 
-/*--------------------------------------------------------
-To get actual symHeight/bitmapHeight for a dedicated FT_Face
+/*--------------------------------------------------------------------------
+To get actual Max. symHeight/bitmapHeight of a string, with dedicated FT_Face
 and font size.
+
+1. Try NOT to use this function, it's slow. and use CAPITAL LETTERs instead
+   of small letters.
+2. The purpose of this function is use the result symHeight to put the pstr in
+the middle of some space.
+
+Note: For ASCII chars, for Chinese char, they are usually same height. So not
+      necessary to call this function.
+
 Return:
 	>0	OK
 	<0	Fails
----------------------------------------------------------*/
-int FTsymbol_get_symheight(FT_Face face, int fw, int fh )
+---------------------------------------------------------------------------*/
+int FTsymbol_get_symheight(FT_Face face, const unsigned char *pstr, int fw, int fh )
 {
-	wchar_t wcode[]=L"O";
+	int symheight=0;
+	int size;
   	FT_Error      error;
   	FT_GlyphSlot slot = face->glyph;
+	wchar_t 	wcode;
 
-	/* set character size in pixels */
-	error = FT_Set_Pixel_Sizes(face, fw, fh);
-   	/* OR set character size in 26.6 fractional points, and resolution in dpi
-   	   error = FT_Set_Char_Size( face, 32*32, 0, 100,0 ); */
+   	/* Set character size in pixels */
+   	error = FT_Set_Pixel_Sizes(face, fw, fh); /* width,height */
 	if(error) {
-		printf("%s: FT_Set_Pixel_Sizes() fails!\n",__func__);
+		printf("%s: Fail to set pixel size!\n",__func__);
 		return -1;
 	}
 
-	/* Do not set transform, keep up_right and pen position(0,0)
-    		FT_Set_Transform( face, &matrix, &pen ); */
+   	/* Default transformation matrix */
 
-	/* Load char and render, old data in face->glyph will be cleared */
-    	error = FT_Load_Char( face, wcode[0], FT_LOAD_RENDER );
-    	if (error) {
-		printf("%s: FT_Load_Char() fails!\n",__func__);
-		return -2;
+	while( *pstr != L'\0' ) {  /* wchar_t string end token */
+
+                /* convert one character to unicode, return size of utf-8 code */
+                size=char_uft8_to_unicode((unsigned char *)pstr, &wcode);
+		if(size<1) 	/* Maybe unprintable/control char, Supposed they are  at very end of the string! Break then. */
+			break;
+		else
+			pstr +=size;
+
+	    	error = FT_Load_Char( face, wcode, FT_LOAD_RENDER );
+	    	if ( error ) {
+			printf("%s: FT_Load_Char() error!\n",__func__);
+			return -1;
+		}
+
+		if(symheight < slot->bitmap.rows) {
+			symheight=slot->bitmap.rows;
+			// printf("%s: symheight=%d, deltY=%d \n", (char *)&wcode, symheight, -slot->bitmap_top + fh);
+		}
 	}
 
-	return slot->bitmap.rows;
+	return symheight;
 }
 
 
@@ -850,11 +872,11 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 	delX= slot->bitmap_left;
 	delY= -slot->bitmap_top + fh;
 
-#if 0 /* ----TEST: Display Boundary BOX------- */
+#if 1 /* ----TEST: Display Boundary BOX------- */
 	/* Note: Assume boundary box start from x0,y0(same as bitmap)
 	 */
-	draw_rect(fb_dev, x0, y0, x0+bbox_W, y0+fh);  /* space size */
-	//draw_rect(fb_dev, x0, y0+delY, x0+bbox_W, y0+ftsympg.symheight+delY);  /* bitmap size */
+	//draw_rect(fb_dev, x0, y0, x0+bbox_W, y0+fh);  /* Only space size,  not right position .  */
+	draw_rect(fb_dev, x0, y0+delY, x0+bbox_W, y0+ftsympg.symheight+delY);  /* bitmap size */
 
 #endif
 

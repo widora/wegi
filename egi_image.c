@@ -669,48 +669,64 @@ int egi_imgbuf_setFrame( EGI_IMGBUF *eimg, enum imgframe_type type,
 	return 0;
 }
 
-/*-----------------------------------------------------------
+/*---------------------------------------------------------------------------------
 Get alpha value on a certain X-Alpha mapping curve.
 
 Note:
-1. Distribution smothness of result alpha values (smothness of
-   image transition) depends not only on fading 'type'(algorithm),
-   but also on 'range' value, the bigger the better!
+1. Somthness of result alpha values depends not only on fading
+   'type'(algorithm), but also on 'range' value, the bigger the better--xxxNOPE!!!
+2. In respect of transition smothness, linear algorithm is better
+   than nonlinear one?  Abrupt change of alpha values will cause
+   some crease lines in final image.
 
-@range:  The width of image transition area on edges.
-@typge:  Mapping curve type, see in function codes.
+3. !!! WARING !!! Be careful of calculation overflow. Change to float type
+   if necessary.
+
+@max_alpha:  Max alpha value as transition position [0 range] maps to [0 max_alpha]
+
+@range:  The range of image transition band width, corresponding to
+	 alpha value range of [0 max_alpha].   (in pixels)
+	 when x=range, alpha to be max_alpha.
+
+@type:   Mapping curve type, see in function codes.
+	 Recommand type 0, type 2, and type 4.
+
 @x:	 Input X, distance from image side, in pixels.
-	 The range of input X, [0 range-1]
+	 The range of input X, [0 range]  (in pixels)
 
-Return:  Mapped alpha value. [0 255] <-- [0 range-1]
+Return:  Mapped alpha value. [0 max_alpha] <-- [0 range-1]
 	 or 255 if no match.
------------------------------------------------------------*/
-unsigned char get_alpha_mapCurve( int range, int type, int x)
+------------------------------------------------------------------------------------*/
+unsigned char get_alpha_mapCurve( EGI_8BIT_ALPHA max_alpha, int range, int type, int x)
 {
 	unsigned char alpha; /* mapped alpha value */
 	long tx;
 
 	/* check input range */
-	if(range<=0) return 255;
+	if(range<=0) return max_alpha;
 
 	/* check input x */
 	if(x<0)
 		x=0;
-	else if(x>range-1)
-		x=range-1;
+	else if(x>range)
+		x=range;
 
 	switch(type)
 	{
 		/* 0. Linear curve: Linear transition */
 		case 0:
-			alpha=255*x/range;
+			alpha=max_alpha*x/range;
 			break;
 
 		/* 1. Cubic curve: GOOD_Smooth transition at start, Fast transition at end
 				   but rather bigger invisible edge areas.
 		 */
 		case 1:
-			alpha=255*x*x*x/(range*range*range);
+			#if 1
+			alpha=(long long)max_alpha*x*x*x/((long long)range*range*range);
+			#else
+			alpha=1.0*max_alpha*x*x*x/(1.0*range*range*range);
+			#endif
 			break;
 
 		/* 2. Reversed cubic curve: GOOD_Smooth transition at end, Fast transition at start
@@ -718,60 +734,69 @@ unsigned char get_alpha_mapCurve( int range, int type, int x)
 		*/
 		case 2:
 			tx=range-x;
-			alpha=255-(long)255*tx*tx*tx/((long)range*range*range);  /* abrupt at end */
+			#if 1
+			alpha=max_alpha-(long long)max_alpha*tx*tx*tx/((long long)range*range*range);  /* abrupt at end */
+			#else
+			alpha=max_alpha-1.0*max_alpha*tx*tx*tx/(1.0*range*range*range);  /* abrupt at end */
+			#endif
 			break;
 
 		/* 3. Circle point curve:  Faster transition at end, to emphasize end border line.
 		  			   but rather bigger invisible edge areas.
 		 */
 		case 3:
-			alpha=( 1.0- sqrt(1.0-(1.0*x/range)*(1.0*x/range)) )*255;
+			alpha=( 1.0- sqrt(1.0-(1.0*x/range)*(1.0*x/range)) )*max_alpha;
 			break;
 
 		/* 4. (1-COS(x))/2  curve: GOOD_Smooth transition at both start and end. */
 		case 4:
-			alpha=(1.0-cos(1.0*x*MATH_PI/range))*255/2;
+			alpha=(1.0-cos(1.0*x*MATH_PI/range))*max_alpha/2;
 			break;
 
 		default:
-			alpha=255;
+			alpha=max_alpha;
 	}
 
 
 	return alpha;
 }
 
-/*--------------------------------------------------------------
-Modify alpha values for an EGI_IMGBUF, in order to make the 4
-edges of the image fade out (hide) smoothly into its surrounding.
+/*--------------------------------------------------------------------
+Modify alpha values for an EGI_IMGBUF, in order to make the 4 edges
+of the image fade out (hide) smoothly into its surrounding.
 
-@eimg: 	Pointer to an EGI_IMGBUF
+@eimg: 	     Pointer to an EGI_IMGBUF
+
+@max_alpha:  Max alpha value for get_alpha_mapCurve()
+	     transition position [0 width-1] maps to [0 max_alpha]
+
 @width: Width of the gradient transition belt.
+	Adjust to [1  imgbuf.height] or [1 imgbuf.width]
+	If width out of above limits, then it's deemed as range value.
 
 @ssmode:  --- Side select mode ---
 	FADEOUT_EDGE_TOP 	0b0001  effective for Top side only.
 	FADEOUT_EDGE_RIGHT 	0b0010  effective for Right side only.
 	FADEOUT_DEGE_BOTTOM	0b0100  effective for Bottom side only.
 	FADEOUT_DEGE_LEFT	0b1000  effective for Left side only.
-
 	OR use operator '|' to combine them.
+
 @type:  Type of fading transition as defined in get_alpha_mapCurve().
 
 Return:
 	0	OK
 	<0	Fails
----------------------------------------------------------------*/
-int egi_imgbuf_fadeOutEdges(EGI_IMGBUF *eimg, unsigned int width, unsigned int ssmode, int type)
+---------------------------------------------------------------------*/
+int egi_imgbuf_fadeOutEdges(EGI_IMGBUF *eimg, EGI_8BIT_ALPHA max_alpha, int width, unsigned int ssmode, int type)
 {
 	int i,j;
-	int wb;  	/* width of transition belt, may be different from width.  */
+	int wb;  	 /* width of transition belt, may be different from width.  */
 	unsigned char alpha;
-
 
 	if( eimg==NULL || eimg->imgbuf==NULL )
 			return -1;
 
-	if( ssmode==0 || width==0 )
+	if( ssmode==0 || width<=0 )
 		return 1;
 
 	/* Create alpha data if NULL */
@@ -784,14 +809,14 @@ int egi_imgbuf_fadeOutEdges(EGI_IMGBUF *eimg, unsigned int width, unsigned int s
 		memset(eimg->alpha,255,eimg->height*eimg->width); /* init. value 255 */
 	}
 	/* Set top side */
-	if( ssmode & 0b0001 ) {
-		if(width>eimg->height)
+	if( ssmode & FADEOUT_EDGE_TOP ) {
+		if( width > eimg->height )
 			wb=eimg->height;
 		else
 			wb=width;
 
 		for(i=0; i<wb; i++) {
-			alpha=get_alpha_mapCurve(wb, type, i);
+			alpha=get_alpha_mapCurve(max_alpha, wb, type, i);
 			for(j=0; j < eimg->width; j++) {
 				if( alpha < eimg->alpha[i*eimg->width+j] )
 					eimg->alpha[i*eimg->width+j]=alpha;
@@ -799,14 +824,14 @@ int egi_imgbuf_fadeOutEdges(EGI_IMGBUF *eimg, unsigned int width, unsigned int s
 		}
 	}
 	/* Set right side */
-	if( ssmode & 0b0010 ) {
-		if(width>eimg->width)
+	if( ssmode & FADEOUT_EDGE_RIGHT ) {
+		if(width > eimg->width)
 			wb=eimg->width;
 		else
 			wb=width;
 
 		for(i=0; i<wb; i++) {
-			alpha=get_alpha_mapCurve(wb, type, i);
+			alpha=get_alpha_mapCurve(max_alpha, wb, type, i);
 			for(j=0; j < eimg->height; j++) {
 				if( alpha < eimg->alpha[ (j+1)*eimg->width-1 -i ] )
 					eimg->alpha[ (j+1)*eimg->width-1 -i ]=alpha;
@@ -814,14 +839,14 @@ int egi_imgbuf_fadeOutEdges(EGI_IMGBUF *eimg, unsigned int width, unsigned int s
 		}
 	}
 	/* Set bottom side */
-	if( ssmode & 0b0100 ) {
+	if( ssmode & FADEOUT_EDGE_BOTTOM ) {
 		if(width>eimg->height)
 			wb=eimg->height;
 		else
 			wb=width;
 
 		for(i=0; i<wb; i++) {
-			alpha=get_alpha_mapCurve(wb, type, i);
+			alpha=get_alpha_mapCurve(max_alpha, wb, type, i);
 			for(j=0; j < eimg->width; j++) {
 				if( alpha < eimg->alpha[ (eimg->height-i)*eimg->width-1 -j ] )
 					eimg->alpha[ (eimg->height-i)*eimg->width-1 -j ]=alpha;
@@ -829,14 +854,14 @@ int egi_imgbuf_fadeOutEdges(EGI_IMGBUF *eimg, unsigned int width, unsigned int s
 		}
 	}
 	/* Set left side */
-	if( ssmode & 0b1000 ) {
+	if( ssmode & FADEOUT_EDGE_LEFT ) {
 		if(width>eimg->width)
 			wb=eimg->width;
 		else
 			wb=width;
 
 		for(i=0; i<wb; i++) {
-			alpha=get_alpha_mapCurve(wb, type, i);
+			alpha=get_alpha_mapCurve(max_alpha, wb, type, i);
 			for(j=0; j < eimg->height; j++) {
 				if( alpha < eimg->alpha[ j*eimg->width +i ] )
 					eimg->alpha[ j*eimg->width +i ]=alpha;

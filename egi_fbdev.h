@@ -141,9 +141,9 @@ void 	fb_init_FBbuffers(FBDEV *fb_dev);
 void 	fb_copy_FBbuffer(FBDEV *fb_dev,unsigned int from_numpg, unsigned int to_numpg);
 void 	fb_clear_backBuff(FBDEV *dev, uint32_t color);
 void 	fb_clear_mapBuffer(FBDEV *dev, unsigned int numpg, uint16_t color); /* for 16bit color only */
-void 	fb_page_refresh(FBDEV *dev, unsigned int numpg);
+int 	fb_page_refresh(FBDEV *dev, unsigned int numpg);
 void 	fb_lines_refresh(FBDEV *dev, unsigned int numpg, unsigned int startln, int n);
-//void	fb_render()
+int	fb_render(FBDEV *dev);
 int 	fb_page_saveToBuff(FBDEV *dev, unsigned int buffNum);
 int 	fb_page_restoreFromBuff(FBDEV *dev, unsigned int buffNum);
 int 	fb_page_refresh_flyin(FBDEV *dev, int speed);

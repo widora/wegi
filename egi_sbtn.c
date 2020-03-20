@@ -62,15 +62,17 @@ void egi_sbtn_refresh(EGI_RECTBTN *btn, char *tag)
         	draw_button_frame( &gv_fb_dev, btn->pressed, btn->color, btn->x0, btn->y0, btn->width, btn->height, btn->sw);
 	        /* Write TAG */
         	if(tag!=NULL) {
-                	bith=FTsymbol_get_symheight(egi_sysfonts.bold, btn->fw, btn->fh);
+                	//bith=FTsymbol_get_symheight(egi_sysfonts.bold, tag, btn->fw, btn->fh);
 	                pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.bold, btn->fw, btn->fh,(const unsigned char *)tag);
 
         	        /* Write tag */
                 	FTsymbol_uft8strings_writeFB(  &gv_fb_dev, egi_sysfonts.bold,                           /* FBdev, fontface */
                                                btn->fw, btn->fh,(const unsigned char *)tag,             /* fw,fh, pstr */
                                                320, 1, 0,                                       /* pixpl, lines, gap */
-                                               btn->x0+(btn->width-pixlen)/2,                   /* x0 */
-                                        btn->y0+(btn->height-btn->fh)/2-(btn->fh-bith)/2 +(btn->pressed?2:0),           /* y0 */
+                                               btn->x0 +btn->offx +(btn->width-pixlen)/2,                   /* x0 */
+                                         //btn->y0+(btn->height-btn->fh)/2+(btn->fh-bith)/2 +(btn->pressed?2:0),           /* y0 */
+                                         //btn->y0+(btn->height-bith)/2 +(btn->pressed?2:0),           /* y0 */
+                                          btn->y0+ +btn->offy +(btn->height-btn->fh)/2 +(btn->pressed?2:0),           /* y0 */
                                                btn->tagcolor, -1, 255,                               /* fontcolor, transcolor,opaque */
                                                NULL, NULL, NULL, NULL);                 	/* int *cnt, int *lnleft, int* penx, int* peny */
  		}
