@@ -37,8 +37,6 @@ struct egi_rectbtn {
 
         int             x0;                             /* left top coordinate */
         int             y0;
-	int		offx;				/* Offset postion */
-	int		offy;
 
         unsigned int    width;                          /* button width and height */
         unsigned int    height;
@@ -47,6 +45,8 @@ struct egi_rectbtn {
 	EGI_16BIT_COLOR tagcolor;			/* Default BLACK */
 	int		fw;				/* tag font size */
 	int		fh;
+	int		offx;				/* tag Offset postion */
+	int		offy;
 
         bool            pressed;                        /* button status */
         int             type;				/*

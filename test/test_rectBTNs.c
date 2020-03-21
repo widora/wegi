@@ -3,8 +3,8 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-A demo for simple rectangular buttons. It creates a switch button
-and a bounce_back button, then test it's reactions.
+A demo for simple rectangular buttons. An example of using switch/toggle
+buttons and bounce_back buttons to control a music player.
 
 NOTES:
 1. For a switch/toggle button:
@@ -19,10 +19,20 @@ NOTES:
    button is touched, to indicate the type of the button. and with
    restore to back ground color when the button is released.
 
-4. Add your command at reaction functions and a simple system() call is
+4. Sliding on the bottom banner to adjust the volume.
+
+5. Add your command at reaction functions and a simple system() call is
    a quick workaround.
 
-5. Note: A more beautiful button is usually an (PNG/JPG) image icon.
+6. A more beautiful button is usually an (PNG/JPG) image icon.
+   See attributes and behavior of btns[BTNID_LOGO].
+
+7. A bounce_back button may react (execute private command) at time of
+   pressing the button, OR at time of releasing, OR at time when pen is
+   sliding out of the button(Lose Focus), It depends on your scenario.
+   While its geom. shape always changes immediatly at time of pressing.
+   (See OPTIONs in bounceback_button_react() )
+
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -33,22 +43,32 @@ midaszhou@yahoo.com
 #include <egi_pcm.h>
 
 #define PANEL_BKGCOLOR 	WEGI_COLOR_DARKGRAY 	/* The panel back ground color */
-#define MAX_BTNS		4
 
+/* Rect Buttons and its IDs */
+#define MAX_BTNS		5
 static EGI_RECTBTN	  btns[MAX_BTNS];
 #define BTNID_ONOFF		0
 #define	BTNID_NEXT		1
 #define BTNID_MODE		2
 #define BTNID_SLIDE		3
+#define BTNID_LOGO		4
 
+/* Images */
+static EGI_IMGBUF	  *bkimg=NULL;  		/* A W320xH240 backgroud image */
 static EGI_IMGBUF	  *blockimg=NULL;		/* To store save banner area image */
 static EGI_IMGBUF  	  *slideEffect=NULL;    	/* A sliding effect image */
+static EGI_IMGBUF	  *logoimg=NULL;		/* A W140xH150 picture */
+static EGI_IMGBUF	  *bannerMask=NULL;		/* A banner mask */
+static EGI_IMGBUF	  *slideMask=NULL;		/* A mask, for sliding operation. */
+
+/* play mode selection token */
 static int play_mode;					/* 0- radio, 1-mp3 */
 
 /* Reaction functions */
 void switch_button_react(EGI_RECTBTN *btn);
 void bounceback_button_react(EGI_RECTBTN *btn);
 void slide_button_react(EGI_RECTBTN *btn);
+void logo_button_react(EGI_RECTBTN *btn);
 void ripple_mark(EGI_POINT touch_pxy, uint8_t alpha, EGI_16BIT_COLOR color);
 
 
@@ -109,23 +129,27 @@ int main(int argc, char **argv)
  /* <<<<<  End of EGI general init  >>>>>> */
   int vol=30;
   egi_getset_pcm_volume(NULL, &vol);
+  clear_screen(&gv_fb_dev,WEGI_COLOR_BLACK);
 
 	    		  /*-----------------------------------
     			   *            Main Program
     			   -----------------------------------*/
 
   int i;
-  EGI_IMGBUF	  *bkimg=NULL;  	/* Backgroud image */
   EGI_TOUCH_DATA  touch_data;
-  EGI_IMGBUF	  *bannerMask=NULL;	/* A banner mask */
-  EGI_IMGBUF	  *slideMask=NULL;	/* A mask, for sliding operation. */
+
+  /* Read in logoimg */
+  int param=60;
+  logoimg=egi_imgbuf_readfile("/mmc/scat.png");
+  egi_imgbuf_setFrame( logoimg, frame_round_rect, 255, 1, &param);
+
 
   /* Init. bannerMask and slidMask */
   slideMask=egi_imgbuf_create( 240-190, 320, 220, WEGI_COLOR_GREEN); /* height, width, alpha, color */
-  egi_imgbuf_fadeOutEdges(slideMask, 320, FADEOUT_EDGE_LEFT, 0); /* imgbuf, width, ssmode, type */
+  egi_imgbuf_fadeOutEdges(slideMask, 255, 320, FADEOUT_EDGE_LEFT, 0); /* imgbuf, maxalpha, width, ssmode, type */
   bannerMask=egi_imgbuf_create( 240-190, 320, 55, WEGI_COLOR_BLACK); /* height, width, alpha, color */
   slideEffect=egi_imgbuf_create( 240-190, 60, 255, WEGI_COLOR_WHITE); /* height, width, alpha, color */
-  egi_imgbuf_fadeOutEdges(slideEffect, 35, FADEOUT_EDGE_LEFT|FADEOUT_EDGE_RIGHT, 0); /* imgbuf, width, ssmode, type */
+  egi_imgbuf_fadeOutEdges(slideEffect, 255, 35, FADEOUT_EDGE_LEFT|FADEOUT_EDGE_RIGHT, 0); /* imgbuf, maxalpha, width, ssmode, type */
 
   if( bannerMask==NULL || slideMask==NULL )
 	printf("Fail to create Mask image!\n");
@@ -136,12 +160,16 @@ int main(int argc, char **argv)
   	btns[i].x0=50;		btns[i].y0=10+60*i;
 	btns[i].width=120;	btns[i].height=50;
 	btns[i].sw=4;
+	btns[i].offy=-3;
 	btns[i].reaction=(i%2==0?switch_button_react:bounceback_button_react);
 	btns[i].pressed=false;
   }
   /* Slide button */
-  btns[BTNID_SLIDE]=(EGI_RECTBTN){.id=3, .x0=0, .y0=190, .width=320, .height=50, .reaction=slide_button_react };
-  /* button color */
+  btns[BTNID_SLIDE]=(EGI_RECTBTN){.id=BTNID_SLIDE, .x0=0, .y0=190, .width=320, .height=50, .reaction=slide_button_react };
+  /* Logo button */
+  btns[BTNID_LOGO]=(EGI_RECTBTN){.id=BTNID_LOGO, .x0=180, .y0=0, .width=140, .height=150, .reaction=logo_button_react };
+
+  /* Button color */
   btns[BTNID_ONOFF].color=COLOR_24TO16BITS(0x66cc99);	/* ON /OFF */
   btns[BTNID_NEXT].color=COLOR_24TO16BITS(0x6666ff);	/* NEXT */
   btns[BTNID_MODE].color=COLOR_24TO16BITS(0xff6699);	/* Mode: Radio/MP3 */
@@ -149,10 +177,19 @@ int main(int argc, char **argv)
 
   /* Clear screen and init. scene */
   if( (bkimg=egi_imgbuf_readfile("/mmc/linux.jpg")) != NULL ) {
+
+	  /* Reset bkimg.subimgs */
+	  bkimg->subimgs=egi_imgboxes_alloc(2);
+	  bkimg->submax=2-1;
+	  bkimg->subimgs[0]=(EGI_IMGBOX){ 0, 0, bkimg->width, bkimg->height };
+	  bkimg->subimgs[1]=(EGI_IMGBOX){ 180, 0, 140, 150 };
+
 	/* put a mask on bkimg for banner */
 	egi_imgbuf_copyBlock(bkimg, bannerMask, true, 320, 240-190, 0, 190, 0, 0); /* destimg, srcimg, blendON, bw, bh, xd, yd, xs, ys */
+
 	/* writeFB bkimg */
-	egi_subimg_writeFB(bkimg, &gv_fb_dev, 0, -1, 0, 0);  /* img, fbdev, subnum, subcolor, x0, y0 */
+	//egi_subimg_writeFB(logoimg, &gv_fb_dev, 0, -1, bkimg->subimgs[0].x0, bkimg->subimgs[0].y0);  /* img, fbdev, subnum, subcolor, x0, y0 */
+	egi_subimg_writeFB(bkimg, &gv_fb_dev, 0, -1, bkimg->subimgs[0].x0, bkimg->subimgs[0].y0);  /* img, fbdev, subnum, subcolor, x0, y0 */
 	/* Save banner area */
 	blockimg=egi_imgbuf_blockCopy(bkimg, 0, 190, 240-190, 320);  /* ineimg, px, py, height, width */
   }
@@ -160,17 +197,23 @@ int main(int argc, char **argv)
   	fb_clear_backBuff(&gv_fb_dev, PANEL_BKGCOLOR);
 
 
-  /* TEST: pressimg and releaseimg */
+  /* TEST: pressimg and releaseimg assignment */
   btns[BTNID_SLIDE].releaseimg=blockimg;
   btns[BTNID_SLIDE].pressimg=slideMask;
 
+  btns[BTNID_LOGO].pressimg=logoimg;
+  btns[BTNID_LOGO].releaseimg=bkimg;
+  btns[BTNID_LOGO].releaseimg_subnum=1;
+
   /* Put buttuns */
-  egi_sbtn_refresh(&btns[0], "PLAY" );
-  egi_sbtn_refresh(&btns[1], "NEXT" );
-  egi_sbtn_refresh(&btns[2], "RADIO" );
+  egi_sbtn_refresh(&btns[BTNID_ONOFF], "PLAY" );
+  egi_sbtn_refresh(&btns[BTNID_NEXT], "NEXT" );
+  egi_sbtn_refresh(&btns[BTNID_MODE], "RADIO" );
+  egi_sbtn_refresh(&btns[BTNID_LOGO], NULL );
 
   /* Bring to screen */
-  fb_page_refresh(&gv_fb_dev, 0);
+  //fb_page_refresh(&gv_fb_dev, 0);
+  fb_render(&gv_fb_dev);
 
   /* Loop touch events and button reactions: Assume that only one button may be touched each time!  */
   while(1) {
@@ -198,12 +241,13 @@ int main(int argc, char **argv)
 
    }
 
-
  /* --- my releae --- */
  egi_imgbuf_free2(&bkimg);
  egi_imgbuf_free2(&blockimg);
  egi_imgbuf_free2(&bannerMask);
  egi_imgbuf_free2(&slideEffect);
+ egi_imgbuf_free2(&logoimg);
+
 
 	    		  /*-----------------------------------
     			   *         End of Main Program
@@ -325,7 +369,7 @@ void bounceback_button_react(EGI_RECTBTN *btn)
         btn->pressed=true;
 
 	/* Draw button */
-  	egi_sbtn_refresh(btn, "next");
+  	egi_sbtn_refresh(btn, "gfjl/next");
 
 	/* Write Hello World! clear banner area first */
 	if(blockimg!=NULL)
@@ -340,9 +384,17 @@ void bounceback_button_react(EGI_RECTBTN *btn)
                        			NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
   	fb_page_refresh(&gv_fb_dev, 0);
 
-	/* Wait for touch releasing events */
+    #if 0  /* OPTION_1: Wait for Touch releasing */
   	egi_touch_timeWait_release(-1, 0, &touch_data);
-        btn->pressed=false;
+    #else  /* OPTION_2: Wait for Focus lose */
+	do{
+		tm_delayms(50);
+		while(!egi_touch_getdata(&touch_data));
+	 	egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+	}
+	while( egi_touch_on_rectBTN(&touch_data, btn) );
+    #endif
+	btn->pressed=false;
 
 	/* Draw released button */
 	tm_delayms(60); /*  hold on for a while before refresh, in case a too fast 'touch_and_release' event! */
@@ -419,6 +471,43 @@ void slide_button_react(EGI_RECTBTN *btn)
 }
 
 
+/*-----------------------------------------------------------------
+		Bounce_back button reaction
+
+For btns[BTNID_LOGO]
+-----------------------------------------------------------------*/
+void logo_button_react(EGI_RECTBTN *btn)
+{
+	EGI_TOUCH_DATA touch_data;
+
+	/* Draw pressed button */
+        btn->pressed=true;
+
+	/* Draw button */
+  	egi_sbtn_refresh(btn, NULL);
+	fb_render(&gv_fb_dev);
+
+    #if 0  /* OPTION_1: Wait for Touch releasing */
+  	egi_touch_timeWait_release(-1, 0, &touch_data);
+    #else  /* OPTION_2: Wait for Focus lose */
+	do{
+		tm_delayms(50);
+		while(!egi_touch_getdata(&touch_data));
+	 	egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+	}
+	while( egi_touch_on_rectBTN(&touch_data, btn) );
+    #endif
+        btn->pressed=false;
+
+	/* Draw released button */
+	tm_delayms(30); /*  hold on for a while before refresh, in case a too fast 'touch_and_release' event! */
+  	egi_sbtn_refresh(btn, NULL);
+
+	/* let caller to render */
+}
+
+
+
 /* ----------------------------------------------------------------------
 Draw a water ripple mark.
 
@@ -455,4 +544,3 @@ void ripple_mark(EGI_POINT touch_pxy, uint8_t alpha, EGI_16BIT_COLOR color)
    }
 
 }
-

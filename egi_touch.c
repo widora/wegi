@@ -56,15 +56,19 @@ To check whether it touchs/moves on an EGI_RECTBTN
 
 Return:
 	true	Yes
-	flas	No OR Fails
+	false	No OR Fails
 ---------------------------------------------------------------*/
 bool egi_touch_on_rectBTN(EGI_TOUCH_DATA *touch_data, EGI_RECTBTN *btn)
 {
 	if(touch_data==NULL || btn==NULL)
 		return false;
 
-       return pxy_inbox( touch_data->coord.x, touch_data->coord.y, btn->x0, btn->y0,
+	if(touch_data->status==pressing || touch_data->status==pressed_hold ) {
+	       return pxy_inbox( touch_data->coord.x, touch_data->coord.y, btn->x0, btn->y0,
 				 		btn->x0+btn->width, btn->y0+btn->height );
+	}
+
+	return false;
 }
 
 

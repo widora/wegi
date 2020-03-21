@@ -872,7 +872,7 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 	delX= slot->bitmap_left;
 	delY= -slot->bitmap_top + fh;
 
-#if 1 /* ----TEST: Display Boundary BOX------- */
+#if 0 /* ----TEST: Display Boundary BOX------- */
 	/* Note: Assume boundary box start from x0,y0(same as bitmap)
 	 */
 	//draw_rect(fb_dev, x0, y0, x0+bbox_W, y0+fh);  /* Only space size,  not right position .  */

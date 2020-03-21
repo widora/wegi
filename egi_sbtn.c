@@ -34,7 +34,7 @@ Refresh button
 void egi_sbtn_refresh(EGI_RECTBTN *btn, char *tag)
 {
         int pixlen;
-        int bith;
+        //int bith=0;
 
         if(btn==NULL)
                 return;
@@ -70,9 +70,8 @@ void egi_sbtn_refresh(EGI_RECTBTN *btn, char *tag)
                                                btn->fw, btn->fh,(const unsigned char *)tag,             /* fw,fh, pstr */
                                                320, 1, 0,                                       /* pixpl, lines, gap */
                                                btn->x0 +btn->offx +(btn->width-pixlen)/2,                   /* x0 */
-                                         //btn->y0+(btn->height-btn->fh)/2+(btn->fh-bith)/2 +(btn->pressed?2:0),           /* y0 */
-                                         //btn->y0+(btn->height-bith)/2 +(btn->pressed?2:0),           /* y0 */
-                                          btn->y0+ +btn->offy +(btn->height-btn->fh)/2 +(btn->pressed?2:0),           /* y0 */
+                                         //btn->y0+(btn->height-btn->fh)/2-(btn->fh-bith)/2,           /* y0 */
+                                         btn->y0 +btn->offy +(btn->height-btn->fh)/2, //(btn->pressed?2:0),           /* y0 */
                                                btn->tagcolor, -1, 255,                               /* fontcolor, transcolor,opaque */
                                                NULL, NULL, NULL, NULL);                 	/* int *cnt, int *lnleft, int* penx, int* peny */
  		}
