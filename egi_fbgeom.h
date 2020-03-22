@@ -51,6 +51,8 @@ bool 	point_incircle(const EGI_POINT *pxy, const EGI_POINT *pc, int r);
 bool    box_inbox(EGI_BOX* box, EGI_BOX* container);
 bool    box_outbox(EGI_BOX* box, EGI_BOX* container);
 
+EGI_16BIT_COLOR fbget_pixColor(FBDEV *fb_dev, int x, int y);
+
 ////////////////  Draw function   ///////////////
    /******  NOTE: for 16bit color only!  ******/
 int 	draw_dot(FBDEV *dev,int x,int y);
@@ -65,6 +67,7 @@ void 	draw_oval(FBDEV *dev,int x,int y);
 void 	draw_rect(FBDEV *dev,int x1,int y1,int x2,int y2);
 void 	draw_wrect(FBDEV *dev,int x1,int y1,int x2,int y2, int w);
 int 	draw_filled_rect(FBDEV *dev,int x1,int y1,int x2,int y2);
+void 	draw_filled_box(FBDEV *dev, EGI_BOX *box);
 void 	draw_blend_filled_rect( FBDEV *dev, int x1, int y1, int x2, int y2,
                                 		EGI_16BIT_COLOR color, uint8_t alpha );
 int     draw_filled_rect2(FBDEV *dev,uint16_t color, int x1,int y1,int x2,int y2);

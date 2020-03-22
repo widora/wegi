@@ -20,7 +20,7 @@ midaszhou@yahoo.com
 
 static void btn_react(EGI_RECTBTN *btn);
 
-/* RGB Triplet Color Chart is devided into 18 blocks, each block has two columns,  with 6 colors for each column,
+/* RGB Triplet Color Chart is divided into 18 blocks, each block has two columns,  with 6 colors for each column,
  *  and the screen displays one block one time.
  */
 static int k;	/* Block index 0-17, see above mentioned. */
@@ -87,12 +87,19 @@ int main(int argc, char **argv)
     		   -----------------------------------*/
 
 	int i,j;
+	char strtmp[128];
 	EGI_TOUCH_DATA	touch_data;
+	EGI_16BIT_COLOR pixcolor;
+	uint8_t		u8color;
+	EGI_BOX	 	paletteBox={ { 0, 0 }, { 240, 240-1 } };
+	EGI_IMGBUF 	*padimg=egi_imgbuf_create( 60, 240, 80, WEGI_COLOR_BLACK );
 
-	#define MAX_BTNS	2
-	#define BTNID_NEXT	0
-	#define BTNID_PREV	1
-	EGI_RECTBTN btns[2]={0};
+	/* Buttons */
+	#define MAX_BTNS		3
+	#define BTNID_NEXT		0
+	#define BTNID_PREV		1
+	#define BTNID_CLEAR		2
+	EGI_RECTBTN 			btns[MAX_BTNS]={0};
 
 	btns[BTNID_NEXT]=(EGI_RECTBTN) { .id=BTNID_NEXT, .color=WEGI_COLOR_GRAY,
 					 .x0=320-80+1, .y0=0, .offy=-3, .width=80-1, .height=40, .sw=4,
@@ -100,71 +107,139 @@ int main(int argc, char **argv)
 	btns[BTNID_PREV]=(EGI_RECTBTN) { .id=BTNID_PREV, .color=WEGI_COLOR_GRAY,
 					 .x0=320-80+1, .y0=40, .offy=-3, .width=80-1, .height=40, .sw=4,
 	    				 .pressed=false, .reaction=btn_react };
+	btns[BTNID_CLEAR]=(EGI_RECTBTN) { .id=BTNID_CLEAR, .color=WEGI_COLOR_GRAY, .fw=18, .fh=18,
+					 .x0=320-80+1, .y0=80, .offy=-2, .width=80-1, .height=40, .sw=4,
+	    				 .pressed=false, .reaction=btn_react };
 
+	/* Clear FB backbuff */
 	fb_clear_backBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
 	draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAY1, 320-80, 0, 320-1, 240-1);
 
-	/* Draw button */
+	/* Draw buttons */
 	egi_sbtn_refresh(&btns[BTNID_NEXT],"NEXT");
 	egi_sbtn_refresh(&btns[BTNID_PREV],"PREV");
+	egi_sbtn_refresh(&btns[BTNID_CLEAR],"CLEAR");
 
 	/* Render */
 	fb_render(&gv_fb_dev);
 
-	/*  --- LOOP ---- */
-while(1) {
+while(1) {  /*  --- LOOP ---- */
 
-  for(k=0; k<18; k++) {
+  for(k=-4; k<18; k++) {
 	printf(" --- k=%d ---\n", k);
 
-	/* Draw 6_rows and 2_columns color blocks  = one 2Colomn_BLOCK */
-	for(i=0; i<6; i++) {
-		/* Draw color blocks */
-		/* k/3 --- ZONE ROW (6), k%3 --- 2colomn_BLOCK (3)=one ZONE  6*3=18 2colomns for screen  */
-		draw_filled_rect2( &gv_fb_dev, COLOR_24TO16BITS(0xFFFFFF-0x330000*(k/3)-0x3300*2*(k%3)-0x33*i),
-										0,   i*40,  120-1, (i+1)*40-1 );
-		draw_filled_rect2( &gv_fb_dev, COLOR_24TO16BITS(0xFFFFFF-0x330000*(k/3)-0x3300*(2*(k%3)+1)-0x33*i),
-										120, i*40,  240-1, (i+1)*40-1 );
+	/* 1. Display GRAY SCALE colors */
+	if(k==-4) {
+		for(i=0; i<240; i++) {
+			u8color=255-255*i/(240-1);
+			fbset_color(COLOR_RGB_TO16BITS(u8color,u8color,u8color));
+			draw_line(&gv_fb_dev, 0, i, 240, i);
+		}
+	}
+	/* 2. Display RED SCALE colors */
+	else if(k==-3) {
+		for(i=0; i<240; i++) {
+			u8color=255-255*i/(240-1);
+			fbset_color(COLOR_RGB_TO16BITS(u8color,0,0));
+			draw_line(&gv_fb_dev, 0, i, 240, i);
+		}
+	}
+	/* 3. Display GREEN SCALE colors */
+	else if(k==-2) {
+		for(i=0; i<240; i++) {
+			u8color=255-255*i/(240-1);
+			fbset_color(COLOR_RGB_TO16BITS(0,u8color,0));
+			draw_line(&gv_fb_dev, 0, i, 240, i);
+		}
+	}
+	/* 4. Display BLUE SCALE colors */
+	else if(k==-1) {
+		for(i=0; i<240; i++) {
+			u8color=255-255*i/(240-1);
+			fbset_color(COLOR_RGB_TO16BITS(0,0,u8color));
+			draw_line(&gv_fb_dev, 0, i, 240, i);
+		}
+	}
+	/* 5. Display other colors */
+	else {
+		/* Draw 6_rows and 2_columns color blocks  = one 2Colomn_BLOCK */
+		for(i=0; i<6; i++) {
+			/* Draw color blocks */
+			/* k/3 --- ZONE ROW (6), k%3 --- 2colomn_BLOCK (3)=one ZONE  6*3=18 2colomns for screen  */
+			draw_filled_rect2( &gv_fb_dev, COLOR_24TO16BITS(0xFFFFFF-0x330000*(k/3)-0x3300*2*(k%3)-0x33*i),
+											0,   i*40,  120-1, (i+1)*40-1 );
+			draw_filled_rect2( &gv_fb_dev, COLOR_24TO16BITS(0xFFFFFF-0x330000*(k/3)-0x3300*(2*(k%3)+1)-0x33*i),
+											120, i*40,  240-1, (i+1)*40-1 );
+		}
+
+		/* Draw grids */
+		fbset_color(WEGI_COLOR_BLACK);
+		for(i=0; i<6+1; i++)
+			draw_wline_nc(&gv_fb_dev, 0, i*40, 240-1, i*40, 1); /* int x1,int y1,int x2,int y2, unsigned int w */
+		for(i=0; i<2+1; i++)
+			draw_wline_nc(&gv_fb_dev, i*120, 0, i*120, 320-1, 1); /* int x1,int y1,int x2,int y2, unsigned int w */
 	}
 
-	/* Draw grids */
-	fbset_color(WEGI_COLOR_BLACK);
-	for(i=0; i<6+1; i++)
-		draw_wline_nc(&gv_fb_dev, 0, i*40, 240-1, i*40, 1); /* int x1,int y1,int x2,int y2, unsigned int w */
-	for(i=0; i<2+1; i++)
-		draw_wline_nc(&gv_fb_dev, i*120, 0, i*120, 320-1, 1); /* int x1,int y1,int x2,int y2, unsigned int w */
 
 	/* Render */
 	fb_render(&gv_fb_dev);
 
-	/* ----- Wait for button touch ----- */
-	 if(egi_touch_timeWait_press(-1, 0, &touch_data)!=0)
+
+  	while(1) {	/* ----- Wait for button touch ----- */
+		if(egi_touch_timeWait_press(-1, 0, &touch_data)!=0)
                 continue;
-        /* Touch_data converted to the same coord as of FB */
-        egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
 
-        /* Check if touched any of the buttons */
-        for(j=0; j<MAX_BTNS; j++) {
-                if( egi_touch_on_rectBTN(&touch_data, &btns[j]) ) { //&& touch_data.status==pressing ) {  /* Re_check event! */
-                        printf("Button_%d touched!\n",j);
-                        btns[j].reaction(&btns[j]);
-                        fb_render(&gv_fb_dev);
-                        break;
-                }
-        }
+      		/* Touch_data converted to the same coord as of FB */
+        	egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
 
-        /* j==MAX_BTNS No button touched!  Assume that only one button may be touched each time!  */
-        /* Touch missed: Ripple effect */
-        if( j==MAX_BTNS ) {
-		fb_render(&gv_fb_dev);
-                continue;
-        }
+		/* Touched pallete area: Display color value  */
+		if( point_inbox(&touch_data.coord, &paletteBox) ) {
+			/* Get pixel color */
+			pixcolor=fbget_pixColor(&gv_fb_dev, touch_data.coord.x, touch_data.coord.y);
+			fbset_color(pixcolor);
+			/* Show color and its value */
+			draw_filled_box(&gv_fb_dev, &paletteBox);
+			memset(strtmp,0,sizeof(strtmp));
+			sprintf(strtmp,"16BIT: 0x%04X\n24BIT: 0x%06X\n",pixcolor,COLOR_16TO24BITS(pixcolor));
+			egi_subimg_writeFB(padimg, &gv_fb_dev, 0, -1, 0, 0); /* imgbuf, fbdev, subnum, subcolor, x0, y0 */
+	       	 	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
+                                        	20, 20,(const unsigned char *)strtmp,    /* fw,fh, pstr */
+                                        	320, 2, 4,                                  /* pixpl, lines, gap */
+                                        	10, 5,                                    /* x0,y0, */
+                                        	WEGI_COLOR_WHITE, -1, 255,       /* fontcolor, transcolor,opaque */
+                                        	NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
 
-    }
-}
+
+			fb_render(&gv_fb_dev);
+			continue; /* Go to wait while() */
+		}
+
+	        /* Check if touched any of the buttons */
+        	for(j=0; j<MAX_BTNS; j++) {
+                	if( egi_touch_on_rectBTN(&touch_data, &btns[j]) ) { //&& touch_data.status==pressing ) {  /* Re_check event! */
+                        	printf("Button_%d touched!\n",j);
+	                        btns[j].reaction(&btns[j]);
+        	                fb_render(&gv_fb_dev);
+                	        break;
+	                }
+        	}
+
+	        /* j==MAX_BTNS No button touched!  Assume that only one button may be touched each time!  */
+        	/* Touch missed: go to wait while() again... */
+	        if( j==MAX_BTNS ) {
+			//fb_render(&gv_fb_dev);
+			continue;
+	        }
+		else {	/* A button touched: Finally get out of wait while()! */
+			break;
+		}
+
+  	} /* End while() wait for button touch */
+    } /* End for(k) */
+} /* End while() loop */
 
  /* ----- MY release ---- */
-
+ egi_imgbuf_free2(&padimg);
 
     		  /*-----------------------------------
 		   *         End of Main Program
@@ -202,6 +277,7 @@ return 0;
 
 /*------------------------------
 Bounce_back reaction function
+For all buttons
 ------------------------------*/
 static void btn_react(EGI_RECTBTN *btn)
 {
@@ -215,6 +291,8 @@ static void btn_react(EGI_RECTBTN *btn)
 	        egi_sbtn_refresh(btn, "next");
 	else if(btn->id==BTNID_PREV)
 		egi_sbtn_refresh(btn, "prev");
+	else if(btn->id==BTNID_CLEAR)
+		egi_sbtn_refresh(btn, "clear");
 
 	/* Render FB */
         fb_render(&gv_fb_dev);
@@ -234,19 +312,29 @@ static void btn_react(EGI_RECTBTN *btn)
         btn->pressed=false;
 
 	/*  COMMAND */
+
+	/* 1. Go to next color samples */
 	if(btn->id==BTNID_NEXT) {
-		/* Do nothing, let k and m increment */
+		/* Do nothing, let k increment */
 	        egi_sbtn_refresh(btn, "NEXT");
 	}
+	/* 2. Go to previous color samples */
 	else if(btn->id==BTNID_PREV) {
 		/* Move back k (and m) */
-		if(k==0) {
+		if(k==-4) {
 			k=17-1;
 		}
 		else
 			k-=2;
 
 		egi_sbtn_refresh(btn, "PREV");
+	}
+	/* 3. Refresh/Clear current samples */
+	else if(btn->id==BTNID_CLEAR) {
+		/* clear current color area */
+		k -=1;
+
+		egi_sbtn_refresh(btn, "CLEAR");
 	}
 }
 

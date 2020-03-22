@@ -59,7 +59,7 @@ typedef struct fbdev{
 	unsigned char   *map_bk;	/* Pointer to curret working back buffer page, mmap mem
 					 * 1. When ENABLE_BACK_BUFFER is defined, map_bk is pointed to map_buff; all write/read
 					 *    operation to the FB will be directed to the map_buff through map_bk,
-					 *    The map_fb will be updated only when fb_refresh() is called, or
+					 *    map_fb pointered data will be updated only when fb_refresh() is called, or
 					 *    memcpy back buffer to it explicitly.
 					 * 2. If ENABLE_BACK_BUFFER not defined, map_buff will not be allocated and map_bk is set to NULL.
 					 *    All write/read operation will affect to FB mem directly throuhg map_fb.

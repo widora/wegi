@@ -108,7 +108,7 @@ bool pxy_inbox(int px,int py, int x1, int y1,int x2, int y2)
 
  Midas Zhou
 ------------------------------------------------*/
-inline bool point_inbox(const EGI_POINT *pxy, const const EGI_BOX* box)
+inline bool point_inbox(const EGI_POINT *pxy, const EGI_BOX* box)
 {
 	if(pxy==NULL || box==NULL)
 		return false;
@@ -333,21 +333,54 @@ void fbclear_bkBuff(FBDEV *fb_dev, uint16_t color)
 }
 
 
-/*-------------------------------------------------------
+/*-------------------------------------------------------------------
+Return indicated pixel color value in EGI_16BIT_COLOR.
+
 @fb_dev:	FB under consideration
-@x,y:		Pixel coordinate value
+@x,y:		Pixel coordinate value. under FB.pos_rotate coord!
 
-Return 16bit color value for the pixel with
-given coordinates (x,y).
+Return:
+   Ok    16bit color value for the pixel with given coordinates(x,y).
+   Fail  0 as for black
 
-Midas
---------------------------------------------------------*/
-EGI_16BIT_COLOR get_dot_pixColor(FBDEV *fb_dev,int x,int y)
+Midas Zhou
+-------------------------------------------------------------------*/
+EGI_16BIT_COLOR fbget_pixColor(FBDEV *fb_dev, int x, int y)
 {
+	if(fb_dev==NULL|| fb_dev->map_fb==NULL)
+		return 0;
 
+	int  fx=0, fy=0;
+	int  xres=fb_dev->vinfo.xres;
+        int  yres=fb_dev->vinfo.yres;
 
+	/* check FB.pos_rotate: Map x,y to fx,fy under default FB coord.
+	 * Note: Here xres/yres is default/HW_set FB x/y resolustion!
+         */
+	switch(fb_dev->pos_rotate) {
+		case 0:			/* FB default position */
+			fx=x;
+			fy=y;
+			break;
+		case 1:			/* Clockwise 90 deg */
+			fx=(xres-1)-y;
+			fy=x;
+			break;
+		case 2:			/* Clockwise 180 deg */
+			fx=(xres-1)-x;
+			fy=(yres-1)-y;
+			break;
+		case 3:			/* Clockwise 270 deg */
+			fx=y;
+			fy=(yres-1)-x;
+			break;
+	}
 
-	return 0;
+	/* Check mapped FX FY in default FB */
+	if( fx < 0 || fx > xres-1 ) return 0;
+	if( fy < 0 || fy > yres-1 ) return 0;
+
+	return *(EGI_16BIT_COLOR *)(fb_dev->map_fb+(fy*xres+fx)*sizeof(EGI_16BIT_COLOR));
 }
 
 
@@ -1002,10 +1035,20 @@ int draw_filled_rect(FBDEV *dev,int x1,int y1,int x2,int y2)
 	return 0;
 }
 
-/*------------------------------------------------------------------
-draw a filled rectangle blended with backcolor of FB.
+/*--------------------------------------------
+Draw a filled box.
 
-Midas
+Midas Zhou
+--------------------------------------------*/
+void draw_filled_box(FBDEV *dev, EGI_BOX *box)
+{
+	draw_filled_rect(dev, box->startxy.x,box->startxy.y, box->endxy.x, box->endxy.y);
+}
+
+/*------------------------------------------------------------------
+Draw a filled rectangle blended with backcolor of FB.
+
+Midas Zhou
 -------------------------------------------------------------------*/
 void draw_blend_filled_rect( FBDEV *dev, int x1, int y1, int x2, int y2,
 			     	EGI_16BIT_COLOR color, uint8_t alpha )
