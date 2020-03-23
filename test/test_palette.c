@@ -91,7 +91,7 @@ int main(int argc, char **argv)
 	EGI_TOUCH_DATA	touch_data;
 	EGI_16BIT_COLOR pixcolor;
 	uint8_t		u8color;
-	EGI_BOX	 	paletteBox={ { 0, 0 }, { 240, 240-1 } };
+	EGI_BOX	 	paletteBox={ { 0, 0 }, { 240-1, 240-1 } };
 	EGI_IMGBUF 	*padimg=egi_imgbuf_create( 60, 240, 80, WEGI_COLOR_BLACK );
 
 	/* Buttons */
@@ -102,23 +102,31 @@ int main(int argc, char **argv)
 	EGI_RECTBTN 			btns[MAX_BTNS]={0};
 
 	btns[BTNID_NEXT]=(EGI_RECTBTN) { .id=BTNID_NEXT, .color=WEGI_COLOR_GRAY,
-					 .x0=320-80+1, .y0=0, .offy=-3, .width=80-1, .height=40, .sw=4,
+					 .x0=320-80, .y0=0, .offy=-3, .width=80-1, .height=40, .sw=4,
 	    				 .pressed=false, .reaction=btn_react };
 	btns[BTNID_PREV]=(EGI_RECTBTN) { .id=BTNID_PREV, .color=WEGI_COLOR_GRAY,
-					 .x0=320-80+1, .y0=40, .offy=-3, .width=80-1, .height=40, .sw=4,
+					 .x0=320-80, .y0=40, .offy=-3, .width=80-1, .height=40, .sw=4,
 	    				 .pressed=false, .reaction=btn_react };
 	btns[BTNID_CLEAR]=(EGI_RECTBTN) { .id=BTNID_CLEAR, .color=WEGI_COLOR_GRAY, .fw=18, .fh=18,
-					 .x0=320-80+1, .y0=80, .offy=-2, .width=80-1, .height=40, .sw=4,
+					 .x0=320-80, .y0=80, .offy=-2, .width=80-1, .height=40, .sw=4,
 	    				 .pressed=false, .reaction=btn_react };
 
 	/* Clear FB backbuff */
 	fb_clear_backBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
-	draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAY1, 320-80, 0, 320-1, 240-1);
+	draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAY1, 320-80-1, 0, 320-1, 240-1);
 
 	/* Draw buttons */
 	egi_sbtn_refresh(&btns[BTNID_NEXT],"NEXT");
 	egi_sbtn_refresh(&btns[BTNID_PREV],"PREV");
 	egi_sbtn_refresh(&btns[BTNID_CLEAR],"CLEAR");
+
+	/* Mark */
+	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
+                                      	22, 22,(const unsigned char *)"   EGI\n 调色板",    /* fw,fh, pstr */
+                                       	320, 4, 4,                                  /* pixpl, lines, gap */
+                                       	240, 150,                                    /* x0,y0, */
+                                       	WEGI_COLOR_WHITE, -1, 255,       /* fontcolor, transcolor,opaque */
+                                       	NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
 
 	/* Render */
 	fb_render(&gv_fb_dev);
@@ -133,7 +141,7 @@ while(1) {  /*  --- LOOP ---- */
 		for(i=0; i<240; i++) {
 			u8color=255-255*i/(240-1);
 			fbset_color(COLOR_RGB_TO16BITS(u8color,u8color,u8color));
-			draw_line(&gv_fb_dev, 0, i, 240, i);
+			draw_line(&gv_fb_dev, 0, i, 240-1, i);
 		}
 	}
 	/* 2. Display RED SCALE colors */
@@ -141,7 +149,7 @@ while(1) {  /*  --- LOOP ---- */
 		for(i=0; i<240; i++) {
 			u8color=255-255*i/(240-1);
 			fbset_color(COLOR_RGB_TO16BITS(u8color,0,0));
-			draw_line(&gv_fb_dev, 0, i, 240, i);
+			draw_line(&gv_fb_dev, 0, i, 240-1, i);
 		}
 	}
 	/* 3. Display GREEN SCALE colors */
@@ -149,7 +157,7 @@ while(1) {  /*  --- LOOP ---- */
 		for(i=0; i<240; i++) {
 			u8color=255-255*i/(240-1);
 			fbset_color(COLOR_RGB_TO16BITS(0,u8color,0));
-			draw_line(&gv_fb_dev, 0, i, 240, i);
+			draw_line(&gv_fb_dev, 0, i, 240-1, i);
 		}
 	}
 	/* 4. Display BLUE SCALE colors */
@@ -157,7 +165,7 @@ while(1) {  /*  --- LOOP ---- */
 		for(i=0; i<240; i++) {
 			u8color=255-255*i/(240-1);
 			fbset_color(COLOR_RGB_TO16BITS(0,0,u8color));
-			draw_line(&gv_fb_dev, 0, i, 240, i);
+			draw_line(&gv_fb_dev, 0, i, 240-1, i);
 		}
 	}
 	/* 5. Display other colors */
@@ -175,9 +183,11 @@ while(1) {  /*  --- LOOP ---- */
 		/* Draw grids */
 		fbset_color(WEGI_COLOR_BLACK);
 		for(i=0; i<6+1; i++)
-			draw_wline_nc(&gv_fb_dev, 0, i*40, 240-1, i*40, 1); /* int x1,int y1,int x2,int y2, unsigned int w */
+			//draw_wline_nc(&gv_fb_dev, 0, i*40, 240-1, i*40, 1); /* int x1,int y1,int x2,int y2, unsigned int w */
+			draw_line(&gv_fb_dev, 0, i*40, 240-1, i*40); /* int x1,int y1,int x2,int y2, unsigned int w */
 		for(i=0; i<2+1; i++)
-			draw_wline_nc(&gv_fb_dev, i*120, 0, i*120, 320-1, 1); /* int x1,int y1,int x2,int y2, unsigned int w */
+			draw_wline_nc(&gv_fb_dev, i*120-1, 0, i*120-1, 240-1, 1); /* int x1,int y1,int x2,int y2, unsigned int w */
+			//draw_line(&gv_fb_dev, i==0?0:(i*120-1), 0, i==0?0:(i*120-1), 240-1); /* int x1,int y1,int x2,int y2, unsigned int w */
 	}
 
 
@@ -187,7 +197,7 @@ while(1) {  /*  --- LOOP ---- */
 
   	while(1) {	/* ----- Wait for button touch ----- */
 		if(egi_touch_timeWait_press(-1, 0, &touch_data)!=0)
-                continue;
+	                continue;
 
       		/* Touch_data converted to the same coord as of FB */
         	egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
@@ -283,7 +293,7 @@ static void btn_react(EGI_RECTBTN *btn)
 {
         EGI_TOUCH_DATA touch_data;
 
-        /* Draw pressed button */
+        /* Change status */
         btn->pressed=true;
 
         /* Draw button */

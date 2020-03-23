@@ -3,21 +3,6 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-			--- Simple Buttons ---
-
-1. Simple buttons are traditional rectangular buttons, or image icon buttons.
-  !!! --- LIMITS --- !!!
-  Their positions in the screen are fixed, and transparent image icons not
-  applied for transfiguration.
-  Pressimg and releaseimg can be cut out from a pre_designed scenario picture,
-  for they match up its surrounding pixels so well, it looks like that they
-  are just transparent icons.
-
-2. A simple button has only two status: released or pressed.
-3. There may be some illustrating effects on the button to show that status
-   is just be transformed.
-4. A simple button may be transfigured by adopting different image icons.
-
 
 Midas Zhou
 midaszhou@yahoo.com

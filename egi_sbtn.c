@@ -6,11 +6,33 @@ published by the Free Software Foundation.
 			--- Simple Buttons ---
 
 1. Simple buttons are traditional rectangular buttons, or image icon buttons,
-and their positions in the screen are fixed.
-2. A simple button has onlyg two status: released or pressed.
+   and their positions in the screen are usually fixed.
+   Transparent image icons are not applicable for its transfiguration.
+   Pressimg and releaseimg can be cut out from a pre_designed scenario picture,
+   for they match up its surrounding pixels so well, it looks like that they
+   are just transparent icons.
+
+2. A simple button has only two status: released or pressed.
 3. There may be some illustrating effects on the button to show that status
    is just be transformed.
 4. A simple button may be transfigured by adopting different image icons.
+
+5. TODO: Simple buttons are only applied for single PAGE programe NOW.
+         They can not hook up to an EGI_PAGE yet.
+	 OK...You may go deep into sevarl pages, just with some tricks.
+
+6. 		--- Bounce_back buttons ---
+   A bounce_back button reacts (execute private command) at time of
+   pressing the button, AND at time of releasing. the later one may happens
+   when the pen is slided out of the button (Focus lose), it depends on
+   your scenario.
+   While its geometry shape always changes immediatly at time of pressing.
+   ( See example in test_rectBTNs.c )
+
+7. 		--- Switch/Toggle buttons ---
+   A switch or toggle button reacts only at time of touching/pressing
+   the button, and pen releasing event has no effect on it.
+   ( See example in test_rectBTNs.c )
 
 
 Midas Zhou
