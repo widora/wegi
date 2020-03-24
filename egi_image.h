@@ -35,6 +35,7 @@ enum imgframe_type {
 EGI_IMGBUF*	egi_imgbuf_alloc(void);
 EGI_IMGBOX*	egi_imgboxes_alloc(int n);
 void 		egi_imgboxes_free(EGI_IMGBOX *imboxes);
+int 		egi_imgbuf_setSubImgs(EGI_IMGBUF *eimg, int num);
 void 		egi_imgbuf_cleardata(EGI_IMGBUF *egi_imgbuf); /* free data inside */
 void 		egi_imgbuf_free(EGI_IMGBUF *egi_imgbuf);
 void 		egi_imgbuf_free2(EGI_IMGBUF **pimg);
@@ -57,6 +58,7 @@ unsigned char 	get_alpha_mapCurve( EGI_8BIT_ALPHA max_alpha, int range, int type
 #define 	FADEOUT_EDGE_BOTTOM	(1<<2)
 #define 	FADEOUT_EDGE_LEFT	(1<<3)
 int 		egi_imgbuf_fadeOutEdges(EGI_IMGBUF *eimg, EGI_8BIT_ALPHA max_alpha, int width, unsigned int ssmode, int type);
+int 		egi_imgbuf_fadeOutCircle(EGI_IMGBUF *eimg, EGI_8BIT_ALPHA max_alpha, int rad, int width, int type);
 
 EGI_IMGBUF*	egi_imgbuf_newFrameImg( int height, int width,
                 	             unsigned char alpha, EGI_16BIT_COLOR color,

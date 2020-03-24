@@ -1275,18 +1275,18 @@ void draw_filled_pieSlice(FBDEV *dev, int x0, int y0, int r, float Sang, float E
 /*----------------------------------------------
 draw a circle,
 	(x,y)	circle center
-	r	radius
+	r	radius  (>0)
 Midas Zhou
 -----------------------------------------------*/
 void draw_circle(FBDEV *dev, int x, int y, int r)
 {
-	int i;
+	float i=r;
 	int s;
 
-	for(i=0;i<r;i++)
+	for(i=0;i<r;i+=0.5)  /* or o.25, there maybe 1 pixel deviation */
 	{
 //		s=sqrt(r*r*1.0-i*i*1.0);
-		s=round(sqrt(r*r*1.0-i*i*1.0));
+		s=round(sqrt(1.0*r*r-1.0*i*i));
 //		if(i==0)s-=1; /* erase four tips */
 		draw_dot(dev,x-s,y+i);
 		draw_dot(dev,x+s,y+i);
@@ -1695,7 +1695,7 @@ void draw_blend_filled_circle( FBDEV *dev, int x, int y, int r,
 
 			if(j<0) /* map X */
 			{
-				tmpx=xres-(-j)%xres; /* here tmpx=1-240 */ 
+				tmpx=xres-(-j)%xres; /* here tmpx=1-240 */
 				tmpx=tmpx%xres;
 			}
 			else if(j > xres-1)

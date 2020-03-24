@@ -25,6 +25,7 @@ static EGI_IMGBUF	*iconsImg;
 /* Switch Button Reaction Function */
 static void switch_react(EGI_RECTBTN *btn);
 
+
 int main(int argc, char **argv)
 {
 
@@ -94,9 +95,7 @@ int main(int argc, char **argv)
 	if(iconsImg==NULL)exit(1);
 
 	/* Define Icons */
-	iconsImg->submax=4-1;
-	iconsImg->subimgs=egi_imgboxes_alloc(4);		/* Define 4 icons */
-	if(iconsImg->subimgs==NULL)exit(1);
+	if(egi_imgbuf_setSubImgs(iconsImg, 4)!=0) exit(1);
 	iconsImg->subimgs[ICONID_BULB_ON]  =(EGI_IMGBOX){141,20,130,180}; 	/* BULB_ON */
 	iconsImg->subimgs[ICONID_BULB_OFF] =(EGI_IMGBOX){9,20,130,180};		/* BULB_OFF */
 	iconsImg->subimgs[ICONID_FLIP_ON]  =(EGI_IMGBOX){502,7,120,90};		/* FLIP_ON */
@@ -146,6 +145,7 @@ while(1) {  /*  --- LOOP ---- */
         for(i=0; i<MAX_BTNS; i++) {
                 if( egi_touch_on_rectBTN(&touch_data, &btns[i]) ) { //&& touch_data.status==pressing ) {  /* Re_check event! */
                         printf("Button_%d touched!\n",i);
+			btns[i].touch_data=&touch_data;
                         btns[i].reaction(&btns[i]);
                         fb_page_refresh(&gv_fb_dev, 0);
                         break;
@@ -196,20 +196,29 @@ return 0;
 
 
 /*--------------------------------------
-Switch/Toggle reaction function
+     Switch/Toggle reaction function
 ---------------------------------------*/
 static void switch_react(EGI_RECTBTN *btn)
 {
-        EGI_TOUCH_DATA touch_data;
+	if(btn->touch_data==NULL)return;
 
         /* Toggle/switch button */
-        btn->pressed=!btn->pressed;
+	if(btn->pressed==false) {
+		/* Check if pressed left side of the button */
+		if( btn->touch_data->coord.x < btn->x0+btn->width/2 )
+			btn->pressed=true;
+	}
+	else {  /*  btn->pressed==true,  Check if pressed right side of the button */
+		if( btn->touch_data->coord.x > btn->x0+btn->width/2 )
+			btn->pressed=false;
+	}
 
         /* Draw button */
 	egi_sbtn_refresh(btn,NULL);
 
 	/* Update Bulb image  */
-	egi_subimg_writeFB(iconsImg, &gv_fb_dev, btn->pressed?ICONID_BULB_ON:ICONID_BULB_OFF, -1, 0, 40); /* imgbuf, fbdev, subnum, subcolor, x0,y0  */
+	/* imgbuf, fbdev, subnum, subcolor, x0,y0  */
+	egi_subimg_writeFB(iconsImg, &gv_fb_dev, btn->pressed?ICONID_BULB_ON:ICONID_BULB_OFF, -1, 0, 40);
 
 }
 

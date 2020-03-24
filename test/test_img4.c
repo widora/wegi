@@ -65,6 +65,35 @@ int main(int argc, char **argv)
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
+#if 1 ////////////   TEST egi_imgbuf_fadeOutCircle()  /////////////
+	int i;
+	int rad=1;
+	int delt=5;
+	EGI_IMGBUF *srcimg=NULL;
+
+  	fb_set_directFB(&gv_fb_dev,false);
+
+  while(1) {
+	if(rad>=80) {
+		rad=80;
+		delt=-5;
+	}
+	else if(rad<=5)
+	{
+		delt=5;
+	}
+	rad += delt;
+	srcimg=egi_imgbuf_readfile("/mmc/linuxpet.jpg");
+	fb_clear_backBuff(&gv_fb_dev,WEGI_COLOR_PINK);
+	egi_imgbuf_fadeOutCircle(srcimg, 170, rad, srcimg->width/2-rad+10, 0);   /* eimg,  max_alpha, rad, width,  type */
+	egi_subimg_writeFB(srcimg, &gv_fb_dev, 0, -1, (320-srcimg->width)/2, (240-srcimg->height)/2); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
+	fb_render(&gv_fb_dev);
+	tm_delayms(60);
+	egi_imgbuf_free2(&srcimg);
+  }
+	return 0;
+#endif
+
 #if 0 ////////////   TEST egi_imgbuf_copyBlock()  /////////////
 
 	/* block size */

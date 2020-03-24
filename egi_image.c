@@ -323,7 +323,7 @@ Return:
 	A pointer to EGI_IMGBUF		OK
 			   FULL		Fails
 ---------------------------------------------------------------*/
-EGI_IMGBUF *egi_imgbuf_createWithoutAlpha( int height, int width, EGI_16BIT_COLOR color)
+EGI_IMGBUF *egi_imgbuf_createWithoutAlpha(int height, int width, EGI_16BIT_COLOR color)
 {
 	int i;
 
@@ -342,6 +342,35 @@ EGI_IMGBUF *egi_imgbuf_createWithoutAlpha( int height, int width, EGI_16BIT_COLO
 	}
 
 	return imgbuf;
+}
+
+
+/*--------------------------------------------------------
+Allocate eimg->subimgs and set eimg->submax. and it will
+NOT check eimg->imgbuf.
+All eimg->subimgs[] shall be assigned properly after this.
+
+@eimg:	Pointer to an EGI_IMGBUF
+@num:	Total number of subimgs
+
+Return:
+	0	OK
+	<0	Fail
+-------------------------------------------------------*/
+int egi_imgbuf_setSubImgs(EGI_IMGBUF *eimg, int num)
+{
+	if(eimg==NULL)
+		return -1;
+
+	/* Allocate sumbimgs */
+	eimg->subimgs=egi_imgboxes_alloc(num);
+	if(eimg->subimgs==NULL)
+		return -2;
+
+	/* Assign submax */
+	eimg->submax=num-1;
+
+	return 0;
 }
 
 
@@ -769,10 +798,10 @@ of the image fade out (hide) smoothly into its surrounding.
 
 @max_alpha:  Max alpha value for get_alpha_mapCurve()
 	     transition position [0 width-1] maps to [0 max_alpha]
+	     Usually to be 255. or same as original eimg->alpha.
 
 @width: Width of the gradient transition belt.
-	Adjust to [1  imgbuf.height] or [1 imgbuf.width]
-	If width out of above limits, then it's deemed as range value.
+	    Adjust to [1  imgbuf.height] or [1 imgbuf.width]
 
 @ssmode:  --- Side select mode ---
 	FADEOUT_EDGE_TOP 	0b0001  effective for Top side only.
@@ -790,7 +819,7 @@ Return:
 int egi_imgbuf_fadeOutEdges(EGI_IMGBUF *eimg, EGI_8BIT_ALPHA max_alpha, int width, unsigned int ssmode, int type)
 {
 	int i,j;
-	int wb;  	 /* width of transition belt, may be different from width.  */
+	int wb;  	 /* effective width of transition belt, may be different from width.  */
 	unsigned char alpha;
 
 	if( eimg==NULL || eimg->imgbuf==NULL )
@@ -868,6 +897,127 @@ int egi_imgbuf_fadeOutEdges(EGI_IMGBUF *eimg, EGI_8BIT_ALPHA max_alpha, int widt
 			}
 		}
 	}
+
+	return 0;
+}
+
+
+/*--------------------------------------------------------------------------
+Modify alpha values for an EGI_IMGBUF, in order to make the
+image fade out (hide) smoothly around a circle.
+
+@eimg: 	     Pointer to an EGI_IMGBUF
+@rad:	     Radius of the innermost circle.
+@max_alpha:  Max alpha value for get_alpha_mapCurve()
+	     transition position [0 width-1] maps to [0 max_alpha]
+	     Usually to be 255. or same as original eimg->alpha.
+
+@width: Width of the gradient transition belt. Direction from innermost circle
+	to outer circle. ri+width may be greater than ro.
+	Adjust to [1  outmost_radius]
+
+@type:  Type of fading transition as defined in get_alpha_mapCurve().
+
+Return:
+	0	OK
+	<0	Fails
+-------------------------------------------------------------------------------*/
+int egi_imgbuf_fadeOutCircle(EGI_IMGBUF *eimg, EGI_8BIT_ALPHA max_alpha, int rad, int width, int type)
+{
+
+	int x0,y0;	 /* center of the circle under coord. of eimg->imgbuf */
+	int ro;		 /* outmost radius */
+	int ri;		 /* innermost radius */
+	int r;
+	int rdev;	 /* rdev=ri+width-ro */
+	int py;		 /* 1/4 arch Y, X */
+	float fpy;
+	int px;
+	unsigned long pos; /* alpha position/offset */
+	unsigned char alpha;
+
+	if( eimg==NULL || eimg->imgbuf==NULL )
+		return -1;
+
+	if( width<=0 )
+		return 1;
+
+	/* Check rad */
+	if(rad<0)rad=0;
+
+	/* Create alpha data if NULL */
+	if(eimg->alpha==NULL) {
+                eimg->alpha=calloc(1, eimg->height*eimg->width*sizeof(unsigned char)); /* alpha value 8bpp */
+                if(eimg->alpha == NULL) {
+                        printf("%s: fail to calloc eimg->alpha.\n",__func__);
+                        return -2;
+		}
+		memset(eimg->alpha,255,eimg->height*eimg->width); /* init. value 255 */
+	}
+
+	/* Circle center */
+	x0=eimg->width/2;   /* here Not width/2 -1  */
+	y0=eimg->height/2;
+
+	/* Innermost radius: ri to be Min. of width/2, height/w, and rad */
+	ri=rad;
+	if(ri>x0)ri=x0;
+	if(ri>y0)ri=y0;
+
+	/* Outermost radius: ro to be (Max. of 4 tips) distance from (x0,y0) to (0,0) */
+	ro=round(sqrt(1.0*x0*x0+1.0*y0*y0));
+
+	/* Transition band width >0 */
+	rdev=ri+width-ro;  /* If width+ri>ro, rdev>0, else rdev<0 */
+
+        for(r=ro; r>=ri; r--)  /* or o.25, there maybe 1 pixel deviation */
+        {
+		/* Get alpha value for current radius */
+		if(r>ri+width)
+			alpha=0;	/* outer area is hidden */
+		else {
+			alpha=get_alpha_mapCurve(max_alpha, width, type, rdev+(ro-r));
+		}
+
+		/* For each circle */
+		for(fpy=0; fpy<r; fpy+=0.5) { /* or o.25, there maybe 1 pixel deviation */
+	                px=round(sqrt(r*r-fpy*fpy));
+			py=round(fpy);
+			if( y0+py>=0 && y0+py < eimg->height && x0-px>=0 && x0-px < eimg->width  ) {
+				pos=eimg->width*(y0+py)+(x0-px);
+				eimg->alpha[pos]=alpha;
+			}
+			if( y0+py>=0 && y0+py < eimg->height && x0+px>=0 && x0+px < eimg->width  ) {
+				pos=eimg->width*(y0+py)+(x0+px);
+				eimg->alpha[pos]=alpha;
+			}
+			if( y0-py>=0 && y0-py < eimg->height && x0-px>=0 && x0-px < eimg->width  ) {
+				pos=eimg->width*(y0-py)+(x0-px);
+				eimg->alpha[pos]=alpha;
+			}
+			if( y0-py>=0 && y0-py < eimg->height && x0+px>=0 && x0+px < eimg->width  ) {
+				pos=eimg->width*(y0-py)+(x0+px);
+				eimg->alpha[pos]=alpha;
+			}
+			/* Flip X Y */
+			if( y0+px>=0 && y0+px < eimg->height && x0-py>=0 && x0-py < eimg->width  ) {
+				pos=eimg->width*(y0+px)+(x0-py);
+				eimg->alpha[pos]=alpha;
+			}
+			if( y0+px>=0 && y0+px < eimg->height && x0+py>=0 && x0+py < eimg->width  ) {
+				pos=eimg->width*(y0+px)+(x0+py);
+				eimg->alpha[pos]=alpha;
+			}
+			if( y0-px>=0 && y0-px < eimg->height && x0-py>=0 && x0-py < eimg->width  ) {
+				pos=eimg->width*(y0-px)+(x0-py);
+				eimg->alpha[pos]=alpha;
+			}
+			if( y0-px>=0 && y0-px < eimg->height && x0+py>=0 && x0+py < eimg->width  ) {
+				pos=eimg->width*(y0-px)+(x0+py);
+				eimg->alpha[pos]=alpha;
+			}
+		}
+        }
 
 	return 0;
 }

@@ -82,7 +82,7 @@ int main(int argc, char ** argv)
 
 
 
-#if 1	/* <<<<<<<<<<<<<<  test fb_position_rotate()  <<<<<<<<<<<<<<< */
+#if 0	/* <<<<<<<<<<<<<<  test fb_position_rotate()  <<<<<<<<<<<<<<< */
 	 int k=0;
 	 EGI_IMGBUF *eimg=egi_imgbuf_readfile("/mmc/linuxpet.jpg");
 
@@ -159,6 +159,28 @@ while(1) {
 #endif
 
 
+#if 1  /* <<<<<<<<<<<<<<  test draw circle  <<<<<<<<<<<<<<<*/
+	int k;
+	int r;
+	int rmax, rmin;
+
+	fb_position_rotate(&gv_fb_dev,3);
+
+	clear_screen(&gv_fb_dev,WEGI_COLOR_BLACK);
+	fbset_color(WEGI_COLOR_RED);
+
+  while(1) {
+	rmin=mat_random_range(40)+1;
+	rmax=mat_random_range(50)+60;
+	fbset_color(egi_color_random(color_medium));
+	for(r=rmin; r<rmax; r++)
+		draw_circle(&gv_fb_dev, 160, 120, r);
+
+	fb_render(&gv_fb_dev);
+	tm_delayms(75);
+  }
+	return 0;
+#endif
 
 #if 0  /* <<<<<<<<<<<<<<  4. test draw pcircle  <<<<<<<<<<<<<<<*/
 	int w;
@@ -196,7 +218,7 @@ while(1) {
 #endif
 
 
-#if 1  /* <<<<<<<<<<<<<<  5. test draw  arc  <<<<<<<<<<<<<<<*/
+#if 0  /* <<<<<<<<<<<<<<  5. test draw  arc  <<<<<<<<<<<<<<<*/
 	int i;
 	int x0=160;
 	int y0=120+5;

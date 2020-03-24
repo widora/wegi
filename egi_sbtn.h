@@ -14,6 +14,8 @@ midaszhou@yahoo.com
 #include <egi_imgbuf.h>
 #include <stdbool.h>
 
+extern struct egi_touch_data;
+
 /* Simple rectangular button data */
 typedef struct egi_rectbtn EGI_RECTBTN;
 struct egi_rectbtn {
@@ -49,6 +51,7 @@ struct egi_rectbtn {
 	EGI_IMGBUF	*releaseimg;			/* image icon for released status */
 	unsigned	releaseimg_subnum;
 
+	struct egi_touch_data	*touch_data;			/* pointer to current touch data */
         void            (* reaction)(EGI_RECTBTN *);    /* button reaction callback */
 };
 
