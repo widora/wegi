@@ -75,20 +75,22 @@ int main(int argc, char **argv)
 
   while(1) {
 	if(rad>=80) {
+		tm_delayms(1000);
 		rad=80;
 		delt=-5;
 	}
-	else if(rad<=5)
+	else if(rad<=0)
 	{
 		delt=5;
 	}
 	rad += delt;
 	srcimg=egi_imgbuf_readfile("/mmc/linuxpet.jpg");
 	fb_clear_backBuff(&gv_fb_dev,WEGI_COLOR_PINK);
-	egi_imgbuf_fadeOutCircle(srcimg, 170, rad, srcimg->width/2-rad+10, 0);   /* eimg,  max_alpha, rad, width,  type */
+	//egi_imgbuf_fadeOutCircle(srcimg, 255, rad, srcimg->width/2-rad+10, 0);   /* eimg,  max_alpha, rad, width,  type */
+	egi_imgbuf_fadeOutCircle(srcimg, 255, rad, 40, 0);   /* eimg,  max_alpha, rad, width,  type */
 	egi_subimg_writeFB(srcimg, &gv_fb_dev, 0, -1, (320-srcimg->width)/2, (240-srcimg->height)/2); /* imgbuf, fb_dev, subnum, subcolor, x0, y0  */
 	fb_render(&gv_fb_dev);
-	tm_delayms(60);
+	tm_delayms(30);
 	egi_imgbuf_free2(&srcimg);
   }
 	return 0;
@@ -148,7 +150,6 @@ exit(0);
 	EGI_IMGBUF *frontimg=NULL;
 	EGI_IMGBUF *backimg=NULL;
 	backimg=egi_imgbuf_readfile("/mmc/backimg.jpg");
-
 
         /* parse input option */
         while( (opt=getopt(argc,argv,"hw:a:s:"))!=-1)

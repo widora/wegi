@@ -1286,7 +1286,8 @@ void draw_circle(FBDEV *dev, int x, int y, int r)
 	for(i=0;i<r;i+=0.5)  /* or o.25, there maybe 1 pixel deviation */
 	{
 //		s=sqrt(r*r*1.0-i*i*1.0);
-		s=round(sqrt(1.0*r*r-1.0*i*i));
+//		s=round(sqrt(1.0*r*r-1.0*i*i));
+		s=round(sqrt(r*r-i*i));
 //		if(i==0)s-=1; /* erase four tips */
 		draw_dot(dev,x-s,y+i);
 		draw_dot(dev,x+s,y+i);

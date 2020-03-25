@@ -913,8 +913,8 @@ image fade out (hide) smoothly around a circle.
 	     Usually to be 255. or same as original eimg->alpha.
 
 @width: Width of the gradient transition belt. Direction from innermost circle
-	to outer circle. ri+width may be greater than ro.
-	Adjust to [1  outmost_radius]
+	to outer circle where r=ri+width.  ri+width may be greater than ro.
+	Adjust to [1  outmost_radius], and set alpha=0 where r>ri+width
 
 @type:  Type of fading transition as defined in get_alpha_mapCurve().
 
@@ -965,7 +965,8 @@ int egi_imgbuf_fadeOutCircle(EGI_IMGBUF *eimg, EGI_8BIT_ALPHA max_alpha, int rad
 	if(ri>y0)ri=y0;
 
 	/* Outermost radius: ro to be (Max. of 4 tips) distance from (x0,y0) to (0,0) */
-	ro=round(sqrt(1.0*x0*x0+1.0*y0*y0));
+	//ro=round(sqrt(1.0*x0*x0+1.0*y0*y0));
+	ro=round(sqrt(x0*x0+y0*y0));
 
 	/* Transition band width >0 */
 	rdev=ri+width-ro;  /* If width+ri>ro, rdev>0, else rdev<0 */
@@ -982,7 +983,8 @@ int egi_imgbuf_fadeOutCircle(EGI_IMGBUF *eimg, EGI_8BIT_ALPHA max_alpha, int rad
 		/* For each circle */
 		for(fpy=0; fpy<r; fpy+=0.5) { /* or o.25, there maybe 1 pixel deviation */
 	                px=round(sqrt(r*r-fpy*fpy));
-			py=round(fpy);
+			//py=round(fpy);
+			py=fpy;
 			if( y0+py>=0 && y0+py < eimg->height && x0-px>=0 && x0-px < eimg->width  ) {
 				pos=eimg->width*(y0+py)+(x0-px);
 				eimg->alpha[pos]=alpha;
