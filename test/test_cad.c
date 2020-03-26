@@ -300,6 +300,9 @@ static void cad_line(EGI_TOUCH_DATA* touch_data)
 	/* dump filo */
 	fb_filo_dump(&gv_fb_dev);
 
+	/* Set screen size to 240x240 */
+	gv_fb_dev.pos_xres=240;
+
 	while(1) {
 
         	while(!egi_touch_getdata(&touch));
@@ -308,10 +311,15 @@ static void cad_line(EGI_TOUCH_DATA* touch_data)
 		/* Releasing: confirm the end point */
 		if(touch.status==releasing || touch.status==released_hold) {
 			/* Draw to FB buffer */
+			/* OR copy to FB buffer */
 			fbset_color(WEGI_COLOR_GREEN);
 			draw_line(&gv_fb_dev, startxy.x, startxy.y, endxy.x, endxy.y);
-			/* OR copy to FB buffer */
+
 			fb_render(&gv_fb_dev);
+
+			/* Reset screen size back to 240x320 */
+			gv_fb_dev.pos_xres=320;
+
 			return;
 		}
 
@@ -319,7 +327,7 @@ static void cad_line(EGI_TOUCH_DATA* touch_data)
 		endxy=touch.coord;
 
 		/* Set limits */
-		if(endxy.x>240)endxy.x=240-1;
+		if(endxy.x>240-1)endxy.x=240-1;
 
 	        /* Turn on FB filo and set map pointer */
 		fb_set_directFB(&gv_fb_dev, true);
@@ -357,7 +365,7 @@ static void cad_circle(EGI_TOUCH_DATA* touch_data)
 	fb_filo_dump(&gv_fb_dev);
 
 	/* Set screen size to 240x240 */
-	gv_fb_dev.pos_xres=240-1;
+	gv_fb_dev.pos_xres=240;
 
 	while(1) {
 
@@ -367,15 +375,15 @@ static void cad_circle(EGI_TOUCH_DATA* touch_data)
 		/* Releasing: confirm the end point */
 		if(touch.status==releasing || touch.status==released_hold) {
 			/* draw to FB buffer */
+			/* OR copy to FB buffer */
 			fbset_color(WEGI_COLOR_RED);
 			draw_circle( &gv_fb_dev, startxy.x, startxy.y,
 				     sqrt( (endxy.x-startxy.x)*(endxy.x-startxy.x)+(endxy.y-startxy.y)*(endxy.y-startxy.y) )
 			   );
 
-			/* OR copy to FB buffer */
 			fb_render(&gv_fb_dev);
 
-			/* Reset screen size back */
+			/* Reset screen size back to 240x320 */
 			gv_fb_dev.pos_xres=320;
 
 			return;
@@ -416,6 +424,7 @@ static void cad_sketch(EGI_TOUCH_DATA* touch_data)
 	EGI_TOUCH_DATA touch;
 	EGI_POINT startxy;
 	EGI_POINT endxy;
+	int penw=3;
 
 	/* Press: Get start point */
 	startxy=touch_data->coord;
@@ -423,6 +432,9 @@ static void cad_sketch(EGI_TOUCH_DATA* touch_data)
 
 	/* Set as direct FB */
 	fb_set_directFB(&gv_fb_dev, true);
+
+	/* Set screen size to 240x240 */
+	gv_fb_dev.pos_xres=240;
 
 	while(1) {
 
@@ -438,6 +450,9 @@ static void cad_sketch(EGI_TOUCH_DATA* touch_data)
 			/* OR copy to FB buffer */
 			fb_page_saveToBuff(&gv_fb_dev, 0);
 			fb_render(&gv_fb_dev);
+
+			/* Reset screen size back to 240x320 */
+			gv_fb_dev.pos_xres=320;
 			return;
 		}
 
@@ -445,13 +460,13 @@ static void cad_sketch(EGI_TOUCH_DATA* touch_data)
 		startxy=endxy;
 		endxy=touch.coord;
 
-		/* Set limits */
-		if(endxy.x>240)endxy.x=240-1;
+		/* Set limits : Consider pen width */
+		if(endxy.x>240-1)endxy.x=240-1;
 
 		/* DriectFB Draw Line */
 		fbset_color(WEGI_COLOR_YELLOW);
 		//draw_line(&gv_fb_dev, startxy.x, startxy.y, endxy.x, endxy.y);
-		draw_wline(&gv_fb_dev, startxy.x, startxy.y, endxy.x, endxy.y,3);
+		draw_wline(&gv_fb_dev, startxy.x, startxy.y, endxy.x, endxy.y, penw);
 //	        tm_delayms(60);
 	}
 }

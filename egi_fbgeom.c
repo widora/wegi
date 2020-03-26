@@ -436,9 +436,9 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 
 	/* Check FB.pos_xres, pos_yres */
 	if(fb_dev->pos_rotate) {
-		if( x<0 || x>fb_dev->pos_xres)
+		if( x<0 || x>fb_dev->pos_xres-1)
 			return -1;
-		if( y<0 || y>fb_dev->pos_yres)
+		if( y<0 || y>fb_dev->pos_yres-1)
 			return -1;
 	}
 
