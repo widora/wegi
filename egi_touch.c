@@ -429,9 +429,19 @@ int egi_touch_fbpos_data(FBDEV *fbdev, EGI_TOUCH_DATA *touch_data)
 	if(fbdev==NULL || touch_data==NULL)
 		return -1;
 
-	/* Resultion for X and Y direction, as per pos_rotate */
+	/* Resolution for X and Y direction, as per pos_rotate */
+	#if 0 /* NOPE: pos_xres and pos_yres MAY be modified */
         pxres=fbdev->pos_xres;
         pyres=fbdev->pos_yres;
+	#else
+	if(fbdev->pos_rotate%2) {
+	        pxres=fbdev->vinfo.yres;
+		pyres=fbdev->vinfo.xres;
+	} else {
+		pxres=fbdev->vinfo.xres;
+		pxres=fbdev->vinfo.yres;
+	}
+	#endif
 
 	/* get original touch data */
 	tx=touch_data->coord.x;

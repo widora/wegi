@@ -16,6 +16,7 @@ Midas Zhou
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <linux/fb.h>
 #include <sys/mman.h>
 #include <stdlib.h>
 
@@ -151,18 +152,98 @@ void release_fbdev(FBDEV *dev)
         if( munmap(dev->map_buff,dev->screensize*FBDEV_BUFFER_PAGES) !=0 )
 		printf("Fail to unmap back mem for FB: %s\n", strerror(errno));
 
-	/* free buffer */
-//	for( i=0; i<FBDEV_BUFFER_PAGES; i++ )
-//	{
-//		if( dev->buffer[i] != NULL )
-//		{
-//			free(dev->buffer[i]);
-//			dev->buffer[i]=NULL;
-//		}
-//	}
-
         close(dev->fbfd);
         dev->fbfd=-1;
+}
+
+
+/*----------- TODO: FB driver support ------------------------------------------
+(Temporarily) Set screen Vinfo for FB HW, and update
+fb_dev params accordingly.
+
+NOTE:
+1. This is NOT for soft po_rotate screen, it's for HW set screen params !!!
+2. Not applicable for virtual FBDEV.
+
+@old_vinfo: Old screen vinfo to be saved.
+@new_vifno: new screen vinfo to be set.
+
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------------------------------------------*/
+int fb_set_screenVinfo(FBDEV *fb_dev, struct fb_var_screeninfo *old_vinfo,  const struct fb_var_screeninfo *new_vinfo)
+{
+
+	if(fb_dev==NULL || fb_dev->map_buff==NULL)
+		return -1;
+
+	/* Set new params for HW FB */
+	/* Check: Driver FBIOPUT */
+        if(ioctl(fb_dev->fbfd,FBIOPUT_VSCREENINFO, new_vinfo)!=0) {
+		printf("%s: Fail to ioctl  FBIOSET_VSCREENINFO\n",__func__);
+		return -2;
+	}
+
+	/* Save old vinfo */
+	if(old_vinfo!=NULL)
+		*old_vinfo=fb_dev->vinfo;
+
+	/* Read in new HW vinfo */
+	ioctl(fb_dev->fbfd,FBIOGET_VSCREENINFO,&(fb_dev->vinfo));
+#if 1
+	printf("%s: New vinfo set as: xres=%d, yres=%d\n",__func__, fb_dev->vinfo.xres, fb_dev->vinfo.yres);
+#endif
+	/* Reset fb_dev parmas */
+        fb_dev->screensize=fb_dev->vinfo.xres*fb_dev->vinfo.yres*(fb_dev->vinfo.bits_per_pixel>>3); /* >>3 /8 */
+
+	/* Note: pos_xres, pos_yres NOT updated! */
+
+	return 0;
+}
+
+
+/*----------- TODO: FB driver support --------------------------------------
+(Temporarily) Set screen position via FB HW, and update
+fb_dev params accordingly.
+
+NOTE:
+1. This is NOT for soft po_rotate screen, it's for HW set screen params !!!
+2. Not applicable for virtual FBDEV.
+
+
+@xres:	    xres of screen
+@yres:	    yres of screen
+@offx:      X offset of screen image
+@offy: 	    Y offset of screen image
+
+TODO:       offx, offy NOT applicable yet!
+
+Return:
+	0	OK
+	<0	Fails
+--------------------------------------------------------------------------*/
+int fb_set_screenPos(FBDEV *fb_dev, unsigned int xres, unsigned int yres)
+				  //  unsigned int xoff,  unsigned yoff )
+{
+	if(fb_dev==NULL || fb_dev->map_buff==NULL)
+		return -1;
+
+	struct fb_var_screeninfo new_vinfo=fb_dev->vinfo;
+
+	/* Set new params */
+	new_vinfo.xres=xres;
+	new_vinfo.yres=yres;
+//	new_vinfo.xoffset=xoff;
+//	new_vinfo.yoffset=yoff;
+
+	/* Set HW and update fb_dev */
+        if( fb_set_screenVinfo(fb_dev, NULL, &new_vinfo)!=0 )
+		return -2;
+
+	/* Note: pos_xres, pos_yres NOT updated! */
+
+	return 0;
 }
 
 
@@ -245,6 +326,8 @@ void release_virt_fbdev(FBDEV *dev)
 	dev->virt=false;
 	dev->virt_fb=NULL;
 }
+
+
 
 /*-----------------------------------------------------------
 Shift/switch fb_dev->map_bk to point to the indicated buffer

@@ -3,7 +3,6 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-
 A simple CAD example, to draw line, circle and sketch.
 
 Midas Zhou
@@ -17,7 +16,7 @@ midaszhou@yahoo.com
 
 #define CADBOARD_BKGCOLOR	WEGI_COLOR_BLACK	/* CAD drawing board back ground color */
 
-/* --- Buttons --- */
+/* --- Define Buttons --- */
 #define MAX_BTNS		4
 #define BTNID_LINE		0
 #define BTNID_CIRCLE		1
@@ -25,13 +24,13 @@ midaszhou@yahoo.com
 #define BTNID_CLEAR		3
 EGI_RECTBTN 			btns[MAX_BTNS];
 
-/* tags */
+/* Button tags */
 char *btn_tags[MAX_BTNS]={ "Line","Circle","Sketch","Clear" };
 
-/* --- Functions --- */
+/* Button React Functions */
 static void btn_react(EGI_RECTBTN *btn);
 
-/* --- CAD draw functions --- */
+/* CAD draw functions */
 static void cad_line(EGI_TOUCH_DATA* touch_data);
 static void cad_circle(EGI_TOUCH_DATA* touch_data);
 static void cad_sketch(EGI_TOUCH_DATA* touch_data);
@@ -154,10 +153,9 @@ int main(int argc, char **argv)
 	/* Render */
 	fb_render(&gv_fb_dev);
 
-while(1) {  /*  --- LOOP ---- */
 
-
-  	while(1) {	/* ----- Wait for button touch ----- */
+	/* ----- Loop Wait for button touch ----- */
+  	while(1) {
 		if(egi_touch_timeWait_press(-1, 0, &touch_data)!=0)
 	                continue;
 
@@ -170,27 +168,28 @@ while(1) {  /*  --- LOOP ---- */
                         	printf("Button_%d touched!\n",j);
 	                        btns[j].reaction(&btns[j]);
         	                fb_render(&gv_fb_dev);
-                	        break;
+                	        break;  /* Break for() */
 	                }
         	}
 
 	        /* j==MAX_BTNS No button touched!  Assume that only one button may be touched each time!  */
-        	/* Touch missed: go to wait while() again... */
+        	/* Touch Drawing board area  */
 	        if( j==MAX_BTNS ) {
 			if(cad_draw_function)
 				cad_draw_function(&touch_data);
 			fb_render(&gv_fb_dev);
-			continue;
+			//continue; /* Got to wait for touch while() again... */
 	        }
 		else {	/* A button touched: Finally get out of wait while()! */
-			break;
+			//continue;
 		}
 
   	} /* End while() wait for button touch */
-} /* End while() loop */
+
 
  /* ----- MY release ---- */
  egi_imgbuf_free2(&padimg);
+
 
     		  /*-----------------------------------
 		   *         End of Main Program
@@ -320,13 +319,12 @@ static void cad_line(EGI_TOUCH_DATA* touch_data)
 		endxy=touch.coord;
 
 		/* Set limits */
-		if(endxy.x>240)endxy.y=240;
+		if(endxy.x>240)endxy.x=240-1;
 
 	        /* Turn on FB filo and set map pointer */
+		fb_set_directFB(&gv_fb_dev, true);
         	fb_filo_on(&gv_fb_dev);
-	        gv_fb_dev.map_bk=gv_fb_dev.map_fb;
         	fb_filo_flush(&gv_fb_dev); /* flush and restore old FB pixel data */
-
 
 		/* DriectFB Draw Line */
 		fbset_color(WEGI_COLOR_GREEN);
@@ -334,15 +332,14 @@ static void cad_line(EGI_TOUCH_DATA* touch_data)
 	        tm_delayms(60);
 
         	/* Turn off FB filo and reset map pointer */
-      	  	gv_fb_dev.map_bk=gv_fb_dev.map_buff;
+		fb_set_directFB(&gv_fb_dev, false);
         	fb_filo_off(&gv_fb_dev);
-
 	}
 }
 
 
 /*-----------------------------------------------
-	Draw a circle
+		Draw a circle
 Current touched point as center, and next
 releasing point defines the radius.
 ------------------------------------------------*/
@@ -356,8 +353,11 @@ static void cad_circle(EGI_TOUCH_DATA* touch_data)
 	startxy=touch_data->coord;
 	endxy=startxy;
 
-	/* dump filo */
+	/* Dump filo */
 	fb_filo_dump(&gv_fb_dev);
+
+	/* Set screen size to 240x240 */
+	gv_fb_dev.pos_xres=240-1;
 
 	while(1) {
 
@@ -371,8 +371,13 @@ static void cad_circle(EGI_TOUCH_DATA* touch_data)
 			draw_circle( &gv_fb_dev, startxy.x, startxy.y,
 				     sqrt( (endxy.x-startxy.x)*(endxy.x-startxy.x)+(endxy.y-startxy.y)*(endxy.y-startxy.y) )
 			   );
+
 			/* OR copy to FB buffer */
 			fb_render(&gv_fb_dev);
+
+			/* Reset screen size back */
+			gv_fb_dev.pos_xres=320;
+
 			return;
 		}
 
@@ -382,8 +387,8 @@ static void cad_circle(EGI_TOUCH_DATA* touch_data)
 		/* TODO: draw_circle_limit() */
 
 	        /* Turn on FB filo and set map pointer */
+		fb_set_directFB(&gv_fb_dev, true);
         	fb_filo_on(&gv_fb_dev);
-	        gv_fb_dev.map_bk=gv_fb_dev.map_fb;
         	fb_filo_flush(&gv_fb_dev); /* flush and restore old FB pixel data */
 
 		/* DriectFB Draw Line */
@@ -391,15 +396,13 @@ static void cad_circle(EGI_TOUCH_DATA* touch_data)
 		draw_circle( &gv_fb_dev, startxy.x, startxy.y,
 			     sqrt( (endxy.x-startxy.x)*(endxy.x-startxy.x)+(endxy.y-startxy.y)*(endxy.y-startxy.y) )
 			   );
-	        tm_delayms(60);
+	        //tm_delayms(60);
 
         	/* Turn off FB filo and reset map pointer */
-      	  	gv_fb_dev.map_bk=gv_fb_dev.map_buff;
+		fb_set_directFB(&gv_fb_dev, false);
         	fb_filo_off(&gv_fb_dev);
-
 	}
 }
-
 
 
 /*-------------------------------------------------
@@ -419,7 +422,7 @@ static void cad_sketch(EGI_TOUCH_DATA* touch_data)
 	endxy=startxy;
 
 	/* Set as direct FB */
-        gv_fb_dev.map_bk=gv_fb_dev.map_fb;
+	fb_set_directFB(&gv_fb_dev, true);
 
 	while(1) {
 
@@ -429,7 +432,7 @@ static void cad_sketch(EGI_TOUCH_DATA* touch_data)
 		/* Releasing: confirm the end point */
 		if(touch.status==releasing || touch.status==released_hold) {
 			/* Restore map pointer */
-		        gv_fb_dev.map_bk=gv_fb_dev.map_buff;
+			fb_set_directFB(&gv_fb_dev,false);
 
 			/* Draw to FB buffer */
 			/* OR copy to FB buffer */
@@ -442,9 +445,13 @@ static void cad_sketch(EGI_TOUCH_DATA* touch_data)
 		startxy=endxy;
 		endxy=touch.coord;
 
+		/* Set limits */
+		if(endxy.x>240)endxy.x=240-1;
+
 		/* DriectFB Draw Line */
 		fbset_color(WEGI_COLOR_YELLOW);
-		draw_line(&gv_fb_dev, startxy.x, startxy.y, endxy.x, endxy.y);
+		//draw_line(&gv_fb_dev, startxy.x, startxy.y, endxy.x, endxy.y);
+		draw_wline(&gv_fb_dev, startxy.x, startxy.y, endxy.x, endxy.y,3);
 //	        tm_delayms(60);
 	}
 }

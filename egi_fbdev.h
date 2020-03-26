@@ -133,6 +133,10 @@ extern FBDEV   gv_fb_dev;
 /* functions */
 int     init_fbdev(FBDEV *dev);
 void    release_fbdev(FBDEV *dev);
+
+//int 	fb_set_screenVinfo(FBDEV *fb_dev, struct fb_var_screeninfo *old_vinfo, const struct fb_var_screeninfo *new_vinfo);
+//int 	fb_set_screenPos(FBDEV *fb_dev, unsigned int xres, unsigned int yres);
+
 int 	init_virt_fbdev(FBDEV *fr_dev, EGI_IMGBUF *eimg);
 void	release_virt_fbdev(FBDEV *dev);
 void 	fb_shift_buffPage(FBDEV *fb_dev, unsigned int numpg);

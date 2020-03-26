@@ -434,7 +434,15 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 		yres=fb_dev->vinfo.yres;
 	}
 
-	/* check FB.pos_rotate
+	/* Check FB.pos_xres, pos_yres */
+	if(fb_dev->pos_rotate) {
+		if( x<0 || x>fb_dev->pos_xres)
+			return -1;
+		if( y<0 || y>fb_dev->pos_yres)
+			return -1;
+	}
+
+	/* Check FB.pos_rotate
 	 * IF 90 Deg rotated: Y maps to (xres-1)-FB.X,  X maps to FB.Y
 	 * Note: Here xres/yres is default/HW_set FB x/y resolustion!
          */
