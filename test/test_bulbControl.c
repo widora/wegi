@@ -94,7 +94,7 @@ int main(int argc, char **argv)
 	iconsImg=egi_imgbuf_readfile("/mmc/bulb_controls.png"); /* All icons in one file */
 	if(iconsImg==NULL)exit(1);
 
-	/* Define Icons */
+	/* Define Icon Box in the icons_image */
 	if(egi_imgbuf_setSubImgs(iconsImg, 4)!=0) exit(1);
 	iconsImg->subimgs[ICONID_BULB_ON]  =(EGI_IMGBOX){141,20,130,180}; 	/* BULB_ON */
 	iconsImg->subimgs[ICONID_BULB_OFF] =(EGI_IMGBOX){9,20,130,180};		/* BULB_OFF */

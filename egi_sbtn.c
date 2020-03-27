@@ -70,11 +70,21 @@ void egi_sbtn_refresh(EGI_RECTBTN *btn, char *tag)
 	if(btn->pressed && btn->pressimg != NULL ) {
 		/* Transparent image NOT supported! */
 		egi_subimg_writeFB(btn->pressimg, &gv_fb_dev, btn->pressimg_subnum, -1, btn->x0, btn->y0);
+#if 0 /* TEST */
+		EGI_IMGBOX imgbox=btn->pressimg->subimgs[btn->pressimg_subnum];
+		fbset_color(WEGI_COLOR_RED);
+		draw_rect(&gv_fb_dev, btn->x0, btn->y0,btn->x0+imgbox.w-1, btn->y0+imgbox.h-1);
+#endif
 	}
 	/* 2. Apply releaseimg */
 	else if( !btn->pressed && btn->releaseimg != NULL ) {
 		/* Transparent image NOT supported! */
 		egi_subimg_writeFB(btn->releaseimg, &gv_fb_dev, btn->releaseimg_subnum, -1, btn->x0, btn->y0);
+#if 0 /* TEST */
+		EGI_IMGBOX imgbox=btn->releaseimg->subimgs[btn->releaseimg_subnum];
+		fbset_color(WEGI_COLOR_GREEN);
+		draw_rect(&gv_fb_dev, btn->x0, btn->y0,btn->x0+imgbox.w-1, btn->y0+imgbox.h-1);
+#endif
 	}
 	/* 3. Apply button frame */
 	else {
