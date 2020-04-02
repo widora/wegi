@@ -1,4 +1,4 @@
-/*-------------------   touch_home.c  ----------------------------
+/*------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
@@ -9,6 +9,7 @@ XPT2046 touch pad controller handler.
 Midas Zhou
 ----------------------------------------------------------------*/
 #include <stdio.h>
+#include <stdint.h>
 #include "spi.h"
 #include "xpt2046.h"
 #include "egi_debug.h"
@@ -30,13 +31,13 @@ static int xpt_read_xy(uint8_t *xp, uint8_t *yp)
 {
 	uint8_t cmd;
 
-	/* poll to get XPT touching coordinate */
+	/* Poll to get XPT touching coordinate */
 	cmd=XPT_CMD_READXP;
 	SPI_Write_then_Read(&cmd, 1, xp, 2); /* return 2bytes valid X value */
 	cmd=XPT_CMD_READYP;
 	SPI_Write_then_Read(&cmd, 1, yp, 2); /* return 2byte valid Y value */
 
-	/*  valify data,
+	/*  Valify data,
 		when untouched: Xp[0]=0, Xp[1]=0
 		when untouched: Yp[0]=127=[2b0111,1111] ,Yp[1]=248=[2b1111,1100]
 	*/
@@ -66,10 +67,12 @@ convert XPT coordinates to LCD coodrinates
 xp,yp:   XPT touch pad coordinates (uint8_t)
 xs,ys:   LCD coodrinates (uint16_t)
 
+
 NOTE:
 1. Because of different resolustion(value range), mapping XPT point to LCD point is
 actually not one to one, but one to several points. however, we still keep one to
 one mapping here.
+2. Replace this function with your own map_method and data.
 --------------------------------------------------------------------------------*/
 static void xpt_maplcd_xy(const uint8_t *xp, const uint8_t *yp, uint16_t *xs, uint16_t *ys)
 {
@@ -113,35 +116,36 @@ TODO:
 int xpt_getavg_xy(uint16_t *avgsx, uint16_t *avgsy)
 {
         /*-------------------------------------------------
-         native XPT touch pad coordinate value
+        Native XPT touch pad coordinate value
         !!!!!! WARNING: use xp[0] and yp[0] only !!!!!
         ---------------------------------------------------*/
-        uint8_t  xp[2]; /* when untoched: Xp[0]=0, Xp[1]=0 */
-        uint8_t  yp[2]; /* untoched: Yp[0]=127=[2b0111,1111] ,Yp[1]=248=[2b1111,1100]  */
-        static int xp_accum; /* accumulator of xp */
-        static int yp_accum; /* accumulator of yp */
-        static int nsample=0; /* samples index */
-	static int nfail=0; /* xpt_read_xy() fail counter, use to detect pen-up */
-	static int last_status=XPT_READ_STATUS_PENUP; /* record last time XPT_READ_STATUS....*/
+        uint8_t  xp[2]; 	/* When untoched: Xp[0]=0, Xp[1]=0 */
+        uint8_t  yp[2]; 	/* Untoched: Yp[0]=127=[2b0111,1111] ,Yp[1]=248=[2b1111,1100]  */
+
+        static int xp_accum; 	/* Accumulator of xp */
+        static int yp_accum; 	/* Accumulator of yp */
+        static int nsample=0; 	/* Samples index */
+	static int nfail=0; 	/* xpt_read_xy() fail counter, use to detect pen-up */
+	static int last_status=XPT_READ_STATUS_PENUP; /* Record last time XPT_READ_STATUS....*/
 
         /* LCD coordinate value */
         //uint16_t sx,sy;  //current coordinate, it's a LCD screen coordinates derived from TOUCH coo$
 
 	int ret;
 
-        /*--------- read XPT to get touch-pad coordinate --------*/
+        /*--------- Read XPT to get touch-pad coordinate --------*/
         if( xpt_read_xy(xp,yp)!=0 ) /* if read XPT fails,break or pen-up */
         {
-                /* reset nsample and accumulator then */
+                /* Reset nsample and accumulator then */
                 nsample=0;
                 xp_accum=0;yp_accum=0;
 
- 		/* consecutive failure counts, check if pen-up */
+ 		/* Consecutive failure counts, check if pen-up */
 		nfail++;
 		if( nfail > XPT_PENUP_READCOUNT ) /* pen-up status */
 		{
-		/* do not change the XPT statu, until a touch is read */
-		/* do not reset nfail here, it will reset when a touch is read in flowing else{} */
+		/* Do not change the XPT status, until a touch is read */
+		/* Do not reset nfail here, it will reset when a touch is read in flowing else{} */
 			//touch nfail=0;/* reset nfail */
 			last_status=XPT_READ_STATUS_PENUP;
 			return XPT_READ_STATUS_PENUP;
@@ -151,34 +155,34 @@ int xpt_getavg_xy(uint16_t *avgsx, uint16_t *avgsy)
         {
 		/* else, reset nfail */
 		nfail=0;
-		/* accumulate xp yp */
+		/* Accumulate xp yp */
                 xp_accum += xp[0];
                 yp_accum += yp[0];
                 nsample++;
         }
 
 
-	/* if sample number reaches XPT_SAMPLE_NUMER, pass value to the caller. */
+	/* If sample number reaches XPT_SAMPLE_NUMER, pass value to the caller. */
 	if(nsample == XPT_SAMPLE_NUMBER)
 	{
-        	/* average of accumulated value, */
+        	/* Average of accumulated value, */
       		xp[0]=xp_accum>>XPT_SAMPLE_EXPNUM; /* shift exponent number of 2 */
         	yp[0]=yp_accum>>XPT_SAMPLE_EXPNUM;
 
-        	/* reset nsample and accumulator then */
+        	/* Reset nsample and accumulator then */
         	nsample=0;
         	xp_accum=0;yp_accum=0;
 
-        	/* convert to LCD coordinate, and pass to avsx,avsy */
+        	/* Convert to LCD coordinate, and pass to avsx,avsy */
         	xpt_maplcd_xy(xp, yp, avgsx, avgsy);
         	EGI_PDEBUG(DBG_TOUCH,"xp=%d, yp=%d;  sx=%d, sy=%d\n",xp[0],yp[0],*avgsx,*avgsy);
 
-#if 0 /* since status COMPLETE will always be breaked by XPT_READ_STATUS_GOING,
+#if 0 /* Since status COMPLETE will always be breaked by XPT_READ_STATUS_GOING,
 	 status HOLDON will never happen.!!!!! */
 		if(last_status==XPT_READ_STATUS_COMPLETE)
 		{
 			ret=XPT_READ_STATUS_HOLDON; /* mission complete */
-			/* keep last_status as COMPLETE */
+			/* Keep last_status as COMPLETE */
 		}
 		else
 #endif
@@ -188,6 +192,101 @@ int xpt_getavg_xy(uint16_t *avgsx, uint16_t *avgsy)
 		}
 	}
 	else
+	{
+		last_status=XPT_READ_STATUS_GOING;
+		ret=XPT_READ_STATUS_GOING; /* session is going on  */
+	}
+
+	return ret;
+}
+
+
+
+/*-------------------------------------------------------
+Get raw data of touch pad coordinate values, which are
+not mapped and for calibration purpose.
+
+@rawx:	Pointer to pass raw data X. Ignore if NULL.
+@rawy:  Pointer to pass raw data Y.  Ignore if NULL.
+
+-------------------------------------------------------*/
+int xpt_getraw_xy(uint16_t *rawx, uint16_t *rawy)
+{
+        /*-------------------------------------------------
+         Native XPT touch pad coordinate value
+        !!!!!! WARNING: use xp[0] and yp[0] only !!!!!
+        ---------------------------------------------------*/
+        uint8_t  xp[2]; 	/* When untoched: Xp[0]=0, Xp[1]=0 */
+        uint8_t  yp[2]; 	/* Untoched: Yp[0]=127=[2b0111,1111] ,Yp[1]=248=[2b1111,1100]  */
+
+        static int xp_accum; 	/* Accumulator of xp */
+        static int yp_accum; 	/* Accumulator of yp */
+        static int nsample=0; 	/* Samples index */
+	static int nfail=0; 	/* xpt_read_xy() fail counter, use to detect pen-up */
+	static int last_status=XPT_READ_STATUS_PENUP; /* Record last time XPT_READ_STATUS....*/
+
+	int ret;
+
+        /*--------- Read XPT to get touch-pad coordinate --------*/
+        if( xpt_read_xy(xp,yp)!=0 ) /* If read XPT fails,break or pen-up */
+        {
+                /* Reset nsample and accumulator then */
+                nsample=0;
+                xp_accum=0;yp_accum=0;
+
+ 		/* Consecutive failure counts, check if pen-up */
+		nfail++;
+		if( nfail > XPT_PENUP_READCOUNT ) /* pen-up status */
+		{
+		/* Do not change the XPT status, until a touch is read */
+		/* Do not reset nfail here, it will reset when a touch is read in flowing else{} */
+			//touch nfail=0;/* reset nfail */
+			last_status=XPT_READ_STATUS_PENUP;
+			return XPT_READ_STATUS_PENUP;
+		}
+        }
+        else /* Read XPT OK */
+        {
+		/* Else, reset nfail */
+		nfail=0;
+		/* Accumulate xp yp */
+                xp_accum += xp[0];
+                yp_accum += yp[0];
+                nsample++;
+        }
+
+	/* If sample number reaches XPT_SAMPLE_NUMER, pass value to the caller. */
+	if(nsample == XPT_SAMPLE_NUMBER)
+	{
+        	/* Average of accumulated value, */
+      		xp[0]=xp_accum>>XPT_SAMPLE_EXPNUM; /* shift exponent number of 2 */
+        	yp[0]=yp_accum>>XPT_SAMPLE_EXPNUM;
+
+        	/* Reset nsample and accumulator then */
+        	nsample=0;
+        	xp_accum=0;yp_accum=0;
+
+		/* Pass out rawx,rawy */
+		if(rawx!=NULL)
+			*rawx=xp[0];
+		if(rawy!=NULL)
+			*rawy=yp[0];
+
+#if 0 /* Since status COMPLETE will always be breaked by XPT_READ_STATUS_GOING,
+	 status HOLDON will never happen.!!!!! */
+		if(last_status==XPT_READ_STATUS_COMPLETE)
+		{
+			ret=XPT_READ_STATUS_HOLDON; /* mission complete */
+			/* Keep last_status as COMPLETE */
+		}
+		else
+#endif
+		{
+			last_status=XPT_READ_STATUS_COMPLETE;
+			ret=XPT_READ_STATUS_COMPLETE;   /* mission complete */
+		}
+	}
+	else	/* XPT read session NOT finished yet */
 	{
 		last_status=XPT_READ_STATUS_GOING;
 		ret=XPT_READ_STATUS_GOING; /* session is going on  */

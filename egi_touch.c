@@ -36,8 +36,8 @@ static pthread_t thread_loopread;
 
 
 /* timeWait for a touch: mutex protected data */
-static EGI_POINT wpxy;			/* touching point coord.*/
-static EGI_TOUCH_DATA wtouch_data;	/* timewait event touch data */
+static EGI_POINT 	wpxy;		/* touching point coord.*/
+static EGI_TOUCH_DATA  	wtouch_data;	/* timewait event touch data */
 static pthread_cond_t	cond_touch;	/* To indicate that touch_status 'pressing' is detected.
 					 * XXX or 'pressed_hold' is detected */
 static pthread_mutex_t	mutex_lockCond; /* mutex lock for pthread cond */
@@ -596,14 +596,14 @@ enum egi_touch_status 	 !!! --- TO see lateset in egi.h --- !!!
 			break;
 		}
 
-	        /* 1. necessary wait,just for XPT to prepare data */
+	        /* 1. Necessary wait,just for XPT to prepare data */
         	tm_delayms(2);
 
-		/* wait .... until read out,  AND NOT nowait mode */
+		/* Wait .... until read out,  AND NOT nowait mode */
 		if( live_touch_data.updated==true && !tok_loopread_nowait )
 			continue;
 
-		/* 2. read XPT to get avg tft-LCD coordinate */
+		/* 2. Read XPT to get avg tft-LCD coordinate */
         	//printf("start xpt_getavt_xy() \n");
         	ret=xpt_getavg_xy(&sx,&sy); /* if fail to get touched tft-LCD xy */
 		sxy.x=sx; sxy.y=sy;

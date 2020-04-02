@@ -722,6 +722,13 @@ Midas Zhou
 ---------------------------------------------*/
 int fb_render(FBDEV *dev)
 {
+        if( dev->map_bk==NULL || dev->map_fb==NULL || dev->map_buff==NULL )
+                return -1;
+
+	/* If directFB mode */
+	if( dev->map_bk==dev->map_fb )
+		return 0;
+
 	fb_page_refresh(dev, 0);  /* Input data check inside */
 
 	return 0;

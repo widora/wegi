@@ -1,4 +1,4 @@
-/*-------------------  touch_home.c -----------------------------
+/*------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
@@ -7,7 +7,7 @@ published by the Free Software Foundation.
 XPT2046 touch pad
 
 Midas Zhou
-----------------------------------------------------------------*/
+-------------------------------------------------------------------*/
 #ifndef __XPT2046_H__
 #define __XPT2046_H__
 
@@ -34,6 +34,7 @@ Midas Zhou
 /* ----- XPT bias and limit value ----- */
 #define XPT_XP_MIN 7
 #define XPT_XP_MAX 116 //actual 116
+
 #define XPT_YP_MIN 17
 #define XPT_YP_MAX 116  //actual 116
 
@@ -58,5 +59,6 @@ Midas Zhou
 //static int xpt_read_xy(uint8_t *xp, uint8_t *yp);
 //static void xpt_maplcd_xy(const uint8_t *xp, const uint8_t *yp, uint16_t *xs, uint16_t *ys);
 int xpt_getavg_xy(uint16_t *avgsx, uint16_t *avgsy);
+int xpt_getraw_xy(uint16_t *rawx, uint16_t *rawy);
 
 #endif
