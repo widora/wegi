@@ -56,6 +56,7 @@ Midas Zhou
 //#define XPT_READ_STATUS_HOLDON   3	/* NOT APPLICABLE!!!!  pressed and hold on */
 
 /* -------------------------- functions ------------------------ */
+void xpt_set_factors(float fx, float fy, uint8_t tbx, uint8_t tby);
 //static int xpt_read_xy(uint8_t *xp, uint8_t *yp);
 //static void xpt_maplcd_xy(const uint8_t *xp, const uint8_t *yp, uint16_t *xs, uint16_t *ys);
 int xpt_getavg_xy(uint16_t *avgsx, uint16_t *avgsy);

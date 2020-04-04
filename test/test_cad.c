@@ -59,6 +59,7 @@ int main(int argc, char **argv)
   }
   #endif
 
+  #if 0
   /* Load symbol pages */
   printf("FTsymbol_load_allpages()...\n");
   if(FTsymbol_load_allpages() !=0) /* FT derived sympg_ascii */
@@ -68,6 +69,7 @@ int main(int argc, char **argv)
         printf("Fail to load sym pages, quit.\n");
         return -1;
   }
+  #endif
 
   /* Load freetype fonts */
   printf("FTsymbol_load_sysfonts()...\n");

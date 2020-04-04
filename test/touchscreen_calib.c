@@ -45,8 +45,12 @@ static int 	seqnum;		/** Sequence number:
 				 *  4:  CENTER point
 				 *  >=5: Finish
 				 */
-static int	  Lpx[5]= { 0, 240-1,    0,    240-1, 240/2 };  /* LCD refrence X,  In order of seqnum */
-static int	  Lpy[5]= { 0,   0,    320-1,  320-1, 320/2 };  /* LCD refrence Y,  In order of seqnum */
+//static int	  Lpx[5]= { 0, 240-1,    0,    240-1, 240/2 };  /* LCD refrence X,  In order of seqnum */
+//static int	  Lpy[5]= { 0,   0,    320-1,  320-1, 320/2 };  /* LCD refrence Y,  In order of seqnum */
+
+static int	  Lpx[5]= { 35, 240-1-35,    35,    240-1-35, 240/2 };  /* LCD refrence X,  In order of seqnum */
+static int	  Lpy[5]= { 35,   35,    320-1-35,  320-1-35, 320/2 };  /* LCD refrence Y,  In order of seqnum */
+
 static uint16_t   Tpx[5],Tpy[5];	/* Raw touch data picked correspondingt to Lpx[], Lpy[] */
 
 static void draw_mark(int seqnum);
@@ -118,9 +122,15 @@ int main(int argc, char **argv)
 		   *            Main Program
     		   -----------------------------------*/
 
-
+	int i;
 	int ret;
+	uint16_t TpxTest, TpyTest;
+	uint16_t LpxTest, LpyTest;
+	EGI_TOUCH_DATA	touch;
+	EGI_POINT	startxy;
+	EGI_POINT	endxy;
 
+START_CALIBRATION:
 	/* 1. Pick touch points coordinate */
 	for(seqnum=0; seqnum<5; seqnum++)
 	{
@@ -144,29 +154,77 @@ int main(int argc, char **argv)
 	/* 2. Calculate factX, factY */
 	factX= 1.0*((Lpx[1]-Lpx[0] + Lpx[3]-Lpx[2])/2) / ((Tpx[1]-Tpx[0] + Tpx[3]-Tpx[2])/2);    /* Usually take Lpx[1]-Lpx[0] == Lpx[3]-Lpx[2] */
 	factY= 1.0*((Lpy[2]-Lpy[0] + Lpy[3]-Lpy[1])/2) / ((Tpy[2]-Tpy[0] + Tpy[3]-Tpy[1])/2);    /* Usually take Lpx[1]-Lpx[0] == Lpx[3]-Lpx[2] */
-	printf("factX=%f, factY=%f\n", factX, factY);
+	printf("factX=%f, factY=%f  tbaseX=%d tbaseY=%d\n", factX, factY, Tpx[4], Tpy[4]);
 
+
+	/* Set factX,factY */
+	xpt_set_factors(factX, factY, Tpx[4], Tpy[4]);
 
 	/* 3. Check calibration result, Tpx[4]Tpy[4] is the base point  */
-	while(1) {
+
+	/* Draw refrence box */
+	fbset_color(WEGI_COLOR_GREEN);
+	draw_rect(&gv_fb_dev, Lpx[0], Lpy[0], Lpx[3], Lpy[3]);
+
+	#if 0  /* --- Option: Test 20 points --- */
+	for(i=0; i<20; i++) {   /* Test 20 points */
 		/* Read touch data, xy */
 		do {
 			tm_delayms(5); /* Necessary wait,just for XPT to prepare data */
-                	ret=xpt_getraw_xy(&Tpx[0],&Tpy[0]);
+                	ret=xpt_getraw_xy(&TpxTest,&TpyTest);
 		} while ( ret != XPT_READ_STATUS_COMPLETE );
 
 		/* Map to LCD coordinates */
-		Lpx[0]=(Tpx[0]-Tpx[4])*factX + 240/2;
-		Lpy[0]=(Tpy[0]-Tpy[4])*factY + 320/2;
+		LpxTest=(TpxTest-Tpx[4])*factX + 240/2;
+		LpyTest=(TpyTest-Tpy[4])*factY + 320/2;
 
 		/* Draw a circle there */
 		fbset_color(WEGI_COLOR_RED);
-		draw_circle(&gv_fb_dev, Lpx[0], Lpy[0], 5);
+		draw_circle(&gv_fb_dev, LpxTest, LpyTest, 5);
 
 		/* Wait for PENUP */
 		while( xpt_getraw_xy(NULL,NULL) != XPT_READ_STATUS_PENUP ) { tm_delayms(20); };
 	}
 
+	#else  /* --- Option: Test sketching --- */
+
+	/* Wait touch down */
+	while(1) {
+		egi_touch_timeWait_press(-1, 0, &touch);
+//      	egi_touch_fbpos_data(&gv_fb_dev, &touch);
+
+		/* Press: Get start point */
+        	startxy=touch.coord;
+        	endxy=startxy;
+
+		while (1) {
+                	while(!egi_touch_getdata(&touch));
+//                	egi_touch_fbpos_data(&gv_fb_dev, &touch);
+
+	                /* Releasing: confirm the end point */
+        	        if(touch.status==releasing || touch.status==released_hold) {
+                	        break;
+                	}
+
+	                /* Get end point */
+        	        startxy=endxy;
+                	endxy=touch.coord;
+
+			printf("Startxy: %d,%d		Endxy: %d,%d\n", startxy.x, startxy.y, endxy.x, endxy.y );
+
+        	        /* DriectFB Draw Line */
+                	fbset_color(WEGI_COLOR_YELLOW);
+	                draw_wline(&gv_fb_dev, startxy.x, startxy.y, endxy.x, endxy.y,5);
+		}
+	}
+	#endif
+
+	/* For next round */
+	clear_screen(&gv_fb_dev,WEGI_COLOR_DARKGRAY);
+	write_txt("准备进入新一轮测试...", 30, 320/2-40);
+	tm_delayms(3000);
+
+  goto START_CALIBRATION;
 
  /* ----- MY release ---- */
 
@@ -174,7 +232,6 @@ int main(int argc, char **argv)
     		  /*-----------------------------------
 		   *         End of Main Program
 		   -----------------------------------*/
-
 
 
  /* <<<<<  EGI general release 	 >>>>>> */
@@ -225,21 +282,21 @@ static void draw_mark(int seqnum )
 	{
 		case 0:	/* Left Top */
 			//printf("Press Left Top point.\n ");
-			write_txt("请点击左上角标记点\n 点中后会跳到下一点．", 30, 30); break;
+			write_txt("请点击左上角标记点\n 点中后会跳到下一点．", 30, 50); break;
 		case 1:	/* Right Top */
 			//printf("Press Right Top point.\n ");
-			write_txt("请点击右上角标记点", 30, 30); break;
+			write_txt("请点击右上角标记点", 30, 50); break;
 		case 2: /* Left Bottom */
 			//printf("Press Left Bottom point.\n ");
-			write_txt("请点击左下角标记点", 30, 320-50); break;
+			write_txt("请点击左下角标记点", 30, 320-70); break;
 		case 3: /* Right Bottom */
 			//printf("Press Right Bottom point.\n ");
-			write_txt("请点击右下角标记点", 30, 320-50); break;
+			write_txt("请点击右下角标记点", 30, 320-70); break;
 		case 4: /* CENTER */
 			//printf("Press Center point.\n ");
 			write_txt("请点击中心标记点", 30, 320/2-40); break;
 		default:
-			write_txt("OK, 完成触摸屏校准！", 20, 320/2-40);
+			write_txt("完成校准,请点击测试．．．", 20, 5);
 			break;
 	}
 

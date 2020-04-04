@@ -16,6 +16,27 @@ Midas Zhou
 
 //static int xpt_nsample; /* sample index for XPT touch point coordinate */
 
+/* X/Y factors for mapping touch coordiantes to LCD coordinates. */
+/* For 240x320 Touch LCD:  Xmax=240-1  Ymax=320-1 */
+static float factX=2.17;
+static float factY=2.95;
+
+/* Touch pad base piont (center) */
+static uint8_t  tbaseX=62;
+static uint8_t  tbaseY=60;
+
+/*--------------------------------------
+Set mapping factor factX/factY
+--------------------------------------*/
+void xpt_set_factors(float fx, float fy, uint8_t tbx, uint8_t tby)
+{
+	factX=fx;
+	factY=fy;
+	tbaseX=tbx;
+	tbaseY=tby;
+}
+
+
 /*---------------------------------------------------------------
 read XPT touching coordinates, and normalize it.
 *xp --- 2bytes value
@@ -76,9 +97,16 @@ one mapping here.
 --------------------------------------------------------------------------------*/
 static void xpt_maplcd_xy(const uint8_t *xp, const uint8_t *yp, uint16_t *xs, uint16_t *ys)
 {
+#if 0	/* Obselete */
 	*xs=LCD_SIZE_X*(xp[0]-XPT_XP_MIN)/(XPT_XP_MAX-XPT_XP_MIN+1);
 	*ys=LCD_SIZE_Y*(yp[0]-XPT_YP_MIN)/(XPT_YP_MAX-XPT_YP_MIN+1);
+#else
+	*xs=(xp[0]-tbaseX)*factX + LCD_SIZE_X/2;
+	*ys=(yp[0]-tbaseY)*factY + LCD_SIZE_Y/2;
+
+#endif
 }
+
 
 
 /*---------------------------------------------------------------------------------------
