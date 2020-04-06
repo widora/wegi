@@ -668,7 +668,7 @@ enum egi_touch_status 	 !!! --- TO see lateset in egi.h --- !!!
 				last_y=0;
 			}
 
-                        tm_delayms(100);//100/* hold on for a while to relive CPU load, or the screen will be ...heheheheheh... */
+                        tm_delayms(40); //100);/* hold on for a while to relive CPU load, or the screen will be ...heheheheheh... */
                 }
 
 		/* 5. get touch coordinates and trigger actions for the hit button if any */

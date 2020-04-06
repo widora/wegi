@@ -164,7 +164,7 @@ int main(int argc, char **argv)
       		/* Touch_data converted to the same coord as of FB */
         	egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
 
-	        /* Check if touched any of the buttons */
+	        /* 1, Check if touched any of the buttons */
         	for(j=0; j<MAX_BTNS; j++) {
                 	if( egi_touch_on_rectBTN(&touch_data, &btns[j]) ) { //&& touch_data.status==pressing ) {  /* Re_check event! */
                         	printf("Button_%d touched!\n",j);
@@ -174,8 +174,8 @@ int main(int argc, char **argv)
 	                }
         	}
 
-	        /* j==MAX_BTNS No button touched!  Assume that only one button may be touched each time!  */
-        	/* Touch Drawing board area  */
+        	/* 2, Touch Drawing board area  */
+	        /*  j==MAX_BTNS No button touched!  Assume that only one button may be touched each time!  */
 	        if( j==MAX_BTNS ) {
 			if(cad_draw_function)
 				cad_draw_function(&touch_data);
@@ -276,7 +276,11 @@ static void btn_react(EGI_RECTBTN *btn)
 	for(i=0; i<MAX_BTNS; i++) {
 		if(&btns[i]!=btn)
 			btns[i].pressed=false;
-	        egi_sbtn_refresh(btns+i, btn_tags[i]);
+
+		if(btns[i].id==BTNID_SKETCH &&  btns[i].pressed==true )
+			egi_sbtn_refresh(btns+i, "草图");
+		else
+		        egi_sbtn_refresh(btns+i, btn_tags[i]);
 	}
 
 	/* Render FB */

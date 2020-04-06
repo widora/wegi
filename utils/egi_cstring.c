@@ -15,6 +15,8 @@ Midas Zhou
 #include <wchar.h>
 #include <stdint.h>
 #include <ctype.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #include "egi_cstring.h"
 #include "egi_log.h"
 
@@ -213,14 +215,14 @@ char * cstr_split_nstr(char *str, char *split, unsigned n)
 }
 
 
-/*--------------------------------------------------
-Trim all spaces at end of a string, return a pointer
-to the first non_space char.
+/*----------------------------------------------------------------
+Skip all sapces at front,  and trim all spaces AND '\n's AND '\r's
+at end of a string, return a pointer to the first non_space char.
 
 Return:
 	pointer	to a char	OK, spaces trimed.
         NULL			Input buf invalid
---------------------------------------------------*/
+-----------------------------------------------------------------*/
 char * cstr_trim_space(char *buf)
 {
 	char *ps, *pe;
@@ -252,6 +254,42 @@ char * cstr_trim_space(char *buf)
 }
 
 
+/*-------------------------------------------------------------
+Copy one line from src to buff, including '\n', with Max. bufsize
+OR get to the end of src, whichever happens first. put '\0' at
+end of the dest.
+
+@src:	Source
+@dest:	Destination
+@size:  Size of dest buffer.
+
+Return:
+	>0	Ok, bytes copied, without '\0'.
+	=0	src[0] is '\0'
+	<0	Fails
+-------------------------------------------------------------*/
+int cstr_copy_line(const char *src, char *dest, size_t size)
+{
+	int i;
+
+	if(src==NULL || dest==NULL)
+		return -1;
+
+	/* Max. size-1, leave 1byte for '\0' */
+        for (i = 0; i < size-1 && src[i] != '\n' && src[i] != '\0'; i++)
+                   dest[i] = src[i];
+
+	/* put '\n' at end */
+	if( src[i] == '\n' && i < size-1 ) {
+		dest[i]=src[i];
+		i++;
+	}
+
+	/* Clear left space, i Max. = size-1  */
+	memset( dest+i,0, size-i );
+
+	return i;
+}
 
 /*-----------------------------------------------------------------------
 Get length of a character with UTF-8 encoding.
@@ -581,8 +619,73 @@ int cstr_unicode_to_uft8(const wchar_t *src, char *dest)
 }
 
 
+/*---------------------------------------------------------------------------
+Count lines in an text file. 	To check it with 'wc' command.
+For ASCII or UFT-8 files.
+
+@fpath: Full path of the file
+
+
+Return:
+	>=0	Total lines in the file.
+	<0	Fails
+----------------------------------------------------------------------------*/
+int egi_count_file_lines(const char *fpath)
+{
+	int fd;
+	char *fp;
+	char *cp;
+	size_t fsize;
+	struct stat sb;
+	int lines;
+
+	if(fpath==NULL)
+		return -1;
+
+        /* Open file */
+        fd=open(fpath,O_RDONLY);
+        if(fd<0) {
+		printf("%s: Fail to open '%s'!\n",__func__, fpath);
+                return -2;
+	}
+
+        /* Obtain file stat */
+        if( fstat(fd,&sb)<0 ) {
+		printf("%s: Fail to call fstat()!\n", __func__);
+                return -2;
+	}
+
+        /* Mmap file */
+        fsize=sb.st_size;
+        fp=mmap(NULL, fsize, PROT_READ, MAP_PRIVATE, fd, 0);
+        if(fp==MAP_FAILED) {
+		printf("%s: Fail to call mmap()!\n", __func__);
+                return -3;
+        }
+
+	/* Count new lines */
+	cp=fp;
+	lines=0;
+	while(*cp) {
+		if( *cp == '\n' )
+			lines++;
+		cp++;
+	}
+
+        /* close file and munmap */
+        if( munmap(fp,fsize) != 0 )
+		printf("%s: WARNING: munmap() fails! \n",__func__);
+        close(fd);
+
+
+	return lines;
+}
+
+
+
+
 /*----------------------------------------------------------------------------------
-Search given SECTION and KEY string in the config file, copy VALUE
+Search given SECTION and KEY string in EGI config file, copy VALUE
 string to the char *value if found.
 
 @sect:		Char pointer to a given SECTION name.
@@ -627,16 +730,18 @@ Return:
 	0	OK
 	<0	Fails
 ------------------------------------------------------------------------------------*/
-int egi_get_config_value(char *sect, char *key, char* pvalue)
+#define EGI_CONFIG_LMAX		256	/* length for one line in a config file */
+#define EGI_CONFIG_VMAX		64      /* Max. length of a SECTION/KEY/VALUE string  */
+int egi_get_config_value(const char *sect, const char *key, char* pvalue)
 {
 	int lnum=0;
 	int ret=0;
 
 	FILE *fil;
-	char line_buff[256];
+	char line_buff[EGI_CONFIG_LMAX];
+	char str_test[EGI_CONFIG_VMAX];
 	char *ps=NULL, *pe=NULL; /* start/end char pointer for [ and  ] */
 	char *pt=NULL;
-	char str_test[64];
 	int  found_sect=0; /* 0 - section not found, !0 - found */
 
 	/* check input param */
@@ -648,7 +753,7 @@ int egi_get_config_value(char *sect, char *key, char* pvalue)
 	/* open config file */
 	fil=fopen( EGI_CONFIG_PATH, "re");
 	if(fil==NULL) {
-		printf("Fail to open config file '%s', %s\n",EGI_CONFIG_PATH, strerror(errno));
+		printf("%s: Fail to open EGI config file '%s', %s\n", __func__, EGI_CONFIG_PATH, strerror(errno));
 		return -2;
 	}
 	//printf("Succeed to open '%s', with file descriptor %d. \n",EGI_CONFIG_PATH, fileno(fil));
@@ -693,7 +798,7 @@ int egi_get_config_value(char *sect, char *key, char* pvalue)
 
 				/* check if SECTION name matches */
 				if( strcmp(sect,cstr_trim_space(str_test))==0 ) {
-					printf("Found SECTION:[%s] \n",str_test);
+//					printf("Found SECTION:[%s] \n",str_test);
 					found_sect=1;
 				}
 			}
@@ -711,7 +816,7 @@ int egi_get_config_value(char *sect, char *key, char* pvalue)
 			}
 			/* If first char is '[', it reaches the next SECTION, so give up. */
 			else if( *ps=='[' ) {
-				printf("Get bottom of the section, fail to find key '%s'.\n",key);
+//				printf("Get bottom of the section, fail to find key '%s'.\n",key);
 				ret=2;
 				break;
 			}
@@ -728,7 +833,7 @@ int egi_get_config_value(char *sect, char *key, char* pvalue)
 //				printf(" key str_test: %s\n",str_test);
 				/* assure key name is not NULL */
 				if( (ps=cstr_trim_space(str_test))==NULL) {
-				   printf("Key name is NULL in line_buff: '%s' \n",line_buff);
+				   printf("%s: Key name is NULL in line_buff: '%s' \n",__func__, line_buff);
 				   continue;
 				}
 				/* if key name matches */
@@ -776,6 +881,241 @@ int egi_get_config_value(char *sect, char *key, char* pvalue)
 	return ret;
 }
 
+
+/*---------------------------------------------------------------------------------
+Update KEY value of given SECTION in EGI config file, if the KEY
+(and SECTION) does NOT exist, then create it (both) .
+
+Note:
+1. If SECTION does not exist, then it will be put at he end of the config file.
+2. If KEY does not exist, then it will be put just after SECTION line.
+3. xxxxx A new line starting with "#####" also deemed as end of last SECTION,
+   though it is not so defined in egi_get_config_value().  ---- NOPE! see the codes.
+
+@sect:		Char pointer to a given SECTION name.
+@key:		Char pointer to a given KEY name.
+@pvalue:	Char pointer to a char buff that will receive found VALUE string.
+
+Return:
+	2	Fail to find KEY string
+	1	Fail to find SECTION string
+	0	OK
+	<0	Fails
+--------------------------------------------------------------------------------*/
+int egi_update_config_value(const char *sect, const char *key, const char* pvalue)
+{
+	int lnum=0;
+
+	int fd;
+	char *fp;
+	size_t fsize;
+	off_t off;
+	off_t off_newkey;  /* new key insert point, only when SECTION is found and KEY is NOT found. */
+	struct stat sb;
+	char line_buff[EGI_CONFIG_LMAX];
+	char str_test[EGI_CONFIG_VMAX];
+	char *ps=NULL, *pe=NULL; /* start/end char pointer for [ and  ] */
+	char *pt=NULL;
+	char *buff=NULL;
+	size_t buffsize;
+	int  found_sect=0; /* 0 - section not found, !0 - found */
+	int  found_key=0; /* 0 - key not found, !0 - found */
+	int  ret=0;
+	int  nb;
+
+	/* Check input param */
+	if(sect==NULL || key==NULL || pvalue==NULL) {
+		printf("%s: One or more input param is NULL.\n",__func__);
+		return -1;
+	}
+
+        /* Open config file */
+        fd=open( EGI_CONFIG_PATH, O_RDWR);
+        if(fd<0) {
+                printf("%s: Fail to open EGI config file '%s', %s\n",__func__, EGI_CONFIG_PATH, strerror(errno));
+                return -2;
+        }
+
+        /* Obtain file stat */
+        if( fstat(fd,&sb)<0 ) {
+		fprintf(stderr,"%s: Fail to call fstat()!\n", __func__);
+                return -2;
+	}
+
+        /* Mmap file */
+        fsize=sb.st_size;
+        fp=mmap(NULL, fsize, PROT_READ, MAP_PRIVATE, fd, 0);
+        if(fp==MAP_FAILED) {
+		fprintf(stderr,"%s: Fail to call mmap()!\n", __func__);
+                return -3;
+        }
+
+	/* Search SECTION and KEY */
+	off=0;
+	off_newkey=0;
+	while( ( nb=cstr_copy_line(fp+off, line_buff, sizeof(line_buff)) )  > 0 )   /* memset 0 in func */
+	{
+		off += nb;
+		lnum++;
+
+		/* 1. To locate SECTION  first */
+		if(!found_sect)
+                {
+                        /* Ignore comment lines starting with '#' */
+                        ps=cstr_trim_space(line_buff);
+                        /* get rid of all_space/empty line */
+                        if(ps==NULL) {
+//                              printf("config file:: Line:%d is an empty line!\n", lnum);
+                                continue;
+                        }
+                        else if( *ps=='#') {
+//                              printf("Comment: %s\n",line_buff);
+                                continue;
+                        }
+                        /* search SECTION name between '[' and ']'
+                         * Here we assume that [] only appears in a SECTION line, except comment line.
+                         */
+                        ps=strstr(line_buff,"[");
+                        pe=strstr(line_buff,"]");
+                        if( ps!=NULL && pe!=NULL && pe>ps) {
+                                memset(str_test,0,sizeof(str_test));
+                                strncpy(str_test,ps+1,pe-ps+1-2); /* strip '[' and ']' */
+                                //printf("SECTION: %s\n",str_test);
+
+                                /* check if SECTION name matches */
+                                if( strcmp(sect,cstr_trim_space(str_test))==0 ) {
+                                        printf("%s: SECTION:[%s] is found in line_%d: '%s'. \n",__func__, sect, lnum, line_buff);
+                                        found_sect=1;
+
+					/* set new key insert position, in case that KEY will NOT be found */
+					off_newkey=off;
+                                }
+                        }
+                }
+		/* 2. Search KEY name in the line_buff */
+		else if(!found_key) /* else: SECTION is found */
+		{
+			ps=cstr_trim_space(line_buff);
+			/* bypass blank line */
+			if( ps==NULL )continue;
+			/* bypass comment line */
+			else if( *ps=='#' ) {
+//				printf("Comment: %s\n",line_buff);
+
+				/*  A new line starting with "#####" also deemed as end of last SECTION */
+				//if( ps == strstr(ps,"#####") )
+				//	break;
+				//else
+					continue;
+			}
+			/* If first char is '[', it reaches the next SECTION, so give up. */
+			else if( *ps=='[' ) {
+//				printf("Get bottom of the section, fail to find key '%s'.\n",key);
+				break;
+			}
+
+			/* find first '=' */
+			ps=strstr(line_buff,"=");
+			/* assure NOT null and '=' is NOT a starting char
+			 * But, we can not exclude spaces before '='.
+			 */
+			if( ps!=NULL && ps != line_buff ) {
+				memset(str_test,0,sizeof(str_test));
+				/* get key name string */
+				strncpy(str_test, line_buff, ps-line_buff);
+//				printf(" key str_test: %s\n",str_test);
+				/* assure key name is not NULL */
+				if( (ps=cstr_trim_space(str_test))==NULL) {
+				   	printf("%s: Key name is NULL in line_buff: '%s' \n",__func__, line_buff);
+				   	continue;
+				}
+				/* if key name matches */
+				else if( strcmp(key,ps)==0 ) {
+					found_key=1;  /* We found the KEY, even it's value may be NULL! */
+
+					ps=strstr(line_buff,"="); /* !!! again, point ps to '=' */
+			           	pt=cstr_trim_space(ps+1); /* trim ending spaces and replace \r,\n with \0 */
+					if(pt==NULL)
+					   	printf("%s: Value of key [%s] is NULL in line_buff: '%s' \n",
+										__func__, key, line_buff);
+					else
+						printf("%s: Value of key [%s] is found in line_%d: '%s'\n", __func__, key, lnum, line_buff);
+
+					break;
+				}
+			}
+
+		}  /* End else: search KEY */
+
+	}  /* End while() */
+
+
+	/* If SECTION NOT found, insert them at the end of the file. */
+	if( !found_sect ) {
+		memset(line_buff, 0, sizeof(line_buff));
+		snprintf( line_buff, sizeof(line_buff)-1, "[%s]\n %s = %s\n", sect, key, pvalue );
+
+		lseek( fd, 0, SEEK_END); /* go to end */
+		if( write( fd, line_buff, strlen(line_buff) ) < strlen(line_buff) ) {
+			printf("%s: Fail to write line_buff to config file.\n",__func__);
+			ret=-4;
+		}
+	}
+	/* Else , insert OR replace key and value at end of the SECTION, see above */
+	else  {
+
+		/* If not found key, set off_newkey just after SECTION */
+		if( !found_key )
+			off = off_newkey;
+			//off -= nb;
+		/* Else if found key, then keep off as to start of the next line,  we will replace the old line. */
+
+		/* allocate buff for content after insertion point */
+		buffsize=fsize-off;
+		buff=calloc(1, buffsize);
+		if(buff==NULL) {
+			printf("%s: Fail to calloc buff!\n",__func__);
+			ret=-5;
+		}
+		else {
+			/* save content after insertion point */
+			memcpy(buff, fp+off, buffsize);
+
+			/* Insert key and value */
+	                memset(line_buff, 0, sizeof(line_buff));
+        	        snprintf( line_buff, sizeof(line_buff)-1, " %s = %s\n", key, pvalue );
+
+			/* If found_key, rewind one line back here to the stat of the old line, just to overwrite it. */
+			if( found_key )
+				off -= nb;
+
+	                lseek( fd, off, SEEK_SET); /* go to insertion point */
+                	if( write(fd, line_buff, strlen(line_buff)) < strlen(line_buff) ) {
+                        	printf("%s: Fail to write line_buff to config file.\n",__func__);
+                        	ret=-6;
+                	}
+			/* Restore saved content */
+                	if( write(fd, buff, buffsize) < buffsize ) {
+                        	printf("%s: Fail to restore saved buff to config file.\n",__func__);
+                        	ret=-7;
+                	}
+			/* Truncate old remaining */
+			if( fsize > off+strlen(line_buff)+buffsize )
+				ftruncate(fd, off+strlen(line_buff)+buffsize );
+
+			/* Free temp. buffer */
+			free(buff);
+		}
+	}
+
+        /* close file and munmap */
+        if( munmap(fp,fsize) != 0 )
+		fprintf(stderr,"%s: WARNING: munmap() fails! \n",__func__);
+        close(fd);
+
+	/* Return  value */
+	return ret;
+}
 
 
 /*---------------------------------------------------------------------------------------

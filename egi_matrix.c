@@ -4,12 +4,33 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 Note:
+0. For nonsingular matrix only.
 1. Beware of the case that two input matrix pionters are the same!
+2. Too big the determinant value indicates that the matrix equations
+   may NOT be rational!
+3. A float type represents accurately at least the first six digits.
+   and a range at lease 10^-37 to 10^37.
+
+		-----  Float Limits (see float.h)  -----
+
+FLT_MANT_DIG: 	Number of bits in the mantissa of a float:  24
+FLT_DIG: 	Min. number of significant decimal digits for a float: 	6
+FLT_MIN_10_EXP: Min. base-10 negative exponent for a float with a full set of significant figures: -37
+FLT_MAX_10_EXP: Max. base-10 positive exponent for a float: 38
+FLT_MIN: 	Min. value for a positive float retaining full precision: 0.000000 =1.175494e-38
+FLT_MAX: 	Max. value for a positive float: 340282346638528880000000000000000000000.000000  =3.402823e+38
+FLT_EPSILON: 	Diff. between 1.00 and the leaset float value greater than 1.00: 0.000000=1.192093e-07
+ 1/(2^(FLT_MANT_DIG-1)) = 0.000000119209
+
+
+TODO:
+	1. matrix norm and condition number.
 
 Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
 #include "egi_matrix.h"
+#include "float.h"
 
 /*----------------------------------------------
 Calculate and return time difference in us
@@ -208,6 +229,7 @@ void Matrix_Print(struct float_Matrix *matA)
    int nr=matA->nr;
    int nc=matA->nc;
 
+   printf("       ");
    for(i=0; i<nc; i++)
 	printf("       Column(%d)",i);
    printf("\n");
@@ -216,7 +238,7 @@ void Matrix_Print(struct float_Matrix *matA)
    {
         printf("Row(%d):  ",i);
         for(j=0; j<nc; j++)
-           printf("%f    ", (matA->pmat)[nc*i+j] );
+           printf("%15.5f ", (matA->pmat)[nc*i+j] );
         printf("\n");
    }
    printf("\n");
@@ -738,10 +760,16 @@ struct float_Matrix* Matrix_Inverse(const struct float_Matrix *matA,
 	/* Check if matrix matA is invertible */
 	Matrix_Determ(matA,&det_matA); /* compute determinant of matA */
 //	printf("Matrix_Inverse(): determint of input matrix is %f\n",det_matA);
+
 	if(det_matA == 0)
 	{
 		fprintf(stderr,"%s: matrix is NOT invertible!\n",__func__);
 		return NULL;
+	}
+	//else if(  ( det_matA < 0 && det_matA > -FLT_MIN*4 )  || ( det_matA > 0 && det_matA < FLT_MIN*4 )  )
+	else if(  ( det_matA < 0 && det_matA > -1.0e-17 )  || ( det_matA > 0 && det_matA < 1.0e-17 )  )
+	{
+		printf("WARNING: determinant value is too small! check rationality of the matrix equations.\n");
 	}
 
   	/* Compute adjugate matrix */
@@ -773,7 +801,8 @@ struct float_Matrix* Matrix_Inverse(const struct float_Matrix *matA,
 		/* compute determinant of the i_th cofactor matrix as i_th element of the adjugate matrix */
 		Matrix_Determ(&matCof, (matAdj->pmat+i));
 		/* decide the sign of the element */
-		if( (i/nrc)%2 != (i%nrc)%2 )
+		//if( (i/nrc)%2 != (i%nrc)%2 )
+		if( ((i/nrc)&0x1) != ((i%nrc)&0x1) )
 			(matAdj->pmat)[i] = -1.0*(matAdj->pmat)[i];
 	} /* end of for(i),  computing adjugate matrix NOT finished yet */
 	/* transpose the matrix to finish computing adjugate matrix !!! */
@@ -863,7 +892,7 @@ return:
 float  MatrixGT3X3_Determ(int nrc, float *pmat)
 {
    int i,j,k;
-   float *pmatCof; /* pointer to cofactor matrix */
+   float *pmatCof=NULL; /* pointer to cofactor matrix */
    float determ=0;
    float sign; 	   /* sign of element of the adjugate matrix */
 
@@ -884,6 +913,10 @@ float  MatrixGT3X3_Determ(int nrc, float *pmat)
 	fprintf(stderr,"%s: malloc pmatConf failed!\n",__func__);
 	return 0;
    }
+
+   /* ---- TEST ---- */
+   if (nrc==8)
+	printf("Cal nrc==8 ..." );
 
    /* The terminant of a matrix equals summation of (any) one row of (element value)*sign*(determinant of its cofactor matrix) */
    for(i=0; i<nrc; i++)  /* summation first row,  i- also cross center element natural number */
@@ -912,7 +945,8 @@ float  MatrixGT3X3_Determ(int nrc, float *pmat)
 	/* finish i_th matCof */
 
 	/* decide the sign of the element */
-	if( (i/nrc)%2 != (i%nrc)%2 )
+	//if( (i/nrc)%2 != (i%nrc)%2 )
+	if( ((i/nrc)&0x1) != ((i%nrc)&0x1) )
 		sign=-1.0;
 	else
 		sign=1.0;
@@ -924,6 +958,13 @@ float  MatrixGT3X3_Determ(int nrc, float *pmat)
 
    } /* end of for(i) */
 
+   /* ---- TEST ---- */
+   if (nrc==8)
+	printf(" ... OK\n" );
+
+  /* Free pamtCof */
+  free(pmatCof);
+
   return determ;
 
 }
@@ -931,9 +972,9 @@ float  MatrixGT3X3_Determ(int nrc, float *pmat)
 
 
 /*-------------------------------------------------------------------------------------
-Solve the equation matrix.
+Solve the equation matrix : A*X=B
 
-@matA: Input matrix in n*(n+1) dimensions.  n --- unkown X dimensions.
+@matAB: Input matrix in n*(n+1) dimensions.  n --- unkown X dimensions.
 @matX: sovled result X.
 
 return:
@@ -987,10 +1028,12 @@ struct float_Matrix*  Matrix_SolveEquations( const struct float_Matrix *matAB, s
 			matA->pmat[i*n+j]=matAB->pmat[i*(n+1)+j];
 		matB->pmat[i]=matAB->pmat[i*(n+1)+(n+1-1)];
 	}
+#if 0
 	printf("matA:\n");
 	Matrix_Print(matA);
 	printf("matB:\n");
 	Matrix_Print(matB);
+#endif
 
 	/* Solve the equation */
 	if( Matrix_Inverse( matA, matINVA )==NULL ) {

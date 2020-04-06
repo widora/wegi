@@ -8,9 +8,10 @@ Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
 #include <stdio.h>
+#include <stdlib.h>
 #include "egi_matrix.h"
 
-void main(void)
+int main(void)
 {
  int i,j;
 
@@ -197,16 +198,29 @@ mat_N.nr=2; mat_N.nc=2; mat_N.pmat=matN;
 
    struct float_Matrix mat_6X6;
    mat_6X6.nr=6; mat_6X6.nc=6; mat_6X6.pmat=mat6X6;
+
    float invmat6X6[6*6]={0};
    struct float_Matrix invmat_6X6;
    invmat_6X6.nr=6; invmat_6X6.nc=6; invmat_6X6.pmat=invmat6X6;
+
+   float matmult6X6[6*6]={0};
+   struct float_Matrix matmult_6X6;
+   matmult_6X6.nr=6; matmult_6X6.nc=6; matmult_6X6.pmat=matmult6X6;
+
+
    printf("\nmat_6X6 = \n");
    Matrix_Print(&mat_6X6);
+
    Matrix_Determ(&mat_6X6, &determ);
    printf("determ of |mat6X6| = %e \n",determ );
+
    Matrix_Inverse(&mat_6X6, &invmat_6X6);
    printf("\ninvmat_6X6 = \n");
    Matrix_Print(&invmat_6X6);
+
+   Matrix_Multiply(&mat_6X6,&invmat_6X6, &matmult_6X6);
+   printf("\nmatmult_6X6 = mat_6X6 * invmat_6X6 \n");
+   Matrix_Print(&matmult_6X6);
 
 /*
    printf("mat6x6 = \n");
@@ -242,16 +256,30 @@ mat_N.nr=2; mat_N.nc=2; mat_N.pmat=matN;
 
    struct float_Matrix mat_8X8;
    mat_8X8.nr=8; mat_8X8.nc=8; mat_8X8.pmat=mat8X8;
+
    float invmat8X8[8*8]={0};
    struct float_Matrix invmat_8X8;
    invmat_8X8.nr=8; invmat_8X8.nc=8; invmat_8X8.pmat=invmat8X8;
+
+   float matmult8X8[8*8]={0};
+   struct float_Matrix matmult_8X8;
+   matmult_8X8.nr=8; matmult_8X8.nc=8; matmult_8X8.pmat=matmult8X8;
+
    printf("\nmat_8X8 = \n");
    Matrix_Print(&mat_8X8);
+
    Matrix_Determ(&mat_8X8, &determ);
    printf("determ of |mat8X8| = %e \n",determ );
+
    Matrix_Inverse(&mat_8X8, &invmat_8X8);
    printf("\ninvmat_8X8 = \n");
    Matrix_Print(&invmat_8X8);
+
+   Matrix_Multiply(&mat_8X8,&invmat_8X8, &matmult_8X8);
+   printf("\nmatmult_8X8 = mat_8X8 * invmat_8X8 \n");
+   Matrix_Print(&matmult_8X8);
+
+
 
 /*
    printf("mat8x8 = \n");
@@ -263,28 +291,73 @@ mat_N.nr=2; mat_N.nc=2; mat_N.pmat=matN;
    }
    printf("|mat8X8|= %f \n",MatrixGT3X3_Determ(8,mat8X8) );
 */
-    //-------------- 10x10 killed !!??? ---------
-/*
-   float mat10X10[10*10]={0};
+#if 1
+   system("date");
 
+   float mat9X9[9*9]={0};
+   for(i=0; i<9; i++)
+	for(j=0;j<9;j++)
+		mat9X9[i*9+j]=(0.2*(i+1))*j+0.1*i;
+   struct float_Matrix mat_9X9;
+   mat_9X9.nr=9; mat_9X9.nc=9; mat_9X9.pmat=mat9X9;
+   printf("\nmat_9X9 = \n");
+   Matrix_Print(&mat_9X9);
+
+   float invmat9X9[9*9]={0};
+   struct float_Matrix invmat_9X9;
+   invmat_9X9.nr=9; invmat_9X9.nc=9; invmat_9X9.pmat=invmat9X9;
+
+   float  matmult9X9[9*9]={0}; /* For: matmult=mat_9X9 * invmat_9X9 */
+   struct float_Matrix matmult_9X9;
+   matmult_9X9.nr=9; matmult_9X9.nc=9; matmult_9X9.pmat=matmult9X9;
+
+   Matrix_Determ(&mat_9X9, &determ);
+   printf("determ of |mat9X9| = %e \n",determ );
+
+   Matrix_Inverse(&mat_9X9, &invmat_9X9);
+   printf("\ninvmat_9X9 = \n");
+   Matrix_Print(&invmat_9X9);
+
+   Matrix_Multiply(&mat_9X9,&invmat_9X9, &matmult_9X9);
+   printf("\nmatmult_9X9 = mat_9X9 * invmat_9X9 \n");
+   Matrix_Print(&matmult_9X9);
+
+   system("date");
+#endif
+
+#if 0
+   system("date");
+
+   float mat10X10[10*10]={0};
    for(i=0; i<10; i++)
 	for(j=0;j<10;j++)
 		mat10X10[i*10+j]=(0.2*(i+1))*j+0.1*i;
-
    struct float_Matrix mat_10X10;
    mat_10X10.nr=10; mat_10X10.nc=10; mat_10X10.pmat=mat10X10;
+   printf("\nmat_10X10 = \n");
+   Matrix_Print(&mat_10X10);
+
    float invmat10X10[10*10]={0};
    struct float_Matrix invmat_10X10;
    invmat_10X10.nr=10; invmat_10X10.nc=10; invmat_10X10.pmat=invmat10X10;
-   printf("\nmat_10X10 = \n");
-   Matrix_Print(mat_10X10);
+
+   float  matmult10X10[10*10]={0}; /* For: matmult=mat_10x10 * invmat_10x10 */
+   struct float_Matrix matmult_10X10;
+   matmult_10X10.nr=10; matmult_10X10.nc=10; matmult_10X10.pmat=matmult10X10;
+
    Matrix_Determ(&mat_10X10, &determ);
    printf("determ of |mat10X10| = %e \n",determ );
+
    Matrix_Inverse(&mat_10X10, &invmat_10X10);
    printf("\ninvmat_10X10 = \n");
-   Matrix_Print(invmat_10X10);
-*/
+   Matrix_Print(&invmat_10X10);
 
+   Matrix_Multiply(&mat_10X10,&invmat_10X10, &matmult_10X10);
+   printf("\nmatmult_10X10 = mat_10X10 * invmat_10X10 \n");
+   Matrix_Print(&matmult_10X10);
+
+   system("date");
+#endif
 
 //----- (3,1) * (1,1) Matrix_Multiply()  -------
    float Mat3X1A[3*1]=
@@ -315,7 +388,5 @@ Matrix_Print(&Mat_1X1A);
 Matrix_Multiply(&Mat_3X1A, &Mat_1X1A, &Mat_3X1B);
 printf("Mat_3x1B=\n");
 Matrix_Print(&Mat_3X1B);
-
-
 
 }

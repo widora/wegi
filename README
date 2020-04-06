@@ -104,8 +104,10 @@ egi_shmem.c	share memory helper functions
 egi_https.c	curl https API
 egi_iwinfo.c	wifi info. extraction
 
+egi_matrix.c    A matrix operation lib
 
 sys_list.h	list operation derived from Linux kernel codes. 
+
 
 
 			( --- 3.2 Derived EBOXs --- )

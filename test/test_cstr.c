@@ -26,7 +26,46 @@ int main( int  argc,   char**  argv )
 　　毕竟不知寻出那个取经来，且听下回分解。";
 
 
-#if 1  ////////// cstr_extract_ChnUft8TimeStr()    cstr_getSecFrom_ChnUft8TimeStr()   ////////////
+
+#if 0  //////////  egi_count_file_lines(const char *fpath) ///////////
+
+if(argc<2)
+  exit(-1);
+
+printf("Lines of egi.conf: %d\n", egi_count_file_lines(argv[1]) );
+
+exit(0);
+#endif
+
+
+#if 0  //////////  int cstr_copy_line(const char *src, char *dest, size_t size)  ///////////
+
+char src[]="0123456";
+src[0]='\0';
+char dest[16];
+int ret;
+
+
+ ret=cstr_copy_line( src, dest, 16 );
+
+ printf("ret=%d,  dest[max 16]='%s'  \n",ret, dest);
+
+exit(0);
+#endif
+
+
+#if 1 	//////////    int egi_update_config_value(char *sect, char *key, char* pvalue)   //////////
+
+	egi_update_config_value("TOUCH_PAD", "xpt_facts", "HELLO");
+	egi_update_config_value("TOUCH_PAD", "xpt_factX", "12.1");
+	egi_update_config_value("TOUCH_PAD", "xpt_factY", "20.1");
+	egi_update_config_value("TOUCH_PAD_", "xpt_facts", "HELLO");
+
+exit(0);
+#endif
+
+
+#if 0  ////////// cstr_extract_ChnUft8TimeStr()    cstr_getSecFrom_ChnUft8TimeStr()   ////////////
 
 /*
 十五小时一百零七分钟七百零零九秒以后提醒
@@ -50,10 +89,10 @@ int main( int  argc,   char**  argv )
 
    if(argc<2)exit(1);
 
-   if( cstr_extract_ChnUft8TimeStr( (const unsigned char *)argv[1], strtm, sizeof(strtm))==0 )
+   if( cstr_extract_ChnUft8TimeStr( (const char *)argv[1], strtm, sizeof(strtm))==0 )
 	printf("Time str: %s\n",strtm);
 
-   secs=cstr_getSecFrom_ChnUft8TimeStr(strtm);
+   secs=cstr_getSecFrom_ChnUft8TimeStr(strtm,NULL);
    printf("Total %d seconds.\n",secs);
 
    exit(0);
@@ -64,7 +103,7 @@ int main( int  argc,   char**  argv )
   printf(" *pa=0x%x \n", *(pa+3));
 
 
-#if 1	///////////////  cstr/char_unicode_to_uft8( )  /////////////
+#if 0	///////////////  cstr/char_unicode_to_uft8( )  /////////////
 
 	char char_uft8[4+1];
 	char buff[2048];
