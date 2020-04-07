@@ -576,7 +576,10 @@ void *egi_touch_loopread(void)
 	live_touch_data.dy=0;
 	live_touch_data.status=released_hold;
 
+	/* Init. calibrated factors */
+	xpt_init_factors();
 
+	/* Loop touch reading... */
 	while(1)
  	{
 /*

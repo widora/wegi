@@ -30,6 +30,9 @@ int 	char_unicode_to_uft8(const wchar_t *src, char *dest);
 int 	cstr_unicode_to_uft8(const wchar_t *src, char *dest);
 
 int 	egi_count_file_lines(const char *fpath);
+
+#define EGI_CONFIG_LMAX         256     /* Max. length of one line in a config file */
+#define EGI_CONFIG_VMAX         64      /* Max. length of a SECTION/KEY/VALUE string  */
 int 	egi_get_config_value(const char *sect, const char *key, char* value);
 int 	egi_update_config_value(const char *sect, const char *key, const char* pvalue);
 

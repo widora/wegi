@@ -4,6 +4,7 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 A program to calibrate resistive touch pad by 5_points_method.
+EGI config file will be updated then with the results.
 
 Note:
 1. Only consider linear X/Y factors for Touch_XY to Screen_XY mapping.
@@ -34,6 +35,7 @@ midaszhou@yahoo.com
 #include <xpt2046.h>
 #include <egi_common.h>
 #include <egi_utils.h>
+#include <egi_cstring.h>
 #include <egi_FTsymbol.h>
 
 
@@ -122,10 +124,9 @@ int main(int argc, char **argv)
 		   *            Main Program
     		   -----------------------------------*/
 
-	int i;
 	int ret;
-	uint16_t TpxTest, TpyTest;
-	uint16_t LpxTest, LpyTest;
+//	uint16_t TpxTest, TpyTest;
+//	uint16_t LpxTest, LpyTest;
 	EGI_TOUCH_DATA	touch;
 	EGI_POINT	startxy;
 	EGI_POINT	endxy;
@@ -157,10 +158,27 @@ START_CALIBRATION:
 	printf("factX=%f, factY=%f  tbaseX=%d tbaseY=%d\n", factX, factY, Tpx[4], Tpy[4]);
 
 
-	/* Set factX,factY */
+	/* 3. Set factX,factY */
 	xpt_set_factors(factX, factY, Tpx[4], Tpy[4]);
 
-	/* 3. Check calibration result, Tpx[4]Tpy[4] is the base point  */
+
+	/* 4. Update EGI config file */
+	char strfact[64];
+	memset(strfact,0,sizeof(strfact));
+	sprintf(strfact,"%.3f", factX);
+	egi_update_config_value("TOUCH_PAD", "xpt_factX", strfact);
+	memset(strfact,0,sizeof(strfact));
+	sprintf(strfact,"%.3f", factY);
+	egi_update_config_value("TOUCH_PAD", "xpt_factY", strfact);
+	memset(strfact,0,sizeof(strfact));
+	sprintf(strfact,"%d", Tpx[4]);
+	egi_update_config_value("TOUCH_PAD", "xpt_tbaseX", strfact);
+	memset(strfact,0,sizeof(strfact));
+	sprintf(strfact,"%d", Tpy[4]);
+	egi_update_config_value("TOUCH_PAD", "xpt_tbaseY", strfact);
+
+
+	/* 5. Check calibration result, Tpx[4]Tpy[4] is the base point  */
 
 	/* Draw refrence box */
 	fbset_color(WEGI_COLOR_GREEN);

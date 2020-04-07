@@ -13,6 +13,7 @@ Midas Zhou
 #include "spi.h"
 #include "xpt2046.h"
 #include "egi_debug.h"
+#include "egi_cstring.h"
 
 //static int xpt_nsample; /* sample index for XPT touch point coordinate */
 
@@ -34,6 +35,43 @@ void xpt_set_factors(float fx, float fy, uint8_t tbx, uint8_t tby)
 	factY=fy;
 	tbaseX=tbx;
 	tbaseY=tby;
+}
+
+
+/*----------------------------------------------
+Initiate touch_pad calibrated factors/parameters.
+If EGI config file contains factors, then
+read in and use them. otherwise use defaults.
+
+----------------------------------------------*/
+void xpt_init_factors(void)
+{
+	char strfactor[EGI_CONFIG_VMAX];
+
+	memset(strfactor,0,sizeof(strfactor));
+	if( egi_get_config_value("TOUCH_PAD", "xpt_factX", strfactor) ==0 ) {
+		printf("%s: Get xpt_factX='%s' in EGI config file.\n",__func__, strfactor);
+		factX=atof(strfactor);
+	}
+
+	memset(strfactor,0,sizeof(strfactor));
+	if( egi_get_config_value("TOUCH_PAD", "xpt_factY", strfactor) ==0 ) {
+		printf("%s: Get xpt_factY='%s' in EGI config file.\n",__func__, strfactor);
+		factY=atof(strfactor);
+	}
+
+	memset(strfactor,0,sizeof(strfactor));
+	if( egi_get_config_value("TOUCH_PAD", "xpt_tbaseX", strfactor) ==0 ) {
+		printf("%s: Get xpt_tbaseX='%s' in EGI config file.\n",__func__, strfactor);
+		tbaseX=atoi(strfactor);
+	}
+
+	memset(strfactor,0,sizeof(strfactor));
+	if( egi_get_config_value("TOUCH_PAD", "xpt_tbaseY", strfactor) ==0 ) {
+		printf("%s: Get xpt_tbaseY='%s' in EGI config file.\n",__func__, strfactor);
+		tbaseY=atoi(strfactor);
+	}
+
 }
 
 

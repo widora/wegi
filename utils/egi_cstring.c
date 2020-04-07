@@ -63,8 +63,6 @@ Clear all unprintable chars in a string.
 
 @buff:  String buffer.
 @size:  Total size of the buff.
- 	!!! DO NOT use strlen(buff) to get the size, if the
-	spot is '\0'.
 
 Return:
         Total number of spot chars that have been cleared out.
@@ -215,14 +213,14 @@ char * cstr_split_nstr(char *str, char *split, unsigned n)
 }
 
 
-/*----------------------------------------------------------------
-Skip all sapces at front,  and trim all spaces AND '\n's AND '\r's
+/*--------------------------------------------------------------------
+Skip all Spaces&Tabs at front, and trim all SPACES & '\n's & '\r's
 at end of a string, return a pointer to the first non_space char.
 
 Return:
 	pointer	to a char	OK, spaces trimed.
         NULL			Input buf invalid
------------------------------------------------------------------*/
+--------------------------------------------------------------------*/
 char * cstr_trim_space(char *buf)
 {
 	char *ps, *pe;
@@ -231,7 +229,7 @@ char * cstr_trim_space(char *buf)
 
 	/* skip front spaces */
 	ps=buf;
-	for(ps=buf; *ps==' '; ps++)
+	for(ps=buf; *ps==' '||*ps=='	'; ps++)
 	{ };
 
 	/* eat up back spaces/returns, replace with 0 */
@@ -290,6 +288,7 @@ int cstr_copy_line(const char *src, char *dest, size_t size)
 
 	return i;
 }
+
 
 /*-----------------------------------------------------------------------
 Get length of a character with UTF-8 encoding.
@@ -715,10 +714,12 @@ KEY2= VALUE2
 4. All spaces beside SECTION/KEY/VALUE strings will be ignored/trimmed.
 5. If there are more than one section with the same name, only the first
    one is valid, and others will be all neglected.
+6. If KEY value is found to be all SPACES, then it will deemded as failure. (see Return value 3 )
 
 		[[ ------  LIMITS -----  ]]
-6. Max. length for one line in a config file is 256-1. ( see. line_buff[256] )
-7. Max. length of a SECTION/KEY/VALUE string is 64-1. ( see. str_test[64] )
+7. Max. length for one line in a config file is 256-1. ( see. line_buff[256] )
+8. Max. length of a SECTION/KEY/VALUE string is 64-1. ( see. str_test[64] )
+
 
 TODO:	If key value includes BLANKS, use "".--- OK, sustained.
 
@@ -730,8 +731,8 @@ Return:
 	0	OK
 	<0	Fails
 ------------------------------------------------------------------------------------*/
-#define EGI_CONFIG_LMAX		256	/* length for one line in a config file */
-#define EGI_CONFIG_VMAX		64      /* Max. length of a SECTION/KEY/VALUE string  */
+//#define EGI_CONFIG_LMAX		256	/* Max. length of one line in a config file */
+//#define EGI_CONFIG_VMAX		64      /* Max. length of a SECTION/KEY/VALUE string  */
 int egi_get_config_value(const char *sect, const char *key, char* pvalue)
 {
 	int lnum=0;
@@ -883,13 +884,14 @@ int egi_get_config_value(const char *sect, const char *key, char* pvalue)
 
 
 /*---------------------------------------------------------------------------------
-Update KEY value of given SECTION in EGI config file, if the KEY
+Update KEY value of the given SECTION in EGI config file, if the KEY
 (and SECTION) does NOT exist, then create it (both) .
 
 Note:
-1. If SECTION does not exist, then it will be put at he end of the config file.
-2. If KEY does not exist, then it will be put just after SECTION line.
-3. xxxxx A new line starting with "#####" also deemed as end of last SECTION,
+1. If EGI config file does not exist, then create it first.
+2. If SECTION does not exist, then it will be put at the end of the config file.
+3. If KEY does not exist, then it will be put just after SECTION line.
+4. xxxxx A new line starting with "#####" also deemed as end of last SECTION,
    though it is not so defined in egi_get_config_value().  ---- NOPE! see the codes.
 
 @sect:		Char pointer to a given SECTION name.
@@ -930,7 +932,7 @@ int egi_update_config_value(const char *sect, const char *key, const char* pvalu
 	}
 
         /* Open config file */
-        fd=open( EGI_CONFIG_PATH, O_RDWR);
+        fd=open(EGI_CONFIG_PATH, O_CREAT|O_RDWR|O_CLOEXEC, S_IRWXU|S_IRWXG);
         if(fd<0) {
                 printf("%s: Fail to open EGI config file '%s', %s\n",__func__, EGI_CONFIG_PATH, strerror(errno));
                 return -2;
@@ -941,9 +943,29 @@ int egi_update_config_value(const char *sect, const char *key, const char* pvalu
 		fprintf(stderr,"%s: Fail to call fstat()!\n", __func__);
                 return -2;
 	}
+        fsize=sb.st_size;
+	/* In case that the EGI config file is just created! otherwise mmap() will fail. */
+	if(fsize==0) {
+		printf("%s: fsize of '%s' is zero! create it now...\n",__func__, EGI_CONFIG_PATH);
+		/* Insert file name at the beginning */
+                memset(line_buff, 0, sizeof(line_buff));
+       	        snprintf( line_buff, sizeof(line_buff)-1, "##### egi.conf #####\n");
+               	if( write(fd, line_buff, strlen(line_buff)) < strlen(line_buff) ) {
+                       	printf("%s: Fail to restore saved buff to config file.\n",__func__);
+                       	ret=-7;
+               	}
+		/* Note: Use ftruncate() will put '\0' into the file first, and put SECT and KEY after then, that will lead to
+		 *  failure in locating SECT and KEY later */
+
+	        /* Obtain file stat again...*/
+        	if( fstat(fd,&sb)<0 ) {
+			fprintf(stderr,"%s: Fail to call fstat()!\n", __func__);
+                	return -2;
+		}
+        	fsize=sb.st_size;
+	}
 
         /* Mmap file */
-        fsize=sb.st_size;
         fp=mmap(NULL, fsize, PROT_READ, MAP_PRIVATE, fd, 0);
         if(fp==MAP_FAILED) {
 		fprintf(stderr,"%s: Fail to call mmap()!\n", __func__);
@@ -1085,7 +1107,7 @@ int egi_update_config_value(const char *sect, const char *key, const char* pvalu
 	                memset(line_buff, 0, sizeof(line_buff));
         	        snprintf( line_buff, sizeof(line_buff)-1, " %s = %s\n", key, pvalue );
 
-			/* If found_key, rewind one line back here to the stat of the old line, just to overwrite it. */
+			/* If found_key, rewind one line back here to the start of the old line, just to overwrite it. */
 			if( found_key )
 				off -= nb;
 
@@ -1108,10 +1130,16 @@ int egi_update_config_value(const char *sect, const char *key, const char* pvalu
 		}
 	}
 
+
         /* close file and munmap */
         if( munmap(fp,fsize) != 0 )
 		fprintf(stderr,"%s: WARNING: munmap() fails! \n",__func__);
         close(fd);
+
+	/* ---  Seems NOT necessary!? --- */
+	/* Synch it immediately, in case any other process may access the EGI config file */
+	//syncfs(fd); This function is not applicable?
+        //sync();
 
 	/* Return  value */
 	return ret;

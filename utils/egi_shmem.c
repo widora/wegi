@@ -41,7 +41,7 @@ int egi_shmem_open(EGI_SHMEM *shmem)
 	}
 
 	/* open shm */
-	shmfd=shm_open(shmem->shm_name, O_CREAT|O_RDWR, 0666);
+	shmfd=shm_open(shmem->shm_name, O_CREAT|O_RDWR|O_CLOEXEC, S_IRWXU|S_IRWXG);
         if(shmfd<0) {
                 printf("%s: fail shm_open(): %s",__func__, strerror(errno));
 		return -3;
