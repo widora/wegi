@@ -86,6 +86,9 @@ int	egi_imgbuf_windisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subcolor,
 int egi_imgbuf_windisplay2( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
                                         int xp, int yp, int xw, int yw, int winw, int winh);
 
+int egi_image_rotdisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int angle,
+                                                int xri, int yri, int xrl, int yrl);
+
 /* display sub_image of an EGI_IMAGBUF */
 int egi_subimg_writeFB(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subnum,
                                                         int subcolor, int x0,   int y0);

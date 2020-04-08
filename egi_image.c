@@ -1996,9 +1996,11 @@ Create an EGI_IMGBUF by rotating the input eimg.
 2. Only imgbuf and alpha data are created in new EGI_IMGBUF, other memebers such
    as subimgs are ignored hence.
 
-@eimg:		Original imgbuf;
-@angle: 	Rotating angle in degree, positive as clockwise.
+TODO: more accurate way is to get rotated pixel by interpolation method.
 
+@eimg:		Original imgbuf;
+@angle: 	Rotating angle in degree, clockwise as positive.
+		Right hand rule: LCD X,Y
 Return:
 	A pointer to EGI_IMGBUF with new image 		OK
 	NULL						Fails
@@ -2072,7 +2074,11 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 	n=width>>1;
 	for(i=-m; i<=m; i++) {
 		for(j=-n; j<=n; j++) {
-			/* Map to original coordiante (xr,yr), Origin at center. */
+			/* Map to original coordiante (xr,yr), Origin at center.
+			 * 2D point rotation formula ( a: counter_clockwise as positive ):
+			 *	x'=x*cos(a)-y*sin(a)
+			 *	y'=x*sin(a)+y*cos(a)
+			 */
 			xr = (j*fp16_cos[ang]+i*asign*fp16_sin[ang])>>16; /* !!! Arithmetic_Right_Shifting */
                         yr = (-j*asign*fp16_sin[ang]+i*fp16_cos[ang])>>16;
 
@@ -2151,6 +2157,7 @@ int egi_imgbuf_rotate_update(EGI_IMGBUF **eimg, int angle)
 }
 
 /*--------------------------------------------------------------------------------------
+Display image in a defined window.
 For 16bits color only!!!!
 
 Note:
@@ -2184,6 +2191,8 @@ int egi_imgbuf_windisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subcolor,
 			   		int xp, int yp, int xw, int yw, int winw, int winh)
 {
         /* check data */
+	if(fb_dev==NULL)
+		return -1;
         if(egi_imgbuf == NULL) {
                 printf("%s: egi_imgbuf is NULL. fail to display.\n",__func__);
                 return -1;
@@ -2377,6 +2386,7 @@ int egi_imgbuf_windisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subcolor,
 
 #if 1 ////////////////////////// TODO: range limit check ///////////////////////////
 /*---------------------------------------------------------------------------------------
+Display image in a defined window.
 For 16bits color only!!!!
 
 WARING:
@@ -2412,7 +2422,9 @@ int egi_imgbuf_windisplay2(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
 			   		int xp, int yp, int xw, int yw, int winw, int winh)
 {
         /* check data */
-        if(egi_imgbuf == NULL)
+	if(fb_dev == NULL)
+		return -1;
+        if(egi_imgbuf == NULL || egi_imgbuf->imgbuf == NULL )
         {
                 printf("%s: egi_imgbuf is NULL. fail to display.\n",__func__);
                 return -1;
@@ -2554,6 +2566,86 @@ int egi_imgbuf_windisplay2(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
   return 0;
 }
 #endif ///////////////////////////////////////////////////////////////////////
+
+
+
+/*---------------------------------------------------------------------------------------
+Rotate the image then display it, the original imgbuf will NOT be rotated.
+And the rotated image will be displayed on the LCD where its center (xri',yri')
+coincides with (xrl, yrl) of LCD.
+
+egi_imgbuf:     an EGI_IMGBUF struct which hold bits_color image data of a picture.
+fb_dev:		FB device
+@angle: 	Rotating angle in degree, clockwise as positive.
+		Right hand rule: LCD X,Y
+@xri,yri:	i-image, Rotating center coordiantes, relative to imgbuf coord.
+@xrl,yrl:	l-lcd, Rotating center coordiantes, relative to LCD coord.
+
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------------------------------------------------*/
+int egi_image_rotdisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int angle,
+	                                        	int xri, int yri, int xrl, int yrl)
+{
+	int ang, asign;
+	int xr, yr;	  /* image center under different coord./origin  */
+	int xnri,ynri;	  /* rotate image center under rotated image coord. */
+	int ret;
+
+	#if 0 /* Ok, egi_imgbuf_roate() will check input imgbuf */
+        if(egi_imgbuf == NULL || egi_imgbuf->imgbuf == NULL )
+        {
+                printf("%s: egi_imgbuf is NULL. fail to display.\n",__func__);
+                return -1;
+        }
+	#endif
+
+        /* Normalize angle to be within [0-360] */
+        ang=angle%360;      /* !!! WARING !!!  The modulo result is depended on the Compiler
+                             * For C99: a%b=a-(a/b)*b   ,whether a is positive or negative.
+                             */
+        asign= ang >= 0 ? 1 : -1; /* angle sign */
+        ang= ang>=0 ? ang : -ang ;
+
+        /* Check whether lookup table fp16_cos[] and fp16_sin[] is generated */
+        if( fp16_sin[30] == 0) {
+                mat_create_fpTrigonTab();
+	}
+
+	EGI_IMGBUF *rotimg=NULL;
+
+        /* check data */
+	if( fb_dev == NULL )
+		return -1;
+
+	/* Get rotated image */
+	rotimg=egi_imgbuf_rotate(egi_imgbuf, angle);
+	if(rotimg==NULL)
+		return -2;
+
+	/* egi_imgbuf_rotate() around image center, so image center is fixed,
+	 * next get new coordinates of (xri, yri) under rotimg center coord.
+	 * (xr,yr) is under coord. whose origin is at original image center. with opposite Y direction as of LCD's
+	 * 2D point rotation formula ( a: counter_clockwise as positive ):
+	 *	x'=x*cos(a)-y*sin(a)
+	 *	y'=x*sin(a)+y*cos(a)
+	 */
+	xr = ( (xri-(egi_imgbuf->width>>1))*fp16_cos[ang]+ ((egi_imgbuf->height>>1)-yri)*asign*fp16_sin[ang])>>16; /* !!! Arithmetic_Right_Shifting */
+        yr = (-(xri-(egi_imgbuf->width>>1))*asign*fp16_sin[ang]+((egi_imgbuf->height>>1)-yri)*fp16_cos[ang])>>16;
+
+	/* Get coordinates of (xri,yri) under rotimg left_top coord. */
+	xnri=(rotimg->width>>1)+xr;
+	ynri=(rotimg->height>>1)-yr;
+
+	/* Display rotated image to let point (xnic,ynic) be positioned at LCD (xrl, yrl)  */
+	ret=egi_subimg_writeFB(	rotimg, fb_dev, 0, -1,  xrl-xnri, yrl-ynri );
+
+	/* Free rotimg */
+	egi_imgbuf_free(rotimg);
+
+	return ret;
+}
 
 
 /*-----------------------------------------------------------------------------------

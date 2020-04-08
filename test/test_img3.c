@@ -26,34 +26,43 @@ int main(int argc, char** argv)
 	struct timeval tm_end;
 
         /* <<<<<  EGI general init  >>>>>> */
-#if 0
         printf("tm_start_egitick()...\n");
         tm_start_egitick();		   	/* start sys tick */
+#if 0
         printf("egi_init_log()...\n");
         if(egi_init_log("/mmc/log_test") != 0) {	/* start logger */
                 printf("Fail to init logger,quit.\n");
                 return -1;
         }
-#endif
-
-#if 1
         printf("symbol_load_allpages()...\n");
         if(symbol_load_allpages() !=0 ) {   	/* load sys fonts */
                 printf("Fail to load sym pages,quit.\n");
                 return -2;
         }
+#endif
         if(FTsymbol_load_appfonts() !=0 ) {  	/* load FT fonts LIBS */
                 printf("Fail to load FT appfonts, quit.\n");
                 return -2;
         }
+
+  	/* Initilize sys FBDEV */
+  	printf("init_fbdev()...\n");
+  	if(init_fbdev(&gv_fb_dev))
+        	return -1;
+
+  	/* Start touch read thread */
+#if 0
+  	printf("Start touchread thread...\n");
+  	if(egi_start_touchread() !=0)
+        	return -1;
 #endif
+  	/* Set sys FB mode */
+  	fb_set_directFB(&gv_fb_dev,true);
+  	fb_position_rotate(&gv_fb_dev,3);
 
-        printf("init_fbdev()...\n");
-        if( init_fbdev(&gv_fb_dev) )		/* init sys FB */
-                return -1;
-//        gv_fb_dev.map_bk=gv_fb_dev.map_fb;
+ /* <<<<<  End of EGI general init  >>>>>> */
 
-	/* <<<<<  End EGI Init  >>>>> */
+
 
 
 #if 0 ///////////////////////////////////////////////////////
@@ -66,6 +75,7 @@ for(i=0; i<361; i+=10)
 }
 exit(0);
 #endif ///////////////////////////////////////////////////////
+
 
 
 EGI_IMGBUF* eimg=NULL;
@@ -89,9 +99,6 @@ const wchar_t *wstr2=L"奔跑在WIDORA上的\n	\
                 exit(-1);
         }
 
-	/* Buffer FB data */
-//	fb_buffer_FBimg(&gv_fb_dev, 0);
-
         /* 1. Load pic to imgbuf */
 	eimg=egi_imgbuf_readfile(argv[1]);
 	if(eimg==NULL) {
@@ -99,14 +106,33 @@ const wchar_t *wstr2=L"奔跑在WIDORA上的\n	\
 		return -1;
 	}
 
-do {    ////////////////////////////   1.  LOOP TEST   /////////////////////////////////
 
+#if 1    /* ---------     Test egi_imgbuf_rotate()    --------- */
+  	fb_set_directFB(&gv_fb_dev,false);
+
+while(1) {
+	i+=1;
+	fb_clear_backBuff(&gv_fb_dev, WEGI_COLOR_GRAY3);
+	egi_image_rotdisplay( eimg, &gv_fb_dev, i, 0, eimg->height, 320/2, 240/2 );   /* img, fbdev, angle, xri,yri,  xrl,yrl */
+	fb_render(&gv_fb_dev);
+	//usleep(120000);
+	//egi_sleep(1,0,80);
+	tm_delayms(60);
+}
+
+#endif
+
+
+
+#if 1    /* ---------     Test egi_imgbuf_rotate()    --------- */
+
+do {
 	i+=10;
 
 	/* restore FB data */
 //	fb_restore_FBimg(&gv_fb_dev, 0, false);
-//	clear_screen(&gv_fb_dev, WEGI_COLOR_GRAY3);
-	fb_clear_backBuff(&gv_fb_dev, WEGI_COLOR_GRAY3);
+	clear_screen(&gv_fb_dev, WEGI_COLOR_GRAY3);
+//	fb_clear_backBuff(&gv_fb_dev, WEGI_COLOR_GRAY3);
 
         /* 2. Create rotated imgbuf */
 	rotimg=egi_imgbuf_rotate(eimg, i);
@@ -142,13 +168,13 @@ do {    ////////////////////////////   1.  LOOP TEST   /////////////////////////
                                           32, 32, wstr1,  		    /* fw,fh, pstr */
                                           240, 6, 10,                    /* pixpl, lines, gap */
                                           0, 200,                      	    /* x0,y0, */
-                                          WEGI_COLOR_BLACK, -1, -1 );   /* fontcolor, transcolor,opaque */
+                                          WEGI_COLOR_BLACK, -1, 255 );   /* fontcolor, transcolor,opaque */
 
         FTsymbol_unicstrings_writeFB(&gv_fb_dev, egi_appfonts.bold,         /* FBdev, fontface */
                                           24, 24, wstr2,  		    /* fw,fh, pstr */
                                           240, 6,  10,                    /* pixpl, lines, gap */
                                           0, 50,                        /* x0,y0, */
-                                          WEGI_COLOR_WHITE, -1, -1 );   /* fontcolor, transcolor,opaque */
+                                          WEGI_COLOR_WHITE, -1, 255 );   /* fontcolor, transcolor,opaque */
 
 
 	/* 4. Free rotimgs */
@@ -156,7 +182,7 @@ do {    ////////////////////////////   1.  LOOP TEST   /////////////////////////
 	rotimg=NULL;
 
 	/* 5. Refresh FB by memcpying back buffer to FB */
-	fb_page_refresh(&gv_fb_dev);
+//	fb_page_refresh(&gv_fb_dev,0);
 
 	/* 6. Clear screen and increase num */
 	usleep(55000);
@@ -169,6 +195,12 @@ do {    ////////////////////////////   1.  LOOP TEST   /////////////////////////
 	/* Free eimg */
 	egi_imgbuf_free(eimg);
 	eimg=NULL;
+
+#endif  /* ---------  END test  egi_imgbuf_rotate()    --------- */
+
+
+
+
 
 
 	#if 0
