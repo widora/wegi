@@ -37,8 +37,8 @@ EGI_IMGBOX*	egi_imgboxes_alloc(int n);
 void 		egi_imgboxes_free(EGI_IMGBOX *imboxes);
 int 		egi_imgbuf_setSubImgs(EGI_IMGBUF *eimg, int num);
 void 		egi_imgbuf_cleardata(EGI_IMGBUF *egi_imgbuf); /* free data inside */
-void 		egi_imgbuf_free(EGI_IMGBUF *egi_imgbuf);
-void 		egi_imgbuf_free2(EGI_IMGBUF **pimg);
+void 		egi_imgbuf_free(EGI_IMGBUF *egi_imgbuf);      /* mutex_lock */
+void 		egi_imgbuf_free2(EGI_IMGBUF **pimg);	      /* mutex_lock */
 int 		egi_imgbuf_init(EGI_IMGBUF *egi_imgbuf, int height, int width,  bool AlphaON);
 int 		egi_imgbuf_addBoundaryBox(EGI_IMGBUF *ineimg, EGI_16BIT_COLOR color, int lw);
 EGI_IMGBUF*	egi_imgbuf_create( int height, int width, unsigned char alpha, EGI_16BIT_COLOR color );
@@ -77,27 +77,27 @@ EGI_IMGBUF  *egi_imgbuf_resize(const EGI_IMGBUF *ineimg, int width, int height);
 int 	egi_imgbuf_blur_update(EGI_IMGBUF **pimg, int size, bool alpha_on);
 int 	egi_imgbuf_resize_update(EGI_IMGBUF **pimg, unsigned int width, unsigned int height);
 int	egi_imgbuf_blend_imgbuf(EGI_IMGBUF *eimg, int xb, int yb, const EGI_IMGBUF *addimg );
-EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int ang);
+EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle);	/* mutex_lock */
 int 	egi_imgbuf_rotate_update(EGI_IMGBUF **eimg, int angle);
 
-int	egi_imgbuf_windisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subcolor,
+int	egi_imgbuf_windisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subcolor,	/* mutex_lock */
                 	                        int xp, int yp, int xw, int yw, int winw, int winh);
 /* no subcolor, no FB filo */
-int egi_imgbuf_windisplay2( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
+int egi_imgbuf_windisplay2( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,			/* mutex_lock */
                                         int xp, int yp, int xw, int yw, int winw, int winh);
 
-int egi_image_rotdisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int angle,
+int egi_image_rotdisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int angle,		/* mutex_lock for input egi_imgbuf */
                                                 int xri, int yri, int xrl, int yrl);
 
 /* display sub_image of an EGI_IMAGBUF */
-int egi_subimg_writeFB(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subnum,
+int egi_subimg_writeFB(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subnum,		/* mutex_lock */
                                                         int subcolor, int x0,   int y0);
 
 /* For whole imgbuf: rest color and alpha */
-int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha );
+int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha );		/* mutex_lock */
 
 /* For subimgbuf: reset color and alpha for all pixels */
-int egi_imgbuf_reset(EGI_IMGBUF *egi_imgbuf, int subnum, int color, int alpha);
+int egi_imgbuf_reset(EGI_IMGBUF *egi_imgbuf, int subnum, int color, int alpha);		/* mutex_lock */
 
 /* blend an EGI_IMGBUF with a FT_Bitmap */
 int egi_imgbuf_blend_FTbitmap(EGI_IMGBUF* eimg, int xb, int yb, FT_Bitmap *bitmap,

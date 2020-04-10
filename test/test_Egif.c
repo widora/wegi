@@ -154,7 +154,8 @@ int main(int argc, char **argv)
          // egi_gif_playFile(const char *fpath, bool Silent_Mode, bool ImgTransp_ON, int *ImageCount)
 	while(1) {
 	 	memcpy(gv_fb_dev.map_bk, gv_fb_dev.map_buff+gv_fb_dev.screensize, gv_fb_dev.screensize);
-		 egi_gif_playFile(fpath, false, ImgTransp_ON, NULL);
+		/* fpath, bool Silent_Mode, bool ImgTransp_ON, int *ImageCount, int nloop, bool *sigstop */
+		 egi_gif_playFile(fpath, false, true, NULL, -1, NULL);
 	}
 #endif
 
@@ -234,13 +235,16 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
 
 #if 1  /* ----------------------  TEST:  egi_gif_displayGifCtxt( )  ----------------------- */
 
-        gif_ctxt.nloop=2; /* 0: set one frame by one frame , <0: forever, else: number of loops */
+        gif_ctxt.nloop=0; /* 0: set one frame by one frame , <0: forever, else: number of loops */
 
 	/* Loop displaying */
 	printf("Call egi_gif_displayGifCtxt()...\n");
-//        while(1) {
+        while(1) {
 	   	/* Display one frame/block each time, then refresh FB page.  */
 	    	egi_gif_displayGifCtxt( &gif_ctxt );
+
+		getchar();
+		printf("Step %d\n", gif_ctxt.egif->ImageCount);
 
 		#if 0 /* ---  To  apply when .nloop = 0 --- */
         	//gif_ctxt.xw -=1;
@@ -251,7 +255,7 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
 		gif_ctxt.xw -=1;
 		//getchar();
 		#endif
-//	}
+	}
 #endif
 
     	egi_gif_free(&egif);

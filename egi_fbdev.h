@@ -50,6 +50,9 @@ typedef struct fbdev{
         unsigned long 	screensize;	/* in bytes */
 					/* TODO: To hook up map_fb and map_buff[] with EGI_IMGBUFs */
         unsigned char 	*map_fb;  	/* Pointer to kernel FB buffer, mmap to FB data */
+
+	#define	FBDEV_WORKING_BUFF	0
+	#define FBDEV_BKG_BUFF		1
 	unsigned char 	*map_buff;	/* Pointer to user FB buffers, 1-3 pages, maybe more.
 					 * Default:
 					 *    1st buff page as working buffer.

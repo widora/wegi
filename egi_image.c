@@ -2017,11 +2017,24 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 	EGI_IMGBUF *outimg=NULL;
 
         /* Normalize angle to be within [0-360] */
+#if 1
         ang=angle%360;      /* !!! WARING !!!  The modulo result is depended on the Compiler
 			     * For C99: a%b=a-(a/b)*b	,whether a is positive or negative.
 			     */
         asign= ang >= 0 ? 1 : -1; /* angle sign */
         ang= ang>=0 ? ang : -ang ;
+#else /* Input limited to [0 360) */
+        asign= angle >= 0 ? 1 : -1; /* angle sign */
+        angle= angle >= 0 ? angle : -angle ;
+
+	/* now angle >=0  */
+	if(angle >= 360 ) ang=0;
+	else		ang=angle;
+
+	printf("%s: angle=%d, ang=%d \n", __func__, angle, ang);
+
+#endif
+
 
         if(eimg==NULL || eimg->imgbuf==NULL || eimg->height<=0 || eimg->width<=0 ) {
                 printf("%s: input holding eimg is NULL or uninitiliazed!\n", __func__);
@@ -2029,8 +2042,20 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
         }
 
         /* Check whether lookup table fp16_cos[] and fp16_sin[] is generated */
-        if( fp16_sin[30] == 0)
+        if( fp16_sin[30] == 0) {
+		printf("%s: Start to create fixed point trigonometric table...\n",__func__);
                 mat_create_fpTrigonTab();
+	}
+
+
+        /* get mutex lock */
+        //printf("%s: Start lock image mutext...\n",__func__);
+        if(pthread_mutex_lock(&eimg->img_mutex) !=0){
+                //printf("%s: Fail to lock image mutex!\n",__func__);
+                EGI_PLOG(LOGLV_ERROR,"%s: Fail to lock image mutex!", __func__);
+                return NULL;
+        }
+
 
 	/* Get size for rotated imgbuf, which shall cover original eimg at least */
 #if 0	/* Float point method */
@@ -2061,6 +2086,7 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 	outimg=egi_imgbuf_create( height, width, 0, 0); /* H, W, alpah, color */
 	if(outimg==NULL) {
 		printf("%s: Fail to create outimg!\n",__func__);
+		pthread_mutex_unlock(&eimg->img_mutex);
 		return NULL;
 	}
 	/* Check ALPHA data */
@@ -2097,6 +2123,8 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 		}
 	}
 
+	/* unlock eimg */
+	pthread_mutex_unlock(&eimg->img_mutex);
 
 	return outimg;
 }
@@ -2570,9 +2598,11 @@ int egi_imgbuf_windisplay2(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
 
 
 /*---------------------------------------------------------------------------------------
-Rotate the image then display it, the original imgbuf will NOT be rotated.
-And the rotated image will be displayed on the LCD where its center (xri',yri')
-coincides with (xrl, yrl) of LCD.
+1. Create a rotated imgbuf with refrence to original input imgbuf.
+2. The rotated image will be displayed on the LCD where its center (xri',yri') coincides
+   with (xrl, yrl) of LCD.
+3. The rotated EGI_IMGBUF will be freed after displaying.
+
 
 egi_imgbuf:     an EGI_IMGBUF struct which hold bits_color image data of a picture.
 fb_dev:		FB device
@@ -2588,6 +2618,7 @@ Return:
 int egi_image_rotdisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int angle,
 	                                        	int xri, int yri, int xrl, int yrl)
 {
+	EGI_IMGBUF *rotimg=NULL;
 	int ang, asign;
 	int xr, yr;	  /* image center under different coord./origin  */
 	int xnri,ynri;	  /* rotate image center under rotated image coord. */
@@ -2601,26 +2632,39 @@ int egi_image_rotdisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int angle,
         }
 	#endif
 
+
         /* Normalize angle to be within [0-360] */
+#if 1
         ang=angle%360;      /* !!! WARING !!!  The modulo result is depended on the Compiler
                              * For C99: a%b=a-(a/b)*b   ,whether a is positive or negative.
                              */
         asign= ang >= 0 ? 1 : -1; /* angle sign */
         ang= ang>=0 ? ang : -ang ;
 
+#else /* Input limited to [0 360) */
+        asign= (angle >= 0 ? 1 : -1); /* angle sign */
+        angle= (angle >= 0 ? angle : -angle);
+
+	/* now angle >=0  */
+	if(angle >= 360 ) ang=0;
+	else		ang=angle;
+
+	printf("%s: angle=%d, ang=%d \n", __func__, angle, ang);
+#endif
+
+
         /* Check whether lookup table fp16_cos[] and fp16_sin[] is generated */
         if( fp16_sin[30] == 0) {
+		printf("%s: Start to create fixed point trigonometric table...\n",__func__);
                 mat_create_fpTrigonTab();
 	}
-
-	EGI_IMGBUF *rotimg=NULL;
 
         /* check data */
 	if( fb_dev == NULL )
 		return -1;
 
 	/* Get rotated image */
-	rotimg=egi_imgbuf_rotate(egi_imgbuf, angle);
+	rotimg=egi_imgbuf_rotate(egi_imgbuf, angle);  /* egi_imgbuf_rotate() mutex_lock applied */
 	if(rotimg==NULL)
 		return -2;
 
@@ -2724,6 +2768,11 @@ int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha )
 
 	if( egi_imgbuf==NULL || egi_imgbuf->alpha==NULL )
 		return -1;
+	/* get mutex lock */
+	if( pthread_mutex_lock(&egi_imgbuf->img_mutex)!=0 ){
+		printf("%s: Fail to lock image mutex!\n",__func__);
+		return -2;
+	}
 
 	/* limit */
 	if(color>0xFFFF) color=0xFFFF;
@@ -2743,6 +2792,9 @@ int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha )
 		for(i=0; i< egi_imgbuf->height*egi_imgbuf->width; i++)
 			egi_imgbuf->imgbuf[i]=color;
 	}
+
+  	/* put mutex lock  */
+  	pthread_mutex_unlock(&egi_imgbuf->img_mutex);
 
 	return 0;
 }

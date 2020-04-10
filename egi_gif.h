@@ -3,7 +3,8 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-This module is a wrapper of GIFLIB routines and functions.
+This module is a wrapper of GIFLIB routines and functions, based on
+giflib-5.2.1.
 
 The GIFLIB distribution is Copyright (c) 1997  Eric S. Raymond
                   SPDX-License-Identifier: MIT
@@ -102,7 +103,7 @@ typedef struct egi_gif {
     EGI_IMGBUF		*Simgbuf;	      /* to hold GIF screen/canvas */
 
     /* To be applied when at lease either RWidth or RHeigth to be >0 */
-    EGI_IMGBUF		*RSimgbuf;	      /* resized to RWidthxRHeight */
+    EGI_IMGBUF		*RSimgbuf;	      /* resized to RWidthxRHeight, NOT applied yet. */
 
     /*  Following for one producer and one consumer scenario only! */
     pthread_t		thread_display;	 	/* displaying thread ID */
@@ -138,7 +139,7 @@ typedef struct egi_gif_context
 /*** 	----- static functions -----
 static void GifQprintf(char *Format, ...);
 static void PrintGifError(int ErrorCode);
-static void  	egi_gif_FreeSavedImages(SavedImage **psimg, int ImageCount);
+static void egi_gif_FreeSavedImages(SavedImage **psimg, int ImageCount);
 
 inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_IMGBUF *Simgbuf, int Disposal_Mode,
                                    int xp, int yp, int xw, int yw, int winw, int winh,

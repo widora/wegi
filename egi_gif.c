@@ -3,13 +3,18 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-This module is a wrapper of GIFLIB routines and functions.
+This module is a wrapper of GIFLIB routines and functions, based on
+giflib-5.2.1.
 
 The GIFLIB distribution is Copyright (c) 1997  Eric S. Raymond
-                SPDX-License-Identifier: MIT
+                  SPDX-License-Identifier: MIT
+
+Note:
+1. FB back buffers must be enabled to run EGI_GIF.
 
 
-Midas-Zhou
+Midas Zhou
+midaszhou@yahoo.com
 ------------------------------------------------------------------*/
 #include <stdio.h>
 #include <stdlib.h>
@@ -663,7 +668,7 @@ END_FUNC:
 }
 
 /*----------------------------------------------------------------
-Read a gif file and slurp all image data to a EGI_GIF_DATA struct.
+Read a gif file and slurp all image data to an EGI_GIF_DATA struct.
 
 @fpath:		Path of an egi file.
 
@@ -1166,7 +1171,6 @@ NOTE:
                 waste time calling draw_dot() for pixels outsie FB zone. --- OK
 
 @BWidth, BHeight:  Width and Heigh for current GIF frame/block image size.  <= SWidth,SHeigh.
-@offx, offy:	 offset of current image block relative to GIF virtual canvas left top point.
 @ColorMap:	 Color map for current image block. (Global or Local)
 @buffer:         Gif block image rasterbits, as palette index.
 
@@ -1235,6 +1239,7 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
     //int SHeight=Simgbuf->height;
     int BWidth=egif->BWidth;
     int BHeight=egif->BHeight;
+    /* @offx, offy:	 offset of current image block relative to GIF virtual canvas left top point. */
     int offx=egif->offx;
     int offy=egif->offy;
 
@@ -1338,8 +1343,9 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
 
 
 /*---------------------------------------------------------------------------------------------------
-Display current frame of GIF, then increase count of EGI_GIF, If dev==NULL, then update eigf->Simgbuf
-and return!
+Parse and display frames of GIF in loop, while increasing count of EGI_GIF. the behaviours of function
+is controled by gif_contxt.
+If dev==NULL, then update eigf->Simgbuf only.
 Note: If dev is NOT NULL, it will affect whole FB data with memcpy and page fresh operation!
 
 	<<<---- Parameters in EGI_GIF_CONTEXT gif_ctxt ---->>>
@@ -1464,7 +1470,7 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
      }
 
      /* Reset Simgbuf and working FB buffer, for the first block image */
-     if( egif->ImageCount==0 && fbdev != NULL ) {
+     if( egif->ImageCount==0 ) { //&& fbdev != NULL ) {
 	  ColorMapEntry = &ColorMap->Colors[bkg_color];
 	  bkcolor=COLOR_RGB_TO16BITS( ColorMapEntry->Red,
                                       ColorMapEntry->Green,
@@ -1472,8 +1478,10 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
 
 	  egi_imgbuf_resetColorAlpha(egif->Simgbuf, bkcolor, egif->ImgTransp_ON ? 0:255 );
 
-	  if( fbdev != NULL )
+	  /* --- NOTE: TODO, pick out this?? for it's the caller's job???  ---  */
+	  if( fbdev != NULL )  /* FB back buffer must be enabled */
      		  memcpy(fbdev->map_bk, fbdev->map_buff+fbdev->screensize, fbdev->screensize);
+
      }
 
      /* get Block image offset and size */
@@ -1720,9 +1728,9 @@ Note: Do not reset EGI_GIF.ImageCount, so next time when calling
 
 Parameters: Refert to egi_gif_displayFrame( )
 -------------------------------------------------------------------------*/
-static void *egi_gif_threadDisplay(void *arg)
+static void *egi_gif_threadDisplay(void *gif_context)
 {
-	EGI_GIF_CONTEXT *gif_ctxt=(EGI_GIF_CONTEXT *)arg;
+	EGI_GIF_CONTEXT *gif_ctxt=(EGI_GIF_CONTEXT *)gif_context;
 
 	if(gif_ctxt==NULL)
 		return (void *)-1;
@@ -1818,9 +1826,6 @@ int egi_gif_runDisplayThread(EGI_GIF_CONTEXT *gif_ctxt)
 
 /*-------------------------------------------------------------------------------
 To stop/kill an EGI_GIF.thread_display.
-
-Note: Threads calling printf class funtions to print messages to terminal will cause
-      pthread_join() blocked forever!!! Redirect output to /dev/null to avoid this.
 
 @egif:	An EGI_GIF with a running thread_display.
 
