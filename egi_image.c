@@ -2009,12 +2009,17 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 {
 	int i,j;
 	int m,n;
-	int xr,yr;
+	int xr,yr;		/* rotating point */
+	int xrl,xrr;		/* left most and right most x of rotating point */
 	int width, height;	/* W,H for outimg */
 	int wsin,wcos, hsin,hcos;
 	int index_in, index_out;
 	int ang, asign;
 	EGI_IMGBUF *outimg=NULL;
+
+	int xu; //yu=0	/* upper tip point,  */
+	int yl;	//xl=0	/* left tip point  */
+	int xb,yb;	/* bottom tip pint */
 
         /* Normalize angle to be within [0-360] */
 #if 1
@@ -2022,8 +2027,10 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 			     * For C99: a%b=a-(a/b)*b	,whether a is positive or negative.
 			     */
         asign= ang >= 0 ? 1 : -1; /* angle sign */
-        ang= ang>=0 ? ang : -ang ;
-#else /* Input limited to [0 360) */
+        ang= ang>=0 ? ang : -ang;
+	printf("%s: angle=%d, ang=%d \n", __func__, angle, ang);
+
+#else /* Input angle limited to [0 +/-360) only */
         asign= angle >= 0 ? 1 : -1; /* angle sign */
         angle= angle >= 0 ? angle : -angle ;
 
@@ -2031,8 +2038,7 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 	if(angle >= 360 ) ang=0;
 	else		ang=angle;
 
-	printf("%s: angle=%d, ang=%d \n", __func__, angle, ang);
-
+	printf("%s: angle=%d, ang=%d \n", __func__, asign*angle, ang);
 #endif
 
 
@@ -2061,6 +2067,9 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 #if 0	/* Float point method */
 	height=0.5+abs(eimg->width*sin(ang/180.0*MATH_PI))+abs(eimg->height*cos(ang/180.0*MATH_PI));
 	width=0.5+abs(eimg->width*cos(ang/180.0*MATH_PI))+abs(eimg->height*sin(ang/180.0*MATH_PI));
+
+	/* NEED TO: cal. wsin,hcons, hsin etc. for xu,yu, xl,yl, xb,yb */
+
 #else	/* Fixed point method */
 	wsin=eimg->width*fp16_sin[ang]>>16;
 	wsin=wsin>0 ? wsin : -wsin;
@@ -2080,7 +2089,9 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 	width |= 0x1;
 	if(height<3)height=3;
 	if(width<3)width=3;
+
 //	printf("Angle=%d, rotated imgbuf: height=%d, width=%d \n", ang, height, width);
+
 
 	/* Create an imgbuf accordingly */
 	outimg=egi_imgbuf_create( height, width, 0, 0); /* H, W, alpah, color */
@@ -2095,7 +2106,9 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 		outimg->alpha=NULL;
 	}
 
-	/* Rotation map and copy */
+	/* --- Rotation map and copy --- */
+
+#if 0 /* MAPPING METHOD 1:    Back map all points in outimg to eimg */
 	m=height>>1;
 	n=width>>1;
 	for(i=-m; i<=m; i++) {
@@ -2122,6 +2135,86 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 			}
 		}
 	}
+
+#else /* MAPPING METHOD 2:   Back map only points which are located at rotated_eimg area of outimg */
+	/* Intend to save time for images with great value of |hegith-width|
+	   For a W1024xH1024 png picture, comparing with METHOD 1, it reduces abt. 10% time...NOT much.
+	   TODO: outimg is adjusted to have odd number of pixels for each sides, and outimg->H/W >= eimg->H/W,
+		 this seems to cause a crease/misplace(of 1 pixel) between right/left halfs as by following algorithm...
+	 */
+
+	/* Get rotated_eimg tip points coordinates, relative to the outimg coord. all x,y>=0 */
+	if(    ( (asign >= 0) && ((0<=ang && ang<90) || (180<=ang && ang<270)) )
+	    || ( (asign < 0) && ((90<=ang && ang<180) || (270<=ang && ang<360)) )
+	)
+	{
+		xu=hsin;  /*yu=0;*/
+	/* xl=0;*/ 	  yl=hcos;
+		xb=wcos;  yb=height-1;
+	} else {
+		xu=wcos;  /* yu=0; */
+	/*xl=0;*/ 	  yl=wsin;
+		xb=hsin;  yb=height-1;
+	}
+
+	/* Map points in rotated_eimg area back to original eimg */
+	for(i=0; i<height; i++) /* traverse outimg->height i */
+	{
+	   if ( yl==height-1 || yl==0 ) {  /* Rotated image and eimg have same size and position: yl==height-1 or yl==0 */
+		xrl=0;
+		xrr=(width-1)*(height-1-i)/(height-1);
+		//xrr=(eimg->width-1)*(eimg->height-1-i)/(eimg->height-1); /* a crease ...*/
+	   }
+	   //for(i=0; i<yl; i++)
+	   else if( i <= yl ) {
+		/* Most left point in triangle of the half rotated eimg, as projected in outimg */
+		xrl=xu*(yl-i)/yl;
+		xrr=xu+(xb-xu)*i/yb;	/* xu+(xb-xu)*i/(yb-yu) = xu+(xb-xu)*i/yb as yu=0 */
+	   }
+	   //for(i=yl; i<yb; i++)
+	   else {  /* To avoid yb==yl: as divisor never be zero! */
+		/* Most left point in triangle of the half rotated eimg, as projected in outimg */
+		xrl=xb*(i-yl)/(yb-yl);
+		xrr=xu+(xb-xu)*i/yb;	/* xu+(xb-xu)*i/(yb-yu) = xu+(xb-xu)*i/yb as yu=0 */
+	   }
+
+	   /* Map all point in the line */
+	   for(j=xrl; j<=xrr; j++) {	/* traverse piont on the line */
+		/* Relative to outimg center coord */
+		n=j-(width>>1);
+		m=i-(height>>1);
+
+	        /* Map to original eimg center. */
+        	xr = (n*fp16_cos[ang]+m*asign*fp16_sin[ang])>>16; /* !!! Arithmetic_Right_Shifting */
+                yr = (-n*asign*fp16_sin[ang]+m*fp16_cos[ang])>>16;
+
+	        /* Shift Origin to left_top, as of eimg->imgbuf */
+        	xr += eimg->width>>1;
+                yr += eimg->height>>1;
+
+		/* Copy pixel alpha and color */
+		/* outimg: i-rows,j-columns   eimg: yr-row, xr-colums */
+		if( xr >= 0 && xr < eimg->width && yr >=0 && yr < eimg->height) {  /* Need to recheck range */
+			/* Left half */
+			index_out=width*i+j;
+			index_in=eimg->width*yr+xr;
+			outimg->imgbuf[index_out]=eimg->imgbuf[index_in];
+			if(eimg->alpha!=NULL)
+				outimg->alpha[index_out]=eimg->alpha[index_in];
+
+			/* Rigth half, centrally symmetrical to left half. */
+			index_out=width*(height-1-i)+(width-1-j);
+			index_in=eimg->width*(eimg->height-1-yr)+(eimg->width-1-xr);
+			outimg->imgbuf[index_out]=eimg->imgbuf[index_in];
+			if(eimg->alpha!=NULL)
+				outimg->alpha[index_out]=eimg->alpha[index_in];
+		}
+
+	   }
+
+	} /* End: for(i=0; i<yb; i++) */
+
+#endif
 
 	/* unlock eimg */
 	pthread_mutex_unlock(&eimg->img_mutex);
