@@ -426,7 +426,7 @@ int egi_imgbuf_loadjpg(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 		printf("egi_imgbuf_loadjpg(): open_jpgImg() fails!\n");
 		return -1;
 	}
-	// printf("%s: Open a jpg file with size W%dxH%d \n", __func__, width, height);
+	printf("%s: Open a jpg file with size W%dxH%d \n", __func__, width, height);
 
         /* get mutex lock */
 #if 1

@@ -48,8 +48,9 @@ NOTE:
 4. The homepage main process shall be as small as possible, most heavier codes and jobs
    are to be carried out by the APP, so it will be fast enough to fork()/vfork() and execv() a
    new APP. 
-5. For little_endian system only.  ---NOW
-6. For 32-bit processor/system only.  ---NOW
+5. For little_endian system only.               ---NOW
+6. For 32-bit processor/system only.            ---NOW
+7. For Arithmetic_Right/Left_Shifting only.	---NOW
 
 			-----   2. TODO List   -----
 

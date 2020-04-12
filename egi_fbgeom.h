@@ -39,6 +39,10 @@ void    fbprint_fbpix(FBDEV *dev);
 
 void 	fbset_color(uint16_t color);
 void	fbset_color2(FBDEV *dev, uint16_t color);
+
+void 	fbset_alpha(FBDEV *dev, EGI_8BIT_ALPHA alpha);
+void 	fbreset_alpha(FBDEV *dev);
+
 void 	fbclear_bkBuff(FBDEV *dev, uint16_t color);
 
 void 	clear_screen(FBDEV *dev, uint16_t color);
@@ -66,12 +70,13 @@ void 	draw_pline(FBDEV *dev, EGI_POINT *points,int pnum, unsigned int w);
 void 	draw_oval(FBDEV *dev,int x,int y);
 void 	draw_rect(FBDEV *dev,int x1,int y1,int x2,int y2);
 void 	draw_wrect(FBDEV *dev,int x1,int y1,int x2,int y2, int w);
+void 	draw_roundcorner_wrect(FBDEV *dev,int x1,int y1,int x2,int y2, int r, int w);
 int 	draw_filled_rect(FBDEV *dev,int x1,int y1,int x2,int y2);
 void 	draw_filled_box(FBDEV *dev, EGI_BOX *box);
 void 	draw_blend_filled_rect( FBDEV *dev, int x1, int y1, int x2, int y2,
                                 		EGI_16BIT_COLOR color, uint8_t alpha );
 int     draw_filled_rect2(FBDEV *dev,uint16_t color, int x1,int y1,int x2,int y2);
-void 	draw_arc(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang, unsigned int w);
+void 	draw_warc(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang, unsigned int w);
 void 	draw_filled_pieSlice(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang );
 void 	draw_circle(FBDEV *dev, int x, int y, int r);
 void 	draw_pcircle(FBDEV *dev, int x0, int y0, int r, unsigned int w);

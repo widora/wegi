@@ -53,19 +53,38 @@ void fbprint_fbpix(FBDEV *dev)
 
 
 /*  set color for every dot */
-inline void fbset_color(uint16_t color)
+inline void fbset_color(EGI_16BIT_COLOR color)
 {
 	fb_color=color;
 }
 
 /*  set color for every dot */
-inline void fbset_color2(FBDEV *dev, uint16_t color)
+inline void fbset_color2(FBDEV *dev, EGI_16BIT_COLOR color)
 {
 	if(dev->pixcolor_on)	/* Set private pixcolor */
 		dev->pixcolor=color;
 	else			/* Set public pixcolor */
 		fb_color=color;
 }
+
+/* Set and reset alpha value for pixels, which will be applied in draw_dot()  */
+inline void fbset_alpha(FBDEV *dev, EGI_8BIT_ALPHA alpha)
+{
+	if(dev==NULL)return;
+
+        /* turn on FBDEV pixalpha_hold and set pixalpha */
+        dev->pixalpha_hold=true;
+        dev->pixalpha=alpha;
+}
+inline void fbreset_alpha(FBDEV *dev)
+{
+	if(dev==NULL)return;
+
+        /* turn off FBDEV pixalpha_hold and reset pixalpha to 255 */
+        dev->pixalpha_hold=false;
+        dev->pixalpha=255;
+}
+
 
 /*--------------------------------------------
  check if (px,py) in box(x1,y1,x2,y2)
@@ -976,6 +995,7 @@ void draw_rect(FBDEV *dev,int x1,int y1,int x2,int y2)
 	draw_line(dev,x2,y1,x1,y1);
 }
 
+
 /*--------------------------------------------------
 Draw an rectangle with pline
 x1,y1,x2,y2:	two points define a rect.
@@ -996,6 +1016,38 @@ void draw_wrect(FBDEV *dev,int x1,int y1,int x2,int y2, int w)
 	draw_wline_nc(dev,xl,yu-w/2,xl,yd+w/2,w);
 	draw_wline_nc(dev,xr,yu-w/2,xr,yd+w/2,w);
 
+}
+
+/*--------------------------------------------------
+Draw an rectangle with pline
+x1,y1,x2,y2:	two points define a rect.
+w:		with of ploy line.
+
+Midas Zhou
+--------------------------------------------------*/
+void draw_roundcorner_wrect(FBDEV *dev,int x1,int y1,int x2,int y2, int r, int w)
+{
+	/* sort min and max x,y */
+	int xl=(x1<x2?x1:x2);
+	int xr=(x1>x2?x1:x2);
+	int yu=(y1<y2?y1:y2);
+	int yd=(y1>y2?y1:y2);
+
+	/* Limit r */
+	if( r > (xr-xl)/2 ) r=(xr-xl)/2;
+	if( r > (yd-yu)/2 ) r=(yd-yu)/2;
+
+	/* Draw corners */
+	draw_warc(dev, xl+r, yu+r, r, -MATH_PI, -MATH_PI/2, w);     /* fbdev, x0, y0, r, float Sang, float Eang, w */
+	draw_warc(dev, xr-r, yu+r, r, -MATH_PI/2, 0, w);
+	draw_warc(dev, xl+r, yd-r, r, MATH_PI/2, MATH_PI, w);
+	draw_warc(dev, xr-r, yd-r, r, 0, MATH_PI/2, w);
+
+	/* Draw wlines */
+	draw_wline_nc(dev, xl+r, yu, xr-r, yu, w);  /* H lines */
+	draw_wline_nc(dev, xl+r, yd, xr-r, yd, w);
+	draw_wline_nc(dev, xl, yu+r, xl, yd-r, w);  /* V lines */
+	draw_wline_nc(dev, xr, yu+r, xr, yd-r, w);
 }
 
 
@@ -1135,7 +1187,7 @@ Z as thumb, X->Y as positive rotation direction.
 
 Midas Zhou
 -----------------------------------------------------------------------------*/
-void draw_arc(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang, unsigned int w)
+void draw_warc(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang, unsigned int w)
 #if 0	/* ONLY for w=1:   with big w value, it looks ugly! */
 {
 	int n,i;

@@ -101,6 +101,11 @@ typedef struct egi_gif {
 //    ExtensionBlock 	*ExtensionBlocks;     /* Extensions past last image */
 
     EGI_IMGBUF		*Simgbuf;	      /* to hold GIF screen/canvas */
+    bool		 Simgbuf_ready;	      /* To indicate that Simgbuf is data ready!
+					       * In some case Simgbuf may be emptied before it is updated, so all alpha values may be
+					       * reset to 0 at that moment, if a thread read and display just at the point, it will
+					       * leave a blank on the screen and cause flickering.
+					       */
 
     /* To be applied when at lease either RWidth or RHeigth to be >0 */
     EGI_IMGBUF		*RSimgbuf;	      /* resized to RWidthxRHeight, NOT applied yet. */

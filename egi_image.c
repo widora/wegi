@@ -2028,7 +2028,7 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 			     */
         asign= ang >= 0 ? 1 : -1; /* angle sign */
         ang= ang>=0 ? ang : -ang;
-	printf("%s: angle=%d, ang=%d \n", __func__, angle, ang);
+	//printf("%s: angle=%d, ang=%d \n", __func__, angle, ang);
 
 #else /* Input angle limited to [0 +/-360) only */
         asign= angle >= 0 ? 1 : -1; /* angle sign */
@@ -2038,7 +2038,7 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 	if(angle >= 360 ) ang=0;
 	else		ang=angle;
 
-	printf("%s: angle=%d, ang=%d \n", __func__, asign*angle, ang);
+	//printf("%s: angle=%d, ang=%d \n", __func__, asign*angle, ang);
 #endif
 
 
@@ -2139,7 +2139,7 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 #else /* MAPPING METHOD 2:   Back map only points which are located at rotated_eimg area of outimg */
 	/* Intend to save time for images with great value of |hegith-width|
 	   For a W1024xH1024 png picture, comparing with METHOD 1, it reduces abt. 10% time...NOT much.
-	   TODO: outimg is adjusted to have odd number of pixels for each sides, and outimg->H/W >= eimg->H/W,
+	   TODO__ok: outimg is adjusted to have odd number of pixels for each sides, and outimg->H/W >= eimg->H/W,
 		 this seems to cause a crease/misplace(of 1 pixel) between right/left halfs as by following algorithm...
 	 */
 
@@ -2180,6 +2180,7 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 
 	   /* Map all point in the line */
 	   for(j=xrl; j<=xrr; j++) {	/* traverse piont on the line */
+	   	/*  --- 1. Left part ---  */
 		/* Relative to outimg center coord */
 		n=j-(width>>1);
 		m=i-(height>>1);
@@ -2195,22 +2196,37 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 		/* Copy pixel alpha and color */
 		/* outimg: i-rows,j-columns   eimg: yr-row, xr-colums */
 		if( xr >= 0 && xr < eimg->width && yr >=0 && yr < eimg->height) {  /* Need to recheck range */
-			/* Left half */
 			index_out=width*i+j;
 			index_in=eimg->width*yr+xr;
 			outimg->imgbuf[index_out]=eimg->imgbuf[index_in];
 			if(eimg->alpha!=NULL)
 				outimg->alpha[index_out]=eimg->alpha[index_in];
+		}
 
-			/* Rigth half, centrally symmetrical to left half. */
-			index_out=width*(height-1-i)+(width-1-j);
-			index_in=eimg->width*(eimg->height-1-yr)+(eimg->width-1-xr);
+	   	/*  --- 2. Right part --- :  centrally symmetrical to left half. */
+		/* Relative to outimg center coord */
+		n=-n;
+		m=-m;
+
+     		/* Map to original eimg center. */
+        	xr = (n*fp16_cos[ang]+m*asign*fp16_sin[ang])>>16; /* !!! Arithmetic_Right_Shifting */
+                yr = (-n*asign*fp16_sin[ang]+m*fp16_cos[ang])>>16;
+
+	        /* Shift Origin to left_top, as of eimg->imgbuf */
+        	xr += eimg->width>>1;
+                yr += eimg->height>>1;
+
+		/* Copy pixel alpha and color */
+		/* outimg: i-rows,j-columns   eimg: yr-row, xr-colums */
+		if( xr >= 0 && xr < eimg->width && yr >=0 && yr < eimg->height) {  /* Need to recheck range */
+			index_out=width*(height-1-i)+(width-1-j); /* 2. Right part : centrally symmetrical point */
+			index_in=eimg->width*yr+xr;
 			outimg->imgbuf[index_out]=eimg->imgbuf[index_in];
 			if(eimg->alpha!=NULL)
 				outimg->alpha[index_out]=eimg->alpha[index_in];
 		}
 
-	   }
+	   } /* End for() */
 
 	} /* End: for(i=0; i<yb; i++) */
 

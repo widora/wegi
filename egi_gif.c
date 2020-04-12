@@ -1320,6 +1320,9 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
           }
     }
 
+    /* set Simgbuf_read */
+    egif->Simgbuf_ready=true;
+
     /* --- FOR TEST : add boundary box for the imgbuf, NO mutexlock in this func. */
     //egi_imgbuf_addBoundaryBox(Simgbuf, WEGI_COLOR_BLACK, 2);
 
@@ -1461,12 +1464,12 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
      if(ImageData->ImageDesc.ColorMap) {
 //	Is_LocalColorMap=true;
         ColorMap=ImageData->ImageDesc.ColorMap;
-	printf("  --->  Local colormap: Colorcount=%d   <--\n", ColorMap->ColorCount);
+//	printf("  --->  Local colormap: Colorcount=%d   <--\n", ColorMap->ColorCount);
      }
      else {  /* Apply global colormap */
 //	Is_LocalColorMap=false;
 	ColorMap=egif->SColorMap;
-	printf("  --->  Global colormap: Colorcount=%d   <--\n", ColorMap->ColorCount);
+//	printf("  --->  Global colormap: Colorcount=%d   <--\n", ColorMap->ColorCount);
      }
 
      /* Reset Simgbuf and working FB buffer, for the first block image */
@@ -1475,6 +1478,10 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
 	  bkcolor=COLOR_RGB_TO16BITS( ColorMapEntry->Red,
                                       ColorMapEntry->Green,
                	                      ColorMapEntry->Blue );
+
+	  /* Reset Simgbuf_read to false just before reset coloralpha,
+	   * it'will be set to True in egi_gif_rasterWriteFB() after imgbuf data updated */
+    	  egif->Simgbuf_ready=false;
 
 	  egi_imgbuf_resetColorAlpha(egif->Simgbuf, bkcolor, egif->ImgTransp_ON ? 0:255 );
 
@@ -1634,7 +1641,7 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
 
 #else	/*** 					!!!  --- NOTE ---  !!!
 	 *	We shall move this part to egi_gif_rasterWriteFB(), just before next reasterWriteFB. If put it here,
-	 *	other threads which may egi->Simgbuf may get an empty image, and make a flicker on
+	 *	other threads which may access egi->Simgbuf may get an empty image, and make a flicker on
 	 *	the screen.
 	 */
      	case 2: /* Disposal_Mode 2: Set block area to background color/image */

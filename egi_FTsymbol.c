@@ -856,6 +856,8 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 		if( wcode == 12288 ) {  //   wcode==12288 LOCALE SPACE; wcode==32 ASCII SPACE
 			*xleft -= fw;
 		}
+		else if ( wcode == 32 ) //(wchar_t)(L"") )
+			*xleft -= fw; //2*bbox_w;
 		else {/* Maybe other unicode, it is supposed to have defined bitmap.width and advanceX */
 			*xleft -= bbox_W;
 		}

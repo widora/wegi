@@ -1,12 +1,13 @@
-/*---------------------------------------------------------------------------
+/*-----------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+An example of creating a digital aquarium with EIG_GIFs and EGI_IMGBUFs.
 
 Midas Zhou
 midaszhou@yahoo.com
---------------------------------------------------------------------------*/
+-----------------------------------------------------------------------*/
 #include <stdint.h>
 #include <egi_common.h>
 #include <egi_utils.h>
@@ -87,6 +88,7 @@ int main(int argc, char **argv)
 	EGI_GIF 	*clownfish=egi_gif_slurpFile("/mmc/clownfish.gif", true);
 	EGI_GIF 	*bigfish=egi_gif_slurpFile("/mmc/bigfish.gif", true);
 	EGI_GIF 	*smallfish=egi_gif_slurpFile("/mmc/smallfish.gif", true);
+	if(clownfish==NULL || bigfish==NULL || smallfish==NULL) exit(1);
 
 	EGI_GIF_CONTEXT  clownfish_ctxt= {
 			.fbdev=NULL, 	/* &gv_fb_dev;  write to imgbuf */
@@ -108,14 +110,13 @@ int main(int argc, char **argv)
                                0, 0, 0, 0,                      /* xp,yp  xw,yw */
                                bkimg->width, bkimg->height);    /* winw, winh */
 
-	/* Start thread to loop updating clownfish->Simgbuf */
+	/* Start thread to loop updating EGI_GIF.Simgbuf */
         if( egi_gif_runDisplayThread(&clownfish_ctxt) !=0 )
                      printf("Fail to run thread for clownfish.gif!\n");
         if( egi_gif_runDisplayThread(&bigfish_ctxt) !=0 )
                      printf("Fail to run thread for bigfish.gif!\n");
         if( egi_gif_runDisplayThread(&smallfish_ctxt) !=0 )
                      printf("Fail to run thread for smallfish.gif!\n");
-
 
         /* Init FB back_ground buffer page */
         //memcpy(gv_fb_dev.map_buff+gv_fb_dev.screensize, gv_fb_dev.map_bk, gv_fb_dev.screensize);
@@ -135,18 +136,18 @@ while(1) {
 	egi_image_rotdisplay( clownfish->Simgbuf, &gv_fb_dev,  angle+100,		 /*  imgbuf, fb_dev, angle */
 				clownfish->Simgbuf->width/2, 160,	320/2, 240/2 );  /* xri,yri,  xrl,yrl */
 
+	while(!bigfish_ctxt.egif->Simgbuf_ready){ printf("---\n"); }; //tm_delayms(5);};
 	egi_image_rotdisplay( bigfish->Simgbuf, &gv_fb_dev,  angle,			 /*  imgbuf, fb_dev, angle */
 				clownfish->Simgbuf->width/2, 200,	320/2, 240/2 );  /* xri,yri,  xrl,yrl */
 
 	egi_subimg_writeFB( smallfish->Simgbuf, &gv_fb_dev, 0, -1, 0, 100); /* imgbuf, fb_dev, subnum, subcolor, x0, y0 */
-
 
 	/* Put a tab at bottom */
          FTsymbol_uft8strings_writeFB(  &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
                                         35, 35,(const unsigned char *)"EGI AQUARIUM",    /* fw,fh, pstr */
                                         320, 1, 0,                                  /* pixpl, lines, gap */
                                         15, 240-40,                                    /* x0,y0, */
-                                        WEGI_COLOR_WHITE, -1, 120,       /* fontcolor, transcolor,opaque */
+                                        WEGI_COLOR_WHITE, -1, 120,    /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
 
 	/* Render to screen */

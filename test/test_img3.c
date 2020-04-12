@@ -111,48 +111,51 @@ const wchar_t *wstr2=L"奔跑在WIDORA上的\n	\
 #if 1    /* ---------     Test egi_imgbuf_rotate()    --------- */
   	fb_set_directFB(&gv_fb_dev,false);
 
-
-	EGI_IMGBUF* eimg2=NULL;
-	eimg2=egi_imgbuf_readfile(argv[2]);
-
 	EGI_IMGBUF* eimgbk=NULL;
-	eimgbk=egi_imgbuf_readfile(argv[3]);
-
+	eimgbk=egi_imgbuf_readfile(argv[2]);
 	if(eimgbk!=NULL)
-        	egi_imgbuf_windisplay( eimgbk, &gv_fb_dev, -1,		 		/* img, fb, subcolor */
-                        	       0, 0, 0, 0,					/* xp,yp  xw,yw */
-                	               eimgbk->width, eimgbk->height);	 		/* winw, winh */
+        	egi_imgbuf_windisplay( eimgbk, &gv_fb_dev, -1,		 		    /* img, fb, subcolor */
+                        	       0, 0, (320-eimgbk->width)/2, (240-eimgbk->height)/2, /* xp,yp  xw,yw */
+                	               eimgbk->width, eimgbk->height);	 		    /* winw, winh */
 
-	i=0;
+	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
+
+	i=-360;
+	//i=0;
 while(1) {
-	i+=2;
-	if(i>=360)i=0;
+	i+=5;
+	if(i>360) i=-360;
+	//if(i>360)i=0;
+	printf("i=%d\n",i);
 
+	#if 0
         /* Turn on FB filo and set map pointer */
         fb_filo_on(&gv_fb_dev);
         fb_filo_flush(&gv_fb_dev); /* flush and restore old FB pixel data */
+	#endif
 
-//	fb_clear_backBuff(&gv_fb_dev, WEGI_COLOR_GRAY3);
+	//fb_clear_backBuff(&gv_fb_dev, WEGI_COLOR_DARKRED);
+	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 
-//	egi_image_rotdisplay( eimg, &gv_fb_dev, i, eimg->width/2, eimg->height/2, 320/2, 240/2 );   /* img, fbdev, angle, xri,yri,  xrl,yrl */
-	egi_image_rotdisplay( eimg, &gv_fb_dev, i, eimg->width/2, 150, 320/2, 240/2 );   /* img, fbdev, angle, xri,yri,  xrl,yrl */
-	if(eimg2 != NULL )
-	   egi_image_rotdisplay( eimg2, &gv_fb_dev, i+120, eimg2->width/2, 100, 320/2, 240/2 );   /* img, fbdev, angle, xri,yri,  xrl,yrl */
-
+	/* indicator */
+	//egi_image_rotdisplay( eimg, &gv_fb_dev, i, 20, 150, 320/2, 190 );   /* img, fbdev, angle, xri,yri,  xrl,yrl */
+	egi_image_rotdisplay( eimg, &gv_fb_dev, i, eimg->width/2, eimg->height/2, 320/2, 240/2 );   /* img, fbdev, angle, xri,yri,  xrl,yrl */
+//	egi_image_rotdisplay( eimg, &gv_fb_dev, i, eimg->width/2, 150, 320/2, 240/2 );   /* img, fbdev, angle, xri,yri,  xrl,yrl */
 
 	fb_render(&gv_fb_dev);
 
-
 	//usleep(120000);
 	//egi_sleep(1,0,80);
-	tm_delayms(10);
+	tm_delayms(50);
 
+	#if 0
         /* Turn off FB filo and reset map pointer */
         fb_filo_off(&gv_fb_dev);
+	#endif
 }
 
-	egi_imgbuf_free(eimg);
-	egi_imgbuf_free2(eimg);
+	egi_imgbuf_free2(&eimg);
+	egi_imgbuf_free2(&eimgbk);
 #endif
 
 

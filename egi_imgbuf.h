@@ -37,6 +37,14 @@ typedef struct
 					 */
 	unsigned char 	*alpha;    	/* 8bit, alpha channel value, if applicable: alpha=0,100%backcolor, alpha=1, 100% frontcolor */
 
+#if 0   /* Now it is applied in EGI_GIF */
+    	bool            imgbuf_ready;       /* To indicate that imgbuf data is ready!
+                                               * In some case imgbuf may be emptied before it is updated, so all alpha values may be
+                                               * reset to 0 at that moment, if a thread read and display just at the point, it will
+                                               * leave a blank on the screen and cause flickering.
+                                               */
+#endif
+
 	/* For image data processing
 	 * Note:For image processing, it will be better to define
 	 *	multi_dimension arrays, which will improve index sorting speed???
