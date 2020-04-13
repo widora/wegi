@@ -1,4 +1,4 @@
-/*---------------------------------------------------------------------------
+/*-------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
@@ -7,20 +7,21 @@ An example of creating a CPU load meter/indicator.
 
 Midas Zhou
 midaszhou@yahoo.com
---------------------------------------------------------------------------*/
+-------------------------------------------------------------------*/
 #include <stdint.h>
 #include <egi_common.h>
 #include <egi_utils.h>
 #include <egi_cstring.h>
 #include <egi_FTsymbol.h>
+#include <sys/sysinfo.h>
+
+int  	percent_cpuLoad(void);
+int 	display_sysinfo(void);
 
 
-int  percent_cpuLoad(void);
-
-
-/*------------------
-    	MAIN
--------------------*/
+/*-----------------------------
+    	      MAIN
+-----------------------------*/
 int main(int argc, char **argv)
 {
 
@@ -85,10 +86,30 @@ int main(int argc, char **argv)
 		   *            Main Program
     		   -----------------------------------*/
 
+	int delt=2;
+	int load_percent=0;
 	int angle=0;
-	int barmax=280;
+
+	/* Horizontal progress bar params */
+	int barFX0=20;		       	/* Frame left top point */
+	int barFY0=30;
+	int barMax=260;		  	/* Max. length of progress bar itsel */
+	int barFLW=3;		       	/* Frame line width */
+	int barFH=16;		       	/* Frame height, in mid of frame line */
+	int barFW=barMax+barFH;        	/* Frame width */
+	int barR=10;   		       	/* R of round corner */
+	barR=barR>barFH/2 ? barFH/2 : barR;
+	int barStartX=barFX0+barFLW+(barFH-barFLW)/2 -1;   /* Progree bar start X coord. */
+	int barEndX;					/* Progree bar end X coord. */
+
 	EGI_IMGBUF 	*meterPanel=egi_imgbuf_readfile("/mmc/meter.png");
 	EGI_IMGBUF 	*needle=egi_imgbuf_readfile("/mmc/myneedle.png");
+	int  xrl=320/2;	  /* needle turning center, relative to LCD fb_rotate coord.  */
+	int  yrl=240-8;
+	int  xri=115;	  /* needle turning center, relative to needle imgbuf coord.  */
+	int  yri=20;
+
+	EGI_TOUCH_DATA  touch_data;
 
 	/* Display back ground scene */
 	fb_clear_backBuff(&gv_fb_dev, WEGI_COLOR_GRAY5);
@@ -107,51 +128,97 @@ int main(int argc, char **argv)
 	draw_warc(&gv_fb_dev, 320/2, 240-8, 50, -MATH_PI/6, 0, 45); /* dev, x0, y0,  r, Sang, Eang,  w */
 	fbreset_alpha(&gv_fb_dev);
 
-	/* Draw bar frame */
-	fbset_color(WEGI_COLOR_GRAYB);
-	draw_roundcorner_wrect( &gv_fb_dev, 20, 40, 20+barmax, 60, 10, 3); 	/* fbdev, x1,y1, x2,y2, r, w */
+	/* Draw empty progress bar  */
+	fbset_color(WEGI_COLOR_BLACK); /* Frame color */
+	draw_roundcorner_wrect( &gv_fb_dev, barFX0, barFY0, barFX0+barFW, barFY0+barFH, barR, barFLW); 	/* fbdev, x1,y1, x2,y2, r, w */
+	fbset_color(WEGI_COLOR_GRAY);  /* Bar color */
+	barEndX=barStartX+barMax;
+	draw_wline(&gv_fb_dev, barStartX, barFY0+barFH/2, barStartX+barMax, barFY0+barFH/2, barFH-barFLW );
 
 	/* Put to FBDEV_BKG_BUFF */
 	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 
-//	egi_image_rotdisplay( needle, &gv_fb_dev, 30, 115,20, 320/2, 240-8 );    /* imgbuf, fbdev, angle, xri,yri,  xrl,yrl */
-
+	/* Rend the scene */
 	fb_render(&gv_fb_dev);
 
         /* =============   Main Loop   ============= */
-	int delt=2;
-	int load_percent=0;
-while(1) {
+	egi_sleep(1,1,0);
 
+while(1) {
+	/* If touch down: use touch data to control Meter and Bar */
+	if( egi_touch_timeWait_press(0, 100, &touch_data)==0 ) {
+               int mark=0;
+		while( touch_data.status == pressing || touch_data.status == pressed_hold ) {
+                	/* Adjust touch data coord. system to the same as FB pos_rotate.*/
+                        egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+
+                        /* Continous sliding */
+                        mark = touch_data.dx;
+                        if(mark<0)mark=0;
+                        else if(mark > barMax)mark=barMax;
+
+			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
+
+			/* Draw needle */
+			angle=180*mark/barMax;
+			egi_image_rotdisplay( needle, &gv_fb_dev, angle, xri,yri, xrl, yrl );	/* imgbuf, fbdev, angle, xri,yri,  xrl,yrl */
+
+			/* Draw bar and needle */
+			load_percent=mark*100/barMax;
+			if(load_percent<50)
+				fbset_color(WEGI_COLOR_GREEN);
+			else if(load_percent<(50+50*2/3))
+				fbset_color(WEGI_COLOR_YELLOW);
+			else
+				fbset_color(WEGI_COLOR_RED);
+			draw_wline(&gv_fb_dev, barStartX, barFY0+barFH/2, barStartX+mark, barFY0+barFH/2, barFH-barFLW );
+
+			/* Run time */
+			display_sysinfo();
+
+			/* Render scene */
+			fb_render(&gv_fb_dev);
+
+			/* Read touch data */
+                        while(egi_touch_getdata(&touch_data)==false);
+                }
+		continue;
+	}
+
+	/* Reset FB working buffer with background image */
 	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 
-	//angle+=delt;
+	/* Get CPU load */
 	load_percent=percent_cpuLoad();
+
+	/* Draw indicator needle */
 	angle=180*load_percent/100;
+	egi_image_rotdisplay( needle, &gv_fb_dev, angle, xri,yri, xrl, yrl );	/* imgbuf, fbdev, angle, xri,yri,  xrl,yrl */
 
-	egi_image_rotdisplay( needle, &gv_fb_dev, angle, 115,20, 320/2, 240-8 );    	/* imgbuf, fbdev, angle, xri,yri,  xrl,yrl */
-
-	fbset_alpha(&gv_fb_dev, 250);
+	/* Draw progress bar */
 	if(load_percent<50)
 		fbset_color(WEGI_COLOR_GREEN);
 	else if(load_percent<(50+50*2/3))
 		fbset_color(WEGI_COLOR_YELLOW);
 	else
 		fbset_color(WEGI_COLOR_RED);
-	draw_wline(&gv_fb_dev, 20+9, (40+60)/2, barmax*load_percent/100, (40+60)/2, ((60-40)-3) );
-	fbreset_alpha(&gv_fb_dev);
+	//fbset_alpha(&gv_fb_dev, 250);  /* If you want to see darker circles at ends of the bar, turn on it */
+	barEndX=barStartX+barMax*load_percent/100;
+	draw_wline(&gv_fb_dev, barStartX, barFY0+barFH/2, barEndX, barFY0+barFH/2, barFH-barFLW );
+	//fbreset_alpha(&gv_fb_dev);
+
+	/* Run time */
+	display_sysinfo();
 
 	fb_render(&gv_fb_dev);
-	tm_delayms(200);
-
-	//if(angle>=180 || angle<=0 ) { delt=-delt; tm_delayms(1000);}
-	//else if( angle==(45/2*2) || angle==90 || angle==(135/2*2) )tm_delayms(1000);
+//	tm_delayms(50);
 
 }/* end While() */
 
 
  	/* ----- MY release ---- */
  	egi_imgbuf_free(meterPanel);
+ 	egi_imgbuf_free(needle);
 
 
     		  /*-----------------------------------
@@ -215,10 +282,61 @@ int  percent_cpuLoad(void)
         FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
                                         16, 16,(const unsigned char *)strload,  /* fw,fh, pstr */
                                         320, 1, 15,                             /* pixpl, lines, gap */
-                                        20, 10,                                 /* x0,y0, */
+                                        25, 5,                                 /* x0,y0, */
                                         WEGI_COLOR_WHITE, -1, 255,      /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
 
 	close(fd);
 	return load;
 }
+
+/*-----------------------------------------------------------------
+Display system running time.
+
+struct sysinfo {
+      long uptime;             // Seconds since boot
+      unsigned long loads[3];  // 1, 5, and 15 minute load averages
+      unsigned long totalram;  // Total usable main memory size
+      unsigned long freeram;   // Available memory size
+      unsigned long sharedram; // Amount of shared memory
+      unsigned long bufferram; // Memory used by buffers
+      unsigned long totalswap; // Total swap space size
+      unsigned long freeswap;  // swap space still available
+      unsigned short procs;    // Number of current processes
+      unsigned long totalhigh; // Total high memory size
+      unsigned long freehigh;  // Available high memory size
+      unsigned int mem_unit;   // Memory unit size in bytes
+      char _f[20-2*sizeof(long)-sizeof(int)]; // Padding to 64 bytes
+};
+
+
+Return:
+	>=0 	OK
+	<0	Fails
+-------------------------------------------------------------------*/
+int display_sysinfo(void)
+{
+	struct sysinfo info;
+	char strtmp[256]={0};
+	long	secs;
+
+	if ( sysinfo(&info) != 0)
+		return -1;
+
+	secs=info.uptime;
+	sprintf(strtmp,"运行时间:　%ld天%ld小时%ld分钟", secs/86400, (secs%86400)/3600, (secs%3600)/60 );
+
+	/* Write to LCD */
+	int fw=18;
+	int fh=18;
+	int pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.bold, fw, fh, (const unsigned char *)strtmp);
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
+                                        fw, fh,(const unsigned char *)strtmp,  /* fw,fh, pstr */
+                                        320, 1, 15,                             /* pixpl, lines, gap */
+                                        (320-pixlen)/2, 52,                     /* x0,y0, */
+                                        WEGI_COLOR_ORANGE, -1, 255,      /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
+
+	return 0;
+}
+

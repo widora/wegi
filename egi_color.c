@@ -1,14 +1,20 @@
-/*-------------------------------------------------------------------
+/*------------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
+
+			---  IMPORTANT NOTE ---
+
+  1. Visional illusions will mar the appearance of your GUI design.
+  2. Always Select correct colours to cover visual defects for your GUI!
+
 
 TODO: Using pointer params is better than just adding inline qualifier ?
 
 EGI Color Functions
 
 Midas ZHou
--------------------------------------------------------------------*/
+-----------------------------------------------------------------------*/
 
 #include "egi_color.h"
 #include "egi_debug.h"

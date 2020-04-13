@@ -7,6 +7,7 @@ Color classification method:
 	Douglas.R.Jacobs' RGB Hex Triplet Color Chart
   	http://www.jakesan.com
 
+
 TODO: GAMMA CORRECTION for TFT LCD.
 
 Midas Zhou
