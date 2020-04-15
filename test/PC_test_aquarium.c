@@ -73,7 +73,7 @@ int main(int argc, char **argv)
 
   /* Set sys FB mode */
   fb_set_directFB(&gv_fb_dev,false);
-  fb_position_rotate(&gv_fb_dev,3);
+  fb_position_rotate(&gv_fb_dev,0);
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
@@ -84,11 +84,12 @@ int main(int argc, char **argv)
     		   -----------------------------------*/
 
 	int angle=0;
-	EGI_IMGBUF 	*bkimg=egi_imgbuf_readfile("/mmc/ocean_water.jpg");
+	EGI_IMGBUF 	*bkimg=egi_imgbuf_readfile("/home/midas-zhou/egi/ocean_water.png");
 
-	EGI_GIF 	*clownfish=egi_gif_slurpFile("/mmc/clownfish.gif", true);
-	EGI_GIF 	*bigfish=egi_gif_slurpFile("/mmc/bigfish.gif", true);
-	EGI_GIF 	*smallfish=egi_gif_slurpFile("/mmc/smallfish.gif", true);
+	EGI_GIF 	*clownfish=egi_gif_slurpFile("/home/midas-zhou/egi/clownfish.gif", true);
+	EGI_GIF 	*bigfish=egi_gif_slurpFile("/home/midas-zhou/egi/bigfish.gif", true);
+	EGI_GIF 	*smallfish=egi_gif_slurpFile("/home/midas-zhou/egi/smallfish.gif", true);
+	EGI_GIF 	*okfish=egi_gif_slurpFile("/home/midas-zhou/egi/okfish.gif", true);
 	if(clownfish==NULL || bigfish==NULL || smallfish==NULL) exit(1);
 
 	EGI_GIF_CONTEXT  clownfish_ctxt= {
@@ -107,8 +108,9 @@ int main(int argc, char **argv)
 	smallfish_ctxt.egif = smallfish;
 
 	/* Display back ground scene */
-        egi_imgbuf_windisplay( bkimg, &gv_fb_dev, -1,          	/* img, fb, subcolor */
-                               0, 0, 0, 0,                      /* xp,yp  xw,yw */
+        egi_imgbuf_windisplay( bkimg, &gv_fb_dev, -1,      /* img, fb, subcolor */
+                               0, 0,                       /* xp,yp  */
+                               (gv_fb_dev.vinfo.xres-bkimg->width)/2, (gv_fb_dev.vinfo.yres-bkimg->height)/2,   /* xw,yw */
                                bkimg->width, bkimg->height);    /* winw, winh */
 
 	/* Start thread to loop updating EGI_GIF.Simgbuf */
@@ -120,41 +122,58 @@ int main(int argc, char **argv)
                      printf("Fail to run thread for smallfish.gif!\n");
 
         /* Init FB back_ground buffer page */
-        //memcpy(gv_fb_dev.map_buff+gv_fb_dev.screensize, gv_fb_dev.map_bk, gv_fb_dev.screensize);
 	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 
 
         /* =============   Aquarium Motion Loop   ============= */
+	int g=6;
+	int rot=0;
 while(1) {
-	angle+=2;
-	if(angle>=360) angle=0;
+	angle+=1;
+	if(angle>=360*g) angle=0;
+
+	 #if 0 /*  Test: rotate FB postion */
+	 if(rot!=angle/6/30%4)
+	 {
+		rot=angle/6/30%4;
+	  	fb_position_rotate(&gv_fb_dev, angle/6/30%4);
+		/* Display back ground scene */
+		fb_clear_backBuff(&gv_fb_dev,WEGI_COLOR_BLACK);
+        	egi_imgbuf_windisplay( bkimg, &gv_fb_dev, -1,      /* img, fb, subcolor */
+                	               0, 0,                       /* xp,yp  */
+                        	       (gv_fb_dev.vinfo.xres-bkimg->width)/2, (gv_fb_dev.vinfo.yres-bkimg->height)/2,   /* xw,yw */
+                               		bkimg->width, bkimg->height);    /* winw, winh */
+					fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
+	}
+	#endif
 
         /* Refresh working buffer with bkg buffer */
-        //memcpy(gv_fb_dev.map_bk, gv_fb_dev.map_buff+gv_fb_dev.screensize, gv_fb_dev.screensize);
 	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 
-        /* Beware of displaying sequence! */
-	egi_image_rotdisplay( clownfish->Simgbuf, &gv_fb_dev,  angle+100,		 /*  imgbuf, fb_dev, angle */
-				clownfish->Simgbuf->width/2, 160,	320/2, 240/2 );  /* xri,yri,  xrl,yrl */
+        /* Fishs: Beware of displaying sequence! */
+	egi_image_rotdisplay( clownfish->Simgbuf, &gv_fb_dev,  angle/g+100,		 /*  imgbuf, fb_dev, angle */
+				clownfish->Simgbuf->width/2, 200,	    /* xri,yri */
+				gv_fb_dev.vinfo.xres/2,gv_fb_dev.vinfo.yres/2 );  /* xrl,yrl */
 
 	while(!bigfish_ctxt.egif->Simgbuf_ready){ printf("---\n"); }; //tm_delayms(5);};
-	egi_image_rotdisplay( bigfish->Simgbuf, &gv_fb_dev,  angle,			 /*  imgbuf, fb_dev, angle */
-				clownfish->Simgbuf->width/2, 200,	320/2, 240/2 );  /* xri,yri,  xrl,yrl */
+	egi_image_rotdisplay( bigfish->Simgbuf, &gv_fb_dev,  angle/g,			 /*  imgbuf, fb_dev, angle */
+				clownfish->Simgbuf->width/2, 240,
+				gv_fb_dev.vinfo.xres/2,gv_fb_dev.vinfo.yres/2 );  /* xrl,yrl */
 
-	egi_subimg_writeFB( smallfish->Simgbuf, &gv_fb_dev, 0, -1, 0, 100); /* imgbuf, fb_dev, subnum, subcolor, x0, y0 */
+	egi_subimg_writeFB( smallfish->Simgbuf, &gv_fb_dev, 0, -1, 500, gv_fb_dev.vinfo.yres/2-50); /* imgbuf, fb_dev, subnum, subcolor, x0, y0 */
 
 	/* Put a tab at bottom */
          FTsymbol_uft8strings_writeFB(  &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
-                                        35, 35,(const unsigned char *)"EGI AQUARIUM",    /* fw,fh, pstr */
-                                        320, 1, 0,                                  /* pixpl, lines, gap */
-                                        15, 240-40,                                    /* x0,y0, */
-                                        WEGI_COLOR_WHITE, -1, 120,    /* fontcolor, transcolor,opaque */
+                                        50, 50,(const unsigned char *)"EGI AQUARIUM 水世界",    /* fw,fh, pstr */
+                                        gv_fb_dev.vinfo.xres, 1, 0,                                  /* pixpl, lines, gap */
+                                        400,  50,//gv_fb_dev.vinfo.yres/2+250,             /* x0,y0, */
+                                        WEGI_COLOR_RED, -1, 200,    /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
 
 	/* Render to screen */
 	fb_render(&gv_fb_dev);
 
-	tm_delayms(20);
+//	tm_delayms(80);
 
 }/* end While() */
 

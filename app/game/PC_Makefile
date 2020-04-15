@@ -1,6 +1,6 @@
 CC=gcc
 
-SRC_PATH=/home/midas-zhou/Ctest/wegi
+SRC_PATH=/home/midas-zhou/wegi
 
 #### ----- 产生文件列表 ------
 SRC_FILES = $(wildcard *.c)

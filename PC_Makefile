@@ -1,4 +1,4 @@
-SRC_PATH = /home/midas-zhou/Ctest/wegi
+SRC_PATH = /home/midas-zhou/wegi
 
 #### ----- 产生文件列表 ------
 SRC_FILES = $(wildcard *.c)
@@ -22,6 +22,7 @@ DEP_FILES = $(patsubst %.c,%.dep,$(SRC_FILES))
 #### -----  编译标志 -----
 ## -Wall for __attribut__
 CFLAGS  = -I./ -I./page -I./iot -I./utils
+CFLAGS += -I/usr/local/include
 CFLAGS += -I/usr/local/include/freetype2
 CFLAGS += -I/usr/local/include/libpng12
 CFLAGS += -Wall -fPIC -O2
@@ -35,9 +36,9 @@ CFLAGS += -DENABLE_BACK_BUFFER -DLETS_NOTE
 
 LDFLAGS += -L./pclib
 
-
 LIBS = -ljpeg -lm -lpthread #-ljson-c -lasound
 LIBS += -lfreetype  -lm -lz -lbz2
+LIBS += -lgif
 
 #### ------ 手动设置特定目标生成规则  ------
 
@@ -66,7 +67,7 @@ install: libegi.so.1.0.0 libegi.a
 
 #### ----- 清除目标 -----
 clean:
-	rm -rf test_*.o libegi.so.1.0.0 libegi.a $(OBJS) $(APPS) $(DEP_FILES)
+	rm -rf test_*.o libegi.so.1.0.0 libegi.a $(OBJS) $(DEP_FILES)
 
 
 include $(DEP_FILES)

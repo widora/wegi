@@ -1,4 +1,4 @@
-SRC_PATH = /home/midas-zhou/Ctest/wegi
+SRC_PATH = /home/midas-zhou/wegi
 
 CFLAGS  = -I./
 CFLAGS += -I$(SRC_PATH) -I$(SRC_PATH)/utils -I$(SRC_PATH)/iot -I$(SRC_PATH)/sound

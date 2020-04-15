@@ -16,7 +16,9 @@ Midas Zhou
 #include <stdint.h>
 #include <ctype.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
+#include <time.h>
 #include "egi_cstring.h"
 #include "egi_log.h"
 

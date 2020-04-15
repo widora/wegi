@@ -88,6 +88,12 @@ int init_fbdev(FBDEV *fb_dev)
         fb_dev->pos_xres=fb_dev->vinfo.xres;
         fb_dev->pos_yres=fb_dev->vinfo.yres;
 
+	/* Check: vinfo.xres NOT equals finfo.line_length/bytes_per_pixel */
+	if( fb_dev->finfo.line_length/(fb_dev->vinfo.bits_per_pixel>>3) != fb_dev->vinfo.xres )
+	{
+	 	  fprintf(stderr,"\n \e[38;5;196;48;5;0m WARNING: vinfo.xres != finfo.line_length/bytes_per_pixel. \e[0m \n");
+	}
+
         /* reset pixcolor and pixalpha */
 	fb_dev->pixcolor_on=false;
         fb_dev->pixcolor=(30<<11)|(10<<5)|10;
@@ -117,8 +123,10 @@ int init_fbdev(FBDEV *fb_dev)
 //		fb_dev->buffer[i]=NULL;
 //	}
 
-#if 0
+
+#if 1
 //      printf("init_dev successfully. fb_dev->map_fb=%p\n",fb_dev->map_fb);
+	printf("\e[38;5;34;48;5;0m");
         printf(" \n------- FB Parameters -------\n");
         printf(" bits_per_pixel: %d bits \n",fb_dev->vinfo.bits_per_pixel);
         printf(" line_length: %d bytes\n",fb_dev->finfo.line_length);
@@ -127,6 +135,7 @@ int init_fbdev(FBDEV *fb_dev)
         printf(" screensize: %ld bytes\n", fb_dev->screensize);
         printf(" Total buffer pages: %d\n", FBDEV_BUFFER_PAGES);
         printf(" ----------------------------\n\n");
+	printf("\e[0m\n");
 #endif
         return 0;
 }

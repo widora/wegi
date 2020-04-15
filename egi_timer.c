@@ -284,12 +284,12 @@ return time difference in us, as an unsigned value.
 t_start:	start time
 t_end:		end time
 -----------------------------------------------------------*/
-unsigned int tm_diffus(struct timeval t_start, struct timeval t_end)
+unsigned long tm_diffus(struct timeval t_start, struct timeval t_end)
 {
-	int ds=t_end.tv_sec-t_start.tv_sec;
-	int dus=t_end.tv_usec-t_start.tv_usec;
+	long ds=t_end.tv_sec-t_start.tv_sec;
+	long dus=t_end.tv_usec-t_start.tv_usec;
 
-	int td=ds*1000000+dus;
+	long td=ds*1000000+dus;
 
 	return ( td>0 ? td : -td );
 }

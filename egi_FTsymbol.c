@@ -3,6 +3,9 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+Note:
+1. FreeType 2 is licensed under FTL/GPLv3 or GPLv2.
+   Based on freetype-2.5.5
 
 Midas Zhou
 -------------------------------------------------------------------*/
@@ -857,7 +860,7 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 			*xleft -= fw;
 		}
 		else if ( wcode == 32 ) //(wchar_t)(L"") )
-			*xleft -= fw; //2*bbox_w;
+			*xleft -= fw/2; //2*bbox_w;
 		else {/* Maybe other unicode, it is supposed to have defined bitmap.width and advanceX */
 			*xleft -= bbox_W;
 		}

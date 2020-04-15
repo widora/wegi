@@ -26,7 +26,7 @@ Modified and appended by: Midas Zhou
 //#include "egi_image.h" /* definition conflict */
 
 #ifdef LETS_NOTE
-#define EGI_FBDEV_NAME "/dev/fb1"
+#define EGI_FBDEV_NAME "/dev/fb0" //1
 #else
 #define EGI_FBDEV_NAME "/dev/fb0"
 #endif
@@ -44,7 +44,13 @@ typedef struct fbdev{
 					 *  3. FB FILO will be ineffective then.
                                 	 */
 
-        struct 		fb_var_screeninfo vinfo;
+        struct 		fb_var_screeninfo vinfo;  /* !!! WARNING !!!
+						   *  vinfo.line_length/bytes_per_pixel may NOT equals vinfo.xres
+						   *  In some case, line_length/bytes_per_pixel > xres, because of LCD size limit,
+						   *  not of controller RAM limit!
+						   *  But in all functions we assume xres==info.line_length/bytes_per_pixel, so lookt it over
+						   *  if problem arises.
+						   */
         struct 		fb_fix_screeninfo finfo;
 
         unsigned long 	screensize;	/* in bytes */

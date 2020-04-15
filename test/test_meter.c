@@ -102,13 +102,14 @@ int main(int argc, char **argv)
 	int barStartX=barFX0+barFLW+(barFH-barFLW)/2 -1;   /* Progree bar start X coord. */
 	int barEndX;					/* Progree bar end X coord. */
 
-	EGI_IMGBUF 	*meterPanel=egi_imgbuf_readfile("/mmc/meter.png");
-	EGI_IMGBUF 	*needle=egi_imgbuf_readfile("/mmc/myneedle.png");
+	EGI_IMGBUF 	*meterPanel=egi_imgbuf_readfile("/home/meter.png");
+	EGI_IMGBUF 	*needle=egi_imgbuf_readfile("/home/myneedle.png");
 	int  xrl=320/2;	  /* needle turning center, relative to LCD fb_rotate coord.  */
 	int  yrl=240-8;
 	int  xri=115;	  /* needle turning center, relative to needle imgbuf coord.  */
 	int  yri=20;
 
+        int mark=0;
 	EGI_TOUCH_DATA  touch_data;
 
 	/* Display back ground scene */
@@ -146,8 +147,9 @@ int main(int argc, char **argv)
 
 while(1) {
 	/* If touch down: use touch data to control Meter and Bar */
-	if( egi_touch_timeWait_press(0, 100, &touch_data)==0 ) {
-               int mark=0;
+
+//	if( egi_touch_timeWait_press(0, 100, &touch_data)==0 ) {
+        if( egi_touch_getdata(&touch_data) ) {
 		while( touch_data.status == pressing || touch_data.status == pressed_hold ) {
                 	/* Adjust touch data coord. system to the same as FB pos_rotate.*/
                         egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
@@ -319,12 +321,17 @@ int display_sysinfo(void)
 	struct sysinfo info;
 	char strtmp[256]={0};
 	long	secs;
+	int percent;
+	EGI_16BIT_COLOR color;
 
 	if ( sysinfo(&info) != 0)
 		return -1;
 
 	secs=info.uptime;
 	sprintf(strtmp,"运行时间:　%ld天%ld小时%ld分钟", secs/86400, (secs%86400)/3600, (secs%3600)/60 );
+//	sprintf(strtmp,"RUNTIME: %ldD_%ldH_%ldM", secs/86400, (secs%86400)/3600, (secs%3600)/60 );
+
+	//printf("Total Mem: %ldM, Free Mem: %ldM\n", (info.totalram)>>20, (info.freeram)>>20);
 
 	/* Write to LCD */
 	int fw=18;
@@ -333,10 +340,32 @@ int display_sysinfo(void)
         FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
                                         fw, fh,(const unsigned char *)strtmp,  /* fw,fh, pstr */
                                         320, 1, 15,                             /* pixpl, lines, gap */
-                                        (320-pixlen)/2, 52,                     /* x0,y0, */
+                                        (320-pixlen)/2, 52, //48                     /* x0,y0, */
                                         WEGI_COLOR_ORANGE, -1, 255,      /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
-
+	/* Free MEM */
+	sprintf(strtmp,"FreeM\n%ldM",(info.freeram)>>20);
+	percent=100*(info.freeram>>20)/(info.totalram>>20);
+	if(percent>=50)
+		color=WEGI_COLOR_GREEN;
+	else if(percent>=50*2/3)
+		color=WEGI_COLOR_YELLOW;
+	else
+		color=WEGI_COLOR_RED;
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
+                                        14, 14,(const unsigned char *)strtmp,  	/* fw,fh, pstr */
+                                        320, 2, 5,                             	/* pixpl, lines, gap */
+                                        5, 90,                     	/* x0,y0, */
+                                        color, -1, 255,      /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
+	/* Total MEM */
+	sprintf(strtmp,"TotalM\n% ldM",(info.totalram)>>20);
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
+                                        14, 14,(const unsigned char *)strtmp,  	/* fw,fh, pstr */
+                                        320, 2, 5,                             	/* pixpl, lines, gap */
+                                        320-56, 90,                     	/* x0,y0, */
+                                        WEGI_COLOR_WHITE, -1, 255,      /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
 	return 0;
 }
 

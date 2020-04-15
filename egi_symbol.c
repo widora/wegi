@@ -821,7 +821,13 @@ void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
                 yres=virt_fb->height;
         }
         else {                          /* for FB */
-                xres=fb_dev->vinfo.xres;
+                //xres=fb_dev->vinfo.xres;
+		#ifdef LETS_NOTE
+		xres=fb_dev->finfo.line_length>>2;
+		#else
+		xres=fb_dev->finfo.line_length>>1;
+		#endif
+
                 yres=fb_dev->vinfo.yres;
         }
 
@@ -852,6 +858,7 @@ void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 	}
 
 	/* get symbol pixel and copy it to FB mem */
+	//printf("%s:symbol H=%d, W=%d\n",__func__, height, width);
 	for(i=0;i<height;i++)
 	{
 		for(j=0;j<width;j++)
@@ -893,7 +900,6 @@ void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 
 
 #else /*--- if  NO ROLLBACK ---*/
-
 			/* -----  FB ROTATION POSITION MAPPING -----
 			 * IF 90 Deg rotated: Y maps to (xres-1)-FB.X,  X maps to FB.Y
 			 */
@@ -923,10 +929,42 @@ void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 			if(mapy>(yres-1) || mapy<0 )
 				continue;
 
+
+	#if 0////
+        /* Check FB.pos_rotate
+         * IF 90 Deg rotated: Y maps to (xres-1)-FB.X,  X maps to FB.Y
+         * Note: Here xres/yres is default/HW_set FB x/y resolustion!
+         */
+        switch(fb_dev->pos_rotate) {
+                case 0:                 /* FB default position */
+			mapx=x
+                        fx=x;
+                        fy=y;
+                        break;
+                case 1:                 /* Clockwise 90 deg */
+                        fx=(xres-1)-y;
+                        fy=x;
+                        break;
+                case 2:                 /* Clockwise 180 deg */
+                        fx=(xres-1)-x;
+                        fy=(yres-1)-y;
+                        break;
+                case 3:                 /* Clockwise 270 deg */
+                        fx=y;
+                        fy=(yres-1)-x;
+                        break;
+        }
+
+	#endif ////
+
+
+
 #endif
+
 			/*x(i,j),y(i,j) mapped to LCD(xy),
 				however, pos may also be out of FB screensize  */
 			pos=mapy*xres+mapx; 	/* in pixel, LCD fb mem position */
+			//pos=mapy*(fb_dev->finfo.line_length>>3)+mapx;
 			poff=offset+width*i+j; 	/* offset to pixel data */
 
 			if(sym_page->alpha)
@@ -951,6 +989,8 @@ void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 			*/
 			/* To darken transparent pixel of symbol img page!  */
 			if( pcolor == transpcolor && lumdev < 0 && sym_page->alpha==NULL ) {
+				#ifdef LETS_NOTE
+				#endif
 				pos<<=1; /*pixel to byte,  pos=pos*2 */
 				/* adjust background pixel luma */
 				pcolor=egi_colorLuma_adjust(*(uint16_t *)(map+pos), lumdev);

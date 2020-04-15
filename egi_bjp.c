@@ -3,12 +3,11 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-
 Original source: https://blog.csdn.net/luxiaoxun/article/details/7622988
 
-1. Modified for a 240x320 SPI LCD display.
+
+1. Based on libpng-1.2.56 and jpeg_9a of 19-Jan-2014.
 2. The width of the displaying picture must be a multiple of 4.
-3. Applay show_jpg() or show_bmp() in main().
 
 TODO:
     1. to pad width to a multiple of 4 for bmp file.
@@ -16,9 +15,8 @@ TODO:
     3. in show_jpg(), just force 8bit color data to be 24bit, need to improve.!!!
 
 
-./open-gcc -L./lib -I./include -ljpeg -o jpgshow fbshow.c
-
-Modified by Midas Zhou
+Modified and appended by Midas Zhou
+midaszhou@yahoo.com
 -----------------------------------------------------------------------*/
 #include <unistd.h>
 #include <stdio.h>

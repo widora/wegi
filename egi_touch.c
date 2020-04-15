@@ -101,7 +101,7 @@ int egi_touch_timeWait_press( int s, unsigned int ms, EGI_TOUCH_DATA *touch_data
 
 	/* wait flag_cond AND cond signal */
 	if( pthread_mutex_lock(&mutex_lockCond)==0 ) {
-		printf("%s: Enter cond_timewait zone ...\n",__func__);
+//		printf("%s: Enter cond_timewait zone ...\n",__func__);
 /*  --- >>>  Critical Zone  */
 		/* Must make loopread unstop */
 		tok_loopread_nowait=true;
@@ -201,7 +201,7 @@ int egi_touch_timeWait_release(int s, unsigned int ms, EGI_TOUCH_DATA *touch_dat
 
 	/* wait flag_cond AND cond signal */
 	if( pthread_mutex_lock(&mutex_lockCond)==0 ) {
-		printf("%s: Enter cond_timewait zone ...\n",__func__);
+//		printf("%s: Enter cond_timewait zone ...\n",__func__);
 /*  --- >>>  Critical Zone  */
 		/* Must make loopread unstop */
 		tok_loopread_nowait=true;

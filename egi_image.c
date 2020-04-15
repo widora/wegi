@@ -11,12 +11,14 @@ Midas Zhou
 -------------------------------------------------------------------*/
 #include <pthread.h>
 #include <math.h>
+#include <sys/time.h>
 #include "egi_image.h"
 #include "egi_bjp.h"
 #include "egi_utils.h"
 #include "egi_log.h"
 #include "egi_math.h"
 #include "egi_log.h"
+#include "egi_timer.h"
 
 typedef struct fbdev FBDEV; /* Just a declaration, referring to definition in egi_fbdev.h */
 
@@ -2020,6 +2022,7 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 	int xu; //yu=0	/* upper tip point,  */
 	int yl;	//xl=0	/* left tip point  */
 	int xb,yb;	/* bottom tip pint */
+	int map_method;
 
         /* Normalize angle to be within [0-360] */
 #if 1
@@ -2062,15 +2065,13 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
                 return NULL;
         }
 
-
 	/* Get size for rotated imgbuf, which shall cover original eimg at least */
-#if 0	/* Float point method */
+	#if 0	/* Float point method */
 	height=0.5+abs(eimg->width*sin(ang/180.0*MATH_PI))+abs(eimg->height*cos(ang/180.0*MATH_PI));
 	width=0.5+abs(eimg->width*cos(ang/180.0*MATH_PI))+abs(eimg->height*sin(ang/180.0*MATH_PI));
-
 	/* NEED TO: cal. wsin,hcons, hsin etc. for xu,yu, xl,yl, xb,yb */
 
-#else	/* Fixed point method */
+	#else	/* Fixed point method */
 	wsin=eimg->width*fp16_sin[ang]>>16;
 	wsin=wsin>0 ? wsin : -wsin;
 	hcos=eimg->height*fp16_cos[ang]>>16;
@@ -2082,7 +2083,7 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 	hsin=eimg->height*fp16_sin[ang]>>16;
 	hsin=hsin>0 ? hsin : -hsin;
 	width=wcos+hsin;
-#endif
+	#endif
 
 	/* Make H/W an odd value, then it has a symmetrical center point.   */
 	height |= 0x1;
@@ -2091,7 +2092,6 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 	if(width<3)width=3;
 
 //	printf("Angle=%d, rotated imgbuf: height=%d, width=%d \n", ang, height, width);
-
 
 	/* Create an imgbuf accordingly */
 	outimg=egi_imgbuf_create( height, width, 0, 0); /* H, W, alpah, color */
@@ -2106,9 +2106,16 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 		outimg->alpha=NULL;
 	}
 
+#if 0 /* TEST: ----- */
+	struct timeval tm_start;
+	struct timeval tm_end;
+	gettimeofday(&tm_start,NULL);
+#endif
+
 	/* --- Rotation map and copy --- */
 
-#if 0 /* MAPPING METHOD 1:    Back map all points in outimg to eimg */
+#if 0 /*  MAPPING METHOD 1:    Back map all points in outimg to eimg */
+	map_method=1;
 	m=height>>1;
 	n=width>>1;
 	for(i=-m; i<=m; i++) {
@@ -2138,10 +2145,11 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 
 #else /* MAPPING METHOD 2:   Back map only points which are located at rotated_eimg area of outimg */
 	/* Intend to save time for images with great value of |hegith-width|
-	   For a W1024xH1024 png picture, comparing with METHOD 1, it reduces abt. 10% time...NOT much.
+	   For a W1024xH1024 png picture, comparing with METHOD 1, it reduces abt...Min.10%... depends on |hegith-width|/Max.(height,width)
 	   TODO__ok: outimg is adjusted to have odd number of pixels for each sides, and outimg->H/W >= eimg->H/W,
 		 this seems to cause a crease/misplace(of 1 pixel) between right/left halfs as by following algorithm...
 	 */
+	map_method=2;
 
 	/* Get rotated_eimg tip points coordinates, relative to the outimg coord. all x,y>=0 */
 	if(    ( (asign >= 0) && ((0<=ang && ang<90) || (180<=ang && ang<270)) )
@@ -2230,6 +2238,11 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 
 	} /* End: for(i=0; i<yb; i++) */
 
+#endif
+
+#if 0 /* TEST: ----- */
+	gettimeofday(&tm_end,NULL);
+	printf("%s: Method_%d: %ldus\n",__func__, map_method, tm_diffus(tm_start, tm_end));
 #endif
 
 	/* unlock eimg */
