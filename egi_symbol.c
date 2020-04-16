@@ -929,36 +929,6 @@ void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 			if(mapy>(yres-1) || mapy<0 )
 				continue;
 
-
-	#if 0////
-        /* Check FB.pos_rotate
-         * IF 90 Deg rotated: Y maps to (xres-1)-FB.X,  X maps to FB.Y
-         * Note: Here xres/yres is default/HW_set FB x/y resolustion!
-         */
-        switch(fb_dev->pos_rotate) {
-                case 0:                 /* FB default position */
-			mapx=x
-                        fx=x;
-                        fy=y;
-                        break;
-                case 1:                 /* Clockwise 90 deg */
-                        fx=(xres-1)-y;
-                        fy=x;
-                        break;
-                case 2:                 /* Clockwise 180 deg */
-                        fx=(xres-1)-x;
-                        fy=(yres-1)-y;
-                        break;
-                case 3:                 /* Clockwise 270 deg */
-                        fx=y;
-                        fy=(yres-1)-x;
-                        break;
-        }
-
-	#endif ////
-
-
-
 #endif
 
 			/*x(i,j),y(i,j) mapped to LCD(xy),

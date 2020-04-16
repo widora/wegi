@@ -25,15 +25,17 @@ Modified and appended by: Midas Zhou
 #include "egi_imgbuf.h"
 //#include "egi_image.h" /* definition conflict */
 
-#ifdef LETS_NOTE
-#define EGI_FBDEV_NAME "/dev/fb0" //1
-#else
-#define EGI_FBDEV_NAME "/dev/fb0"
-#endif
+/* See FBDEV.devname, or use gv_fb_dev.devname="/dev/fb0" as default. */
+//#ifdef LETS_NOTE
+//#define EGI_FBDEV_NAME "/dev/fb0" //1
+//#else
+//#define EGI_FBDEV_NAME "/dev/fb0"
+//#endif
 
 #define FBDEV_BUFFER_PAGES 3	/* Max FB buffer pages */
 
 typedef struct fbdev{
+	const char*	devname;	/* FB device name, if NULL, use default "/dev/fb0" */
         int 		fbfd; 		/* FB device file descriptor, open "dev/fbx" */
 
         bool 		virt;           /* 1. TRUE: virtural fbdev, it maps to an EGI_IMGBUF
@@ -57,8 +59,9 @@ typedef struct fbdev{
 					/* TODO: To hook up map_fb and map_buff[] with EGI_IMGBUFs */
         unsigned char 	*map_fb;  	/* Pointer to kernel FB buffer, mmap to FB data */
 
-	#define	FBDEV_WORKING_BUFF	0
-	#define FBDEV_BKG_BUFF		1
+	/* BUFF number as unsigned int */
+	#define	FBDEV_WORKING_BUFF	0	/* map_buff[page FBDEV_WORKING_BUFF] */
+	#define FBDEV_BKG_BUFF		1	/* map_buff[page FBDEV_BKG_BUFF] */
 	unsigned char 	*map_buff;	/* Pointer to user FB buffers, 1-3 pages, maybe more.
 					 * Default:
 					 *    1st buff page as working buffer.
@@ -94,6 +97,7 @@ typedef struct fbdev{
 					 * Note: Any function that need to set pixalpha_hold MUST reset it and
  					 *       reassign pixcolor to 255 before the end.
 					 */
+	int		lumadelt;	 /* Luminance adjustment value if !=0 */
 
 	 /*  Screen Position Rotation:  Not applicable for virtual FBDEV!
 	  *  Call fb_position_rotate() to change following items.

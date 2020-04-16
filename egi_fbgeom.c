@@ -338,10 +338,10 @@ void clear_screen(FBDEV *fb_dev, uint16_t color)
 }
 
 
-/*---------------------------------------------
+/*----------- Oboselete!!! Replaced by fb_clear_backBuff() -----------
  clear fb_dev->map_bk with given color
  Midas
----------------------------------------------*/
+--------------------------------------------------------------------*/
 void fbclear_bkBuff(FBDEV *fb_dev, uint16_t color)
 {
 	int bytes_per_pixel=fb_dev->vinfo.bits_per_pixel/8;
@@ -411,7 +411,10 @@ Note:
 2. The caller shall do boudary check first, to ensure that coordinates
    (x,y) is within screen size range. or just rule it out.
 
-Midas
+TEST:
+   1. test luma adjustment FOR_16BITS_COLOR_FBDEV only.
+
+Midas Zhou
 
 Return:
 	0	OK
@@ -570,7 +573,7 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 	/* NOT necessary ???  check if no space left for a 16bit_pixel in FB mem */
 	if( location<0 || location > (fb_dev->screensize-sizeof(uint32_t)) ) /* screensize in bytes! */
 	{
-		printf("WARNING: point location out of fb mem.!\n");
+		//printf("WARNING: point location out of fb mem.!\n");
 		return -1;
 	}
 
@@ -642,24 +645,47 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 
 	/* assign or blend FB pixel data */
 	if(fb_dev->pixalpha==255) {	/* if 100% front color */
-		if(fb_dev->pixcolor_on) /* use fbdev pixcolor */
-		        *((uint16_t *)(map+location))=fb_dev->pixcolor;
-
-		else			/* use system pixcolor */
-		        *((uint16_t *)(map+location))=fb_color;
+		if(fb_dev->pixcolor_on) { /* use fbdev pixcolor */
+			if( fb_dev->lumadelt!=0 ) {  /* --- TEST Luma --- */
+		        	*((uint16_t *)(map+location))=egi_colorLuma_adjust(fb_dev->pixcolor,fb_dev->lumadelt);
+			} else
+		        	*((uint16_t *)(map+location))=fb_dev->pixcolor;
+		}
+		else {			/* use system pixcolor */
+			if( fb_dev->lumadelt!=0 ) {  /* --- TEST Luma --- */
+		        	*((uint16_t *)(map+location))=egi_colorLuma_adjust(fb_color,fb_dev->lumadelt);
+			} else
+			        *((uint16_t *)(map+location))=fb_color;
+		}
 	}
 	else if (fb_dev->pixalpha !=0 ) /* otherwise, blend with original color */
 	{
 		if(fb_dev->pixcolor_on) { 	/* use fbdev pixcolor */
-			fb_color=COLOR_16BITS_BLEND(  fb_dev->pixcolor,			     /* Front color */
-						     *(uint16_t *)(map+location), /* Back color */
-						      fb_dev->pixalpha );		     /* Alpha value */
-		        *((uint16_t *)(map+location))=fb_color; //fb_dev->pixcolor;
+			if( fb_dev->lumadelt!=0 ) {  /* --- TEST Luma --- */
+				fb_color=COLOR_16BITS_BLEND(  egi_colorLuma_adjust(fb_dev->pixcolor,fb_dev->lumadelt),    /* Front color */
+							     *(uint16_t *)(map+location), /* Back color */
+							      fb_dev->pixalpha );	  /* Alpha value */
+			}
+			else {
+				fb_color=COLOR_16BITS_BLEND(  fb_dev->pixcolor,		  /* Front color */
+							     *(uint16_t *)(map+location), /* Back color */
+							      fb_dev->pixalpha );	  /* Alpha value */
+			}
+
+	        	*((uint16_t *)(map+location))=fb_color; //fb_dev->pixcolor;
 		}
 		else {				/* use system pxicolor */
-			fb_color=COLOR_16BITS_BLEND(  fb_color,				     /* Front color */
-						     *(uint16_t *)(map+location), /* Back color */
-						      fb_dev->pixalpha );		     /* Alpha value */
+			if( fb_dev->lumadelt!=0 ) {  /* --- TEST Luma --- */
+				fb_color=COLOR_16BITS_BLEND(  egi_colorLuma_adjust(fb_color,fb_dev->lumadelt),    /* Front color */
+							     *(uint16_t *)(map+location), /* Back color */
+							      fb_dev->pixalpha );	  /* Alpha value */
+			}
+			else {
+				fb_color=COLOR_16BITS_BLEND(  fb_color,			  /* Front color */
+							     *(uint16_t *)(map+location), /* Back color */
+							      fb_dev->pixalpha );	  /* Alpha value */
+			}
+
 		        *((uint16_t *)(map+location))=fb_color;
 		}
 	}
@@ -879,7 +905,6 @@ void draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 
         int32_t fp16_len = mat_fp16_sqrtu32(ydif*ydif+xdif*xdif);
 
-
    if(fp16_len !=0 )
    {
 	/* draw multiple lines  */
@@ -907,6 +932,64 @@ void draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 	/* draw start/end circles */
 	draw_filled_circle(dev, x1, y1, r);
 	draw_filled_circle(dev, x2, y2, r);
+}
+
+/*--------------------------------------------------------------------
+ Float method to draw A Line with width, with circle at two points.
+
+@x1,x1: 	starting point
+@x2,y2: 	ending point
+@w: 		width of the line ( W=2*N+1 )
+@roundEnd:	Add round ends if True.
+
+NOTE: if you input w=0, it's same as w=1.
+
+Midas Zhou
+---------------------------------------------------------------------*/
+void float_draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w, bool roundEnd)
+{
+	/* half width, also as circle rad */
+	int r=w>>1; /* so w=0 and w=1 is the same */
+
+	int i;
+	int xr1,yr1,xr2,yr2;
+
+	/* x,y, difference */
+	int ydif=y2-y1;
+	int xdif=x2-x1;
+	float len=sqrt(ydif*ydif+xdif*xdif);
+	float sina=ydif/len;
+	float cosa=xdif/len;
+
+   if(len !=0 )
+   {
+	/* draw multiple lines  */
+	for(i=0;i<=r;i++)
+	{
+		/* draw UP_HALF multiple lines  */
+		xr1=x1-round(i*sina);
+		yr1=y1+round(i*cosa);
+		xr2=x2-round(i*sina);
+		yr2=y2+round(i*cosa);
+
+		draw_line(dev,xr1,yr1,xr2,yr2);
+
+		/* draw LOW_HALF multiple lines  */
+		xr1=x1+round(i*sina);
+		yr1=y1-round(i*cosa);
+		xr2=x2+round(i*sina);
+		yr2=y2-round(i*cosa);
+
+		draw_line(dev,xr1,yr1,xr2,yr2);
+	}
+   } /* end of len !=0, if len=0, the two points are the same position */
+
+
+	if(roundEnd) {
+		/* draw start/end circles */
+		draw_filled_circle(dev, x1, y1, r);
+		draw_filled_circle(dev, x2, y2, r);
+	}
 }
 
 
@@ -1245,7 +1328,7 @@ void draw_warc(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang, unsign
 
 	/* get step angle, 1 pixel arc */
 	//step_angle=2.0*asin(0.5/(r+m));
-	step_angle=1.0*asin(0.5/(r+m));
+	step_angle=asin(0.25/(r+m));
 	n=(Eang-Sang)/step_angle;
 	if(n<0) {
 		n=-n;
@@ -1266,14 +1349,16 @@ void draw_warc(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang, unsign
 			/* draw arc segments */
 			x[1]=x0+rad*dcos;
 			y[1]=y0+rad*dsin;
-			draw_wline_nc(dev, round(x[0]), round(y[0]), round(x[1]), round(y[1]), 1);
+			//draw_wline_nc(dev, round(x[0]), round(y[0]), round(x[1]), round(y[1]), 1);
+			float_draw_wline(dev, round(x[0]), round(y[0]), round(x[1]), round(y[1]), 1, false);
 			x[0]=x[1];
 			y[0]=y[1];
 			/* For remaining of n=(Eang-Sang)/step_angle: the last shorts, end points */
 			if(i==n) {
 				x[1]=x0+rad*Edcos;
 				y[1]=y0+rad*Edsin;
-				draw_wline_nc(dev, round(x[0]), round(y[0]), round(x[1]), round(y[1]), 1);
+				//draw_wline_nc(dev, round(x[0]), round(y[0]), round(x[1]), round(y[1]), 1);
+				float_draw_wline(dev, round(x[0]), round(y[0]), round(x[1]), round(y[1]), 1, false);
 			}
 		}
 	}

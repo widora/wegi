@@ -17,6 +17,7 @@ midaszhou@yahoo.com
 
 int  	percent_cpuLoad(void);
 int 	display_sysinfo(void);
+void 	draw_needle(int length, int angle, int xrl, int yrl, EGI_16BIT_COLOR color);
 
 
 /*-----------------------------
@@ -112,19 +113,23 @@ int main(int argc, char **argv)
         int mark=0;
 	EGI_TOUCH_DATA  touch_data;
 
+	EGI_16BIT_COLOR	needle_color=WEGI_COLOR_OCEAN;
+
 	/* Display back ground scene */
 	fb_clear_backBuff(&gv_fb_dev, WEGI_COLOR_GRAY5);
+	gv_fb_dev.lumadelt=50;
         egi_imgbuf_windisplay( meterPanel, &gv_fb_dev, -1,          	/* img, fb, subcolor */
                                0, 0,					/* xp, yp */
 		(320-meterPanel->width)/2, (240-meterPanel->height)/2+40,      /* xw, yw */
                                meterPanel->width, meterPanel->height);    /* winw, winh */
+	gv_fb_dev.lumadelt=0;
 
 	/* Draw CPU Load division color mark */
 	fbset_alpha(&gv_fb_dev, 252);
 	fbset_color(WEGI_COLOR_GREEN);
-	draw_warc(&gv_fb_dev, 320/2, 240-8, 50, -MATH_PI, -MATH_PI/2-0.01, 45); /* dev, x0, y0,  r, Sang, Eang,  w */
+	draw_warc(&gv_fb_dev, 320/2, 240-8, 50, -MATH_PI, -MATH_PI/2-0.02, 45); /* dev, x0, y0,  r, Sang, Eang,  w */
 	fbset_color(WEGI_COLOR_YELLOW);
-	draw_warc(&gv_fb_dev, 320/2, 240-8, 50, -MATH_PI/2, -MATH_PI/6, 45); /* dev, x0, y0,  r, Sang, Eang,  w */
+	draw_warc(&gv_fb_dev, 320/2, 240-8, 50, -MATH_PI/2, -MATH_PI/6-0.02, 45); /* dev, x0, y0,  r, Sang, Eang,  w */
 	fbset_color(WEGI_COLOR_RED);
 	draw_warc(&gv_fb_dev, 320/2, 240-8, 50, -MATH_PI/6, 0, 45); /* dev, x0, y0,  r, Sang, Eang,  w */
 	fbreset_alpha(&gv_fb_dev);
@@ -143,8 +148,6 @@ int main(int argc, char **argv)
 	fb_render(&gv_fb_dev);
 
         /* =============   Main Loop   ============= */
-	egi_sleep(1,1,0);
-
 while(1) {
 	/* If touch down: use touch data to control Meter and Bar */
 
@@ -163,7 +166,11 @@ while(1) {
 
 			/* Draw needle */
 			angle=180*mark/barMax;
+			#if 0 /* Use image */
 			egi_image_rotdisplay( needle, &gv_fb_dev, angle, xri,yri, xrl, yrl );	/* imgbuf, fbdev, angle, xri,yri,  xrl,yrl */
+			#else /* Draw it */
+ 			draw_needle(100, angle, xrl, yrl, needle_color); /* length, angle, xrl,yrl, color */
+			#endif
 
 			/* Draw bar and needle */
 			load_percent=mark*100/barMax;
@@ -195,7 +202,11 @@ while(1) {
 
 	/* Draw indicator needle */
 	angle=180*load_percent/100;
+	#if 0  /* Use image */
 	egi_image_rotdisplay( needle, &gv_fb_dev, angle, xri,yri, xrl, yrl );	/* imgbuf, fbdev, angle, xri,yri,  xrl,yrl */
+	#else  /* Draw it */
+ 	draw_needle(100, angle, xrl, yrl, needle_color); /* length, angle, xrl,yrl, color */
+	#endif
 
 	/* Draw progress bar */
 	if(load_percent<50)
@@ -369,3 +380,23 @@ int display_sysinfo(void)
 	return 0;
 }
 
+/*-------------------------------------------
+Draw needle
+
+@length:	Length of the needle
+@angle:		Angle of the needle, left 0
+@xrl,yrl:	Turning Center of the needle
+@color:		Color for the needle
+--------------------------------------------*/
+void draw_needle(int length, int angle, int xrl, int yrl, EGI_16BIT_COLOR color)
+{
+	fbset_color2(&gv_fb_dev, color);
+	/* draw circle */
+	draw_filled_circle(&gv_fb_dev, xrl, yrl, 12);
+	/* Draw half Slice */
+	//draw_filled_pieSlice(&gv_fb_dev, xrl, yrl, 25, -MATH_PI, 0);  /* dev, x0, y0, r, float Sang, float Eang */
+	/* draw_wline(FBDEV *dev, x1,y1, x2,y2, unsigned int w) */
+	float_draw_wline(&gv_fb_dev, xrl, yrl, xrl-length*cos(MATH_PI*angle/180), yrl-length*sin(MATH_PI*angle/180), 6, false);
+	//draw_wline(&gv_fb_dev, xrl, yrl, xrl-length*cos(MATH_PI*angle/180), yrl-length*sin(MATH_PI*angle/180), 6);
+
+}

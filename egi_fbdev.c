@@ -22,7 +22,7 @@ Midas Zhou
 
 
 /* global variale, Frame buffer device */
-FBDEV   gv_fb_dev={ .fbfd=-1, }; //__attribute__(( visibility ("hidden") )) ;
+FBDEV   gv_fb_dev={ .devname="/dev/fb0", .fbfd=-1,  }; //__attribute__(( visibility ("hidden") )) ;
 
 /*-------------------------------------
 Initiate a FB device.
@@ -35,15 +35,22 @@ int init_fbdev(FBDEV *fb_dev)
 //	int i;
 
         if(fb_dev->fbfd > 0) {
-           printf("Input FBDEV already open!\n");
-           return -1;
+            fprintf(stderr,"%s: Input FBDEV already open!\n",__func__);
+            return -1;
         }
+	if(fb_dev->devname==NULL) {
+            fprintf(stderr,"%s: Input FBDEV name is invalid!\n",__func__);
+	    return -1;
+	}
 
-        fb_dev->fbfd=open(EGI_FBDEV_NAME,O_RDWR|O_CLOEXEC);
+        //fb_dev->fbfd=open(WEGI_FBDEV_NAME,O_RDWR|O_CLOEXEC);
+        fb_dev->fbfd=open(fb_dev->devname,O_RDWR|O_CLOEXEC);
         if(fb_dev<0) {
           printf("Open /dev/fb0: %s\n",strerror(errno));
           return -1;
         }
+
+
         printf("%s:Framebuffer device opened successfully.\n",__func__);
         ioctl(fb_dev->fbfd,FBIOGET_FSCREENINFO,&(fb_dev->finfo));
         ioctl(fb_dev->fbfd,FBIOGET_VSCREENINFO,&(fb_dev->vinfo));
@@ -91,7 +98,7 @@ int init_fbdev(FBDEV *fb_dev)
 	/* Check: vinfo.xres NOT equals finfo.line_length/bytes_per_pixel */
 	if( fb_dev->finfo.line_length/(fb_dev->vinfo.bits_per_pixel>>3) != fb_dev->vinfo.xres )
 	{
-	 	  fprintf(stderr,"\n \e[38;5;196;48;5;0m WARNING: vinfo.xres != finfo.line_length/bytes_per_pixel. \e[0m \n");
+	 	  fprintf(stderr,"\n\e[38;5;196;48;5;0m WARNING: vinfo.xres != finfo.line_length/bytes_per_pixel. \e[0m\n");
 	}
 
         /* reset pixcolor and pixalpha */
@@ -430,7 +437,6 @@ void fb_clear_backBuff(FBDEV *fb_dev, uint32_t color)
                 return;
 
         pixels=fb_dev->vinfo.xres*fb_dev->vinfo.yres;
-
 	/* For 16bits RGB color pixel */
         if(fb_dev->vinfo.bits_per_pixel==2*8) {
 		for(i=0; i<pixels; i++)
@@ -442,6 +448,7 @@ void fb_clear_backBuff(FBDEV *fb_dev, uint32_t color)
 			*(uint32_t *)(fb_dev->map_bk+(i<<2))=color;
 	}
         //else 	--- NOT SUPPORT --
+
 }
 
 
