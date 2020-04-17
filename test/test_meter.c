@@ -117,6 +117,8 @@ int main(int argc, char **argv)
 
 	/* Display back ground scene */
 	fb_clear_backBuff(&gv_fb_dev, WEGI_COLOR_GRAY5);
+
+	egi_imgbuf_flipY( meterPanel );
 	gv_fb_dev.lumadelt=50;
         egi_imgbuf_windisplay( meterPanel, &gv_fb_dev, -1,          	/* img, fb, subcolor */
                                0, 0,					/* xp, yp */

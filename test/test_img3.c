@@ -107,6 +107,55 @@ const wchar_t *wstr2=L"奔跑在WIDORA上的\n	\
 	}
 
 
+#if 1    /* ---------     Test egi_imgbuf_rotBlockCopy()    --------- */
+
+  	fb_set_directFB(&gv_fb_dev,false);
+//	rotimg=egi_imgbuf_createWithoutAlpha(100,150,WEGI_COLOR_BLACK);
+//	rotimg=egi_imgbuf_create(101,151,255,0);
+	i=0;
+
+  while(1) {
+	i+=2;
+	if(i>360)i=0;
+
+	fb_clear_backBuff(&gv_fb_dev,WEGI_COLOR_GRAY3);
+
+	rotimg=egi_imgbuf_rotBlockCopy(eimg, NULL, 240, 320, 0,0, i); //zeimg->width/2, eimg->height/2,i); /* img, oimg, height, width, px,py, angle */
+	if(rotimg==NULL)printf("fail to rotBlockCopy!\n");
+       	egi_imgbuf_windisplay( rotimg, &gv_fb_dev, -1,		 		    /* img, fb, subcolor */
+                       	       0, 0, (320-rotimg->width)/2, (240-rotimg->height)/2, /* xp,yp  xw,yw */
+               	               rotimg->width, rotimg->height);	 		    /* winw, winh */
+	fb_render(&gv_fb_dev);
+
+	tm_delayms(50);
+	egi_imgbuf_free2(&rotimg);
+  }
+
+
+#endif
+
+#if 1    /* ---------     Test egi_imgbuf_flipY()    --------- */
+	int sk=0;
+  	fb_set_directFB(&gv_fb_dev,false);
+
+  while(1) {
+	sk=!sk;
+	fb_clear_backBuff(&gv_fb_dev,WEGI_COLOR_GRAY3);
+	if(sk)
+		egi_imgbuf_flipY(eimg);
+	else
+		egi_imgbuf_centroSymmetry(eimg);
+
+       	egi_imgbuf_windisplay( eimg, &gv_fb_dev, -1,		 		    /* img, fb, subcolor */
+                       	       0, 0, (320-eimg->width)/2, (240-eimg->height)/2, /* xp,yp  xw,yw */
+               	               eimg->width, eimg->height);	 		    /* winw, winh */
+	fb_render(&gv_fb_dev);
+
+	//tm_delayms(1000);
+  }
+
+#endif
+
 
 #if 1    /* ---------     Test egi_imgbuf_rotate()    --------- */
   	fb_set_directFB(&gv_fb_dev,false);

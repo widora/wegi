@@ -44,8 +44,9 @@ int 		egi_imgbuf_addBoundaryBox(EGI_IMGBUF *ineimg, EGI_16BIT_COLOR color, int l
 EGI_IMGBUF*	egi_imgbuf_create( int height, int width, unsigned char alpha, EGI_16BIT_COLOR color );
 EGI_IMGBUF*	egi_imgbuf_createWithoutAlpha( int height, int width, EGI_16BIT_COLOR color);
 EGI_IMGBUF*	egi_imgbuf_readfile(const char* fpath);
-EGI_IMGBUF*	egi_imgbuf_blockCopy( const EGI_IMGBUF *ineimg,
-                	              int px, int py, int height, int width );
+EGI_IMGBUF*	egi_imgbuf_blockCopy( const EGI_IMGBUF *ineimg, int px, int py, int height, int width );
+EGI_IMGBUF* 	egi_imgbuf_rotBlockCopy( EGI_IMGBUF *eimg, EGI_IMGBUF *oimg, int height, int width,	/* mutex_lock eimg only! */
+                                  	 int px, int py, int angle);
 int  		egi_imgbuf_copyBlock( EGI_IMGBUF *destimg, const EGI_IMGBUF *srcimg, bool blendON,
 							 	int bw, int bh, int xd, int yd, int xs, int ys );
 EGI_IMGBUF*	egi_imgbuf_subImgCopy( const EGI_IMGBUF *eimg, int index );
@@ -98,6 +99,7 @@ int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha );		
 
 /* For subimgbuf: reset color and alpha for all pixels */
 int egi_imgbuf_reset(EGI_IMGBUF *egi_imgbuf, int subnum, int color, int alpha);		/* mutex_lock */
+//RENAME: egi_subimg_reset()
 
 /* blend an EGI_IMGBUF with a FT_Bitmap */
 int egi_imgbuf_blend_FTbitmap(EGI_IMGBUF* eimg, int xb, int yb, FT_Bitmap *bitmap,
@@ -105,5 +107,10 @@ int egi_imgbuf_blend_FTbitmap(EGI_IMGBUF* eimg, int xb, int yb, FT_Bitmap *bitma
 
 /* Set average luminance/birghtness Y for an image */
 int egi_imgbuf_avgLuma( EGI_IMGBUF *eimg, unsigned char luma );
+
+/* Flip image */
+int egi_imgbuf_flipY( EGI_IMGBUF *eimg );		/* mutex_lock */
+int egi_imgbuf_centroSymmetry( EGI_IMGBUF *eimg );	/* mutex_lock */
+
 
 #endif

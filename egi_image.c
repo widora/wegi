@@ -8,6 +8,7 @@ NOTE: Try not to use EGI_PDEBUG() here!
 EGI_IMGBUF functions
 
 Midas Zhou
+midaszhou@yahoo.com
 -------------------------------------------------------------------*/
 #include <pthread.h>
 #include <math.h>
@@ -2044,7 +2045,7 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 	//printf("%s: angle=%d, ang=%d \n", __func__, asign*angle, ang);
 #endif
 
-
+	/* Check input */
         if(eimg==NULL || eimg->imgbuf==NULL || eimg->height<=0 || eimg->width<=0 ) {
                 printf("%s: input holding eimg is NULL or uninitiliazed!\n", __func__);
                 return NULL;
@@ -2056,9 +2057,7 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
                 mat_create_fpTrigonTab();
 	}
 
-
-        /* get mutex lock */
-        //printf("%s: Start lock image mutext...\n",__func__);
+        /* Get mutex lock */
         if(pthread_mutex_lock(&eimg->img_mutex) !=0){
                 //printf("%s: Fail to lock image mutex!\n",__func__);
                 EGI_PLOG(LOGLV_ERROR,"%s: Fail to lock image mutex!", __func__);
@@ -2121,7 +2120,7 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 	for(i=-m; i<=m; i++) {
 		for(j=-n; j<=n; j++) {
 			/* Map to original coordiante (xr,yr), Origin at center.
-			 * 2D point rotation formula ( a: counter_clockwise as positive ):
+			 * 2D point rotation formula ( a: Right_Hand Rule ):
 			 *	x'=x*cos(a)-y*sin(a)
 			 *	y'=x*sin(a)+y*cos(a)
 			 */
@@ -2250,6 +2249,145 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 
 	return outimg;
 }
+
+
+/*-------------------------------------------------------------------------------
+Copy a block from eimg, the rectangular area of the block is not up right, but
+with a certain angle, as relative to the original eimg.
+
+1. The new imgbuf size(H&W) are made odd, so it has a symmetrical center point.
+2. Only imgbuf and alpha data are created/copied in new EGI_IMGBUF, other memebers such
+   as subimgs are ignored hence.
+3. Only eimg is mutex_locked, oimg is NOT mutex_locked.
+
+TODO: more accurate way is to get rotated pixel by interpolation method.
+
+@eimg:		  Original imgbuf;
+@oimg:	 	  1. If oimg!=NULL, then use oimg to store color/alpha data.
+		     input height,width will be ingored then.
+		  2.Else if oimg==NULL, then create outimg with input params.
+		  3.If oimg->alpha is NULL, then alpha will NOT be copied.
+		  4.!!! NOTE !!! oimg->height and oimg->width to be 2*n+1.
+
+@x0,y0:		  Coordinate of the center of outimg relative to eimg coord.
+@width, height:   Width and height of the outimg, to be adjusted to 2*n+1.
+@angle: 	  Angle of outimg_X axis relative to eimg_X axis, in degree,
+		  clockwise as positive.	Right hand rule.
+
+Return:
+	A pointer to EGI_IMGBUF with block_copied image 	OK
+	NULL							Fails
+--------------------------------------------------------------------------------*/
+EGI_IMGBUF* egi_imgbuf_rotBlockCopy( EGI_IMGBUF *eimg, EGI_IMGBUF *oimg, int height, int width,
+					int px, int py, int angle)
+{
+	int i,j;
+	int ang, asign;
+	int xr,yr;		/* rotating point */
+	int index_in, index_out;
+	EGI_IMGBUF	*outimg=NULL;
+
+        /* Normalize angle to be within [0-360] */
+        ang=angle%360;      /* !!! WARING !!!  The modulo result is depended on the Compiler
+			     * For C99: a%b=a-(a/b)*b	,whether a is positive or negative.
+			     */
+        asign= ang >= 0 ? 1 : -1; /* angle sign */
+        ang= ang>=0 ? ang : -ang;
+	//printf("%s: angle=%d, ang=%d \n", __func__, angle, ang);
+
+	/* Check input eimg */
+        if(eimg==NULL || eimg->imgbuf==NULL || eimg->height<=0 || eimg->width<=0 ) {
+                printf("%s: input holding eimg is NULL or uninitiliazed!\n", __func__);
+                return NULL;
+        }
+
+	/* Check input oimg */
+	if( oimg!=NULL && (oimg->imgbuf==NULL || oimg->height<3 || oimg->width<3 || (oimg->height&0x1)==0 || (oimg->width&0x1)==0 ) ) {
+		printf("%s input oimg is invalid, It may be W,H<3, or W,H is NOT odd number! \n", __func__);
+		return NULL;  /* NOTE */
+	}
+
+
+        /* Check whether lookup table fp16_cos[] and fp16_sin[] is generated */
+        if( fp16_sin[30] == 0) {
+		printf("%s: Start to create fixed point trigonometric table...\n",__func__);
+                mat_create_fpTrigonTab();
+	}
+
+	/* Input oimg is NULL */
+   	if(oimg==NULL) {
+		/* Make H/W an odd value, then it has a symmetrical center point. */
+		height |= 0x1;
+		width |= 0x1;
+		if(height<3)height=3;
+		if(width<3)width=3;
+
+		/* Create an imgbuf accordingly */
+		outimg=egi_imgbuf_create( height, width, 0, 0); /* H, W, alpah, color */
+		if(outimg==NULL) {
+			printf("%s: Fail to create outimg!\n",__func__);
+			pthread_mutex_unlock(&eimg->img_mutex);
+			return NULL;
+		}
+		/* Check ALPHA data */
+		if(eimg->alpha==NULL) {
+			free(outimg->alpha);
+			outimg->alpha=NULL;
+		}
+   	}
+	/* Input oimg is NOT NULL */
+	else {
+		height=oimg->height;
+		width=oimg->width;
+		outimg=oimg;
+	}
+
+        /* Get mutex lock */
+        if(pthread_mutex_lock(&eimg->img_mutex) !=0){
+                EGI_PLOG(LOGLV_ERROR,"%s: Fail to lock image mutex!", __func__);
+		return NULL; /* NOTE */
+        }
+
+	/* Clear outimg first */
+	egi_imgbuf_resetColorAlpha(outimg, 0, outimg->alpha==NULL ? -1:255 );  /* img, color, alpha */
+
+	int m=height>>1;
+	int n=width>>1;
+	/* Map back point coordinates to eimg */
+	for(i=-m; i<=m; i++) {
+		for(j=-n; j<=n; j++) {
+			/* Map to original coordiante (xr,yr), Origin at center.
+			 * 2D point rotation formula ( a positive: Right_hand Rule. ):
+			 *	x'=x*cos(a)-y*sin(a)
+			 *	y'=x*sin(a)+y*cos(a)
+			 *   Coord axis anti_clockwise, point colokwise rotate.
+			 *   points coordinates relative to up_right block coord.
+			 */
+			xr = (j*fp16_cos[ang]-i*asign*fp16_sin[ang])>>16; /* !!! Arithmetic_Right_Shifting */
+                        yr = (j*asign*fp16_sin[ang]+i*fp16_cos[ang])>>16;
+
+			/* Shift Origin to left_top, as of eimg->imgbuf */
+			xr += px;
+			yr += py;
+
+			/* Copy pixel alpha and color */
+			if( xr >= 0 && xr < eimg->width && yr >=0 && yr < eimg->height) {
+				index_out=width*(i+m)+(j+n);
+				index_in=eimg->width*yr+xr;
+				outimg->imgbuf[index_out]=eimg->imgbuf[index_in];
+				if(eimg->alpha!=NULL && outimg->alpha!=NULL)	/* outimg is oimg NOW if not NULL */
+					outimg->alpha[index_out]=eimg->alpha[index_in];
+			}
+		}
+	}
+
+	/* unlock eimg */
+	pthread_mutex_unlock(&eimg->img_mutex);
+
+	return outimg;
+}
+
+
 
 /*-------------------------------------------------------------------------
 Rotate the input eimg, then substitue original imgbuf with the rotated one.
@@ -2890,6 +3028,7 @@ int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha )
 
 	if( egi_imgbuf==NULL || egi_imgbuf->alpha==NULL )
 		return -1;
+
 	/* get mutex lock */
 	if( pthread_mutex_lock(&egi_imgbuf->img_mutex)!=0 ){
 		printf("%s: Fail to lock image mutex!\n",__func__);
@@ -3180,6 +3319,147 @@ int egi_imgbuf_avgLuma( EGI_IMGBUF *eimg, unsigned char luma )
 			eimg->imgbuf[index]=egi_colorLuma_adjust(eimg->imgbuf[index], luma_dev);
 		}
 	}
+
+	return 0;
+}
+
+
+/*----------------------------------------------------------------
+Flip image (color/alpha) in imgbuf_Y direction. ( vertically )
+
+@eimg:	Input imgbuf
+Return:
+	0		OK
+	others		Fails
+------------------------------------------------------------------*/
+int egi_imgbuf_flipY( EGI_IMGBUF *eimg )
+{
+	int i;
+	char *tmp=NULL;
+	int  line_length;  /* in bytes */
+
+	/* Check input data */
+	if(eimg==NULL || eimg->imgbuf==NULL || eimg->height<=0 || eimg->width<=0 ) {
+		printf("%s: input EGI_IMBUG is NULL or uninitiliazed!\n", __func__);
+		return -1;
+	}
+
+	/* Get mutex lock */
+	if( pthread_mutex_lock(&eimg->img_mutex)!=0 ){
+		printf("%s: Fail to lock image mutex!\n",__func__);
+		return -2;
+	}
+
+	/* Color width length in bytes */
+	line_length=eimg->width*sizeof(EGI_16BIT_COLOR);
+
+	/* Temp. data buffer */
+	tmp=calloc(1, line_length);
+	if(tmp==NULL) {
+		printf("%s: Fail to calloc tmp\n",__func__);
+  		pthread_mutex_unlock(&eimg->img_mutex);
+		return -3;
+	}
+
+	/* Swap color lines */
+	for(i=0; i< eimg->height/2; i++) {
+		memcpy(tmp, (char *)(eimg->imgbuf+i*eimg->width), line_length);  /* buffer i_th line */
+		memcpy((char *)(eimg->imgbuf+i*eimg->width), (char *)(eimg->imgbuf+(eimg->height-1-i)*eimg->width), line_length); /* cpy height-1-i_th line to i_th line */
+		memcpy((char *)(eimg->imgbuf+(eimg->height-1-i)*eimg->width), tmp, line_length); /* cpy tmp to height-1-i_th line */
+	}
+
+	/* Swap alpha lines */
+	if(eimg->alpha) {
+		/* Alpha width length in bytes, assume color_line_lengh > alpha_line_length */
+		line_length=eimg->width*sizeof(EGI_8BIT_ALPHA);
+		for(i=0; i< eimg->height/2; i++) {
+			memcpy(tmp, (char *)(eimg->alpha+i*eimg->width), line_length);  /* buffer i_th line */
+			memcpy((char *)(eimg->alpha+i*eimg->width), (char *)(eimg->alpha+(eimg->height-1-i)*eimg->width), line_length); /* cpy height-1-i_th line to i_th line */
+			memcpy((char *)(eimg->alpha+(eimg->height-1-i)*eimg->width), tmp, line_length); /* cpy tmp to height-1-i_th line */
+		}
+	}
+
+	free(tmp);
+
+  	/* Put mutex lock */
+  	pthread_mutex_unlock(&eimg->img_mutex);
+
+	return 0;
+}
+
+
+
+/*---------------------------------------------------------------------------------
+Transpose the image to its centrosymmetrical position.
+Sway pixels(color/alpha) in position (x,y)  to  (eimg->width-1-x, eimg->height-1-y)
+
+@eimg:	Input imgbuf
+Return:
+	0		OK
+	others		Fails
+---------------------------------------------------------------------------------*/
+int egi_imgbuf_centroSymmetry( EGI_IMGBUF *eimg )
+{
+	int i,j;
+	char *tmp=NULL;
+	int  line_length;  /* in bytes */
+
+	/* Check input data */
+	if(eimg==NULL || eimg->imgbuf==NULL || eimg->height<=0 || eimg->width<=0 ) {
+		printf("%s: input EGI_IMBUG is NULL or uninitiliazed!\n", __func__);
+		return -1;
+	}
+
+	/* Get mutex lock */
+	if( pthread_mutex_lock(&eimg->img_mutex)!=0 ){
+		printf("%s: Fail to lock image mutex!\n",__func__);
+		return -2;
+	}
+
+	/* Color width length in bytes */
+	line_length=eimg->width*sizeof(EGI_16BIT_COLOR);
+
+	/* Temp. data buffer */
+	tmp=calloc(1, line_length);
+	if(tmp==NULL) {
+		printf("%s: Fail to calloc tmp\n",__func__);
+  		pthread_mutex_unlock(&eimg->img_mutex);
+		return -3;
+	}
+
+	/* Swap color values  */
+	for(j=0; j < (eimg->height+1)/2; j++) {   /* +1 for height is an odd number */
+		for(i=0; i < eimg->width; i++) {
+			/* swap pixels j_th line to tmp */
+			*(EGI_16BIT_COLOR *)(tmp+(eimg->width-1-i)*sizeof(EGI_16BIT_COLOR))  =  eimg->imgbuf[j*eimg->width+i];
+
+			/* swap pixels in height-1-j_th line to j_th line. */
+			eimg->imgbuf[j*eimg->width+i] = eimg->imgbuf[(eimg->height-1-j)*eimg->width+(eimg->width-1-i)];
+		}
+		/* copy tmp line to height-1-j_th line */
+		memcpy( (char *)(eimg->imgbuf+(eimg->height-1-j)*eimg->width), tmp, line_length );
+	}
+
+	/* Swap color values  */
+	if(eimg->alpha) {
+		line_length=eimg->width*sizeof(EGI_8BIT_ALPHA);
+		for(j=0; j < (eimg->height+1)/2; j++) {
+			for(i=0; i < eimg->width; i++) {
+				/* swap pixels in j_th line to tmp */
+				*(EGI_8BIT_ALPHA *)(tmp+(eimg->width-1-i)*sizeof(EGI_8BIT_ALPHA))  =  eimg->alpha[j*eimg->width+i];
+
+				/* swap pixels in height-1-j_th line to j_th line. */
+				eimg->alpha[j*eimg->width+i] = eimg->alpha[(eimg->height-1-j)*eimg->width+(eimg->width-1-i)];
+			}
+			/* copy tmp line to height-1-j_th line */
+			memcpy( (char *)(eimg->alpha+(eimg->height-1-j)*eimg->width), tmp, line_length );
+		}
+	}
+
+	free(tmp);
+
+  	/* Put mutex lock */
+	pthread_mutex_unlock(&eimg->img_mutex);
 
 	return 0;
 }
