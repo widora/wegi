@@ -107,7 +107,7 @@ const wchar_t *wstr2=L"奔跑在WIDORA上的\n	\
 	}
 
 
-#if 1    /* ---------     Test egi_imgbuf_rotBlockCopy()    --------- */
+#if 0    /* ---------     Test egi_imgbuf_rotBlockCopy()    --------- */
 
   	fb_set_directFB(&gv_fb_dev,false);
 //	rotimg=egi_imgbuf_createWithoutAlpha(100,150,WEGI_COLOR_BLACK);
@@ -141,17 +141,21 @@ const wchar_t *wstr2=L"奔跑在WIDORA上的\n	\
   while(1) {
 	sk=!sk;
 	fb_clear_backBuff(&gv_fb_dev,WEGI_COLOR_GRAY3);
+
+#if 0
 	if(sk)
 		egi_imgbuf_flipY(eimg);
 	else
 		egi_imgbuf_centroSymmetry(eimg);
+#endif
+	egi_imgbuf_flipX(eimg);
 
        	egi_imgbuf_windisplay( eimg, &gv_fb_dev, -1,		 		    /* img, fb, subcolor */
                        	       0, 0, (320-eimg->width)/2, (240-eimg->height)/2, /* xp,yp  xw,yw */
                	               eimg->width, eimg->height);	 		    /* winw, winh */
 	fb_render(&gv_fb_dev);
 
-	//tm_delayms(1000);
+	tm_delayms(500);
   }
 
 #endif

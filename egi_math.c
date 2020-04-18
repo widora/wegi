@@ -677,11 +677,9 @@ void mat_create_fpTrigonTab(void)
 
 	for(i=0;i<360;i++)
 	{
-		fp16_sin[i]=sin(1.0*i*pi/180.0)*(1<<16);
-		fp16_cos[i]=cos(1.0*i*pi/180.0)*(1<<16);
-		//printf("fp16_sin[%d]=%d\n",i,fp16_sin[i]);
+		fp16_sin[i]=round(sin(1.0*i*pi/180.0)*(1<<16));
+		fp16_cos[i]=round(cos(1.0*i*pi/180.0)*(1<<16));
 	}
-	//printf(" ----- sin(1)=%f\n",sin(1.0*pi/180.0));
 }
 
 

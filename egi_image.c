@@ -942,8 +942,9 @@ int egi_imgbuf_fadeOutCircle(EGI_IMGBUF *eimg, EGI_8BIT_ALPHA max_alpha, int rad
 	if( eimg==NULL || eimg->imgbuf==NULL )
 		return -1;
 
-	if( width<=0 )
-		return 1;
+//	if( width<=0 )
+//		return 1;
+	if( width<0 ) width=0;
 
 	/* Check rad */
 	if(rad<0)rad=0;
@@ -2266,9 +2267,11 @@ TODO: more accurate way is to get rotated pixel by interpolation method.
 @oimg:	 	  1. If oimg!=NULL, then use oimg to store color/alpha data.
 		     input height,width will be ingored then.
 		  2.Else if oimg==NULL, then create outimg with input params.
+		    !!! DO NOT re_assign it with function return:
+		     oimg=egi_imgbuf_rotBlockCopy(eimg, oimg, height, width, px,py, angle);
+		     It may return a NULL pointer !!!
 		  3.If oimg->alpha is NULL, then alpha will NOT be copied.
 		  4.!!! NOTE !!! oimg->height and oimg->width to be 2*n+1.
-
 @x0,y0:		  Coordinate of the center of outimg relative to eimg coord.
 @width, height:   Width and height of the outimg, to be adjusted to 2*n+1.
 @angle: 	  Angle of outimg_X axis relative to eimg_X axis, in degree,
@@ -3460,6 +3463,26 @@ int egi_imgbuf_centroSymmetry( EGI_IMGBUF *eimg )
 
   	/* Put mutex lock */
 	pthread_mutex_unlock(&eimg->img_mutex);
+
+	return 0;
+}
+
+
+
+/*----------------------------------------------------------------
+Flip image (color/alpha) in imgbuf_X direction. ( horizontally )
+
+@eimg:	Input imgbuf
+Return:
+	0		OK
+	others		Fails
+------------------------------------------------------------------*/
+int egi_imgbuf_flipX( EGI_IMGBUF *eimg )
+{
+	if( egi_imgbuf_flipY(eimg)!=0 )
+		return -1;
+	if( egi_imgbuf_centroSymmetry(eimg)!=0 )
+		return -2;
 
 	return 0;
 }

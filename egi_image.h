@@ -111,6 +111,6 @@ int egi_imgbuf_avgLuma( EGI_IMGBUF *eimg, unsigned char luma );
 /* Flip image */
 int egi_imgbuf_flipY( EGI_IMGBUF *eimg );		/* mutex_lock */
 int egi_imgbuf_centroSymmetry( EGI_IMGBUF *eimg );	/* mutex_lock */
-
+int egi_imgbuf_flipX( EGI_IMGBUF *eimg );		/* mutex_lock inside */
 
 #endif
