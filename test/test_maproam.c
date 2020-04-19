@@ -6,25 +6,18 @@ published by the Free Software Foundation.
 To display a png/jpg file on the LCD.
 
 Usage:
-	showpic  map_file(jpg/png)
-
-Exampe:
-	./showpic /tmp/bird.png
-	./showpic /tmp/*
+	maproam  map_file(jpg/png)
 
 Control key:
-	'w' or UP_ARROW	 	pan up
-	's' or DOWN_ARROW	pan down
-	'a' or LEFT_ARROW	pan left
-	'd' or RIGHT_ARROW	pan right
+	'a' 'A'		turn left
+	'd' 'D'		turn right
+	'w' 'W'		go ahead
+	's' 'S'		go backward
 	'z'			zoom up
 	'n'			zoom down
 	SPACE			to display next picture.
 	'q'			quit
 
-	'i' --- General image recognization
-	'O' --- OCR detect
-	'P' --- Face detect
 
 TODO: To move image totally out of screen, forth and back, ...then
       the bug appears.
@@ -36,6 +29,7 @@ midaszhou@yahoo.com
 #include <stdlib.h>
 #include <stdio.h>
 #include "egi_common.h"
+#include "egi_FTsymbol.h"
 
 char imd_getchar(void);
 
@@ -46,7 +40,7 @@ int main(int argc, char** argv)
 	int xres;
 	int yres;
 	int xp,yp;
-	int angle_step=2;	/* angular step */
+	int angle_step=1;	/* angular step */
 	int step=10;		/* line step */
 	int bigStep=120;
 	int Sh,Sw;	/* Show_height, Show_width */
@@ -63,6 +57,7 @@ int main(int argc, char** argv)
 
 	EGI_IMGBUF *pad=NULL;
 	EGI_IMGBUF *compassImg=NULL;
+	int compassDiam;  			/* cmopassImg max side length */
 	EGI_IMGBUF *roamImg=NULL;	/* roaming img  */
 
 	int	heading=0;		/* heading angle, roamImg -Y to image -Y direction
@@ -108,22 +103,44 @@ int main(int argc, char** argv)
 		exit(1);
 	}
 
+        /* Load freetype fonts */
+        printf("FTsymbol_load_sysfonts()...\n");
+        if(FTsymbol_load_sysfonts() !=0) {
+                printf("Fail to load FT sysfonts, quit.\n");
+                return -1;
+        }
+
         /* Init sys FBDEV  */
         if( init_fbdev(&gv_fb_dev) )
                 return -1;
 
         /* Set FB position mode: LANDSCAPE  or PORTRAIT */
+	#ifdef LETS_NOTE
+        if(PortraitMode)
+                fb_position_rotate(&gv_fb_dev,1);
+        else
+                fb_position_rotate(&gv_fb_dev,0);
+	#else
         if(PortraitMode)
                 fb_position_rotate(&gv_fb_dev,0);
         else
                 fb_position_rotate(&gv_fb_dev,3);
+	#endif
+
         xres=gv_fb_dev.pos_xres;
         yres=gv_fb_dev.pos_yres;
 
 	/* create imgbuf for compass */
+	#ifdef LETS_NOTE
+	compassImg=egi_imgbuf_readfile("/home/midas-zhou/egi/compass.png");
+	#else
 	compassImg=egi_imgbuf_readfile("/mmc/compass.png");
-	pad=egi_imgbuf_create(100,100, 180, WEGI_COLOR_LTGREEN); //180, WEGI_COLOR_WHITE);
-	egi_imgbuf_fadeOutCircle( pad, 255, 50, 0, 0 ); /* eimg, max_alpha, rad, width, itype */
+	#endif
+
+	compassDiam=compassImg->width > compassImg->height ? compassImg->width : compassImg->height;
+
+	pad=egi_imgbuf_create(compassDiam,compassDiam, 180, WEGI_COLOR_LTGREEN); //180, WEGI_COLOR_WHITE);
+	egi_imgbuf_fadeOutCircle( pad, 255, compassDiam/2, 0, 0 ); /* eimg, max_alpha, rad, width, itype */
 
         /* create imgbuf to hold roaming block image */
 	roamImg=egi_imgbuf_create(yres|0x1, xres|0x1, 255, WEGI_COLOR_GRAY);
@@ -243,15 +260,24 @@ for( i=optind; i<argc; i++) {
 		case 'a':
 			heading-=angle_step;
 			break;
+		case 'A':  /* big turning angle */
+			heading-=angle_step<<2;
+			break;
+
 		case 'd':
 			heading+=angle_step;
 			break;
+		case 'D':
+			heading+=angle_step<<2;
+			break;
+
 
 		case 'w':  /* go forward */
 			xp+=step*sin(MATH_PI*heading/180);
 			yp-=step*cos(MATH_PI*heading/180);
 			break;
-		case 'e':  /* big step */
+
+		case 'W':  /* big step */
 			xp+=bigStep*sin(MATH_PI*heading/180);
 			yp-=bigStep*cos(MATH_PI*heading/180);
 			break;
@@ -260,9 +286,15 @@ for( i=optind; i<argc; i++) {
 			xp-=step*sin(MATH_PI*heading/180);
 			yp+=step*cos(MATH_PI*heading/180);
 			break;
+		case 'S': /* go backward */
+			xp-=bigStep*sin(MATH_PI*heading/180);
+			yp+=bigStep*cos(MATH_PI*heading/180);
+			break;
 
 		default:
+			printf("cmdchar: %d\n", cmdchar);
 			byte_deep=0;
+			continue;
 			break;
 	}
 
@@ -276,25 +308,41 @@ for( i=optind; i<argc; i++) {
                		        xres, yres ); //tmpimg->width, tmpimg->height);
 
 	 /* Draw 2: compass */
-	 int maxside=compassImg->width > compassImg->height ? compassImg->width : compassImg->height;
 	 egi_subimg_writeFB( pad, &gv_fb_dev, 0, -1, xres-pad->width, 0); /* imgbuf, fb_dev, subnum, subcolor, x0,y0 */
 	 egi_image_rotdisplay( compassImg, &gv_fb_dev, -heading,  		/* egi_imgbuf, FBDEV *fb_dev, int angle */
                                compassImg->width/2, compassImg->height/2,  	/* int xri, int yri, */
-	                       xres-maxside/2, maxside/2); /* int xrl, int yrl */
+	                       xres-compassDiam/2, compassDiam/2); /* int xrl, int yrl */
 	 fbset_color(WEGI_COLOR_RED);
-	 draw_wline(&gv_fb_dev, xres-maxside/2, compassImg->height/2-30, xres-maxside/2, compassImg->height/2+20, 3);
+	 draw_wline(&gv_fb_dev, xres-compassDiam/2, compassImg->height/2-30, xres-compassDiam/2, compassImg->height/2+20, 3);
 	 /* a triangle arrow mark */
-	 points[0]=(EGI_POINT){ xres-maxside/2,compassImg->height/2-30 };
-	 points[1]=(EGI_POINT){ xres-maxside/2-5,compassImg->height/2-30+15 };
-	 points[2]=(EGI_POINT){ xres-maxside/2+5,compassImg->height/2-30+15 };
+	 points[0]=(EGI_POINT){ xres-compassDiam/2,compassImg->height/2-30 };
+	 points[1]=(EGI_POINT){ xres-compassDiam/2-5,compassImg->height/2-30+15 };
+	 points[2]=(EGI_POINT){ xres-compassDiam/2+5,compassImg->height/2-30+15 };
 	 draw_filled_triangle(&gv_fb_dev, points);
 
 	 /* Draw 3: position mark */
 	 fbset_color(WEGI_COLOR_BLACK);
-	 draw_line(&gv_fb_dev, 0, 120, 320-1, 120);
-	 draw_line(&gv_fb_dev, 160, 0, 160, 240-1);
+	 draw_line(&gv_fb_dev, 0, yres/2, xres-1, yres/2); //120, 320-1, 120);
+	 draw_line(&gv_fb_dev, xres/2,0,xres/2, yres-1); //160, 0, 160, 240-1);
 	 fbset_color(WEGI_COLOR_RED);
-	 draw_filled_circle(&gv_fb_dev, 320/2, 240/2, 6);
+	 draw_filled_circle(&gv_fb_dev, xres/2, yres/2, 6); //320/2, 240/2, 6);
+
+
+	 #ifdef LETS_NOTE
+         FTsymbol_uft8strings_writeFB(  &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
+                                        40, 40,(const unsigned char *)"EGI: 游历地图",    /* fw,fh, pstr */
+                                        gv_fb_dev.vinfo.xres, 1, 0,                                  /* pixpl, lines, gap */
+                                        50,  50,//gv_fb_dev.vinfo.yres/2+250,             /* x0,y0, */
+                                        WEGI_COLOR_BLUE, -1, 200,    /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
+	#else
+         FTsymbol_uft8strings_writeFB(  &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
+                                        30, 30,(const unsigned char *)"EGI: 游历地图",    /* fw,fh, pstr */
+                                        gv_fb_dev.vinfo.xres, 1, 0,                                  /* pixpl, lines, gap */
+                                        5,  240-35,//gv_fb_dev.vinfo.yres/2+250,             /* x0,y0, */
+                                        WEGI_COLOR_BLUE, -1, 70,    /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
+	#endif
 
         /* 4.1 Refresh FB by memcpying back buffer to FB */
 	fb_render(&gv_fb_dev);
@@ -363,19 +411,20 @@ char imd_getchar(void)
 {
 	struct termios old_settings;
 	struct termios new_settings;
+	char c;
 
 	tcgetattr(0, &old_settings);
 	new_settings=old_settings;
 	new_settings.c_lflag &= (~ICANON);      /* disable canonical mode, no buffer */
 	new_settings.c_lflag &= (~ECHO);   	/* disable echo */
-	new_settings.c_cc[VMIN]=1;
+	new_settings.c_cc[VMIN]=0; //1;
 	new_settings.c_cc[VTIME]=0;
 	tcsetattr(0, TCSANOW, &new_settings);
 
-	char c=getchar();
-	//printf("input c=%c\n",c);
+	c=getchar();
+	printf("input c=%c\n",c);
 
-	tcsetattr(0, TCSANOW,&old_settings);
+	tcsetattr(0, TCSANOW, &old_settings);
 
 	return c;
 }
