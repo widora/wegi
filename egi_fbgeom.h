@@ -43,7 +43,7 @@ void	fbset_color2(FBDEV *dev, uint16_t color);
 void 	fbset_alpha(FBDEV *dev, EGI_8BIT_ALPHA alpha);
 void 	fbreset_alpha(FBDEV *dev);
 
-void 	fbclear_bkBuff(FBDEV *dev, uint16_t color);
+void 	fbclear_bkBuff(FBDEV *dev, uint16_t color);  /* OBOSELETE, to use fb_clear_backBuff() instead. */
 
 void 	clear_screen(FBDEV *dev, uint16_t color);
 

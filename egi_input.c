@@ -54,6 +54,7 @@ more details: https://www.kernel.org/doc/html/latest/input/input-programming.htm
 Midas Zhou
 -------------------------------------------------------------------*/
 #include "egi_input.h"
+#include "egi_timer.h"
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>   /* open */
@@ -62,6 +63,7 @@ Midas Zhou
 #include <stdbool.h>
 #include <linux/input.h>
 
+static int input_fd=-1;
 static fd_set rfds;
 static struct input_event  inevent;
 static EGI_INEVENT_CALLBACK  inevent_callback; /* To be assigned */
@@ -92,6 +94,13 @@ Return:
 int egi_start_inputread(const char *dev_name)
 {
 
+	if(tok_loopread_running==true) {
+		printf("%s: inevent loopread has been running already!\n",__func__);
+		return -1;
+	}
+
+	cmd_end_loopread=false;
+
         /* start touch_read thread */
         if( pthread_create(&thread_loopread, NULL, (void *)egi_input_loopread, (void *)dev_name) !=0 )
         {
@@ -115,8 +124,10 @@ Return:
 ------------------------------*/
 int egi_end_inputread(void)
 {
-	if(tok_loopread_running==true)
+	if(tok_loopread_running==false) {
+		printf("%s: inevent loopread has been ceased already!\n",__func__);
 		return -1;
+	}
 
         /* Set indicator to end loopread */
         cmd_end_loopread=true;
@@ -127,8 +138,13 @@ int egi_end_inputread(void)
                 return -1;
         }
 
+	/* reset cmd and token */
 	cmd_end_loopread=false;
 	tok_loopread_running=false;
+
+
+	/* ccc */
+	close(input_fd);
 
 	return 0;
 }
@@ -145,7 +161,6 @@ event reaches.
 ----------------------------------------------------*/
 static void *egi_input_loopread( void* arg )
 {
-	int   fd;
 	struct timeval tmval;
 	int retval;
 	char *dev_name=(char *)arg;
@@ -175,28 +190,35 @@ static void *egi_input_loopread( void* arg )
 
 	------------------------------------------ */
 
-	fd=open( dev_name, O_RDONLY|O_CLOEXEC);
-	if(fd<0) {
+	input_fd=open( dev_name, O_RDONLY|O_CLOEXEC);
+	#if 0  /* to check in while() */
+	if(input_fd<0) {
 		printf("%s: Open input event: %s", __func__, strerror(errno));
 		return (void *)-1;
 	}
+	#endif
 
+	/* Loop input select read */
 	while(1) {
-		/* Check if input device is off line */
-
 		/* Check end_loopread command */
 		if(cmd_end_loopread)
 			break;
 
-		FD_ZERO(&rfds);
-		FD_SET( fd, &rfds);
+		/* Check fd, and try to re_open if necessary. */
+		while(input_fd<0) {
+			printf("%s: Input fd is invalid, input device may be offline! \n",__func__);
+			tm_delayms(500);
+			input_fd=open( dev_name, O_RDONLY|O_CLOEXEC);
+		}
 
+		FD_ZERO(&rfds);
+		FD_SET( input_fd, &rfds);
 		tmval.tv_sec=1;
 		tmval.tv_usec=0;
 
-		retval=select( fd+1, &rfds, NULL, NULL, NULL ); //&tmval );
+		retval=select( input_fd+1, &rfds, NULL, NULL, &tmval );
 		if(retval<0) {
-			printf("%s: select event:%s\n",__func__, strerror(errno));
+			printf("%s: select event: errno=%d, %s \n",__func__, errno, strerror(errno));
 			continue;
 		}
 		else if(retval==0) {
@@ -204,56 +226,33 @@ static void *egi_input_loopread( void* arg )
 			continue;
 		}
 
-		if(FD_ISSET(fd, &rfds)) {
-			read(fd, &inevent, sizeof(struct input_event));
-
-#if 1 /* ----TEST ---- */
-			/* Parse input code and value */
-			switch(inevent.type)
-			{
-				case EV_KEY:
-					//printf("Key pressed\n");
-					switch(inevent.code)
-					{
-						case BTN_LEFT:
-							printf("Left key pressed\n");
-							break;
-						case BTN_RIGHT:
-							printf("Right key pressed\n");
-							break;
-						case BTN_MIDDLE:
-							printf("Middle key pressed\n");
-							break;
-						default:
-							printf("Key 0x%03x pressed\n", inevent.code);
-							break;
-					}
-					break;
-				case EV_REL:
-					//printf("Wheel rolls\n");
-					switch(inevent.code)
-					{
-						case REL_X:	/* Minus for left movement, Plus for right movement */
-							printf("slip X value: %d\n", inevent.value);
-							break;
-						case REL_Y:	/* Minus for up movement, Plus for down movement */
-							printf("slip Y value: %d\n", inevent.value);
-							break;
-
-					}
-					break;
-				default:
-					printf("EV type: 0x%02x\n", inevent.type);
-					break;
+		if(FD_ISSET(input_fd, &rfds)) {
+			retval=read(input_fd, &inevent, sizeof(struct input_event));
+			if(retval<0 && errno==ENODEV) {
+				printf("%s: retval=%d, read inevent :%s\n",__func__, retval, strerror(errno));
+				if(close(input_fd)!=0)
+					printf("%s: close input_fd :%s\n",__func__, strerror(errno));
+				printf("%s: close input_fd and reset it to %d\n", __func__, input_fd);
+				input_fd=-1;
+				tm_delayms(500);
+				continue;
 			}
-#endif  /*--------*/
+			else if(retval<0) {
+				printf("%s: read inevent errno=%d : %s\n",__func__, errno, strerror(errno));
+				continue;
+			}
 
 			/* Call back */
-			if(inevent_callback!=NULL)
-				inevent_callback(inevent.type, inevent.code, inevent.value);
+			if(inevent_callback!=NULL) {
+				//inevent_callback(inevent.type, inevent.code, inevent.value);
+				inevent_callback(&inevent);
+			}
 		}
 	}
 
+
+	close(input_fd);
+	input_fd=-1;
 	return (void *)0;
 }
 

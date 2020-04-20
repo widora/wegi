@@ -23,6 +23,7 @@ Modified and appended by: Midas Zhou
 //#include "egi.h"  /* definition conflict */
 #include "egi_filo.h"
 #include "egi_imgbuf.h"
+#include "egi_color.h"
 //#include "egi_image.h" /* definition conflict */
 
 /* See FBDEV.devname, or use gv_fb_dev.devname="/dev/fb0" as default. */
@@ -157,6 +158,8 @@ void 	fb_set_directFB(FBDEV *fb_dev, bool directFB);
 void 	fb_init_FBbuffers(FBDEV *fb_dev);
 void 	fb_copy_FBbuffer(FBDEV *fb_dev,unsigned int from_numpg, unsigned int to_numpg);
 void 	fb_clear_backBuff(FBDEV *dev, uint32_t color);
+void 	fb_clear_workBuff(FBDEV *fb_dev, EGI_16BIT_COLOR color);
+void 	fb_clear_bkgBuff(FBDEV *fb_dev, EGI_16BIT_COLOR color);
 void 	fb_clear_mapBuffer(FBDEV *dev, unsigned int numpg, uint16_t color); /* for 16bit color only */
 int 	fb_page_refresh(FBDEV *dev, unsigned int numpg);
 void 	fb_lines_refresh(FBDEV *dev, unsigned int numpg, unsigned int startln, int n);

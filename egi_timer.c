@@ -227,7 +227,7 @@ void tm_delayms(unsigned long ms)
 	}
 
 #else
-	egi_sleep(0,0,ms);
+	egi_sleep(1,0,ms);
 
 #endif
 }

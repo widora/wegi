@@ -422,6 +422,8 @@ void fb_copy_FBbuffer(FBDEV *fb_dev,unsigned int from_numpg, unsigned int to_num
 /*-----------------------------------------------------------
     Clear FB back buffs by filling with given color
 
+Also see: fb_clear_workBuff() for WEGI_16BIT_COLOR.
+
 @fb_dev:	struct FBDEV whose buffer to be cleared.
 @color:		Color used to fill the buffer, 16bit or 32bits.
 		Depends on fb_dev->vinfo.bits_per_pixel.
@@ -452,12 +454,11 @@ void fb_clear_backBuff(FBDEV *fb_dev, uint32_t color)
 }
 
 
-
 /*-------------------------------------------------------
 	Clear map_buff[numpg] with given color
 For 16bit color only.
 --------------------------------------------------------*/
-void fb_clear_mapBuffer(FBDEV *dev, unsigned int numpg, uint16_t color)
+void fb_clear_mapBuffer(FBDEV *dev, unsigned int numpg, EGI_16BIT_COLOR color)
 {
 	int i;
         unsigned int pixels; /* Total pixels in the buffer */
@@ -472,7 +473,25 @@ void fb_clear_mapBuffer(FBDEV *dev, unsigned int numpg, uint16_t color)
 
 	buffpos= dev->screensize*numpg;
 	for(i=0; i<pixels; i++)
-			*(uint16_t *)(dev->map_buff + buffpos + i)=color;
+			*(uint16_t *)(dev->map_buff + buffpos + (i<<1))=color;
+}
+
+
+/*------------------------------------------------
+	Clear FB working backbuffer
+-------------------------------------------------*/
+void fb_clear_workBuff(FBDEV *fb_dev, EGI_16BIT_COLOR color)
+{
+	fb_clear_mapBuffer(fb_dev, FBDEV_WORKING_BUFF, color);
+}
+
+
+/*------------------------------------------------
+	Clear FB background backbuffer
+-------------------------------------------------*/
+void fb_clear_bkgBuff(FBDEV *fb_dev, EGI_16BIT_COLOR color)
+{
+	fb_clear_mapBuffer(fb_dev, FBDEV_BKG_BUFF, color);
 }
 
 
@@ -738,14 +757,19 @@ Midas Zhou
 ---------------------------------------------*/
 int fb_render(FBDEV *dev)
 {
-        if( dev->map_bk==NULL || dev->map_fb==NULL || dev->map_buff==NULL )
-                return -1;
+	/* OK: checkec in fb_page_refresh() */
+        //if( dev->map_bk==NULL || dev->map_fb==NULL || dev->map_buff==NULL )
+     	//          return -1;
 
 	/* If directFB mode */
 	if( dev->map_bk==dev->map_fb )
 		return 0;
 
-	fb_page_refresh(dev, 0);  /* Input data check inside */
+	/* Anti-aliasing */
+
+
+	/* Refresh FB mmap data */
+	fb_page_refresh(dev, FBDEV_WORKING_BUFF);  /* Input data check inside */
 
 	return 0;
 }
