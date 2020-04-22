@@ -144,28 +144,30 @@ int main(void)
         /* Put to FBDEV_BKG_BUFF */
         fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 
+
 #if 0  /*  -------- TEST:  start,end_inputread() -------- */
    while(1) {
 	printf("start input read...\n");
-	egi_start_inputread("/dev/input/event0"); /* /dev/input/mice */
+	egi_start_inputread("/dev/input/event0");
 	sleep(2);
 	printf("end input read...\n");
 	egi_end_inputread();
    }
 #endif
 
+
 	/* Set mouse callback function */
 	egi_input_setCallback(mouse_callback);
 
 	/* Start inputread loop */
-	egi_start_inputread("/dev/input/event0"); /* /dev/input/mice */
+	egi_start_inputread("/dev/input/event0");
 
+
+#if 1  /*  Put following codes to mouse_callback() only if eventX is NOT mapped to /dev/input/mice or /dev/input/mouse */
 	while(1) {
 		if(clear_bkgbuff)
 			fb_clear_bkgBuff(&gv_fb_dev, WEGI_COLOR_GRAY3);
         	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-		//sleep(1);
-		//tm_delayms(10);
 
 		/* TODO: put to callback to save time */
 		if(pen_down) {
@@ -189,6 +191,10 @@ int main(void)
 
 		draw_mcursor(mouseX, mouseY);
 		fb_render(&gv_fb_dev);
+	}
+#endif
+	while(1) {
+		egi_sleep(1,1,0);
 	}
 
 
@@ -229,66 +235,101 @@ return 0;
 ---------------------------------------------*/
 void mouse_callback(struct input_event *inevent)
 {
-                        /* Parse input code and value */
-                        switch(inevent->type)
+	/* Parse input code and value */
+        switch(inevent->type)
+        {
+        	case EV_KEY:
+                	switch(inevent->code)
                         {
-                                case EV_KEY:
-                                        //printf("Key pressed\n");
-                                        switch(inevent->code)
-                                        {
-                                                case BTN_LEFT:
-							if(inevent->value) {
-	                                                        //printf("Left key pressed!\n");
-								pen_down=true;
-							}
-							else {
-								//printf("Left key released!\n");
-								pen_down=false;
-							}
-                                                        break;
-                                                case BTN_RIGHT:
-							if(inevent->value) {
-	                                                        //printf("Right key pressed\n");
-								/* Clear FB working buffer */
-								clear_bkgbuff=true;
-							}
-							else
-								clear_bkgbuff=false;
-                                                        break;
-                                                case BTN_MIDDLE:
-                                                        //printf("Middle key pressed\n");
-                                                        break;
-                                                default:
-                                                        printf("Key 0x%03x pressed\n", inevent->code);
-                                                        break;
-                                        }
+                        	case BTN_LEFT:
+                			printf("BTN_LEFT\n");
+					if(inevent->value) {
+	                                	//printf("Left key pressed!\n");
+						pen_down=true;
+					}
+					else {
+						//printf("Left key released!\n");
+						pen_down=false;
+					}
                                         break;
-                                case EV_REL:
-                                        switch(inevent->code)
-                                        {
-                                                case REL_X:     /* Minus for left movement, Plus for right movement */
-                                                        //printf("slip X value: %d\n", inevent->value);
-							mouseX+=inevent->value;
-							if(mouseX > gv_fb_dev.pos_xres -5)
-								mouseX=gv_fb_dev.pos_xres -5;
-							else if(mouseX<0)
-								mouseX=0;
-                                                        break;
-                                                case REL_Y:     /* Minus for up movement, Plus for down movement */
-                                                        //printf("slip Y value: %d\n", inevent->value);
-							mouseY+=inevent->value;
-							if(mouseY > gv_fb_dev.pos_yres -5)
-								mouseY=gv_fb_dev.pos_yres -5;
-							else if(mouseY<0)
-								mouseY=0;
-                                                        break;
-
-                                        }
+                                case BTN_RIGHT:
+                			printf("BTN_RIGHT\n");
+					if(inevent->value) {
+                                        	//printf("Right key pressed\n");
+						/* Clear FB working buffer */
+						clear_bkgbuff=true;
+					}
+					else
+						clear_bkgbuff=false;
+                                        break;
+                                case BTN_MIDDLE:
+                			printf("BTN_MIDDLE\n");
                                         break;
                                 default:
-                                        //printf("EV type: 0x%02x\n", inevent->type);
+                                        printf("Key 0x%03x pressed\n", inevent->code);
                                         break;
                         }
+                        break;
+                 case EV_REL:
+                 	switch(inevent->code)
+                        {
+                        	case REL_X:     /* Minus for left movement, Plus for right movement */
+                                	printf("slip dX value: %d\n", inevent->value);
+					mouseX+=inevent->value;
+					if(mouseX > gv_fb_dev.pos_xres -5)
+						mouseX=gv_fb_dev.pos_xres -5;
+					else if(mouseX<0)
+						mouseX=0;
+                                        break;
+                                case REL_Y:     /* Minus for up movement, Plus for down movement */
+                                        printf("slip dY value: %d\n", inevent->value);
+					mouseY+=inevent->value;
+					if(mouseY > gv_fb_dev.pos_yres -5)
+						mouseY=gv_fb_dev.pos_yres -5;
+					else if(mouseY<0)
+						mouseY=0;
+                                        break;
+				case REL_Z:
+					printf("wheel dZ %d\n", inevent->value);
+					break;
+
+                         }
+                         break;
+	        default:
+        		//printf("EV type: 0x%02x\n", inevent->type);
+                        break;
+	}
+
+
+#if 0	/* ---- Actions drived by mouse : !!! sluggish if eventX is mapped to /dev/input/mouse or /dev/input/mice !!! ---- */
+	if(clear_bkgbuff)
+		fb_clear_bkgBuff(&gv_fb_dev, WEGI_COLOR_GRAY3);
+       	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
+
+	if(pen_down) {
+		if(last_pen_down==false) {
+			ptend.x=mouseX; ptend.y=mouseY;
+			ptstart.x=mouseX; ptstart.y=mouseY;
+		} else {
+			ptstart.x=ptend.x; ptstart.y=ptend.y;
+			ptend.x=mouseX; ptend.y=mouseY;
+		}
+		last_pen_down=true;
+
+		fbset_color(WEGI_COLOR_RED);
+		//draw_circle(&gv_fb_dev, mouseX, mouseY, 3);
+		draw_wline(&gv_fb_dev, ptstart.x, ptstart.y, ptend.x, ptend.y, 7);
+        	/* Put to FBDEV_BKG_BUFF */
+       		fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
+	}
+	else if(last_pen_down==true)
+		last_pen_down=false;
+
+	draw_mcursor(mouseX, mouseY);
+	fb_render(&gv_fb_dev);
+#endif
+
+
 }
 
 
@@ -307,6 +348,6 @@ void draw_mcursor(int x, int y)
 
 
 	/* OPTION 2: Draw geometry */
-	
+
 
 }

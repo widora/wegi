@@ -330,7 +330,7 @@ void egi_sleep(unsigned char fd, unsigned int s, unsigned int ms)
 	tmval.tv_usec=1000*ms;
 
 	do{
-		err=select(fd,NULL,NULL,NULL,&tmval); /* wait until timeout */
+		err=select(fd+1,NULL,NULL,NULL,&tmval); /* wait until timeout */
 		if(err<0)printf("%s: err<0\n",__func__);
 	}while( err < 0 && errno==EINTR ); 	      /* Ingore any signal */
 

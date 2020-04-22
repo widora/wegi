@@ -50,9 +50,44 @@ more details: https://www.kernel.org/doc/html/latest/input/input-programming.htm
 #define BTN_TASK                0x117
 
 
+(With reference to:  https://wiki.osdev.org/PS/2_Mouse )
+
+				--- 1. PS2 DATA ---
+
+		Bit7	  Bit6	    Bit5     Bit4    Bit3    Bit2      Bit1 	 Bit0
+	--------------------------------------------------------------------------------
+Byte 1:	    Y_overflow	X_overflow  Y_sign  X_sign    1	    Mid_Btn  Right_Btn	Left_Btn
+Byte 2:					X_Movement
+Byte 3:					Y_Movement
+
+
+				--- 2. Intellimouse #1 ---
+
+		Bit7	  Bit6	    Bit5     Bit4    Bit3    Bit2      Bit1 	 Bit0
+	--------------------------------------------------------------------------------
+Byte 1:	    Y_overflow	X_overflow  Y_sign  X_sign    1	    Mid_Btn  Right_Btn	Left_Btn
+Byte 2:					X_Movement
+Byte 3:					Y_Movement
+Byte 4:					Z_Movement (wheel)  (in 2's complement. valid value are -8 to +7)
+
+SETUP MAGIC:  { 0xf3, 200, 0xf3, 100, 0xf3, 80 }
+
+
+				--- 3. Intellimouse #2 ---
+
+		Bit7	  Bit6	    Bit5     Bit4    Bit3    Bit2      Bit1 	 Bit0
+	--------------------------------------------------------------------------------
+Byte 1:	    Y_overflow	X_overflow  Y_sign  X_sign    1	    Mid_Btn  Right_Btn	Left_Btn
+Byte 2:					X_Movement
+Byte 3:					Y_Movement
+Byte 4:	          0        0       5th_Btn  4th_Btn  		Z_Movement(Bit0-3)
+
+SETUP MAGIC:  { 0xf3, 200, 0xf3, 200, 0xf3, 80 }
+
 
 Midas Zhou
--------------------------------------------------------------------*/
+midaszhou@yahoo.com
+--------------------------------------------------------------------------------------*/
 #include "egi_input.h"
 #include "egi_timer.h"
 #include <stdio.h>
@@ -63,17 +98,35 @@ Midas Zhou
 #include <stdbool.h>
 #include <linux/input.h>
 
+/* 1. Inpute device: for generic input events */
 static int input_fd=-1;
-static fd_set rfds;
 static struct input_event  inevent;
-static EGI_INEVENT_CALLBACK  inevent_callback; /* To be assigned */
-/* TODO: mutex lock for inevent_callback */
+static EGI_INEVENT_CALLBACK  inevent_callback; 	/* To be assigned */
+/* ??? mutex lock for inevent_callback */
 
-static bool tok_loopread_running;       /* token for loopread is running if true */
-static bool cmd_end_loopread;           /* command to end loopread if true */
-static pthread_t thread_loopread;
-
+static bool tok_loopread_event_running;         	/* token for loopread is running if true */
+static bool cmd_end_loopread_event;            	/* command to end loopread if true */
+static pthread_t thread_loopread_event;
 static void *egi_input_loopread(void *arg);
+
+
+/* 2. Input device: for mouse */
+#if 1 /* set mouse type to Intellimouse #1 */
+static unsigned char setup_data[6]={0xf3,200,0xf3,100,0xf3,80};
+#else /* set mouse type to Intellimouse #2 */
+static unsigned char setup_data[6]={0xf3,200,0xf3,200,0xf3,80};
+#endif
+
+static int mouse_fd=-1;
+static unsigned char mouse_data[4];
+static EGI_MOUSE_CALLBACK  mouse_callback; 	/* To be assigned */
+/* ??? mutex lock for mouse_callback */
+
+static bool tok_loopread_mouse_running;		/* token for loopread is running if true */
+static bool cmd_end_loopread_mouse;           	/* command to end loopread if true */
+static pthread_t thread_loopread_mouse;
+static void *egi_mouse_loopread(void *arg);
+
 
 /*---------------------------------------------------
 Call this function before loopread input device
@@ -94,22 +147,22 @@ Return:
 int egi_start_inputread(const char *dev_name)
 {
 
-	if(tok_loopread_running==true) {
+	if(tok_loopread_event_running==true) {
 		printf("%s: inevent loopread has been running already!\n",__func__);
 		return -1;
 	}
 
-	cmd_end_loopread=false;
+	cmd_end_loopread_event=false;
 
         /* start touch_read thread */
-        if( pthread_create(&thread_loopread, NULL, (void *)egi_input_loopread, (void *)dev_name) !=0 )
+        if( pthread_create(&thread_loopread_event, NULL, (void *)egi_input_loopread, (void *)dev_name) !=0 )
         {
                 printf("%s: Fail to create inevent loopread thread!\n", __func__);
                 return -1;
         }
 
         /* reset token */
-        tok_loopread_running=true;
+        tok_loopread_event_running=true;
 
 	return 0;
 }
@@ -124,31 +177,107 @@ Return:
 ------------------------------*/
 int egi_end_inputread(void)
 {
-	if(tok_loopread_running==false) {
+	if(tok_loopread_event_running==false) {
 		printf("%s: inevent loopread has been ceased already!\n",__func__);
 		return -1;
 	}
 
         /* Set indicator to end loopread */
-        cmd_end_loopread=true;
+        cmd_end_loopread_event=true;
 
         /* Wait to join touch_loopread thread */
-        if( pthread_join(thread_loopread, NULL ) !=0 ) {
-                printf("%s:Fail to join thread_loopread.\n", __func__);
+        if( pthread_join(thread_loopread_event, NULL ) !=0 ) {
+                printf("%s:Fail to join thread_loopread_event.\n", __func__);
                 return -1;
         }
 
 	/* reset cmd and token */
-	cmd_end_loopread=false;
-	tok_loopread_running=false;
+	cmd_end_loopread_event=false;
+	tok_loopread_event_running=false;
 
-
-	/* ccc */
+	/* close fd */
 	close(input_fd);
+	input_fd=-1;
 
 	return 0;
 }
 
+
+/*---------------------------------------------------
+Call this function before loopread mice/mouseX device
+----------------------------------------------------*/
+void egi_mouse_setCallback(EGI_MOUSE_CALLBACK callback)
+{
+	mouse_callback=callback;
+}
+
+
+/*----------------------------------------------
+Run loopread mice/mouseX data in a thread.
+
+@dev_name:	Mouse dev name
+		NULL, defautl "/dev/input/mice"
+
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------*/
+int egi_start_mouseread(const char *dev_name)
+{
+	if(tok_loopread_mouse_running==true) {
+		printf("%s: inevent loopread has been running already!\n",__func__);
+		return -1;
+	}
+
+	cmd_end_loopread_mouse=false;
+
+        /* start touch_read thread */
+        if( pthread_create(&thread_loopread_mouse, NULL, (void *)egi_mouse_loopread, (void *)dev_name) !=0 )
+        {
+                printf("%s: Fail to create mouse loopread thread!\n", __func__);
+                return -1;
+        }
+
+        /* reset token */
+        tok_loopread_mouse_running=true;
+
+	return 0;
+}
+
+
+/*-------------------------------
+End inevent loopread.
+
+Return:
+	0	OK
+	<0	Fails
+------------------------------*/
+int egi_end_mouseread(void)
+{
+	if(tok_loopread_mouse_running==false) {
+		printf("%s: inevent loopread has been ceased already!\n",__func__);
+		return -1;
+	}
+
+        /* Set indicator to end loopread */
+        cmd_end_loopread_mouse=true;
+
+        /* Wait to join touch_loopread thread */
+        if( pthread_join(thread_loopread_mouse, NULL ) !=0 ) {
+                printf("%s:Fail to join thread_loopread_event.\n", __func__);
+                return -1;
+        }
+
+	/* reset cmd and token */
+	cmd_end_loopread_mouse=false;
+	tok_loopread_mouse_running=false;
+
+	/* close fd */
+	close(mouse_fd);
+	mouse_fd=-1;
+
+	return 0;
+}
 
 
 /*------------------------------------------------------
@@ -161,9 +290,10 @@ event reaches.
 ----------------------------------------------------*/
 static void *egi_input_loopread( void* arg )
 {
+	fd_set rfds;
 	struct timeval tmval;
 	int retval;
-	char *dev_name=(char *)arg;
+	const char *dev_name=(const char *)arg;
 
 	if(dev_name==NULL )
 		return (void *)-1;
@@ -190,27 +320,37 @@ static void *egi_input_loopread( void* arg )
 
 	------------------------------------------ */
 
-	input_fd=open( dev_name, O_RDONLY|O_CLOEXEC);
-	#if 0  /* to check in while() */
-	if(input_fd<0) {
-		printf("%s: Open input event: %s", __func__, strerror(errno));
-		return (void *)-1;
-	}
-	#endif
-
 	/* Loop input select read */
 	while(1) {
 		/* Check end_loopread command */
-		if(cmd_end_loopread)
+		if(cmd_end_loopread_event)
 			break;
 
 		/* Check fd, and try to re_open if necessary. */
 		while(input_fd<0) {
-			printf("%s: Input fd is invalid, input device may be offline! \n",__func__);
-			tm_delayms(500);
-			input_fd=open( dev_name, O_RDONLY|O_CLOEXEC);
+			input_fd=open( dev_name, O_RDWR|O_CLOEXEC);
+			if(input_fd<0) {
+				printf("%s: Open '%s' fail: %s.\n",__func__, dev_name, strerror(errno));
+				tm_delayms(250);
+			}
+			else if(input_fd>0) {
+				printf("%s: succeed to open '%s'.\n",__func__, dev_name);
+				/* set mouse type to Intellimouse
+				 * If the eventX device is mapped to /dev/input/mice or mouseX etc.., it will fail!?
+				 * Instead, you should set the type to /dev/input/mice or mouseX etc..
+				 */
+				retval=write(input_fd, setup_data, sizeof(setup_data));
+				if(retval<=0) {
+					printf("%s: Fail to set as Intellimouse! retval=%d. \n",__func__, retval);
+				} else {
+					/* Read out reply to discard  */
+					printf("%s: Succeed to set as Intellimouse! \n",__func__);
+					read(input_fd, &inevent, sizeof(struct input_event));
+				}
+			}
 		}
 
+		/* To select fd */
 		FD_ZERO(&rfds);
 		FD_SET( input_fd, &rfds);
 		tmval.tv_sec=1;
@@ -222,19 +362,19 @@ static void *egi_input_loopread( void* arg )
 			continue;
 		}
 		else if(retval==0) {
-			printf("Time out\n");
+			//printf("Time out\n");
 			continue;
 		}
-
+		/* Read input fd and trigger callback */
 		if(FD_ISSET(input_fd, &rfds)) {
 			retval=read(input_fd, &inevent, sizeof(struct input_event));
-			if(retval<0 && errno==ENODEV) {
+			if(retval<0 && errno==ENODEV) {  /* Device is offline */
 				printf("%s: retval=%d, read inevent :%s\n",__func__, retval, strerror(errno));
 				if(close(input_fd)!=0)
 					printf("%s: close input_fd :%s\n",__func__, strerror(errno));
-				printf("%s: close input_fd and reset it to %d\n", __func__, input_fd);
-				input_fd=-1;
-				tm_delayms(500);
+				input_fd=-1;	/* close() will not reset it */
+				printf("%s: Device '%s' is offline. close input_fd and reset it to %d. \n", __func__, dev_name, input_fd);
+				tm_delayms(100);
 				continue;
 			}
 			else if(retval<0) {
@@ -250,9 +390,116 @@ static void *egi_input_loopread( void* arg )
 		}
 	}
 
-
 	close(input_fd);
 	input_fd=-1;
+	return (void *)0;
+}
+
+
+/*------------------------------------------------------
+		A thread fucntion
+Read mouse input data in loop.
+
+@arg:	devname for the mouse device.
+	if NULL, "/dev/input/mice"
+----------------------------------------------------*/
+static void *egi_mouse_loopread( void* arg )
+{
+	fd_set rfds;
+	struct timeval tmval;
+	int retval;
+
+	const char *dev_name="/dev/input/mice";
+	if(arg!=NULL)
+		dev_name=(const char *)arg;
+
+	/* Loop input select read */
+	while(1) {
+		/* Check end_loopread command */
+		if(cmd_end_loopread_mouse)
+			break;
+
+		/* Check fd, and try to re_open if necessary. */
+		while(mouse_fd<0) {
+			mouse_fd=open( dev_name, O_RDWR|O_CLOEXEC);
+			if(mouse_fd<0) {
+				printf("%s: Open '%s' fail: %s.\n",__func__, dev_name, strerror(errno));
+				tm_delayms(250);
+			}
+			else if(mouse_fd>0) {
+				printf("%s: succeed to open '%s'.\n",__func__, dev_name);
+				memset(mouse_data,0,sizeof(mouse_data));
+				/* set mouse type to Intellimouse */
+				retval=write( mouse_fd, setup_data,sizeof(setup_data));
+				if(retval<=0) {
+					printf("%s: Fail to set to as Intellimouse! retval=%d.\n",__func__, retval);
+				} else {
+					printf("%s: Succeed to set as Intellimouse!\n",__func__);
+					/* Read out reply to discard  */
+					read( mouse_fd, mouse_data, sizeof(mouse_data));
+				}
+			}
+		}
+
+		/* To select fd */
+		FD_ZERO(&rfds);
+		FD_SET( mouse_fd, &rfds);
+		tmval.tv_sec=1;
+		tmval.tv_usec=0;
+
+		retval=select( mouse_fd+1, &rfds, NULL, NULL, &tmval );
+		if(retval<0) {
+			printf("%s: select event: errno=%d, %s \n",__func__, errno, strerror(errno));
+			continue;
+		}
+		else if(retval==0) {
+			//printf("Time out\n");
+			continue;
+		}
+		/* Read input fd and trigger callback */
+		if(FD_ISSET(mouse_fd, &rfds)) {
+			retval=read(mouse_fd, mouse_data, sizeof(mouse_data));
+
+			/* For /dev/input/eventX and /dev/input/mouseX, ENODEV means device is offline.
+			 * For /dev/input/mice, it alway exists, so ENODEV case never happens.
+			 */
+			if(retval<0 && errno==ENODEV) {
+				printf("%s: read input mouse to get retval=%d, :%s \n",__func__, retval, strerror(errno));
+				if(close(mouse_fd)!=0)
+					printf("%s: close mouse_fd :%s\n",__func__, strerror(errno));
+				mouse_fd=-1;	/* close() will not reset it */
+				printf("%s: Device '%s' is offline. close mouse_fd and reset it to %d. \n", __func__, dev_name, mouse_fd);
+				tm_delayms(100);
+				continue;
+			}
+			else if(retval<0) {
+				printf("%s: read mouse to get retval=%d, errno=%d : %s\n",__func__, retval, errno, strerror(errno));
+				continue;
+			}
+			else if(retval==0) {
+				printf("%s: read mouse to get retval=0, errno=%d : %s\n",__func__, errno, strerror(errno));
+				continue;
+			}
+
+			/* Call back */
+			if(mouse_callback!=NULL) {
+				mouse_callback(mouse_data, sizeof(mouse_data));
+			}
+
+			#if 0 /* --- TEST ----  */
+			/* Parse mouse data */
+    			printf("Left:%d, Right:%d, Middle:%d,  dx=%d, dy=%d, (wheel)dz=%d\n",
+						mouse_data[0]&0x1, (mouse_data[0]&0x2) > 0, (mouse_data[0]&0x4) > 0,   /* 3 KEYL L.R.M */
+						(mouse_data[0]&0x10) ? mouse_data[1]-256 : mouse_data[1],  /* dx */
+						(mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2],  /* dy */
+						(mouse_data[3]&0x80) ? mouse_data[3]-256 : mouse_data[3]   /* dz, 2's complement */
+					);
+			#endif
+		}
+	}
+
+	close(mouse_fd);
+	mouse_fd=-1;
 	return (void *)0;
 }
 
