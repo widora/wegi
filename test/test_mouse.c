@@ -33,7 +33,7 @@ static void mouse_callback(unsigned char *mouse_data, int size); /* Mouse drived
 static void draw_mcursor(int x, int y);				 /* Draw the mouse cursor */
 
 
-int main(void)
+int main(int argc, char **argv)
 {
 
  /* <<<<<<  EGI general init  >>>>>> */
@@ -85,7 +85,10 @@ int main(void)
 
   /* Set sys FB mode */
   fb_set_directFB(&gv_fb_dev,false);
-  fb_position_rotate(&gv_fb_dev,3);
+  if(argc > 1)
+	fb_position_rotate(&gv_fb_dev,atoi(argv[1]));
+  else
+  	fb_position_rotate(&gv_fb_dev,3);
 
  /* <<<<<  End of EGI general init  >>>>>> */
 

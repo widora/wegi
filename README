@@ -96,6 +96,7 @@ egi_slider.c	type_slier ebox, for sliding bar.
 egi_list.c	type_list ebox
 egi_pic.c	type_pic ebox
 egi_procman.c   subprocess handling and its signal actions.
+egi_input.c	read mouse and other input events 
 
 egi_utils.c	some helper functions
 egi_fifo.c	a common fifo module for EGI

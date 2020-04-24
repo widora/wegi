@@ -113,6 +113,7 @@ typedef struct fbdev{
 					 * Note: Default FB set, as pos_rotate=0, is faster than other sets.
 					 *	for it only needs value assignment, while other sets need
 					 *	coordinate transforming/mapping calculations.
+					 *      Rotation coord as per RIGHT HAND RULE of LCD X,Y   ( x-->y grip direction. thumb --> z )
 					 */
 
 	int		pos_xres;	/* Resultion for X and Y direction, as per pos_rotate */
