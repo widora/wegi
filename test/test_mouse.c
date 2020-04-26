@@ -29,7 +29,7 @@ static bool LeftKey_down;	/* Mouse left key hold_down */
 static bool clear_bkgbuff;	/* Mouse Rigth key down to clear background image */
 static bool last_LeftKey_down;	/* To remember whether left key was down the last time */
 
-static void mouse_callback(unsigned char *mouse_data, int size); /* Mouse drived actions */
+static void mouse_callback(unsigned char *mouse_data, int size); /* Mouse driven actions */
 static void draw_mcursor(int x, int y);				 /* Draw the mouse cursor */
 
 
@@ -162,7 +162,7 @@ return 0;
 
 
 /*--------------------------------------------
-	Callback for input event
+	Callback for mouse input
 ---------------------------------------------*/
 static void mouse_callback(unsigned char *mouse_data, int size)
 {
@@ -206,7 +206,7 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 	//printf("get X=%d, Y=%d, Z=%d \n", mouseX, mouseY, mouseZ);
 
 
-	/* --- 5. Actions drived by mouse --- */
+	/* --- 5. Actions driven by mouse --- */
 	if(clear_bkgbuff)
 		fb_clear_bkgBuff(&gv_fb_dev, WEGI_COLOR_GRAY3);
        	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */

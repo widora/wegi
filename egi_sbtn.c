@@ -105,7 +105,7 @@ void egi_sbtn_refresh(EGI_RECTBTN *btn, char *tag)
                                          //btn->y0+(btn->height-btn->fh)/2-(btn->fh-bith)/2,           /* y0 */
                                          btn->y0 +btn->offy +(btn->height-btn->fh)/2, //(btn->pressed?2:0),           /* y0 */
                                                btn->tagcolor, -1, 255,                               /* fontcolor, transcolor,opaque */
-                                               NULL, NULL, NULL, NULL);                 	/* int *cnt, int *lnleft, int* penx, int* peny */
+                                               NULL, NULL, NULL, NULL, NULL);                 	/* *charmap,  *cnt, *lnleft, *penx, *peny */
  		}
 	}
 

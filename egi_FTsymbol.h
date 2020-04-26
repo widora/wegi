@@ -51,6 +51,21 @@ extern EGI_SYMPAGE sympg_ascii;  /* default font  LiberationMono-Regular */
 extern EGI_FONTS   egi_sysfonts; /* system font set */
 extern EGI_FONTS   egi_appfonts; /* APP font set */
 
+typedef struct FTsymbol_char_map	EGI_FTCHAR_MAP;		/* Char map for visiable/displayed characters. ---NOW!  */
+struct  FTsymbol_char_map {
+	int *charX;		/* Char FB/LCD coordinates X,Y array */
+	int *charY;
+	int *charPos;		/* Char buff positions, in bytes. */
+
+	/* Extension: color,size,...*/
+};
+
+
+EGI_FTCHAR_MAP* FTsymbol_create_charMap(size_t size);
+void 	FTsymbol_free_charMap(EGI_FTCHAR_MAP **chmap);
+
+void	FTsymbol_set_TabWidth( float factor);
+void	FTsymbol_set_SpaceWidth( float factor);
 int 	FTsymbol_load_library( EGI_FONTS *symlib );
 FT_Face FTsymbol_create_newFace( EGI_FONTS *symlib, const char *ftpath);
 void 	FTsymbol_release_library( EGI_FONTS *symlib );
@@ -73,7 +88,7 @@ int  	FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh,
 			       unsigned int pixpl,  unsigned int lines,  unsigned int gap,
                                int x0, int y0,
 			       int fontcolor, int transpcolor, int opaque,
- 			       int *cnt, int *lnleft, int* penx, int* peny );
+ 			       EGI_FTCHAR_MAP *chmap, int *cnt, int *lnleft, int* penx, int* peny );
 
 int  	FTsymbol_uft8strings_pixlen( FT_Face face, int fw, int fh, const unsigned char *pstr);
 

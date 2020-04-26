@@ -1,4 +1,4 @@
-/*-------------------------------------------------------------------
+ /*-------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
@@ -19,10 +19,26 @@ Midas Zhou
 #include "egi_input.h"
 #include "egi_FTsymbol.h"
 
+static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };
+static char txtbuff[1024];
+static int  charX[1024*2];
+static EGI_FTCHAR_MAP *chmap;
+
+static int mouseX, mouseY, mouseZ; /* Mouse position */
+
+static int fw=18;	/* Font size */
+static int fh=20;
+static int fgap=20/5;	/* Text line fgap : TRICKY ^_- */
+static int tlns;  //=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total available txt lines */
+
+static int penx;	/* Pen position */
+static int peny;
 
 static void write_txt(char *txt, int px, int py, EGI_16BIT_COLOR color);
-static int penx;
-static int peny;
+static void mouse_callback(unsigned char *mouse_data, int size);
+static void draw_mcursor(int x, int y);
+
+
 
 int main(void)
 {
@@ -58,6 +74,8 @@ int main(void)
         printf("Fail to load FT sysfonts, quit.\n");
         return -1;
   }
+  FTsymbol_set_SpaceWidth(1);
+  FTsymbol_set_TabWidth(2);
 
   #if 0
   printf("FTsymbol_load_appfonts()...\n");
@@ -81,6 +99,10 @@ int main(void)
   fb_set_directFB(&gv_fb_dev,false);
   fb_position_rotate(&gv_fb_dev,0);
 
+  /* Set mouse callback function and start mouse readloop */
+  egi_mouse_setCallback(mouse_callback);
+  egi_start_mouseread("/dev/input/mice");
+
  /* <<<<<  End of EGI general init  >>>>>> */
 
 
@@ -95,23 +117,38 @@ int main(void)
 	int term_fd;
 	char chs[5];
 	char ch;
-	char buff[1024]={0};
+
 	int  k;
+	int  i;
 	fd_set rfds;
 	int retval;
 	struct timeval tmval;
 	bool	cursor_blink=false;
+	struct timeval tm_blink;
+	struct timeval tm_now;
 
+
+	/* Init. txt and charmap */
+	strcat(txtbuff,"歪朵拉的惊奇\nwidora_NEO\n   --- hell world ---\n\n");
+	chmap=FTsymbol_create_charMap(sizeof(txtbuff));
+	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
+	tlns=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total available txt lines */
 
         /* Init. mouse position */
-//        mouseX=gv_fb_dev.pos_xres/2;
-//        mouseY=gv_fb_dev.pos_yres/2;
+        mouseX=gv_fb_dev.pos_xres/2;
+        mouseY=gv_fb_dev.pos_yres/2;
 
         /* Init. FB working buffer */
         fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY4);
 	fbset_color(WEGI_COLOR_WHITE);
-	draw_filled_rect(&gv_fb_dev, 10, 30, 320-1-10,240-1-10);
+	//draw_filled_rect(&gv_fb_dev, 10, 30, 320-1-10,240-1-10);
+	draw_filled_rect(&gv_fb_dev, txtbox.startxy.x, txtbox.startxy.y, txtbox.endxy.x, txtbox.endxy.y );
 	write_txt("EGI Editor",120,5,WEGI_COLOR_LTBLUE);
+	/* draw grid */
+	fbset_color(WEGI_COLOR_GRAYB);
+	for(k=0; k<=tlns; k++)
+		draw_line(&gv_fb_dev, txtbox.startxy.x, txtbox.startxy.y+k*(fh+fgap), txtbox.endxy.x, txtbox.startxy.y+k*(fh+fgap));
+
         fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 	fb_render(&gv_fb_dev);
 
@@ -124,7 +161,24 @@ int main(void)
         new_settings.c_cc[VTIME]=0;
         tcsetattr(0, TCSANOW, &new_settings);
 
-	k=0;
+	k=cstr_strcount_uft8((const unsigned char *)txtbuff);
+	printf("Total %d chars\n", k);
+	gettimeofday(&tm_blink,NULL);
+
+	/* ---TEST: EGI_FTCHAR_MAP */
+       	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
+	write_txt(txtbuff, txtbox.startxy.x, txtbox.startxy.y, WEGI_COLOR_BLACK);
+	fbset_color(WEGI_COLOR_RED);
+	for(i=0; i<k; i++) {
+		printf("k=%d\n",i);
+		//penx=charXY[2*i]; peny=charXY[2*i+1];
+		penx=chmap->charX[i]; peny=chmap->charY[i];
+		draw_filled_rect(&gv_fb_dev, penx, peny, penx+1, peny+fh+fgap-1);
+		fb_render(&gv_fb_dev);
+		tm_delayms(500);
+	}
+	exit(0);
+
 	while(1) {
 		ch=0;
 
@@ -150,29 +204,40 @@ int main(void)
 			/* NOT char */
 			ch=0;
 		}
-		//printf("ch=%d\n",ch);
+		if(ch>0)
+			printf("ch=%d\n",ch);
 
 		if( ch==0x7F && k>0 ) { /* backspace */
-			printf("backspace\n");
-			buff[--k]=0;
+			//printf("backspace\n");
+			txtbuff[--k]=0;
 		}
 		else if(ch>0)
-			buff[k++]=ch;
+			txtbuff[k++]=ch;
 
 		/* Display txt */
         	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-		write_txt(buff, 20, 40, WEGI_COLOR_BLACK);
+		write_txt(txtbuff, txtbox.startxy.x, txtbox.startxy.y, WEGI_COLOR_BLACK);
 
 		/* Cursor blink */
-		cursor_blink = !cursor_blink;
-		if(cursor_blink)
-			write_txt("|",penx,peny,WEGI_COLOR_RED);
-		if(ch<=0)
-			tm_delayms(500);
+		gettimeofday(&tm_now, NULL);
+		if( tm_signed_diffms(tm_blink, tm_now) > 500	 ) {
+			tm_blink=tm_now;
+			cursor_blink = !cursor_blink;
+		}
+		if(cursor_blink) {
+			#if 0 /* Use char '|' */
+			write_txt("|",penx,peny,WEGI_COLOR_BLACK);
+			#else /* Draw geometry */
+			fbset_color(WEGI_COLOR_RED);
+			draw_filled_rect(&gv_fb_dev, penx, peny, penx+1, peny+fh+fgap-1);
+			#endif
+		}
+
+		/* 5. Draw mouse cursor icon */
+        	draw_mcursor(mouseX, mouseY);
 
 		fb_render(&gv_fb_dev);
 	}
-
 
 
 
@@ -204,9 +269,9 @@ int main(void)
                 }
                 /* Read input fd and trigger callback */
                 if(FD_ISSET(term_fd, &rfds)) {
-			memset(buff,0,sizeof(buff));
-                        retval=read(term_fd, buff, sizeof(buff));
-			printf("buff:%s",buff);
+			memset(txtbuff,0,sizeof(txtbuff));
+                        retval=read(term_fd, txtbuff, sizeof(txtbuff));
+			printf("txtbuff:%s",txtbuff);
 		}
 	}
 
@@ -217,6 +282,10 @@ int main(void)
 
 	/* Reset termio */
         tcsetattr(0, TCSANOW,&old_settings);
+
+	/* My release */
+	FTsymbol_free_charMap(&chmap);
+
 
  /* <<<<<  EGI general release   >>>>>> */
  printf("FTsymbol_release_allfonts()...\n");
@@ -246,25 +315,87 @@ return 0;
 
 
 
-
-
 /*-------------------------------
-        Write TXT
+        WriteFB TXT
 @txt:   Input text
 @px,py: LCD X/Y for start point.
 -------------------------------*/
 static void write_txt(char *txt, int px, int py, EGI_16BIT_COLOR color)
 {
-	int fw=18;
-	int fh=20;
-	int gap=2;
-
-       	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
-                                        fw, fh,(const unsigned char *)txt,    /* fw,fh, pstr */
-                                        320-40, (240-40-10)/(fh+gap), gap,                                  /* pixpl, lines, gap */
-                                        px, py,                                    /* x0,y0, */
-                                        color, -1, 255,       /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, &penx, &peny);      /* int *cnt, int *lnleft, int* penx, int* peny */
+       	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
+                                        fw, fh,(const unsigned char *)txt,    	/* fw,fh, pstr */
+                                        320-40, tlns, fgap,      /* pixpl, lines, fgap */
+                                        px, py,                                 /* x0,y0, */
+                                        color, -1, 255,      			/* fontcolor, transcolor,opaque */
+                                        chmap, NULL, NULL, &penx, &peny);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
 }
 
+
+/*--------------------------------------------
+        Callback for mouse input
+Just update mouseXYZ
+---------------------------------------------*/
+static void mouse_callback(unsigned char *mouse_data, int size)
+{
+        /* 1. Check pressed key */
+        if(mouse_data[0]&0x1)
+                printf("Leftkey down!\n");
+
+        if(mouse_data[0]&0x2)
+                printf("Right key down!\n");
+
+        if(mouse_data[0]&0x4)
+                printf("Mid key down!\n");
+
+        /*  2. Get mouse X */
+        mouseX += ( (mouse_data[0]&0x10) ? mouse_data[1]-256 : mouse_data[1] );
+        if(mouseX > gv_fb_dev.pos_xres -5)
+                mouseX=gv_fb_dev.pos_xres -5;
+        else if(mouseX<0)
+                mouseX=0;
+
+        /* 3. Get mouse Y: Notice LCD Y direction!  Minus for down movement, Plus for up movement!
+         * !!! For eventX: Minus for up movement, Plus for down movement!
+         */
+        mouseY -= ( (mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2] );
+        if(mouseY > gv_fb_dev.pos_yres -5)
+                mouseY=gv_fb_dev.pos_yres -5;
+        else if(mouseY<0)
+                mouseY=0;
+
+        /* 4. Get mouse Z */
+        mouseZ += ( (mouse_data[3]&0x80) ? mouse_data[3]-256 : mouse_data[3] );
+        //printf("get X=%d, Y=%d, Z=%d \n", mouseX, mouseY, mouseZ);
+}
+
+
+/*--------------------------------
+ Draw cursor for the mouse movement
+1. In txtbox area, use txtcursor.
+2. Otherwise, apply mcursor.
+----------------------------------*/
+static void draw_mcursor(int x, int y)
+{
+        static EGI_IMGBUF *mcimg=NULL;
+        static EGI_IMGBUF *tcimg=NULL;
+	EGI_POINT pt;
+        if(mcimg==NULL)
+                mcimg=egi_imgbuf_readfile("/mmc/mcursor.png");
+	if(tcimg==NULL) {
+		tcimg=egi_imgbuf_readfile("/mmc/txtcursor.png");
+		egi_imgbuf_resize_update(&tcimg, fw, fh );
+	}
+
+	pt.x=mouseX;	pt.y=mouseY;
+        /* OPTION 1: Use EGI_IMGBUF */
+	if( point_inbox(&pt, &txtbox) && tcimg!=NULL ) {
+                egi_subimg_writeFB(tcimg, &gv_fb_dev, 0, WEGI_COLOR_RED, mouseX, mouseY ); /* subnum,subcolor,x0,y0 */
+	}
+	else if(mcimg) {
+               	egi_subimg_writeFB(mcimg, &gv_fb_dev, 0, -1, mouseX, mouseY ); /* subnum,subcolor,x0,y0 */
+	}
+
+        /* OPTION 2: Draw geometry */
+
+}
 

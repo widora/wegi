@@ -73,11 +73,14 @@ EGI_IMGBUF  *egi_imgbuf_avgsoft( EGI_IMGBUF *ineimg, int size, bool alpha_on, bo
  * 2D array for color/alpha data processsing.
  */
 EGI_IMGBUF  *egi_imgbuf_avgsoft2(const EGI_IMGBUF *ineimg, int size, bool alpha_on); /* use 1D array data */
+
 //EGI_IMGBUF  *egi_imgbuf_resize(const EGI_IMGBUF *ineimg, unsigned int width, unsigned int height);
 EGI_IMGBUF  *egi_imgbuf_resize(const EGI_IMGBUF *ineimg, int width, int height);
-int 	egi_imgbuf_blur_update(EGI_IMGBUF **pimg, int size, bool alpha_on);
 int 	egi_imgbuf_resize_update(EGI_IMGBUF **pimg, unsigned int width, unsigned int height);
+
+int 	egi_imgbuf_blur_update(EGI_IMGBUF **pimg, int size, bool alpha_on);
 int	egi_imgbuf_blend_imgbuf(EGI_IMGBUF *eimg, int xb, int yb, const EGI_IMGBUF *addimg );
+
 EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle);	/* mutex_lock */
 int 	egi_imgbuf_rotate_update(EGI_IMGBUF **eimg, int angle);
 

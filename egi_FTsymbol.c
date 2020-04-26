@@ -21,10 +21,69 @@ Midas Zhou
 
 /* <<<<<<<<<<<<<<<<<<   FreeType Fonts  >>>>>>>>>>>>>>>>>>>>>>*/
 
-EGI_SYMPAGE sympg_ascii={0}; /* default  LiberationMono-Regular */
-
+EGI_SYMPAGE sympg_ascii={0}; 	/* default  LiberationMono-Regular */
 EGI_FONTS  egi_sysfonts = {.ftname="sysfonts",};
 EGI_FONTS  egi_appfonts = {.ftname="appfonts",};
+
+static float  factor_TabWidth=3.0;	/* TabWidth/Font_Width */
+static float  factor_SpaceWidth=1.0;	/* SpaceWidth/FontWidth */
+
+
+/*------------------------------------------------
+To create a char map with given size.
+
+@size:	How many chars hold in the map.
+
+Return:
+	A pointer to char map	OK
+	NULL			Fails
+-------------------------------------------------*/
+EGI_FTCHAR_MAP* FTsymbol_create_charMap(size_t size)
+{
+	EGI_FTCHAR_MAP  *chmap=calloc(1, sizeof(EGI_FTCHAR_MAP));
+	if(chmap==NULL) {
+		printf("%s: Fail to calloc chmap!\n",__func__);
+		return NULL;
+	}
+
+	chmap->charX=calloc(1, sizeof(typeof(chmap->charX))*size );
+	chmap->charY=calloc(1, sizeof(typeof(chmap->charY))*size );
+	chmap->charPos=calloc(1, sizeof(typeof(chmap->charPos))*size );
+
+	if(chmap->charX==NULL || chmap->charY==NULL || chmap->charPos==NULL )
+		FTsymbol_free_charMap(&chmap);
+
+	return chmap;
+}
+
+/*----------------------------------------------
+	Free an EGI_FTCHAR_MAP.
+-----------------------------------------------*/
+void FTsymbol_free_charMap(EGI_FTCHAR_MAP **chmap)
+{
+	if(  chmap==NULL || *chmap==NULL)
+		return;
+
+	free( (*chmap)->charX );
+	free( (*chmap)->charY );
+	free( (*chmap)->charPos );
+	free( *chmap );
+
+	*chmap=NULL;
+}
+
+
+/*--------------------------------------
+Set TAB and SPACE width facotrs.
+---------------------------------------*/
+void FTsymbol_set_TabWidth( float factor)
+{
+	factor_TabWidth=factor;
+}
+void FTsymbol_set_SpaceWidth( float factor)
+{
+	factor_SpaceWidth=factor;
+}
 
 
 /*--------------------------------------
@@ -847,7 +906,7 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 	bbox_W = (advanceX > slot->bitmap.width ? advanceX : slot->bitmap.width);
 
 	/* check bitmap data, we need bbox_W here */
-	if(ftsympg.alpha==NULL) {
+	if(ftsympg.alpha==NULL || wcode == 9 ) {	/* TAB has wrong image! */
 //		printf("%s: Alpha data is NULL for unicode=0x%x\n", __func__, wcode);
 //		draw_rect(fb_dev, x0, y0, x0+bbox_W, y0+fh );
 
@@ -857,10 +916,14 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 	 	 */
 		/* If a HALF/FULL Width SPACE */
 		if( wcode == 12288 ) {  //   wcode==12288 LOCALE SPACE; wcode==32 ASCII SPACE
-			*xleft -= fw;
+			// *xleft -= fw;
+			*xleft -= fw*factor_SpaceWidth;
 		}
 		else if ( wcode == 32 ) //(wchar_t)(L"") )
-			*xleft -= fw/2; //2*bbox_w;
+			// *xleft -= fw/2; //2*bbox_w;
+			*xleft -= fw*factor_SpaceWidth/2;
+		else if ( wcode == 9 ) /* TAB */
+			*xleft -= fw*factor_TabWidth;
 		else {/* Maybe other unicode, it is supposed to have defined bitmap.width and advanceX */
 			*xleft -= bbox_W;
 		}
@@ -876,6 +939,7 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 	/* adjust bitmap position relative to boundary box */
 	delX= slot->bitmap_left;
 	delY= -slot->bitmap_top + fh;
+	//printf("symH=%d,  dely=%d\n", ftsympg.symheight,delY);
 
 #if 0 /* ----TEST: Display Boundary BOX------- */
 	/* Note: Assume boundary box start from x0,y0(same as bitmap)
@@ -1044,6 +1108,8 @@ use following COLOR:
                 0       100% back ground color/transparent
                 255     100% front color
 
+@charXY:	array of char start positon XYs.
+		The caller MUST insure enough space.
 @cnt:		Total printable characters written.
 @lnleft:	Lines left unwritten.
 
@@ -1059,10 +1125,11 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 			       unsigned int pixpl,  unsigned int lines,  unsigned int gap,
                                int x0, int y0,
 			       int fontcolor, int transpcolor, int opaque,
-			       int *cnt, int *lnleft, int* penx, int* peny )
+			       EGI_FTCHAR_MAP *chmap, int *cnt, int *lnleft, int* penx, int* peny )
 {
 	int size;
 	int count;		/* number of character written to FB*/
+	int mapcnt;		/* include RETURN */
 	int px,py;		/* bitmap insertion origin(BBOX left top), relative to FB */
 	const unsigned char *p=pstr;
         int xleft; 	/* available pixels remainded in current line */
@@ -1082,14 +1149,24 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 	py=y0;
 	xleft=pixpl;
 	count=0;
+	mapcnt=0;
 	ln=0;		/* Line index from 0 */
 
 	while( *p ) {
 
+
 		/* --- check whether lines are used up --- */
 		if( ln >= lines) {  /* ln index from 0 */
-//			printf("%s: Lines not enough! finish only %d chars.\n", __func__, count);
+			//printf("%s: ln=%d, Lines not enough! finish only %d chars.\n", __func__, ln, count);
 			//return p-pstr;
+
+			/* Fillin CHAR MAP */
+			if(chmap) {
+				chmap->charX[mapcnt]=0;  /* line start */
+				chmap->charY[mapcnt]=py;
+				mapcnt++;
+			}
+
 			/* here ln is the written line number,not index number */
 			goto FUNC_END;
 		}
@@ -1121,15 +1198,25 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 		 */
 		if(*wcstr=='\n') {
 //			printf(" ... ASCII code: Next Line ...\n ");
+
+			/* Fillin CHAR MAP before start a new line */
+			if(chmap) {
+				chmap->charX[mapcnt]=x0+pixpl-xleft;  /* line end */
+				chmap->charY[mapcnt]=py;
+				mapcnt++;
+			}
+
 			/* change to next line, +gap */
 			ln++;
 			xleft=pixpl;
 			py+= fh+gap;
+
+
 			continue;
 		}
-		/* If other control codes or DEL, skip it */
-		else if( *wcstr < 32 || *wcstr==127  ) {
-//			printf(" ASCII control code: %d\n", *wcstr);
+		/* If other control codes or DEL, skip it. To avoid print some strange icons.  */
+		else if( (*wcstr < 32 || *wcstr==127) && *wcstr!=9 ) {	/* Exclude TAB(9) */
+			printf("%s: ASCII control code: %d\n", __func__, *wcstr);
 			continue;
 		}
 
@@ -1150,11 +1237,24 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 			xleft=pixpl;
 			py+= fh+gap;
 		}
+		else {
+			/* Fillin CHAR MAP */
+			if(chmap) {
+				chmap->charX[mapcnt]=px;  /* count increased. */
+				chmap->charY[mapcnt]=py;
+				mapcnt++;
+				//chmap->charX[count-1]=px;  /* count increased. */
+				//chmap->charY[count-1]=py;
+			}
+		}
+
 
 	} /* end while() */
 
+
 	/* if finishing writing whole strings, ln++ to get written lines, as ln index from 0 */
-	ln++;
+	if(*pstr)   /* To rule out NULL input */
+		ln++;
 
 	/* ??? TODO: if finishing writing whole strings, reset px,py to next line. */
 #if 0
@@ -1252,7 +1352,7 @@ int  FTsymbol_uft8strings_pixlen( FT_Face face, int fw, int fh, const unsigned c
 			continue;
 		}
 		/* If other control codes or DEL, skip it */
-		else if( *wcstr < 32 || *wcstr==127  ) {
+		else if( (*wcstr < 32 || *wcstr==127) && *wcstr!=9 ) {	/* Exclude TAB(9) */
 //			printf(" ASCII control code: %d\n", *wcstr);
 			continue;
 		}

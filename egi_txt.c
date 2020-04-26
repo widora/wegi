@@ -755,7 +755,7 @@ int egi_txtbox_refresh(EGI_EBOX *ebox)
 		                              data_txt->pixpl, data_txt->nl,  data_txt->gap,
                 		              x0+offx, y0+offy,
                                		      data_txt->color, -1, 255,
-					      NULL, NULL, NULL, NULL);
+					      NULL, NULL, NULL, NULL, NULL); /* *charmap,  *cnt, *lnleft, *penx, *peny */
 	}
 
 

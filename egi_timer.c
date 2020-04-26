@@ -233,7 +233,7 @@ void tm_delayms(unsigned long ms)
 }
 
 
-/*----------  OBSELETE -------------------------------------
+/*------------------  OBSOLETE -----------------------------
 return:
     TRUE: in every preset time interval gap(us), or time
 interval exceeds gap(us).
