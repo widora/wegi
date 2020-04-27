@@ -51,11 +51,17 @@ extern EGI_SYMPAGE sympg_ascii;  /* default font  LiberationMono-Regular */
 extern EGI_FONTS   egi_sysfonts; /* system font set */
 extern EGI_FONTS   egi_appfonts; /* APP font set */
 
-typedef struct FTsymbol_char_map	EGI_FTCHAR_MAP;		/* Char map for visiable/displayed characters. ---NOW!  */
+typedef struct FTsymbol_char_map	EGI_FTCHAR_MAP;		/* Char map for visiable/displayed characters. ---NOW!
+								 * Call FTsymbol_uft8strings_writeFB() to fill in the struct
+								 */
 struct  FTsymbol_char_map {
-	int *charX;		/* Char FB/LCD coordinates X,Y array */
-	int *charY;
-	int *charPos;		/* Char buff positions, in bytes. */
+	unsigned int	count;		/* Number of chars + 1
+					 * Note: count-1 for chars, the last data is always for the new inserting point
+					 */
+	int 		*charX;		/* Array, Char start point FB/LCD coordinates X,Y */
+	int 		*charY;
+	unsigned int	*charPos;	/* Array, Char offset position values, in bytes.
+					   while in demo codes: pos=charPos[pch],  pch as the index of the array, pos as offset of txtbuff */
 
 	/* Extension: color,size,...*/
 };

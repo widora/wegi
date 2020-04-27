@@ -33,7 +33,8 @@ static float  factor_SpaceWidth=1.0;	/* SpaceWidth/FontWidth */
 To create a char map with given size.
 
 @size:	How many chars hold in the map.
-
+	!!!NOTE, size-1 for char, and the last data is
+	always for new insterting point.
 Return:
 	A pointer to char map	OK
 	NULL			Fails
@@ -46,9 +47,10 @@ EGI_FTCHAR_MAP* FTsymbol_create_charMap(size_t size)
 		return NULL;
 	}
 
-	chmap->charX=calloc(1, sizeof(typeof(chmap->charX))*size );
-	chmap->charY=calloc(1, sizeof(typeof(chmap->charY))*size );
-	chmap->charPos=calloc(1, sizeof(typeof(chmap->charPos))*size );
+	/* To allocate just once!???? */
+	chmap->charX=calloc(1, sizeof(typeof(*chmap->charX))*(size+1) );
+	chmap->charY=calloc(1, sizeof(typeof(*chmap->charY))*(size+1) );
+	chmap->charPos=calloc(1, sizeof(typeof(*chmap->charPos))*(size+1) );
 
 	if(chmap->charX==NULL || chmap->charY==NULL || chmap->charPos==NULL )
 		FTsymbol_free_charMap(&chmap);
@@ -1132,7 +1134,7 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 	int mapcnt;		/* include RETURN */
 	int px,py;		/* bitmap insertion origin(BBOX left top), relative to FB */
 	const unsigned char *p=pstr;
-        int xleft; 	/* available pixels remainded in current line */
+        int xleft; 		/* available pixels remainded in current line */
         unsigned int ln; 	/* lines used */
  	wchar_t wcstr[1];
 
@@ -1149,23 +1151,27 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 	py=y0;
 	xleft=pixpl;
 	count=0;
-	mapcnt=0;
 	ln=0;		/* Line index from 0 */
 
-	while( *p ) {
+	/* init char map */
+	mapcnt=0;
 
+	while( *p ) {
 
 		/* --- check whether lines are used up --- */
 		if( ln >= lines) {  /* ln index from 0 */
 			//printf("%s: ln=%d, Lines not enough! finish only %d chars.\n", __func__, ln, count);
 			//return p-pstr;
 
+			#if 0
 			/* Fillin CHAR MAP */
 			if(chmap) {
 				chmap->charX[mapcnt]=0;  /* line start */
 				chmap->charY[mapcnt]=py;
+				chmap->charPos[mapcnt]=p-pstr;
 				mapcnt++;
 			}
+			#endif
 
 			/* here ln is the written line number,not index number */
 			goto FUNC_END;
@@ -1197,12 +1203,13 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 		 * If return to next line
 		 */
 		if(*wcstr=='\n') {
-//			printf(" ... ASCII code: Next Line ...\n ");
+			//printf(" ... ASCII code: Next Line ...\n ");
 
 			/* Fillin CHAR MAP before start a new line */
 			if(chmap) {
 				chmap->charX[mapcnt]=x0+pixpl-xleft;  /* line end */
 				chmap->charY[mapcnt]=py;
+				chmap->charPos[mapcnt]=p-pstr-size;	/* reduce size */
 				mapcnt++;
 			}
 
@@ -1210,7 +1217,6 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 			ln++;
 			xleft=pixpl;
 			py+= fh+gap;
-
 
 			continue;
 		}
@@ -1240,14 +1246,12 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 		else {
 			/* Fillin CHAR MAP */
 			if(chmap) {
-				chmap->charX[mapcnt]=px;  /* count increased. */
+				chmap->charX[mapcnt]=px;  //!x0+pixpl-xleft;  /* char start point! */
 				chmap->charY[mapcnt]=py;
+				chmap->charPos[mapcnt]=p-pstr-size;	/* deduce size */
 				mapcnt++;
-				//chmap->charX[count-1]=px;  /* count increased. */
-				//chmap->charY[count-1]=py;
 			}
 		}
-
 
 	} /* end while() */
 
@@ -1275,6 +1279,13 @@ FUNC_END:
 		*penx=x0+pixpl-xleft;
 	if(peny != NULL)
 		*peny=py;
+
+	if(chmap != NULL) {  /* The last data is always the insterting point */
+		chmap->charX[mapcnt]=x0+pixpl-xleft;  /* line end */
+		chmap->charY[mapcnt]=py;
+		chmap->charPos[mapcnt]=p-pstr;
+		chmap->count=mapcnt+1;
+	}
 
 	return p-pstr;
 }
