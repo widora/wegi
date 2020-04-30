@@ -39,7 +39,7 @@ Return:
 	A pointer to char map	OK
 	NULL			Fails
 -------------------------------------------------*/
-EGI_FTCHAR_MAP* FTsymbol_create_charMap(size_t size)
+EGI_FTCHAR_MAP* FTcharmap_create(size_t size)
 {
 	EGI_FTCHAR_MAP  *chmap=calloc(1, sizeof(EGI_FTCHAR_MAP));
 	if(chmap==NULL) {
@@ -53,7 +53,7 @@ EGI_FTCHAR_MAP* FTsymbol_create_charMap(size_t size)
 	chmap->charPos=calloc(1, sizeof(typeof(*chmap->charPos))*(size+1) );
 
 	if(chmap->charX==NULL || chmap->charY==NULL || chmap->charPos==NULL )
-		FTsymbol_free_charMap(&chmap);
+		FTcharmap_free(&chmap);
 
 	return chmap;
 }
@@ -61,7 +61,7 @@ EGI_FTCHAR_MAP* FTsymbol_create_charMap(size_t size)
 /*----------------------------------------------
 	Free an EGI_FTCHAR_MAP.
 -----------------------------------------------*/
-void FTsymbol_free_charMap(EGI_FTCHAR_MAP **chmap)
+void FTcharmap_free(EGI_FTCHAR_MAP **chmap)
 {
 	if(  chmap==NULL || *chmap==NULL)
 		return;
@@ -1110,8 +1110,6 @@ use following COLOR:
                 0       100% back ground color/transparent
                 255     100% front color
 
-@charXY:	array of char start positon XYs.
-		The caller MUST insure enough space.
 @cnt:		Total printable characters written.
 @lnleft:	Lines left unwritten.
 
@@ -1127,7 +1125,181 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 			       unsigned int pixpl,  unsigned int lines,  unsigned int gap,
                                int x0, int y0,
 			       int fontcolor, int transpcolor, int opaque,
-			       EGI_FTCHAR_MAP *chmap, int *cnt, int *lnleft, int* penx, int* peny )
+			       int *cnt, int *lnleft, int* penx, int* peny )
+{
+	int size;
+	int count;		/* number of character written to FB*/
+	int px,py;		/* bitmap insertion origin(BBOX left top), relative to FB */
+	const unsigned char *p=pstr;
+        int xleft; 	/* available pixels remainded in current line */
+        unsigned int ln; 	/* lines used */
+ 	wchar_t wcstr[1];
+
+	/* check input data */
+	if(face==NULL) {
+		printf("%s: input FT_Face is NULL!\n",__func__);
+		return -1;
+	}
+
+	if( pixpl==0 || lines==0 || pstr==NULL )
+		return -1;
+
+	px=x0;
+	py=y0;
+	xleft=pixpl;
+	count=0;
+	ln=0;		/* Line index from 0 */
+
+	while( *p ) {
+
+		/* --- check whether lines are used up --- */
+		if( ln >= lines) {  /* ln index from 0 */
+//			printf("%s: Lines not enough! finish only %d chars.\n", __func__, count);
+			//return p-pstr;
+			/* here ln is the written line number,not index number */
+			goto FUNC_END;
+		}
+
+		/* convert one character to unicode, return size of utf-8 code */
+		size=char_uft8_to_unicode(p, wcstr);
+
+#if 0 /* ----TEST: print ASCII code */
+		if(size==1) {
+			printf("%s: ASCII code: %d \n",__func__,*wcstr);
+		}
+		//if( !iswprint(*wcstr) )  ---Need to setlocale(), not supported yet!
+		//	printf("Not printalbe wchar code: 0x%x \n",*wcstr);
+
+#endif /*-----TEST END----*/
+
+		/* shift offset to next wchar */
+		if(size>0) {
+			p+=size;
+			count++;
+		}
+		else {	/* If fails, try to step 1 byte forward to locate next recognizable unicode wchar */
+			p++;
+			continue;
+		}
+
+		/* CONTROL ASCII CODE:
+		 * If return to next line
+		 */
+		if(*wcstr=='\n') {
+//			printf(" ... ASCII code: Next Line ...\n ");
+			/* change to next line, +gap */
+			ln++;
+			xleft=pixpl;
+			py+= fh+gap;
+			continue;
+		}
+		/* If other control codes or DEL, skip it */
+		else if( (*wcstr < 32 || *wcstr==127) && *wcstr!=9 ) {	/* Exclude TAB(9) */
+//			printf(" ASCII control code: %d\n", *wcstr);
+			continue;
+		}
+
+		/* write unicode bitmap to FB, and get xleft renewed. */
+		px=x0+pixpl-xleft;
+		//printf("%s:unicode_writeFB...\n", __func__);
+		FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, wcstr[0], &xleft,
+							 px, py, fontcolor, transpcolor, opaque );
+
+		/* --- check line space --- */
+		if(xleft<=0) {
+			if(xleft<0) { /* NOT writeFB, reel back pointer p */
+				p-=size;
+				count--;
+			}
+			/* change to next line, +gap */
+			ln++;
+			xleft=pixpl;
+			py+= fh+gap;
+		}
+
+	} /* end while() */
+
+	/* if finishing writing whole strings, ln++ to get written lines, as ln index from 0 */
+	if(*pstr)   /* To rule out NULL input */
+		ln++;
+
+	/* ??? TODO: if finishing writing whole strings, reset px,py to next line. */
+	#if 0
+	if( *wcstr != '\n' ) { /* To avoid 2 line returns */
+		//px=x0;
+		xleft=pixpl;
+		py+=fh+gap;
+	}
+	#endif
+
+FUNC_END:
+	//printf("%s: %d characters written to FB.\n", __func__, count);
+	if(cnt!=NULL)
+		*cnt=count;
+	if(lnleft != NULL)
+		*lnleft=lines-ln; /* here ln is written lines, not index number */
+	if(penx != NULL)
+		*penx=x0+pixpl-xleft;
+	if(peny != NULL)
+		*peny=py;
+
+	return p-pstr;
+}
+
+
+/*-----------------------------------------------------------------------------------------
+Write a string of charaters with UFT-8 encoding to FB.
+
+TODO: 1. Alphabetic words are treated letter by letter, and they may be separated at the end of
+         a line, so it looks not good.
+      2. Apply character functions in <ctype.h> to rule out chars, with consideration of locale setting?
+
+@fbdev:         FB device
+@chmap:		pointer to an EGI_FTCHAR_MAP
+@face:          A face object in FreeType2 library.
+@fh,fw:		Height and width of the wchar.
+@pstr:          pointer to a string with UTF-8 encoding.
+@xleft:		Pixel space left in FB X direction (horizontal writing)
+		Xleft will be subtrated by slot->advance.x first anyway, If xleft<0 then, it aborts.
+@pixpl:         pixels per line.
+@lines:         number of lines available.
+@gap:           space between two lines, in pixel. may be minus.
+@x0,y0:		Left top coordinate of the character bitmap,relative to FB coord system.
+
+@transpcolor:   >=0 transparent pixel will not be written to FB, so backcolor is shown there.
+                <0       no transparent pixel
+
+@fontcolor:     font color(symbol color for a symbol)
+                >= 0,  use given font color.
+                <0  ,  use default color in img data.
+
+use following COLOR:
+#define SYM_NOSUB_COLOR -1  --- no substitute color defined for a symbol or font
+#define SYM_NOTRANSP_COLOR -1  --- no transparent color defined for a symbol or font
+
+@opaque:        >=0     set aplha value (0-255) for all pixels, and alpha data in sympage
+			will be ignored.
+                <0      Use symbol alpha data, or none.
+                0       100% back ground color/transparent
+                255     100% front color
+
+@cnt:		Total printable characters written.
+@lnleft:	Lines left unwritten.
+@penx:		The last pen position X
+@peny:		The last pen position Y.
+		Note: Whatever pstr is finished or not
+		      penx,peny will be reset to starting position of next line!!!
+
+return:
+                >=0     bytes write to FB
+                <0      fails
+------------------------------------------------------------------------------------------------*/
+int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap, FT_Face face,
+			       	    int fw, int fh, const unsigned char *pstr,
+			            unsigned int pixpl,  unsigned int lines,  unsigned int gap,
+                                    int x0, int y0,
+			            int fontcolor, int transpcolor, int opaque,
+			            int *cnt, int *lnleft, int* penx, int* peny )
 {
 	int size;
 	int count;		/* number of character written to FB*/
@@ -1260,14 +1432,6 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 	if(*pstr)   /* To rule out NULL input */
 		ln++;
 
-	/* ??? TODO: if finishing writing whole strings, reset px,py to next line. */
-#if 0
-	if( *wcstr != '\n' ) { /* To avoid 2 line returns */
-		//px=x0;
-		xleft=pixpl;
-		py+=fh+gap;
-	}
-#endif
 
 FUNC_END:
 	//printf("%s: %d characters written to FB.\n", __func__, count);
@@ -1280,11 +1444,15 @@ FUNC_END:
 	if(peny != NULL)
 		*peny=py;
 
-	if(chmap != NULL) {  /* The last data is always the insterting point */
+	/* If all chars written to FB, then the last data is the insterting point in the FTCHAR map */
+	if(chmap != NULL && (*p)=='\0' ) {
 		chmap->charX[mapcnt]=x0+pixpl-xleft;  /* line end */
 		chmap->charY[mapcnt]=py;
 		chmap->charPos[mapcnt]=p-pstr;
+		chmap->count++;
 		chmap->count=mapcnt+1;
+	} else {
+		chmap->count=mapcnt;
 	}
 
 	return p-pstr;

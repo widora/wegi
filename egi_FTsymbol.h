@@ -51,14 +51,23 @@ extern EGI_SYMPAGE sympg_ascii;  /* default font  LiberationMono-Regular */
 extern EGI_FONTS   egi_sysfonts; /* system font set */
 extern EGI_FONTS   egi_appfonts; /* APP font set */
 
+
+
 typedef struct FTsymbol_char_map	EGI_FTCHAR_MAP;		/* Char map for visiable/displayed characters. ---NOW!
-								 * Call FTsymbol_uft8strings_writeFB() to fill in the struct
+								 * A map to relate displayed chars with their positions on LCD.
+								 * Call FTsymbol_uft8strings_writeFB() to fill in the struct.
 								 */
 struct  FTsymbol_char_map {
-	unsigned int	count;		/* Number of chars + 1
+
+	char	*ptxt;			/* Ref. to txt buffer, from where chars are brought to display on LCD
+					 *
+					 */
+
+	/* A map to displayed chars */
+	unsigned int	count;		/* Number of chars + 1, that are displayed.
 					 * Note: count-1 for chars, the last data is always for the new inserting point
 					 */
-	int 		*charX;		/* Array, Char start point FB/LCD coordinates X,Y */
+	int 		*charX;		/* Array, Char start point(left top) FB/LCD coordinates X,Y */
 	int 		*charY;
 	unsigned int	*charPos;	/* Array, Char offset position values, in bytes.
 					   while in demo codes: pos=charPos[pch],  pch as the index of the array, pos as offset of txtbuff */
@@ -67,9 +76,18 @@ struct  FTsymbol_char_map {
 };
 
 
-EGI_FTCHAR_MAP* FTsymbol_create_charMap(size_t size);
-void 	FTsymbol_free_charMap(EGI_FTCHAR_MAP **chmap);
+/* ----------  FTCHAR MAP functions  ----------- */
+EGI_FTCHAR_MAP* FTcharmap_create(size_t size);
+void 	FTcharmap_free(EGI_FTCHAR_MAP **chmap);
+int  	FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap, FT_Face face,
+				    int fw, int fh, const unsigned char *pstr,
+                                    unsigned int pixpl,  unsigned int lines,  unsigned int gap,
+                                    int x0, int y0,
+                                    int fontcolor, int transpcolor, int opaque,
+                                    int *cnt, int *lnleft, int* penx, int* peny );
 
+
+/* ----------  FTsymbol Functions  ----------- */
 void	FTsymbol_set_TabWidth( float factor);
 void	FTsymbol_set_SpaceWidth( float factor);
 int 	FTsymbol_load_library( EGI_FONTS *symlib );
@@ -94,8 +112,9 @@ int  	FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh,
 			       unsigned int pixpl,  unsigned int lines,  unsigned int gap,
                                int x0, int y0,
 			       int fontcolor, int transpcolor, int opaque,
- 			       EGI_FTCHAR_MAP *chmap, int *cnt, int *lnleft, int* penx, int* peny );
+ 			       int *cnt, int *lnleft, int* penx, int* peny );
 
 int  	FTsymbol_uft8strings_pixlen( FT_Face face, int fw, int fh, const unsigned char *pstr);
+
 
 #endif

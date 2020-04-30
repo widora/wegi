@@ -1,4 +1,4 @@
- /*-------------------------------------------------------------------
+/*----------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
@@ -9,11 +9,12 @@ the screen.
 
 		--- Usage and Notes ---
 
-1. Use MOUSE to move txt_cursor to locate intert/delete position.
-2. Use ARROW_KEYs to move txt_cursor to locate intert/delete position.
+1. Use MOUSE to move typing cursor to locate insert/delete position.
+2. Use ARROW_KEYs to move typing cursor to locate insert/delete position.
 3. Use BACKSPACE to delete chars before the cursor.
 4. Use DEL to delete chars following the cursor.
-
+5. Use HOME to return cursor to the begin of the line.
+6. Use END to move cursor to the end of the line.
 
 TODO:
 1. If any control code other than '\n' put in txtbuff[], strange things
@@ -22,7 +23,7 @@ TODO:
 
 Midas Zhou
 midaszhou@yahoo.com
--------------------------------------------------------------------*/
+---------------------------------------------------------------------*/
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>   /* open */
@@ -36,12 +37,13 @@ midaszhou@yahoo.com
 #include "egi_FTsymbol.h"
 #include "egi_cstring.h"
 
-static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Txt zone */
 
+static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Txt zone */
+static	margin=5; 		/* left and right margin for text area */
 static char txtbuff[1024];	/* text buffer */
 
-static int pos;    		/* current byte position in txtbox[], in bytes, from 0 */
-static int pch;    		/* current char index positiion in txtbox[], from 0 */
+//static int pos;    		/* current byte position in txtbox[], in bytes, from 0 */
+static int pch;    		/* current char index positiion in txtbox[], from 0, --->to locate typing cursor*/
 /* NOTE: char position, in respect of txtbuff index and data_offset: pos=chmap->charPos[pch] */
 static EGI_FTCHAR_MAP *chmap;	/* FTchar map to hold char position data */
 
@@ -51,15 +53,19 @@ static int mouseMidX, mouseMidY;   /* txt cursor mid position */
 static int fw=18;	/* Font size */
 static int fh=20;
 static int fgap=20/5;	/* Text line fgap : TRICKY ^_- */
-static int tlns;  //=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total available txt lines */
+static int tlns;  //=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total available line space for displaying txt */
 
 static int penx;	/* Pen position */
 static int peny;
 
-static void write_txt(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
+static void FTcharmap_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
+static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void mouse_callback(unsigned char *mouse_data, int size);
 static void draw_mcursor(int x, int y);
-static int get_CharPos( const EGI_FTCHAR_MAP *chmap, int x, int y,  int lndis, int *pch, int *pos);
+
+static int FTcharmap_locate_charPos( const EGI_FTCHAR_MAP *chmap, int x, int y,  int lndis, int *pch);
+static int FTcharmap_goto_lineBegin( const EGI_FTCHAR_MAP *chmap, int *pch);
+static int FTcharmap_goto_lineEnd( const EGI_FTCHAR_MAP *chmap, int *pch);
 
 
 
@@ -138,11 +144,9 @@ int main(void)
         struct termios new_settings;
 
 	int term_fd;
-	char chs[5];
 	char ch;
 
 	int  k;
-	int  i;
 	int  nch;
 	fd_set rfds;
 	int retval;
@@ -154,8 +158,8 @@ int main(void)
 
 	/* Init. txt and charmap */
 //	strcat(txtbuff,"12345\n歪朵拉的惊奇\nwidora_NEO\n\n"); //   --- hell world ---\n\n");
-	strcat(txtbuff,"\n这里个个都是人才\nabcdefghijklm\n"); //   --- hell world ---\n\n");
-	chmap=FTsymbol_create_charMap(sizeof(txtbuff));
+	strcat(txtbuff,"1122\n你既有此心，待我到了东土大唐国寻一个取经的人来，教他救你。你可跟他做个徒弟，秉教伽持，入我佛门。\n"); //   --- hell world ---\n\n");
+	chmap=FTcharmap_create(sizeof(txtbuff));
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 	tlns=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total available txt lines */
 
@@ -168,7 +172,7 @@ int main(void)
 	fbset_color(WEGI_COLOR_WHITE);
 	//draw_filled_rect(&gv_fb_dev, 10, 30, 320-1-10,240-1-10);
 	draw_filled_rect(&gv_fb_dev, txtbox.startxy.x, txtbox.startxy.y, txtbox.endxy.x, txtbox.endxy.y );
-	write_txt("EGI Editor",120,5,WEGI_COLOR_LTBLUE, NULL, NULL);
+	FTsymbol_writeFB("EGI Editor",120,5,WEGI_COLOR_LTBLUE, NULL, NULL);
 	/* draw grid */
 	fbset_color(WEGI_COLOR_GRAYB);
 	for(k=0; k<=tlns; k++)
@@ -191,11 +195,12 @@ int main(void)
 	gettimeofday(&tm_blink,NULL);
 
 #if 0	/* --- TEST ---: EGI_FTCHAR_MAP */
+	int i;
 	//printf("sizeof(typeof(*chmap->tt))=%d\n",sizeof(typeof(*chmap->tt)));
 	//printf("sizeof(typeof(*chmap->charX))=%d\n",sizeof(typeof(*chmap->charX)));
 	//exit(1);
        	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-	write_txt(txtbuff, txtbox.startxy.x, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
+	FTcharmap_writeFB(txtbuff, txtbox.startxy.x +margin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
 	fbset_color(WEGI_COLOR_RED);
 	printf("chmap->count=%d\n", chmap->count);
 	for(i=0; i<nch+1; i++) {  /* The last one is always the new insterting point */
@@ -208,15 +213,15 @@ int main(void)
 	exit(0);
 #endif
 
-	/* To fill in chmap and get penx,peny */
-	write_txt(txtbuff, txtbox.startxy.x, txtbox.startxy.y, WEGI_COLOR_BLACK, &penx, &peny);
+	/* To fill in FTCHAR map and get penx,peny */
+	FTcharmap_writeFB(txtbuff, txtbox.startxy.x +margin, txtbox.startxy.y, WEGI_COLOR_BLACK, &penx, &peny);
 
-	/* Set current(inserting/writing) byte/char position: at the end of txt string.  */
-	pos=chmap->charPos[chmap->count-1];
+	/* Set current(inserting/writing) byte/char position: at the end of displayed text.  */
 	pch=chmap->count-1;
-	printf("chmap->count=%d, pos=%d, pch=%d\n",chmap->count, pos, pch);
-	if(pos<0)pos=0;
-	if(pch<0)pch=0;
+//	pos=chmap->charPos[pch];
+	printf("chmap->count=%d, pch=%d, pos=%d\n",chmap->count, pch, chmap->charPos[pch]);
+//	if(pos<0)pos=0;
+//	if(pch<0)pch=0;
 
 	/* Loop editing ... */
 	while(1) {
@@ -224,8 +229,8 @@ int main(void)
 
 		/* Read in char one by one, nonblock  */
 		read(STDIN_FILENO, &ch, 1);
-		//if(ch>0)
-		   //printf("ch=%d\n",ch);
+		if(ch>0)
+		  printf("ch=%d\n",ch);
 
 		/* Parse arrow movements  */
 		if(ch==27) {
@@ -242,37 +247,40 @@ int main(void)
 		                                printf("ch=%d\n",ch);
 						/*  DEL */
 						if( ch == 126 ) {
-							memmove( txtbuff+pos, txtbuff+chmap->charPos[pch+1],
-								 chmap->charPos[chmap->count-1]-chmap->charPos[pch+1] +1);  /* move backward */
+							memmove( txtbuff+chmap->charPos[pch], txtbuff+chmap->charPos[pch+1],
+											strlen(txtbuff+chmap->charPos[pch]) +1); /* move backward */
+								 //chmap->charPos[chmap->count-1]-chmap->charPos[pch+1] +1);  /* move backward */
 							/* keep pos and pch unchanged */
-							printf("DEL: pos=%d, pch=%d\n", pos, pch);
+							printf("DEL: pos=%d, pch=%d\n", chmap->charPos[pch], pch);
 						}
 						break;
 
-					case 65:  /* UP */
-						printf("UP\n");
+					case 65:  /* UP arrow */
 						/* refresh char pos/pch */
-	   					get_CharPos( chmap, chmap->charX[pch], chmap->charY[pch]+fh/2-fh-fgap, fh+fgap, &pch, &pos);
+	   					FTcharmap_locate_charPos( chmap, chmap->charX[pch], chmap->charY[pch]+fh/2-fh-fgap, fh+fgap, &pch);
 						break;
-					case 66:  /* DOWN */
-						printf("DOWN\n");
+					case 66:  /* DOWN arrow */
 						/* refresh char pos/pch */
-	   					get_CharPos( chmap, chmap->charX[pch], chmap->charY[pch]+fh/2+fh+fgap, fh+fgap, &pch, &pos);
+	   					FTcharmap_locate_charPos( chmap, chmap->charX[pch], chmap->charY[pch]+fh/2+fh+fgap, fh+fgap, &pch);
 						break;
-					case 67:  /* RIGHT */
-						printf("RIGHT\n");
+					case 67:  /* RIGHT arrow */
 						if(pch < chmap->count-1 ) {
-							pos += chmap->charPos[pch+1]-chmap->charPos[pch];
 							pch ++;
 						}
 						break;
-					case 68: /* LEFT */
-						printf("LEFT\n");
+					case 68: /* LEFT arrow */
 						if(pch>0) {
-							pos -= chmap->charPos[pch]-chmap->charPos[pch-1];
 							pch --;
 						}
 						break;
+					case 70: /* END */
+						FTcharmap_goto_lineEnd(chmap, &pch);
+						break;
+					case 72: /* HOME */
+						/* move pch to the first of the line */
+						FTcharmap_goto_lineBegin(chmap, &pch);
+						break;
+
 				}
 			}
 
@@ -282,38 +290,36 @@ int main(void)
 
 		/* --- EDIT:  1. Backspace */
 		if( ch==0x7F ) { /* backspace */
-		   if( pos>0 ) {
-			//printf("chmap:[count-1]-pch=%d, strlen(txtbuf+pos)=%d\n",chmap->charPos[chmap->count-1]-chmap->charPos[pch], strlen(txtbuff+pos));
-			//memmove(txtbuff+pos-(chmap->charPos[pch]-chmap->charPos[pch-1]), txtbuff+pos,
-			memmove(txtbuff+chmap->charPos[pch-1], txtbuff+pos,
-						chmap->charPos[chmap->count-1]-chmap->charPos[pch] +1);  //strlen(txtbuff+pos));  /* move backward */
-			pos -= (chmap->charPos[pch]-chmap->charPos[pch-1]);
+		   //if( pos>0 ) {
+		   if( pch > 0 ) {
+			/* ! move whole string after... */
+			memmove(txtbuff+chmap->charPos[pch-1], txtbuff+chmap->charPos[pch],  strlen(txtbuff+chmap->charPos[pch]) +1);
+						//chmap->charPos[chmap->count-1]-chmap->charPos[pch] +1);  //strlen(txtbuff+pos));  /* move backward */
 			pch--;
-			printf("Backspace: pos=%d, pch=%d\n", pos, pch);
 		  }
 		}
 
-		/* --- EDIT:  2. Insert chars, !!! ONLY printable chars and '\n' !!! */
-		else if( (ch>31 || ch==10) && pos>=0 ) {   /* If pos<0, then ... */
+		/* --- EDIT:  2. Insert chars, !!! printable chars + '\n' + TAB  !!! */
+		else if( (ch>31 || ch==9 || ch==10 ) && pch>=0 ) {  //pos>=0 ) {   /* If pos<0, then ... */
 			/* insert at txt end */
-			if(txtbuff[pos+1]==0) {
-				txtbuff[pos++]=ch;
+			if(txtbuff[ chmap->charPos[pch] ]==0) {
+				txtbuff[ chmap->charPos[pch] ]=ch;
 				pch++;
 			}
-			/* insert not at  end */
+			/* insert not at end */
 			else {
-				memmove(txtbuff+pos+sizeof(char), txtbuff+pos, strlen(txtbuff+pos) +1);
-				txtbuff[pos]=ch;
-				pos += sizeof(char);  /* pos in bytes */
+				memmove(txtbuff+chmap->charPos[pch]+sizeof(char), txtbuff+chmap->charPos[pch],
+									strlen(txtbuff+chmap->charPos[pch] ) +1);
+				txtbuff[ chmap->charPos[pch] ]=ch;
 				pch++;  /* pos in chars */
 			}
 		}
 
-		/* EDIT:  TO refresh EGI_FTCHAR_MAP !!! .... */
+		/* EDIT:  Need to refresh EGI_FTCHAR_MAP after editing !!! .... */
 
 		/* Display txt */
         	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-		write_txt(txtbuff, txtbox.startxy.x, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
+		FTcharmap_writeFB(txtbuff, txtbox.startxy.x+margin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
 
 		/* Cursor blink */
 		gettimeofday(&tm_now, NULL);
@@ -323,7 +329,7 @@ int main(void)
 		}
 		if(cursor_blink) {
 			#if 0 /* Use char '|' */
-			write_txt("|",penx,peny,WEGI_COLOR_BLACK);
+			FTsymbol_writeFB("|",penx,peny,WEGI_COLOR_BLACK,NULL,NULL);
 			#else /* Draw geometry */
 			penx=chmap->charX[pch];
 			peny=chmap->charY[pch];
@@ -335,6 +341,7 @@ int main(void)
 		/* 5. Draw mouse cursor icon */
         	draw_mcursor(mouseX, mouseY);
 
+		/* Render and bring image to screen */
 		fb_render(&gv_fb_dev);
 	}
 
@@ -383,7 +390,7 @@ int main(void)
         tcsetattr(0, TCSANOW,&old_settings);
 
 	/* My release */
-	FTsymbol_free_charMap(&chmap);
+	FTcharmap_free(&chmap);
 
 
  /* <<<<<  EGI general release   >>>>>> */
@@ -413,19 +420,38 @@ return 0;
 }
 
 
-/*-------------------------------
-        WriteFB TXT
-@txt:   Input text
-@px,py: LCD X/Y for start point.
--------------------------------*/
-static void write_txt(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny)
+/*-------------------------------------
+        FTcharmap WriteFB TXT
+@txt:   	Input text
+@px,py: 	LCD X/Y for start point.
+@color: 	Color for text
+@penx, peny:    pointer to pen X.Y.
+--------------------------------------*/
+static void FTcharmap_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny)
+{
+       	FTcharmap_uft8strings_writeFB(   &gv_fb_dev, chmap, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
+                                        fw, fh,(const unsigned char *)txt,    	/* fw,fh, pstr */
+                                        320-20-2*margin, tlns, fgap,      /* pixpl, lines, fgap */
+                                        px, py,                                 /* x0,y0, */
+                                        color, -1, 255,      			/* fontcolor, transcolor,opaque */
+                                        NULL, NULL, penx, peny);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+}
+
+/*-------------------------------------
+        FTsymbol WriteFB TXT
+@txt:   	Input text
+@px,py: 	LCD X/Y for start point.
+@color: 	Color for text
+@penx, peny:    pointer to pen X.Y.
+--------------------------------------*/
+static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny)
 {
        	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
                                         fw, fh,(const unsigned char *)txt,    	/* fw,fh, pstr */
-                                        320-40, tlns, fgap,      /* pixpl, lines, fgap */
+                                        320, tlns, fgap,      /* pixpl, lines, fgap */
                                         px, py,                                 /* x0,y0, */
                                         color, -1, 255,      			/* fontcolor, transcolor,opaque */
-                                        chmap, NULL, NULL, penx, peny);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                                        NULL, NULL, penx, peny);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
 }
 
 
@@ -477,25 +503,67 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 	if(LeftKey_down) {
 	   mouseMidY=mouseY+fh/2;
 	   mouseMidX=mouseX+fw/2;
-	   get_CharPos( chmap, mouseMidX, mouseMidY, fh+fgap, &pch, &pos);
+	   FTcharmap_locate_charPos( chmap, mouseMidX, mouseMidY, fh+fgap, &pch);
 	}
 
 }
 
+/*--------------------------------
+ Draw cursor for the mouse movement
+1. In txtbox area, use typing cursor.
+2. Otherwise, apply mcursor.
+----------------------------------*/
+static void draw_mcursor(int x, int y)
+{
+        static EGI_IMGBUF *mcimg=NULL;
+        static EGI_IMGBUF *tcimg=NULL;
+	EGI_POINT pt;
+
+#ifdef LETS_NOTE
+	#define MCURSOR_ICON_PATH "/home/midas-zhou/egi/mcursor.png"
+	#define TXTCURSOR_ICON_PATH "/home/midas-zhou/egi/txtcursor.png"
+#else
+	#define MCURSOR_ICON_PATH "/mmc/mcursor.png"
+	#define TXTCURSOR_ICON_PATH "/mmc/txtcursor.png"
+#endif
+        if(mcimg==NULL)
+                mcimg=egi_imgbuf_readfile(MCURSOR_ICON_PATH);
+	if(tcimg==NULL) {
+		tcimg=egi_imgbuf_readfile(TXTCURSOR_ICON_PATH);
+		egi_imgbuf_resize_update(&tcimg, fw, fh );
+	}
+
+	pt.x=mouseX;	pt.y=mouseY;
+
+        /* OPTION 1: Use EGI_IMGBUF */
+	if( point_inbox(&pt, &txtbox) && tcimg!=NULL ) {
+                egi_subimg_writeFB(tcimg, &gv_fb_dev, 0, WEGI_COLOR_RED, mouseX, mouseY ); /* subnum,subcolor,x0,y0 */
+	}
+	else if(mcimg) {
+               	egi_subimg_writeFB(mcimg, &gv_fb_dev, 0, -1, mouseX, mouseY ); /* subnum,subcolor,x0,y0 */
+	}
+
+        /* OPTION 2: Draw geometry */
+
+}
+
+
+
 /*-----------------------------------------------------------------
-To get pos and pch of the pointed char from FTCHAR map.
+To locate pos/pch from FTCHAR map according to given x,y.
 
 @chmap:		The FTCHAR map.
 @x,y:		A B/LCD coordinate pointed to a char.
-@lndis:		Distanche between two char lines.
+@lndis:		Distance between two char lines.
 @pch:		A pointer to char index in chmap, in chars.
+		If NULL, ignore.
 @pos:		A pointer to char postion in chmap, in bytes.
-
+		If NULL, ignore.
 Return:
 	0	OK
 	<0	Fails
 --------------------------------------------------------------------*/
-static int get_CharPos( const EGI_FTCHAR_MAP *chmap, int x, int y,  int lndis, int *pch, int *pos)
+static int FTcharmap_locate_charPos( const EGI_FTCHAR_MAP *chmap, int x, int y,  int lndis, int *pch)
 {
 	int i;
 
@@ -516,8 +584,6 @@ static int get_CharPos( const EGI_FTCHAR_MAP *chmap, int x, int y,  int lndis, i
                         {
 				if(pch!=NULL)
                                 	*pch=i;
-				if(pos!=NULL)
-                                	*pos=chmap->charPos[i];
                         }
 		}
 	}
@@ -525,35 +591,73 @@ static int get_CharPos( const EGI_FTCHAR_MAP *chmap, int x, int y,  int lndis, i
 	return 0;
 }
 
+/*-----------------------------------------------------------
+Move pch/pos to point to the first char of the displayed line.
 
-/*--------------------------------
- Draw cursor for the mouse movement
-1. In txtbox area, use txtcursor.
-2. Otherwise, apply mcursor.
-----------------------------------*/
-static void draw_mcursor(int x, int y)
+@chmap:	an EGI_FTCHAR_MAP
+@pch:	pointer to current char index
+@pos:   pointer to current char pos, pos=chmap->charPos[pch];
+
+Return:
+	0	OK,    *pch, *pos modifed accordingly.
+	<0	Fail   *pch, *pos unchanged.
+------------------------------------------------------------*/
+static int FTcharmap_goto_lineBegin( const EGI_FTCHAR_MAP *chmap, int *pch)
 {
-        static EGI_IMGBUF *mcimg=NULL;
-        static EGI_IMGBUF *tcimg=NULL;
-	EGI_POINT pt;
-        if(mcimg==NULL)
-                mcimg=egi_imgbuf_readfile("/mmc/mcursor.png");
-	if(tcimg==NULL) {
-		tcimg=egi_imgbuf_readfile("/mmc/txtcursor.png");
-		egi_imgbuf_resize_update(&tcimg, fw, fh );
+	int index;
+
+	if( chmap==NULL || chmap->count < 1 ) {
+		printf("%s: Input FTCHAR map is empty!\n", __func__);
+		return -1;
 	}
+	if( pch==NULL || *pch<0  )
+		return -2;
 
-	pt.x=mouseX;	pt.y=mouseY;
-
-        /* OPTION 1: Use EGI_IMGBUF */
-	if( point_inbox(&pt, &txtbox) && tcimg!=NULL ) {
-                egi_subimg_writeFB(tcimg, &gv_fb_dev, 0, WEGI_COLOR_RED, mouseX, mouseY ); /* subnum,subcolor,x0,y0 */
+	index=*pch;
+	while( index>0 && txtbuff[ chmap->charPos[index-1] ] != '\n' ) {
+		printf("index=%d\n",index);
+		index--;
 	}
-	else if(mcimg) {
-               	egi_subimg_writeFB(mcimg, &gv_fb_dev, 0, -1, mouseX, mouseY ); /* subnum,subcolor,x0,y0 */
+	/* If no '\n' found, then index will be 0 */
+
+	*pch=index;
+
+	return 0;
+}
+
+
+/*-----------------------------------------------------------
+Move pch/pos to point to the end char of the displayed line.
+
+@chmap:	an EGI_FTCHAR_MAP
+@pch:	pointer to current char index
+@pos:   pointer to current char pos, pos=chmap->charPos[pch];
+
+Return:
+	0	OK,    *pch, *pos modifed accordingly.
+	<0	Fail   *pch, *pos unchanged.
+------------------------------------------------------------*/
+static int FTcharmap_goto_lineEnd( const EGI_FTCHAR_MAP *chmap, int *pch)
+{
+	int index;
+
+	if( chmap==NULL || chmap->count < 1 ) {
+		printf("%s: Input FTCHAR map is empty!\n", __func__);
+		return -1;
 	}
+	if( pch==NULL || *pch<0 )
+		return -2;
 
-        /* OPTION 2: Draw geometry */
+	index=*pch;
+	while( index < chmap->count-1 && txtbuff[ chmap->charPos[index] ] != '\n' ) {
+		printf("index=%d\n",index);
+		index++;
+	}
+	/* If no '\n' found, then index will be chmap-count-1, as end  */
 
+	*pch=index;
+	 //printf("%s: pch=%d, pos=%d\n",__func__,*pch, *pos);
+
+	return 0;
 }
 
