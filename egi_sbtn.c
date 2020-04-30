@@ -98,14 +98,14 @@ void egi_sbtn_refresh(EGI_RECTBTN *btn, char *tag)
 	                pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.bold, btn->fw, btn->fh,(const unsigned char *)tag);
 
         	        /* Write tag */
-                	FTsymbol_uft8strings_writeFB(  &gv_fb_dev, egi_sysfonts.bold,                           /* FBdev, fontface */
-                                               btn->fw, btn->fh,(const unsigned char *)tag,             /* fw,fh, pstr */
+                	FTsymbol_uft8strings_writeFB(  &gv_fb_dev, egi_sysfonts.bold,           /* FBdev, fontface */
+                                               btn->fw, btn->fh,(const unsigned char *)tag,     /* fw,fh, pstr */
                                                320, 1, 0,                                       /* pixpl, lines, gap */
-                                               btn->x0 +btn->offx +(btn->width-pixlen)/2,                   /* x0 */
+                                               btn->x0 +btn->offx +(btn->width-pixlen)/2,       /* x0 */
                                          //btn->y0+(btn->height-btn->fh)/2-(btn->fh-bith)/2,           /* y0 */
                                          btn->y0 +btn->offy +(btn->height-btn->fh)/2, //(btn->pressed?2:0),           /* y0 */
-                                               btn->tagcolor, -1, 255,                               /* fontcolor, transcolor,opaque */
-                                               NULL, NULL, NULL, NULL, NULL);                 	/* *charmap,  *cnt, *lnleft, *penx, *peny */
+                                               btn->tagcolor, -1, 255,                          /* fontcolor, transcolor,opaque */
+                                               NULL, NULL, NULL, NULL);                 	/* *cnt, *lnleft, *penx, *peny */
  		}
 	}
 

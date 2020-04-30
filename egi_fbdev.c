@@ -678,8 +678,8 @@ int fb_page_refresh_flyin(FBDEV *dev, int speed)
 				i*speed*line_length );
 		}
 
-		//tm_delayms(10);
-		usleep(10000);
+		tm_delayms(50);
+		//usleep(10000);
 	}
 
 	return 0;

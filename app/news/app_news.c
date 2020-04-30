@@ -169,7 +169,7 @@ int main(int argc, char **argv)
 
 
         /* <<<<< 	 EGI general init 	 >>>>>> */
-#if 1
+#if 0
         printf("tm_start_egitick()...\n");
         tm_start_egitick();                     /* start sys tick */
 #endif
@@ -181,11 +181,14 @@ int main(int argc, char **argv)
                 return -1;
         }
 #endif
+
+#if 0
         printf("symbol_load_allpages()...\n");
         if(symbol_load_allpages() !=0 ) {       /* load sys fonts */
                 printf("Fail to load sym pages,quit.\n");
                 return -2;
         }
+#endif
         if(FTsymbol_load_appfonts() !=0 ) {     /* load FT fonts LIBS */
                 printf("Fail to load FT appfonts, quit.\n");
                 return -2;
@@ -201,7 +204,7 @@ int main(int argc, char **argv)
         /* <<<<< 	 End EGI Init 	 >>>>> */
 
 	/* Set screen view type as LANDSCAPE mode */
-	fb_position_rotate(&gv_fb_dev, 3);
+	fb_position_rotate(&gv_fb_dev, 0); //3
 
         /* Create a pad (int height, int width, unsigned char alpha, EGI_16BIT_COLOR color) */
         pad=egi_imgbuf_create(50, 320, 175, WEGI_COLOR_GYBLUE);
@@ -371,7 +374,6 @@ while(1) { /////////////////////////	  LOOP TEST      //////////////////////////
 	        }
 
 
-
 		#if 0 /* Not necessary for Landscape mode */
 		/* rotate the imgbuf */
 		egi_imgbuf_rotate_update(&imgbuf, 90);
@@ -445,7 +447,7 @@ while(1) { /////////////////////////	  LOOP TEST      //////////////////////////
 		/* Refresh FB page */
 		printf("FB page refresh ...\n");
 		//fb_page_refresh(&gv_fb_dev);
-		fb_page_refresh_flyin(&gv_fb_dev, 10);
+		fb_page_refresh_flyin(&gv_fb_dev, 40);
 
 		/* save FB data to a PNG file */
 		//egi_save_FBpng(&gv_fb_dev, pngNews_path);
@@ -502,7 +504,7 @@ if(i==5) { //////////////////////////// INSERT GIF  //////////////////////
 		 *  otherwise skip to next title show when time is out.
 		 */
 		tm_start_egitick();
-		if( egi_touch_timeWait_press(THUMBNAIL_DISPLAY_SECONDS, &press_touch)==0 ) {
+		if( egi_touch_timeWait_press(THUMBNAIL_DISPLAY_SECONDS,0, &press_touch)==0 ) {
 			printf(" >>>>>  Press touching pxy(%d,%d)\n",
 						press_touch.coord.x, press_touch.coord.y);
 
@@ -527,13 +529,13 @@ if(i==5) { //////////////////////////// INSERT GIF  //////////////////////
 			else if( point_inbox(&press_touch.coord, &slide_box) )  //minipanel_box) )
 			{
 				press_mark(press_touch.coord,40,135,WEGI_COLOR_ORANGE);
-				if( egi_touch_timeWait_release(3,&touch_data)==0
+				if( egi_touch_timeWait_release(3,0,&touch_data)==0
 				    		&& touch_data.dx > TOUCH_SLIDE_THRESHOLD )
 				{
 					printf("--- dx=%d, dy=%d --- \n", touch_data.dx, touch_data.dy);
 					/* trap into mini panel routine */
 	                                create_miniPanel();
-        	                        fb_page_refresh(&gv_fb_dev);
+					fb_render(&gv_fb_dev);
 					miniPanel_routine();
                         	        free_miniPanel();
 
@@ -673,7 +675,7 @@ static void display_newsFilo(EGI_FILO *filo)
 			if( lnleft==0 ||  i==nitems-1 ) {  //&& len-nwritten<=0 ) {
 				/* refresh FB */
 				printf("%s:  written=%d, refresh fb...\n", __func__, nwritten);
-				fb_page_refresh(&gv_fb_dev);
+				fb_render(&gv_fb_dev);
 
 				/* refresh text box */
 				printf("\n	---->>>  Refresh Text BOX  <<<----- \n");
@@ -682,7 +684,7 @@ static void display_newsFilo(EGI_FILO *filo)
 
 				/* If touch screen within Xs, then end the function */
 				tm_start_egitick();
-				if( egi_touch_timeWait_press(CONTENT_DISPLAY_SECONDS, &touch_data)==0 ) {
+				if( egi_touch_timeWait_press(CONTENT_DISPLAY_SECONDS, 0,&touch_data)==0 ) {
 					//press_mark(touch_data.coord, 40, 135, WEGI_COLOR_ORANGE);
 					ripple_mark(touch_data.coord, 135, WEGI_COLOR_ORANGE);
 					printf("Touch tpxy(%d,%d)\n", touch_data.coord.x, touch_data.coord.y);

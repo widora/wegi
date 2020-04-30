@@ -253,21 +253,21 @@ static int react_prev(EGI_EBOX * ebox, EGI_TOUCH_DATA * touch_data)
 	/* Darken effect */
 	data_btn->opaque=-60;
 	egi_ebox_forcerefresh(ebox);
-	fb_page_refresh(&gv_fb_dev);
+	fb_render(&gv_fb_dev);
 
 	tm_delayms(200);
 
 	/* reset luma */
 	data_btn->opaque=255;
 	egi_ebox_forcerefresh(ebox);
-	fb_page_refresh(&gv_fb_dev);
+	fb_render(&gv_fb_dev);
 
 	/* Force to be playmode, as mplayer will auto. change from PAUSE to PLAY, icon shift to PAUSE */
 	if( (data_btns[BTN_ID_PLAYPAUSE]->icon_code & 0xFFFF) != ICON_CODE_PAUSE )
 	{
 		data_btns[BTN_ID_PLAYPAUSE]->icon_code=(btn_symcolor<<16)+ICON_CODE_PAUSE;  /* toggle icon */
 		egi_ebox_forcerefresh(panel_btns[BTN_ID_PLAYPAUSE]);
-		fb_page_refresh(&gv_fb_dev);
+		fb_render(&gv_fb_dev);
 	}
 
 	/* command for mplayer */
@@ -313,21 +313,21 @@ static int react_next(EGI_EBOX * ebox, EGI_TOUCH_DATA * touch_data)
 	/* Darken effect */
 	data_btn->opaque=-60;
 	egi_ebox_forcerefresh(ebox);
-	fb_page_refresh(&gv_fb_dev);
+	fb_render(&gv_fb_dev);
 
 	tm_delayms(200);
 
 	/* reset luma */
 	data_btn->opaque=255;
 	egi_ebox_forcerefresh(ebox);
-	fb_page_refresh(&gv_fb_dev);
+	fb_render(&gv_fb_dev);
 
 	/* Force to be playmode, as mplayer will auto. change from PAUSE to PLAY, icon shift to PAUSE */
 	if( (data_btns[BTN_ID_PLAYPAUSE]->icon_code & 0xFFFF) != ICON_CODE_PAUSE )
 	{
 		data_btns[BTN_ID_PLAYPAUSE]->icon_code=(btn_symcolor<<16)+ICON_CODE_PAUSE;  /* toggle icon */
 		egi_ebox_forcerefresh(panel_btns[BTN_ID_PLAYPAUSE]);
-		fb_page_refresh(&gv_fb_dev);
+		fb_render(&gv_fb_dev);
 	}
 
 	/* command for mplayer */
@@ -371,7 +371,7 @@ static int react_playpause(EGI_EBOX * ebox, EGI_TOUCH_DATA * touch_data)
 
 	/* refresh it */
 	egi_ebox_forcerefresh(ebox);
-	fb_page_refresh(&gv_fb_dev);
+	fb_render(&gv_fb_dev);
 
 	system("echo pause >/home/slave");
 
@@ -448,15 +448,14 @@ static int react_exit(EGI_EBOX * ebox, EGI_TOUCH_DATA * touch_data)
 	/* Darken effect */
 	data_btn->opaque=-60;
 	egi_ebox_forcerefresh(ebox);
-	fb_page_refresh(&gv_fb_dev);
+	fb_render(&gv_fb_dev);
 
 	tm_delayms(200);
 
 	/* reset luma */
 	data_btn->opaque=255;
 	egi_ebox_forcerefresh(ebox);
-	fb_page_refresh(&gv_fb_dev);
-
+	fb_render(&gv_fb_dev);
 
 	return btnret_REQUEST_EXIT_PAGE;
 
@@ -619,7 +618,7 @@ int miniPanel_routine(void)
 	}
 
 	/* catch a hit */
-        while ( egi_touch_timeWait_press(MINIPANEL_WAIT_SECONDS, &touch_data)==0 )
+        while ( egi_touch_timeWait_press(MINIPANEL_WAIT_SECONDS, 0, &touch_data)==0 )
         {
 	    ebox=egi_hit_pagebox(touch_data.coord.x, touch_data.coord.y, page_miniPanel, type_btn|type_slider);
 	    /* If hit an ebox of minipanel */
@@ -686,7 +685,7 @@ static void* check_volume_runner(EGI_PAGE *page)
 
 	   /* refresh it */
 	   egi_ebox_forcerefresh(slider);
-	   fb_page_refresh(&gv_fb_dev);
+	   fb_render(&gv_fb_dev);
 
 	   tm_delayms(300);
      }
