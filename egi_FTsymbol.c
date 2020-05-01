@@ -32,14 +32,19 @@ static float  factor_SpaceWidth=1.0;	/* SpaceWidth/FontWidth */
 /*------------------------------------------------
 To create a char map with given size.
 
-@size:	How many chars hold in the map.
-	!!!NOTE, size-1 for char, and the last data is
-	always for new insterting point.
+@txtsize: Size of txtbuff[], exclude '\0'.
+	 !txtsize+1 units to be allocated.
+@size:	 How many chars hold in the displaying map.
+	 or Max. number of chars to be displayed once.
+	 !!!NOTE, size-1 for char, and the last data is
+	 always for new insterting point.
+	 !size+1 units to be allocated.
+
 Return:
 	A pointer to char map	OK
 	NULL			Fails
 -------------------------------------------------*/
-EGI_FTCHAR_MAP* FTcharmap_create(size_t size)
+EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  size_t mapsize)
 {
 	EGI_FTCHAR_MAP  *chmap=calloc(1, sizeof(EGI_FTCHAR_MAP));
 	if(chmap==NULL) {
@@ -47,13 +52,25 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t size)
 		return NULL;
 	}
 
-	/* To allocate just once!???? */
-	chmap->charX=calloc(1, sizeof(typeof(*chmap->charX))*(size+1) );
-	chmap->charY=calloc(1, sizeof(typeof(*chmap->charY))*(size+1) );
-	chmap->charPos=calloc(1, sizeof(typeof(*chmap->charPos))*(size+1) );
-
-	if(chmap->charX==NULL || chmap->charY==NULL || chmap->charPos==NULL )
+	/* To allocate txtbuff */
+	chmap->txtbuff=calloc(1,sizeof(typeof(*chmap->txtbuff))*(txtsize+1) );
+	if( chmap->txtbuff == NULL) {
+		printf("%s: Fail to calloc chmap txtbuff!\n",__func__);
 		FTcharmap_free(&chmap);
+	}
+	else
+		chmap->txtsize=txtsize;
+
+	/* To allocate just once!???? */
+	chmap->charX=calloc(1, sizeof(typeof(*chmap->charX))*(mapsize+1) );
+	chmap->charY=calloc(1, sizeof(typeof(*chmap->charY))*(mapsize+1) );
+	chmap->charPos=calloc(1, sizeof(typeof(*chmap->charPos))*(mapsize+1) );
+	if(chmap->charX==NULL || chmap->charY==NULL || chmap->charPos==NULL ) {
+		printf("%s: Fail to calloc chmap members!\n",__func__);
+		FTcharmap_free(&chmap);
+	}
+	else
+		chmap->mapsize=mapsize;
 
 	return chmap;
 }
@@ -66,6 +83,8 @@ void FTcharmap_free(EGI_FTCHAR_MAP **chmap)
 	if(  chmap==NULL || *chmap==NULL)
 		return;
 
+	/* free(ptr): If ptr is NULL, no operation is performed */
+	free( (*chmap)->txtbuff );
 	free( (*chmap)->charX );
 	free( (*chmap)->charY );
 	free( (*chmap)->charPos );
@@ -1303,7 +1322,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap, FT_Fac
 {
 	int size;
 	int count;		/* number of character written to FB*/
-	int mapcnt;		/* include RETURN */
+	int mapindex;		/* include RETURN */
 	int px,py;		/* bitmap insertion origin(BBOX left top), relative to FB */
 	const unsigned char *p=pstr;
         int xleft; 		/* available pixels remainded in current line */
@@ -1326,7 +1345,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap, FT_Fac
 	ln=0;		/* Line index from 0 */
 
 	/* init char map */
-	mapcnt=0;
+	mapindex=0;
 
 	while( *p ) {
 
@@ -1337,11 +1356,11 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap, FT_Fac
 
 			#if 0
 			/* Fillin CHAR MAP */
-			if(chmap) {
-				chmap->charX[mapcnt]=0;  /* line start */
-				chmap->charY[mapcnt]=py;
-				chmap->charPos[mapcnt]=p-pstr;
-				mapcnt++;
+			if(chmap && mapindex < chmap->mapsize ) {
+				chmap->charX[mapindex]=0;  /* line start */
+				chmap->charY[mapindex]=py;
+				chmap->charPos[mapindex]=p-pstr;
+				mapindex++;
 			}
 			#endif
 
@@ -1378,11 +1397,11 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap, FT_Fac
 			//printf(" ... ASCII code: Next Line ...\n ");
 
 			/* Fillin CHAR MAP before start a new line */
-			if(chmap) {
-				chmap->charX[mapcnt]=x0+pixpl-xleft;  /* line end */
-				chmap->charY[mapcnt]=py;
-				chmap->charPos[mapcnt]=p-pstr-size;	/* reduce size */
-				mapcnt++;
+			if(chmap && mapindex < chmap->mapsize ) {
+				chmap->charX[mapindex]=x0+pixpl-xleft;  /* line end */
+				chmap->charY[mapindex]=py;
+				chmap->charPos[mapindex]=p-pstr-size;	/* reduce size */
+				mapindex++;
 			}
 
 			/* change to next line, +gap */
@@ -1417,11 +1436,11 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap, FT_Fac
 		}
 		else {
 			/* Fillin CHAR MAP */
-			if(chmap) {
-				chmap->charX[mapcnt]=px;  //!x0+pixpl-xleft;  /* char start point! */
-				chmap->charY[mapcnt]=py;
-				chmap->charPos[mapcnt]=p-pstr-size;	/* deduce size */
-				mapcnt++;
+			if(chmap && mapindex < chmap->mapsize) {
+				chmap->charX[mapindex]=px;  //!x0+pixpl-xleft;  /* char start point! */
+				chmap->charY[mapindex]=py;
+				chmap->charPos[mapindex]=p-pstr-size;	/* deduce size */
+				mapindex++;
 			}
 		}
 
@@ -1442,15 +1461,21 @@ FUNC_END:
 	if(peny != NULL)
 		*peny=py;
 
-	/* If all chars written to FB, then the last data is the insterting point in the FTCHAR map */
+	/* If all chars written to FB, then EOF is the last data in the charmap, also as the last insterting point */
 	if(chmap != NULL && (*p)=='\0' ) {
-		chmap->charX[mapcnt]=x0+pixpl-xleft;  /* line end */
-		chmap->charY[mapcnt]=py;	      /* ! py MAY be out of displaying box range, for it's already +fh+gap after '\n'.  */
-		chmap->charPos[mapcnt]=p-pstr;	      /* ! mapcnt MAY be out of displaying box range, for it's already self incremented ++ */
-		chmap->chcount=mapcnt+1;
-	} else {
-		chmap->chcount=mapcnt;
+		chmap->charX[mapindex]=x0+pixpl-xleft;  /* line end */
+		chmap->charY[mapindex]=py;	      /* ! py MAY be out of displaying box range, for it's already +fh+gap after '\n'.  */
+		chmap->charPos[mapindex]=p-pstr;	      /* ! mapindex MAY be out of displaying box range, for it's already self incremented ++ */
+		chmap->chcount=mapindex+1;
 	}
+	else if(chmap != NULL) {
+		chmap->chcount=mapindex;
+	}
+
+	/* Double check! */
+	if( chmap->chcount > chmap->mapsize )
+		printf("%s: WARNING:  chmap.chcount > chmap.mapsize=%d! \n", __func__,chmap->mapsize);
+
 
 	return p-pstr;
 }
