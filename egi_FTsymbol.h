@@ -59,17 +59,22 @@ typedef struct FTsymbol_char_map	EGI_FTCHAR_MAP;		/* Char map for visiable/displ
 								 */
 struct  FTsymbol_char_map {
 
-	char	*ptxt;			/* Ref. to txt buffer, from where chars are brought to display on LCD
-					 *
+	char	*ptxt;			/* Ref. to txt buffer, from where chars are brought to display on LCD */
+	int	txtlen;			/* strlen of ptxt */
+
+	/* A map to displayed chars only!  */
+	char		*pdistr;	/* A pointer to strings to be displayed, a ref pointer to ptxt */
+	int		pch;		/* index of displayed char, pch=0 is the first displayed char.
+					 * pch is used to locate inserting positioin and typing_cursor position.
 					 */
 
-	/* A map to displayed chars */
-	unsigned int	count;		/* Number of chars + 1, that are displayed.
-					 * Note: count-1 for chars, the last data is always for the new inserting point
-					 */
+	unsigned int	chcount;	 /* Number of chars + 1, that are displayed.
+					   * Note: count-1 for chars, the last data is always for the new inserting point
+					   */
+
 	int 		*charX;		/* Array, Char start point(left top) FB/LCD coordinates X,Y */
 	int 		*charY;
-	unsigned int	*charPos;	/* Array, Char offset position values, in bytes.
+	unsigned int	*charPos;	/* Array, Char offset position values relative to pdistr, in bytes.
 					   while in demo codes: pos=charPos[pch],  pch as the index of the array, pos as offset of txtbuff */
 
 	/* Extension: color,size,...*/

@@ -1331,7 +1331,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap, FT_Fac
 	while( *p ) {
 
 		/* --- check whether lines are used up --- */
-		if( ln >= lines) {  /* ln index from 0 */
+		if( ln > lines-1) {  /* ln index from 0 */
 			//printf("%s: ln=%d, Lines not enough! finish only %d chars.\n", __func__, ln, count);
 			//return p-pstr;
 
@@ -1427,11 +1427,9 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap, FT_Fac
 
 	} /* end while() */
 
-
 	/* if finishing writing whole strings, ln++ to get written lines, as ln index from 0 */
 	if(*pstr)   /* To rule out NULL input */
 		ln++;
-
 
 FUNC_END:
 	//printf("%s: %d characters written to FB.\n", __func__, count);
@@ -1447,12 +1445,11 @@ FUNC_END:
 	/* If all chars written to FB, then the last data is the insterting point in the FTCHAR map */
 	if(chmap != NULL && (*p)=='\0' ) {
 		chmap->charX[mapcnt]=x0+pixpl-xleft;  /* line end */
-		chmap->charY[mapcnt]=py;
-		chmap->charPos[mapcnt]=p-pstr;
-		chmap->count++;
-		chmap->count=mapcnt+1;
+		chmap->charY[mapcnt]=py;	      /* ! py MAY be out of displaying box range, for it's already +fh+gap after '\n'.  */
+		chmap->charPos[mapcnt]=p-pstr;	      /* ! mapcnt MAY be out of displaying box range, for it's already self incremented ++ */
+		chmap->chcount=mapcnt+1;
 	} else {
-		chmap->count=mapcnt;
+		chmap->chcount=mapcnt;
 	}
 
 	return p-pstr;

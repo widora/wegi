@@ -18,8 +18,8 @@ the screen.
 
 TODO:
 1. If any control code other than '\n' put in txtbuff[], strange things
-   may happen...
-
+   may happen...	due to UFT-8 encoding.   ---Avoid it.
+2. Check whether txtbuff[] overflows.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -38,17 +38,36 @@ midaszhou@yahoo.com
 #include "egi_cstring.h"
 
 
+#define 	BLINK_INTERVAL_MS	500	/* typing_cursor blink interval in ms */
+
+/* TTY additional control KEY definition.  USB Keyboard hidraw data is another story...  */
+#define		TTY_ESC		"\033"
+#define		TTY_UP		"\033[A"
+#define		TTY_DOWN	"\033[B"
+#define		TTY_RIGHT	"\033[C"
+#define		TTY_LEFT	"\033[D"
+#define		TTY_HOME	"\033[1~"
+#define		TTY_HOME_1	"\033[H"
+#define		TTY_INSERT	"\033[2~"
+#define		TTY_DEL		"\033[3~"
+#define		TTY_END		"\033[4~"
+#define		TTY_END_1	"\033[F"
+#define		TTY_PAGE_UP	"\033[5~"
+#define		TTY_PAGE_DOWN	"\033[6~"
+
+
 static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Txt zone */
-static	margin=5; 		/* left and right margin for text area */
+static int smargin=5; 		/* left and right side margin of text area */
+static int tmargin=0;		/* top margin of text area */
 static char txtbuff[1024];	/* text buffer */
 
-//static int pos;    		/* current byte position in txtbox[], in bytes, from 0 */
-static int pch;    		/* current char index positiion in txtbox[], from 0, --->to locate typing cursor*/
+//static int pos;    		/* current byte position of txtbuff[], in bytes, from 0 */
+static int pch;    		/* current char(displayed in txtbox) index position of txtbuff[], from 0, --->to locate typing cursor*/
 /* NOTE: char position, in respect of txtbuff index and data_offset: pos=chmap->charPos[pch] */
 static EGI_FTCHAR_MAP *chmap;	/* FTchar map to hold char position data */
 
 static int mouseX, mouseY, mouseZ; /* Mouse point position */
-static int mouseMidX, mouseMidY;   /* txt cursor mid position */
+static int mouseMidX, mouseMidY;   /* Mouse cursor mid position */
 
 static int fw=18;	/* Font size */
 static int fh=20;
@@ -145,7 +164,7 @@ int main(void)
 
 	int term_fd;
 	char ch;
-
+	char chs[4];
 	int  k;
 	int  nch;
 	fd_set rfds;
@@ -157,10 +176,12 @@ int main(void)
 
 
 	/* Init. txt and charmap */
-//	strcat(txtbuff,"12345\n歪朵拉的惊奇\nwidora_NEO\n\n"); //   --- hell world ---\n\n");
+	strcat(txtbuff,"12345\n歪朵拉的惊奇\nwidora_NEO\n\n"); //   --- hell world ---\n\n");
 	strcat(txtbuff,"1122\n你既有此心，待我到了东土大唐国寻一个取经的人来，教他救你。你可跟他做个徒弟，秉教伽持，入我佛门。\n"); //   --- hell world ---\n\n");
 	chmap=FTcharmap_create(sizeof(txtbuff));
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
+	chmap->txtlen=strlen(txtbuff);
+
 	tlns=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total available txt lines */
 
         /* Init. mouse position */
@@ -170,7 +191,6 @@ int main(void)
         /* Init. FB working buffer */
         fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY4);
 	fbset_color(WEGI_COLOR_WHITE);
-	//draw_filled_rect(&gv_fb_dev, 10, 30, 320-1-10,240-1-10);
 	draw_filled_rect(&gv_fb_dev, txtbox.startxy.x, txtbox.startxy.y, txtbox.endxy.x, txtbox.endxy.y );
 	FTsymbol_writeFB("EGI Editor",120,5,WEGI_COLOR_LTBLUE, NULL, NULL);
 	/* draw grid */
@@ -190,9 +210,11 @@ int main(void)
         new_settings.c_cc[VTIME]=0;
         tcsetattr(0, TCSANOW, &new_settings);
 
+	/* count chars in txtbuff */
 	nch=cstr_strcount_uft8((const unsigned char *)txtbuff);
 	printf("Total %d chars\n", nch);
 	gettimeofday(&tm_blink,NULL);
+
 
 #if 0	/* --- TEST ---: EGI_FTCHAR_MAP */
 	int i;
@@ -200,9 +222,9 @@ int main(void)
 	//printf("sizeof(typeof(*chmap->charX))=%d\n",sizeof(typeof(*chmap->charX)));
 	//exit(1);
        	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-	FTcharmap_writeFB(txtbuff, txtbox.startxy.x +margin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
+	FTcharmap_writeFB(txtbuff, txtbox.startxy.x +smargin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
 	fbset_color(WEGI_COLOR_RED);
-	printf("chmap->count=%d\n", chmap->count);
+	printf("chmap->chcount=%d\n", chmap->chcount);
 	for(i=0; i<nch+1; i++) {  /* The last one is always the new insterting point */
 		printf("i=%d, charPos=%d, charX=%d, charY=%d, char=%s\n", i, chmap->charPos[i], chmap->charX[i], chmap->charY[i], txtbuff+ chmap->charPos[i] );
 		penx=chmap->charX[i]; peny=chmap->charY[i];
@@ -214,23 +236,81 @@ int main(void)
 #endif
 
 	/* To fill in FTCHAR map and get penx,peny */
-	FTcharmap_writeFB(txtbuff, txtbox.startxy.x +margin, txtbox.startxy.y, WEGI_COLOR_BLACK, &penx, &peny);
+	FTcharmap_writeFB(txtbuff, txtbox.startxy.x +smargin, txtbox.startxy.y, WEGI_COLOR_BLACK, &penx, &peny);
+	fb_render(&gv_fb_dev);
 
 	/* Set current(inserting/writing) byte/char position: at the end of displayed text.  */
-	pch=chmap->count-1;
-//	pos=chmap->charPos[pch];
-	printf("chmap->count=%d, pch=%d, pos=%d\n",chmap->count, pch, chmap->charPos[pch]);
+	pch=chmap->chcount-1;
+	printf("chmap->chcount=%d, pch=%d, pos=%d\n",chmap->chcount, pch, chmap->charPos[pch]);
 //	if(pos<0)pos=0;
 //	if(pch<0)pch=0;
 
-	/* Loop editing ... */
+	/* Loop editing ...   Read from TTY standard input, without funcion keys on keyboard ...... */
 	while(1) {
-		ch=0;
 
-		/* Read in char one by one, nonblock  */
+#if 0	/* ---- OPTION 1: Read more than N bytes each time, nonblock. !!! NOT good, response slowly, and may cause parse errors !!!  -----*/
+		bzero(chs,sizeof(chs));
+		retval=read(STDIN_FILENO,chs,sizeof(chs));
+		if(retval>0)
+			printf("ret=%d: %d,%d,%d,%d\n",retval,chs[0],chs[1],chs[2],chs[3]);
+
+		/* Parse additional TTY control key */
+		if(retval>2 && strncmp(chs,"\033[",2)==0 ) {
+			switch( chs[2] ) {
+				case  	'1':	/* TTY_HOME */
+				case	'H':
+					/* mkeyboard HOME  move pch to the first of the line */
+	                              	FTcharmap_goto_lineBegin(chmap, &pch);
+					break;
+				case	'3':	/* TTY_DEL */
+					if( chmap->txtlen >0 ) {
+						memmove( txtbuff+chmap->charPos[pch], txtbuff+chmap->charPos[pch+1],
+								strlen(txtbuff+chmap->charPos[pch]) +1); /* move backward */
+						/* keep pos and pch unchanged */
+						printf("DEL: pos=%d, pch=%d\n", chmap->charPos[pch], pch);
+					}
+					break;
+				case	'4':	/* TTY_END */
+				case	'F':
+					/* mkeyboard END  move pch to the end of the line */
+        	                      	FTcharmap_goto_lineEnd(chmap, &pch);
+					break;
+				case	'A':	/* TTY_UP arrwo */
+					/* move char pch one display_line up */
+					/* refresh char pos/pch */
+	   				FTcharmap_locate_charPos( chmap, chmap->charX[pch], chmap->charY[pch]+fh/2-fh-fgap, fh+fgap, &pch);
+					break;
+				case 	'B':  /* TTY_DOWN arrow : move pch one display_line down */
+	   					FTcharmap_locate_charPos( chmap, chmap->charX[pch], chmap->charY[pch]+fh/2+fh+fgap, fh+fgap, &pch);
+					break;
+				case 	'C':  /* TTY_RIGHT arrow : move pch one char right */
+					if(pch < chmap->chcount-1 ) {
+						pch ++;
+					}
+					break;
+				case 	'D': /* TTY_LEFT arrow : move pch one char left */
+					if(pch>0) {
+						pch --;
+					}
+					break;
+			} /* end switch() */
+
+			chs[0]=0; /* reset chs[0], since it's not single ASCII key. */
+		}
+		else if(retval>1) {  /* Usually wrong, ignore it */
+			printf("WARNING: read in more than 1 ASCII keys!\n");
+			chs[0]=0;
+		}
+
+		/* Otherwise assume only one ASCII read in */
+		ch=chs[0];
+
+#else	/* ---- OPTION 2: Read in char one by one, nonblock  -----*/
+		ch=0;
 		read(STDIN_FILENO, &ch, 1);
 		if(ch>0)
 		  printf("ch=%d\n",ch);
+		//continue;
 
 		/* Parse arrow movements  */
 		if(ch==27) {
@@ -242,100 +322,140 @@ int main(void)
 				read(STDIN_FILENO,&ch, 1);
 				printf("ch=%d\n",ch);
 				switch ( ch ) {
+					case 49:
+						read(STDIN_FILENO,&ch, 1);
+						/* mkeyboard HOME  move pch to the first of the line */
+						if( ch == 126 ) {
+                                                	FTcharmap_goto_lineBegin(chmap, &pch);
+						}
+                                                break;
 					case 51:
 						read(STDIN_FILENO,&ch, 1);
 		                                printf("ch=%d\n",ch);
 						/*  DEL */
-						if( ch == 126 ) {
+						if( ch == 126 && chmap->txtlen>0 ) {
 							memmove( txtbuff+chmap->charPos[pch], txtbuff+chmap->charPos[pch+1],
 											strlen(txtbuff+chmap->charPos[pch]) +1); /* move backward */
-								 //chmap->charPos[chmap->count-1]-chmap->charPos[pch+1] +1);  /* move backward */
+							/* charPos[] NOT updated, before calling charmap_writeFB ! */
+							chmap->txtlen -= chmap->charPos[pch+1]-chmap->charPos[pch];
 							/* keep pos and pch unchanged */
 							printf("DEL: pos=%d, pch=%d\n", chmap->charPos[pch], pch);
 						}
 						break;
-
-					case 65:  /* UP arrow */
+					case 52:
+						read(STDIN_FILENO,&ch, 1);
+						/* mkeyboard END  move pch to the first of the line */
+						if( ch == 126 ) {
+                                                	FTcharmap_goto_lineEnd(chmap, &pch);
+						}
+                                                break;
+					case 65:  /* UP arrow : move char pch one display_line up */
 						/* refresh char pos/pch */
 	   					FTcharmap_locate_charPos( chmap, chmap->charX[pch], chmap->charY[pch]+fh/2-fh-fgap, fh+fgap, &pch);
 						break;
-					case 66:  /* DOWN arrow */
-						/* refresh char pos/pch */
+					case 66:  /* DOWN arrow : move pch one display_line down */
 	   					FTcharmap_locate_charPos( chmap, chmap->charX[pch], chmap->charY[pch]+fh/2+fh+fgap, fh+fgap, &pch);
 						break;
-					case 67:  /* RIGHT arrow */
-						if(pch < chmap->count-1 ) {
+					case 67:  /* RIGHT arrow : move pch one char right */
+						if(pch < chmap->chcount-1 ) {
 							pch ++;
 						}
 						break;
-					case 68: /* LEFT arrow */
+					case 68: /* LEFT arrow : move pch one char left */
 						if(pch>0) {
 							pch --;
 						}
 						break;
-					case 70: /* END */
+					case 70: /* END : move pch to the end of the return_line */
 						FTcharmap_goto_lineEnd(chmap, &pch);
 						break;
-					case 72: /* HOME */
+					case 72: /* HOME : move pch to the begin of the return_line */
 						/* move pch to the first of the line */
 						FTcharmap_goto_lineBegin(chmap, &pch);
 						break;
-
 				}
 			}
 
 			/* reset 0 to ch: NOT a char, just for the following precess to ignore it.  */
 			ch=0;
 		}
+#endif /*---- End of OPTIONs ----*/
+
 
 		/* --- EDIT:  1. Backspace */
 		if( ch==0x7F ) { /* backspace */
 		   //if( pos>0 ) {
 		   if( pch > 0 ) {
-			/* ! move whole string after... */
-			memmove(txtbuff+chmap->charPos[pch-1], txtbuff+chmap->charPos[pch],  strlen(txtbuff+chmap->charPos[pch]) +1);
-						//chmap->charPos[chmap->count-1]-chmap->charPos[pch] +1);  //strlen(txtbuff+pos));  /* move backward */
+			/* ! move whole string forward.. */
+			memmove(txtbuff+chmap->charPos[pch-1], txtbuff+chmap->charPos[pch],  strlen(txtbuff+chmap->charPos[pch-1]) +1);
+			/* charPos[] NOT updated, before calling charmap_writeFB ! */
+			chmap->txtlen -= chmap->charPos[pch]-chmap->charPos[pch-1];
 			pch--;
 		  }
 		}
 
 		/* --- EDIT:  2. Insert chars, !!! printable chars + '\n' + TAB  !!! */
 		else if( (ch>31 || ch==9 || ch==10 ) && pch>=0 ) {  //pos>=0 ) {   /* If pos<0, then ... */
-			/* insert at txt end */
+			/* Insert at txt end */
 			if(txtbuff[ chmap->charPos[pch] ]==0) {
+				printf("insert at end, ch=%d \n",ch);
 				txtbuff[ chmap->charPos[pch] ]=ch;
+				/* move pch forward */
 				pch++;
+				chmap->charPos[pch]=chmap->charPos[pch-1]+sizeof(char);
+				/* Warning! now pch MAY out of displaying txtbox range! charXY is undefined 0,0!
+				 * search/see RESET_PCH
+				 */
+				chmap->txtlen +=sizeof(char);
 			}
-			/* insert not at end */
+			/* Insert not at end */
 			else {
 				memmove(txtbuff+chmap->charPos[pch]+sizeof(char), txtbuff+chmap->charPos[pch],
 									strlen(txtbuff+chmap->charPos[pch] ) +1);
 				txtbuff[ chmap->charPos[pch] ]=ch;
-				pch++;  /* pos in chars */
+				/* move pch forward */
+				pch++;
+				chmap->charPos[pch]=chmap->charPos[pch-1]+sizeof(char);
+				chmap->txtlen +=sizeof(char);
 			}
 		}
+
 
 		/* EDIT:  Need to refresh EGI_FTCHAR_MAP after editing !!! .... */
 
 		/* Display txt */
         	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-		FTcharmap_writeFB(txtbuff, txtbox.startxy.x+margin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
+		FTcharmap_writeFB(txtbuff, txtbox.startxy.x+smargin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
+
+		/* Check if pch exceeds displaying count */
+		//printf("pch=%d, chmap->chcount=%d \n", pch, chmap->chcount);
+		if( pch > chmap->chcount-1 )
+			pch=0;
 
 		/* Cursor blink */
 		gettimeofday(&tm_now, NULL);
-		if( tm_signed_diffms(tm_blink, tm_now) > 500	 ) {
+		if( tm_signed_diffms(tm_blink, tm_now) > BLINK_INTERVAL_MS ) {
 			tm_blink=tm_now;
 			cursor_blink = !cursor_blink;
 		}
 		if(cursor_blink) {
-			#if 0 /* Use char '|' */
+		    #if 0 /* Use char '|' */
 			FTsymbol_writeFB("|",penx,peny,WEGI_COLOR_BLACK,NULL,NULL);
-			#else /* Draw geometry */
+		    #else /* Draw geometry */
 			penx=chmap->charX[pch];
 			peny=chmap->charY[pch];
-			fbset_color(WEGI_COLOR_RED);
-			draw_filled_rect(&gv_fb_dev, penx, peny, penx+1, peny+fh+fgap-1);
-			#endif
+			printf("txtlen=%d, strlen(txtbuff)=%d,count=%d, pch=%d,  penx,y=%d,%d \n",
+							chmap->txtlen, strlen(txtbuff), chmap->chcount, pch, penx, peny);
+			/* ! peny MAY be out of txt box! see FTcharmpa_writeFb() */
+			if( peny < txtbox.endxy.y-(fh+fgap) ) {
+				fbset_color(WEGI_COLOR_RED);
+				draw_filled_rect(&gv_fb_dev, penx, peny, penx+1, peny+fh+fgap-1);
+			}
+			else	{ /* RESET_PCH: reset pch to move cursor to the beginning of txtbox */
+				printf("penx,y out of txtbox, reset pch to 0\n");
+				pch=0;
+			}
+		    #endif
 		}
 
 		/* 5. Draw mouse cursor icon */
@@ -347,21 +467,20 @@ int main(void)
 
 
 
-	/* <<<<<<<<<<<<<<<<<<<<    Read from tty, buffered! echo until enter a return.   >>>>>>>>>>>>>>>>>>> */
+	/* <<<<<<<<<<<<<<<<<<<<    Read from USB Keyboard HIDraw   >>>>>>>>>>>>>>>>>>> */
 	/* Open term */
-	term_fd=open("/dev/tty1", O_RDONLY);
+	term_fd=open("/dev/hidraw0", O_RDONLY);
 	if(term_fd<0) {
-		printf("Fail open tty1!\n");
+		printf("Fail open hidraw0!\n");
 		exit(1);
 	}
-
 
 	while(1)
 	{
                 /* To select fd */
                 FD_ZERO(&rfds);
                 FD_SET( term_fd, &rfds);
-                tmval.tv_sec=1;
+                tmval.tv_sec=0;
                 tmval.tv_usec=0;
 
                 retval=select( term_fd+1, &rfds, NULL, NULL, &tmval );
@@ -370,14 +489,15 @@ int main(void)
                         continue;
                 }
                 else if(retval==0) {
-                        printf("Time out\n");
+                        //printf("Time out\n");
                         continue;
                 }
                 /* Read input fd and trigger callback */
                 if(FD_ISSET(term_fd, &rfds)) {
-			memset(txtbuff,0,sizeof(txtbuff));
-                        retval=read(term_fd, txtbuff, sizeof(txtbuff));
-			printf("txtbuff:%s",txtbuff);
+			memset(txtbuff,0,8); //sizeof(txtbuff));
+                        retval=read(term_fd, txtbuff, 8);
+			printf("retval=%d: %d,%d,%d,%d, %d,%d,%d,%d\n",retval, txtbuff[0],txtbuff[1],txtbuff[2],txtbuff[3],
+										txtbuff[4],txtbuff[5],txtbuff[6],txtbuff[7]);
 		}
 	}
 
@@ -431,7 +551,7 @@ static void FTcharmap_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, 
 {
        	FTcharmap_uft8strings_writeFB(   &gv_fb_dev, chmap, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
                                         fw, fh,(const unsigned char *)txt,    	/* fw,fh, pstr */
-                                        320-20-2*margin, tlns, fgap,      /* pixpl, lines, fgap */
+                                        320-20-2*smargin, tlns, fgap,      /* pixpl, lines, fgap */
                                         px, py,                                 /* x0,y0, */
                                         color, -1, 255,      			/* fontcolor, transcolor,opaque */
                                         NULL, NULL, penx, peny);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
@@ -567,17 +687,17 @@ static int FTcharmap_locate_charPos( const EGI_FTCHAR_MAP *chmap, int x, int y, 
 {
 	int i;
 
-	if( chmap==NULL || chmap->count < 1 ) {
+	if( chmap==NULL || chmap->chcount < 1 ) {
 		printf("%s: Input FTCHAR map is empty!\n", __func__);
 		return -1;
 	}
 
 	/* Search char map to find pch/pos for the x,y  */
-        for(i=0; i < chmap->count; i++) {
-        	//printf("i=%d/(%d-1)\n", i,chmap->count);
+        for(i=0; i < chmap->chcount; i++) {
+        	//printf("i=%d/(%d-1)\n", i,chmap->chcount);
                 if( chmap->charY[i] < y && chmap->charY[i]+lndis > y ) {
                         if( chmap->charX[i] <= x		/*  == ALSO is the case ! */
-			    && (     i==chmap->count-1		/* Last char/insert */
+			    && (     i==chmap->chcount-1		/* Last char/insert */
 				 || ( chmap->charX[i+1] > x || chmap->charY[i] != chmap->charY[i+1] )  /* || or END of the line */
 				)
 			   )
@@ -606,7 +726,7 @@ static int FTcharmap_goto_lineBegin( const EGI_FTCHAR_MAP *chmap, int *pch)
 {
 	int index;
 
-	if( chmap==NULL || chmap->count < 1 ) {
+	if( chmap==NULL || chmap->chcount < 1 ) {
 		printf("%s: Input FTCHAR map is empty!\n", __func__);
 		return -1;
 	}
@@ -615,7 +735,7 @@ static int FTcharmap_goto_lineBegin( const EGI_FTCHAR_MAP *chmap, int *pch)
 
 	index=*pch;
 	while( index>0 && txtbuff[ chmap->charPos[index-1] ] != '\n' ) {
-		printf("index=%d\n",index);
+		//printf("index=%d\n",index);
 		index--;
 	}
 	/* If no '\n' found, then index will be 0 */
@@ -641,7 +761,7 @@ static int FTcharmap_goto_lineEnd( const EGI_FTCHAR_MAP *chmap, int *pch)
 {
 	int index;
 
-	if( chmap==NULL || chmap->count < 1 ) {
+	if( chmap==NULL || chmap->chcount < 1 ) {
 		printf("%s: Input FTCHAR map is empty!\n", __func__);
 		return -1;
 	}
@@ -649,7 +769,7 @@ static int FTcharmap_goto_lineEnd( const EGI_FTCHAR_MAP *chmap, int *pch)
 		return -2;
 
 	index=*pch;
-	while( index < chmap->count-1 && txtbuff[ chmap->charPos[index] ] != '\n' ) {
+	while( index < chmap->chcount-1 && txtbuff[ chmap->charPos[index] ] != '\n' ) {
 		printf("index=%d\n",index);
 		index++;
 	}
