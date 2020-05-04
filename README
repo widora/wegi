@@ -79,7 +79,8 @@ egi_fbdev.c	fb basic functions
 egi_fbgeom.c	fb basic geometry functions
 egi_color.c	color definition and conversion functions
 egi_symbol.c	fonts/icons/symbols...definition and functions
-egi_FTsymbol.c  FreeType2 fonts handling functions
+egi_FTsymbol.c  FreeType2 fonts/strings handling/displaying functions
+egi_FTcharmap.c FreeType2 based text displaying/editing functions.
 egi_bjp.c	funcs for processing bmp,jpg and png files
 egi_gif.c	funcs for GIF, derived from  GIFLIB ( Gershon Elber <gershon[AT]cs.technion.sc.il> ).
 egi_image.c	EGI_IMGBUF functions

@@ -25,12 +25,13 @@ To create a char map with given size.
 	 !!!NOTE, size-1 for char, and the last data is
 	 always for new insterting point.
 	 !size+1 units to be allocated.
+@maplines:	 Max. displayed lines
 
 Return:
 	A pointer to char map	OK
 	NULL			Fails
 -------------------------------------------------*/
-EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  size_t mapsize)
+EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  size_t mapsize, size_t maplines)
 {
 	EGI_FTCHAR_MAP  *chmap=calloc(1, sizeof(EGI_FTCHAR_MAP));
 	if(chmap==NULL) {
@@ -38,14 +39,32 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  size_t mapsize)
 		return NULL;
 	}
 
+        /* Init charmap mutex */
+        if(pthread_mutex_init(&chmap->mutex,NULL) != 0)
+        {
+                printf("%s: fail to initiate charmap mutex.\n",__func__);
+		FTcharmap_free(&chmap);
+                return NULL;
+        }
+
 	/* To allocate txtbuff */
 	chmap->txtbuff=calloc(1,sizeof(typeof(*chmap->txtbuff))*(txtsize+1) );
 	if( chmap->txtbuff == NULL) {
 		printf("%s: Fail to calloc chmap txtbuff!\n",__func__);
 		FTcharmap_free(&chmap);
+		return NULL;
 	}
-	else
-		chmap->txtsize=txtsize;
+	chmap->txtsize=txtsize;
+	chmap->pref=chmap->txtbuff; /* Init. pref pointing to txtbuff */
+
+	/* To allocate linePos */
+	chmap->linePos=calloc(1,sizeof(typeof(*chmap->linePos))*maplines );
+	if( chmap->linePos == NULL) {
+		printf("%s: Fail to calloc chmap linePos!\n",__func__);
+		FTcharmap_free(&chmap);
+		return NULL;
+	}
+	chmap->maplines=maplines;
 
 	/* To allocate just once!???? */
 	chmap->charX=calloc(1, sizeof(typeof(*chmap->charX))*(mapsize+1) );
@@ -54,9 +73,9 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  size_t mapsize)
 	if(chmap->charX==NULL || chmap->charY==NULL || chmap->charPos==NULL ) {
 		printf("%s: Fail to calloc chmap members!\n",__func__);
 		FTcharmap_free(&chmap);
+		return NULL;
 	}
-	else
-		chmap->mapsize=mapsize;
+	chmap->mapsize=mapsize;
 
 	return chmap;
 }
@@ -69,16 +88,61 @@ void FTcharmap_free(EGI_FTCHAR_MAP **chmap)
 	if(  chmap==NULL || *chmap==NULL)
 		return;
 
+        /* Hope there is no other user.. */
+        if(pthread_mutex_lock(&((*chmap)->mutex)) !=0 )
+                printf("%s: Fail to lock charmap mutex!\n",__func__);
+
 	/* free(ptr): If ptr is NULL, no operation is performed */
 	free( (*chmap)->txtbuff );
+	free( (*chmap)->linePos );
 	free( (*chmap)->charX );
 	free( (*chmap)->charY );
 	free( (*chmap)->charPos );
-	free( *chmap );
 
+        /*  ??? necesssary ??? */
+        pthread_mutex_unlock(&((*chmap)->mutex));
+
+        /* Destroy thread mutex lock for page resource access */
+        if(pthread_mutex_destroy(&((*chmap)->mutex)) !=0 )
+                printf("%s: Fail to destroy charmap mutex!\n",__func__);
+
+	free( *chmap );
 	*chmap=NULL;
 }
 
+
+/*---------  NEGATIVE:  use charmap->linePos[] instead ---------
+Set chmap->pref to position of the begin char of the next
+displayed line.
+
+@chmap:		pointer to an EGI_FTCHAR_MAP
+
+Return:
+	0	OK, chmap->pref changed.
+	<0	Fails, chmap->pref unchanged.
+	1	There's only one disp line. chmpa->pref unchagned.
+--------------------------------------------------------*/
+int FTcharmap_set_pref_nextDispLine(EGI_FTCHAR_MAP *chmap)
+{
+	int i;
+
+	if( chmap==NULL || chmap->txtbuff==NULL )
+		return -1;
+
+	/* If only 1 displine */
+	if( chmap->charY[0] == chmap->charY[chmap->chcount-1] )
+		return 1;
+
+	for(i=0; i < chmap->chcount; i++) {
+		if( chmap->charY[i] > chmap->charY[0] )  /* Find the first char NOT in the first displine. */
+			break;
+	}
+
+	/* Reset pref */
+	chmap->pref=chmap->pref+chmap->charPos[i];
+
+	return 0;
+}
 
 /*-----------------------------------------------------------------------------------------
 Write a string of charaters with UFT-8 encoding to FB.
@@ -127,61 +191,77 @@ return:
                 >=0     bytes write to FB
                 <0      fails
 ------------------------------------------------------------------------------------------------*/
-int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap, FT_Face face,
-			       	    int fw, int fh, const unsigned char *pstr,
+int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
+			       	    FT_Face face, int fw, int fh,
 			            unsigned int pixpl,  unsigned int lines,  unsigned int gap,
                                     int x0, int y0,
 			            int fontcolor, int transpcolor, int opaque,
 			            int *cnt, int *lnleft, int* penx, int* peny )
 {
 	int size;
-	int count;		/* number of character written to FB*/
-	int mapindex;		/* include RETURN */
-	int px,py;		/* bitmap insertion origin(BBOX left top), relative to FB */
-	const unsigned char *p=pstr;
-        int xleft; 		/* available pixels remainded in current line */
-        unsigned int ln; 	/* lines used */
+	int count;			/* number of character written to FB*/
+	int px,py;			/* bitmap insertion origin(BBOX left top), relative to FB */
+	const unsigned char *pstr=NULL;	/* == chmap->pref */
+	const unsigned char *p=NULL;  	/* variable pointer, to each char */
+        int xleft; 			/* available pixels remainded in current line */
+        int ln; 			/* lines used */
  	wchar_t wcstr[1];
 
-	/* check input data */
+	/* Check input */
 	if(face==NULL) {
-		printf("%s: input FT_Face is NULL!\n",__func__);
+		printf("%s: Input FT_Face is NULL!\n",__func__);
 		return -1;
 	}
+	// if( pixpl==0 || lines==0 ) return -1; /* move to just after initiate vars */
 
-	if( pixpl==0 || lines==0 || pstr==NULL )
-		return -1;
+	/* Check chmap */
+	if(chmap==NULL || chmap->txtbuff==NULL) {
+		printf("%s: Input chmap or its data is invalid!\n", __func__);
+		return -2;
+	}
 
+	/* Init pstr and p */
+	pstr=(unsigned char *)chmap->pref;  /* However pref may be NULL */
+	p=pstr;
+
+	/*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -3;
+        }
+
+	/* Init tmp. vars */
 	px=x0;
 	py=y0;
 	xleft=pixpl;
 	count=0;
 	ln=0;		/* Line index from 0 */
 
-	/* init char map */
-	mapindex=0;
+	if(pixpl==0 || lines==0)
+		goto FUNC_END;
+
+	/* Must reset linePos[]!  */
+	memset(chmap->linePos, 0, chmap->maplines*sizeof(typeof(*chmap->linePos)) );
+
+	#if 0 /* Mutext lock ?? race condition --> mouse action */
 	memset(chmap->charX, 0, chmap->mapsize*sizeof(typeof(*chmap->charX)) );
 	memset(chmap->charY, 0, chmap->mapsize*sizeof(typeof(*chmap->charY)) );
 	memset(chmap->charPos, 0, chmap->mapsize*sizeof(typeof(*chmap->charPos)));
+	#endif
+
+	/* Init. first linePos */
+	chmap->chcount=0;
+
+	chmap->lncount=0;
+	chmap->linePos[chmap->lncount]=0; //chmap->pref;
+	chmap->lncount++;
+
 
 	while( *p ) {
 
 		/* --- check whether lines are used up --- */
-		if( ln > lines-1) {  /* ln index from 0 */
+		if( lines < ln+1) {  /* ln index from 0, lines size_t */
 			//printf("%s: ln=%d, Lines not enough! finish only %d chars.\n", __func__, ln, count);
-			//return p-pstr;
-
-			#if 0
-			/* Fillin CHAR MAP */
-			if(chmap && mapindex < chmap->mapsize ) {
-				chmap->charX[mapindex]=0;  /* line start */
-				chmap->charY[mapindex]=py;
-				chmap->charPos[mapindex]=p-pstr;
-				mapindex++;
-			}
-			#endif
-
-			/* here ln is the written line number,not index number */
 			goto FUNC_END;
 		}
 
@@ -197,7 +277,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap, FT_Fac
 
 #endif /*-----TEST END----*/
 
-		/* shift offset to next wchar */
+		/* NOTE: Shift offset to next wchar, notice that following p is for the next char!!! */
 		if(size>0) {
 			p+=size;
 			count++;
@@ -214,11 +294,17 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap, FT_Fac
 			//printf(" ... ASCII code: Next Line ...\n ");
 
 			/* Fillin CHAR MAP before start a new line */
-			if(chmap && mapindex < chmap->mapsize ) {
-				chmap->charX[mapindex]=x0+pixpl-xleft;  /* line end */
-				chmap->charY[mapindex]=py;
-				chmap->charPos[mapindex]=p-pstr-size;	/* reduce size */
-				mapindex++;
+			if( chmap->chcount < chmap->mapsize ) {
+				chmap->charX[chmap->chcount]=x0+pixpl-xleft;  /* line end */
+				chmap->charY[chmap->chcount]=py;
+				chmap->charPos[chmap->chcount]=p-pstr-size;	/* reduce size */
+				chmap->chcount++;
+
+				/* Get start postion of next displaying line  */
+				if(chmap->lncount < chmap->maplines-1 ) {
+					chmap->linePos[chmap->lncount]=p-pstr;  /* keep +size */
+					chmap->lncount++;
+				}
 			}
 
 			/* change to next line, +gap */
@@ -241,27 +327,53 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap, FT_Fac
 							 px, py, fontcolor, transpcolor, opaque );
 
 		/* --- check line space --- */
-		if(xleft<0) { /* NOT writeFB, reel back pointer p */
-			p-=size;
-			count--;
-			/* change to next line, +gap */
-			ln++;
-			xleft=pixpl;
-			py+= fh+gap;
+		if(xleft<=0) {  /* ! xleft==0: for unprintable char, xleft unchaged */
+
+			/* Get start position of next displaying line
+			 * NOTE: for xleft==0: end line position is also the beginning of the next line!
+			 *       if leave it until next xleft<0, then the position moves 1 more char away!
+			 */
+			if(chmap->lncount < chmap->maplines-1 ) {
+				if(xleft<0)
+					chmap->linePos[chmap->lncount]=p-pstr-size;  /* deduce size, display char to the next line */
+				else /* xleft==0 */
+					chmap->linePos[chmap->lncount]=p-pstr;  /* keep +size, xleft=0, as start of a new line */
+				chmap->lncount++;  /* Increment after */
+			}
+
+			/* Fail to  writeFB. reel back pointer p, only if xleft<0 */
+			if(xleft<0) {
+				p-=size;
+				count--;
+			}
+
+			/* Set new line, even xleft==0 and next char is an unprintable char, as we already start a new linePos[] as above. */
+			/* Following move to the last if(xleft<=0){...} */
+                        // ln++;
+                        // xleft=pixpl;
+                        // py+= fh+gap;
 		}
-		else {
-			/* Fillin CHAR MAP */
-			if(chmap && mapindex < chmap->mapsize) {
-				chmap->charX[mapindex]=px;  //!x0+pixpl-xleft;  /* char start point! */
-				chmap->charY[mapindex]=py;
-				chmap->charPos[mapindex]=p-pstr-size;	/* deduce size */
-				mapindex++;
+		/* Fillin char map */
+		if(xleft>=0) {  /* xleft > = 0, writeFB ok */
+			if( chmap->chcount < chmap->mapsize) {
+				chmap->charX[chmap->chcount]=px;  //!x0+pixpl-xleft;  /* char start point! */
+				chmap->charY[chmap->chcount]=py;
+				chmap->charPos[chmap->chcount]=p-pstr-size;	/* deduce size.  only when xleft<0, p will reel back size, see above. */
+				chmap->chcount++;
 			}
 		}
+		/* NOTE: At last, reset ln/xleft/py for new line. Just after charXY updated!!! */
+		if(xleft<=0) {
+			/* Set new line, even xleft==0 and next char is an unprintable char, as we already start a new linePos[] as above. */
+                  	ln++;
+                       	xleft=pixpl;
+                        py+= fh+gap;
+		}
+
 
 	} /* end while() */
 
-	/* if finishing writing whole strings, ln++ to get written lines, as ln index from 0 */
+	/* If finishing writing whole strings, ln++ to get written lines, as ln index from 0 */
 	if(*pstr)   /* To rule out NULL input */
 		ln++;
 
@@ -277,20 +389,22 @@ FUNC_END:
 		*peny=py;
 
 	/* If all chars written to FB, then EOF is the last data in the charmap, also as the last insterting point */
-	if(chmap != NULL && (*p)=='\0' ) {
-		chmap->charX[mapindex]=x0+pixpl-xleft;  /* line end */
-		chmap->charY[mapindex]=py;	      /* ! py MAY be out of displaying box range, for it's already +fh+gap after '\n'.  */
-		chmap->charPos[mapindex]=p-pstr;	      /* ! mapindex MAY be out of displaying box range, for it's already self incremented ++ */
-		chmap->chcount=mapindex+1;
+	if( (*p)=='\0' ) {
+		chmap->charX[chmap->chcount]=x0+pixpl-xleft;  /* line end */
+		chmap->charY[chmap->chcount]=py;	      /* ! py MAY be out of displaying box range, for it's already +fh+gap after '\n'.  */
+		chmap->charPos[chmap->chcount]=p-pstr;	      /* ! mapindex MAY be out of displaying box range, for it's already self incremented ++ */
+		chmap->chcount++;
 	}
-	else if(chmap != NULL) {
-		chmap->chcount=mapindex;
-	}
+
+	/* Total number of lncount, after increment, Ok */
+	/* Total number of chcount, after increment, Ok */
 
 	/* Double check! */
 	if( chmap->chcount > chmap->mapsize )
 		printf("%s: WARNING:  chmap.chcount > chmap.mapsize=%d! \n", __func__,chmap->mapsize);
 
+  	/*  <-------- Put mutex lock */
+  	pthread_mutex_unlock(&chmap->mutex);
 
 	return p-pstr;
 }
