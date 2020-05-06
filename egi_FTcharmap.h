@@ -28,11 +28,11 @@ struct  FTsymbol_char_map {
 	int		txtsize;		/* Size of txtbuff mem space allocated, in bytes */
 	int		txtlen;			/* strlen of txtbuff, exclude '\0', need to be updated if content of txtbuff changed.  */
 
-	/* dlines: displayed/charmapped line, A line starts/ends at displaying window left/right end side.
+	/* disline/dline: displayed/charmapped line, A line starts/ends at displaying window left/right end side.
 	 * retline: A line starts/ends by a new line token '\n'.
 	 */
 	int		txtdlines;		/* Size of txtdlinePos[]  */
-	int		*txtdlinePos;		/* An array to store offset position(relative to txtbuff) of each txt diplayed lines */
+	unsigned int	*txtdlinePos;		/* An array to store offset position(relative to txtbuff) of each txt diplayed lines */
 	int		txtdlncount;		/* displayed/charmapped line count, for txtbuff
 						 * 			--- NOTE ---
 						 * 1. ALWAYS set txtdlncount to the right position before calling FTcharmap_uft8strings_writeFB(),
@@ -49,7 +49,7 @@ struct  FTsymbol_char_map {
 /* 2. Temporary vars for being displayed/charmapped txt.  ( offset position relative to pref )
 	 * 1. A map for displayed chars only! A map to tell LCD coordinates of displayed chars and their offset/position in pref[]
 	 * 2. Shift pref to change starting char/line for displaying.
-	 * 3. Maplines limits the max. number of lines displayed/charmapped at once. It's MAY NOT be the exacte number of actual available
+	 * 3. Maplines limits the max. number of lines displayed/charmapped each time. It's MAY NOT be the exacte number of actual available
 	 *    diplaying lines on LCD, it may be just for charmapping.
 	 */
 	unsigned char	*pref;			/* A pointer to strings to be displayed, a ref pointer to somewhere of txtbuff[].
@@ -61,9 +61,14 @@ struct  FTsymbol_char_map {
 						 * an inserting point.
 					   	 */
 
-	int		maplines;		/* Max. displayed lines for current displaying window, size of linePos[] mem space allocatd. */
+
+	unsigned int	mappixpl;		/* pixels per disline */
+	int		maplndis;		/* line distance betwee two dlines */
+
+	unsigned int	maplines;		/* Max. displayed lines for current displaying window, size of linePos[] mem space allocatd. */
 	int		maplncount;		/* Total number of displayed char lines in current charmap,  NOT index. */
 	unsigned int	*maplinePos;		/* Offset position(relative to pref) of the first char of each displayed lines, in bytes */
+
 
 	int		pch;			/* Index of displayed char as of charX[],charY and charPos[], pch=0 is the first displayed char.
 					 	* pch is also used to locate inserting positioin and typing_cursor position.
@@ -77,12 +82,12 @@ struct  FTsymbol_char_map {
 };
 
 
-EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  size_t mapsize, size_t maplines);
+EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  size_t mapsize, size_t maplines, size_t mappixpl, int maplngap);
+
 void 	FTcharmap_free(EGI_FTCHAR_MAP **chmap);
 int 	FTcharmap_set_pref_nextDispLine(EGI_FTCHAR_MAP *chmap);
 int  	FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,			/* mutex_lock */
                                     FT_Face face, int fw, int fh,
-                                    unsigned int pixpl,  unsigned int lines,  unsigned int gap,
                                     int x0, int y0,
                                     int fontcolor, int transpcolor, int opaque,
                                     int *cnt, int *lnleft, int* penx, int* peny );
@@ -92,5 +97,8 @@ int 	FTcharmap_page_down(EGI_FTCHAR_MAP *chmap);
 int 	FTcharmap_shift_oneline_up(EGI_FTCHAR_MAP *chmap);
 int 	FTcharmap_shift_oneline_down(EGI_FTCHAR_MAP *chmap);
 
+int  	FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y);		/* mutex_lock */
+int 	FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap );  			 /* As retline, NOT displine */
+int 	FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap );
 
 #endif
