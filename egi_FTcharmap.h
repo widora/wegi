@@ -23,23 +23,47 @@ typedef struct FTsymbol_char_map	EGI_FTCHAR_MAP;		/* Char map for visiable/displ
 struct  FTsymbol_char_map {
 	pthread_mutex_t mutex;      		/* mutex lock for char map */
 
-	char		*txtbuff;		/* txt buffer, from where chars are brought to display on LCD */
-	int		txtsize;		/* Size of txtbuff, in bytes */
+/* 1. Global vars for txtbuff.  ( offset position relative to txtbuff ) */
+	unsigned char	*txtbuff;		/* txt buffer, from where chars are brought to display on LCD */
+	int		txtsize;		/* Size of txtbuff mem space allocated, in bytes */
 	int		txtlen;			/* strlen of txtbuff, exclude '\0', need to be updated if content of txtbuff changed.  */
 
-	/* A map for displayed chars only! A map to tell LCD coordinates of displayed chars and their offset/position in pref[]   */
-	char		*pref;			/* A pointer to strings to be displayed, a ref pointer to somewhere of txtbuff[].
+	/* dlines: displayed/charmapped line, A line starts/ends at displaying window left/right end side.
+	 * retline: A line starts/ends by a new line token '\n'.
+	 */
+	int		txtdlines;		/* Size of txtdlinePos[]  */
+	int		*txtdlinePos;		/* An array to store offset position(relative to txtbuff) of each txt diplayed lines */
+	int		txtdlncount;		/* displayed/charmapped line count, for txtbuff
+						 * 			--- NOTE ---
+						 * 1. ALWAYS set txtdlncount to the right position before calling FTcharmap_uft8strings_writeFB(),
+						 *    so that txtdlinePos[] will be updated properly!
+						 * 2. After each FTcharmap_uft8strings_writeFB() calling, reset it to let:
+					         *    chmap->txtdlinePos[txtdlncount]==chmap->maplinePos[0]
+						 *    So it can sustain a stable loop calling.
+						 *    !!! However, txtdlinePos[txtdlncount+1],txtdlinePos[txtdlncount+2]... +maplncount-1] still
+						 *    hold valid data !!!
+						 * 3. Only a line_shift OR page_shift action can change/reset the value of txtdlncount.
+						 */
+
+
+/* 2. Temporary vars for being displayed/charmapped txt.  ( offset position relative to pref )
+	 * 1. A map for displayed chars only! A map to tell LCD coordinates of displayed chars and their offset/position in pref[]
+	 * 2. Shift pref to change starting char/line for displaying.
+	 * 3. Maplines limits the max. number of lines displayed/charmapped at once. It's MAY NOT be the exacte number of actual available
+	 *    diplaying lines on LCD, it may be just for charmapping.
+	 */
+	unsigned char	*pref;			/* A pointer to strings to be displayed, a ref pointer to somewhere of txtbuff[].
 						 * Initial pref=txtbuff.
 						 */
-	int		mapsize;		/* Size of map member arrays(charX,charY,charPos), Max. number for chcount+1 */
+	int		mapsize;		/* Size of map member arrays(charX,charY,charPos) mem space allocated , Max. number for chcount+1 */
 	int		chcount;	 	/* Number_of_displayed_chars +1, '\n' also counted in. NOT index.
 					   	 * Note: chcount-1 chars, the last data pref[charPos[chcount-1]] is EOF, and is always
 						 * an inserting point.
 					   	 */
 
-	int		maplines;		/* Max. displayed lines */
-	int		lncount;		/* Total number of displayed char lines, NOT index. */
-	unsigned int	*linePos;		/* Offset position(relative to pref) of the first char of each displayed lines, in bytes */
+	int		maplines;		/* Max. displayed lines for current displaying window, size of linePos[] mem space allocatd. */
+	int		maplncount;		/* Total number of displayed char lines in current charmap,  NOT index. */
+	unsigned int	*maplinePos;		/* Offset position(relative to pref) of the first char of each displayed lines, in bytes */
 
 	int		pch;			/* Index of displayed char as of charX[],charY and charPos[], pch=0 is the first displayed char.
 					 	* pch is also used to locate inserting positioin and typing_cursor position.
@@ -62,6 +86,11 @@ int  	FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,			/* 
                                     int x0, int y0,
                                     int fontcolor, int transpcolor, int opaque,
                                     int *cnt, int *lnleft, int* penx, int* peny );
+
+int 	FTcharmap_page_up(EGI_FTCHAR_MAP *chmap);
+int 	FTcharmap_page_down(EGI_FTCHAR_MAP *chmap);
+int 	FTcharmap_shift_oneline_up(EGI_FTCHAR_MAP *chmap);
+int 	FTcharmap_shift_oneline_down(EGI_FTCHAR_MAP *chmap);
 
 
 #endif

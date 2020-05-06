@@ -57,10 +57,19 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  size_t mapsize, size_t mapline
 	chmap->txtsize=txtsize;
 	chmap->pref=chmap->txtbuff; /* Init. pref pointing to txtbuff */
 
-	/* To allocate linePos */
-	chmap->linePos=calloc(1,sizeof(typeof(*chmap->linePos))*maplines );
-	if( chmap->linePos == NULL) {
-		printf("%s: Fail to calloc chmap linePos!\n",__func__);
+	/* To allocate txtdlinePos */
+	chmap->txtdlines=1024;	/* Initial value,  to grow later ...*/
+	chmap->txtdlinePos=calloc(1, sizeof(typeof(*chmap->txtdlinePos))*(chmap->txtdlines) );
+	if( chmap->txtdlinePos == NULL) {
+		printf("%s: Fail to calloc chmap txtdlinePos!\n",__func__);
+		FTcharmap_free(&chmap);
+		return NULL;
+	}
+
+	/* To allocate maplinePos */
+	chmap->maplinePos=calloc(1,sizeof(typeof(*chmap->maplinePos))*maplines );
+	if( chmap->maplinePos == NULL) {
+		printf("%s: Fail to calloc chmap maplinePos!\n",__func__);
 		FTcharmap_free(&chmap);
 		return NULL;
 	}
@@ -94,7 +103,8 @@ void FTcharmap_free(EGI_FTCHAR_MAP **chmap)
 
 	/* free(ptr): If ptr is NULL, no operation is performed */
 	free( (*chmap)->txtbuff );
-	free( (*chmap)->linePos );
+	free( (*chmap)->txtdlinePos );
+	free( (*chmap)->maplinePos );
 	free( (*chmap)->charX );
 	free( (*chmap)->charY );
 	free( (*chmap)->charPos );
@@ -111,7 +121,7 @@ void FTcharmap_free(EGI_FTCHAR_MAP **chmap)
 }
 
 
-/*---------  NEGATIVE:  use charmap->linePos[] instead ---------
+/*---------  NEGATIVE:  use charmap->maplinePos[] instead ---------
 Set chmap->pref to position of the begin char of the next
 displayed line.
 
@@ -202,26 +212,26 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	int count;			/* number of character written to FB*/
 	int px,py;			/* bitmap insertion origin(BBOX left top), relative to FB */
 	const unsigned char *pstr=NULL;	/* == chmap->pref */
-	const unsigned char *p=NULL;  	/* variable pointer, to each char */
+	const unsigned char *p=NULL;  	/* variable pointer, to each char in pstr[] */
         int xleft; 			/* available pixels remainded in current line */
         int ln; 			/* lines used */
  	wchar_t wcstr[1];
 
-	/* Check input */
+	/* Check input font face */
 	if(face==NULL) {
 		printf("%s: Input FT_Face is NULL!\n",__func__);
 		return -1;
 	}
 	// if( pixpl==0 || lines==0 ) return -1; /* move to just after initiate vars */
 
-	/* Check chmap */
+	/* Check input charmap */
 	if(chmap==NULL || chmap->txtbuff==NULL) {
 		printf("%s: Input chmap or its data is invalid!\n", __func__);
 		return -2;
 	}
 
 	/* Init pstr and p */
-	pstr=(unsigned char *)chmap->pref;  /* However pref may be NULL */
+	pstr=(unsigned char *)chmap->pref;  /* However, pref may be NULL */
 	p=pstr;
 
 	/*  Get mutex lock   ----------->  */
@@ -237,11 +247,12 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	count=0;
 	ln=0;		/* Line index from 0 */
 
+	/* Check input pixpl and lines */
 	if(pixpl==0 || lines==0)
 		goto FUNC_END;
 
-	/* Must reset linePos[]!  */
-	memset(chmap->linePos, 0, chmap->maplines*sizeof(typeof(*chmap->linePos)) );
+	/* Must reset maplinePos[] and clear old data */
+	memset(chmap->maplinePos, 0, chmap->maplines*sizeof(typeof(*chmap->maplinePos)) );
 
 	#if 0 /* Mutext lock ?? race condition --> mouse action */
 	memset(chmap->charX, 0, chmap->mapsize*sizeof(typeof(*chmap->charX)) );
@@ -249,12 +260,17 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	memset(chmap->charPos, 0, chmap->mapsize*sizeof(typeof(*chmap->charPos)));
 	#endif
 
-	/* Init. first linePos */
+
+	/* Init. charmap data, first maplinePos */
 	chmap->chcount=0;
 
-	chmap->lncount=0;
-	chmap->linePos[chmap->lncount]=0; //chmap->pref;
-	chmap->lncount++;
+	chmap->maplncount=0;
+	chmap->maplinePos[chmap->maplncount]=0; //chmap->pref;
+	chmap->maplncount++;
+
+	/* Init.charmap global data */
+	/* NOTE: !!! chmap->txtdlncount=xxx, MUST preset before calling this function */
+	chmap->txtdlinePos[chmap->txtdlncount++]=chmap->pref-chmap->txtbuff;
 
 
 	while( *p ) {
@@ -301,9 +317,14 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 				chmap->chcount++;
 
 				/* Get start postion of next displaying line  */
-				if(chmap->lncount < chmap->maplines-1 ) {
-					chmap->linePos[chmap->lncount]=p-pstr;  /* keep +size */
-					chmap->lncount++;
+				if(chmap->maplncount < chmap->maplines ) { //(chmap->maplncount < chmap->maplines-1 ) {
+					/* set maplinePos[] */
+					chmap->maplinePos[chmap->maplncount]=p-pstr;  /* keep +size */
+					chmap->maplncount++;
+					/* set txtdlinePos[] */
+					if(chmap->txtdlncount < chmap->txtdlines-1 )
+						chmap->txtdlinePos[chmap->txtdlncount++]=p-(chmap->txtbuff);
+					//else grow space ...
 				}
 			}
 
@@ -333,12 +354,22 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 			 * NOTE: for xleft==0: end line position is also the beginning of the next line!
 			 *       if leave it until next xleft<0, then the position moves 1 more char away!
 			 */
-			if(chmap->lncount < chmap->maplines-1 ) {
-				if(xleft<0)
-					chmap->linePos[chmap->lncount]=p-pstr-size;  /* deduce size, display char to the next line */
-				else /* xleft==0 */
-					chmap->linePos[chmap->lncount]=p-pstr;  /* keep +size, xleft=0, as start of a new line */
-				chmap->lncount++;  /* Increment after */
+			if(chmap->maplncount < chmap->maplines ) {   //(chmap->maplncount < chmap->maplines-1) {
+				if(xleft<0) {
+					/* set maplinePos */
+					chmap->maplinePos[chmap->maplncount]=p-pstr-size;  /* deduce size, display char to the next line */
+                                        /* set txtdlinePos[] */
+					if(chmap->txtdlncount < chmap->txtdlines-1)
+	                                        chmap->txtdlinePos[chmap->txtdlncount++]=p-(chmap->txtbuff)-size;
+					//else Grow space ....
+				}
+				else /* xleft==0 */ {
+					chmap->maplinePos[chmap->maplncount]=p-pstr;  /* keep +size, xleft=0, as start of a new line */
+                                        /* set txtdlinePos[] */
+					if(chmap->txtdlncount < chmap->txtdlines-1)
+                                        	chmap->txtdlinePos[chmap->txtdlncount++]=p-(chmap->txtbuff);
+				}
+				chmap->maplncount++;  /* Increment after */
 			}
 
 			/* Fail to  writeFB. reel back pointer p, only if xleft<0 */
@@ -347,7 +378,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 				count--;
 			}
 
-			/* Set new line, even xleft==0 and next char is an unprintable char, as we already start a new linePos[] as above. */
+			/* Set new line, even xleft==0 and next char is an unprintable char, as we already start a new maplinePos[] as above. */
 			/* Following move to the last if(xleft<=0){...} */
                         // ln++;
                         // xleft=pixpl;
@@ -364,7 +395,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 		}
 		/* NOTE: At last, reset ln/xleft/py for new line. Just after charXY updated!!! */
 		if(xleft<=0) {
-			/* Set new line, even xleft==0 and next char is an unprintable char, as we already start a new linePos[] as above. */
+			/* Set new line, even xleft==0 and next char is an unprintable char, as we already start a new maplinePos[] as above. */
                   	ln++;
                        	xleft=pixpl;
                         py+= fh+gap;
@@ -394,18 +425,155 @@ FUNC_END:
 		chmap->charY[chmap->chcount]=py;	      /* ! py MAY be out of displaying box range, for it's already +fh+gap after '\n'.  */
 		chmap->charPos[chmap->chcount]=p-pstr;	      /* ! mapindex MAY be out of displaying box range, for it's already self incremented ++ */
 		chmap->chcount++;
+
+// Right, NOT necessary: chmap->maplncount++; 	/* Also need to increment maplncount, as it only triggered by '\n' and linepix_overflower as above. */
 	}
 
-	/* Total number of lncount, after increment, Ok */
 	/* Total number of chcount, after increment, Ok */
+	/* Total number of maplncount, after increment, Ok */
+	/* Total number of txtlncount, after increment, Ok */
 
 	/* Double check! */
-	if( chmap->chcount > chmap->mapsize )
-		printf("%s: WARNING:  chmap.chcount > chmap.mapsize=%d! \n", __func__,chmap->mapsize);
+	if( chmap->chcount > chmap->mapsize ) {
+		printf("%s: WARNING:  chmap.chcount > chmap.mapsize=%d, some displayed chars has NO charX/Y data! \n", __func__,chmap->mapsize);
+	}
+	if( chmap->txtdlncount > chmap->txtdlines ) {
+		printf("%s: WARNING:  chmap.txtdlncount=%d > chmap.txtdlines=%d, some displayed lines has NO position info. in charmap! \n",
+										__func__, chmap->txtdlncount, chmap->txtdlines);
+	}
+
+	/* NOTE!!! Need to reset chmap->txtdlncount to let  chmape->txtdlinePos[txtdlncount] pointer to the first displaying line of current charmap
+	 * Otherwise in a loop charmap wirteFB calling, it will increment itself forever...
+	 * So let chmap->txtdlinePos[txtdlncount]==chmap->maplinePos[0] here;
+	 * !!! However, txtdlinePos[txtdlncount+1],txtdlinePos[txtdlncount+2]... +maplncount-1] still hold valid data !!!
+	 */
+	chmap->txtdlncount -= chmap->maplncount;
 
   	/*  <-------- Put mutex lock */
   	pthread_mutex_unlock(&chmap->mutex);
 
 	return p-pstr;
 }
+
+
+/*----------------------------------------------
+Move chmap->pref backward to pointer to the the
+start of previous displaying page.
+
+@chmap:		pointer to an EGI_FTCHAR_MAP
+Return:
+	0	OK, chmap->pref changed.
+	<0	Fails, chmap->pref unchanged.
+-----------------------------------------------*/
+int FTcharmap_page_up(EGI_FTCHAR_MAP *chmap)
+{
+	if( chmap==NULL || chmap->txtbuff==NULL)
+		return -1;
+
+	/* Set chmap->txtdlncount */
+	if( chmap->txtdlncount > chmap->maplines )
+        	chmap->txtdlncount -= chmap->maplines;
+        else  { /* It reaches the first page */
+        	chmap->txtdlncount=0;
+	}
+
+	/* Set pref to previous txtdlines position */
+        chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+
+        printf("%s: page up to chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
+
+	return 0;
+}
+
+
+/*----------------------------------------------
+Move chmap->pref forward to pointer to the the
+start of next displaying page.
+
+@chmap:		pointer to an EGI_FTCHAR_MAP
+Return:
+	0	OK, chmap->pref changed.
+	<0	Fails, chmap->pref unchanged.
+-----------------------------------------------*/
+int FTcharmap_page_down(EGI_FTCHAR_MAP *chmap)
+{
+	int pos;
+
+	if( chmap==NULL || chmap->txtbuff==NULL)
+		return -1;
+
+ 	if( chmap->maplncount == chmap->maplines )              /* 1. Current IS a full page/window */
+	{
+		/* Get to the start point of the next page */
+		pos=chmap->charPos[chmap->chcount-1]+cstr_charlen_uft8(chmap->pref+chmap->charPos[chmap->chcount-1]);
+
+		if( chmap->pref[pos] != '\0' ) {		/* AND 2. current is NOT the last page (Next char is not EOF) */
+
+			/* reset pref and txtdlncount */
+        		chmap->pref=chmap->pref+pos;
+			chmap->txtdlncount += chmap->maplines;
+
+        		printf("%s: page down to: chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
+		}
+        }
+	else
+        	printf("%s: reach the last page: chmap->maplncount=%d, chmap->maplines=%d, chmap->txtdlncount=%d, \n",
+							__func__,  chmap->maplncount, chmap->maplines, chmap->txtdlncount);
+
+	return 0;
+}
+
+
+/*----------------------------------------------------
+Move chmap->pref backward to pointer to the the start
+of the previous displaying line.
+
+@chmap:		pointer to an EGI_FTCHAR_MAP
+Return:
+	0	OK, chmap->pref changed.
+	<0	Fails, chmap->pref unchanged.
+-----------------------------------------------------*/
+int FTcharmap_shift_oneline_up(EGI_FTCHAR_MAP *chmap)
+{
+	if( chmap==NULL || chmap->txtbuff==NULL)
+		return -1;
+
+        if( chmap->txtdlncount > 0 ) {
+        	/* reset txtdlncount to pointer the line BEFORE first displaying line in current page */
+                chmap->txtdlncount--;
+                chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+                printf("%s: chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
+        }
+
+	return 0;
+}
+
+/*----------------------------------------------------
+Move chmap->pref forward to pointer to the the start
+of the next displaying line.
+
+@chmap:		pointer to an EGI_FTCHAR_MAP
+Return:
+	0	OK, chmap->pref changed.
+	<0	Fails, chmap->pref unchanged.
+-----------------------------------------------------*/
+int FTcharmap_shift_oneline_down(EGI_FTCHAR_MAP *chmap)
+{
+	if( chmap==NULL || chmap->txtbuff==NULL)
+		return -1;
+
+	if( chmap->maplncount>1 ) {
+       	 	/* Before/after calling FTcharmap_uft8string_writeFB(), champ->txtdlinePos[txtdlncount] always pointer to the first
+                 *  currently displayed line. champ->txtdlinePos[txtdlncount]==chmap->maplinePos[0]
+                 * So we need to reset txtdlncount to pointer the next line
+                 */
+         	chmap->txtdlncount++;
+                chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+                //SAME: chmap->pref=chmap->pref+chmap->maplinePos[1];  /* move pref pointer to next dline */
+                printf("%s: chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
+	}
+
+	return 0;
+}
+
 

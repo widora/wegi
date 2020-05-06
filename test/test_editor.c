@@ -7,14 +7,18 @@ An example of a simple editor, read input from termios and put it on to
 the screen.
 
 
-		--- Usage and Notes ---
+		--- Keys and functions ---
 
-1. Use MOUSE to move typing cursor to locate insert/delete position.
-2. Use ARROW_KEYs to move typing cursor to locate insert/delete position.
-3. Use BACKSPACE to delete chars before the cursor.
-4. Use DEL to delete chars following the cursor.
-5. Use HOME(or Fn+LEFT_ARROW) to return cursor to the begin of the line.
-6. Use END(or Fn+RIGHT_ARROW) to move cursor to the end of the line.
+MOUSE: 		Move typing cursor to locate insert/delete position.
+ARROW_KEYs: 	Move typing cursor to locate insert/delete position.
+BACKSPACE: 	Delete chars before the cursor.
+DEL:		Delete chars following the cursor.
+HOME(or Fn+LEFT_ARROW):		Return cursor to the begin of the line.
+END(or Fn+RIGHT_ARROW):		Move cursor to the end of the line.
+CTRL+N:		Shift down 1 line.
+CTRL+O:		Shift up 1 line.
+PG_UP:		Page up
+PG_DN:		Page down
 
 TODO:
 1. If any control code other than '\n' put in txtbuff[], strange things
@@ -90,7 +94,7 @@ static int tlns;  //=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total avail
 static int penx;	/* Pen position */
 static int peny;
 
-static void FTcharmap_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
+static void FTcharmap_writeFB(unsigned char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void mouse_callback(unsigned char *mouse_data, int size);
 static void draw_mcursor(int x, int y);
@@ -196,9 +200,9 @@ int main(void)
 
 	//strcat(txtbuff,"12345\n歪朵拉的惊奇\nwidora_NEO\n\n"); //   --- hell world ---\n\n");
 	//strcat(chmap,"1122\n你既有此心，待我到了东土大唐国寻一个取经的人来，教他救你。你可跟他做个徒弟，秉教伽持，入我佛门。\n"); //   --- hell world ---\n\n");
-	strncat(chmap->txtbuff,"1122\n你既有此心，待我到了东土大唐国寻一个取经的人来，教他救你。你可跟他做个徒弟，秉教伽持，入我佛门。\n -END-", TXTBUFF_SIZE); //   --- hell world ---\n\n");
+	strncat((char *)chmap->txtbuff,"1122\n你既有此心，待我到了东土大唐国寻一个取经的人来，教他救你。你可跟他做个徒弟，秉教伽持，入我佛门。\n -END-", TXTBUFF_SIZE); //   --- hell world ---\n\n");
 	//strncat(chmap->txtbuff,"1122\n你既有此心，待我到了东土大唐国寻一个取经的人来，教他救你。", TXTBUFF_SIZE); //   --- hell world ---\n\n");
-	chmap->txtlen=strlen(chmap->txtbuff);
+	chmap->txtlen=strlen((char *)chmap->txtbuff);
 	printf("chmap->txtlen=%d\n",chmap->txtlen);
 
 
@@ -292,54 +296,73 @@ int main(void)
                                                 	FTcharmap_goto_lineBegin(chmap, &pch);
 						}
                                                 break;
-					case 51:
+					case 51: /* DEL */
 						read(STDIN_FILENO,&ch, 1);
 		                                printf("ch=%d\n",ch);
 						/*  DEL:
                                  		 * NOTE: DEL/BACKSPACE operation acturally copys string including only ONE '\0' at end.
 						 *  After deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes
-						 *  need to be cleared. and EOF token MUST reset when insert char at the end of txtbuff[] laster.
+						 *  need to be cleared. and EOF token MUST reset when insert char at the end of txtbuff[] later.
 						 */
 						/* Only if txtbuff is NOT empty and pch is NOT the end */
 						if( ch == 126 && chmap->txtlen>0) {
 						    /* 1. Not the last pch */
 						    if( pch < chmap->chcount-1 ) {
 							memmove( chmap->pref+chmap->charPos[pch], chmap->pref+chmap->charPos[pch+1],
-											strlen(chmap->pref+chmap->charPos[pch+1]) +1); /* 1 for string end */
+											strlen((char *)(chmap->pref+chmap->charPos[pch+1])) +1); /* 1 for string end */
 							/* charPos[] NOT updated, before calling charmap_writeFB ! */
 							chmap->txtlen -= chmap->charPos[pch+1]-chmap->charPos[pch];
-							/* If reset EOF here, it must clear length of the deleted uft8 char. so we'd rathter
+							/* If reset EOF here, it must clear length of the deleted uft8 char. so we'd rather
 							   reset EOF when insert char at the end of txtbuff. */
 						    }
 						    /* 2. If the last pch (but NOT delete EOF), then [pch+1] is NOT available! */
 						    else if( pch==chmap->chcount-1 && chmap->pref[chmap->charPos[pch]] != '\0' ) {
 							printf(" ---- DEL the last pch ------\n ");
 							/* if chmap->pref[chmap->charPos[pch]] == '\0' then charlen=... will be -1, */
-						 int charlen=cstr_charlen_uft8( (const unsigned char *) (chmap->pref+chmap->charPos[pch]) );
+						 int charlen=cstr_charlen_uft8(chmap->pref+chmap->charPos[pch]);
 							 printf("ch=%d,  charlen=%d \n",chmap->pref[chmap->charPos[pch]], charlen);
 							 memmove( chmap->pref+chmap->charPos[pch],
 							          chmap->pref+chmap->charPos[pch]+charlen,
-								  strlen( chmap->pref+chmap->charPos[pch]+charlen ) +1 );
+								  strlen((char *)(chmap->pref+chmap->charPos[pch]+charlen)) +1 );
 							/* update txtlen */
 							chmap->txtlen -= charlen;
-							/* If reset EOF here, it must clear length of the deleted uft8 char. so we'd rathter
+							/* If reset EOF here, it must clear length of the deleted uft8 char. so we'd rather
 							   reset EOF when insert char at the end of txtbuff. */
 						    }
 						}
 						break;
-					case 52:
+					case 52: /* END */
 						read(STDIN_FILENO,&ch, 1);
 						/* mkeyboard END  move pch to the first of the line */
 						if( ch == 126 ) {
                                                 	FTcharmap_goto_lineEnd(chmap, &pch);
 						}
                                                 break;
+					case 53: /* PAGE UP */
+						read(STDIN_FILENO,&ch, 1);
+						if( ch == 126 ) {
+							FTcharmap_page_up(chmap);
+						}
+                                                break;
+					case 54: /* PAGE DOWN */
+						read(STDIN_FILENO,&ch, 1);
+						if( ch == 126 ) {
+							FTcharmap_page_down(chmap);
+						}
+                                                break;
 					case 65:  /* UP arrow : move char pch one display_line up */
 						/* refresh char pos/pch */
-	   					FTcharmap_locate_charPos( chmap, chmap->charX[pch], chmap->charY[pch]+fh/2-fh-fgap, fh+fgap, &pch);
+						if( chmap->charY[pch] < txtbox.startxy.y+tmargin+fh+fgap ) /* Get to the upper most */
+								FTcharmap_shift_oneline_up(chmap);
+						else
+	   					    FTcharmap_locate_charPos( chmap, chmap->charX[pch], chmap->charY[pch]+fh/2-fh-fgap, fh+fgap, &pch);
 						break;
+
 					case 66:  /* DOWN arrow : move pch one display_line down */
-	   					FTcharmap_locate_charPos( chmap, chmap->charX[pch], chmap->charY[pch]+fh/2+fh+fgap, fh+fgap, &pch);
+						if( chmap->charY[pch] > txtbox.startxy.y+tmargin+(fh+fgap)*(chmap->maplines-2)+fh/2 ) /* Get to the down most */
+								FTcharmap_shift_oneline_down(chmap);
+						else
+	   					   FTcharmap_locate_charPos( chmap, chmap->charX[pch], chmap->charY[pch]+fh/2+fh+fgap, fh+fgap, &pch);
 						break;
 					case 67:  /* RIGHT arrow : move pch one char right, Limit to the last [pch] */
 						if(pch < chmap->chcount-1 ) {
@@ -354,6 +377,7 @@ int main(void)
 					case 70: /* END : move pch to the end of the return_line */
 						FTcharmap_goto_lineEnd(chmap, &pch);
 						break;
+
 					case 72: /* HOME : move pch to the begin of the return_line */
 						/* move pch to the first of the line */
 						FTcharmap_goto_lineBegin(chmap, &pch);
@@ -367,13 +391,12 @@ int main(void)
 
 		/* 2. Pan displaying text */
 		if( ch==CTRL_N ) {		/* Pan one line up, until the last line. */
-			if( chmap->lncount>1 )
-				chmap->pref=chmap->pref+chmap->linePos[1];
+			FTcharmap_shift_oneline_down(chmap);
 			//FTcharmap_set_pref_nextDispLine(chmap);
 			ch=0; /* to ignore  */
 		}
 		else if ( ch==CTRL_O) {		/* Pan one line down */
-			//FTcharmap_set_pref_prevDispLine(chmap);
+			FTcharmap_shift_oneline_up(chmap);
 			ch=0;
 		}
 
@@ -388,7 +411,7 @@ int main(void)
 			 *  need to be cleared. and EOF token MUST reset when insert char at the end of txtbuff[] laster.
 			 */
 	   		memmove(chmap->pref+chmap->charPos[pch-1], chmap->pref+chmap->charPos[pch],
-							    strlen(chmap->pref+chmap->charPos[pch-1]) +1); /* +1 for string end */
+							    strlen((char *)(chmap->pref+chmap->charPos[pch-1])) +1); /* +1 for string end */
 			/* charPos[] NOT updated, before calling charmap_writeFB ! */
 			chmap->txtlen -= chmap->charPos[pch]-chmap->charPos[pch-1];
 			pch--;
@@ -432,7 +455,7 @@ int main(void)
 			/* Insert not at end */
 			else {
 				memmove(chmap->pref+chmap->charPos[pch]+sizeof(char), chmap->pref+chmap->charPos[pch],
-									strlen(chmap->pref+chmap->charPos[pch] ) +1);
+									strlen((char *)(chmap->pref+chmap->charPos[pch] )) +1);
 				chmap->pref[ chmap->charPos[pch] ]=ch;
 				/* move pch forward */
 				pch++;
@@ -575,7 +598,7 @@ return 0;
 @color: 	Color for text
 @penx, peny:    pointer to pen X.Y.
 --------------------------------------*/
-static void FTcharmap_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny)
+static void FTcharmap_writeFB(unsigned char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny)
 {
        	FTcharmap_uft8strings_writeFB(   &gv_fb_dev, chmap,           	/* FBdev, charmap*/
                                         egi_sysfonts.regular, fw, fh,   /* fontface, fw,fh */
@@ -719,7 +742,7 @@ static int FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y,  int l
 {
 	int i;
 
-	if( chmap==NULL || chmap->chcount < 1 ) {
+	if( chmap==NULL ) {
 		printf("%s: Input FTCHAR map is empty!\n", __func__);
 		return -1;
 	}
@@ -770,7 +793,7 @@ static int FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap, int *pch)
 {
 	int index;
 
-	if( chmap==NULL || chmap->chcount < 1 ) {
+	if( chmap==NULL ) {
 		printf("%s: Input FTCHAR map is empty!\n", __func__);
 		return -1;
 	}
@@ -805,7 +828,7 @@ static int FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap, int *pch)
 {
 	int index;
 
-	if( chmap==NULL || chmap->chcount < 1 ) {
+	if( chmap==NULL ) {
 		printf("%s: Input FTCHAR map is empty!\n", __func__);
 		return -1;
 	}
