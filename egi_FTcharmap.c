@@ -164,7 +164,7 @@ int FTcharmap_set_pref_nextDispLine(EGI_FTCHAR_MAP *chmap)
 }
 
 /*-----------------------------------------------------------------------------------------
-Write a string of charaters with UFT-8 encoding to FB.
+Charmap a string of charaters with UFT-8 encoding.
 
 TODO: 1. Alphabetic words are treated letter by letter, and they may be separated at the end of
          a line, so it looks not good.
@@ -216,6 +216,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 			            int fontcolor, int transpcolor, int opaque,
 			            int *cnt, int *lnleft, int* penx, int* peny )
 {
+	int i;
 	int size;
 	int count;			/* number of character written to FB*/
 	int px,py;			/* bitmap insertion origin(BBOX left top), relative to FB */
@@ -225,7 +226,8 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
         int ln; 			/* lines used */
 	unsigned int lines;		/* Total lines, =chmap->maplines */
 	unsigned int pixpl;		/* pixels per line, =chmap->mappixpl */
-	//int gap;		/* line gap, =chmap->maplngap */
+	//int gap;			/* line gap, =chmap->maplngap */
+	unsigned off=0;
 
  	wchar_t wcstr[1];
 
@@ -243,20 +245,20 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 		return -2;
 	}
 
+	/*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -3;
+        }
+
 	/* TODO.  charmap->maplines */
 	lines=chmap->maplines;
 	pixpl=chmap->mappixpl;
 	//gap=chmap->maplngap;
 
 	/* Init pstr and p */
-	pstr=(unsigned char *)chmap->pref;  /* However, pref may be NULL */
+	pstr=chmap->pref;  /* However, pref may be NULL */
 	p=pstr;
-
-	/*  Get mutex lock   ----------->  */
-        if(pthread_mutex_lock(&chmap->mutex) !=0){
-                printf("%s: Fail to lock charmap mutex!", __func__);
-                return -3;
-        }
 
 	/* Init tmp. vars */
 	px=x0;
@@ -271,15 +273,16 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 
 	/* Must reset maplinePos[] and clear old data */
 	memset(chmap->maplinePos, 0, chmap->maplines*sizeof(typeof(*chmap->maplinePos)) );
+	memset(chmap->charPos, 0, chmap->mapsize*sizeof(typeof(*chmap->charPos)));
 
 	#if 0 /* Mutext lock ?? race condition --> mouse action */
 	memset(chmap->charX, 0, chmap->mapsize*sizeof(typeof(*chmap->charX)) );
 	memset(chmap->charY, 0, chmap->mapsize*sizeof(typeof(*chmap->charY)) );
-	memset(chmap->charPos, 0, chmap->mapsize*sizeof(typeof(*chmap->charPos)));
 	#endif
 
 
-	/* Init. charmap data, first maplinePos */
+
+	/* Reset/Init. charmap data, first maplinePos */
 	chmap->chcount=0;
 
 	chmap->maplncount=0;
@@ -289,6 +292,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	/* Init.charmap global data */
 	/* NOTE: !!! chmap->txtdlncount=xxx, MUST preset before calling this function */
 	chmap->txtdlinePos[chmap->txtdlncount++]=chmap->pref-chmap->txtbuff;
+
 
 
 	while( *p ) {
@@ -331,14 +335,14 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 			if( chmap->chcount < chmap->mapsize ) {
 				chmap->charX[chmap->chcount]=x0+pixpl-xleft;  /* line end */
 				chmap->charY[chmap->chcount]=py;
-				chmap->charPos[chmap->chcount]=p-pstr-size;	/* reduce size */
+				chmap->charPos[chmap->chcount]=p-pstr-size;	/* deduce size, as p now points to end of '\n'  */
 				chmap->chcount++;
 
 				/* Get start postion of next displaying line  */
 				if(chmap->maplncount < chmap->maplines ) { //(chmap->maplncount < chmap->maplines-1 ) {
 					/* set maplinePos[] */
-					chmap->maplinePos[chmap->maplncount]=p-pstr;  /* keep +size */
-					chmap->maplncount++;
+					chmap->maplinePos[chmap->maplncount++]=p-pstr;  /* keep +size */
+					//chmap->maplncount++;
 					/* set txtdlinePos[] */
 					if(chmap->txtdlncount < chmap->txtdlines-1 )
 						chmap->txtdlinePos[chmap->txtdlncount++]=p-(chmap->txtbuff);
@@ -374,20 +378,21 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 			 */
 			if(chmap->maplncount < chmap->maplines ) {   //(chmap->maplncount < chmap->maplines-1) {
 				if(xleft<0) {
-					/* set maplinePos */
-					chmap->maplinePos[chmap->maplncount]=p-pstr-size;  /* deduce size, display char to the next line */
+					/* set maplinePos[] */
+					chmap->maplinePos[chmap->maplncount++]=p-pstr-size;  /* deduce size, display char to the next line */
                                         /* set txtdlinePos[] */
 					if(chmap->txtdlncount < chmap->txtdlines-1)
 	                                        chmap->txtdlinePos[chmap->txtdlncount++]=p-(chmap->txtbuff)-size;
 					//else Grow space ....
 				}
 				else /* xleft==0 */ {
-					chmap->maplinePos[chmap->maplncount]=p-pstr;  /* keep +size, xleft=0, as start of a new line */
+					/* set maplinePos[] */
+					chmap->maplinePos[chmap->maplncount++]=p-pstr;  /* keep +size, xleft=0, as start of a new line */
                                         /* set txtdlinePos[] */
 					if(chmap->txtdlncount < chmap->txtdlines-1)
                                         	chmap->txtdlinePos[chmap->txtdlncount++]=p-(chmap->txtbuff);
 				}
-				chmap->maplncount++;  /* Increment after */
+				//chmap->maplncount++;  /* Increment after */
 			}
 
 			/* Fail to  writeFB. reel back pointer p, only if xleft<0 */
@@ -453,9 +458,11 @@ FUNC_END:
 
 	/* Double check! */
 	if( chmap->chcount > chmap->mapsize ) {
+		chmap->errbits |= CHMAPERR_MAPSIZE_LIMIT;
 		printf("%s: WARNING:  chmap.chcount > chmap.mapsize=%d, some displayed chars has NO charX/Y data! \n", __func__,chmap->mapsize);
 	}
 	if( chmap->txtdlncount > chmap->txtdlines ) {
+		chmap->errbits |= CHMAPERR_TXTDLINES_LIMIT;
 		printf("%s: WARNING:  chmap.txtdlncount=%d > chmap.txtdlines=%d, some displayed lines has NO position info. in charmap! \n",
 										__func__, chmap->txtdlncount, chmap->txtdlines);
 	}
@@ -466,6 +473,25 @@ FUNC_END:
 	 * !!! However, txtdlinePos[txtdlncount+1],txtdlinePos[txtdlncount+2]... +maplncount-1] still hold valid data !!!
 	 */
 	chmap->txtdlncount -= chmap->maplncount;
+
+	/* Update chmap->pch, to let it point to the same char before charmapping, as chmap->txtbuff[chmap->pchoff] */
+	/* TODO: Any better solution??? */
+	if(chmap->pchoff > 0) {
+		off=chmap->pref-chmap->txtbuff;
+		chmap->pch=0; /* If no match */
+		for( i=0; i < chmap->chcount; i++) {
+			if( off+chmap->charPos[i] == chmap->pchoff ) {
+				chmap->pch=i;
+				break;
+			}
+		}
+
+		/* reset pchoff */
+		chmap->pchoff=0;
+	}
+	/* If no match, then chmap->pch = 0
+	 *  xxxx then chmap->pch = chmap->chcount-1, indicate to the last char/EOF in charmap
+	 */
 
   	/*  <-------- Put mutex lock */
   	pthread_mutex_unlock(&chmap->mutex);
@@ -546,6 +572,8 @@ int FTcharmap_page_down(EGI_FTCHAR_MAP *chmap)
 Move chmap->pref backward to pointer to the the start
 of the previous displaying line.
 
+chmap->pch unchangd!
+
 @chmap:		pointer to an EGI_FTCHAR_MAP
 Return:
 	0	OK, chmap->pref changed.
@@ -578,6 +606,9 @@ int FTcharmap_shift_oneline_up(EGI_FTCHAR_MAP *chmap)
 /*----------------------------------------------------
 Move chmap->pref forward to pointer to the the start
 of the next displaying line.
+
+Note:
+1. chmap->pch unchanged! MUST be ajusted after charmap.
 
 @chmap:		pointer to an EGI_FTCHAR_MAP
 Return:
@@ -614,7 +645,7 @@ int FTcharmap_shift_oneline_down(EGI_FTCHAR_MAP *chmap)
 
 
 /*---------------------------------------------------------------
-To locate chmap->pch from according to given x,y.
+To locate chmap->pch according to given x,y.
 
 @chmap:		The FTCHAR map.
 @x,y:		A B/LCD coordinate pointed to a char.
@@ -642,7 +673,7 @@ int FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
 	//printf("input x,y=(%d,%d), chmap->chcount=%d \n", x,y, chmap->chcount);
         for(i=0; i < chmap->chcount; i++) {
         	//printf("i=%d/(%d-1)\n", i, chmap->chcount);
-                if( chmap->charY[i] < y && chmap->charY[i]+ chmap->maplndis > y ) {	/* locate Y */
+                if( chmap->charY[i] <= y && chmap->charY[i]+ chmap->maplndis > y ) {	/* locate Y */
                         if( chmap->charX[i] <= x		/*  == ALSO is the case ! */
 			    && (     i==chmap->chcount-1		/* Last char/insert */
 				 || ( chmap->charX[i+1] > x || chmap->charY[i] != chmap->charY[i+1] )  /* || or END of the line */
@@ -655,13 +686,11 @@ int FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
 		}
 	}
 
-
         /*  <-------- Put mutex lock */
         pthread_mutex_unlock(&chmap->mutex);
 
 	return 0;
 }
-
 
 
 /*--------------------------------------------------------
@@ -678,6 +707,12 @@ int FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap )
 {
         int index=0;
 
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+
         if( chmap==NULL ) {
                 printf("%s: Input FTCHAR map is empty!\n", __func__);
                 return -1;
@@ -691,6 +726,9 @@ int FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap )
 
         /* If no '\n' found, then index will be 0 */
         chmap->pch=index;
+
+        /*  <-------- Put mutex lock */
+        pthread_mutex_unlock(&chmap->mutex);
 
         return 0;
 }
@@ -715,6 +753,12 @@ int FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap )
                 return -1;
         }
 
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+
         index=chmap->pch;
         while( index < chmap->chcount-1 && chmap->pref[ chmap->charPos[index] ] != '\n' ) {
                 //printf("index=%d\n",index);
@@ -723,6 +767,9 @@ int FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap )
 
         /* If no '\n' found, then index will be chmap->count-1, as end  */
         chmap->pch=index;
+
+        /*  <-------- Put mutex lock */
+        pthread_mutex_unlock(&chmap->mutex);
 
         return 0;
 }
