@@ -4,7 +4,20 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 
+                        --- Definition and glossary ---
+
+1. dline:  displayed/charmapped line, A line starts/ends at displaying window left/right end side.
+   retline: A line starts/ends by a new line token '\n'.
+
+2. scroll up/down:  scroll up/down charmap by mouse, keep cursor position relative to txtbuff.
+          (UP: decrease chmap->pref,      DOWN: increase chmap->pref )
+
+   shift  up/down:  shift typing cursor up/down by ARROW keys.
+          (UP: decrease chmap->pch,       DOWN: increase chmap->pch )
+
+
 Midas Zhou
+midaszhou@yahoo.com
 -------------------------------------------------------------------*/
 #ifndef __EGI_FTCHARMAP_H__
 #define __EGI_FTCHARMPA_H__
@@ -14,7 +27,6 @@ Midas Zhou
 #include <freetype2/ftglyph.h>
 #include <arpa/inet.h>
 #include FT_FREETYPE_H
-
 
 typedef enum FTcharmap_errcode FTCHARMAP_ERRCODE;
 enum FTcharmap_errcode {
@@ -66,14 +78,19 @@ struct  FTsymbol_char_map {
 						 * 3. Only a line_shift OR page_shift action can change/reset the value of txtdlncount.
 						 */
 
-
 /* 2. Temporary vars for being displayed/charmapped txt.  ( offset position relative to pref )
-	 * 1. A map for displayed chars only! A map to tell LCD coordinates of displayed chars and their offset/position in pref[]
-	 * 2. Shift pref to change starting char/line for displaying.
-	 * 3. Maplines limits the max. number of lines displayed/charmapped each time. It's MAY NOT be the exacte number of actual available
+	 * 1. A map for displayed chars only! A map to tell LCD coordinates of displayed chars and their offset/position in pref[].
+	 *    Each char(and typing cursor) displayed will then have its charX/Y and charPos data in current charmap struct, by which
+	 *    each pixel on the screen may be mapped to its corresponding char in mem.
+	 * 2. Change .pref to display different blocks in txtbuff. ( pref is starting char/line for displaying).
+	 * 3. Change .pchoff AND .pch to locate/keep typing(deleting,inserting) cursor position.
+	 *    .pchoff --- byte position in txtbuff[]
+	 *    .pch    --- byte position in pref[]
+	 * 4. Maplines limits the max. number of lines displayed/charmapped each time. It's MAY NOT be the exacte number of actual available
 	 *    diplaying lines on LCD, it may be just for charmapping.
 	 */
 	unsigned char	*pref;			/* A pointer to strings to be displayed, a ref pointer to somewhere of txtbuff[].
+					         * content pointed by pref will be charmapped and displayed.
 						 * Initial pref=txtbuff.
 						 */
 	int		mapsize;		/* Size of map member arrays(charX,charY,charPos) mem space allocated , Max. number for chcount+1 */
@@ -82,7 +99,6 @@ struct  FTsymbol_char_map {
 					   	 * Note: chcount-1 chars, the last data pref[charPos[chcount-1]] is EOF, and is always
 						 * an inserting point. ( If EOF is charmapped.  )
 					   	 */
-
 
 	unsigned int	mappixpl;		/* pixels per disline */
 	int		maplndis;		/* line distance betwee two dlines */
@@ -93,10 +109,12 @@ struct  FTsymbol_char_map {
 
 
 	unsigned int	pchoff;			/* Offset postion to txtbuff !!!, If pchoff>0, it will be used to relocate pch after charmapping!
+						 *			--- MOST IMPORTANT ---
 						 * In case that after inserting a new char, chmapsize reaches LIMIT and need to shift one line down,
                            			 * then we'll use pchoff to locate the typing position in charmapping. so after inserting a new char
 						 * into txtbuff, ALWAY update pchoff to keep track of typing/inserting cursor position.
 						 */
+
 	int		pch;			/* Index of displayed char as of charX[],charY and charPos[], pch=0 is the first displayed char.
 						 *   			--- MOST IMPORTANT ---
 						 * pch is also position of the current typing/inserting cursor in the charmap. 0<=pch<=chcount)
@@ -123,10 +141,10 @@ int  	FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,			/* 
                                     int fontcolor, int transpcolor, int opaque,
                                     int *cnt, int *lnleft, int* penx, int* peny );
 
-int 	FTcharmap_page_up(EGI_FTCHAR_MAP *chmap);
-int 	FTcharmap_page_down(EGI_FTCHAR_MAP *chmap);
-int 	FTcharmap_shift_oneline_up(EGI_FTCHAR_MAP *chmap);
-int 	FTcharmap_shift_oneline_down(EGI_FTCHAR_MAP *chmap);
+int 	FTcharmap_page_up(EGI_FTCHAR_MAP *chmap);			/* mutex_lock */
+int 	FTcharmap_page_down(EGI_FTCHAR_MAP *chmap);			/* mutex_lock */
+int 	FTcharmap_scroll_oneline_up(EGI_FTCHAR_MAP *chmap);		/* mutex_lock */
+int 	FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock */
 
 int  	FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y);		/* mutex_lock */
 int 	FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap );  	/* As retline, NOT displine */	/* mutex_lock */
