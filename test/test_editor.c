@@ -83,19 +83,26 @@ midaszhou@yahoo.com
 #define		TTY_PAGE_UP	"\033[5~"
 #define		TTY_PAGE_DOWN	"\033[6~"
 
+
+#define 	TEST_INSERT 	1
+
 /* Some ASCII control key */
 #define		CTRL_N	14	/* ASCII: Ctrl + N, scroll down  */
 #define		CTRL_O	15	/* ASCII: Ctrl + O, scroll up  */
 
+char *strInsert="庄严净土";
 
-static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
-//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Text displaying area */
+//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
+//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
+static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Text displaying area */
 static int smargin=5; 		/* left and right side margin of text area */
 static int tmargin=0;		/* top margin of text area */
 
 /* NOTE: char position, in respect of txtbuff index and data_offset: pos=chmap->charPos[pch] */
 static EGI_FTCHAR_MAP *chmap;	/* FTchar map to hold char position data */
 static unsigned int pchoff;
+static unsigned int chsize;	/* byte size of a char */
+static unsigned int chns;	/* total number of chars in a string */
 
 static bool mouseLeftKeyDown;
 static int  mouseX, mouseY, mouseZ; /* Mouse point position */
@@ -366,8 +373,8 @@ int main(void)
 						}
                                                 break;
 					case 65:  /* UP arrow : move char pch one display_line up */
-						/* refresh char pos/pch */
-						if( chmap->charY[chmap->pch] < txtbox.startxy.y+tmargin+fh+fgap ) { /* Get to the upper most */
+						/* If gets to the upper most dline */
+						if( chmap->charY[chmap->pch] < txtbox.startxy.y+tmargin+fh+fgap ) {
 							// FTcharmap_scroll_oneline_up(chmap); NOPE!!! this funt will move pch(cursor) up also!
 						        /* Change chmap->pref, to change charmap start postion */
         						if( chmap->txtdlncount > 0 ) {   /* Till to the first dline */
@@ -375,8 +382,21 @@ int main(void)
 							 * always pointer to the first dline: champ->txtdlinePos[txtdlncount]==chmap->maplinePos[0]
                  					 * So we need to reset txtdlncount to pointer the previous dline.
                  					 */
-                						chmap->pref=chmap->txtbuff + chmap->txtdlinePos[--chmap->txtdlncount];
+                						chmap->pref=chmap->txtbuff + chmap->txtdlinePos[--chmap->txtdlncount]; /* !-- */
                 						printf("%s: Shift up,  chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
+
+								/* record current pxy */
+								int px=chmap->charX[chmap->pch];
+								int py=chmap->charY[chmap->pch];
+
+								/* charmap must be updated according to new pref */
+								//fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
+                				                FTcharmap_writeFB(NULL, txtbox.startxy.x+smargin, txtbox.startxy.y,
+														WEGI_COLOR_BLACK, NULL, NULL);
+
+								/* relocate chmap->pch according to previous pxy */
+						        	FTcharmap_locate_charPos (chmap, px, py);
+								/* Go on to call charmap again and draw cursors. */
         						}
 						}
 						else {
@@ -395,14 +415,14 @@ int main(void)
 						      * always pointer to the first dline: champ->txtdlinePos[txtdlncount]==chmap->maplinePos[0]
                  				      * So we need to reset txtdlncount to pointer the next dline
                  				      */
-                						chmap->pref=chmap->txtbuff + chmap->txtdlinePos[++chmap->txtdlncount];
+                						chmap->pref=chmap->txtbuff + chmap->txtdlinePos[++chmap->txtdlncount]; /* !++ */
                 					//SAME: chmap->pref=chmap->pref+chmap->maplinePos[1];  /* move pref pointer to next dline */
                 						printf("%s: Shift down, chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
 								/* record current pxy */
 								int px=chmap->charX[chmap->pch];
 								int py=chmap->charY[chmap->pch];
 								/* charmap must be updated according to new pref */
-								fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
+								//fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
                 				                FTcharmap_writeFB(NULL, txtbox.startxy.x+smargin, txtbox.startxy.y,
 														WEGI_COLOR_BLACK, NULL, NULL);
 								/* locate pch according to previous pxy */
@@ -458,31 +478,69 @@ int main(void)
 		/* --- EDIT:  3.1 Backspace */
 		if( ch==0x7F ) { /* backspace */
 		   //if( pos>0 ) {
-		   /* TODO: if chmap->pch==0 and pref != txtbuff, then shift one line up! */
-		   if( chmap->pch > 0 ) {
+		   /* If gets leftmost of the top dline. But NOT to the beginning of txtbuff, then scroll one line up! */
+		   if( chmap->pch==0 && chmap->pref != chmap->txtbuff ) {
+
+			printf("chmap->txtdlncount=%d \n", chmap->txtdlncount);
+
+			/* Get pos offset of the last char in previous dline */
+			int pos=FTcharmap_getPos_lastCharOfDline(chmap, chmap->txtdlncount-1); /* relative to pline */
+			pos=chmap->txtdlinePos[chmap->txtdlncount-1]+pos;  /* relative to txtbuff */
+
+			/* move forward to delete previous char */
+	   		memmove( chmap->txtbuff+pos, chmap->pref+chmap->charPos[chmap->pch],
+							    strlen((char *)(chmap->pref+chmap->charPos[chmap->pch])) +1); /* +1 for string end */
+
+			/* charPos[] NOT updated, before calling charmap_writeFB ! */
+			chmap->txtlen -= cstr_charlen_uft8((const unsigned char *)(chmap->txtbuff+pos));
+
+			/* set pchoff immediately for charmap */
+			chmap->pchoff=pos; /*: set cursor position relative to txtbuff */
+
+			/* MUST set pref to previous txtdline before charmap and set txtdlncount also */
+                	chmap->pref=chmap->txtbuff + chmap->txtdlinePos[--chmap->txtdlncount]; /* !-- txtdlncount MUST reset */
+			/* Re_charmap */
+        		FTcharmap_writeFB(NULL, txtbox.startxy.x+smargin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
+
+		   }
+		   else if( chmap->pch > 0 ) {
 			/* ! move whole string forward..
                		 * NOTE: DEL/BACKSPACE operation acturally copys string including only ONE '\0' at end.
 		 	 *  After deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes
 			 *  need to be cleared. and EOF token MUST reset when insert char at the end of txtbuff[] laster.
 			 */
 	   		memmove(chmap->pref+chmap->charPos[chmap->pch-1], chmap->pref+chmap->charPos[chmap->pch],
-							    strlen((char *)(chmap->pref+chmap->charPos[chmap->pch-1])) +1); /* +1 for string end */
+							    strlen((char *)(chmap->pref+chmap->charPos[chmap->pch])) +1); /* +1 for string end */
 
 			/* charPos[] NOT updated, before calling charmap_writeFB ! */
 			chmap->txtlen -= chmap->charPos[chmap->pch]-chmap->charPos[chmap->pch-1];
 			chmap->pch--;
 		  }
+
+
+
 		}
 
 		/* --- EDIT:  3.2 Insert chars, !!! printable chars + '\n' + TAB  !!! */
 		else if( (ch>31 || ch==9 || ch==10 ) && chmap->pch>=0 ) {  //pos>=0 ) {   /* If pos<0, then ... */
+			/* 0. Get size of inserting char */
+			chsize=sizeof(char);
+			chns=1;			/* 1 char only */
+
+			/* TEST: inserting string */
+			if(ch=='5' && TEST_INSERT  ) {
+				/* revise chsize and chns  */
+				chsize=cstr_strlen_uft8((const unsigned char *)strInsert);
+				chns=cstr_strcount_uft8((const unsigned char *)strInsert);
+			}
+
 			/* 1. Check txtbuff space */
-			if( chmap->txtlen +sizeof(char) > chmap->txtsize-1 ) {
+			if( chmap->txtlen +chsize > chmap->txtsize-1 ) {
 				printf("chmap->txtbuff is full! Fail to insert char.\n");
 				chmap->errbits |= CHMAPERR_TXTSIZE_LIMIT;
 			}
 			/* Check mapsize */
-			else if( chmap->chcount > chmap->mapsize-1 ) {
+			else if( chmap->chcount > chmap->mapsize-1 ) {   /* For TEST inserting string: chmap->chcount > chmap->mapsize-chns */
 				printf("Reach chmapsize limit! Fail to insert char.\n");
 				chmap->errbits |= CHMAPERR_MAPSIZE_LIMIT;
 			}
@@ -492,8 +550,8 @@ int main(void)
 				chmap->pref[ chmap->charPos[ chmap->pch] ]=ch;
 
 				/* move pch forward */
-				chmap->pch +=sizeof(char);
-				chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+sizeof(char);
+				chmap->pch++;
+				chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+chsize;
 
 				/* ---TEST: Check txtbuff EOF */
 				#if 0
@@ -512,24 +570,47 @@ int main(void)
 				/* Warning! now pch MAY out of displaying txtbox range! charXY is undefined as initial value (0,0)!
 				 * search/see RESET_PCH
 				 */
-				chmap->txtlen +=sizeof(char);
+				chmap->txtlen +=chsize;
 
 			}
 			/* 3. Insert not at end */
 			else {
-				memmove(chmap->pref+chmap->charPos[chmap->pch]+sizeof(char), chmap->pref+chmap->charPos[chmap->pch],
+			   /* TEST: insert string, ONLY NOT AT END. */
+			   if( ch=='5' && TEST_INSERT ) {
+				/* Move txt to , here chsize is strlen, see above */
+				memmove(chmap->pref+chmap->charPos[chmap->pch]+chsize, chmap->pref+chmap->charPos[chmap->pch],
+									strlen((char *)(chmap->pref+chmap->charPos[chmap->pch] )) +1);
+				/* Insert strInsert */
+				strncpy((char *)chmap->pref+chmap->charPos[chmap->pch], strInsert,chsize); /* strcpy including '\0' */
+
+				/* Move pch forward one by one, size limit checked at beginning. see above. */
+				unsigned ps=0;
+				for(k=0; k<chns; k++) {
+					chsize=cstr_charlen_uft8((const unsigned char *)(strInsert+ps));
+					chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+chsize;
+					chmap->pch++;
+					chmap->txtlen +=chsize;
+					ps+=chsize;
+				}
+
+				/* need to charmap to update followed charPos[] */
+			   } else {
+			   /* END TEST insert */
+
+				memmove(chmap->pref+chmap->charPos[chmap->pch]+chsize, chmap->pref+chmap->charPos[chmap->pch],
 									strlen((char *)(chmap->pref+chmap->charPos[chmap->pch] )) +1);
 				chmap->pref[ chmap->charPos[chmap->pch] ]=ch;
 				/* move pch forward */
 				chmap->pch++;
-				chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+sizeof(char);
-				chmap->txtlen +=sizeof(char);
-				/*check txtlen */
+				chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+chsize;
+				chmap->txtlen +=chsize;
+				/* need to charmap to update followed charPos[] */
+			  }
 			}
 
 			/* In case that after inserting a new char, chmapsize reach LIMIT and need to scroll one line down,
 			   then we'll need pchoff to locate the typing position in charmapping. */
-			pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch]; /* : NOW typing/inserting cursor position */
+			pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch]; /* : NOW typing/inserting cursor position relative to txtbuff */
 		}
 
 		/* EDIT:  Need to refresh EGI_FTCHAR_MAP after editing !!! .... */
@@ -552,7 +633,8 @@ int main(void)
 			 * set chmap->pchoff to tell charmap function.
 			 */
 			chmap->pchoff=pchoff;  /* pchoff is calculated each time inserting a new char, see above. */
-			/* Any editing procesure MUST NOT call shift_oneline_()! race condition */
+
+			/* Any editing procesure MUST NOT call scroll_oneline_()! race condition, conflict chmap->pchoff */
 			// FTcharmap_scroll_oneline_down(chmap); /* shift one line down */
 		        /* Change chmap->pref, to change charmap start postion */
       			if( chmap->maplncount>1 ) {
@@ -568,6 +650,8 @@ int main(void)
 			/* We shall charmap immediately, before inserting any new char, just to keep chmap->pchoff consistent with current txtbuff. */
         		fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 			FTcharmap_writeFB(&gv_fb_dev, txtbox.startxy.x+smargin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
+
+			/* TODO: If inserting a string, then it may trigger more than 1 line scroll! */
 		}
 
 		/* POST:  check chmap->errbits */

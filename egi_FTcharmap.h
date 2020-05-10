@@ -65,11 +65,14 @@ struct  FTsymbol_char_map {
 	 * retline: A line starts/ends by a new line token '\n'.
 	 */
 	int		txtdlines;		/* Size of txtdlinePos[]  */
-	unsigned int	*txtdlinePos;		/* An array to store offset position(relative to txtbuff) of each txt diplayed lines */
+	unsigned int	*txtdlinePos;		/* An array to store offset position(relative to txtbuff) of each txt dlines, which
+						 * have already been charmapped, and MAYBE not desiplayed in the current charmap.
+					         */
 	int		txtdlncount;		/* displayed/charmapped line count, for txtbuff
 						 * 			--- NOTE ---
-						 * 1. ALWAYS set txtdlncount to the right position before calling FTcharmap_uft8strings_writeFB(),
-						 *    so that txtdlinePos[] will be updated properly!
+						 * 1. ALWAYS set txtdlncount to the start/right position before calling FTcharmap_uft8strings_writeFB(),
+						 *     			--- IMPORTANT ---
+						 *    so that txtdlinePos[] will be updated properly! Its index will start from txtdlncount
 						 * 2. After each FTcharmap_uft8strings_writeFB() calling, reset it to let:
 					         *    chmap->txtdlinePos[txtdlncount]==chmap->maplinePos[0]
 						 *    So it can sustain a stable loop calling.
@@ -117,7 +120,7 @@ struct  FTsymbol_char_map {
 
 	int		pch;			/* Index of displayed char as of charX[],charY and charPos[], pch=0 is the first displayed char.
 						 *   			--- MOST IMPORTANT ---
-						 * pch is also position of the current typing/inserting cursor in the charmap. 0<=pch<=chcount)
+						 * pch points to the CURRENT/IMMEDIATE typing/inserting position in the charmap. 0<=pch<=chcount)
 					 	 * pch is used to locate inserting positioin and typing_cursor position.
 					   	 * xxxIn some case, we just change chmap->pch in advance(before charmapping), and chmap->pch may be
 						 * xxxgreater than chmap->chcount-1 at that point, after charmapping it will be adjusted to point
@@ -149,5 +152,7 @@ int 	FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock */
 int  	FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y);		/* mutex_lock */
 int 	FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap );  	/* As retline, NOT displine */	/* mutex_lock */
 int 	FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap );	/* As retline, NOT displine */	/* mutex_lock */
+
+int 	FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln);
 
 #endif

@@ -764,6 +764,7 @@ int FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
 
 	/* Search char map to find pch/pos for the x,y  */
 	//printf("input x,y=(%d,%d), chmap->chcount=%d \n", x,y, chmap->chcount);
+	/* TODO: a better way to locate i */
         for(i=0; i < chmap->chcount; i++) {
              	//printf("i=%d/(%d-1)\n", i, chmap->chcount);
              	if( chmap->charY[i] <= y && chmap->charY[i]+ chmap->maplndis > y ) {	/* locate Y */
@@ -892,3 +893,52 @@ int FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap )
         return 0;
 }
 
+
+/*---------------------------------------------------------
+Get the offset position (relative to txtdlinePos ) of the
+last char in the dline.
+
+@chmap: 	an EGI_FTCHAR_MAP
+@dln: 		index of chmap->txtdlinePos[]
+
+Return:
+        >0       OK,   return offset of char, relative to its dline.
+        <0      Fails
+----------------------------------------------------------*/
+int FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln)
+{
+	unsigned int pos;
+	int charlen;
+
+	/* Check input */
+        if( chmap==NULL ) {
+                printf("%s: Input FTCHAR map is empty!\n", __func__);
+                return -1;
+        }
+	if( dln<0 || dln > chmap->txtdlines-1 ) {
+                printf("%s: Input index of txtdlnPos[] out of ragne!\n", __func__);
+                return -2;
+	}
+	if( chmap->txtdlinePos[dln] == 0 && dln != 0 ) {  /* No data, in NOT first dline */
+                printf("%s: No data in txtdlnPos[dln] yet, try charmap first!\n", __func__);
+		return -3;
+	}
+
+	/* Search one by one to calculate pos */
+	pos=0;
+	while(  chmap->txtbuff[chmap->txtdlinePos[dln]+pos] != '\0'			/* Get EOF */
+		&&  (  chmap->txtdlinePos[dln+1]!=0		      /* Next dline MUST be mapped!,  dln+1 is alway valid if not EOF */
+		       && chmap->txtdlinePos[dln]+pos != chmap->txtdlinePos[dln+1]  ) 	/* And not get to the next dline! */
+	)
+	{
+		charlen=cstr_charlen_uft8(chmap->txtbuff+chmap->txtdlinePos[dln]+pos);
+		if(charlen<1) {
+			printf("%s: Unrecognizable uft-8 char found!\n",__func__);
+			return -4;
+		}
+		pos += charlen;
+	};
+
+	/* Retreat charlen to get offset */
+	return  pos-charlen;
+}
