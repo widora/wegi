@@ -116,6 +116,7 @@ void FTcharmap_free(EGI_FTCHAR_MAP **chmap)
 		return;
 
         /* Hope there is no other user.. */
+        /*  Get mutex lock   ----------->  */
         if(pthread_mutex_lock(&((*chmap)->mutex)) !=0 )
                 printf("%s: Fail to lock charmap mutex!\n",__func__);
 
@@ -128,6 +129,7 @@ void FTcharmap_free(EGI_FTCHAR_MAP **chmap)
 	free( (*chmap)->charPos );
 
         /*  ??? necesssary ??? */
+        /*  <-------- Put mutex lock */
         pthread_mutex_unlock(&((*chmap)->mutex));
 
         /* Destroy thread mutex lock for page resource access */
@@ -491,6 +493,8 @@ FUNC_END:
 		for( i=0; i < chmap->chcount; i++) {
 			if( off+chmap->charPos[i] == chmap->pchoff ) {
 				chmap->pch=i;
+				//chmap->pchoff=0; /* Reset pchoff only if chmap->pch is in current charmap */
+
 				break;
 			}
 		}
@@ -532,7 +536,7 @@ int FTcharmap_page_up(EGI_FTCHAR_MAP *chmap)
 
 	/* Only if charmap cleared chmap->pchoff, charmap finish last session. */
 	if( chmap->pchoff != 0) {
-        	/*  <-------- Put mutex lock */
+       	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
 		return -3;
 	}
@@ -583,7 +587,7 @@ int FTcharmap_page_down(EGI_FTCHAR_MAP *chmap)
 
 	/* Only if charmap cleared chmap->pchoff, charmap finish last session. */
 	if( chmap->pchoff != 0) {
-        	/*  <-------- Put mutex lock */
+       	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
 		return -3;
 	}
@@ -653,15 +657,16 @@ int FTcharmap_scroll_oneline_up(EGI_FTCHAR_MAP *chmap)
         }
 	/* Only if charmap cleared chmap->pchoff, finish last session. */
 	if( chmap->pchoff != 0) {
-        	/*  <-------- Put mutex lock */
+       	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
 		return -3;
 	}
 
-        /* Just before changing chmap->pref: Remember current typing/insertion cursor byte position in chmap->txtbuff */
+        /* MUST_1. Just before changing chmap->pref: Remember current typing/insertion cursor byte position in chmap->txtbuff */
         chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch];
 
-	/* Change chmap->pref, to change charmap start postion */
+        /* MUST_2. chmap->txtdlncount--
+	 * MUST_3. Change chmap->pref, to change charmap start postion */
         if( chmap->txtdlncount > 0 ) {
         	/* reset txtdlncount to pointer the line BEFORE first dline in current charmap page */
                 chmap->pref=chmap->txtbuff + chmap->txtdlinePos[--chmap->txtdlncount];
@@ -717,11 +722,13 @@ int FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap)
 		return -3;
 	}
 
-        /* Just before changing chmap->pref: Remember current typing/insertion cursor byte position in chmap->txtbuff */
+        /* MUST_1. Just before changing chmap->pref: Remember current typing/insertion cursor byte position in chmap->txtbuff */
         chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch];
 
 	if( chmap->maplncount>1 ) {
-       	 	/* Before/after calling FTcharmap_uft8string_writeFB(), champ->txtdlinePos[txtdlncount] always point to the first
+       	 	/* MUST_2. chmap->txtdlncount++
+		 * MUST_3. set pref
+		 * Before/after calling FTcharmap_uft8string_writeFB(), champ->txtdlinePos[txtdlncount] always point to the first
                  * dline: champ->txtdlinePos[txtdlncount]==chmap->maplinePos[0]
                  * So we need to reset txtdlncount to pointer the next line
                  */
@@ -826,15 +833,15 @@ int FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap )
 {
         int index=0;
 
+        if( chmap==NULL ) {
+                printf("%s: Input FTCHAR map is empty!\n", __func__);
+                return -1;
+        }
+
         /*  Get mutex lock   ----------->  */
         if(pthread_mutex_lock(&chmap->mutex) !=0){
                 printf("%s: Fail to lock charmap mutex!", __func__);
                 return -2;
-        }
-
-        if( chmap==NULL ) {
-                printf("%s: Input FTCHAR map is empty!\n", __func__);
-                return -1;
         }
 
         index=chmap->pch;
@@ -908,7 +915,7 @@ Return:
 int FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln)
 {
 	unsigned int pos;
-	int charlen;
+	int charlen=0;
 
 	/* Check input */
         if( chmap==NULL ) {
@@ -941,4 +948,223 @@ int FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln)
 
 	/* Retreat charlen to get offset */
 	return  pos-charlen;
+}
+
+
+/*-------------------------------------------------------------
+Go backspace from chmap->pch: delete previous char and move
+all following strings forward to fill the deleted space.
+
+1. If chmap->pch points to the leftmost of the current top
+   displine then scroll one dline up after moving backward.
+   and set chmap->pchoff to change pch during charmapping.
+
+2. Else just move backward and change chmap->pch. Not necessary
+   to re_chramap.
+
+
+@chmap: 	Pointer to the EGI_FTCHAR_MAP.
+
+Return:
+        0       OK,    chmap->pch modifed accordingly.
+        <0      Fail   chmap->pch, unchanged.
+-------------------------------------------------------------*/
+int FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap )
+{
+	int pos;
+
+	/* Check input */
+        if( chmap==NULL ) {
+                printf("%s: Input FTCHAR map is empty!\n", __func__);
+                return -1;
+        }
+
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+
+	printf("%s: backspace chmap->pch=%d \n", __func__, chmap->pch);
+
+	/* If current pch gets leftmost of the top dline. But NOT to the beginning of txtbuff, then scroll one line up after moving string! */
+	if( chmap->pch==0 && chmap->pref != chmap->txtbuff ) {
+		printf("%s: chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
+
+		/* Get pos offset of the last char in previous dline */
+		pos=FTcharmap_getPos_lastCharOfDline(chmap, chmap->txtdlncount-1); /* relative to pline */
+		pos=chmap->txtdlinePos[chmap->txtdlncount-1]+pos;  		   /* relative to txtbuff */
+
+		/* Move following string backward to delete previous char */
+	   	memmove( chmap->txtbuff+pos, chmap->pref+chmap->charPos[chmap->pch],  /* pch==0 */
+						    strlen((char *)(chmap->pref+chmap->charPos[chmap->pch])) +1); /* +1 for string end */
+
+		/* MUST_1. Updated chmap->txtlen */
+		chmap->txtlen -= cstr_charlen_uft8((const unsigned char *)(chmap->txtbuff+pos));
+
+				/* Scroll one dline up */
+		/* MUST_2. Set chmap->pchoff immediately for charmap */
+		chmap->pchoff=pos; /*: set cursor position relative to txtbuff */
+		/* MUST_3. Set chmap->txtdlncount */
+		chmap->txtdlncount--;
+		/* MUST_4. Set pref to previous txtdline before charmap and set txtdlncount also */
+                chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+
+		/* Re_charmap */
+        	//FTcharmap_writeFB(NULL, txtbox.startxy.x+smargin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
+	}
+
+	else if( chmap->pch > 0 ) {
+	/* ! move whole string forward..
+         * NOTE: DEL/BACKSPACE operation acturally copys string including only ONE '\0' at end.
+	 *  After deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes
+	 *  need to be cleared. and EOF token MUST reset when insert char at the end of txtbuff[] laster.
+	 */
+		memmove(chmap->pref+chmap->charPos[chmap->pch-1], chmap->pref+chmap->charPos[chmap->pch],
+							    strlen((char *)(chmap->pref+chmap->charPos[chmap->pch])) +1); /* +1 for string end */
+
+		/* charPos[] NOT updated, before calling charmap_writeFB ! */
+		/* MUST_1. Update chmap->txtlen */
+		chmap->txtlen -= chmap->charPos[chmap->pch]-chmap->charPos[chmap->pch-1];
+		/* MUST_2. Update chmap->pch */
+		chmap->pch--;
+	}
+
+        /*  <-------- Put mutex lock */
+        pthread_mutex_unlock(&chmap->mutex);
+
+	return 0;
+}
+
+
+
+/*---------------------------------------------------------------
+Insert a char(ASCII or UFT-8 encoding) into the chmap.
+
+			!!! --- WARNING --- !!!
+
+All chars MUST be printable, OR '\n', OR TAB, OR legal UFT-8 encoded.
+It MAY crash chmapping if any illegal char exists in champ->txtbuff.??
+
+@chmap:         Pointer to the EGI_FTCHAR_MAP.
+@ch:		Pointer to inserting char.
+
+Return:
+        0       OK,    chmap->pch modifed accordingly.
+        <0      Fail   chmap->pch, unchanged.
+------------------------------------------------------------------*/
+int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
+{
+	int chsize;  /* Size of inserted char */
+	//int chns;    /* Total number of inserted chars, ==1 NOW */
+
+	/* Check input */
+        if( chmap==NULL ) {
+                printf("%s: Input FTCHAR map is empty!\n", __func__);
+                return -1;
+        }
+	/* Verify pch */
+	chsize=cstr_charlen_uft8((const unsigned char *)ch);
+	if(chsize<0) {
+                printf("%s: unrecognizable UFT-8 char!\n", __func__);
+		return -2;
+	}
+	/* ASCII printable chars + '\n' + TAB */
+	else if( chsize==1 && !(*ch>31 || *ch==9 || *ch==10) ){
+                printf("%s: ASCII '%d' not printable!\n", __func__, *ch);
+		return -3;
+	}
+
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+
+	/* Verify chmap->pch */
+	if(chmap->pch > chmap->chcount-1 || chmap->pch <0 ) {
+		printf("%s: chmap->pch is illegal!\n", __func__);
+        /*  <-------- Put mutex lock */
+        	pthread_mutex_unlock(&chmap->mutex);
+		return -3;
+	}
+
+	/* 0. Get totabl number of inserting char */
+	//chns=1;			/* 1 char only NOW */
+
+	/* 1. Check txtbuff space */
+	if( chmap->txtlen +chsize > chmap->txtsize-1 ) {
+		printf("%s: chmap->txtbuff is full! Fail to insert char.\n", __func__);
+		chmap->errbits |= CHMAPERR_TXTSIZE_LIMIT;
+
+        /*  <-------- Put mutex lock */
+        	pthread_mutex_unlock(&chmap->mutex);
+		return -4;
+	}
+
+	/* 2. Insert char at EOF of chmap->txtbuff, OR start of an empty txtbuff */
+	if(chmap->pref[ chmap->charPos[ chmap->pch] ]=='\0') {  /* Need to reset charPos[] at charmapping */
+		printf("%s: Insert a char at EOF.\n", __func__);
+
+		/* 2.1 Insert char to the EOF, notice that charPos[] have not been updated yet, it holds just insterting pos. */
+		strncpy((char *)chmap->pref+chmap->charPos[chmap->pch], ch, chsize);
+
+		/* 2.2 move chmap->pch forward and reset its position */
+		chmap->pch++;
+		chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+chsize;  /* chmap->pch MAY be out of current charmap */
+
+		/* TEST: Confirm txtbuff EOF */
+		#if 0
+		if(chmap->pref[chmap->charPos[chmap->pch]] != 0 ) {
+				printf("Error occurs as txtbuff EOF=%d!\n",*(unsigned char *)(chmap->pref+chmap->charPos[chmap->pch]) );
+		}
+		#endif
+
+		/* 2.3 Always reset txtbuff EOF here!
+		 * NOTE: DEL/BACKSPACE operation acturally copys string including only ONE '\0' at end, NOT just move and completely clear !
+		 * So after deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes need to be cleared.
+		 * For the case, we insert the char just at the fore-mentioned position of '\0', and the next byte may be NOT '\0'!
+		 */
+		chmap->pref[chmap->charPos[chmap->pch]]='\0';
+
+		/* 2.4 Update chmap->txtlen */
+		chmap->txtlen +=chsize;
+
+		/* !!!Warning: now chmap->pch MAY out of displaying txtbox range! charXY is undefined as initial value (0,0)!
+		 * search/see RESET_PCH
+		 */
+
+	}
+	/* 3. Insert char not at EOF */
+	else {
+		printf("%s: Insert at chmap->pch=%d of chcount=%d\n", __func__,chmap->pch, chmap->chcount);
+
+		/* 3.1 Move string forward to leave space for the inserting char */
+		memmove(chmap->pref+chmap->charPos[chmap->pch]+chsize, chmap->pref+chmap->charPos[chmap->pch],
+							strlen((char *)(chmap->pref+chmap->charPos[chmap->pch] )) +1);
+		/* 3.2 Insert the char, notice that charPos[] have not been updated yet, it holds just  insterting pos. */
+		strncpy((char *)chmap->pref+chmap->charPos[chmap->pch], ch, chsize);
+
+		/* 3.3 Move pch forward and reset its pos */
+		chmap->pch++;
+		chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+chsize;  /* chmap->pch MAY be out of current charmap */
+
+		/* 3.4 Update chmap->txtlen */
+		chmap->txtlen +=chsize;
+
+		/* need to charmap to update followed charPos[] */
+	}
+
+	/* In case that inserting a new char just at the end of the charmap, and AFTER charmapping: chmap->pch > chmap->chcount-1
+	 *  (here chmap->pch is preset as above ), then we need to scroll one line down to the update the cursor.
+	 *  we'll need pchoff to locate the typing position in charmapping function.
+         *  All above will be checked and done in POST charmapping codes.
+	 */
+	chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch]; /* : NOW typing/inserting cursor position relative to txtbuff */
+
+
+        /*  <-------- Put mutex lock */
+        pthread_mutex_unlock(&chmap->mutex);
+
+	return 0;
 }

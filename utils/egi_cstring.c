@@ -296,6 +296,7 @@ int cstr_copy_line(const char *src, char *dest, size_t size)
 Get length of a character with UTF-8 encoding.
 
 @cp:	A pointer to a character with UTF-8 encoding.
+	OR any ASCII value, include '\0'.
 
 Note:
 1. UTF-8 maps to UNICODE according to following relations:

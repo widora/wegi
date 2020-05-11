@@ -90,7 +90,7 @@ midaszhou@yahoo.com
 #define		CTRL_N	14	/* ASCII: Ctrl + N, scroll down  */
 #define		CTRL_O	15	/* ASCII: Ctrl + O, scroll up  */
 
-char *strInsert="庄严净土";
+char *strInsert="Widora和小伙伴们";
 
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
@@ -217,7 +217,7 @@ int main(void)
 
 	//strcat(txtbuff,"12345\n歪朵拉的惊奇\nwidora_NEO\n\n"); //   --- hell world ---\n\n");
 	//strcat(chmap,"1122\n你既有此心，待我到了东土大唐国寻一个取经的人来，教他救你。你可跟他做个徒弟，秉教伽持，入我佛门。\n"); //   --- hell world ---\n\n");
-	strncat((char *)chmap->txtbuff,"112233\n你既有此心，\n待我到了东土大唐国\n寻一个取经的人来，\n教他救你。\n\
+	strncat((char *)chmap->txtbuff,"你既有此心，\n待我到了东土大唐国\n寻一个取经的人来，\n教他救你。\n\
 你可跟他做个徒弟，\n秉教伽持，\n入我佛门。\n -END-", CHMAP_TXTBUFF_SIZE); //   --- hell world ---\n\n");
 	//strncat(chmap->txtbuff,"1122\n你既有此心，待我到了东土大唐国寻一个取经的人来，教他救你。", TXTBUFF_SIZE); //   --- hell world ---\n\n");
 	chmap->txtlen=strlen((char *)chmap->txtbuff);
@@ -475,143 +475,39 @@ int main(void)
 		}
 
 		/* 3. edit text */
+
 		/* --- EDIT:  3.1 Backspace */
 		if( ch==0x7F ) { /* backspace */
-		   //if( pos>0 ) {
-		   /* If gets leftmost of the top dline. But NOT to the beginning of txtbuff, then scroll one line up! */
-		   if( chmap->pch==0 && chmap->pref != chmap->txtbuff ) {
-
-			printf("chmap->txtdlncount=%d \n", chmap->txtdlncount);
-
-			/* Get pos offset of the last char in previous dline */
-			int pos=FTcharmap_getPos_lastCharOfDline(chmap, chmap->txtdlncount-1); /* relative to pline */
-			pos=chmap->txtdlinePos[chmap->txtdlncount-1]+pos;  /* relative to txtbuff */
-
-			/* move forward to delete previous char */
-	   		memmove( chmap->txtbuff+pos, chmap->pref+chmap->charPos[chmap->pch],
-							    strlen((char *)(chmap->pref+chmap->charPos[chmap->pch])) +1); /* +1 for string end */
-
-			/* charPos[] NOT updated, before calling charmap_writeFB ! */
-			chmap->txtlen -= cstr_charlen_uft8((const unsigned char *)(chmap->txtbuff+pos));
-
-			/* set pchoff immediately for charmap */
-			chmap->pchoff=pos; /*: set cursor position relative to txtbuff */
-
-			/* MUST set pref to previous txtdline before charmap and set txtdlncount also */
-                	chmap->pref=chmap->txtbuff + chmap->txtdlinePos[--chmap->txtdlncount]; /* !-- txtdlncount MUST reset */
-			/* Re_charmap */
-        		FTcharmap_writeFB(NULL, txtbox.startxy.x+smargin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
-
-		   }
-		   else if( chmap->pch > 0 ) {
-			/* ! move whole string forward..
-               		 * NOTE: DEL/BACKSPACE operation acturally copys string including only ONE '\0' at end.
-		 	 *  After deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes
-			 *  need to be cleared. and EOF token MUST reset when insert char at the end of txtbuff[] laster.
-			 */
-	   		memmove(chmap->pref+chmap->charPos[chmap->pch-1], chmap->pref+chmap->charPos[chmap->pch],
-							    strlen((char *)(chmap->pref+chmap->charPos[chmap->pch])) +1); /* +1 for string end */
-
-			/* charPos[] NOT updated, before calling charmap_writeFB ! */
-			chmap->txtlen -= chmap->charPos[chmap->pch]-chmap->charPos[chmap->pch-1];
-			chmap->pch--;
-		  }
-
-
-
+			FTcharmap_go_backspace( chmap );
+			ch=0;
 		}
 
 		/* --- EDIT:  3.2 Insert chars, !!! printable chars + '\n' + TAB  !!! */
 		else if( (ch>31 || ch==9 || ch==10 ) && chmap->pch>=0 ) {  //pos>=0 ) {   /* If pos<0, then ... */
-			/* 0. Get size of inserting char */
-			chsize=sizeof(char);
-			chns=1;			/* 1 char only */
 
-			/* TEST: inserting string */
+			/* ---- TEST: insert string */
 			if(ch=='5' && TEST_INSERT  ) {
-				/* revise chsize and chns  */
-				chsize=cstr_strlen_uft8((const unsigned char *)strInsert);
-				chns=cstr_strcount_uft8((const unsigned char *)strInsert);
-			}
+				static int pos=0;
 
-			/* 1. Check txtbuff space */
-			if( chmap->txtlen +chsize > chmap->txtsize-1 ) {
-				printf("chmap->txtbuff is full! Fail to insert char.\n");
-				chmap->errbits |= CHMAPERR_TXTSIZE_LIMIT;
-			}
-			/* Check mapsize */
-			else if( chmap->chcount > chmap->mapsize-1 ) {   /* For TEST inserting string: chmap->chcount > chmap->mapsize-chns */
-				printf("Reach chmapsize limit! Fail to insert char.\n");
-				chmap->errbits |= CHMAPERR_MAPSIZE_LIMIT;
-			}
-			/* 2. Insert at txt end, OR start of an empty txtbuff */
-			else if(chmap->pref[ chmap->charPos[ chmap->pch] ]==0) {  /* Need to reset charPos[] at charmapping */
-				printf("Insert a char at end, ch=%d \n",ch);
-				chmap->pref[ chmap->charPos[ chmap->pch] ]=ch;
+                                /* revise chsize and chns  */
+                                chns=cstr_strcount_uft8((const unsigned char *)strInsert);
 
-				/* move pch forward */
-				chmap->pch++;
-				chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+chsize;
+				FTcharmap_insert_char( chmap, strInsert+pos );
 
-				/* ---TEST: Check txtbuff EOF */
-				#if 0
-				if(chmap->pref[chmap->charPos[chmap->pch]] != 0 ) {
-					printf("Error occurs as txtbuff EOF=%d!\n",*(unsigned char *)(chmap->pref+chmap->charPos[chmap->pch]) );
-				}
-				#endif
+				pos += cstr_charlen_uft8((const unsigned char *)(strInsert+pos));
+				if(*(strInsert+pos)=='\0')
+					pos=0;
 
-				/* Always reset txtbuff EOF here!
-				 * NOTE: DEL/BACKSPACE operation acturally copys string including only ONE '\0' at end, NOT just move and completely clear !
-			         * So after deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes need to be cleared.
-				 * For the case, we insert the char just at the fore-mentioned position of '\0', and the next byte may be NOT '\0'!
-				 */
-				chmap->pref[chmap->charPos[chmap->pch]]='\0';
+                        }
+			else
+				FTcharmap_insert_char( chmap, &ch );
 
-				/* Warning! now pch MAY out of displaying txtbox range! charXY is undefined as initial value (0,0)!
-				 * search/see RESET_PCH
-				 */
-				chmap->txtlen +=chsize;
+			/* Already set in FTcharmap_insert_char(), chmap->pchoff will be reset to 0 after charmap, save to pchoff. */
+			pchoff=chmap->pchoff;
+			chmap->pchoff=0; /* !!!! reset chmap->pchoff, to let chmap->pch unchangd in the following charmapping */
 
-			}
-			/* 3. Insert not at end */
-			else {
-			   /* TEST: insert string, ONLY NOT AT END. */
-			   if( ch=='5' && TEST_INSERT ) {
-				/* Move txt to , here chsize is strlen, see above */
-				memmove(chmap->pref+chmap->charPos[chmap->pch]+chsize, chmap->pref+chmap->charPos[chmap->pch],
-									strlen((char *)(chmap->pref+chmap->charPos[chmap->pch] )) +1);
-				/* Insert strInsert */
-				strncpy((char *)chmap->pref+chmap->charPos[chmap->pch], strInsert,chsize); /* strcpy including '\0' */
+		}  /* END insert ch */
 
-				/* Move pch forward one by one, size limit checked at beginning. see above. */
-				unsigned ps=0;
-				for(k=0; k<chns; k++) {
-					chsize=cstr_charlen_uft8((const unsigned char *)(strInsert+ps));
-					chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+chsize;
-					chmap->pch++;
-					chmap->txtlen +=chsize;
-					ps+=chsize;
-				}
-
-				/* need to charmap to update followed charPos[] */
-			   } else {
-			   /* END TEST insert */
-
-				memmove(chmap->pref+chmap->charPos[chmap->pch]+chsize, chmap->pref+chmap->charPos[chmap->pch],
-									strlen((char *)(chmap->pref+chmap->charPos[chmap->pch] )) +1);
-				chmap->pref[ chmap->charPos[chmap->pch] ]=ch;
-				/* move pch forward */
-				chmap->pch++;
-				chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+chsize;
-				chmap->txtlen +=chsize;
-				/* need to charmap to update followed charPos[] */
-			  }
-			}
-
-			/* In case that after inserting a new char, chmapsize reach LIMIT and need to scroll one line down,
-			   then we'll need pchoff to locate the typing position in charmapping. */
-			pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch]; /* : NOW typing/inserting cursor position relative to txtbuff */
-		}
 
 		/* EDIT:  Need to refresh EGI_FTCHAR_MAP after editing !!! .... */
 
@@ -632,7 +528,8 @@ int main(void)
 		         * In order to keep chmap->pch pointing to the typing/inserting cursor after charmapping, we shall
 			 * set chmap->pchoff to tell charmap function.
 			 */
-			chmap->pchoff=pchoff;  /* pchoff is calculated each time inserting a new char, see above. */
+			/* Already set in FTcharmap_insert_char(), saved to pchoff */
+			 chmap->pchoff=pchoff;  /* pchoff is calculated each time inserting a new char, see above. */
 
 			/* Any editing procesure MUST NOT call scroll_oneline_()! race condition, conflict chmap->pchoff */
 			// FTcharmap_scroll_oneline_down(chmap); /* shift one line down */

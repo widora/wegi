@@ -150,9 +150,12 @@ int 	FTcharmap_scroll_oneline_up(EGI_FTCHAR_MAP *chmap);		/* mutex_lock */
 int 	FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock */
 
 int  	FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y);		/* mutex_lock */
-int 	FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap );  	/* As retline, NOT displine */	/* mutex_lock */
-int 	FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap );	/* As retline, NOT displine */	/* mutex_lock */
+int 	FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap );  	/* mutex_lock */ 	/* As retline, NOT displine */
+int 	FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap );	/* mutex_lock */ 	/* As retline, NOT displine */
 
 int 	FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln);
+
+int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );
+int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock */
 
 #endif
