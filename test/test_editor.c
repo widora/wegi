@@ -24,10 +24,10 @@ PG_DN:		Page down
 
                --- Definition and glossary ---
 
-1. dline:  displayed/charmapped line, A line starts/ends at displaying window left/right end side.
+1. char:    A printable ASCII code OR a local character with UFT-8 encoding.
+2. dline:  displayed/charmapped line, A line starts/ends at displaying window left/right end side.
    retline: A line starts/ends by a new line token '\n'.
-
-2. scroll up/down:  scroll up/down charmap by mouse, keep cursor position relative to txtbuff.
+3. scroll up/down:  scroll up/down charmap by mouse, keep cursor position relative to txtbuff.
 	  (UP: decrease chmap->pref (-txtbuff), 	  DOWN: increase chmap->pref (-txtbuff) )
 
    shift  up/down:  shift typing cursor up/down by ARROW keys.
@@ -116,7 +116,7 @@ static int tlns;  //=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total avail
 static int penx;	/* Pen position */
 static int peny;
 
-static int FTcharmap_writeFB(FBDEV *fbdev, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
+static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void mouse_callback(unsigned char *mouse_data, int size);
 static void draw_mcursor(int x, int y);
@@ -212,12 +212,13 @@ int main(void)
 	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/(fh+fgap);
 
 	/* Init. txt and charmap */
-	chmap=FTcharmap_create(CHMAP_TXTBUFF_SIZE, CHMAP_SIZE, tlns, 320-20-2*smargin, fh+fgap); /* buffsize, mapsize, lines, pixpl, lndis */
+	chmap=FTcharmap_create(CHMAP_TXTBUFF_SIZE, txtbox.startxy.x+smargin, txtbox.startxy.y,		/* buffsize, x0,y0, */
+							CHMAP_SIZE, tlns, 320-20-2*smargin, fh+fgap); 	/* mapsize, lines, pixpl, lndis */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 
 	//strcat(txtbuff,"12345\n歪朵拉的惊奇\nwidora_NEO\n\n"); //   --- hell world ---\n\n");
 	//strcat(chmap,"1122\n你既有此心，待我到了东土大唐国寻一个取经的人来，教他救你。你可跟他做个徒弟，秉教伽持，入我佛门。\n"); //   --- hell world ---\n\n");
-	strncat((char *)chmap->txtbuff,"你既有此心，\n待我到了东土大唐国\n寻一个取经的人来，\n教他救你。\n\
+	strncat((char *)chmap->txtbuff,"1\n2\n3\n4\n5\n你既有此心，\n待我到了东土大唐国\n寻一个取经的人来，\n教他救你。\n\
 你可跟他做个徒弟，\n秉教伽持，\n入我佛门。\n -END-", CHMAP_TXTBUFF_SIZE); //   --- hell world ---\n\n");
 	//strncat(chmap->txtbuff,"1122\n你既有此心，待我到了东土大唐国寻一个取经的人来，教他救你。", TXTBUFF_SIZE); //   --- hell world ---\n\n");
 	chmap->txtlen=strlen((char *)chmap->txtbuff);
@@ -275,7 +276,7 @@ int main(void)
 #endif
 
 	/* To fill in FTCHAR map and get penx,peny */
-	FTcharmap_writeFB(&gv_fb_dev, txtbox.startxy.x +smargin, txtbox.startxy.y, WEGI_COLOR_BLACK, &penx, &peny);
+	FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, &penx, &peny);
 	fb_render(&gv_fb_dev);
 
 	/* Set current(inserting/writing) byte/char position: at the end of displayed text.  */
@@ -320,38 +321,8 @@ int main(void)
 					case 51: /* DEL */
 						read(STDIN_FILENO,&ch, 1);
 		                                printf("ch=%d\n",ch);
-						/*  DEL:
-                                 		 * NOTE: DEL/BACKSPACE operation acturally copys string including only ONE '\0' at end.
-						 *  After deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes
-						 *  need to be cleared. and EOF token MUST reset when insert char at the end of txtbuff[] later.
-						 */
-						/* Only if txtbuff is NOT empty and pch is NOT the end */
-						if( ch == 126 && chmap->txtlen > 0) {
-						    /* 1. Not the last pch */
-						    if( chmap->pch < chmap->chcount-1 ) {
-							memmove( chmap->pref+chmap->charPos[chmap->pch], chmap->pref+chmap->charPos[chmap->pch+1],
-										strlen((char *)(chmap->pref+chmap->charPos[chmap->pch+1])) +1); /* 1 for string end */
-							/* charPos[] NOT updated, before calling charmap_writeFB ! */
-							chmap->txtlen -= chmap->charPos[chmap->pch+1]-chmap->charPos[chmap->pch];
-							/* If reset EOF here, it must clear length of the deleted uft8 char. so we'd rather
-							   reset EOF when insert char at the end of txtbuff. */
-						    }
-						    /* 2. If the last pch (but NOT delete EOF), then [pch+1] is NOT available! */
-						    else if( chmap->pch == chmap->chcount-1 && chmap->pref[chmap->charPos[chmap->pch]] != '\0' ) {
-							printf(" ---- DEL the last pch ------\n ");
-							/* if chmap->pref[chmap->charPos[pch]] == '\0' then charlen=... will be -1, */
-						 int charlen=cstr_charlen_uft8(chmap->pref+chmap->charPos[chmap->pch]);
-							 printf("ch=%d,  charlen=%d \n",chmap->pref[chmap->charPos[chmap->pch]], charlen);
-							 memmove( chmap->pref+chmap->charPos[chmap->pch],
-							          chmap->pref+chmap->charPos[chmap->pch]+charlen,
-								  strlen((char *)(chmap->pref+chmap->charPos[chmap->pch]+charlen)) +1 );
-							/* update txtlen */
-							chmap->txtlen -= charlen;
-							/* If reset EOF here, it must clear length of the deleted uft8 char. so we'd rather
-							   reset EOF when insert char at the end of txtbuff. */
-						    }
-						}
-						/* pch unchanged */
+						if( ch ==126 ) /* Try to delete a char pointed by chmap->pch */
+							FTcharmap_delete_char(chmap);
 						break;
 					case 52: /* END */
 						read(STDIN_FILENO,&ch, 1);
@@ -373,35 +344,7 @@ int main(void)
 						}
                                                 break;
 					case 65:  /* UP arrow : move char pch one display_line up */
-						/* If gets to the upper most dline */
-						if( chmap->charY[chmap->pch] < txtbox.startxy.y+tmargin+fh+fgap ) {
-							// FTcharmap_scroll_oneline_up(chmap); NOPE!!! this funt will move pch(cursor) up also!
-						        /* Change chmap->pref, to change charmap start postion */
-        						if( chmap->txtdlncount > 0 ) {   /* Till to the first dline */
-                					/* Before/after calling FTcharmap_uft8string_writeFB(), champ->txtdlinePos[txtdlncount]
-							 * always pointer to the first dline: champ->txtdlinePos[txtdlncount]==chmap->maplinePos[0]
-                 					 * So we need to reset txtdlncount to pointer the previous dline.
-                 					 */
-                						chmap->pref=chmap->txtbuff + chmap->txtdlinePos[--chmap->txtdlncount]; /* !-- */
-                						printf("%s: Shift up,  chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
-
-								/* record current pxy */
-								int px=chmap->charX[chmap->pch];
-								int py=chmap->charY[chmap->pch];
-
-								/* charmap must be updated according to new pref */
-								//fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
-                				                FTcharmap_writeFB(NULL, txtbox.startxy.x+smargin, txtbox.startxy.y,
-														WEGI_COLOR_BLACK, NULL, NULL);
-
-								/* relocate chmap->pch according to previous pxy */
-						        	FTcharmap_locate_charPos (chmap, px, py);
-								/* Go on to call charmap again and draw cursors. */
-        						}
-						}
-						else {
-						   FTcharmap_locate_charPos( chmap, chmap->charX[chmap->pch], chmap->charY[chmap->pch]+fh/2-fh-fgap );
-						}
+						FTcharmap_shift_cursor_up(chmap);
 						break;
 					case 66:  /* DOWN arrow : move pch one display_line down */
 						 /* 1. If already the last dline at page bottom */
@@ -422,9 +365,7 @@ int main(void)
 								int px=chmap->charX[chmap->pch];
 								int py=chmap->charY[chmap->pch];
 								/* charmap must be updated according to new pref */
-								//fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
-                				                FTcharmap_writeFB(NULL, txtbox.startxy.x+smargin, txtbox.startxy.y,
-														WEGI_COLOR_BLACK, NULL, NULL);
+                				                FTcharmap_writeFB(NULL, WEGI_COLOR_BLACK, NULL, NULL);
 								/* locate pch according to previous pxy */
 						        	FTcharmap_locate_charPos (chmap, px, py);
 								/* Go on to call charmap again and draw cursors. */
@@ -502,9 +443,20 @@ int main(void)
 			else
 				FTcharmap_insert_char( chmap, &ch );
 
+
+	        	/*  Get mutex lock   ----------->  */
+        		if(pthread_mutex_lock(&chmap->mutex) !=0){
+               			 printf("%s: Fail to lock charmap mutex!", __func__);
+                		return -2;
+        		}
+
 			/* Already set in FTcharmap_insert_char(), chmap->pchoff will be reset to 0 after charmap, save to pchoff. */
 			pchoff=chmap->pchoff;
 			chmap->pchoff=0; /* !!!! reset chmap->pchoff, to let chmap->pch unchangd in the following charmapping */
+
+        		/*  <-------- Put mutex lock */
+        		pthread_mutex_unlock(&chmap->mutex);
+
 
 		}  /* END insert ch */
 
@@ -513,7 +465,7 @@ int main(void)
 
 		/* CHARMAP & DISPLAY: Display txt */
         	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-		FTcharmap_writeFB(&gv_fb_dev, txtbox.startxy.x+smargin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
+		FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL, NULL);
 
 		/* POST: 1. Check pch and charmap again.
 		 *	 				    --- NOTE ---
@@ -524,12 +476,15 @@ int main(void)
 		if( chmap->pch > chmap->chcount-1 ) {
 			printf("chmap->pch > chmap->chcount-1! Set chmap->pchoff and trigger scroll_down. \n");
 
+			/* TODO: mutex lock for chmap elements */
 			/* Chmapsize gets limit! and current cursor is NOT charmaped! we need to shift one line down
 		         * In order to keep chmap->pch pointing to the typing/inserting cursor after charmapping, we shall
 			 * set chmap->pchoff to tell charmap function.
 			 */
+
 			/* Already set in FTcharmap_insert_char(), saved to pchoff */
 			 chmap->pchoff=pchoff;  /* pchoff is calculated each time inserting a new char, see above. */
+
 
 			/* Any editing procesure MUST NOT call scroll_oneline_()! race condition, conflict chmap->pchoff */
 			// FTcharmap_scroll_oneline_down(chmap); /* shift one line down */
@@ -546,7 +501,7 @@ int main(void)
 
 			/* We shall charmap immediately, before inserting any new char, just to keep chmap->pchoff consistent with current txtbuff. */
         		fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-			FTcharmap_writeFB(&gv_fb_dev, txtbox.startxy.x+smargin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
+			FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL, NULL);
 
 			/* TODO: If inserting a string, then it may trigger more than 1 line scroll! */
 		}
@@ -682,13 +637,12 @@ return 0;
 @color: 	Color for text
 @penx, peny:    pointer to pen X.Y.
 --------------------------------------*/
-static int FTcharmap_writeFB(FBDEV *fbdev, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny)
+static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny)
 {
 	int ret;
 
        	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,          	/* FBdev, charmap*/
                                         egi_sysfonts.regular, fw, fh,   /* fontface, fw,fh */
-                                        px, py,                         /* x0,y0, */
                                         color, -1, 255,      		/* fontcolor, transcolor,opaque */
                                         NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
 

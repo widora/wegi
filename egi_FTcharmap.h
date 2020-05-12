@@ -6,10 +6,11 @@ published by the Free Software Foundation.
 
                         --- Definition and glossary ---
 
-1. dline:  displayed/charmapped line, A line starts/ends at displaying window left/right end side.
+1. char:    A printable ASCII code OR a local character with UFT-8 encoding.
+2. dline:  displayed/charmapped line, A line starts/ends at displaying window left/right end side.
    retline: A line starts/ends by a new line token '\n'.
 
-2. scroll up/down:  scroll up/down charmap by mouse, keep cursor position relative to txtbuff.
+3. scroll up/down:  scroll up/down charmap by mouse, keep cursor position relative to txtbuff.
           (UP: decrease chmap->pref,      DOWN: increase chmap->pref )
 
    shift  up/down:  shift typing cursor up/down by ARROW keys.
@@ -54,8 +55,20 @@ typedef struct FTsymbol_char_map	EGI_FTCHAR_MAP;		/* Char map for visiable/displ
 struct  FTsymbol_char_map {
 
 /* 1. Global vars for txtbuff.  ( offset position relative to txtbuff ) */
+	int		request;		/* ==0: charmap is clear, charmap data are consistent with each other.
+						 * !=0: Some params are reset, and is requested to do charmap immediately
+					 	 *	to make pch/pchoff, txtdlncount/pref and other data consistent!
+						 *
+						 * 			--- IMPORATNT ---
+						 * After an operation which needs an immediate re_charmap afterwards, the 'request' must be set.
+						 * It will then acts as an rejection semaphore to other thread functions which are also trying to
+						 * modify charmap parameters before the urgent re_charmap is completed.
+						 * TODO:  not applied for all functions yet!
+						 */
 	unsigned int	errbits;		/* to record types of errs that have gone through.  */
 	pthread_mutex_t mutex;      		/* mutex lock for char map */
+
+
 
 	unsigned char	*txtbuff;		/* txt buffer */
 	int		txtsize;		/* Size of txtbuff mem space allocated, in bytes */
@@ -66,7 +79,7 @@ struct  FTsymbol_char_map {
 	 */
 	int		txtdlines;		/* Size of txtdlinePos[]  */
 	unsigned int	*txtdlinePos;		/* An array to store offset position(relative to txtbuff) of each txt dlines, which
-						 * have already been charmapped, and MAYBE not desiplayed in the current charmap.
+						 * have already been charmapped, and MAYBE not displayed in the current charmap.
 					         */
 	int		txtdlncount;		/* displayed/charmapped line count, for txtbuff
 						 * 			--- NOTE ---
@@ -103,6 +116,9 @@ struct  FTsymbol_char_map {
 						 * an inserting point. ( If EOF is charmapped.  )
 					   	 */
 
+	int		mapx0;			/* charmap area left top point  */
+	int		mapy0;
+
 	unsigned int	mappixpl;		/* pixels per disline */
 	int		maplndis;		/* line distance betwee two dlines */
 
@@ -117,7 +133,9 @@ struct  FTsymbol_char_map {
                            			 * then we'll use pchoff to locate the typing position in charmapping. so after inserting a new char
 						 * into txtbuff, ALWAY update pchoff to keep track of typing/inserting cursor position.
 						 */
-
+	bool		fix_cursor;		/* If true: After charmapping, set pch as to re_locate cursor nearest to its previous (x,y)postion.
+						 * set as true when shift cursor up/down to cross top/bottom dline.
+						 */
 	int		pch;			/* Index of displayed char as of charX[],charY and charPos[], pch=0 is the first displayed char.
 						 *   			--- MOST IMPORTANT ---
 						 * pch points to the CURRENT/IMMEDIATE typing/inserting position in the charmap. 0<=pch<=chcount)
@@ -134,28 +152,33 @@ struct  FTsymbol_char_map {
 };
 
 
-EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  size_t mapsize, size_t maplines, size_t mappixpl, int maplngap);
+EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize, int x0, int y0, size_t mapsize, size_t maplines, size_t mappixpl, int maplngap);
 
 void 	FTcharmap_free(EGI_FTCHAR_MAP **chmap);
 int 	FTcharmap_set_pref_nextDispLine(EGI_FTCHAR_MAP *chmap);
-int  	FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,			/* mutex_lock */
+int  	FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,			/* mutex_lock, request_clear */
                                     FT_Face face, int fw, int fh,
-                                    int x0, int y0,
                                     int fontcolor, int transpcolor, int opaque,
                                     int *cnt, int *lnleft, int* penx, int* peny );
 
-int 	FTcharmap_page_up(EGI_FTCHAR_MAP *chmap);			/* mutex_lock */
-int 	FTcharmap_page_down(EGI_FTCHAR_MAP *chmap);			/* mutex_lock */
-int 	FTcharmap_scroll_oneline_up(EGI_FTCHAR_MAP *chmap);		/* mutex_lock */
-int 	FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock */
+int 	FTcharmap_page_up(EGI_FTCHAR_MAP *chmap);			/* mutex_lock + request_check */
+int 	FTcharmap_page_down(EGI_FTCHAR_MAP *chmap);			/* mutex_lock + request_check */
+int 	FTcharmap_scroll_oneline_up(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
+int 	FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
 
 int  	FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y);		/* mutex_lock */
-int 	FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap );  	/* mutex_lock */ 	/* As retline, NOT displine */
-int 	FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap );	/* mutex_lock */ 	/* As retline, NOT displine */
+//static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y);  /* without mutex_lock */
+
+int 	FTcharmap_shift_cursor_up(EGI_FTCHAR_MAP *chmap);
+int 	FTcharmap_shift_cursor_down(EGI_FTCHAR_MAP *chmap);
+
+int 	FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap );  	/* mutex_lock + request_check */ 	/* As retline, NOT displine */
+int 	FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap );	/* mutex_lock + request_check */ 	/* As retline, NOT displine */
 
 int 	FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln);
 
-int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );
-int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock */
+int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request_check */
+int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock + request_check */
+int 	FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap );			/* mutex_lock + request_check */
 
 #endif
