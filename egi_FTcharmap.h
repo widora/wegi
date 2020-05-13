@@ -17,6 +17,32 @@ published by the Free Software Foundation.
           (UP: decrease chmap->pch,       DOWN: increase chmap->pch )
 
 
+
+                        --- PRE_Charmap Actions ---
+
+PRE_1:  Set chmap->txtdlncount
+PRE_2:  Set chmap->pref
+PRE_3:  Set chmap->pchoff (option)
+PRE_4:  Set chmap->fix_cursor (option)
+PRE_5:  Set chmap->request
+
+                        ---  Charmap ---
+
+charmap_1:      Update chmap->chcount
+Charmap_2:      Update chmap->charX[], charY[],charPos[]
+
+charmap_3:      Update chmap->maplncount
+charmap_4:      Update chmap->maplinePos[]
+
+charmap_5:      Update chmap->txtdlcount   ( NOTE: chmap->txtdlinePos[txtdlncount]==chmap->maplinePos[0] )
+charmap_6:      Update chmap->txtdlinePos[]
+
+                        --- POST_Charmap Actions ---
+
+POST_1: Check chmap->errbits
+POST_2: Redraw cursor
+
+
 Midas Zhou
 midaszhou@yahoo.com
 -------------------------------------------------------------------*/
@@ -77,7 +103,7 @@ struct  FTsymbol_char_map {
 	/* disline/dline: displayed/charmapped line, A line starts/ends at displaying window left/right end side.
 	 * retline: A line starts/ends by a new line token '\n'.
 	 */
-	int		txtdlines;		/* Size of txtdlinePos[]  */
+	int		txtdlines;		/* LIMIT: Size of txtdlinePos[]  */
 	unsigned int	*txtdlinePos;		/* An array to store offset position(relative to txtbuff) of each txt dlines, which
 						 * have already been charmapped, and MAYBE not displayed in the current charmap.
 					         */
@@ -122,7 +148,9 @@ struct  FTsymbol_char_map {
 	unsigned int	mappixpl;		/* pixels per disline */
 	int		maplndis;		/* line distance betwee two dlines */
 
-	unsigned int	maplines;		/* Max. displayed lines for current displaying window, size of linePos[] mem space allocatd. */
+	unsigned int	maplines;		/*  LIMIT: Max. number of displayed lines for current displaying window,
+					         *  and also size of maplinePos[] mem space allocatd.
+						 */
 	int		maplncount;		/* Total number of displayed char lines in current charmap,  NOT index. */
 	unsigned int	*maplinePos;		/* Offset position(relative to pref) of the first char of each displayed lines, in bytes */
 
@@ -169,13 +197,16 @@ int 	FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + requ
 int  	FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y);		/* mutex_lock */
 //static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y);  /* without mutex_lock */
 
-int 	FTcharmap_shift_cursor_up(EGI_FTCHAR_MAP *chmap);
-int 	FTcharmap_shift_cursor_down(EGI_FTCHAR_MAP *chmap);
+int 	FTcharmap_shift_cursor_up(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
+int 	FTcharmap_shift_cursor_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
+int 	FTcharmap_shift_cursor_right(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
+int 	FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
 
 int 	FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap );  	/* mutex_lock + request_check */ 	/* As retline, NOT displine */
 int 	FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap );	/* mutex_lock + request_check */ 	/* As retline, NOT displine */
 
 int 	FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln);
+int 	FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  int pchoff);
 
 int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request_check */
 int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock + request_check */

@@ -44,7 +44,7 @@ TODO:
 5. Remove (lines) in charmap_writeFB(), use chmap->maxlines instead. ---ok
 6. The typing cursor can NOT escape out of the displaying window. it always
    remains and blink in visible area.
-
+7. 
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -101,7 +101,7 @@ static int tmargin=0;		/* top margin of text area */
 /* NOTE: char position, in respect of txtbuff index and data_offset: pos=chmap->charPos[pch] */
 static EGI_FTCHAR_MAP *chmap;	/* FTchar map to hold char position data */
 static unsigned int pchoff;
-static unsigned int chsize;	/* byte size of a char */
+//static unsigned int chsize;	/* byte size of a char */
 static unsigned int chns;	/* total number of chars in a string */
 
 static bool mouseLeftKeyDown;
@@ -198,7 +198,7 @@ int main(void)
 
 	int term_fd;
 	char ch;
-	char chs[4];
+	//char chs[4];
 	int  k;
 	int  nch;
 	fd_set rfds;
@@ -347,41 +347,15 @@ int main(void)
 						FTcharmap_shift_cursor_up(chmap);
 						break;
 					case 66:  /* DOWN arrow : move pch one display_line down */
-						 /* 1. If already the last dline at page bottom */
-						 if( chmap->charY[chmap->pch] > txtbox.startxy.y+tmargin+(fh+fgap)*(chmap->maplines-2)+fh/2 ) {
-						     /* If get EOF, then break.  */
-						     if(   chmap->pref[chmap->charPos[chmap->chcount-1]] == '\0' )
-                                                       		break;
-						     //else  FTcharmap_scroll_oneline_down(chmap); NOPE!!! this function move pch(cursor) down also!
-						     else if( chmap->maplncount>1 ) {
-                				     /* Before/after calling FTcharmap_uft8string_writeFB(), champ->txtdlinePos[txtdlncount]
-						      * always pointer to the first dline: champ->txtdlinePos[txtdlncount]==chmap->maplinePos[0]
-                 				      * So we need to reset txtdlncount to pointer the next dline
-                 				      */
-                						chmap->pref=chmap->txtbuff + chmap->txtdlinePos[++chmap->txtdlncount]; /* !++ */
-                					//SAME: chmap->pref=chmap->pref+chmap->maplinePos[1];  /* move pref pointer to next dline */
-                						printf("%s: Shift down, chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
-								/* record current pxy */
-								int px=chmap->charX[chmap->pch];
-								int py=chmap->charY[chmap->pch];
-								/* charmap must be updated according to new pref */
-                				                FTcharmap_writeFB(NULL, WEGI_COLOR_BLACK, NULL, NULL);
-								/* locate pch according to previous pxy */
-						        	FTcharmap_locate_charPos (chmap, px, py);
-								/* Go on to call charmap again and draw cursors. */
-        					    }
-						}
-						/* 2. Else move down one dline to locate pch */
-						else {
-						   FTcharmap_locate_charPos (chmap, chmap->charX[chmap->pch], chmap->charY[chmap->pch]+fh/2+fh+fgap);
-						}
-
+						FTcharmap_shift_cursor_down(chmap);
 						break;
 					case 67:  /* RIGHT arrow : move pch one char right, Limit to the last [pch] */
-						/* TODO: scroll line down if gets to the end of chmap, but not end of txtbuff */
+						FTcharmap_shift_cursor_right(chmap);
+						#if 0
 						if( chmap->pch < chmap->chcount-1 ) {
 							chmap->pch++;
 						}
+						#endif
 						break;
 					case 68: /* LEFT arrow : move pch one char left */
 						/* TODO: scroll line up if gets to the head of chmap, but not head of txtbuff */
@@ -551,6 +525,7 @@ int main(void)
 
 		/* Render and bring image to screen */
 		fb_render(&gv_fb_dev);
+		tm_delayms(30);
 	}
 
 
@@ -684,7 +659,7 @@ Just update mouseXYZ
 ---------------------------------------------*/
 static void mouse_callback(unsigned char *mouse_data, int size)
 {
-	int i;
+//	int i;
 	int mdZ;
 
         /* 1. Check pressed key */

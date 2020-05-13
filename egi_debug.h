@@ -35,7 +35,8 @@ Midas Zhou
 #define DBG_ERING	(1<<17)
 #define DBG_PCM		(1<<18)
 #define DBG_IMAGE	(1<<19)
-#define DBG_TEST	(1<<20)
+#define DBG_CHARMAP	(1<<20)
+#define DBG_TEST	(1<<21)
 
 #define ENABLE_EGI_DEBUG
 
