@@ -34,6 +34,7 @@ PG_DN:		Page down
 	  (UP: decrease chmap->pch, 	  DOWN: increase chmap->pch )
 
 
+
 TODO:
 1. If any control code other than '\n' put in txtbuff[], strange things
    may happen...  \034	due to UFT-8 encoding.   ---Avoid it.
@@ -44,7 +45,8 @@ TODO:
 5. Remove (lines) in charmap_writeFB(), use chmap->maxlines instead. ---ok
 6. The typing cursor can NOT escape out of the displaying window. it always
    remains and blink in visible area.
-7. 
+7. IO buffer/continuous key press/ slow writeFB response.
+
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -65,7 +67,7 @@ midaszhou@yahoo.com
 
 
 #define 	BLINK_INTERVAL_MS	500	/* typing_cursor blink interval in ms */
-#define 	CHMAP_TXTBUFF_SIZE	256     /* text buffer size for EGI_FTCHAR_MAP.txtbuff */
+#define 	CHMAP_TXTBUFF_SIZE	32//1024     /* 256,text buffer size for EGI_FTCHAR_MAP.txtbuff */
 #define		CHMAP_SIZE		256 //125	/* NOT less than total number of chars (include '\n's and EOF) displayed in the txtbox */
 
 /* TTY input escape sequences.  USB Keyboard hidraw data is another story...  */
@@ -89,6 +91,7 @@ midaszhou@yahoo.com
 /* Some ASCII control key */
 #define		CTRL_N	14	/* ASCII: Ctrl + N, scroll down  */
 #define		CTRL_O	15	/* ASCII: Ctrl + O, scroll up  */
+#define 	CTRL_F  6	/* ASCII: Ctrl + f */
 
 char *strInsert="Widora和小伙伴们";
 
@@ -208,6 +211,7 @@ int main(void)
 	struct timeval tm_blink;
 	struct timeval tm_now;
 
+
 	/* Total available lines of space for displaying chars */
 	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/(fh+fgap);
 
@@ -216,13 +220,15 @@ int main(void)
 							CHMAP_SIZE, tlns, 320-20-2*smargin, fh+fgap); 	/* mapsize, lines, pixpl, lndis */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 
-	//strcat(txtbuff,"12345\n歪朵拉的惊奇\nwidora_NEO\n\n"); //   --- hell world ---\n\n");
-	//strcat(chmap,"1122\n你既有此心，待我到了东土大唐国寻一个取经的人来，教他救你。你可跟他做个徒弟，秉教伽持，入我佛门。\n"); //   --- hell world ---\n\n");
-	strncat((char *)chmap->txtbuff,"1\n2\n3\n4\n5\n你既有此心，\n待我到了东土大唐国\n寻一个取经的人来，\n教他救你。\n\
-你可跟他做个徒弟，\n秉教伽持，\n入我佛门。\n -END-", CHMAP_TXTBUFF_SIZE); //   --- hell world ---\n\n");
-	//strncat(chmap->txtbuff,"1122\n你既有此心，待我到了东土大唐国寻一个取经的人来，教他救你。", TXTBUFF_SIZE); //   --- hell world ---\n\n");
-	chmap->txtlen=strlen((char *)chmap->txtbuff);
-	printf("chmap->txtlen=%d\n",chmap->txtlen);
+
+	/* Load file to chmap */
+//	if( FTcharmap_load_file("/mmc/hlm_all.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
+	if( FTcharmap_load_file("/tmp/hello.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
+		printf("Fail to load file to champ!\n");
+
+	/* Set txtlen */
+//	chmap->txtlen=strlen((char *)chmap->txtbuff);
+//	printf("chmap->txtlen=%d\n",chmap->txtlen);
 
         /* Init. mouse position */
         mouseX=gv_fb_dev.pos_xres/2;
@@ -233,6 +239,7 @@ int main(void)
 	fbset_color(WEGI_COLOR_WHITE);
 	draw_filled_rect(&gv_fb_dev, txtbox.startxy.x, txtbox.startxy.y, txtbox.endxy.x, txtbox.endxy.y );
 	FTsymbol_writeFB("EGI Editor",120,5,WEGI_COLOR_LTBLUE, NULL, NULL);
+
 	/* draw grid */
 	fbset_color(WEGI_COLOR_GRAYB);
 	for(k=0; k<=tlns; k++)
@@ -250,40 +257,13 @@ int main(void)
         new_settings.c_cc[VTIME]=0;
         tcsetattr(0, TCSANOW, &new_settings);
 
-	/* count chars in txtbuff */
-	nch=cstr_strcount_uft8((const unsigned char *)chmap->txtbuff);
-	printf("Total %d chars\n", nch);
+	/* Set timer for blink*/
 	gettimeofday(&tm_blink,NULL);
 
-
-#if 0	/* --- TEST ---: EGI_FTCHAR_MAP */
-	int i;
-	//printf("sizeof(typeof(*chmap->tt))=%d\n",sizeof(typeof(*chmap->tt)));
-	//printf("sizeof(typeof(*chmap->charX))=%d\n",sizeof(typeof(*chmap->charX)));
-	//exit(1);
-       	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-	FTcharmap_writeFB(&gv_fb_dev, txtbox.startxy.x +smargin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
-	fbset_color(WEGI_COLOR_RED);
-	printf("chmap->chcount=%d\n", chmap->chcount);
-	for(i=0; i<nch+1; i++) {  /* The last one is always the new insterting point */
-		printf("i=%d, charPos=%d, charX=%d, charY=%d, char=%s\n", i, chmap->charPos[i], chmap->charX[i], chmap->charY[i], chmap->txtbuff+ chmap->charPos[i] );
-		penx=chmap->charX[i]; peny=chmap->charY[i];
-		draw_filled_rect(&gv_fb_dev, penx, peny, penx+1, peny+fh+fgap-1);
-		fb_render(&gv_fb_dev);
-		tm_delayms(100);
-	}
-	exit(0);
-#endif
-
-	/* To fill in FTCHAR map and get penx,peny */
+	/* To fill initial charmap and get penx,peny */
 	FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, &penx, &peny);
 	fb_render(&gv_fb_dev);
 
-	/* Set current(inserting/writing) byte/char position: at the end of displayed text.  */
-	//chmap->pch=chmap->chcount-1;  /* Or keep default, as to the beginning of the charmap */
-	printf("Init: chmap->chcount=%d, pch=%d, pos=%d\n",chmap->chcount, chmap->pch, chmap->charPos[chmap->pch]);
-//	if(pos<0)pos=0;
-//	if(pch<0)pch=0;
 
 	/* Loop editing ...   Read from TTY standard input, without funcion keys on keyboard ...... */
 	while(1) {
@@ -358,10 +338,12 @@ int main(void)
 						#endif
 						break;
 					case 68: /* LEFT arrow : move pch one char left */
-						/* TODO: scroll line up if gets to the head of chmap, but not head of txtbuff */
+						FTcharmap_shift_cursor_left(chmap);
+						#if 0
 						if( chmap->pch > 0 ) {
 							chmap->pch--;
 						}
+						#endif
 						break;
 					case 70: /* END : move pch to the end of the return_line */
 						FTcharmap_goto_lineEnd(chmap);
@@ -388,6 +370,16 @@ int main(void)
 			FTcharmap_scroll_oneline_up(chmap);
 			ch=0;
 		}
+
+		else if ( ch==CTRL_F) {		/* Save chmap->txtbuff */
+			printf("Saving chmap->txtbuff to a file...");
+			if(FTcharmap_save_file("/tmp/hello.txt", chmap) != 0)
+				printf(" Fail to save!\n");
+			else
+				printf(" Finish saving!\n");
+			ch=0;
+		}
+
 
 		/* 3. edit text */
 

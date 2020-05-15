@@ -54,7 +54,11 @@ midaszhou@yahoo.com
 #include "egi_FTcharmap.h"
 #include "egi_cstring.h"
 #include "egi_utils.h"
-
+#include <fcntl.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <errno.h>
 
 static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y);
 
@@ -80,6 +84,7 @@ Return:
 -------------------------------------------------*/
 EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0, size_t mapsize, size_t maplines, size_t mappixpl, int maplndis )
 {
+
 	EGI_FTCHAR_MAP  *chmap=calloc(1, sizeof(EGI_FTCHAR_MAP));
 	if(chmap==NULL) {
 		printf("%s: Fail to calloc chmap!\n",__func__);
@@ -138,8 +143,144 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0, size_t mapsize
 	chmap->mapy0=y0;
 	chmap->mapsize=mapsize;
 
+
 	return chmap;
 }
+
+
+/*-------------------------------------------------------------------------------
+Load a file into chmap->txtbuff, original data will be lost.
+chmap->txtbuff will be realloced to (fsize+txtsize+1) bytes before copying file
+data to chmap->txtbuff.
+If create a new file, then chmap->txtbuff will be realloced to (txtsize+1) bytes.
+
+@fpath:		file path
+@chmap:		An EGI_FTCHAR_MAP
+@txtsize:	If new file, the txtsize is chmap->txtbuff->txtsize=txtsize+1.
+		Else	chmap->txtbuff=fsize+txtsize+1
+
+Return:
+	0	Succeed
+	<0	Fail
+-------------------------------------------------------------------------------*/
+int FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize)
+{
+
+        int             fd;
+        int             fsize;
+        struct stat     sb;
+        char *          fp=NULL;
+
+	/* Check input */
+	if(chmap==NULL)
+		return -1;
+
+	/* Mmap input file */
+        fd=open(fpath, O_CREAT|O_RDWR|O_CLOEXEC);
+        if(fd<0) {
+                printf("%s: Fail to open input file '%s': %s\n", __func__, fpath, strerror(errno));
+                return -1;
+        }
+        /* Obtain file stat */
+        if( fstat(fd,&sb)<0 ) {
+                printf("%s: Fail call fstat for file '%s': %s\n", __func__, fpath, strerror(errno));
+                return -2;
+        }
+        fsize=sb.st_size;
+
+        /* If not new file: mmap txt file */
+	if(fsize >0) {
+	        fp=mmap(NULL, fsize, PROT_READ, MAP_PRIVATE, fd, 0);
+        	if(fp==MAP_FAILED) {
+                	printf("%s: Fail to mmap file '%s': %s\n", __func__, fpath, strerror(errno));
+			return -3;
+		}
+	}
+
+	/* Realloc chmap->txtbuff */
+	free(chmap->txtbuff); chmap->txtbuff=NULL;
+        chmap->txtbuff=calloc(1,sizeof(typeof(*chmap->txtbuff))*(fsize+txtsize+1) );  /* +1 EOF */
+        if( chmap->txtbuff == NULL) {
+                printf("%s: Fail to calloc chmap txtbuff!\n",__func__);
+		munmap(fp,fsize);
+		close(fd);
+		return -3;
+        }
+        chmap->txtsize=fsize+txtsize+1;     /* txtsize is Appendable size */
+        chmap->pref=chmap->txtbuff; /* Init. pref pointing to txtbuff */
+
+	/* If not new fiel: Copy file content to txtbfuff */
+	if(fsize>0)
+		memcpy(chmap->txtbuff, fp, fsize);
+
+        /* Set txtlen */
+        chmap->txtlen=strlen((char *)chmap->txtbuff);
+        printf("%s: Copy from '%s' chmap->txtlen=%d bytes, totally %d characters.\n", __func__, fpath, chmap->txtlen,
+	        					cstr_strcount_uft8((const unsigned char *)chmap->txtbuff) );
+
+	/* munmap file */
+	if( fsize>0 && munmap(fp,fsize) !=0 )
+		printf("%s: Fail to munmap file '%s': %s!\n",__func__, fpath, strerror(errno));
+
+	if( close(fd) !=0 )
+		printf("%s: Fail to close file '%s': %s!\n",__func__, fpath, strerror(errno));
+
+	return 0;
+}
+
+
+/*-------------------------------------------------------------
+Save chmap->txtbuff to a file.
+
+@fpath:		file path
+@chmap:		An EGI_FTCHAR_MAP
+
+Return:
+	0	Succeed
+	<0	Fail
+---------------------------------------------------------------*/
+int FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap)
+{
+	FILE *fil;
+	int ret=0;
+	int nwrite=0;
+
+	/* Check input */
+	if(chmap==NULL)
+		return -1;
+
+	fil=fopen(fpath, "w");
+	if(fil==NULL) {
+                printf("%s: Fail to open file '%s' for write: %s\n", __func__, fpath, strerror(errno));
+		return -2;
+	}
+
+	/*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -3;
+        }
+
+	/* Write txtbuff to fil */
+	nwrite=fwrite(chmap->txtbuff, 1, chmap->txtlen+1, fil); /* +1 EOF */
+	if(nwrite < chmap->txtlen) {
+		printf("%s: WARNING! fwrite %d bytes of total %d bytes.\n", __func__, nwrite, chmap->txtlen);
+		ret=-4;
+	}
+
+	/* Close fil */
+	if( fclose(fil) !=0 ) {
+                printf("%s: Fail to close file '%s': %s\n", __func__, fpath, strerror(errno));
+		ret=-5;
+	}
+
+
+  	/*  <-------- Put mutex lock */
+  	pthread_mutex_unlock(&chmap->mutex);
+
+	return ret;
+}
+
 
 /*----------------------------------------------
 	Free an EGI_FTCHAR_MAP.
@@ -300,7 +441,13 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
         }
 
 	/* Check chmap->request : NOT yet applied for all functions. */
-
+	#if 0
+	if(!chmap->request) {
+  	/*  <-------- Put mutex lock */
+	  	pthread_mutex_unlock(&chmap->mutex);
+		return 1;
+	}
+	#endif
 
 	/* TODO.  charmap->maplines */
 	x0=chmap->mapx0;
@@ -349,7 +496,6 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	chmap->txtdlinePos[chmap->txtdlncount++]=chmap->pref-chmap->txtbuff;
 
 
-
 	while( *p ) {
 
 		/* --- check whether lines are used up --- */
@@ -383,7 +529,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 		/* CONTROL ASCII CODE:
 		 * If return to next line
 		 */
-		if(*wcstr=='\n') {
+		if(*wcstr=='\n') {  /* ASCII Newline 10 */
 			//printf(" ... ASCII code: Next Line ...\n ");
 
 			/* Fillin CHAR MAP before start a new line */
@@ -412,9 +558,9 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 
 			continue;
 		}
-		/* If other control codes or DEL, skip it. To avoid print some strange icons.  */
+		/* If other control codes or DEL, skip it. To avoid print some strange icons. */
 		else if( (*wcstr < 32 || *wcstr==127) && *wcstr!=9 ) {	/* Exclude TAB(9) */
-			printf("%s: ASCII control code: %d\n", __func__, *wcstr);
+			//printf("%s: ASCII control code: %d\n", __func__, *wcstr);  /* !ASCII Return=CR=13 */
 			continue;
 		}
 
@@ -1098,11 +1244,11 @@ int FTcharmap_shift_cursor_right(EGI_FTCHAR_MAP *chmap)
 
 	/* 1. TODO TEST: If chmap->pchoff !=0 and NOT EOF, then reset pchoff */
 	if( chmap->pchoff>0 && chmap->txtbuff[ chmap->pchoff ] != '\0' ) {
+		/* Move pchoff forward */
 		charlen=cstr_charlen_uft8((const unsigned char *)(chmap->pchoff));
 		if(charlen<0) {
 			printf("%s: WARNING: cstr_charlen_uft8() negative! \n",__func__);
 		}
-
 		chmap->pchoff += charlen;
 
 		/* If pchoff not in current charmap page, then scroll to */
@@ -1138,6 +1284,98 @@ int FTcharmap_shift_cursor_right(EGI_FTCHAR_MAP *chmap)
 		/* PRE_2. Update chmap->txtdlncount */
 		/* PRE_3. Update chmap->pref */
 	        chmap->pref=chmap->txtbuff + chmap->txtdlinePos[++chmap->txtdlncount]; /* !++ */
+	}
+
+	/* Set chmap->request for charmapping */
+	chmap->request=1;
+
+        /*  <-------- Put mutex lock */
+        pthread_mutex_unlock(&chmap->mutex);
+
+        return 0;
+}
+
+
+/*--------------------------------------------------------
+Decrease chmap->pch, if it gets to the start of current
+charmap then scroll one dline up.
+
+@chmap: an EGI_FTCHAR_MAP
+
+Return:
+        0       OK,    chmap->pchoff or chmap->pch modifed accordingly.
+        <0      Fail   chmap->pch, unchanged.
+-------------------------------------------------------*/
+int FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap)
+{
+	int off;
+	int dln;
+	int charlen;
+
+	if( chmap==NULL || chmap->txtbuff==NULL)
+		return -1;
+
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+
+	/* Check request ? OR wait ??? */
+	if( chmap->request !=0 ) {
+       	/*  <-------- Put mutex lock */
+	        pthread_mutex_unlock(&chmap->mutex);
+		return -3;
+	}
+
+
+	/* 1. TODO TEST: If chmap->pchoff >0, then reset chmap->txtdlncount and chmap->pref */
+	if( chmap->pchoff>0  ) {  /* ! Charmap check pchoff first, then pch */
+
+		/* Move pchoff backward */
+		charlen=cstr_charlen_uft8((const unsigned char *)(chmap->pchoff));
+		if(charlen<0) {
+			printf("%s: WARNING: cstr_charlen_uft8() negative! \n",__func__);
+		}
+		chmap->pchoff -= charlen;
+
+		/* If pchoff not in current charmap page, then scroll to its dline*/
+		off=chmap->pref-chmap->txtbuff;
+		if( chmap->pchoff < off  || chmap->pchoff > off+chmap->charPos[chmap->chcount-1] ) {
+			/* Get txtdlncount corresponding to pchoff */
+			dln=FTcharmap_get_txtdlIndex(chmap, chmap->pchoff);
+			if(dln<0) {
+				printf("%s: Fail to find index of chmap->txtdlinePos[] for pchoff!\n", __func__);
+				/* --- Do nothing! --- */
+			}
+			else {
+	        	        /* PRE_1. Update chmap->txtdlncount */
+				chmap->txtdlncount=dln;
+        		        /* PRE_2. Update chmap->pref */
+	                	chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+				/* In charmapping, chmap->pch will be updated according to chmap->pchoff */
+			}
+		}
+	}
+        /* 2. Else Increase chmap->pch, in the current charmap page */
+	else if( chmap->pch > 0 ) {
+		chmap->pch--;
+	}
+	/* 3. If the first of charmap,but NOT first txtdline. need to  scroll up one dline  */
+	else if( chmap->pch == 0 && chmap->txtdlncount>0 ) {
+		/* PRE_1. Update chmap->txtdlncount */
+		chmap->txtdlncount--;
+		/* PRE_2. Set chmap->pchoff,to relocate pch */
+		chmap->pchoff = FTcharmap_getPos_lastCharOfDline(chmap, chmap->txtdlncount);
+		if(chmap->pchoff<0) {
+			printf("%s: getPos_lastCharOfDline() fails!\n",__func__);
+			chmap->pchoff=0;
+		}
+		printf("%s: getPos_lastCharOfDline() pchoff=%d \n",__func__, chmap->pchoff);
+		/* set pchoff relative to txtbuff */
+		chmap->pchoff += chmap->txtdlinePos[chmap->txtdlncount];
+		/* PRE_3. Update chmap->pref */
+	        chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
 	}
 
 	/* Set chmap->request for charmapping */
@@ -1512,7 +1750,8 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 
 	/* 1. Check txtbuff space */
 	if( chmap->txtlen +chsize > chmap->txtsize-1 ) {
-		printf("%s: chmap->txtbuff is full! Fail to insert char.\n", __func__);
+		printf("%s: chmap->txtbuff is full! Fail to insert char. chmap->txtlen=%d, chmap->txtsize-1=%d \n",
+										 __func__, chmap->txtlen, chmap->txtsize-1);
 		chmap->errbits |= CHMAPERR_TXTSIZE_LIMIT;
 
         /*  <-------- Put mutex lock */
@@ -1628,6 +1867,12 @@ int FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap )
        	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
 		return -3;
+	}
+
+	/* TEST:  */
+	wchar_t wcstr;
+	if(char_uft8_to_unicode(chmap->pref+chmap->charPos[chmap->pch], &wcstr) >0) {
+		printf("Del wchar = %d\n", wcstr);
 	}
 
 	/* NOTE: DEL/BACKSPACE operation acturally copys string including only ONE '\0' at end.

@@ -319,7 +319,7 @@ inline int cstr_charlen_uft8(const unsigned char *cp)
 	if(cp==NULL)
 		return -1;
 
-	if(*cp < 0b10000000)
+	if(*cp < 0b10000000 )
 		return 1;	/* 1 byte */
 	else if( *cp >= 0b11110000 )
 		return 4;	/* 4 bytes */
@@ -361,8 +361,7 @@ Get total number of characters in a string with UTF-8 encoding.
 @cp:	A pointer to a string with UTF-8 encoding.
 
 Note:
-1. Count all ASCII characters, both printables and unprintables.
-
+1. Count all ASCII or localt characters, both printables and unprintables.
 2. UTF-8 maps to UNICODE according to following relations:
 				(No endianess problem for UTF-8 conding)
 
@@ -372,8 +371,8 @@ Note:
 	U+  0800 - U+  FFFF:	1110XXXX 10XXXXXX 10XXXXXX
 	U+ 10000 - U+ 1FFFF:	11110XXX 10XXXXXX 10XXXXXX 10XXXXXX
 
-
 3. If illegal coding is found...
+4. ZERO_WIDTH_NO_BREAK SPACE ( U+FEFF, unicode 65279) also counted in.
 
 Return:
 	>=0	OK, total numbers of character in the string.
@@ -381,19 +380,26 @@ Return:
 ------------------------------------------------------------------------*/
 int cstr_strcount_uft8(const unsigned char *pstr)
 {
-	unsigned char *cp;
+	const unsigned char *cp;
 	int size;	/* in bytes, size of the character with UFT-8 encoding*/
 	int count;
 
 	if(pstr==NULL)
 		return -1;
 
-	cp=(unsigned char *)pstr;
+	cp=pstr;
 	count=0;
 	while(*cp) {
 		size=cstr_charlen_uft8(cp);
 		if(size>0) {
-			//printf("%d\n",*cp);
+			#if 0 /* Check ZERO_WIDTH_NO_BREAK SPACE */
+			wchar_t wcstr=0;
+			if( size==3 ) {
+				char_uft8_to_unicode(cp, &wcstr);
+				if(wcstr==65279)
+					printf("%s: ZERO_WIDTH_NO_BREAK_SPACE found!\n",__func__);
+			}
+			#endif
 			count++;
 			cp+=size;
 			continue;

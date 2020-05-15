@@ -862,7 +862,7 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 	bbox_W = (advanceX > slot->bitmap.width ? advanceX : slot->bitmap.width);
 
 	/* check bitmap data, we need bbox_W here */
-	if(ftsympg.alpha==NULL || wcode == 9 ) {	/* TAB has wrong image! */
+	if( ftsympg.alpha==NULL || wcode == 9 || wcode == 65279 ) {	/* TAB / ZERO_WIDTH_NO_BREAK_SPACE has wrong image! */
 //		printf("%s: Alpha data is NULL for unicode=0x%x\n", __func__, wcode);
 //		draw_rect(fb_dev, x0, y0, x0+bbox_W, y0+fh );
 
@@ -875,6 +875,8 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 			// *xleft -= fw;
 			*xleft -= fw*factor_SpaceWidth;
 		}
+		else if ( wcode == 65279 ) /* ZERO_WIDTH_NO_BREAK SPACE */
+			*xleft -= 0;
 		else if ( wcode == 32 ) //(wchar_t)(L"") )
 			// *xleft -= fw/2; //2*bbox_w;
 			*xleft -= fw*factor_SpaceWidth/2;

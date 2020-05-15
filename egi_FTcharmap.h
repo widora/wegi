@@ -155,7 +155,7 @@ struct  FTsymbol_char_map {
 	unsigned int	*maplinePos;		/* Offset position(relative to pref) of the first char of each displayed lines, in bytes */
 
 
-	unsigned int	pchoff;			/* Offset postion to txtbuff !!!, If pchoff>0, it will be used to relocate pch after charmapping!
+	unsigned int	pchoff;			/* Offset postion to txtbuff !!!, OnlyIf pchoff>0, it will be used to relocate pch after charmapping!
 						 *			--- MOST IMPORTANT ---
 						 * In case that after inserting a new char, chmapsize reaches LIMIT and need to shift one line down,
                            			 * then we'll use pchoff to locate the typing position in charmapping. so after inserting a new char
@@ -181,6 +181,8 @@ struct  FTsymbol_char_map {
 
 
 EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize, int x0, int y0, size_t mapsize, size_t maplines, size_t mappixpl, int maplngap);
+int 	FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize);
+int 	FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap);
 
 void 	FTcharmap_free(EGI_FTCHAR_MAP **chmap);
 int 	FTcharmap_set_pref_nextDispLine(EGI_FTCHAR_MAP *chmap);
@@ -205,7 +207,7 @@ int 	FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + reques
 int 	FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap );  	/* mutex_lock + request_check */ 	/* As retline, NOT displine */
 int 	FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap );	/* mutex_lock + request_check */ 	/* As retline, NOT displine */
 
-int 	FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln);
+int 	FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln); /* ret pos is relative to txtdlinePos[] */
 int 	FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  int pchoff);
 
 int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request_check */
