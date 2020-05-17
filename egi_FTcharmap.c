@@ -46,6 +46,10 @@ POST_1: Check chmap->errbits
 POST_2: Redraw cursor
 
 
+TODO:
+1. A faster way to memmove...
+2. A faster way to locate pch...
+
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -60,7 +64,8 @@ midaszhou@yahoo.com
 #include <sys/mman.h>
 #include <errno.h>
 
-static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y);
+static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y);	/* No mutex_lock */
+static void FTcharmap_mark_selection(FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap);		/* No mutex_lock */
 
 
 /*------------------------------------------------
@@ -675,25 +680,45 @@ FUNC_END:
 	 */
 	chmap->txtdlncount -= chmap->maplncount;
 
-	/* Update chmap->pch, to let it point to the same char before charmapping, as chmap->txtbuff[chmap->pchoff] */
-	/* TODO: Any better solution??
+	/* Update chmap->pch,
+	 * to let it point to the same char before charmapping, as chmap->txtbuff[chmap->pchoff]
+	 * TODO: Any better solution??
 	 *  	How about if chmap->pchoff points outside of current charmap? Do not draw the typing cursor ???
 	 */
-	if(chmap->pchoff > 0) {
-		off=chmap->pref-chmap->txtbuff;
-		chmap->pch=0; /* If no match */
+	chmap->pch=-1;
+	chmap->pch2=-1;
+	off=chmap->pref-chmap->txtbuff;
+	if( chmap->pchoff >= off+chmap->charPos[0] && chmap->pchoff <= off+chmap->charPos[chmap->chcount-1] ) {
+		//chmap->pch=-1; /* If no match */
 		for( i=0; i < chmap->chcount; i++) {
 			if( off+chmap->charPos[i] == chmap->pchoff ) {
 				chmap->pch=i;
 				//chmap->pchoff=0; /* Reset pchoff only if chmap->pch is in current charmap */
-
 				break;
 			}
 		}
-
 		/* reset pchoff */
-		chmap->pchoff=0;
+		//chmap->pchoff=0;
 	}
+
+	/* Cal. chmap->pch2 */
+	if( chmap->pchoff2 == chmap->pchoff)
+		chmap->pch2=chmap->pch;
+	//else if( chmap->pchoff2 > 0) {
+	if( chmap->pchoff2 >= off+chmap->charPos[0] && chmap->pchoff2 <= off+chmap->charPos[chmap->chcount-1] ) {
+		//off=chmap->pref-chmap->txtbuff;
+		//chmap->pch2=-1; /* If no match */
+		for( i=0; i < chmap->chcount; i++) {
+			if( off+chmap->charPos[i] == chmap->pchoff2 ) {
+				chmap->pch2=i;
+				//chmap->pchoff2=0; /* Reset pchoff only if chmap->pch is in current charmap */
+				break;
+			}
+		}
+		/* reset pchoff */
+		//chmap->pchoff2=0;
+	}
+
 	/* If no match, then chmap->pch = 0
 	 *  xxxx then chmap->pch = chmap->chcount-1, indicate to the last char/EOF in charmap
 	 */
@@ -706,6 +731,10 @@ FUNC_END:
 		chmap->fix_cursor=false;
 	}
 
+	/* Check pch and pch2, see if selection activated.*/
+	if(chmap->pch != chmap->pch2)
+		FTcharmap_mark_selection(fb_dev, chmap);
+
 	/* Reset chmap->request */
 	chmap->request=0;
 
@@ -715,6 +744,105 @@ FUNC_END:
 	return p-pstr;
 }
 
+/*------------------------------------------------------------------------
+Mark selected chars between chmap->pchoff and
+chmap->pchoff2.
+
+Note:
+1. chmap->pch AND chmap->pch2 MUST be updated before calling this function.
+
+------------------------------------------------------------------------*/
+inline static void FTcharmap_mark_selection(FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap)
+{
+	int k;
+	int startX,startY;	/* Two cursor top points, between which are selected chars. */
+	int endX,endY;
+	int mdls;		/* lines between start/end line, only if selected dlines >=3 */
+	int pch=0,pch2=0;		/* Temp. pch/pch2 only for mark, not for cursor position */
+	int off=0;
+
+	if(fb_dev==NULL || chmap==NULL)
+		return;
+
+	/* Cal. off */
+	off=chmap->pref-chmap->txtbuff;
+
+	/* Check pchoff and pchoff2 */
+	if (chmap->pchoff == chmap->pchoff2 )
+		return;
+
+	/* if(chmap->pch == chmap->pch2) return; NOPE, if all =-1, they are just out of range , but may have selection */
+
+	/* 1. Determine pch */
+	if( chmap->pchoff <= off+chmap->charPos[0] )
+			pch=0;
+	else if ( chmap->pchoff > off+chmap->charPos[chmap->chcount-1])
+			pch=chmap->chcount-1;
+	else
+			pch=chmap->pch;
+
+	/* 2. Determine pch2 */
+	if( chmap->pchoff2 <= off+chmap->charPos[0] )
+			pch2=0;
+	else if ( chmap->pchoff2 > off+chmap->charPos[chmap->chcount-1])
+			pch2=chmap->chcount-1;
+	else
+			pch2=chmap->pch2;
+
+	/* If NO selection */
+	//printf("pch=%d, pch2=%d\n", pch, pch2);
+	if( pch==pch2 )
+		return;
+
+	/* 2. Start/end cursors are in the same dline */
+	if(chmap->charY[pch] == chmap->charY[pch2] ) {
+		/* Determind start/end XY */
+		if(chmap->charX[pch] >= chmap->charX[pch2]) {
+			startX=chmap->charX[pch2];
+			endX=chmap->charX[pch];
+		} else {
+			startX=chmap->charX[pch];
+			endX=chmap->charX[pch2];
+		}
+		startY=chmap->charY[pch2];
+		endY=startY;
+
+		/*  Draw blend area */
+		draw_blend_filled_rect(fb_dev, startX, startY, endX, endY+chmap->maplndis-1,
+								WEGI_COLOR_BLUE, 60); /* dev, x1,y1,x2,y2,color,alpha */
+
+	}
+	/* 3. Start/end cursors are NOT in the same dline */
+	else {
+		/* Determind start/end XY */
+		if( chmap->charY[pch] > chmap->charY[pch2] ) {
+			startY=chmap->charY[pch2];  	startX=chmap->charX[pch2];
+			endY=chmap->charY[pch];	   	endX=chmap->charX[pch];
+		}
+		else {
+			startY=chmap->charY[pch]; 	startX=chmap->charX[pch];
+			endY=chmap->charY[pch2];	endX=chmap->charX[pch2];
+		}
+
+		/* 2.1 Mark start dline area */
+		draw_blend_filled_rect(fb_dev, startX, startY, chmap->mapx0+chmap->mappixpl-1, startY+chmap->maplndis-1,
+                                                                      WEGI_COLOR_BLUE, 50); /* dev, x1,y1,x2,y2,color,alpha */
+		/* 2.2 Mark mid dlines areas */
+		mdls=(endY-startY)/chmap->maplndis-1;
+		if(mdls>0) {
+			for( k=0; k<mdls; k++ ) {
+				draw_blend_filled_rect(fb_dev, chmap->mapx0, startY+(k+1)*(chmap->maplndis) -1,
+							chmap->mapx0+chmap->mappixpl-1, startY+(k+2)*(chmap->maplndis) -1,
+                                                                      WEGI_COLOR_BLUE, 50); /* dev, x1,y1,x2,y2,color,alpha */
+			}
+		}
+
+		/* 2.3 Mark end dline area */
+		draw_blend_filled_rect(fb_dev, chmap->mapx0, endY, endX, endY+chmap->maplndis-1,
+                                                                      WEGI_COLOR_BLUE, 50); /* dev, x1,y1,x2,y2,color,alpha */
+	}
+
+}
 
 /*----------------------------------------------
 Move chmap->pref backward to pointer to the the
@@ -875,7 +1003,8 @@ int FTcharmap_scroll_oneline_up(EGI_FTCHAR_MAP *chmap)
 	}
 
         /* MUST_1. Just before changing chmap->pref: Remember current typing/insertion cursor byte position in chmap->txtbuff */
-        chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch];
+//        chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch];
+//	chmap->pchoff2=chmap->pchoff; /* Lock pchoff2 to pchoff */
 
         /* MUST_2. chmap->txtdlncount--
 	 * MUST_3. Change chmap->pref, to change charmap start postion */
@@ -941,7 +1070,8 @@ int FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap)
 	}
 
         /* MUST_1. Just before changing chmap->pref: Remember current typing/insertion cursor byte position in chmap->txtbuff */
-        chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch];
+//        chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch];
+//	chmap->pchoff2=chmap->pchoff; /* Lock pchoff2 to pchoff */
 
 	if( chmap->maplncount>1 ) {
        	 	/* MUST_2. chmap->txtdlncount++
@@ -966,7 +1096,8 @@ int FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap)
 
 
 /*---------------------------------------------------------------
-To locate chmap->pch according to given x,y.
+To locate chmap->pch(chmap->pch2) according to given x,y.
+chmap->pch and chmap->pch2 interlocked here!
 
 @chmap:		The FTCHAR map.
 @x,y:		A B/LCD coordinate pointed to a char.
@@ -996,19 +1127,6 @@ int FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
         for(i=0; i < chmap->chcount; i++) {
              	//printf("i=%d/(%d-1)\n", i, chmap->chcount);
              	if( chmap->charY[i] <= y && chmap->charY[i]+ chmap->maplndis > y ) {	/* locate Y notice <= to left: A <= Y < B  */
-		#if 0  /* METHOD 1: Pick the first charX[] */
-            		if( chmap->charX[i] <= x		/*  == ALSO is the case ! */
-			    && (     i==chmap->chcount-1	/* Last char/insert of chmap, and next [i+1] will be ingored. */
-				 || ( chmap->charX[i+1] > x || chmap->charY[i] != chmap->charY[i+1] )  /* || or END of the dline */
-				)
-			   )
-                        {
-				chmap->pch=i;
-				break;
-				//printf("Locate charXY[%d]: (%d,%d)\n", i, chmap->charX[i],chmap->charY[i]);
-                        }
-
-		#else /* METHOD 2: Pick the nearst charX[] to x */
 			/* 1. Not found OR ==chcount-1),  set to the end of the chmap. */
 			if( i==chmap->chcount-1 ) {  // && chmap->charX[i] <= x ) {  /* Last char of the chmap */
 				chmap->pch=i;
@@ -1025,13 +1143,22 @@ int FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
 			}
 			/* 3. The last char of the dline.  */
 			else if( chmap->charX[i] <= x && chmap->charY[i] != chmap->charY[i+1] ) {
-				chmap->pch=i;
+				/* Find the nearest charX[] */
+				if( x-chmap->charX[i] > (chmap->mapx0+chmap->mappixpl-chmap->charX[i])/2 )
+					chmap->pch=i+1;
+				else
+					chmap->pch=i;
 				break;
 			}
-		#endif
 	     	}
 	}
 
+	/* interlock pch/pch2 */
+	chmap->pch2=chmap->pch;
+
+	/* set pchoff/pchoff2 accordingly */
+	chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch];
+	chmap->pchoff2=chmap->pchoff;
 
         /*  <-------- Put mutex lock */
         pthread_mutex_unlock(&chmap->mutex);
@@ -1072,11 +1199,123 @@ static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y)
 			}
 			/* 3. The last char of the dline.  */
 			else if( chmap->charX[i] <= x && chmap->charY[i] != chmap->charY[i+1] ) {
-				chmap->pch=i;
+				/* Find the nearest charX[] */
+				if( x-chmap->charX[i] > (chmap->mapx0+chmap->mappixpl-chmap->charX[i])/2 )
+					chmap->pch=i+1;
+				else
+					chmap->pch=i;
 				break;
 			}
 	     	}
 	}
+
+	/* interlock pch/pch2 */
+	chmap->pch2=chmap->pch;
+
+	/* set pchoff/pchoff2 accordingly */
+	chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch];
+	chmap->pchoff2=chmap->pchoff;
+
+	return 0;
+}
+
+
+/*---------------------------------------------------------------
+To locate chmap->pch2 ONLY according to given x,y.
+
+@chmap:		The FTCHAR map.
+@x,y:		A B/LCD coordinate pointed to a char.
+
+Return:
+	0	OK
+	<0	Fails
+----------------------------------------------------------------*/
+int FTcharmap_locate_charPos2( EGI_FTCHAR_MAP *chmap, int x, int y)
+{
+	int i;
+
+	if( chmap==NULL ) {
+		printf("%s: Input FTCHAR map is empty!\n", __func__);
+		return -1;
+	}
+
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+
+	/* Search char map to find pch/pos for the x,y  */
+	//printf("input x,y=(%d,%d), chmap->chcount=%d \n", x,y, chmap->chcount);
+        for(i=0; i < chmap->chcount; i++) {
+             	//printf("i=%d/(%d-1)\n", i, chmap->chcount);
+             	if( chmap->charY[i] <= y && chmap->charY[i]+ chmap->maplndis > y ) {	/* locate Y notice <= to left: A <= Y < B  */
+		/* METHOD 2: Pick the nearst charX[] to x */
+			/* 1. Not found OR ==chcount-1),  set to the end of the chmap. */
+			if( i==chmap->chcount-1 ) {  // && chmap->charX[i] <= x ) {  /* Last char of the chmap */
+				chmap->pch2=i;
+				break;
+			}
+			/* 2. Not the last char of dline, so [i+1] is valid always! */
+			else if( chmap->charX[i] <= x && chmap->charX[i+1] > x ) {
+				/* find the nearest charX[] */
+				if( x-chmap->charX[i] > chmap->charX[i+1]-x )
+					chmap->pch2=i+1;
+				else
+					chmap->pch2=i;
+				break;
+			}
+			/* 3. The last char of the dline.  */
+			else if( chmap->charX[i] <= x && chmap->charY[i] != chmap->charY[i+1] ) {
+				/* Find the nearest charX[] */
+				if( x-chmap->charX[i] > (chmap->mapx0+chmap->mappixpl-chmap->charX[i])/2 )
+					chmap->pch2=i+1;
+				else
+					chmap->pch2=i;
+				break;
+			}
+	     	}
+	}
+
+	/* set pchoff/pchoff2 accordingly */
+	chmap->pchoff2=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch2];
+
+        /*  <-------- Put mutex lock */
+        pthread_mutex_unlock(&chmap->mutex);
+
+	return 0;
+}
+
+
+/*------------------------------------------------------------
+Reset chmap->pch2 to chmap->pch. cancel selection.
+
+@chmap:		The FTCHAR map.
+@x,y:		A B/LCD coordinate pointed to a char.
+
+Return:
+	0	OK
+	<0	Fails
+----------------------------------------------------------*/
+int FTcharmap_reset_charPos2( EGI_FTCHAR_MAP *chmap )
+{
+	if( chmap==NULL ) {
+		printf("%s: Input FTCHAR map is empty!\n", __func__);
+		return -1;
+	}
+
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+
+	/* Reset pchoff2/pch2 same as pchoff/pch */
+	chmap->pchoff2=chmap->pchoff;
+	chmap->pch2=chmap->pch;
+
+        /*  <-------- Put mutex lock */
+        pthread_mutex_unlock(&chmap->mutex);
 
 	return 0;
 }
@@ -1493,7 +1732,6 @@ int FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap )
 
 /*---------------------------------------------------------
 Get the offset position (relative to txtdlinePos ) of the
-
 last char in the dline.
 
 @chmap: 	an EGI_FTCHAR_MAP
@@ -1578,8 +1816,11 @@ int FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  int pchoff)
 	 *  NOTE:  1. chmap->txtdlinePos[txtdlncount]==chmap->maplinePos[0],
 	 *  	  2. txtdlinePos[txtdlncount+1],txtdlinePos[txtdlncount+2]... +maplncount-1] still holds valid data.
 	 */
-	for(i=1; i < chmap->txtdlncount + chmap->maplncount; i++) {
-		if( chmap->txtdlinePos[i] > pchoff )
+	//for(i=1; i < chmap->txtdlncount + chmap->maplncount; i++) {
+	for(i=1; i < chmap->txtdlines; i++) {
+		if( chmap->txtdlinePos[i] == 0 ) /* 0 as un_charmapped data */
+			break;
+		else if( chmap->txtdlinePos[i] > pchoff )
 			return	i-1;
 	}
 
@@ -1748,6 +1989,7 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 	/* 0. Get totabl number of inserting char */
 	//chns=1;			/* 1 char only NOW */
 
+
 	/* 1. Check txtbuff space */
 	if( chmap->txtlen +chsize > chmap->txtsize-1 ) {
 		printf("%s: chmap->txtbuff is full! Fail to insert char. chmap->txtlen=%d, chmap->txtsize-1=%d \n",
@@ -1758,6 +2000,7 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
         	pthread_mutex_unlock(&chmap->mutex);
 		return -4;
 	}
+
 
 	/* 2. Insert char at EOF of chmap->txtbuff, OR start of an empty txtbuff */
 	if(chmap->pref[ chmap->charPos[ chmap->pch] ]=='\0') {  /* Need to reset charPos[] at charmapping */
@@ -1818,7 +2061,7 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
          *  All above will be checked and done in POST charmapping codes.
 	 */
 	chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch]; /* : NOW typing/inserting cursor position relative to txtbuff */
-
+	chmap->pchoff2 = chmap->pchoff;  /* pchoff2 always follows pchoff */
 
 	/* Set chmap->request for charmapping */
 	chmap->request=1;
@@ -1831,24 +2074,28 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 }
 
 
-/*-------------------------------------------------
-Delete a char pointed by chmap->pch.
-Note:
-1. chmap->pch keeps unchanged!
-2. The EOF will NOT be deleted!
+/*----------------------------------------------------------------------------
+Delete a char preceded by cursor OR chars selected between pchoff2 and pchoff
 
-TODO:
-	1. scroll up while deleting will cause ERR: char_uft8_to_unicode: Unrecognizable uft-8 character!!!!
+Note:
+1. If NOT in current charmap, reset chmap->txtdlncount,pref after deleting.
+   Point chmap->pref to the dline where chmap->pchoff located.
+2. Otherwise deletes the char pointed by pch, and chmap->pch keeps unchanged!
+3. The EOF will NOT be deleted!
 
 @chmap:         Pointer to the EGI_FTCHAR_MAP.
 
 Return:
         0       OK
         <0      Fail
--------------------------------------------------*/
+---------------------------------------------------------------------------*/
 int FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap )
 {
 	int charlen=0;
+	int startPos=0;
+	int endPos=0;
+	int dlindex=0;
+	int off=0;
 
 	/* Check input */
         if( chmap==NULL || chmap->txtbuff==NULL ) {
@@ -1869,20 +2116,86 @@ int FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap )
 		return -3;
 	}
 
-	/* TEST:  */
+	#if 0 /* -----TEST:  */
 	wchar_t wcstr;
 	if(char_uft8_to_unicode(chmap->pref+chmap->charPos[chmap->pch], &wcstr) >0) {
 		printf("Del wchar = %d\n", wcstr);
 	}
+	#endif
 
 	/* NOTE: DEL/BACKSPACE operation acturally copys string including only ONE '\0' at end.
          *  After deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes
          *  need to be cleared. and EOF token MUST reset when insert char at the end of txtbuff[] later.
          */
-        /* Only if txtbuff is NOT empty and pch is NOT the end */
-        if( chmap->txtlen > 0) {
-        	/* 1. chmap->pch is NOT the end */
-                if( chmap->pch < chmap->chcount-1 ) {
+
+
+
+        /* Only if txtbuff is NOT empty  */
+        if( chmap->txtlen > 0 ) {
+
+		/* 1. If selection marks, delete all selected chars. */
+		if( chmap->pchoff != chmap->pchoff2 ) {
+			if(chmap->pchoff > chmap->pchoff2) {
+				startPos=chmap->pchoff2;
+				endPos=chmap->pchoff;
+			}
+			else {
+				startPos=chmap->pchoff;
+				endPos=chmap->pchoff2;
+			}
+			/* Move followed chars backward to cover selected chars. */
+			memmove( chmap->txtbuff+startPos, chmap->txtbuff+endPos, strlen((char *)(chmap->txtbuff+endPos)) +1);  /* +1 EOF */
+			/* PRE_: Update txtlen */
+			chmap->txtlen -= (endPos-startPos);
+			/* 2. PRE_: Set pchoff2=pchoff=startPos */
+			chmap->pchoff2=startPos;
+			chmap->pchoff=startPos;
+
+			/* If startPos NOT in current charmap */
+			off=chmap->pref-chmap->txtbuff;
+			if(  startPos < off+chmap->charPos[0] || startPos > off+chmap->charPos[chmap->chcount-1] ) {
+				/* 3. Reset chmap->pref for re_charmapping */
+				dlindex=FTcharmap_get_txtdlIndex(chmap,  chmap->pchoff);
+				if(dlindex<0) {
+					printf("%s: dlindex is nagtive, FTcharmap_get_txtdlIndex() fails!\n",__func__);
+					dlindex=0;
+				}
+				/* PRE_:  Set chmap->txtdlncount */
+				chmap->txtdlncount=dlindex;
+				/* PRE_:  Set chmap->pref */
+				chmap->pref=chmap->txtbuff+chmap->txtdlinePos[dlindex];
+		  	}
+		}
+
+		/* 2. No selection marks, and chmap->pchoff(pchoff2) NOT in current charmpa */
+		else  if( chmap->pchoff == chmap->pchoff2 && chmap->pch < 0) {
+
+			/* Get charlen and start/endPos*/
+                        charlen=cstr_charlen_uft8(chmap->txtbuff+chmap->pchoff);
+			startPos=chmap->pchoff;
+			endPos=chmap->pchoff+charlen;
+
+			/* Move followed chars backward to cover selected chars. */
+			memmove( chmap->txtbuff+startPos, chmap->txtbuff+endPos, strlen((char *)(chmap->txtbuff+endPos)) +1);  /* +1 EOF */
+			/* 1. Update txtlen */
+			chmap->txtlen -= (endPos-startPos);
+
+
+			/* 2. PRE_: keep pchoff and pchoff2 */
+			/* 3. Reset chmap->pref for re_charmapping */
+			dlindex=FTcharmap_get_txtdlIndex(chmap,  chmap->pchoff);
+			if(dlindex<0) {
+				printf("%s: dlindex is nagtive, FTcharmap_get_txtdlIndex() fails!\n",__func__);
+				dlindex=0;
+			}
+			/* PRE_1:  Set chmap->txtdlncount */
+			chmap->txtdlncount=dlindex;
+			/* PRE_2:  Set chmap->pref */
+			chmap->pref=chmap->txtbuff+chmap->txtdlinePos[dlindex];
+		}
+
+		/* 3. NO selection marks, chmap->pch in current charmap, But NOT the end */
+                else if( chmap->pch < chmap->chcount-1 ) {
 			/* Move followed chars backward to cover the char pointed by pch. */
                 	memmove( chmap->pref+chmap->charPos[chmap->pch], chmap->pref+chmap->charPos[chmap->pch+1],
                                                                        strlen((char *)(chmap->pref+chmap->charPos[chmap->pch+1])) +1); /* +1 EOF */
@@ -1892,7 +2205,7 @@ int FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap )
 			* inserting char at the end of txtbuff. */
                  }
 
-                 /* 2. If the last pch (but NOT the EOF), then [pch+1] is NOT available! */
+                 /* 4. NO selection marks, chmap-pch is the last pch of current charmap (but NOT the EOF), then [pch+1] is NOT available! */
                  else if( chmap->pch == chmap->chcount-1 && chmap->pref[chmap->charPos[chmap->pch]] != '\0' ) {
                  	printf("%s: --- DEL last pch --- \n", __func__);
                         /* if chmap->pref[chmap->charPos[pch]] == '\0' then charlen=... will be -1, */
@@ -1910,6 +2223,7 @@ int FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap )
 	}
 	/* ELSE: txtlen==0, chmap->txtbuff is empty! */
 
+
 	/* Set chmap->request for charmapping */
 	chmap->request=1;
 
@@ -1918,4 +2232,6 @@ int FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap )
 
 	return 0;
 }
+
+
 

@@ -157,21 +157,35 @@ struct  FTsymbol_char_map {
 
 	unsigned int	pchoff;			/* Offset postion to txtbuff !!!, OnlyIf pchoff>0, it will be used to relocate pch after charmapping!
 						 *			--- MOST IMPORTANT ---
+						 * pchoff/pch points to the CURRENT/IMMEDIATE typing/inserting position.
 						 * In case that after inserting a new char, chmapsize reaches LIMIT and need to shift one line down,
                            			 * then we'll use pchoff to locate the typing position in charmapping. so after inserting a new char
 						 * into txtbuff, ALWAY update pchoff to keep track of typing/inserting cursor position.
+						 *			--- pchoff V.S. pchoff2 ---
+					 	 * NOTE: pchoff is the master of pchoff2, if pchoff changes, pchoff2 changes with it,
+						 * 	 to keep as pchoff2==pchoff.
+						 * Only when selecting action is triggered, then will pchoff2 diffs from pchoff.
 						 */
+
+	unsigned int    pchoff2;		/* OnlyIf pchoff2>0, it will be used to relocate pch2. see pch2. */
+
 	bool		fix_cursor;		/* If true: After charmapping, set pch as to re_locate cursor nearest to its previous (x,y)postion.
 						 * set as true when shift cursor up/down to cross top/bottom dline.
 						 */
 	int		pch;			/* Index of displayed char as of charX[],charY and charPos[], pch=0 is the first displayed char.
 						 *   			--- MOST IMPORTANT ---
-						 * pch points to the CURRENT/IMMEDIATE typing/inserting position in the charmap. 0<=pch<=chcount)
-					 	 * pch is used to locate inserting positioin and typing_cursor position.
-					   	 * xxxIn some case, we just change chmap->pch in advance(before charmapping), and chmap->pch may be
-						 * xxxgreater than chmap->chcount-1 at that point, after charmapping it will be adjusted to point
-						 * xxxto the same char(same offset value to chmap->txtbuff)
-					 	 */
+						 * pchoff/pch points to the CURRENT/IMMEDIATE typing/inserting position.
+						 * If pchoff NOT in the current charmap, then pch<0.
+					 	 * xxx pch is used to locate inserting positioin and typing_cursor position.
+					   	 * xxx In some case, we just change chmap->pch in advance(before charmapping), and chmap->pch may be
+						 * xxx greater than chmap->chcount-1 at that point, after charmapping it will be adjusted to point
+						 * xxx to the same char(same offset value to chmap->txtbuff)
+						 *			--- NOTE pch v.s. pch2 ---
+					 	 * NOTE: pch is the master of pch2, if pch changes, pch2 changes with it, to keep as pch2==pch.
+						 * Only when selecting action is triggered, then will pch2 diffs from pch.
+						 */
+	int		pch2;			 /* If pch2 != pch: Applied as second pch to mark ending of selection */
+
 	int 		*charX;			/* Array, Char start point(left top) FB/LCD coordinates X,Y */
 	int 		*charY;
 	unsigned int	*charPos;		/* Array, Char offset position relative to pref, in bytes. */
@@ -182,7 +196,7 @@ struct  FTsymbol_char_map {
 
 EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize, int x0, int y0, size_t mapsize, size_t maplines, size_t mappixpl, int maplngap);
 int 	FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize);
-int 	FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap);
+int 	FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap);	/* mutex_lock */
 
 void 	FTcharmap_free(EGI_FTCHAR_MAP **chmap);
 int 	FTcharmap_set_pref_nextDispLine(EGI_FTCHAR_MAP *chmap);
@@ -190,14 +204,20 @@ int  	FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,			/* 
                                     FT_Face face, int fw, int fh,
                                     int fontcolor, int transpcolor, int opaque,
                                     int *cnt, int *lnleft, int* penx, int* peny );
+//static void FTcharmap_mark_selection(FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap); /*without mutex_lock */
 
 int 	FTcharmap_page_up(EGI_FTCHAR_MAP *chmap);			/* mutex_lock + request_check */
 int 	FTcharmap_page_down(EGI_FTCHAR_MAP *chmap);			/* mutex_lock + request_check */
 int 	FTcharmap_scroll_oneline_up(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
 int 	FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
 
+/* To locate chmap->pch */
 int  	FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y);		/* mutex_lock */
 //static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y);  /* without mutex_lock */
+
+/* To locate chmap->pch2 */
+int  	FTcharmap_locate_charPos2( EGI_FTCHAR_MAP *chmap, int x, int y);		/* mutex_lock */
+int 	FTcharmap_reset_charPos2( EGI_FTCHAR_MAP *chmap );  /* reset pch2=pch */        /* mutex_lock */
 
 int 	FTcharmap_shift_cursor_up(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
 int 	FTcharmap_shift_cursor_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
@@ -212,6 +232,8 @@ int 	FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  int pchoff);
 
 int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request_check */
 int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock + request_check */
+
+/* Delete a char preceded by cursor OR chars selected between pchoff2 and pchoff */
 int 	FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap );			/* mutex_lock + request_check */
 
 #endif

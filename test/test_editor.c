@@ -18,6 +18,7 @@ HOME(or Fn+LEFT_ARROW!):	Return cursor to the begin of the retline.
 END(or Fn+RIGHT_ARROW!):	Move cursor to the end of the retline.
 CTRL+N:		Scroll down 1 line, keep typing cursor position.
 CTRL+O:		Scroll up 1 line, keep typing curso position.
+CTRL+F:		Save current chmap->txtbuff to a file.
 PG_UP:		Page up
 PG_DN:		Page down
 
@@ -222,8 +223,8 @@ int main(void)
 
 
 	/* Load file to chmap */
-//	if( FTcharmap_load_file("/mmc/hlm_all.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
-	if( FTcharmap_load_file("/tmp/hello.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
+	if( FTcharmap_load_file("/mmc/hlm_all.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
+//	if( FTcharmap_load_file("/tmp/hello.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
 		printf("Fail to load file to champ!\n");
 
 	/* Set txtlen */
@@ -484,13 +485,19 @@ int main(void)
 			cursor_blink = !cursor_blink;
 		}
 
-		if(cursor_blink) {
+
+		/* check chmap->pch */
+		int pch;
+		pch=chmap->pch; /* copy out pch! It may changing to -1.. */
+
+		if(cursor_blink && pch>=0) {
+
 			/* TODO:
 			   1. chmap->pch need to be checked, it may be invalid, and then charXY[] is  meaningless
 			   2. Do not draw typing cursor if it is NOT in the charmap range?
 			 */
-		        penx=chmap->charX[chmap->pch];
-			peny=chmap->charY[chmap->pch];
+		        penx=chmap->charX[pch]; //[chmap->pch];
+			peny=chmap->charY[pch]; //[chmap->pch];
 
 		    #if 0 /* Use char '|', NOT at left most of the char however!  */
 			FTsymbol_writeFB("|",penx,peny,WEGI_COLOR_BLACK,NULL,NULL);
@@ -653,13 +660,33 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 {
 //	int i;
 	int mdZ;
+	bool	start_pch=false;	/* True if mouseLeftKeyDown switch from false to true */
+	//bool	start_pch2=false;       /* True if start_pch==false,and mouseLeftKeyDown==true */
 
         /* 1. Check pressed key */
         if(mouse_data[0]&0x1) {
-                printf("Leftkey down!\n");
+
+		/* Start selecting */
+		if(mouseLeftKeyDown==false) {
+                	printf("Leftkey press!\n");
+			start_pch=true;
+			/* reset pch2 = pch */
+			FTcharmap_reset_charPos2(chmap);
+		}
+		else {
+			start_pch=false;
+		}
+
 		mouseLeftKeyDown=true;
-	} else
+	}
+	else {
+		/* End selecting */
+		if(mouseLeftKeyDown==true) {
+			printf("LeftKey release!\n");
+		}
+		start_pch=false;
 		mouseLeftKeyDown=false;
+	}
 
         if(mouse_data[0]&0x2)
                 printf("Right key down!\n");
@@ -695,13 +722,18 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 	}
 
 	/* 5. To get current byte/char position  */
-	if(mouseLeftKeyDown) {
+	if(mouseLeftKeyDown && start_pch ) {		/* champ->pch and pch2: To mark start of selection */
 	   mouseMidY=mouseY+fh/2;
 	   mouseMidX=mouseX+fw/2;
 	   printf("mouseMidX,Y=%d,%d \n",mouseMidX, mouseMidY);
 	   FTcharmap_locate_charPos( chmap, mouseMidX, mouseMidY );
 	}
-
+	else if ( mouseLeftKeyDown && !start_pch ) {  /* chmap->pch2: To mark end of selection */
+	   mouseMidY=mouseY+fh/2;
+	   mouseMidX=mouseX+fw/2;
+	   printf("2mouseMidX,Y=%d,%d \n",mouseMidX, mouseMidY);
+	   FTcharmap_locate_charPos2( chmap, mouseMidX, mouseMidY );
+	}
 }
 
 /*--------------------------------
