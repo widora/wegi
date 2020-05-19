@@ -861,8 +861,11 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 	advanceX = slot->advance.x>>6;
 	bbox_W = (advanceX > slot->bitmap.width ? advanceX : slot->bitmap.width);
 
-	/* check bitmap data, we need bbox_W here */
-	if( ftsympg.alpha==NULL || wcode == 9 || wcode == 65279 ) {	/* TAB / ZERO_WIDTH_NO_BREAK_SPACE has wrong image! */
+	/* Chars without bitmap, or any chars you don't want to draw!
+	 * You may modify width for special chars here
+	 * Check bitmap data, we need bbox_W here. alpha NULL chars:  SPACEs
+	 */
+	if( ftsympg.alpha==NULL || wcode==9 || wcode==13 || wcode==65279 ) { /* TAB/CR/ZERO_WIDTH_NO_BREAK_SPACE */
 //		printf("%s: Alpha data is NULL for unicode=0x%x\n", __func__, wcode);
 //		draw_rect(fb_dev, x0, y0, x0+bbox_W, y0+fh );
 
@@ -877,19 +880,22 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 		}
 		else if ( wcode == 65279 ) /* ZERO_WIDTH_NO_BREAK SPACE */
 			*xleft -= 0;
-		else if ( wcode == 32 ) //(wchar_t)(L"") )
+		else if ( wcode == 32 ) //(wchar_t)(L" ") )
 			// *xleft -= fw/2; //2*bbox_w;
 			*xleft -= fw*factor_SpaceWidth/2;
 		else if ( wcode == 9 ) /* TAB */
 			*xleft -= fw*factor_TabWidth;
-		else {/* Maybe other unicode, it is supposed to have defined bitmap.width and advanceX */
-			*xleft -= bbox_W;
+		else { /* Maybe other unicode, it is supposed to have defined bitmap.width and advanceX */
+			*xleft -= 0; //bbox_W;
 		}
-			return;
+
+		return;  /* DO NOT draw image */
+	}
+	else {
+		/* reduce xleft */
+		*xleft -= bbox_W;
 	}
 
-	/* reduce xleft */
-	*xleft -= bbox_W;
 	if( *xleft < 0 )
 		return;
 	/* taken bbox_H as fh */

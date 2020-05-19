@@ -22,7 +22,7 @@ published by the Free Software Foundation.
 
 PRE_1:  Set chmap->txtdlncount
 PRE_2:  Set chmap->pref
-PRE_3:  Set chmap->pchoff (option)
+PRE_3:  Set chmap->pchoff/pchoff2   ( chmap->pch/pch2: to be derived from pchoff/pchoff2 in charmapping! )
 PRE_4:  Set chmap->fix_cursor (option)
 PRE_5:  Set chmap->request
 
@@ -169,13 +169,15 @@ struct  FTsymbol_char_map {
 
 	unsigned int    pchoff2;		/* OnlyIf pchoff2>0, it will be used to relocate pch2. see pch2. */
 
-	bool		fix_cursor;		/* If true: After charmapping, set pch as to re_locate cursor nearest to its previous (x,y)postion.
+	bool		fix_cursor;		/* If true: chmap->pch/pch2 and pchoff/pchoff2 will all be updated by charPos_nolock() in charmapping.
+						 * After charmapping, set pch as to re_locate cursor nearest to its previous (x,y) postion.
 						 * set as true when shift cursor up/down to cross top/bottom dline.
 						 */
 	int		pch;			/* Index of displayed char as of charX[],charY and charPos[], pch=0 is the first displayed char.
+						 * chmap->pch/pch2 is derived from chmap->pchoff/pchoff2 in charmapping!
 						 *   			--- MOST IMPORTANT ---
 						 * pchoff/pch points to the CURRENT/IMMEDIATE typing/inserting position.
-						 * If pchoff NOT in the current charmap, then pch<0.
+						 * If pchoff NOT in current charmap, then pch<0.
 					 	 * xxx pch is used to locate inserting positioin and typing_cursor position.
 					   	 * xxx In some case, we just change chmap->pch in advance(before charmapping), and chmap->pch may be
 						 * xxx greater than chmap->chcount-1 at that point, after charmapping it will be adjusted to point
@@ -184,11 +186,14 @@ struct  FTsymbol_char_map {
 					 	 * NOTE: pch is the master of pch2, if pch changes, pch2 changes with it, to keep as pch2==pch.
 						 * Only when selecting action is triggered, then will pch2 diffs from pch.
 						 */
-	int		pch2;			 /* If pch2 != pch: Applied as second pch to mark ending of selection */
-
+	int		pch2;			/* Applied as second pch to mark beginning OR ending of a selection.
+						 * chmap->pch/pch2 is derived from chmap->pchoff/pchoff2 in charmapping!
+						 * If pchoff2 NOT in current charmap, then pch2<0.
+						 */
 	int 		*charX;			/* Array, Char start point(left top) FB/LCD coordinates X,Y */
 	int 		*charY;
 	unsigned int	*charPos;		/* Array, Char offset position relative to pref, in bytes. */
+	//unsigned int 	*charW;			/* Array,Widths of char */
 
 	/* Extension: color,size,...*/
 };
@@ -206,34 +211,35 @@ int  	FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,			/* 
                                     int *cnt, int *lnleft, int* penx, int* peny );
 //static void FTcharmap_mark_selection(FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap); /*without mutex_lock */
 
-int 	FTcharmap_page_up(EGI_FTCHAR_MAP *chmap);			/* mutex_lock + request_check */
-int 	FTcharmap_page_down(EGI_FTCHAR_MAP *chmap);			/* mutex_lock + request_check */
-int 	FTcharmap_scroll_oneline_up(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
-int 	FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
+int 	FTcharmap_page_up(EGI_FTCHAR_MAP *chmap);			/* mutex_lock + request */
+int 	FTcharmap_page_down(EGI_FTCHAR_MAP *chmap);			/* mutex_lock + request */
+int 	FTcharmap_scroll_oneline_up(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request */
+int 	FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request */
 
 /* To locate chmap->pch */
-int  	FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y);		/* mutex_lock */
-//static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y);  /* without mutex_lock */
+int  	FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y);		/* mutex_lock + request_check */
+
+//static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y);  /* without mutex_lock, no request_check */
 
 /* To locate chmap->pch2 */
 int  	FTcharmap_locate_charPos2( EGI_FTCHAR_MAP *chmap, int x, int y);		/* mutex_lock */
 int 	FTcharmap_reset_charPos2( EGI_FTCHAR_MAP *chmap );  /* reset pch2=pch */        /* mutex_lock */
 
-int 	FTcharmap_shift_cursor_up(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
-int 	FTcharmap_shift_cursor_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
-int 	FTcharmap_shift_cursor_right(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
-int 	FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request_check */
+int 	FTcharmap_shift_cursor_up(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request */
+int 	FTcharmap_shift_cursor_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request */
+int 	FTcharmap_shift_cursor_right(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request */
+int 	FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request */
 
-int 	FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap );  	/* mutex_lock + request_check */ 	/* As retline, NOT displine */
-int 	FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap );	/* mutex_lock + request_check */ 	/* As retline, NOT displine */
+int 	FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap );  	/* mutex_lock + request */ 	/* As retline, NOT displine */
+int 	FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap );	/* mutex_lock + request */ 	/* As retline, NOT displine */
 
 int 	FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln); /* ret pos is relative to txtdlinePos[] */
 int 	FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  int pchoff);
 
-int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request_check */
-int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock + request_check */
+int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
+int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock + request */
 
 /* Delete a char preceded by cursor OR chars selected between pchoff2 and pchoff */
-int 	FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap );			/* mutex_lock + request_check */
+int 	FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap );			/* mutex_lock + request */
 
 #endif

@@ -68,7 +68,7 @@ midaszhou@yahoo.com
 
 
 #define 	BLINK_INTERVAL_MS	500	/* typing_cursor blink interval in ms */
-#define 	CHMAP_TXTBUFF_SIZE	32//1024     /* 256,text buffer size for EGI_FTCHAR_MAP.txtbuff */
+#define 	CHMAP_TXTBUFF_SIZE	64//1024     /* 256,text buffer size for EGI_FTCHAR_MAP.txtbuff */
 #define		CHMAP_SIZE		256 //125	/* NOT less than total number of chars (include '\n's and EOF) displayed in the txtbox */
 
 /* TTY input escape sequences.  USB Keyboard hidraw data is another story...  */
@@ -332,19 +332,9 @@ int main(void)
 						break;
 					case 67:  /* RIGHT arrow : move pch one char right, Limit to the last [pch] */
 						FTcharmap_shift_cursor_right(chmap);
-						#if 0
-						if( chmap->pch < chmap->chcount-1 ) {
-							chmap->pch++;
-						}
-						#endif
 						break;
 					case 68: /* LEFT arrow : move pch one char left */
 						FTcharmap_shift_cursor_left(chmap);
-						#if 0
-						if( chmap->pch > 0 ) {
-							chmap->pch--;
-						}
-						#endif
 						break;
 					case 70: /* END : move pch to the end of the return_line */
 						FTcharmap_goto_lineEnd(chmap);
@@ -391,7 +381,7 @@ int main(void)
 		}
 
 		/* --- EDIT:  3.2 Insert chars, !!! printable chars + '\n' + TAB  !!! */
-		else if( (ch>31 || ch==9 || ch==10 ) && chmap->pch>=0 ) {  //pos>=0 ) {   /* If pos<0, then ... */
+		else if( ch>31 || ch==9 || ch==10 ) {  //pos>=0 ) {   /* If pos<0, then ... */
 
 			/* ---- TEST: insert string */
 			if(ch=='5' && TEST_INSERT  ) {
@@ -407,23 +397,9 @@ int main(void)
 					pos=0;
 
                         }
-			else
+			else {
 				FTcharmap_insert_char( chmap, &ch );
-
-
-	        	/*  Get mutex lock   ----------->  */
-        		if(pthread_mutex_lock(&chmap->mutex) !=0){
-               			 printf("%s: Fail to lock charmap mutex!", __func__);
-                		return -2;
-        		}
-
-			/* Already set in FTcharmap_insert_char(), chmap->pchoff will be reset to 0 after charmap, save to pchoff. */
-			pchoff=chmap->pchoff;
-			chmap->pchoff=0; /* !!!! reset chmap->pchoff, to let chmap->pch unchangd in the following charmapping */
-
-        		/*  <-------- Put mutex lock */
-        		pthread_mutex_unlock(&chmap->mutex);
-
+			}
 
 		}  /* END insert ch */
 
@@ -434,44 +410,6 @@ int main(void)
         	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 		FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL, NULL);
 
-		/* POST: 1. Check pch and charmap again.
-		 *	 				    --- NOTE ---
-		 * 	1. It is assumed that condition (chmap->pch > chmap->chcount-1) is caused only by inserting a new char
-		 *	   and there are no more place in charmap to hold the new char, as pch>chcount-1, which will trigger line scroll hereby.
-		 *      2. When
-		 */
-		if( chmap->pch > chmap->chcount-1 ) {
-			printf("chmap->pch > chmap->chcount-1! Set chmap->pchoff and trigger scroll_down. \n");
-
-			/* TODO: mutex lock for chmap elements */
-			/* Chmapsize gets limit! and current cursor is NOT charmaped! we need to shift one line down
-		         * In order to keep chmap->pch pointing to the typing/inserting cursor after charmapping, we shall
-			 * set chmap->pchoff to tell charmap function.
-			 */
-
-			/* Already set in FTcharmap_insert_char(), saved to pchoff */
-			 chmap->pchoff=pchoff;  /* pchoff is calculated each time inserting a new char, see above. */
-
-
-			/* Any editing procesure MUST NOT call scroll_oneline_()! race condition, conflict chmap->pchoff */
-			// FTcharmap_scroll_oneline_down(chmap); /* shift one line down */
-		        /* Change chmap->pref, to change charmap start postion */
-      			if( chmap->maplncount>1 ) {
-                		/* Before/after calling FTcharmap_uft8string_writeFB(), champ->txtdlinePos[txtdlncount] always pointer to the first
-                 	 	*  currently displayed line. champ->txtdlinePos[txtdlncount]==chmap->maplinePos[0]
-                 	 	* So we need to reset txtdlncount to pointer the next line
-                 		*/
-                		chmap->txtdlncount++;
-                		chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
-                		printf("%s: chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
-			}
-
-			/* We shall charmap immediately, before inserting any new char, just to keep chmap->pchoff consistent with current txtbuff. */
-        		fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-			FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL, NULL);
-
-			/* TODO: If inserting a string, then it may trigger more than 1 line scroll! */
-		}
 
 		/* POST:  check chmap->errbits */
 		if( chmap->errbits ) {
@@ -524,7 +462,7 @@ int main(void)
 
 		/* Render and bring image to screen */
 		fb_render(&gv_fb_dev);
-		tm_delayms(30);
+		//tm_delayms(30);
 	}
 
 
@@ -726,13 +664,15 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 	   mouseMidY=mouseY+fh/2;
 	   mouseMidX=mouseX+fw/2;
 	   printf("mouseMidX,Y=%d,%d \n",mouseMidX, mouseMidY);
-	   FTcharmap_locate_charPos( chmap, mouseMidX, mouseMidY );
+	   /* continue checking */
+	   while( FTcharmap_locate_charPos( chmap, mouseMidX, mouseMidY )!=0 ){ tm_delayms(5);};
 	}
 	else if ( mouseLeftKeyDown && !start_pch ) {  /* chmap->pch2: To mark end of selection */
 	   mouseMidY=mouseY+fh/2;
 	   mouseMidX=mouseX+fw/2;
 	   printf("2mouseMidX,Y=%d,%d \n",mouseMidX, mouseMidY);
-	   FTcharmap_locate_charPos2( chmap, mouseMidX, mouseMidY );
+	   /* Continue checking */
+	   while( FTcharmap_locate_charPos2( chmap, mouseMidX, mouseMidY )!=0){ tm_delayms(5); } ;
 	}
 }
 

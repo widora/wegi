@@ -25,7 +25,7 @@ Note:
 
 PRE_1:  Set chmap->txtdlncount
 PRE_2:  Set chmap->pref
-PRE_3:  Set chmap->pchoff (option)
+PRE_3:  Set chmap->pchoff/pchoff2  ( chmap->pch/pch2: to be derived from pchoff/pchoff2 in charmapping! )
 PRE_4:  Set chmap->fix_cursor (option)
 PRE_5:  Set chmap->request
 
@@ -49,7 +49,8 @@ POST_2: Redraw cursor
 TODO:
 1. A faster way to memmove...
 2. A faster way to locate pch...
-
+3. Auto grow mem. for chmap members.
+4. Delete/insert/.... editing functions will fail if chmap->request!=0. ( loop trying/waiting ??)
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -214,7 +215,7 @@ int FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize
         chmap->txtsize=fsize+txtsize+1;     /* txtsize is Appendable size */
         chmap->pref=chmap->txtbuff; /* Init. pref pointing to txtbuff */
 
-	/* If not new fiel: Copy file content to txtbfuff */
+	/* If not new file: Copy file content to txtbfuff */
 	if(fsize>0)
 		memcpy(chmap->txtbuff, fp, fsize);
 
@@ -360,6 +361,12 @@ Charmap a string of charaters with UFT-8 encoding.
 TODO: 1. Alphabetic words are treated letter by letter, and they may be separated at the end of
          a line, so it looks not good.
       2. Apply character functions in <ctype.h> to rule out chars, with consideration of locale setting?
+      3. !!! WARNING !!!
+	 Any ASCII codes that may be preseted in the txtbuff MUST all be included in charmapping.
+	 MUST NOT skip any char in charmapping, OR it will cause charmap data error in further operation,
+	 Example: when shift chmap->pchoff, it MAY points to a char that has NO charmap data at all!
+	 example: TAB(9) and CR(13)!
+	 see 'EXCLUDE WARNING' in the function.
 
 @fbdev:         FB device
 @chmap:		pointer to an EGI_FTCHAR_MAP
@@ -563,11 +570,17 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 
 			continue;
 		}
+
+		#if 0  /*  !!! EXCLUDE WARNING,  MUST NOT SKIP !!!
+			*   It will cause charmap data error in further operation, Example: when shift chmap->pchoff, it MAY
+			*   points to a char that has NO charmap data at all!!!
+		 	*/
 		/* If other control codes or DEL, skip it. To avoid print some strange icons. */
-		else if( (*wcstr < 32 || *wcstr==127) && *wcstr!=9 ) {	/* Exclude TAB(9) */
-			//printf("%s: ASCII control code: %d\n", __func__, *wcstr);  /* !ASCII Return=CR=13 */
+		else if( (*wcstr < 32 || *wcstr==127) && *wcstr!=9 && *wcstr!=13 ) {	/* EXCLUDE WARNING:  except TAB(9), '\r' */
+			//printf("%s: ASCII control code: %d\n", __func__, *wcstr);     /* ! ASCII Return=CR=13 */
 			continue;
 		}
+		#endif
 
 		/* write unicode bitmap to FB, and get xleft renewed. */
 		px=x0+pixpl-xleft;
@@ -685,54 +698,48 @@ FUNC_END:
 	 * TODO: Any better solution??
 	 *  	How about if chmap->pchoff points outside of current charmap? Do not draw the typing cursor ???
 	 */
+
+	/* First set to <0, NOT in current charmap */
 	chmap->pch=-1;
 	chmap->pch2=-1;
 	off=chmap->pref-chmap->txtbuff;
+
+	/* Ca. chmap->pch : If  pchoff is NOT align with charPos[], then it will fail to match, usually it's uft-8 coding error. */
 	if( chmap->pchoff >= off+chmap->charPos[0] && chmap->pchoff <= off+chmap->charPos[chmap->chcount-1] ) {
-		//chmap->pch=-1; /* If no match */
 		for( i=0; i < chmap->chcount; i++) {
 			if( off+chmap->charPos[i] == chmap->pchoff ) {
 				chmap->pch=i;
-				//chmap->pchoff=0; /* Reset pchoff only if chmap->pch is in current charmap */
 				break;
 			}
 		}
-		/* reset pchoff */
-		//chmap->pchoff=0;
 	}
-
-	/* Cal. chmap->pch2 */
+	/* Cal. chmap->pch2 : If  pchoff is NOT align with charPos[], then it will fail to match, usually it's uft-8 coding error. */
 	if( chmap->pchoff2 == chmap->pchoff)
 		chmap->pch2=chmap->pch;
-	//else if( chmap->pchoff2 > 0) {
-	if( chmap->pchoff2 >= off+chmap->charPos[0] && chmap->pchoff2 <= off+chmap->charPos[chmap->chcount-1] ) {
-		//off=chmap->pref-chmap->txtbuff;
-		//chmap->pch2=-1; /* If no match */
+
+	else if( chmap->pchoff2 >= off+chmap->charPos[0] && chmap->pchoff2 <= off+chmap->charPos[chmap->chcount-1] ) {
 		for( i=0; i < chmap->chcount; i++) {
 			if( off+chmap->charPos[i] == chmap->pchoff2 ) {
 				chmap->pch2=i;
-				//chmap->pchoff2=0; /* Reset pchoff only if chmap->pch is in current charmap */
 				break;
 			}
 		}
-		/* reset pchoff */
-		//chmap->pchoff2=0;
 	}
-
-	/* If no match, then chmap->pch = 0
-	 *  xxxx then chmap->pch = chmap->chcount-1, indicate to the last char/EOF in charmap
-	 */
+	//printf("%s: pchoff=%d, pchoff2=%d \n",__func__, chmap->pchoff, chmap->pchoff2);
+	//printf("%s: pch=%d, pch2=%d \n",__func__, chmap->pch, chmap->pch2);
 
 	/* After pchoff, check chmap->fix_cursor */
 	if(chmap->fix_cursor==true) {
-		/* Relocate pch as per pchx,pchy */
+		/* Relocate pch/pch2 as per pchx,pchy:  selection will be canclled!
+		 * chmap->pch/pch2, pchoff/pchoff2 all updated!
+		 */
 		FTcharmap_locate_charPos_nolock(chmap, pchx, pchy);
 		/* reset */
 		chmap->fix_cursor=false;
 	}
 
 	/* Check pch and pch2, see if selection activated.*/
-	if(chmap->pch != chmap->pch2)
+	if( chmap->pchoff != chmap->pchoff2 )
 		FTcharmap_mark_selection(fb_dev, chmap);
 
 	/* Reset chmap->request */
@@ -745,8 +752,7 @@ FUNC_END:
 }
 
 /*------------------------------------------------------------------------
-Mark selected chars between chmap->pchoff and
-chmap->pchoff2.
+Mark selected chars between chmap->pchoff and chmap->pchoff2.
 
 Note:
 1. chmap->pch AND chmap->pch2 MUST be updated before calling this function.
@@ -767,7 +773,7 @@ inline static void FTcharmap_mark_selection(FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap
 	/* Cal. off */
 	off=chmap->pref-chmap->txtbuff;
 
-	/* Check pchoff and pchoff2 */
+	/* Check pchoff and pchoff2, if NO selection */
 	if (chmap->pchoff == chmap->pchoff2 )
 		return;
 
@@ -790,9 +796,15 @@ inline static void FTcharmap_mark_selection(FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap
 			pch2=chmap->pch2;
 
 	/* If NO selection */
-	//printf("pch=%d, pch2=%d\n", pch, pch2);
+	//printf("Chmap: pch=%d,pchoff=%d, pch2=%d, pchoff2=%d\n", chmap->pch,chmap->pchoff, chmap->pch2, chmap->pchoff2);
+	printf("Drawmark: pch=%d, pch2=%d \n", pch, pch2);
 	if( pch==pch2 )
 		return;
+
+	if( pch <0 || pch2 <0 ) {
+		printf("%s: WARNING! Error in current charmap! chmap->pch=%d, chmap->pch2=%d\n",__func__, chmap->pch, chmap->pch2);
+		return;
+	}
 
 	/* 2. Start/end cursors are in the same dline */
 	if(chmap->charY[pch] == chmap->charY[pch2] ) {
@@ -809,7 +821,7 @@ inline static void FTcharmap_mark_selection(FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap
 
 		/*  Draw blend area */
 		draw_blend_filled_rect(fb_dev, startX, startY, endX, endY+chmap->maplndis-1,
-								WEGI_COLOR_BLUE, 60); /* dev, x1,y1,x2,y2,color,alpha */
+								WEGI_COLOR_BLUE, 40); /* dev, x1,y1,x2,y2,color,alpha */
 
 	}
 	/* 3. Start/end cursors are NOT in the same dline */
@@ -864,8 +876,7 @@ int FTcharmap_page_up(EGI_FTCHAR_MAP *chmap)
                 return -2;
         }
 
-	/* Only if charmap cleared chmap->pchoff, charmap finish last session. */
-	//if( chmap->pchoff != 0) {
+	/* Only if charmap cleared, charmap finish last session. */
 	if( chmap->request != 0) {
        	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
@@ -873,7 +884,6 @@ int FTcharmap_page_up(EGI_FTCHAR_MAP *chmap)
 	}
         /* Just before changing chmap->pref: Remember current typing/insertion cursor byte position in chmap->txtbuff */
         chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch];
-
 
 	/* Set chmap->txtdlncount */
 	if( chmap->txtdlncount > chmap->maplines )
@@ -920,8 +930,7 @@ int FTcharmap_page_down(EGI_FTCHAR_MAP *chmap)
                 return -2;
         }
 
-	/* Only if charmap cleared chmap->pchoff, charmap finish last session. */
-	//if( chmap->pchoff != 0) {
+	/* Only if charmap cleared, charmap finish last session. */
 	if( chmap->request != 0) {
        	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
@@ -994,14 +1003,14 @@ int FTcharmap_scroll_oneline_up(EGI_FTCHAR_MAP *chmap)
                 printf("%s: Fail to lock charmap mutex!", __func__);
                 return -2;
         }
-	/* Only if charmap cleared chmap->pchoff, finish last session. */
-	//if( chmap->pchoff != 0) {
+	/* Only if charmap cleared, finish last session. */
 	if( chmap->request !=0 ) {
        	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
 		return -3;
 	}
 
+	/* Do not change chmap->pchoff and pchoff2 */
         /* MUST_1. Just before changing chmap->pref: Remember current typing/insertion cursor byte position in chmap->txtbuff */
 //        chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch];
 //	chmap->pchoff2=chmap->pchoff; /* Lock pchoff2 to pchoff */
@@ -1061,14 +1070,14 @@ int FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap)
                 return -2;
         }
 
-	/* Only if charmap cleared chmap->pchoff, finish last session. */
-	//if( chmap->pchoff != 0) {
+	/* Only if charmap cleared, finish last session. */
 	if( chmap->request !=0 ) {
        	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
 		return -3;
 	}
 
+	/* Do not change chmap->pchoff and pchoff2 */
         /* MUST_1. Just before changing chmap->pref: Remember current typing/insertion cursor byte position in chmap->txtbuff */
 //        chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch];
 //	chmap->pchoff2=chmap->pchoff; /* Lock pchoff2 to pchoff */
@@ -1095,9 +1104,14 @@ int FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap)
 }
 
 
-/*---------------------------------------------------------------
-To locate chmap->pch(chmap->pch2) according to given x,y.
-chmap->pch and chmap->pch2 interlocked here!
+/*-------------------------------------------------------------
+To locate chmap->pch(chmap->pch2) and pchoff/pchoff2  according
+to given x,y,
+chmap->pch2/pchoff2 is interlocked with chmap->pch/pchoff here!
+
+1. !!! WARN !!!
+   It will fail when chmap->request is set! So the caller
+   MAY need to continue checking the result.
 
 @chmap:		The FTCHAR map.
 @x,y:		A B/LCD coordinate pointed to a char.
@@ -1120,6 +1134,13 @@ int FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
                 printf("%s: Fail to lock charmap mutex!", __func__);
                 return -2;
         }
+
+	/* Only if charmap cleared. */
+	if( chmap->request !=0 ) {
+       	/*  <-------- Put mutex lock */
+	        pthread_mutex_unlock(&chmap->mutex);
+		return -3;
+	}
 
 	/* Search char map to find pch/pos for the x,y  */
 	//printf("input x,y=(%d,%d), chmap->chcount=%d \n", x,y, chmap->chcount);
@@ -1153,12 +1174,12 @@ int FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
 	     	}
 	}
 
-	/* interlock pch/pch2 */
+	/* interlock pch/pch2 : MUST NOT CANCEL THIS!  to cancel selection marks!*/
 	chmap->pch2=chmap->pch;
 
-	/* set pchoff/pchoff2 accordingly */
+	/* Set pchoff/pchoff2 accordingly */
 	chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch];
-	chmap->pchoff2=chmap->pchoff;
+	chmap->pchoff2=chmap->pchoff; /* interlockded */
 
         /*  <-------- Put mutex lock */
         pthread_mutex_unlock(&chmap->mutex);
@@ -1168,6 +1189,10 @@ int FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
 /*-----------------------------------------------------------------------------
 Refer to FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y)
 Without mutx_lock.
+
+Note:
+1. chmap->pch/pch2, pchoff/pchoff2 all updated!
+
 ------------------------------------------------------------------------------*/
 static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y)
 {
@@ -1209,7 +1234,7 @@ static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y)
 	     	}
 	}
 
-	/* interlock pch/pch2 */
+	/* interlock pch/pch2: MUST NOT CANCLE THIS, to cancel selection marks! */
 	chmap->pch2=chmap->pch;
 
 	/* set pchoff/pchoff2 accordingly */
@@ -1222,6 +1247,12 @@ static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y)
 
 /*---------------------------------------------------------------
 To locate chmap->pch2 ONLY according to given x,y.
+Keep chmap->pch unchanged.
+
+NOTE:
+1. !!! WARN !!!
+   It will fail when chmap->request is set!. So the caller
+   MAY need to continue checking the result.
 
 @chmap:		The FTCHAR map.
 @x,y:		A B/LCD coordinate pointed to a char.
@@ -1244,6 +1275,13 @@ int FTcharmap_locate_charPos2( EGI_FTCHAR_MAP *chmap, int x, int y)
                 printf("%s: Fail to lock charmap mutex!", __func__);
                 return -2;
         }
+
+	/* Only if charmap cleared. */
+	if( chmap->request !=0 ) {
+       	/*  <-------- Put mutex lock */
+	        pthread_mutex_unlock(&chmap->mutex);
+		return -3;
+	}
 
 	/* Search char map to find pch/pos for the x,y  */
 	//printf("input x,y=(%d,%d), chmap->chcount=%d \n", x,y, chmap->chcount);
@@ -1321,19 +1359,28 @@ int FTcharmap_reset_charPos2( EGI_FTCHAR_MAP *chmap )
 }
 
 
-/*--------------------------------------------------------
-If at top dline, reset chmap->pref to previous dline, and
+/*--------------------------------------------------------------------
+If NOT in current charmap then scroll to it.
+Else if at upper most dline, reset chmap->pref to previous dline, and
 set chmap->fix_cursor.
-Else just call locate_charPos(x,y) to update chmap->pch.
+Else just call locate_charPos(x,y) to update chmap->pch/pchoff
+and pch2/pchoff2.
+
+Note:
+1. If in current charmap, then chmap->pchoff and pchoff2 will be
+   interlocked, and any selection mark will be canclled.
+   Else: not in current charmap, then selection mark keeps.
 
 @chmap: an EGI_FTCHAR_MAP
 
 Return:
         0       OK,    chmap->pch modifed accordingly.
         <0      Fail   chmap->pch, unchanged.
--------------------------------------------------------*/
+-------------------------------------------------------------------*/
 int FTcharmap_shift_cursor_up(EGI_FTCHAR_MAP *chmap)
 {
+	int off=0;
+	int dln=0;
 
 	if( chmap==NULL || chmap->txtbuff==NULL)
 		return -1;
@@ -1351,10 +1398,33 @@ int FTcharmap_shift_cursor_up(EGI_FTCHAR_MAP *chmap)
 		return -3;
 	}
 
-        /* If already gets to the upper most dline */
-	if( chmap->charY[chmap->pch] == chmap->charY[0] )
+	/* offset of pref */
+	off=chmap->pref-chmap->txtbuff;
+
+	/* 1. If chmap->pch Not in current charmap page, scroll to  */
+	if( chmap->pch<0 ) {
+		/* If pchoff not in current charmap page, then scroll to */
+		if( chmap->pchoff < off  || chmap->pchoff > off+chmap->charPos[chmap->chcount-1] ) {
+			/* Get txtdlncount corresponding to pchoff */
+			dln=FTcharmap_get_txtdlIndex(chmap, chmap->pchoff);
+			if(dln<0) {
+				printf("%s: Fail to find index of chmap->txtdlinePos[] for pchoff!\n", __func__);
+				/* --- Do nothing! --- */
+			}
+			else {
+	        	        /* PRE_1. Update chmap->txtdlncount */
+				chmap->txtdlncount=dln;
+        		        /* PRE_2. Update chmap->pref */
+	                	chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+			}
+		}
+	}
+        /* 2. If chmap->pch in current charmap */
+	else if( chmap->pch >= 0 && chmap->pch < chmap->chcount-1 )
 	{
-        	// FTcharmap_scroll_oneline_up(chmap); NOPE!!! this funt will move pch(cursor) up also!
+           /* 2.1 If already gets to the upper most dline */
+	   if( chmap->charY[chmap->pch] == chmap->charY[0] )
+	   {
         	/* Change chmap->pref, to change charmap start postion */
                 if( chmap->txtdlncount > 0 ) {   /* Till to the first dline */
                 	/* Before/after calling FTcharmap_uft8string_writeFB(), champ->txtdlinePos[txtdlncount]
@@ -1365,13 +1435,16 @@ int FTcharmap_shift_cursor_up(EGI_FTCHAR_MAP *chmap)
 			/* PRE_2. Update champ->pref */
                         chmap->pref=chmap->txtbuff + chmap->txtdlinePos[--chmap->txtdlncount]; /* !-- */
                         printf("%s: Shift up,  chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
-			/* PRE_3 Set chmap->fix_cursor */
+			/* PRE_3 Set chmap->fix_cursor, then will call _get_charPos_nolock() in charmapping.
+			 * chmap->pch/pch2, pchoff/pchoff2 will all be updated by charPos_nolock() */
 			chmap->fix_cursor=true;
 		}
-	}
-	/* Else, move up to previous dline */
-	else {
+	   }
+	   /* 2.2 Else, move up to previous dline */
+	   else {
+		/* chmap->pch/pch2, pchoff/pchoff2 will all be updated by charPos_nolock() */
        		FTcharmap_locate_charPos_nolock( chmap, chmap->charX[chmap->pch],  chmap->charY[chmap->pch]-chmap->maplndis); /* exact Y */
+	   }
 	}
 
 	/* Set chmap->request for charmapping */
@@ -1383,19 +1456,28 @@ int FTcharmap_shift_cursor_up(EGI_FTCHAR_MAP *chmap)
         return 0;
 }
 
-/*--------------------------------------------------------
-If at bottom dline, reset chmap->pref to next dline, and
+/*-----------------------------------------------------------
+If NOT in current charmap then scroll to it.
+Else if at bottom dline, reset chmap->pref to next dline, and
 set chmap->fix_cursor.
-Else just call locate_charPos(x,y) to update chmap->pch.
+Else if not at bottom dline, just call locate_charPos(x,y) to
+update chmap->pch/pchoff and pch2/pchoff2.
+
+Note:
+1. If in current charmap, then chmap->pchoff and pchoff2 will be
+   interlocked, and any selection mark will be canclled.
+   Else: not in current charmap, then selection mark keeps.
 
 @chmap: an EGI_FTCHAR_MAP
 
 Return:
         0       OK,    chmap->pch modifed accordingly.
         <0      Fail   chmap->pch, unchanged.
--------------------------------------------------------*/
+----------------------------------------------------------*/
 int FTcharmap_shift_cursor_down(EGI_FTCHAR_MAP *chmap)
 {
+	int dln=0;
+	int off=0;
 
 	if( chmap==NULL || chmap->txtbuff==NULL)
 		return -1;
@@ -1413,9 +1495,33 @@ int FTcharmap_shift_cursor_down(EGI_FTCHAR_MAP *chmap)
 		return -3;
 	}
 
-        /* If already gets to the last dline of current charmap page */
-        //if( chmap->charY[chmap->pch] > txtbox.startxy.y+tmargin+(fh+fgap)*(chmap->maplines-2)+fh/2 ) {
-	if( chmap->charY[chmap->pch] >= chmap->mapy0+chmap->maplndis*(chmap->maplines-1) ) {
+	/* offset of pref */
+	off=chmap->pref-chmap->txtbuff;
+
+	/* 1. If chmap->pch Not in current charmap page, scroll to  */
+	if( chmap->pch<0 ) {
+		/* If pchoff not in current charmap page, then scroll to */
+		if( chmap->pchoff < off  || chmap->pchoff > off+chmap->charPos[chmap->chcount-1] ) {
+			/* Get txtdlncount corresponding to pchoff */
+			dln=FTcharmap_get_txtdlIndex(chmap, chmap->pchoff);
+			if(dln<0) {
+				printf("%s: Fail to find index of chmap->txtdlinePos[] for pchoff!\n", __func__);
+				/* --- Do nothing! --- */
+			}
+			else {
+	        	        /* PRE_1. Update chmap->txtdlncount */
+				chmap->txtdlncount=dln;
+        		        /* PRE_2. Update chmap->pref */
+	                	chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+			}
+		}
+	}
+        /* 2. If chmap->pch in current charmap */
+	else if( chmap->pch >= 0 && chmap->pch < chmap->chcount )
+	{
+	    /*  2.1 If already gets to the last dline of current charmap page */
+	    if( chmap->charY[chmap->pch] >= chmap->mapy0+chmap->maplndis*(chmap->maplines-1) ) {
+	    // NOPE, Not canvas bottom!! if( chmap->charY[chmap->pch] == chmap->charY[chmap->chcount-1] ) {
 		/* If EOF in current charmap page, then do nothing. */
 		if( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' ) {
 			/* Only if charmap more than 1 dlines ---NOPE! */
@@ -1429,14 +1535,17 @@ int FTcharmap_shift_cursor_down(EGI_FTCHAR_MAP *chmap)
 			/* PRE_2. Update chmap->pref */
                 	chmap->pref=chmap->txtbuff + chmap->txtdlinePos[++chmap->txtdlncount]; /* !++ */
 
-			/* PRE_3. Set chmap->fix_cursor */
+			/* PRE_3. Set chmap->fix_cursor
+			 * chmap->pch/pch2, pchoff/pchoff2 will all be updated by charPos_nolock() in charmapping */
 			chmap->fix_cursor=true;
 		}
-         }
-        /* 2. Else move down to next dline */
-        else {
+	    }
+            /* 2.2 Else move down to next dline */
+            else {
+		/* chmap->pch/pch2, pchoff/pchoff2 will all be updated by charPos_nolock() */
         	FTcharmap_locate_charPos_nolock(chmap, chmap->charX[chmap->pch], chmap->charY[chmap->pch]+chmap->maplndis); /* exact Y */
-        }
+            }
+	}
 
 	/* Set chmap->request for charmapping */
 	chmap->request=1;
@@ -1448,16 +1557,19 @@ int FTcharmap_shift_cursor_down(EGI_FTCHAR_MAP *chmap)
 }
 
 
-/*--------------------------------------------------------
+/*---------------------------------------------------------------------
 Increase chmap->pch, if it gets to the end of current charmap
 then scroll one dline down.
+
+If selection mark exits, then it will changes as cursor position moves,
+until pchoff and pchoff2 becomes the same!
 
 @chmap: an EGI_FTCHAR_MAP
 
 Return:
         0       OK,    chmap->pchoff or chmap->pch modifed accordingly.
         <0      Fail   chmap->pch, unchanged.
--------------------------------------------------------*/
+--------------------------------------------------------------------*/
 int FTcharmap_shift_cursor_right(EGI_FTCHAR_MAP *chmap)
 {
 	int off;
@@ -1480,18 +1592,26 @@ int FTcharmap_shift_cursor_right(EGI_FTCHAR_MAP *chmap)
 		return -3;
 	}
 
+	/* offset of pref */
+	off=chmap->pref-chmap->txtbuff;
 
-	/* 1. TODO TEST: If chmap->pchoff !=0 and NOT EOF, then reset pchoff */
-	if( chmap->pchoff>0 && chmap->txtbuff[ chmap->pchoff ] != '\0' ) {
+	/* 1. If chmap->pch Not in current charmap page */
+	if( chmap->pch < 0 && chmap->txtbuff[ chmap->pchoff ] != '\0' ) {
 		/* Move pchoff forward */
-		charlen=cstr_charlen_uft8((const unsigned char *)(chmap->pchoff));
+		charlen=cstr_charlen_uft8((const unsigned char *)(chmap->txtbuff+chmap->pchoff));
 		if(charlen<0) {
 			printf("%s: WARNING: cstr_charlen_uft8() negative! \n",__func__);
 		}
-		chmap->pchoff += charlen;
+
+		/* PRE_: Update pchoff/pchoff2  */
+		if(chmap->pchoff==chmap->pchoff2) {
+			chmap->pchoff += charlen;
+			chmap->pchoff2=chmap->pchoff;
+		}
+		else   /* If pchoff/pchoff2 in selection, then do NOT interlock */
+			chmap->pchoff += charlen;
 
 		/* If pchoff not in current charmap page, then scroll to */
-		off=chmap->pref-chmap->txtbuff;
 		if( chmap->pchoff < off  || chmap->pchoff > off+chmap->charPos[chmap->chcount-1] ) {
 			/* Get txtdlncount corresponding to pchoff */
 			dln=FTcharmap_get_txtdlIndex(chmap, chmap->pchoff);
@@ -1508,20 +1628,33 @@ int FTcharmap_shift_cursor_right(EGI_FTCHAR_MAP *chmap)
 		}
 	}
         /* 2. Else Increase chmap->pch, in the current charmap page */
-	else if( chmap->pch < chmap->chcount-1 ) {
+	else if( chmap->pch >= 0 && chmap->pch < chmap->chcount-1 ) {
 		chmap->pch++;
+		/* PRE_: Update pchoff/pchoff2 */
+		if(chmap->pchoff==chmap->pchoff2)
+			chmap->pchoff2=chmap->pchoff = off+chmap->charPos[chmap->pch];
+		else	/* If in selection, then do NOT interlock with pchoff2 */
+			chmap->pchoff = off+chmap->charPos[chmap->pch];
 	}
 	/* 3. If in the last of charmap. but NOT EOF */
 	else if( chmap->pch == chmap->chcount-1 && chmap->pref[ chmap->charPos[chmap->pch] ] != '\0'  ) {
-		/* PRE_1. Set chmap->pchoff */
+		/* PRE: Set chmap->pchoff */
 		charlen=cstr_charlen_uft8((const unsigned char *)(chmap->pref+chmap->charPos[chmap->pch]));
 		if(charlen<0) {
 			printf("%s: WARNING: cstr_charlen_uft8() negative! \n",__func__);
 		}
-		chmap->pchoff = chmap->pref+chmap->charPos[chmap->pch]+charlen -chmap->txtbuff;
+
+		/* PRE_: Set pchoff/pchoff2 relative to txtbuff */
+		if(chmap->pchoff==chmap->pchoff2) {
+			chmap->pchoff = off+chmap->charPos[chmap->pch]+charlen;
+			chmap->pchoff2=chmap->pchoff;
+		}
+		else	/* If in selection, then do NOT interlock with pchoff2 */
+			chmap->pchoff = off+chmap->charPos[chmap->pch]+charlen;
+
 		/* Need to scroll down one line */
-		/* PRE_2. Update chmap->txtdlncount */
-		/* PRE_3. Update chmap->pref */
+		/* PRE_: Update chmap->txtdlncount */
+		/* PRE_: Update chmap->pref */
 	        chmap->pref=chmap->txtbuff + chmap->txtdlinePos[++chmap->txtdlncount]; /* !++ */
 	}
 
@@ -1535,21 +1668,26 @@ int FTcharmap_shift_cursor_right(EGI_FTCHAR_MAP *chmap)
 }
 
 
-/*--------------------------------------------------------
+/*---------------------------------------------------------------------
 Decrease chmap->pch, if it gets to the start of current
 charmap then scroll one dline up.
+
+If selection mark exits, then it will changes as cursor position moves,
+until pchoff and pchoff2 becomes the same!
 
 @chmap: an EGI_FTCHAR_MAP
 
 Return:
         0       OK,    chmap->pchoff or chmap->pch modifed accordingly.
         <0      Fail   chmap->pch, unchanged.
--------------------------------------------------------*/
+--------------------------------------------------------------------*/
 int FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap)
 {
 	int off;
 	int dln;
+	int doff;
 	int charlen;
+
 
 	if( chmap==NULL || chmap->txtbuff==NULL)
 		return -1;
@@ -1567,19 +1705,36 @@ int FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap)
 		return -3;
 	}
 
+	/* offset of pref */
+	off=chmap->pref-chmap->txtbuff;
 
-	/* 1. TODO TEST: If chmap->pchoff >0, then reset chmap->txtdlncount and chmap->pref */
-	if( chmap->pchoff>0  ) {  /* ! Charmap check pchoff first, then pch */
+	/* 1. If chmap->pch Not in current charmap page */
+	if( chmap->pch < 0 ) {
 
-		/* Move pchoff backward */
-		charlen=cstr_charlen_uft8((const unsigned char *)(chmap->pchoff));
-		if(charlen<0) {
-			printf("%s: WARNING: cstr_charlen_uft8() negative! \n",__func__);
+		/* Get to the very beginning */
+		if(chmap->pchoff==0 )
+			charlen=0;
+		else {
+			#if 1
+			charlen=0;
+			#else
+			/* TODO: Move pchoff backward 1 char  */
+			charlen=cstr_charlen_uft8((const unsigned char *)(chmap->txtbuff+chmap->pchoff));
+			if(charlen<0) {
+				printf("%s: WARNING: cstr_charlen_uft8() negative! \n",__func__);
+			}
+			#endif
 		}
-		chmap->pchoff -= charlen;
 
-		/* If pchoff not in current charmap page, then scroll to its dline*/
-		off=chmap->pref-chmap->txtbuff;
+		/* PRE_: Update pchoff/pchoff2  */
+		if(chmap->pchoff==chmap->pchoff2) { /* If no selection, interlock with pchoff2 */
+			chmap->pchoff -= charlen;
+			chmap->pchoff2=chmap->pchoff;
+		}
+		else 				/* If pchoff/pchoff2 in selection, then do NOT interlock */
+			chmap->pchoff -= charlen;
+
+		/* If pchoff still not in current charmap page, then scroll to its dline*/
 		if( chmap->pchoff < off  || chmap->pchoff > off+chmap->charPos[chmap->chcount-1] ) {
 			/* Get txtdlncount corresponding to pchoff */
 			dln=FTcharmap_get_txtdlIndex(chmap, chmap->pchoff);
@@ -1588,32 +1743,44 @@ int FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap)
 				/* --- Do nothing! --- */
 			}
 			else {
-	        	        /* PRE_1. Update chmap->txtdlncount */
+	        	        /* PRE_: Update chmap->txtdlncount */
 				chmap->txtdlncount=dln;
-        		        /* PRE_2. Update chmap->pref */
+        		        /* PRE_: Update chmap->pref */
 	                	chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
 				/* In charmapping, chmap->pch will be updated according to chmap->pchoff */
 			}
 		}
 	}
+
         /* 2. Else Increase chmap->pch, in the current charmap page */
 	else if( chmap->pch > 0 ) {
 		chmap->pch--;
+		/* PRE_: Update pchoff/pchoff2 */
+		if(chmap->pchoff==chmap->pchoff2)
+			chmap->pchoff2=chmap->pchoff = off+chmap->charPos[chmap->pch];
+		else	/* If in selection, then do NOT interlock with pchoff2 */
+			chmap->pchoff = off+chmap->charPos[chmap->pch];
 	}
 	/* 3. If the first of charmap,but NOT first txtdline. need to  scroll up one dline  */
 	else if( chmap->pch == 0 && chmap->txtdlncount>0 ) {
-		/* PRE_1. Update chmap->txtdlncount */
+		/* PRE_: Update chmap->txtdlncount */
 		chmap->txtdlncount--;
-		/* PRE_2. Set chmap->pchoff,to relocate pch */
-		chmap->pchoff = FTcharmap_getPos_lastCharOfDline(chmap, chmap->txtdlncount);
-		if(chmap->pchoff<0) {
+		/* PRE_: Set chmap->pchoff,to relocate pch */
+		doff = FTcharmap_getPos_lastCharOfDline(chmap, chmap->txtdlncount);
+		if( doff<0) {
 			printf("%s: getPos_lastCharOfDline() fails!\n",__func__);
-			chmap->pchoff=0;
+			doff=0;
 		}
-		printf("%s: getPos_lastCharOfDline() pchoff=%d \n",__func__, chmap->pchoff);
-		/* set pchoff relative to txtbuff */
-		chmap->pchoff += chmap->txtdlinePos[chmap->txtdlncount];
-		/* PRE_3. Update chmap->pref */
+		printf("%s: getPos_lastCharOfDline() doff=%d \n",__func__, doff);
+		/* PRE_: Set pchoff/pchoff2 relative to txtbuff */
+		if(chmap->pchoff==chmap->pchoff2) {
+			chmap->pchoff= chmap->txtdlinePos[chmap->txtdlncount] + doff;
+			chmap->pchoff2=chmap->pchoff;
+		}
+		else	/* If in selection, then do NOT interlock with pchoff2 */
+			chmap->pchoff += chmap->txtdlinePos[chmap->txtdlncount];
+
+		/* PRE_: Update chmap->pref */
 	        chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
 	}
 
@@ -1831,26 +1998,31 @@ int FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  int pchoff)
 
 
 /*-------------------------------------------------------------
-Go backspace from chmap->pch: delete previous char and move
-all following strings forward to fill the deleted space.
+1. If selection marks(pchoff!=pchoff2):
+   Delete all selected chars, and if pch<0, set scroll to dline
+   where pchoff located.
 
-1. If chmap->pch points to the leftmost of the current top
-   displine then scroll one dline up after moving backward.
-   and set chmap->pchoff to change pch during charmapping.
-
-2. Else just move backward and change chmap->pch. Not necessary
-   to re_chramap.
-
+   ( For pchoff==pchoff2, no selection marks)
+2. If pch NOT in current charmap:
+   set scroll to dline where pchoff located.
+3. Else if pch in current charmap:
+   3.1. If chmap->pch points to the leftmost of the current top
+     displine then scroll one dline up after moving backward.
+     and reset chmap->pchoff.
+   3.2 Else move backward and change chmap->pchoff.
 
 @chmap: 	Pointer to the EGI_FTCHAR_MAP.
 
-Return:
+ Return:
         0       OK,    chmap->pch modifed accordingly.
         <0      Fail   chmap->pch, unchanged.
 -------------------------------------------------------------*/
 int FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap )
 {
+	int off;
+	int dln;
 	int pos;
+	int startPos, endPos;
 
 	/* Check input */
         if( chmap==NULL ) {
@@ -1873,8 +2045,65 @@ int FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap )
 
 	printf("%s: backspace chmap->pch=%d \n", __func__, chmap->pch);
 
-	/* If current pch gets leftmost of the top dline. But NOT to the beginning of txtbuff, then scroll one line up after moving string! */
-	if( chmap->pch==0 && chmap->pref != chmap->txtbuff ) {
+	/* 1. If selection marks, delete all selected chars. */
+	if( chmap->pchoff != chmap->pchoff2 ) {
+		if(chmap->pchoff > chmap->pchoff2) {
+			startPos=chmap->pchoff2;
+			endPos=chmap->pchoff;
+		}
+		else {
+			startPos=chmap->pchoff;
+			endPos=chmap->pchoff2;
+		}
+		/* Move followed chars backward to cover selected chars. */
+		memmove( chmap->txtbuff+startPos, chmap->txtbuff+endPos, strlen((char *)(chmap->txtbuff+endPos)) +1);  /* +1 EOF */
+		/* PRE_: Update txtlen */
+		chmap->txtlen -= (endPos-startPos);
+		/* PRE_: Set pchoff2=pchoff=startPos */
+		chmap->pchoff2=startPos;
+		chmap->pchoff=startPos;
+
+		/* If startPos NOT in current charmap */
+		off=chmap->pref-chmap->txtbuff;
+		if(  startPos < off+chmap->charPos[0] || startPos > off+chmap->charPos[chmap->chcount-1] ) {
+			/* 3. Reset chmap->pref for re_charmapping */
+			dln=FTcharmap_get_txtdlIndex(chmap,  chmap->pchoff);
+			if(dln<0) {
+				printf("%s: dln is nagtive, FTcharmap_get_txtdlIndex() fails!\n",__func__);
+				/* --- Do nothing! --- */
+			}
+			/* PRE_:  Set chmap->txtdlncount */
+			chmap->txtdlncount=dln;
+			/* PRE_:  Set chmap->pref */
+			chmap->pref=chmap->txtbuff+chmap->txtdlinePos[dln];
+	  	}
+	}
+	/* 2. pchoff==pchoff2: If chmap->pch Not in current charmap page, set to scroll to dline */
+	else if( chmap->pch < 0 ) {
+		printf("%s: pch not in current charmap!\n", __func__);
+		/* If pchoff still not in current charmap page, then scroll to its dline*/
+		if( chmap->pchoff < off  || chmap->pchoff > off+chmap->charPos[chmap->chcount-1] ) {
+			/* Get txtdlncount corresponding to pchoff */
+			dln=FTcharmap_get_txtdlIndex(chmap, chmap->pchoff);
+			if(dln<0) {
+				printf("%s: Fail to find index of chmap->txtdlinePos[] for pchoff!\n", __func__);
+				/* --- Do nothing! --- */
+			}
+			else {
+	        	        /* PRE_: Update chmap->txtdlncount */
+				chmap->txtdlncount=dln;
+        		        /* PRE_: Update chmap->pref */
+	                	chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+				/* In charmapping, chmap->pch will be updated according to chmap->pchoff */
+			}
+		}
+	}
+        /* 3. pchoff==pchoff2: If chmap->pch in current charmap */
+        else if( chmap->pch >= 0 && chmap->pch < chmap->chcount )
+        {
+
+	   /* 3.1 If current pch gets leftmost of the top dline. But NOT to the beginning of txtbuff, then scroll one line up after moving string! */
+	   if( chmap->pch==0 && chmap->pref != chmap->txtbuff ) {
 		printf("%s: chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
 
 		/* Get pos offset of the last char in previous dline */
@@ -1891,31 +2120,33 @@ int FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap )
 				/* Scroll one dline up */
 		/* MUST_2. Set chmap->pchoff immediately for charmap */
 		chmap->pchoff=pos; /*: set cursor position relative to txtbuff */
+		chmap->pchoff2=chmap->pchoff; /* interlocked */
 		/* MUST_3. Set chmap->txtdlncount */
 		chmap->txtdlncount--;
 		/* MUST_4. Set pref to previous txtdline before charmap and set txtdlncount also */
                 chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+	   }
 
-		/* Re_charmap */
-        	//FTcharmap_writeFB(NULL, txtbox.startxy.x+smargin, txtbox.startxy.y, WEGI_COLOR_BLACK, NULL, NULL);
-	}
-
-	else if( chmap->pch > 0 ) {
-	/* ! move whole string forward..
-         * NOTE: DEL/BACKSPACE operation acturally copys string including only ONE '\0' at end.
-	 *  After deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes
-	 *  need to be cleared. and EOF token MUST reset when insert char at the end of txtbuff[] laster.
-	 */
+	   else if( chmap->pch >0 ) {  /* To rule out chmap->pref == chmap->txtbuff!! */
+	   /* ! move whole string forward..
+            * NOTE: DEL/BACKSPACE operation acturally copys string including only ONE '\0' at end.
+	    *  After deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes
+	    *  need to be cleared. and EOF token MUST reset when insert char at the end of txtbuff[] laster.
+	    */
 		memmove(chmap->pref+chmap->charPos[chmap->pch-1], chmap->pref+chmap->charPos[chmap->pch],
 							    strlen((char *)(chmap->pref+chmap->charPos[chmap->pch])) +1); /* +1 for string end */
 
 		/* charPos[] NOT updated, before calling charmap_writeFB ! */
+		pos=chmap->pref-chmap->txtbuff +chmap->charPos[chmap->pch-1]; /* relative to txtbuff */
+
 		/* MUST_1. Update chmap->txtlen */
 		chmap->txtlen -= chmap->charPos[chmap->pch]-chmap->charPos[chmap->pch-1];
-		/* MUST_2. Update chmap->pch */
-		chmap->pch--;
-	}
+		/* MUST_2. Update chmap->pchoff/pchoff2 */
+		chmap->pchoff=pos;
+		chmap->pchoff2=chmap->pchoff; /* interlocked */
+	   }
 
+	}
 
 	/* Set chmap->request for charmapping */
 	chmap->request=1;
@@ -1927,9 +2158,12 @@ int FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap )
 }
 
 
-
 /*---------------------------------------------------------------
-Insert a char(ASCII or UFT-8 encoding) into the chmap.
+
+If NOT in current charmap:
+	Set to scroll to dline where pchoff located.
+Else:
+	Insert a char(ASCII or UFT-8 encoding) into the chmap->txtbuff.
 
 			!!! --- WARNING --- !!!
 
@@ -1946,6 +2180,8 @@ Return:
 int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 {
 	int chsize;  /* Size of inserted char */
+	int off;
+	int dln;
 	//int chns;    /* Total number of inserted chars, ==1 NOW */
 
 	/* Check input */
@@ -1971,47 +2207,67 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
                 return -2;
         }
 
-	/* Verify chmap->pch, necessary???  */
-	if(chmap->pch > chmap->chcount-1 || chmap->pch <0 ) {
-		printf("%s: chmap->pch is illegal!\n", __func__);
-        /*  <-------- Put mutex lock */
-        	pthread_mutex_unlock(&chmap->mutex);
-		return -3;
-	}
-
 	/* Check request ? OR wait ??? */
 	if( chmap->request !=0 ) {
+		printf("%s: chmap->request !=0 \n",__func__);
         	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
 		return -3;
 	}
 
+	/* offset of pref */
+	off=chmap->pref-chmap->txtbuff;
+
 	/* 0. Get totabl number of inserting char */
 	//chns=1;			/* 1 char only NOW */
-
 
 	/* 1. Check txtbuff space */
 	if( chmap->txtlen +chsize > chmap->txtsize-1 ) {
 		printf("%s: chmap->txtbuff is full! Fail to insert char. chmap->txtlen=%d, chmap->txtsize-1=%d \n",
 										 __func__, chmap->txtlen, chmap->txtsize-1);
 		chmap->errbits |= CHMAPERR_TXTSIZE_LIMIT;
+		/* TODO: txtsize auto. grow */
 
         /*  <-------- Put mutex lock */
         	pthread_mutex_unlock(&chmap->mutex);
 		return -4;
 	}
 
+	printf("current chmap->pch=%d\n", chmap->pch);
 
-	/* 2. Insert char at EOF of chmap->txtbuff, OR start of an empty txtbuff */
-	if(chmap->pref[ chmap->charPos[ chmap->pch] ]=='\0') {  /* Need to reset charPos[] at charmapping */
+	/* 1. If chmap->pch Not in current charmap page, set to scroll to dline */
+	if( chmap->pch < 0 ) {
+		printf("%s: pch not in current charmap!\n", __func__);
+		/* If pchoff still not in current charmap page, then scroll to its dline*/
+		if( chmap->pchoff < off  || chmap->pchoff > off+chmap->charPos[chmap->chcount-1] ) {
+			/* Get txtdlncount corresponding to pchoff */
+			dln=FTcharmap_get_txtdlIndex(chmap, chmap->pchoff);
+			if(dln<0) {
+				printf("%s: Fail to find index of chmap->txtdlinePos[] for pchoff!\n", __func__);
+				/* --- Do nothing! --- */
+			}
+			else {
+	        	        /* PRE_: Update chmap->txtdlncount */
+				chmap->txtdlncount=dln;
+        		        /* PRE_: Update chmap->pref */
+	                	chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+				/* In charmapping, chmap->pch will be updated according to chmap->pchoff */
+			}
+		}
+	}
+        /* 2. If chmap->pch in current charmap */
+        else if( chmap->pch >= 0 && chmap->pch < chmap->chcount )
+        {
+	   /* 2.1  Insert char at EOF of chmap->txtbuff, OR start of an empty txtbuff */
+	   if(chmap->pref[ chmap->charPos[ chmap->pch] ]=='\0') {  /* Need to reset charPos[] at charmapping */
 		printf("%s: Insert a char at EOF.\n", __func__);
 
-		/* 2.1 Insert char to the EOF, notice that charPos[] have not been updated yet, it holds just insterting pos. */
+		/* 1 Insert char to the EOF, notice that charPos[] have not been updated yet, it holds just insterting pos. */
 		strncpy((char *)chmap->pref+chmap->charPos[chmap->pch], ch, chsize);
 
-		/* 2.2 move chmap->pch forward and reset its position */
-		chmap->pch++;
-		chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+chsize;  /* chmap->pch MAY be out of current charmap */
+		/* 2 move chmap->pch forward and reset its position */
+		//chmap->pch++;
+		//chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+chsize;  /* chmap->pch MAY be out of current charmap */
 
 		/* TEST: Confirm txtbuff EOF */
 		#if 0
@@ -2020,52 +2276,60 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 		}
 		#endif
 
-		/* 2.3 Always reset txtbuff EOF here!
+		/* 3 --- Always reset txtbuff EOF here! ----
 		 * NOTE: DEL/BACKSPACE operation acturally copys string including only ONE '\0' at end, NOT just move and completely clear !
 		 * So after deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes need to be cleared.
 		 * For the case, we insert the char just at the fore-mentioned position of '\0', and the next byte may be NOT '\0'!
 		 */
 		chmap->pref[chmap->charPos[chmap->pch]]='\0';
 
-		/* 2.4 Update chmap->txtlen */
+		/* 4 Update chmap->txtlen: size check at beginning. */
 		chmap->txtlen +=chsize;
 
 		/* !!!Warning: now chmap->pch MAY out of displaying txtbox range! charXY is undefined as initial value (0,0)!
-		 * search/see RESET_PCH
+		 * champ->pchoff/pchoff2 to be modified accordingly for pch/pch2, see below.
 		 */
-
-	}
-	/* 3. Insert char not at EOF */
-	else {
+	   }
+	   /* 2.2 Insert char not at EOF */
+	   else {
 		printf("%s: Insert at chmap->pch=%d of chcount=%d\n", __func__,chmap->pch, chmap->chcount);
 
-		/* 3.1 Move string forward to leave space for the inserting char */
+		/* 1 Move string forward to leave space for the inserting char */
 		memmove(chmap->pref+chmap->charPos[chmap->pch]+chsize, chmap->pref+chmap->charPos[chmap->pch],
 							strlen((char *)(chmap->pref+chmap->charPos[chmap->pch] )) +1);
-		/* 3.2 Insert the char, notice that charPos[] have not been updated yet, it holds just  insterting pos. */
+		/* 2 Insert the char, notice that charPos[] have not been updated yet, it holds just  insterting pos. */
 		strncpy((char *)chmap->pref+chmap->charPos[chmap->pch], ch, chsize);
 
-		/* 3.3 Move pch forward and reset its pos */
-		chmap->pch++;
-		chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+chsize;  /* chmap->pch MAY be out of current charmap */
+		/* 3 Move pch forward and reset its pos */
+		//chmap->pch++;
+		//chmap->charPos[chmap->pch]=chmap->charPos[chmap->pch-1]+chsize;  /* chmap->pch MAY be out of current charmap */
 
-		/* 3.4 Update chmap->txtlen */
+		/* 4 Update chmap->txtlen: size check at beginning. */
 		chmap->txtlen +=chsize;
 
-		/* need to charmap to update followed charPos[] */
-	}
+	     }
 
-	/* In case that inserting a new char just at the end of the charmap, and AFTER charmapping: chmap->pch > chmap->chcount-1
-	 *  (here chmap->pch is preset as above ), then we need to scroll one line down to update the cursor.
-	 *  we'll need pchoff to locate the typing position in charmapping function.
-         *  All above will be checked and done in POST charmapping codes.
-	 */
-	chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch]; /* : NOW typing/inserting cursor position relative to txtbuff */
-	chmap->pchoff2 = chmap->pchoff;  /* pchoff2 always follows pchoff */
+	     /* In case that inserting a new char just at the end of the charmap, and AFTER charmapping: chmap->pch > chmap->chcount-1
+	      *  (here chmap->pch is preset as above ), then we need to scroll one line down to update the cursor.
+	      *  we'll need pchoff to locate the typing position in charmapping function.
+	      */
+	     chmap->pchoff=off+chmap->charPos[chmap->pch]+chsize; /* : NOW typing/inserting cursor position relative to txtbuff */
+	     chmap->pchoff2 = chmap->pchoff;  /* interlocked with pchoff */
+	     printf("%s: pchoff2=phoff=%d \n",__func__, chmap->pchoff);
+
+	     /* If at end of charmap, then scroll down, if chmap->maplines==1!, then txtdlinePos[+1] MAY have NO data!! */
+	     if(chmap->pch == chmap->chcount-1 && chmap->maplines >1 ) {
+        	        /* PRE_: Update chmap->txtdlncount */
+			chmap->txtdlncount +=1;
+       		        /* PRE_: Update chmap->pref */
+                	chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+	     }
+	     /* ELSE if (chmap->maplines==1), then after insertion chmap->pch will not in current charmap page,
+	      * and it will scroll to dline first, see above in if(chmap->pch<0) { ,,,,}  */
+	}
 
 	/* Set chmap->request for charmapping */
 	chmap->request=1;
-
 
         /*  <-------- Put mutex lock */
         pthread_mutex_unlock(&chmap->mutex);
@@ -2075,12 +2339,13 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 
 
 /*----------------------------------------------------------------------------
-Delete a char preceded by cursor OR chars selected between pchoff2 and pchoff
+If ( pchoff==pchoff2) delete a char preceded by cursor.
+If ( pchoff!=pchoff1) delete all chars between pchoff and pchoff2.
 
 Note:
 1. If NOT in current charmap, reset chmap->txtdlncount,pref after deleting.
    Point chmap->pref to the dline where chmap->pchoff located.
-2. Otherwise deletes the char pointed by pch, and chmap->pch keeps unchanged!
+2. Otherwise deletes the char pointed by pch, and chmap->pch/pchoff keeps unchanged!
 3. The EOF will NOT be deleted!
 
 @chmap:         Pointer to the EGI_FTCHAR_MAP.
@@ -2127,7 +2392,6 @@ int FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap )
          *  After deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes
          *  need to be cleared. and EOF token MUST reset when insert char at the end of txtbuff[] later.
          */
-
 
 
         /* Only if txtbuff is NOT empty  */
