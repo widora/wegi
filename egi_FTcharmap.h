@@ -7,15 +7,26 @@ published by the Free Software Foundation.
                         --- Definition and glossary ---
 
 1. char:    A printable ASCII code OR a local character with UFT-8 encoding.
-2. dline:  displayed/charmapped line, A line starts/ends at displaying window left/right end side.
+2. charmap: A EGI_FTCHAR_MAP struct that holds data of currently displayed chars,
+            of both their corresponding coordinates in displaying window and offset position in memory.
+3. dline:  displayed/charmapped line, A line starts/ends at displaying window left/right end side.
    retline: A line starts/ends by a new line token '\n'.
 
-3. scroll up/down:  scroll up/down charmap by mouse, keep cursor position relative to txtbuff.
-          (UP: decrease chmap->pref,      DOWN: increase chmap->pref )
+4. scroll_up/down:
+                scroll up/down charmap for one dline
+                keep cursor position unchanged(relative to txtbuff)
+                Functions: FTcharmap_scroll_oneline_up(),  FTcharmap_scroll_oneline_down()
 
-   shift  up/down:  shift typing cursor up/down by ARROW keys.
-          (UP: decrease chmap->pch,       DOWN: increase chmap->pch )
+5. shift_up/down/left/right:
+                shift typing cursor up/down/left/right.
+                charmap follow the cursor to scroll if it gets out of current charmap.
+                Functions: FTcharmap_shift_cursor_up(),  FTcharmap_shift_cursor_down()
+                            FTcharmap_shift_cursor_left(),  FTcharmap_shift_cursor_right()
 
+6. page_up/down:
+                scroll whole charmap up/down totally out of current displayed charmap,
+                keep cursor position unchanged(relative to txtbuff)
+                Functions: FTcharmap_page_up(),  FTcharmap_page_down()
 
 
                         --- PRE_Charmap Actions ---
@@ -49,6 +60,7 @@ midaszhou@yahoo.com
 #ifndef __EGI_FTCHARMAP_H__
 #define __EGI_FTCHARMPA_H__
 
+#include "egi_color.h"
 #include "egi_FTsymbol.h"
 #include <freetype2/ft2build.h>
 #include <freetype2/ftglyph.h>
@@ -120,14 +132,17 @@ struct  FTsymbol_char_map {
 						 * 3. Only a line_shift OR page_shift action can change/reset the value of txtdlncount.
 						 */
 
+	EGI_16BIT_COLOR	markcolor;		 /* Selection mark color */
+	EGI_8BIT_ALPHA	markalpha;		 /* Selection mark alpha */
+
 /* 2. Temporary vars for being displayed/charmapped txt.  ( offset position relative to pref )
 	 * 1. A map for displayed chars only! A map to tell LCD coordinates of displayed chars and their offset/position in pref[].
 	 *    Each char(and typing cursor) displayed will then have its charX/Y and charPos data in current charmap struct, by which
 	 *    each pixel on the screen may be mapped to its corresponding char in mem.
 	 * 2. Change .pref to display different blocks in txtbuff. ( pref is starting char/line for displaying).
 	 * 3. Change .pchoff AND .pch to locate/keep typing(deleting,inserting) cursor position.
-	 *    .pchoff --- byte position in txtbuff[]
-	 *    .pch    --- byte position in pref[]
+	 *    .pchoff --- in bytes, position in txtbuff[]
+	 *    .pch    --- in chars, position inc charX[] charY[] charPos[]
 	 * 4. Maplines limits the max. number of lines displayed/charmapped each time. It's MAY NOT be the exacte number of actual available
 	 *    diplaying lines on LCD, it may be just for charmapping.
 	 */
@@ -152,8 +167,10 @@ struct  FTsymbol_char_map {
 					         *  and also size of maplinePos[] mem space allocatd.
 						 */
 	int		maplncount;		/* Total number of displayed char lines in current charmap,  NOT index. */
-	unsigned int	*maplinePos;		/* Offset position(relative to pref) of the first char of each displayed lines, in bytes */
-
+	unsigned int	*maplinePos;		/* Offset position(relative to pref) of the first char of each displayed lines, in bytes
+						 * redundant with: txtdlinePos[txtdlncount],...[txtdlncount+1],...[txtdlncount+2]... +maplncount-1].
+						 * ....relative to txtbuff thought.
+						 */
 
 	unsigned int	pchoff;			/* Offset postion to txtbuff !!!, OnlyIf pchoff>0, it will be used to relocate pch after charmapping!
 						 *			--- MOST IMPORTANT ---
@@ -200,6 +217,9 @@ struct  FTsymbol_char_map {
 
 
 EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize, int x0, int y0, size_t mapsize, size_t maplines, size_t mappixpl, int maplngap);
+
+void 	FTcharmap_set_markcolor(EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha);
+
 int 	FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize);
 int 	FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap);	/* mutex_lock */
 

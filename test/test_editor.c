@@ -36,6 +36,12 @@ PG_DN:		Page down
 
 
 
+Note:
+1. Mouse_events and and key_events run in two independent threads.
+   When you input keys while moving/scrolling mouse to change inserting position, it can
+   happen simutaneously!
+
+
 TODO:
 1. If any control code other than '\n' put in txtbuff[], strange things
    may happen...  \034	due to UFT-8 encoding.   ---Avoid it.
@@ -47,6 +53,7 @@ TODO:
 6. The typing cursor can NOT escape out of the displaying window. it always
    remains and blink in visible area.
 7. IO buffer/continuous key press/ slow writeFB response.
+
 
 
 Midas Zhou
@@ -96,11 +103,11 @@ midaszhou@yahoo.com
 
 char *strInsert="Widora和小伙伴们";
 
-//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
+static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
-static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Text displaying area */
+//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Text displaying area */
 static int smargin=5; 		/* left and right side margin of text area */
-static int tmargin=0;		/* top margin of text area */
+static int tmargin=2;		/* top margin of text area */
 
 /* NOTE: char position, in respect of txtbuff index and data_offset: pos=chmap->charPos[pch] */
 static EGI_FTCHAR_MAP *chmap;	/* FTchar map to hold char position data */
@@ -217,7 +224,7 @@ int main(void)
 	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/(fh+fgap);
 
 	/* Init. txt and charmap */
-	chmap=FTcharmap_create(CHMAP_TXTBUFF_SIZE, txtbox.startxy.x+smargin, txtbox.startxy.y,		/* buffsize, x0,y0, */
+	chmap=FTcharmap_create(CHMAP_TXTBUFF_SIZE, txtbox.startxy.x+smargin, txtbox.startxy.y+tmargin,		/* buffsize, x0,y0, */
 							CHMAP_SIZE, tlns, 320-20-2*smargin, fh+fgap); 	/* mapsize, lines, pixpl, lndis */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 
@@ -236,7 +243,7 @@ int main(void)
         mouseY=gv_fb_dev.pos_yres/2;
 
         /* Init. FB working buffer */
-        fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY4);
+        fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_DARKGRAY); //GRAY4);
 	fbset_color(WEGI_COLOR_WHITE);
 	draw_filled_rect(&gv_fb_dev, txtbox.startxy.x, txtbox.startxy.y, txtbox.endxy.x, txtbox.endxy.y );
 	FTsymbol_writeFB("EGI Editor",120,5,WEGI_COLOR_LTBLUE, NULL, NULL);
@@ -666,6 +673,10 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 	   printf("mouseMidX,Y=%d,%d \n",mouseMidX, mouseMidY);
 	   /* continue checking */
 	   while( FTcharmap_locate_charPos( chmap, mouseMidX, mouseMidY )!=0 ){ tm_delayms(5);};
+
+	   /* set random mark color */
+	   FTcharmap_set_markcolor( chmap, egi_color_random(color_deep),60 );
+
 	}
 	else if ( mouseLeftKeyDown && !start_pch ) {  /* chmap->pch2: To mark end of selection */
 	   mouseMidY=mouseY+fh/2;
