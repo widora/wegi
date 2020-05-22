@@ -39,7 +39,7 @@ PG_DN:		Page down
 Note:
 1. Mouse_events and and key_events run in two independent threads.
    When you input keys while moving/scrolling mouse to change inserting position, it can
-   happen simutaneously!
+   happen simutaneously!  TODO: To avoid?
 
 
 TODO:
@@ -103,8 +103,8 @@ midaszhou@yahoo.com
 
 char *strInsert="Widora和小伙伴们";
 
-static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
-//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
+//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
+static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Text displaying area */
 static int smargin=5; 		/* left and right side margin of text area */
 static int tmargin=2;		/* top margin of text area */
@@ -133,7 +133,7 @@ static void mouse_callback(unsigned char *mouse_data, int size);
 static void draw_mcursor(int x, int y);
 
 
-int main(void)
+int main(int argc, char **argv)
 {
 
  /* <<<<<<  EGI general init  >>>>>> */
@@ -222,6 +222,7 @@ int main(void)
 
 	/* Total available lines of space for displaying chars */
 	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/(fh+fgap);
+	printf("Blank lines tlns=%d\n", tlns);
 
 	/* Init. txt and charmap */
 	chmap=FTcharmap_create(CHMAP_TXTBUFF_SIZE, txtbox.startxy.x+smargin, txtbox.startxy.y+tmargin,		/* buffsize, x0,y0, */
@@ -230,9 +231,15 @@ int main(void)
 
 
 	/* Load file to chmap */
-	if( FTcharmap_load_file("/mmc/hlm_all.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
-//	if( FTcharmap_load_file("/tmp/hello.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
+	if( argc>1 ) {
+		if(FTcharmap_load_file(argv[1], chmap, CHMAP_TXTBUFF_SIZE) !=0 )
+			printf("Fail to load file to champ!\n");
+	}
+	else {
+		if( FTcharmap_load_file("/mmc/hlm_all.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
+//		if( FTcharmap_load_file("/tmp/hello.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
 		printf("Fail to load file to champ!\n");
+	}
 
 	/* Set txtlen */
 //	chmap->txtlen=strlen((char *)chmap->txtbuff);
@@ -251,7 +258,7 @@ int main(void)
 	/* draw grid */
 	fbset_color(WEGI_COLOR_GRAYB);
 	for(k=0; k<=tlns; k++)
-		draw_line(&gv_fb_dev, txtbox.startxy.x, txtbox.startxy.y+k*(fh+fgap), txtbox.endxy.x, txtbox.startxy.y+k*(fh+fgap));
+		draw_line(&gv_fb_dev, txtbox.startxy.x+smargin, txtbox.startxy.y+k*(fh+fgap), txtbox.endxy.x-smargin, txtbox.startxy.y+k*(fh+fgap));
 
         fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 	fb_render(&gv_fb_dev);
@@ -371,10 +378,10 @@ int main(void)
 
 		else if ( ch==CTRL_F) {		/* Save chmap->txtbuff */
 			printf("Saving chmap->txtbuff to a file...");
-			if(FTcharmap_save_file("/tmp/hello.txt", chmap) != 0)
-				printf(" Fail to save!\n");
+			if( argc > 1)
+				FTcharmap_save_file(argv[1], chmap);
 			else
-				printf(" Finish saving!\n");
+				FTcharmap_save_file("/tmp/hello.txt", chmap);
 			ch=0;
 		}
 
@@ -447,8 +454,11 @@ int main(void)
 		    #if 0 /* Use char '|', NOT at left most of the char however!  */
 			FTsymbol_writeFB("|",penx,peny,WEGI_COLOR_BLACK,NULL,NULL);
 		    #else /* Draw geometry,  */
-//			printf("txtlen=%d, strlen(txtbuff)=%d,count=%d, pch=%d,  penx,y=%d,%d \n",
-//							chmap->txtlen, strlen(chmap->pref), chmap->chcount, pch, penx, peny);
+				fbset_color(WEGI_COLOR_RED);
+				//draw_wline(&gv_fb_dev, penx, peny, penx, peny+fh+fgap-1,2);
+				draw_filled_rect(&gv_fb_dev, penx, peny, penx+1, peny+fh+fgap-1);
+
+		        #if 0
 			/* ! peny MAY be out of txt box! see FTcharmpa_writeFb(), a '/n' just before the txtbuff EOF. */
 			if( peny < txtbox.endxy.y-(fh+fgap)+fh/2 ) {
 				fbset_color(WEGI_COLOR_RED);
@@ -458,9 +468,11 @@ int main(void)
 			else	{ /* RESET_PCH: reset pch to move cursor to the beginning of txtbox */
 				//printf(" ***** penx,y out of txtbox, reset pch to 0\n");
 				//pch=0;
-				printf(" ***** penx,y out of txtbox, reset pch to chcount-2 \n");
-				chmap->pch=chmap->chcount-2;
+				//printf(" ***** penx,y out of txtbox, reset pch to chcount-2 \n");
+				//chmap->pch=chmap->chcount-2;
 			}
+			#endif
+
 		    #endif
 		}
 

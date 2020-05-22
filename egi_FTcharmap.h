@@ -6,6 +6,16 @@ published by the Free Software Foundation.
 
                         --- Definition and glossary ---
 
+0. cursor:  A blinking cursor is an editing point, corresponding with chmap->pchoff pointing to some where of
+            chmap->txtbuff, to/from which you may add/delete chars.
+
+                                        --- NOTICE ---
+            A cursor usually can move to the left side of the last char of a dline, NOT the right side.
+            If a cursor can move to the right side of the last char of a dline, or say end of the dline, that
+            means it is a newline char ('\n'), OR it's the EOF.
+            Sometimes it may needs more than one press/operation ( delete, backspace, shift etc.)
+            to make the cursor move, this is because there is/are unprintable chars with zero width.
+
 1. char:    A printable ASCII code OR a local character with UFT-8 encoding.
 2. charmap: A EGI_FTCHAR_MAP struct that holds data of currently displayed chars,
             of both their corresponding coordinates in displaying window and offset position in memory.
@@ -28,16 +38,20 @@ published by the Free Software Foundation.
                 keep cursor position unchanged(relative to txtbuff)
                 Functions: FTcharmap_page_up(),  FTcharmap_page_down()
 
+7. EOF:         For txtbuff:      A '\0' token to signal as end of the buffered string.
+                For saved file:   A '\n' to comply with UNIX/POSIX file end standard.
+
 
                         --- PRE_Charmap Actions ---
 
 PRE_1:  Set chmap->txtdlncount
 PRE_2:  Set chmap->pref
-PRE_3:  Set chmap->pchoff/pchoff2   ( chmap->pch/pch2: to be derived from pchoff/pchoff2 in charmapping! )
+PRE_3:  Set chmap->pchoff/pchoff2  ( chmap->pch/pch2: to be derived from pchoff/pchoff2 in charmapping! )
 PRE_4:  Set chmap->fix_cursor (option)
-PRE_5:  Set chmap->request
+PRE_5:  Set chmap->follow_cursor (option)
+PRE_6:  Set chmap->request
 
-                        ---  Charmap ---
+                        ---  DO_Charmap FTcharmap_uft8strings_writeFB() ---
 
 charmap_1:      Update chmap->chcount
 Charmap_2:      Update chmap->charX[], charY[],charPos[]
@@ -47,6 +61,11 @@ charmap_4:      Update chmap->maplinePos[]
 
 charmap_5:      Update chmap->txtdlcount   ( NOTE: chmap->txtdlinePos[txtdlncount]==chmap->maplinePos[0] )
 charmap_6:      Update chmap->txtdlinePos[]
+
+charmap_7:      Check chmap->follow_cursor
+charmap_8:      Check chmap->fix_cursor
+
+charmap_9:      Draw selection mark
 
                         --- POST_Charmap Actions ---
 
@@ -104,9 +123,7 @@ struct  FTsymbol_char_map {
 						 * TODO:  not applied for all functions yet!
 						 */
 	unsigned int	errbits;		/* to record types of errs that have gone through.  */
-	pthread_mutex_t mutex;      		/* mutex lock for char map */
-
-
+	pthread_mutex_t mutex;      		/* mutex lock for charmap */
 
 	unsigned char	*txtbuff;		/* txt buffer */
 	int		txtsize;		/* Size of txtbuff mem space allocated, in bytes */
@@ -169,7 +186,7 @@ struct  FTsymbol_char_map {
 	int		maplncount;		/* Total number of displayed char lines in current charmap,  NOT index. */
 	unsigned int	*maplinePos;		/* Offset position(relative to pref) of the first char of each displayed lines, in bytes
 						 * redundant with: txtdlinePos[txtdlncount],...[txtdlncount+1],...[txtdlncount+2]... +maplncount-1].
-						 * ....relative to txtbuff thought.
+						 * ....relative to txtbuff thought. 	TODO: cancel it.
 						 */
 
 	unsigned int	pchoff;			/* Offset postion to txtbuff !!!, OnlyIf pchoff>0, it will be used to relocate pch after charmapping!
@@ -177,10 +194,10 @@ struct  FTsymbol_char_map {
 						 * pchoff/pch points to the CURRENT/IMMEDIATE typing/inserting position.
 						 * In case that after inserting a new char, chmapsize reaches LIMIT and need to shift one line down,
                            			 * then we'll use pchoff to locate the typing position in charmapping. so after inserting a new char
-						 * into txtbuff, ALWAY update pchoff to keep track of typing/inserting cursor position.
+						 * into txtbuff, ALWAYS update pchoff to keep track of typing/inserting cursor position.
 						 *			--- pchoff V.S. pchoff2 ---
 					 	 * NOTE: pchoff is the master of pchoff2, if pchoff changes, pchoff2 changes with it,
-						 * 	 to keep as pchoff2==pchoff.
+						 * 	 to keep as pchoff2==pchoff (say interlocked).
 						 * Only when selecting action is triggered, then will pchoff2 diffs from pchoff.
 						 */
 
@@ -190,15 +207,14 @@ struct  FTsymbol_char_map {
 						 * After charmapping, set pch as to re_locate cursor nearest to its previous (x,y) postion.
 						 * set as true when shift cursor up/down to cross top/bottom dline.
 						 */
+	bool		follow_cursor;		/* If true: charmapping will continue until pchoff/pch cursor gets into current charmap,
+						 * and results in pch>=0.
+						 */
 	int		pch;			/* Index of displayed char as of charX[],charY and charPos[], pch=0 is the first displayed char.
 						 * chmap->pch/pch2 is derived from chmap->pchoff/pchoff2 in charmapping!
 						 *   			--- MOST IMPORTANT ---
 						 * pchoff/pch points to the CURRENT/IMMEDIATE typing/inserting position.
 						 * If pchoff NOT in current charmap, then pch<0.
-					 	 * xxx pch is used to locate inserting positioin and typing_cursor position.
-					   	 * xxx In some case, we just change chmap->pch in advance(before charmapping), and chmap->pch may be
-						 * xxx greater than chmap->chcount-1 at that point, after charmapping it will be adjusted to point
-						 * xxx to the same char(same offset value to chmap->txtbuff)
 						 *			--- NOTE pch v.s. pch2 ---
 					 	 * NOTE: pch is the master of pch2, if pch changes, pch2 changes with it, to keep as pch2==pch.
 						 * Only when selecting action is triggered, then will pch2 diffs from pch.
@@ -210,7 +226,7 @@ struct  FTsymbol_char_map {
 	int 		*charX;			/* Array, Char start point(left top) FB/LCD coordinates X,Y */
 	int 		*charY;
 	unsigned int	*charPos;		/* Array, Char offset position relative to pref, in bytes. */
-	//unsigned int 	*charW;			/* Array,Widths of char */
+	//unsigned int 	*charW;			/* Array,Widths of chars */
 
 	/* Extension: color,size,...*/
 };
