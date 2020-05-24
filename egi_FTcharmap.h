@@ -10,11 +10,16 @@ published by the Free Software Foundation.
             chmap->txtbuff, to/from which you may add/delete chars.
 
                                         --- NOTICE ---
-            A cursor usually can move to the left side of the last char of a dline, NOT the right side.
+            1. A cursor usually can move to the left side of the last char of a dline, NOT the right side.
             If a cursor can move to the right side of the last char of a dline, or say end of the dline, that
             means it is a newline char ('\n'), OR it's the EOF.
-            Sometimes it may needs more than one press/operation ( delete, backspace, shift etc.)
+            2. Sometimes it may needs more than one press/operation ( delete, backspace, shift etc.)
             to make the cursor move, this is because there is/are unprintable chars with zero width.
+            3. If the cursor(pchoff) in NOT shown in current charmap, just press any key to scroll to locate it.
+                                        !!! WARNING !!!
+            If you press the deleting key, it will execute anyway, even the cursor(pchoff) is NOT in the current charmap!
+            though it will scroll to cursor position after deletion, you may NOT be aware of anything that have been deleted.
+            So always bring the cursor within your sight before editing!
 
 1. char:    A printable ASCII code OR a local character with UFT-8 encoding.
 2. charmap: A EGI_FTCHAR_MAP struct that holds data of currently displayed chars,
@@ -44,12 +49,14 @@ published by the Free Software Foundation.
 
                         --- PRE_Charmap Actions ---
 
-PRE_1:  Set chmap->txtdlncount
-PRE_2:  Set chmap->pref
-PRE_3:  Set chmap->pchoff/pchoff2  ( chmap->pch/pch2: to be derived from pchoff/pchoff2 in charmapping! )
-PRE_4:  Set chmap->fix_cursor (option)
-PRE_5:  Set chmap->follow_cursor (option)
-PRE_6:  Set chmap->request
+PRE_1:  Set chmap->txtdlncount          ( txtdlinePos[] index,a link between txtbuff and pref
+                                          as txtdlinePos[txtdlncount]=pref-txtbuff
+                                          and chmap->txtdlinePos[txtdlncount]==chmap->maplinePos[0] )
+PRE_2:  Set chmap->pref                 ( set starting point for charmapping )
+PRE_3:  Set chmap->pchoff/pchoff2       ( chmap->pch/pch2: to be derived from pchoff/pchoff2 in charmapping! )
+PRE_4:  Set chmap->fix_cursor           ( option: keep cursor position unchanged on screen  )
+PRE_5:  Set chmap->follow_cursor        ( option: auto. scroll to keep cursor always in current charmap )
+PRE_6:  Set chmap->request              ( request charmapping exclusively and immediately )
 
                         ---  DO_Charmap FTcharmap_uft8strings_writeFB() ---
 
@@ -113,7 +120,7 @@ struct  FTsymbol_char_map {
 
 /* 1. Global vars for txtbuff.  ( offset position relative to txtbuff ) */
 	int		request;		/* ==0: charmap is clear, charmap data are consistent with each other.
-						 * !=0: Some params are reset, and is requested to do charmap immediately
+						 * !=0: Some params are reset, and is requested to do charmap immediately and exclusively
 					 	 *	to make pch/pchoff, txtdlncount/pref and other data consistent!
 						 *
 						 * 			--- IMPORATNT ---
@@ -121,6 +128,8 @@ struct  FTsymbol_char_map {
 						 * It will then acts as an rejection semaphore to other thread functions which are also trying to
 						 * modify charmap parameters before the urgent re_charmap is completed.
 						 * TODO:  not applied for all functions yet!
+						 * TODO:  Charmap functions will try to check request only once, and the function will return
+						 * if request in nonzero.  -- Keep trying/waiting ?
 						 */
 	unsigned int	errbits;		/* to record types of errs that have gone through.  */
 	pthread_mutex_t mutex;      		/* mutex lock for charmap */
@@ -149,8 +158,30 @@ struct  FTsymbol_char_map {
 						 * 3. Only a line_shift OR page_shift action can change/reset the value of txtdlncount.
 						 */
 
+
+	int	 	bkgcolor;		 /* background/paper color. <0, ignore no bkg color, >=0 set as EGI_16BIT_COLOR */
+	EGI_16BIT_COLOR fontcolor;		 /* font color */
+
 	EGI_16BIT_COLOR	markcolor;		 /* Selection mark color */
 	EGI_8BIT_ALPHA	markalpha;		 /* Selection mark alpha */
+
+	/* --- Geometry parameters and fixed vars --- */
+	int		mapx0;			/* charmap area left top point  */
+	int		mapy0;
+
+	int		height;			/* Height and width of displaying area, including margins */
+	int		width;
+
+	int 		offx;			/* Left side margin for blank paper */
+	int		offy;			/* Top margin for blank paper */
+
+	unsigned int	mappixpl;		/* pixels per disline */
+	int		maplndis;		/* line distance betwee two dlines */
+
+	unsigned int	maplines;		/*  LIMIT: Max. number of displayed lines for current displaying window,
+					         *  and also size of maplinePos[] mem space allocatd.
+						 */
+	int		mapsize;		/* Size of map member arrays(charX,charY,charPos) mem space allocated , Max. number for chcount+1 */
 
 /* 2. Temporary vars for being displayed/charmapped txt.  ( offset position relative to pref )
 	 * 1. A map for displayed chars only! A map to tell LCD coordinates of displayed chars and their offset/position in pref[].
@@ -167,22 +198,13 @@ struct  FTsymbol_char_map {
 					         * content pointed by pref will be charmapped and displayed.
 						 * Initial pref=txtbuff.
 						 */
-	int		mapsize;		/* Size of map member arrays(charX,charY,charPos) mem space allocated , Max. number for chcount+1 */
 	int		chcount;	 	/* Total number of displayed/charmapped chars.
 					         * (EOF also include if charmapped, '\n' also counted in. NOT as index.
 					   	 * Note: chcount-1 chars, the last data pref[charPos[chcount-1]] is EOF, and is always
 						 * an inserting point. ( If EOF is charmapped.  )
 					   	 */
 
-	int		mapx0;			/* charmap area left top point  */
-	int		mapy0;
 
-	unsigned int	mappixpl;		/* pixels per disline */
-	int		maplndis;		/* line distance betwee two dlines */
-
-	unsigned int	maplines;		/*  LIMIT: Max. number of displayed lines for current displaying window,
-					         *  and also size of maplinePos[] mem space allocatd.
-						 */
 	int		maplncount;		/* Total number of displayed char lines in current charmap,  NOT index. */
 	unsigned int	*maplinePos;		/* Offset position(relative to pref) of the first char of each displayed lines, in bytes
 						 * redundant with: txtdlinePos[txtdlncount],...[txtdlncount+1],...[txtdlncount+2]... +maplncount-1].
@@ -232,7 +254,8 @@ struct  FTsymbol_char_map {
 };
 
 
-EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize, int x0, int y0, size_t mapsize, size_t maplines, size_t mappixpl, int maplngap);
+EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, int width, int offx, int offy,
+                                 size_t mapsize, size_t maplines, size_t mappixpl, int maplndis );
 
 void 	FTcharmap_set_markcolor(EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha);
 

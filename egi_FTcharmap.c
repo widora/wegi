@@ -23,11 +23,16 @@ Note:
 	    chmap->txtbuff, to/from which you may add/delete chars.
 
 					--- NOTICE ---
-	    A cursor usually can move to the left side of the last char of a dline, NOT the right side.
+	    1. A cursor usually can move to the left side of the last char of a dline, NOT the right side.
 	    If a cursor can move to the right side of the last char of a dline, or say end of the dline, that
 	    means it is a newline char ('\n'), OR it's the EOF.
-	    Sometimes it may needs more than one press/operation ( delete, backspace, shift etc.)
+	    2. Sometimes it may needs more than one press/operation ( delete, backspace, shift etc.)
    	    to make the cursor move, this is because there is/are unprintable chars with zero width.
+	    3. If the cursor(pchoff) in NOT shown in current charmap, just press any key to scroll to locate it.
+	    				!!! WARNING !!!
+	    If you press the deleting key, it will execute anyway, even the cursor(pchoff) is NOT in the current charmap!
+	    though it will scroll to cursor position after deletion, you may NOT be aware of anything that have been deleted.
+	    So always bring the cursor within your sight before editing!
 
 1. char:    A printable ASCII code OR a local character with UFT-8 encoding.
 2. charmap: A EGI_FTCHAR_MAP struct that holds data of currently displayed chars,
@@ -54,14 +59,19 @@ Note:
 7. EOF:		For txtbuff: 	  A '\0' token to signal as end of the buffered string.
 		For saved file:   A '\n' to comply with UNIX/POSIX file end standard.
 
+8. Selection mark:
+
+
                         --- PRE_Charmap Actions ---
 
-PRE_1:  Set chmap->txtdlncount
-PRE_2:  Set chmap->pref
-PRE_3:  Set chmap->pchoff/pchoff2  ( chmap->pch/pch2: to be derived from pchoff/pchoff2 in charmapping! )
-PRE_4:  Set chmap->fix_cursor (option)
-PRE_5:	Set chmap->follow_cursor (option)
-PRE_6:  Set chmap->request
+PRE_1:  Set chmap->txtdlncount       	( txtdlinePos[] index,a link of txtbuff->charmap
+					  as txtdlinePos[txtdlncount]=pref-txtbuff
+					  and chmap->txtdlinePos[txtdlncount]==chmap->maplinePos[0] )
+PRE_2:  Set chmap->pref		     	( starting point for charmapping )
+PRE_3:  Set chmap->pchoff/pchoff2     	( chmap->pch/pch2: to be derived from pchoff/pchoff2 in charmapping! )
+PRE_4:  Set chmap->fix_cursor 	    	( option: keep cursor position unchanged on screen  )
+PRE_5:	Set chmap->follow_cursor 	( option: auto. scroll to keep cursor always in current charmap )
+PRE_6:  Set chmap->request		( request charmapping exclusively and immediately )
 
 			---  DO_Charmap FTcharmap_uft8strings_writeFB() ---
 
@@ -95,6 +105,7 @@ Midas Zhou
 midaszhou@yahoo.com
 -------------------------------------------------------------------*/
 #include "egi_log.h"
+#include "egi_debug.h"
 #include "egi_FTcharmap.h"
 #include "egi_cstring.h"
 #include "egi_utils.h"
@@ -127,8 +138,13 @@ Return:
 	A pointer to char map	OK
 	NULL			Fails
 -------------------------------------------------*/
-EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0, size_t mapsize, size_t maplines, size_t mappixpl, int maplndis )
+EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, int width, int offx, int offy,
+				 size_t mapsize, size_t maplines, size_t mappixpl, int maplndis )
 {
+	if( height<=0 || width <=0 ) {
+		printf("%s: Input height and/or width is invalid!\n",__func__);
+		return NULL;
+	}
 
 	EGI_FTCHAR_MAP  *chmap=calloc(1, sizeof(EGI_FTCHAR_MAP));
 	if(chmap==NULL) {
@@ -184,13 +200,21 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0, size_t mapsize
 		return NULL;
 	}
 
-	chmap->mapx0=x0;
-	chmap->mapy0=y0;
-	chmap->mapsize=mapsize;
-
-	/* Set default selection color/alpha */
+	/* Set default  color/alpha */
+	chmap->bkgcolor=WEGI_COLOR_WHITE;
+	chmap->fontcolor=WEGI_COLOR_BLACK;
 	chmap->markcolor=WEGI_COLOR_YELLOW;
 	chmap->markalpha=50;
+
+	/* Assign other params */
+	chmap->mapx0=x0;
+	chmap->mapy0=y0;
+	chmap->width=width;
+	chmap->height=height;
+	chmap->offx=offx;
+	chmap->offy=offy;
+	chmap->mapsize=mapsize;
+
 
 	return chmap;
 }
@@ -280,7 +304,7 @@ int FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize
 
         /* Set txtlen */
         chmap->txtlen=strlen((char *)chmap->txtbuff);
-        printf("%s: Copy from '%s' chmap->txtlen=%d bytes, totally %d characters.\n", __func__, fpath, chmap->txtlen,
+        EGI_PDEBUG(DBG_CHARMAP,"Copy from '%s' chmap->txtlen=%d bytes, totally %d characters.\n", fpath, chmap->txtlen,
 	        					cstr_strcount_uft8((const unsigned char *)chmap->txtbuff) );
 
 	/* munmap file */
@@ -343,7 +367,7 @@ int FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap)
 			printf("%s: WARNING! fwrite %d bytes of total %d bytes.\n", __func__, nwrite, chmap->txtlen);
 		ret=-4;
 	}
-	printf("%s: %d bytes written.\n",__func__, nwrite);
+	EGI_PDEBUG(DBG_CHARMAP,"%d bytes written.\n", nwrite);
 
 	/* Close fil */
 	if( fclose(fil) !=0 ) {
@@ -483,7 +507,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 			            int fontcolor, int transpcolor, int opaque,
 			            int *cnt, int *lnleft, int* penx, int* peny )
 {
-	int i;
+	int i,k;
 	int size;
 	int count;			/* number of character written to FB*/
 	int px,py;			/* bitmap insertion origin(BBOX left top), relative to FB */
@@ -495,7 +519,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	unsigned int pixpl;		/* pixels per line, =chmap->mappixpl */
 	//int gap;			/* line gap, =chmap->maplngap */
 	unsigned off=0;
-	int x0;				/* charmap left top point */
+	int x0;				/* charmap left top point, exclude margin */
 	int y0;
 	int pchx=0;			/* if(chmap->fix_cursor), then save charXY[pch] */
 	int pchy=0;
@@ -539,20 +563,25 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	}
 
 	/* Init charmap canvas params */
-	x0=chmap->mapx0;
-	y0=chmap->mapy0;
+	x0=chmap->mapx0+chmap->offx;
+	y0=chmap->mapy0+chmap->offy;
 	lines=chmap->maplines;
 	pixpl=chmap->mappixpl;
 	//gap=chmap->maplngap;
 
 START_CHARMAP:	/* If follow_cursor, loopback here */
 
-	/* TODO: Always Draw/clear canvas in charmap */
-	if(chmap->follow_cursor) {
-        	fbset_color(WEGI_COLOR_WHITE);
-        	draw_filled_rect(&gv_fb_dev, chmap->mapx0, chmap->mapy0,
-					     chmap->mapx0+chmap->mappixpl-1, chmap->mapy0+chmap->maplines*chmap->maplndis-1);
+	/* Draw/clear blank paper/canvas, not only when follow_cursor  */
+	if( chmap->bkgcolor >= 0) {
+	       	fbset_color(chmap->bkgcolor);
+       		draw_filled_rect(&gv_fb_dev, chmap->mapx0, chmap->mapy0,  chmap->mapx0+chmap->width, chmap->mapy0+chmap->height );
 	}
+	/* Draw grids */
+	#if 0
+        fbset_color(WEGI_COLOR_GRAYB);
+        for(k=0; k<=chmap->maplines; k++)
+                draw_line(&gv_fb_dev, x0, y0+k*chmap->maplndis-1, x0+chmap->mappixpl-1, y0+k*chmap->maplndis-1);
+	#endif
 
 	/* Init pstr and p */
 	pstr=chmap->pref;  /* However, pref may be NULL */
@@ -811,7 +840,7 @@ FUNC_END:
 
 	/* If follow_cursor set: continue charmapping until pch>=0.*/
 	if( chmap->follow_cursor && chmap->pch<0 ) {
-		printf("%s: Continue charmapping to follow cursor...\n",__func__);
+		EGI_PDEBUG(DBG_CHARMAP,"Continue charmapping to follow cursor...\n");
 
 		/* PRE_1: set txtdlncount: noticed that now chmap->txtdlinePos[txtdlncount]==chmap->maplinePos[0] */
 		if( chmap->pchoff > off+chmap->charPos[chmap->chcount-1] )
@@ -949,21 +978,21 @@ inline static void FTcharmap_mark_selection(FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap
 			endY=chmap->charY[pch2];	endX=chmap->charX[pch2];
 		}
 
-		/* 2.1 Mark start dline area */
-		draw_blend_filled_rect(fb_dev, startX, startY, chmap->mapx0+chmap->mappixpl-1, startY+chmap->maplndis-1,
+		/* 2.1 Mark start dline area */				/* chmap->withd != chmap->mappixpl+chmap->offx */
+		draw_blend_filled_rect(fb_dev, startX, startY, chmap->mapx0+chmap->offx+chmap->mappixpl-1, startY+chmap->maplndis-1,
                                                                       chmap->markcolor, chmap->markalpha); /* dev, x1,y1,x2,y2,color,alpha */
 		/* 2.2 Mark mid dlines areas */
 		mdls=(endY-startY)/chmap->maplndis-1;
 		if(mdls>0) {
-			for( k=0; k<mdls; k++ ) {
-				draw_blend_filled_rect(fb_dev, chmap->mapx0, startY+(k+1)*(chmap->maplndis) -1,
-							chmap->mapx0+chmap->mappixpl-1, startY+(k+2)*(chmap->maplndis) -1,
-                                                                      chmap->markcolor, chmap->markalpha); /* dev, x1,y1,x2,y2,color,alpha */
+			for( k=0; k<mdls; k++ ) {		/* dev, x1,y1,x2,y2,color,alpha */
+			      draw_blend_filled_rect(fb_dev, chmap->mapx0+chmap->offx, startY+(k+1)*(chmap->maplndis), /* -1 to create a line */
+						    chmap->mapx0+chmap->offx+chmap->mappixpl-1, startY+(k+2)*(chmap->maplndis) -1,  /* x2,y2 */
+                                                                      chmap->markcolor, chmap->markalpha); 		    /* color,alpha */
 			}
 		}
 
 		/* 2.3 Mark end dline area */
-		draw_blend_filled_rect(fb_dev, chmap->mapx0, endY, endX, endY+chmap->maplndis-1,
+		draw_blend_filled_rect(fb_dev, chmap->mapx0+chmap->offx, endY, endX, endY+chmap->maplndis-1,
                                                                       chmap->markcolor, chmap->markalpha); /* dev, x1,y1,x2,y2,color,alpha */
 	}
 
@@ -1000,17 +1029,22 @@ int FTcharmap_page_up(EGI_FTCHAR_MAP *chmap)
 
 	/* Keep selection marks, as chmap->pchoff/pchoff2 unchanged */
 
-	/* PRE_: Set chmap->txtdlncount */
-	if( chmap->txtdlncount > chmap->maplines )
-        	chmap->txtdlncount -= chmap->maplines;
-        else  { /* It reaches the first page */
-        	chmap->txtdlncount=0;
+	if( chmap->txtdlncount != 0 ) {
+		/* PRE_: Set chmap->txtdlncount */
+		if( chmap->txtdlncount > chmap->maplines )
+        		chmap->txtdlncount -= chmap->maplines;
+	        else  { /* It reaches the first page */
+        		chmap->txtdlncount=0;
+		}
+
+		/* PRE_: Set pref to previous txtdlines position */
+	        chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+
+        	EGI_PDEBUG(DBG_CHARMAP,"page up to chmap->txtdlncount=%d \n",chmap->txtdlncount);
 	}
-
-	/* PRE_: Set pref to previous txtdlines position */
-        chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
-
-        printf("%s: page up to chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
+	else
+        	EGI_PDEBUG(DBG_CHARMAP, "Reach the top page: chmap->maplncount=%d, chmap->maplines=%d, chmap->txtdlncount=%d, \n",
+									chmap->maplncount, chmap->maplines, chmap->txtdlncount);
 
         /* set chmap->request */
         chmap->request=1;
@@ -1053,23 +1087,21 @@ int FTcharmap_page_down(EGI_FTCHAR_MAP *chmap)
 
 	/* Keep selection marks, as chmap->pchoff/pchoff2 unchanged */
 
- 	if( chmap->maplncount == chmap->maplines )              /* 1. Current IS a full page/window */
+	/* 1. Current IS a full page/window AND not the EOF page */
+ 	if( chmap->maplncount == chmap->maplines  && chmap->pref[ chmap->charPos[chmap->chcount-1] ] != '\0' )
 	{
 		/* Get to the start point of the next page */
 		pos=chmap->charPos[chmap->chcount-1]+cstr_charlen_uft8(chmap->pref+chmap->charPos[chmap->chcount-1]);
 
-		if( chmap->pref[pos] != '\0' ) {		/* AND 2. current is NOT the last page (Next char is not EOF) */
+		/* reset pref and txtdlncount */
+       		chmap->pref=chmap->pref+pos;
+		chmap->txtdlncount += chmap->maplines;
 
-			/* reset pref and txtdlncount */
-        		chmap->pref=chmap->pref+pos;
-			chmap->txtdlncount += chmap->maplines;
-
-        		printf("%s: page down to: chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
-		}
+       		EGI_PDEBUG(DBG_CHARMAP, "Page down to: chmap->txtdlncount=%d \n", chmap->txtdlncount);
         }
 	else
-        	printf("%s: reach the last page: chmap->maplncount=%d, chmap->maplines=%d, chmap->txtdlncount=%d, \n",
-							__func__,  chmap->maplncount, chmap->maplines, chmap->txtdlncount);
+        	EGI_PDEBUG(DBG_CHARMAP, "Reach the last page: chmap->maplncount=%d, chmap->maplines=%d, chmap->txtdlncount=%d, \n",
+									chmap->maplncount, chmap->maplines, chmap->txtdlncount);
 
         /* set chmap->request */
         chmap->request=1;
@@ -1130,7 +1162,7 @@ int FTcharmap_scroll_oneline_up(EGI_FTCHAR_MAP *chmap)
         if( chmap->txtdlncount > 0 ) {
         	/* reset txtdlncount to pointer the line BEFORE first dline in current charmap page */
                 chmap->pref=chmap->txtbuff + chmap->txtdlinePos[--chmap->txtdlncount];    /* Enusre txtdlinePos[] is valid */
-                printf("%s: chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
+             EGI_PDEBUG(DBG_CHARMAP,"chmap->txtdlncount=%d \n", chmap->txtdlncount);
         }
 
         /* set chmap->request */
@@ -1214,7 +1246,7 @@ int FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap)
 			/* PRE_2. Update chmap->pref */
 	                chmap->pref += chmap->charPos[chmap->chcount-1]+charlen;
         	}
-	        printf("%s: chmap->txtdlncount=%d \n", __func__, chmap->txtdlncount);
+	        EGI_PDEBUG(DBG_CHARMAP,"chmap->txtdlncount=%d \n", chmap->txtdlncount);
 	}
 
 	/* set chmap->request */
@@ -1245,7 +1277,7 @@ Return:
 ----------------------------------------------------------------*/
 int FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
 {
-	int i;
+	int ret=0;
 
 	if( chmap==NULL ) {
 		printf("%s: Input FTCHAR map is empty!\n", __func__);
@@ -1265,59 +1297,24 @@ int FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
 		return -3;
 	}
 
-	/* Search char map to find pch/pos for the x,y  */
-	//printf("input x,y=(%d,%d), chmap->chcount=%d \n", x,y, chmap->chcount);
-	/* TODO: a better way to locate i */
-        for(i=0; i < chmap->chcount; i++) {
-             	//printf("i=%d/(%d-1)\n", i, chmap->chcount);
-             	if( chmap->charY[i] <= y && chmap->charY[i]+ chmap->maplndis > y ) {	/* locate Y notice <= to left: A <= Y < B  */
-			/* 1. Not found OR ==chcount-1),  set to the end of the chmap. */
-			if( i==chmap->chcount-1 ) {  // && chmap->charX[i] <= x ) {  /* Last char of the chmap */
-				chmap->pch=i;
-				break;
-			}
-			/* 2. Not the last char of dline, so [i+1] is valid always! */
-			else if( chmap->charX[i] <= x && chmap->charX[i+1] > x ) {
-				/* find the nearest charX[] */
-				if( x-chmap->charX[i] > chmap->charX[i+1]-x )
-					chmap->pch=i+1;
-				else
-					chmap->pch=i;
-				break;
-			}
-			/* 3. The last char of the dline.  */
-			else if( chmap->charX[i] <= x && chmap->charY[i] != chmap->charY[i+1] ) {
-				/* Find the nearest charX[] */
-				if( x-chmap->charX[i] > (chmap->mapx0+chmap->mappixpl-chmap->charX[i])/2 )
-					chmap->pch=i+1;
-				else
-					chmap->pch=i;
-				break;
-			}
-	     	}
-	}
-
-	/* interlock pch/pch2 : MUST NOT CANCEL THIS!  to cancel selection marks!*/
-	chmap->pch2=chmap->pch;
-
-	/* Set pchoff/pchoff2 accordingly */
-	chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch];
-	chmap->pchoff2=chmap->pchoff; /* interlockded */
+	/* Call  _charPos_nolock() */
+	ret=FTcharmap_locate_charPos_nolock(chmap,x,y);
 
         /*  <-------- Put mutex lock */
         pthread_mutex_unlock(&chmap->mutex);
 
-	return 0;
+	return ret;
 }
-/*-----------------------------------------------------------------------------
-Refer to FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y)
+
+/*--------------------------------------------------------------------------
+Refer to FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
 Without mutx_lock.
 
 Note:
 1. chmap->pch/pch2, pchoff/pchoff2 all updated!
 
 ------------------------------------------------------------------------------*/
-static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y)
+inline static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y)
 {
 	int i;
 
@@ -1326,13 +1323,27 @@ static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y)
 		return -1;
 	}
 
-	/* Search char map to find pch/pos for the x,y  */
-        for(i=0; i < chmap->chcount; i++) {
+	/* 1. XY above charmap window */
+	if( y < chmap->charY[0] )
+		chmap->pch=0;
+	/* 2. XY below charmap window */
+	else if( y > chmap->charY[chmap->chcount-1]+chmap->maplndis-1 )
+		chmap->pch=chmap->chcount-1;
+	/* 3. XY in charmap windown */
+	else {
+	   /* Search char map to find pch/pos for the x,y  */
+           for(i=0; i < chmap->chcount; i++) {
              	//printf("i=%d/(%d-1)\n", i, chmap->chcount);
-		/* METHOD 2: Pick the nearst charX[] to x */
-             	if( chmap->charY[i] <= y && chmap->charY[i]+ chmap->maplndis > y ) {	/* locate Y, notice <= to left: A <= Y < B */
+		/* Pick the nearst charX[] to x */
+		/* Locate Y, notice <= to left: A <= Y < B. */
+             	if( chmap->charY[i] <= y && chmap->charY[i]+ chmap->maplndis > y ) {  /* in same dline */
+			/* 0. If get to left margin */
+			if( x < chmap->mapx0+chmap->offx ) {
+				chmap->pch=i;
+				break;
+			}
 			/* 1. Not found OR ==chcount-1),  set to the end of the chmap. */
-			if( i==chmap->chcount-1 ) {  // && chmap->charX[i] <= x ) {  /* Last char of the chmap */
+			else if( i==chmap->chcount-1 ) {  // && chmap->charX[i] <= x ) {  /* Last char of the chmap */
 				chmap->pch=i;
 				break;
 			}
@@ -1348,13 +1359,16 @@ static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y)
 			/* 3. The last char of the dline.  */
 			else if( chmap->charX[i] <= x && chmap->charY[i] != chmap->charY[i+1] ) {
 				/* Find the nearest charX[] */
+				/* Check point: mid. of dline's remaing blank space:  its right (i+1), its left (i); */
 				if( x-chmap->charX[i] > (chmap->mapx0+chmap->mappixpl-chmap->charX[i])/2 )
 					chmap->pch=i+1;
 				else
 					chmap->pch=i;
 				break;
 			}
+
 	     	}
+	   } /* END for() */
 	}
 
 	/* interlock pch/pch2: MUST NOT CANCLE THIS, to cancel selection marks! */
@@ -1368,9 +1382,12 @@ static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y)
 }
 
 
-/*---------------------------------------------------------------
-To locate chmap->pch2 ONLY according to given x,y.
-Keep chmap->pch unchanged.
+/*---------------------------------------------------------------------
+Refer to FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
+Without mutx_lock.
+
+To locate chmap->pch2 according to given x,y.
+Keep chmap->pch unchanged!
 
 NOTE:
 1. !!! WARN !!!
@@ -1383,7 +1400,7 @@ NOTE:
 Return:
 	0	OK
 	<0	Fails
-----------------------------------------------------------------*/
+--------------------------------------------------------------------*/
 int FTcharmap_locate_charPos2( EGI_FTCHAR_MAP *chmap, int x, int y)
 {
 	int i;
@@ -1406,12 +1423,22 @@ int FTcharmap_locate_charPos2( EGI_FTCHAR_MAP *chmap, int x, int y)
 		return -3;
 	}
 
-	/* Search char map to find pch/pos for the x,y  */
-	//printf("input x,y=(%d,%d), chmap->chcount=%d \n", x,y, chmap->chcount);
-        for(i=0; i < chmap->chcount; i++) {
+	/* !!! --- WARNING --- !!!  following operation for chmap->pch2 ONLY, NOT pch! */
+
+	/* 1. XY above charmap window */
+	if( y < chmap->charY[0] )
+		chmap->pch2=0;    /* !!! pch2 !!! */
+	/* 2. XY below charmap window */
+	else if( y > chmap->charY[chmap->chcount-1]+chmap->maplndis-1 )
+		chmap->pch2=chmap->chcount-1;   /* !!! pch2 !!! */
+	/* 3. XY in charmap windown */
+	else {
+	   /* Search char map to find pch/pos for the x,y  */
+           for(i=0; i < chmap->chcount; i++) {
              	//printf("i=%d/(%d-1)\n", i, chmap->chcount);
-             	if( chmap->charY[i] <= y && chmap->charY[i]+ chmap->maplndis > y ) {	/* locate Y notice <= to left: A <= Y < B  */
-		/* METHOD 2: Pick the nearst charX[] to x */
+		/* Pick the nearst charX[] to x */
+		/* Locate Y notice <= to left: A <= Y < B  */
+             	if( chmap->charY[i] <= y && chmap->charY[i]+ chmap->maplndis > y ) {
 			/* 1. Not found OR ==chcount-1),  set to the end of the chmap. */
 			if( i==chmap->chcount-1 ) {  // && chmap->charX[i] <= x ) {  /* Last char of the chmap */
 				chmap->pch2=i;
@@ -1429,6 +1456,7 @@ int FTcharmap_locate_charPos2( EGI_FTCHAR_MAP *chmap, int x, int y)
 			/* 3. The last char of the dline.  */
 			else if( chmap->charX[i] <= x && chmap->charY[i] != chmap->charY[i+1] ) {
 				/* Find the nearest charX[] */
+				/* Check point: mid. of dline's remaing blank space:  its right (i+1), its left (i); */
 				if( x-chmap->charX[i] > (chmap->mapx0+chmap->mappixpl-chmap->charX[i])/2 )
 					chmap->pch2=i+1;
 				else
@@ -1436,9 +1464,10 @@ int FTcharmap_locate_charPos2( EGI_FTCHAR_MAP *chmap, int x, int y)
 				break;
 			}
 	     	}
+	   } /* END for() */
 	}
 
-	/* set pchoff/pchoff2 accordingly */
+	/* set pchoff2 ONLY! */
 	chmap->pchoff2=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->pch2];
 
         /*  <-------- Put mutex lock */
@@ -1562,6 +1591,8 @@ int FTcharmap_shift_cursor_up(EGI_FTCHAR_MAP *chmap)
 			 * chmap->pch/pch2, pchoff/pchoff2 will all be updated by charPos_nolock() */
 			chmap->fix_cursor=true;
 		}
+		else if(chmap->txtdlncount==0)
+			EGI_PDEBUG(DBG_CHARMAP,"Get to the TOP dline.\n");
 	   }
 	   /* 2.2 Else, move up to previous dline */
 	   else {
@@ -1644,14 +1675,11 @@ int FTcharmap_shift_cursor_down(EGI_FTCHAR_MAP *chmap)
         /* 2. If chmap->pch in current charmap */
 	else if( chmap->pch >= 0 && chmap->pch < chmap->chcount )
 	{
-	    printf("%s: pch=%d, chcount=%d\n",__func__, chmap->pch, chmap->chcount);
 	    /*  2.1 If already gets to the last dline of current charmap page */
 	    if( chmap->charY[chmap->pch] >= chmap->mapy0+chmap->maplndis*(chmap->maplines-1) ) {
-	    // NOPE, Not canvas bottom!! if( chmap->charY[chmap->pch] == chmap->charY[chmap->chcount-1] ) {
-		printf("%s: in the last dline of current charmap.\n", __func__);
-		/* NOT EOF, then do nothing. */
-		//printf("chmap->pref[chmap->charPos[chmap->chcount-1]] = %d\n", chmap->pref[chmap->charPos[chmap->chcount-1]] );
-		/* Note:  '\n'+EOF at the last dline.  !!!.....  */
+	    	// NOPE, Not canvas bottom!! if( chmap->charY[chmap->pch] == chmap->charY[chmap->chcount-1] ) {
+		EGI_PDEBUG(DBG_CHARMAP,"in the last dline of current charmap.\n");
+		/* If NOT EOF dline*/
 		if( chmap->pch!=chmap->chcount-1 || chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' ) {
 			/* Only if charmap more than 1 dlines ---NOPE! */
  			// else if( chmap->maplncount>1 ) {
@@ -1678,7 +1706,8 @@ int FTcharmap_shift_cursor_down(EGI_FTCHAR_MAP *chmap)
 			chmap->fix_cursor=true;
 		}
 		/* If EOF, then do nothing. */
-		else printf("%s: last dline has EOF.\n",__func__);
+		else
+			EGI_PDEBUG(DBG_CHARMAP,"Get to EOF dline.\n");
 	    }
             /* 2.2 Else move down to next dline */
             else {
@@ -1740,7 +1769,7 @@ int FTcharmap_shift_cursor_right(EGI_FTCHAR_MAP *chmap)
 	/* 1. If chmap->pch Not in current charmap page */
 	if( chmap->pch < 0 && chmap->txtbuff[ chmap->pchoff ] != '\0' ) {
 		printf("%s: pch<0 \n",__func__);
-	        #if 0 /* Move pchoff forward first */
+	        #if 0 /* Move pchoff/cursor forward */
 		charlen=cstr_charlen_uft8((const unsigned char *)(chmap->txtbuff+chmap->pchoff));
 		if(charlen<0) {
 			printf("%s: WARNING: cstr_charlen_uft8() negative! \n",__func__);
@@ -1817,6 +1846,9 @@ int FTcharmap_shift_cursor_right(EGI_FTCHAR_MAP *chmap)
 		}
 
 	}
+	/* 4. If EOF */
+	else if( chmap->pref[ chmap->charPos[chmap->pch] ] == '\0' )
+		EGI_PDEBUG(DBG_CHARMAP,"Get to the EOF.\n");
 
 	/* Set chmap->request for charmapping */
 	chmap->request=1;
@@ -1848,7 +1880,6 @@ int FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap)
 	int doff;
 	int charlen;
 
-
 	if( chmap==NULL || chmap->txtbuff==NULL)
 		return -1;
 
@@ -1870,20 +1901,16 @@ int FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap)
 
 	/* 1. If chmap->pch Not in current charmap page */
 	if( chmap->pch < 0 ) {
-
+		#if 0 /* Move pchoff/cusor backward */
 		/* Get to the very beginning */
 		if(chmap->pchoff==0 )
-			charlen=0;
+			charlen=0;   /* skip no char */
 		else {
-			#if 1
-			charlen=0;
-			#else
-			/* TODO: Move pchoff backward 1 char  */
-			charlen=cstr_charlen_uft8((const unsigned char *)(chmap->txtbuff+chmap->pchoff));
+			/*  Need to move pchoff backward 1 char */
+			charlen=cstr_prevcharlen_uft8((const unsigned char *)(chmap->txtbuff+chmap->pchoff));
 			if(charlen<0) {
-				printf("%s: WARNING: cstr_charlen_uft8() negative! \n",__func__);
+				printf("%s: WARNING: cstr_prevcharlen_uft8() negative! \n",__func__);
 			}
-			#endif
 		}
 
 		/* PRE_: Update pchoff/pchoff2  */
@@ -1893,6 +1920,7 @@ int FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap)
 		}
 		else 				/* If pchoff/pchoff2 in selection, then do NOT interlock */
 			chmap->pchoff -= charlen;
+		#endif
 
 		/* If pchoff still not in current charmap page, then scroll to its dline*/
 		if( chmap->pchoff < off  || chmap->pchoff > off+chmap->charPos[chmap->chcount-1] ) {
@@ -1943,6 +1971,9 @@ int FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap)
 		/* PRE_: Update chmap->pref */
 	        chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
 	}
+	/* 4. If head of txtbuff */
+	else if( chmap->pch == 0 && chmap->txtdlncount==0 )
+		EGI_PDEBUG(DBG_CHARMAP,"Get to the HEAD of txtbuff.\n");
 
 	/* Set chmap->request for charmapping */
 	chmap->request=1;
@@ -2167,10 +2198,11 @@ is located somewhere of the txtdline.
 Note:
 1. !!! WARNING !!!
 Forward search may return incorrect data in chmap->txtdlinePos[]!
-in case those txtlines have NOT been charmapped or updated.
+in case those txtlinePos[] have NOT been charmapped or updated after
+some editing, though it's rarely to happen.
 Avoid to call this function in such case. example: when inserting
-words at the end of current charmap, and want to scroll down withou
-updating charmap.
+words at the end of current charmap, and go to scroll down immediatley
+withou updating charmap at first.
 
 
 @chmap: 	an EGI_FTCHAR_MAP
@@ -2197,7 +2229,7 @@ int FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  int pchoff)
 	}
 
 	/* Out of range */
-	if( pchoff<0 || pchoff > chmap->txtlen ) {   /* chmap->txtlen includes EOF */
+	if( pchoff<0 || pchoff > chmap->txtlen ) {   /*  pchoff==chmap->txtlen is EOF */
                 printf("%s: Input pchoff out of range!\n", __func__);
                 return -2;
 	}
@@ -2217,15 +2249,29 @@ int FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  int pchoff)
 	 *  	  2. txtdlinePos[txtdlncount+1],txtdlinePos[txtdlncount+2]... +maplncount-1] still holds valid data.
 	 */
 	//for(i=1; i < chmap->txtdlncount + chmap->maplncount; i++) {
+	#if 0  ////// OBSOLETE ////////
   	for(i=1; i < chmap->txtdlines; i++) {  /* WARNING: may be un_charmapped or old data */
   		if( chmap->txtdlinePos[i] == 0 ) /* i>0;  0 as un_charmapped data */
  			break;
-		else if( chmap->txtdlinePos[i] > pchoff )
+		else if( pchoff < chmap->txtdlinePos[i] )
 			return	i-1;
-		else if( chmap->txtdlinePos[i] == pchoff )
+		else if( pchoff >= chmap->txtdlinePos[i] && )
 				return i;  /* The last txtdline, EOF */
 	}
+	#endif ////////////////////
+	/* 1. Check txtdline 0 -> txtdlines-2 */
+  	for(i=0; i < chmap->txtdlines-1; i++) {  /* !!! WARNING !!!: txtdlinPos[] may hold un_charmapped or old data */
+		if( pchoff >= chmap->txtdlinePos[i]   /* txtdlinePos[0] === 0, as we always start with chmap->pref = chmap->txtbuff  */
+		    && ( pchoff < chmap->txtdlinePos[i+1] || chmap->txtdlinePos[i+1]==0) )   /* || Or end dline */
+			return	i;
 
+		/* End data, no data anymore... */
+		if( chmap->txtdlinePos[i+1] ==0 )
+			return -2;
+	}
+	/* 2. If txtdlines all filled data, check the last txtdlinePos[] */
+	if( pchoff >= chmap->txtdlinePos[chmap->txtdlines-1] ) // RULE OUT && pchoff <= chmap->txtlen, see above )  /*  pchoff==chmap->txtlen is EOF */
+		return chmap->txtdlines-1;
 
 	/* Not found */
 	return -3;
@@ -2567,13 +2613,15 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 
 /*----------------------------------------------------------------------------
 If ( pchoff==pchoff2) delete a char preceded by cursor.
-If ( pchoff!=pchoff1) delete all chars between pchoff and pchoff2.
+If ( pchoff!=pchoff1) delete all chars between pchoff and pchoff2
 
 Note:
-1. If NOT in current charmap, reset chmap->txtdlncount,pref after deleting.
+1. No matter where is the editing cursor(pchoff), it will execute deletion anyway,
+   even the cursor(pchoff) is NOT in the current charmap.
+2. If NOT in current charmap, reset chmap->txtdlncount,pref after deleting.
    Point chmap->pref to the dline where chmap->pchoff located.
-2. Otherwise deletes the char pointed by pch, and chmap->pch/pchoff keeps unchanged!
-3. The EOF will NOT be deleted!
+3. Otherwise deletes the char pointed by pch, and chmap->pch/pchoff keeps unchanged!
+4. The EOF will NOT be deleted!
 
 @chmap:         Pointer to the EGI_FTCHAR_MAP.
 
@@ -2638,6 +2686,11 @@ int FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap )
 			memmove( chmap->txtbuff+startPos, chmap->txtbuff+endPos, strlen((char *)(chmap->txtbuff+endPos)) +1);  /* +1 EOF */
 			/* PRE_: Update txtlen */
 			chmap->txtlen -= (endPos-startPos);
+			#if 0 /* TEST:. ...*/
+			if(chmap->txtlen != strlen((char *)chmap->txtbuff) )
+				printf("%s: ERROR txtlen=%d, pchoff=%d \n", __func__, chmap->txtlen, chmap->pchoff);
+			#endif
+
 			/* 2. PRE_: Set pchoff2=pchoff=startPos */
 			chmap->pchoff2=startPos;
 			chmap->pchoff=startPos;
@@ -2648,7 +2701,7 @@ int FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap )
 				/* 3. Reset chmap->pref for re_charmapping */
 				dlindex=FTcharmap_get_txtdlIndex(chmap,  chmap->pchoff);
 				if(dlindex<0) {
-					printf("%s: dlindex is nagtive, FTcharmap_get_txtdlIndex() fails!\n",__func__);
+					printf("%s: pchoff=%d, dlindex is nagtive, FTcharmap_get_txtdlIndex() fails!\n",__func__,chmap->pchoff);
 					dlindex=0;
 				}
 				/* PRE_:  Set chmap->txtdlncount */
@@ -2670,7 +2723,6 @@ int FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap )
 			memmove( chmap->txtbuff+startPos, chmap->txtbuff+endPos, strlen((char *)(chmap->txtbuff+endPos)) +1);  /* +1 EOF */
 			/* 1. Update txtlen */
 			chmap->txtlen -= (endPos-startPos);
-
 
 			/* 2. PRE_: keep pchoff and pchoff2 */
 			/* 3. Reset chmap->pref for re_charmapping */
