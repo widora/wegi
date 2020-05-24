@@ -73,9 +73,11 @@ void 	draw_rect(FBDEV *dev,int x1,int y1,int x2,int y2);
 void 	draw_wrect(FBDEV *dev,int x1,int y1,int x2,int y2, int w);
 void 	draw_roundcorner_wrect(FBDEV *dev,int x1,int y1,int x2,int y2, int r, int w);
 int 	draw_filled_rect(FBDEV *dev,int x1,int y1,int x2,int y2);
+int 	draw_blend_filled_roundcorner_rect(FBDEV *dev,int x1,int y1,int x2,int y2, int r,
+							EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha);
 void 	draw_filled_box(FBDEV *dev, EGI_BOX *box);
 void 	draw_blend_filled_rect( FBDEV *dev, int x1, int y1, int x2, int y2,
-                                		EGI_16BIT_COLOR color, uint8_t alpha );
+                                		EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha );
 int     draw_filled_rect2(FBDEV *dev,uint16_t color, int x1,int y1,int x2,int y2);
 void 	draw_warc(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang, unsigned int w);
 void 	draw_filled_pieSlice(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang );
@@ -90,9 +92,9 @@ void 	draw_circle2(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR color);
 void 	draw_filled_annulus2(FBDEV *dev, int x0, int y0, int r, unsigned int w, EGI_16BIT_COLOR color);
 void 	draw_filled_circle2(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR color);
 
-void 	draw_blend_filled_circle(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR color, uint8_t alpha);
+void 	draw_blend_filled_circle(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha);
 void 	draw_blend_filled_annulus( FBDEV *dev, int x0, int y0, int r, unsigned int w,
-                                				EGI_16BIT_COLOR color, uint8_t alpha );
+                                				EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha );
 
 int 	fb_cpyto_buf(FBDEV *fb_dev, int x1, int y1, int x2, int y2, uint16_t *buf);
 int 	fb_cpyfrom_buf(FBDEV *fb_dev, int x1, int y1, int x2, int y2, const uint16_t *buf);

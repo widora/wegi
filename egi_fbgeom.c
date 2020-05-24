@@ -1117,6 +1117,7 @@ void draw_roundcorner_wrect(FBDEV *dev,int x1,int y1,int x2,int y2, int r, int w
 	int yd=(y1>y2?y1:y2);
 
 	/* Limit r */
+	if(r<0)r=0;
 	if( r > (xr-xl)/2 ) r=(xr-xl)/2;
 	if( r > (yd-yu)/2 ) r=(yd-yu)/2;
 
@@ -1178,6 +1179,66 @@ int draw_filled_rect(FBDEV *dev,int x1,int y1,int x2,int y2)
 	return 0;
 }
 
+/*-----------------------------------------------------------
+    Draw a filled rectangle with round corners.
+
+    Midas_Zhou
+------------------------------------------------------------*/
+int draw_blend_filled_roundcorner_rect( FBDEV *dev,int x1,int y1,int x2,int y2, int r,
+						EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha)
+{
+	int i;
+	int s;
+
+	/* sort min and max x,y */
+	int xl=(x1<x2?x1:x2);
+	int xr=(x1>x2?x1:x2);
+	int yu=(y1<y2?y1:y2);
+	int yd=(y1>y2?y1:y2);
+
+	/* Limit r */
+	if(r<0)r=0;
+	if( r > (xr-xl)/2 ) r=(xr-xl)/2;
+	if( r > (yd-yu)/2 ) r=(yd-yu)/2;
+
+        /* turn on FBDEV pixcolor and pixalpha_hold */
+        dev->pixcolor_on=true;
+        dev->pixcolor=color;
+        dev->pixalpha_hold=true;
+        dev->pixalpha=alpha;
+
+
+	/* Draw max. rect in mid */
+	draw_filled_rect(dev, xl, yu+r, xr, yd-r);
+	/* Draw upper/lower small rect */
+	draw_filled_rect(dev, xl+r, yu, xr-r, yu+r-1);
+	draw_filled_rect(dev, xl+r, yd-r+1, xr-r, yd);
+
+	/* Draw 4 quarters of a circle */
+	/* !!!Do NOT use draw_filled_pieSlice(), overlapped points! */
+	for(i=1; i<r; i++) {
+                s=round(sqrt(r*r-i*i));
+                s-=1; /* diameter is always odd */
+
+  		/* draw 4th quadrant */
+		draw_line(dev, xr-r +1, yd-r+i, xr-r+s, yd-r+i);  /* +1 skip overlap */
+		/* draw 3rd quadrant */
+		draw_line(dev, xl+r -1, yd-r+i, xl+r-s, yd-r+i);  /* -1 skip overlap */
+		/* draw 2nd quadrant */
+		draw_line(dev, xl+r -1, yu+r-i, xl+r-s, yu+r-i);
+		/* draw 1st quadrant */
+		draw_line(dev, xr-r +1, yu+r-i, xr-r+s, yu+r-i);
+	}
+
+        /* turn off FBDEV pixcolor and pixalpha_hold */
+        dev->pixcolor_on=false;
+        dev->pixalpha_hold=false;
+        dev->pixalpha=255;
+
+	return 0;
+}
+
+
 /*--------------------------------------------
 Draw a filled box.
 
@@ -1187,6 +1248,7 @@ void draw_filled_box(FBDEV *dev, EGI_BOX *box)
 {
 	draw_filled_rect(dev, box->startxy.x,box->startxy.y, box->endxy.x, box->endxy.y);
 }
+
 
 /*------------------------------------------------------------------
 Draw a filled rectangle blended with backcolor of FB.
@@ -1369,6 +1431,9 @@ void draw_warc(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang, unsign
 
 /*--------------------------------------------------------------------------
 Draw a slice of a pie chart.
+
+NOTE: Because of calculation precision and roundoff, most of points are drawn
+      twice!  It can NOT be used in a blend function!
 
 Angle direction: 	--- Right_Hand Rule ---
 	Z as thumb, X->Y as positive rotation direction.
