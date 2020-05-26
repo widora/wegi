@@ -23,6 +23,7 @@ char* 	cstr_split_nstr(char *str, char *split, unsigned n);
 char* 	cstr_trim_space(char *buf);
 int 	cstr_copy_line(const char *src, char *dest, size_t size);
 int 	cstr_charlen_uft8(const unsigned char *cp);
+int 	cstr_prevcharlen_uft8(const unsigned char *cp);
 int 	cstr_strlen_uft8(const unsigned char *cp);
 int 	cstr_strcount_uft8(const unsigned char *pstr);
 int 	char_uft8_to_unicode(const unsigned char *src, wchar_t *dest);

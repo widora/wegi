@@ -93,6 +93,7 @@ midaszhou@yahoo.com
 #include <arpa/inet.h>
 #include FT_FREETYPE_H
 
+
 typedef enum FTcharmap_errcode FTCHARMAP_ERRCODE;
 enum FTcharmap_errcode {
 	CHMAPERR_NO_ERR=0,
@@ -198,6 +199,7 @@ struct  FTsymbol_char_map {
 					         * content pointed by pref will be charmapped and displayed.
 						 * Initial pref=txtbuff.
 						 */
+	wchar_t		maskchar;		/* If maskchar !=0 , then use maskchar for displaying ( NOT charmapping ) */
 	int		chcount;	 	/* Total number of displayed/charmapped chars.
 					         * (EOF also include if charmapped, '\n' also counted in. NOT as index.
 					   	 * Note: chcount-1 chars, the last data pref[charPos[chcount-1]] is EOF, and is always
@@ -251,6 +253,12 @@ struct  FTsymbol_char_map {
 	//unsigned int 	*charW;			/* Array,Widths of chars */
 
 	/* Extension: color,size,...*/
+
+
+	#define CURSOR_BLINK_INTERVAL_MS 500 	/* typing_cursor blink interval in ms, cursor ON and OFF duration time, same.*/
+	bool		cursor_on;		/* To turn ON cursor */
+	struct timeval tm_blink;		/* For cursor blinking timimg */
+	void (*draw_cursor)(int x, int y, int lndis);   	/* Draw cursor func */
 };
 
 

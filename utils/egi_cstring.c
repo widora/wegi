@@ -292,6 +292,7 @@ int cstr_copy_line(const char *src, char *dest, size_t size)
 }
 
 
+
 /*-----------------------------------------------------------------------
 Get length of a character with UTF-8 encoding.
 
@@ -329,6 +330,58 @@ inline int cstr_charlen_uft8(const unsigned char *cp)
 		return 2;	/* 2 bytes */
 	else
 		return -2;	/* unrecognizable starting byte */
+}
+
+
+/*-----------------------------------------------------------------------
+Get length of a character which is located BEFORE *cp, all in UTF-8 encoding.
+Bytes that needs to move from cp to pointer to the previous character.
+
+@cp:	A pointer to a character with UTF-8 encoding.
+	OR any ASCII value, include '\0'.
+
+Note:
+1. UTF-8 maps to UNICODE according to following relations:
+				(No endianess problem for UTF-8 conding)
+
+	   --- UNICODE ---	      --- UTF-8 CODING ---
+	U+  0000 - U+  007F:	0XXXXXXX
+	U+  0080 - U+  07FF:	110XXXXX 10XXXXXX
+	U+  0800 - U+  FFFF:	1110XXXX 10XXXXXX 10XXXXXX
+	U+ 10000 - U+ 1FFFF:	11110XXX 10XXXXXX 10XXXXXX 10XXXXXX
+
+2. The caller MUST ensure that the pointer will NOT move out of range!
+
+Return:
+	>0	OK, length in bytes.
+	<0	Fails
+------------------------------------------------------------------------*/
+inline int cstr_prevcharlen_uft8(const unsigned char *cp)
+{
+	int i;
+
+	if(cp==NULL)
+		return -1;
+
+	/* ------------------------------
+	U+  0000 - U+  007F:	0XXXXXXX
+	--------------------------------*/
+	if( *(cp-1) < 0b10000000 )
+		return 1;
+
+	/* ----------------------------------------------------------
+        U+  0080 - U+  07FF:    110XXXXX 10XXXXXX
+        U+  0800 - U+  FFFF:    1110XXXX 10XXXXXX 10XXXXXX
+        U+ 10000 - U+ 1FFFF:    11110XXX 10XXXXXX 10XXXXXX 10XXXXXX
+	----------------------------------------------------------- */
+	for( i=1; i<5; i++) {
+		if( *(cp-i) >= 0b10000000 ) {
+			if( *(cp-i-1) >= 0b11000000 && i<4 )
+				return i+1;
+		}
+	}
+
+	return -2;	/* unrecognizable */
 }
 
 

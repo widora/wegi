@@ -449,6 +449,8 @@ void fb_clear_backBuff(FBDEV *fb_dev, uint32_t color)
 		for(i=0; i<pixels; i++)
 			*(uint32_t *)(fb_dev->map_bk+(i<<2))=color;
 	}
+	else
+		printf("%s: bits_per_pixel is neither 16 nor 32!\n",__func__);
         //else 	--- NOT SUPPORT --
 
 }

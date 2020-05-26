@@ -1,68 +1,17 @@
-/*------------------------------------------------------------------------
+/*------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-An example of a simple editor, read input from termios and put it on to
-the screen.
-
-
-		--- Keys and functions ---
-
-Mouse move: 	Move typing cursor to LeftKeyDown to confimr it.
-Mouse scroll: 	Scroll charmap up and down.
-ARROW_KEYs: 	Shift typing cursor to locate insert/delete position.
-BACKSPACE: 	Delete chars before the cursor.
-DEL:		Delete chars following the cursor.
-HOME(or Fn+LEFT_ARROW!):	Return cursor to the begin of the retline.
-END(or Fn+RIGHT_ARROW!):	Move cursor to the end of the retline.
-CTRL+N:		Scroll down 1 line, keep typing cursor position.
-CTRL+O:		Scroll up 1 line, keep typing curso position.
-CTRL+F:		Save current chmap->txtbuff to a file.
-PG_UP:		Page up
-PG_DN:		Page down
-
-
-               --- Definition and glossary ---
-
-1. char:    A printable ASCII code OR a local character with UFT-8 encoding.
-2. dline:  displayed/charmapped line, A line starts/ends at displaying window left/right end side.
-   retline: A line starts/ends by a new line token '\n'.
-3. scroll up/down:  scroll up/down charmap by mouse, keep cursor position relative to txtbuff.
-	  (UP: decrease chmap->pref (-txtbuff), 	  DOWN: increase chmap->pref (-txtbuff) )
-
-   shift  up/down:  shift typing cursor up/down by ARROW keys.
-	  (UP: decrease chmap->pch, 	  DOWN: increase chmap->pch )
-
-
-
-Note:
-1. Mouse_events and and key_events run in two independent threads.
-   When you input keys while moving/scrolling mouse to change inserting position, it can
-   happen simutaneously!  TODO: To avoid?
-
-
-TODO:
-1. If any control code other than '\n' put in txtbuff[], strange things
-   may happen...  \034	due to UFT-8 encoding.   ---Avoid it.
-2. Check whether txtbuff[] overflows.  ---OK
-3. English words combination.
-4. Mutex lock for chmap data. Race condition between FTcharmap_writeFB and
-   FTcharmap_locate_charPos(). OR put mouse actions in editing loop. ---OK
-5. Remove (lines) in charmap_writeFB(), use chmap->maxlines instead. ---ok
-6. The typing cursor can NOT escape out of the displaying window. it always
-   remains and blink in visible area.	---OK
-7. IO buffer/continuous key press/ slow writeFB response.
-
-
+A fake login page just for testing FTcharmap functions.
 
 Midas Zhou
 midaszhou@yahoo.com
-----------------------------------------------------------------------------*/
+------------------------------------------------------------------*/
 #include <stdio.h>
 #include <string.h>
-#include <fcntl.h>   /* open */
-#include <unistd.h>  /* read */
+#include <fcntl.h>   	/* Open */
+#include <unistd.h>  	/* Read */
 #include <errno.h>
 #include <ctype.h>
 #include <linux/input.h>
@@ -73,10 +22,8 @@ midaszhou@yahoo.com
 #include "egi_FTsymbol.h"
 #include "egi_cstring.h"
 
-
-//#define 	BLINK_INTERVAL_MS	500	/* typing_cursor blink interval in ms */
-#define 	CHMAP_TXTBUFF_SIZE	64//1024     /* 256,text buffer size for EGI_FTCHAR_MAP.txtbuff */
-#define		CHMAP_SIZE		256  /* NOT less than Max. total number of chars (include '\n's and EOF) that may displayed in the txtbox */
+#define 	PASSWORD_MAX_SIZE	64  /* in bytes, text buffer size for EGI_FTCHAR_MAP.txtbuff */
+#define		CHMAP_SIZE		256 /* NOT less than Max. total number of chars (include '\n's and EOF) that may displayed in the txtbox */
 
 /* TTY input escape sequences.  USB Keyboard hidraw data is another story...  */
 #define		TTY_ESC		"\033"
@@ -93,7 +40,6 @@ midaszhou@yahoo.com
 #define		TTY_PAGE_UP	"\033[5~"
 #define		TTY_PAGE_DOWN	"\033[6~"
 
-
 #define 	TEST_INSERT 	1
 
 /* Some ASCII control key */
@@ -101,18 +47,17 @@ midaszhou@yahoo.com
 #define		CTRL_O	15	/* ASCII: Ctrl + O, scroll up  */
 #define 	CTRL_F  6	/* ASCII: Ctrl + f */
 
-char *strInsert="Widora和小伙伴们";
+char *strPasswd="Openwrt_Bingo";
 
-//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
-//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
-static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Text displaying area */
-static int smargin=5; 		/* left and right side margin of text area */
+/* Charmap displaying area */
+//static EGI_BOX txtbox={ { 40, 120 }, {320-1-40, 120+5+20+2 } };	/* Onle line displaying area */
+static EGI_BOX txtbox={ { 25, 170 }, {320-1-35, 170+5+20+2 } };	/* Onle line displaying area */
+static int smargin=10; 		/* left and right side margin of text area */
 static int tmargin=2;		/* top margin of text area */
 
 /* NOTE: char position, in respect of txtbuff index and data_offset: pos=chmap->charPos[pch] */
-static EGI_FTCHAR_MAP *chmap;	/* FTchar map to hold char position data */
+static EGI_FTCHAR_MAP *chmap;	/* FTcharmap */
 //static unsigned int pchoff;
-//static unsigned int chsize;	/* byte size of a char */
 static unsigned int chns;	/* total number of chars in a string */
 
 static bool mouseLeftKeyDown;
@@ -127,10 +72,54 @@ static int tlns;  //=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total avail
 static int penx;	/* Pen position */
 static int peny;
 
-static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
+static int  FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void mouse_callback(unsigned char *mouse_data, int size);
 static void draw_mcursor(int x, int y);
+
+
+static void login_layout()
+{
+	EGI_IMGBUF *wallimg=egi_imgbuf_readfile("/mmc/login.jpg");
+	if(wallimg==NULL) exit(1);
+
+        /* Wallpaper */
+        egi_subimg_writeFB(wallimg, &gv_fb_dev, 0, -1, 0, 0); /* subnum,subcolor,x0,y0 */
+
+	/* Outer pad */
+   	draw_blend_filled_roundcorner_rect( &gv_fb_dev, txtbox.startxy.x-10, txtbox.startxy.y-40,   /* fbdev, x1, y1, x2, y2, r */
+							txtbox.endxy.x+smargin+10, txtbox.endxy.y+35, 10,
+							WEGI_COLOR_GRAY5, 140);  		    /* color, alpha */
+							//WEGI_COLOR_GRAY3, 240);  		    /* color, alpha */
+	/* Txtbox pad */
+	draw_blend_filled_roundcorner_rect(&gv_fb_dev, txtbox.startxy.x, txtbox.startxy.y-5, /*  fbdev, x1, y1, x2, y2, r, color, alpha */
+						txtbox.endxy.x+smargin, txtbox.endxy.y+5,5,
+						WEGI_COLOR_GRAY5, 160); //WEGI_COLOR_DARKGRAY, 120);
+	/* Txtbox frame */
+	fbset_color(WEGI_COLOR_WHITE);
+	draw_roundcorner_wrect( &gv_fb_dev, txtbox.startxy.x, txtbox.startxy.y-5,     /*  fbdev, x1, y1, x2, y2, r, w */
+						txtbox.endxy.x+smargin, txtbox.endxy.y+5,5,1);
+}
+
+static void login_hint(void)
+{
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold, //regular,  //bold,          /* FBdev, fontface */
+                                        18, 18,(const unsigned char *)"Openwrt", //\nPassword:",      /* fw,fh, pstr */
+	                                        200, 2, 8,      				/* pixpl, lines, fgap */
+                                        txtbox.startxy.x, txtbox.startxy.y-fh-15,  	/* x0,y0, */
+                                        WEGI_COLOR_WHITE, -1, 255,                      /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+}
+static bool invalid_passwd;
+static void login_errmsg(void)
+{
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.special, //regular,  //bold,          /* FBdev, fontface */
+                                        17, 18,(const unsigned char *)"Invalid password, Pls retry.",      /* fw,fh, pstr */
+                                        300, 1, 8,      				/* pixpl, lines, fgap */
+                                        txtbox.startxy.x, txtbox.endxy.y+10,  		/* x0,y0, */
+                                        WEGI_COLOR_ORANGE, -1, 255,                      /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+}
 
 
 int main(int argc, char **argv)
@@ -186,8 +175,7 @@ int main(int argc, char **argv)
   /* Initilize sys FBDEV */
   printf("init_fbdev()...\n");
   if(init_fbdev(&gv_fb_dev))
-        return -1;
-
+        return  -1;
   /* Set sys FB mode */
   fb_set_directFB(&gv_fb_dev,false);
   fb_position_rotate(&gv_fb_dev,0);
@@ -195,6 +183,7 @@ int main(int argc, char **argv)
   /* Set mouse callback function and start mouse readloop */
   egi_mouse_setCallback(mouse_callback);
   egi_start_mouseread("/dev/input/mice");
+
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
@@ -204,51 +193,42 @@ int main(int argc, char **argv)
                    *            Main Program
                    -----------------------------------*/
 
+
         struct termios old_settings;
         struct termios new_settings;
 
 	int term_fd;
 	char ch;
 	//char chs[4];
-	int  k;
 	int  nch;
 	fd_set rfds;
 	int retval;
 	struct timeval tmval;
-
+	EGI_IMGBUF *homepage=egi_imgbuf_readfile("/mmc/homepage.jpg");
 
 	/* Total available lines of space for displaying chars */
 	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/(fh+fgap);
 	printf("Blank lines tlns=%d\n", tlns);
 
-	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,		/* txtsize,  x0, y0  */
+	/* Create and init FTcharmap */
+	chmap=FTcharmap_create( PASSWORD_MAX_SIZE, txtbox.startxy.x, txtbox.startxy.y,		/* txtsize,  x0, y0  */
 		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
-				CHMAP_SIZE, tlns, 320-20-2*smargin, fh+fgap);   /* mapsize, lines, pixpl, lndis */
+				CHMAP_SIZE, tlns, txtbox.endxy.x-txtbox.startxy.x-smargin, fh+fgap);   /* mapsize, lines, pixpl, lndis */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
-
-	/* Load file to chmap */
-	if( argc>1 ) {
-		if(FTcharmap_load_file(argv[1], chmap, CHMAP_TXTBUFF_SIZE) !=0 )
-			printf("Fail to load file to champ!\n");
-	}
-	else {
-		if( FTcharmap_load_file("/mmc/hlm_all.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
-//		if( FTcharmap_load_file("/tmp/hello.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
-		printf("Fail to load file to champ!\n");
-	}
+	chmap->bkgcolor=-1;			/* no bkgcolor */
+	chmap->markcolor=WEGI_COLOR_GREEN; 	/* Selection mark color */
+	chmap->markalpha=180;
+	chmap->maskchar=0x2605;    // 0x2663;solid club //0x2661(2665); empty(solid) heart //0x2605; solid start //0x2103; DEGREE
 
         /* Init. mouse position */
         mouseX=gv_fb_dev.pos_xres/2;
         mouseY=gv_fb_dev.pos_yres/2;
 
-        /* Init. FB working buffer */
-        fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_DARKGRAY); //GRAY4);
-	FTsymbol_writeFB("EGI Editor",120,5,WEGI_COLOR_LTBLUE, NULL, NULL);
+	/* Draw login page face */
+	login_layout();
+	login_hint();
 
-	/* Draw blank paper + margins */
-	fbset_color(WEGI_COLOR_WHITE);
-	draw_filled_rect(&gv_fb_dev, txtbox.startxy.x, txtbox.startxy.y, txtbox.endxy.x, txtbox.endxy.y );
-
+	/* Buffer to FB */
         fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 	fb_render(&gv_fb_dev);
 
@@ -261,9 +241,6 @@ int main(int argc, char **argv)
         new_settings.c_cc[VTIME]=0;
         tcsetattr(0, TCSANOW, &new_settings);
 
-	/* Set timer for blink*/
-//	gettimeofday(&tm_blink,NULL);
-
 	/* To fill initial charmap and get penx,peny */
 	FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, &penx, &peny);
 	fb_render(&gv_fb_dev);
@@ -271,6 +248,8 @@ int main(int argc, char **argv)
 
 	/* Loop editing ...   Read from TTY standard input, without funcion keys on keyboard ...... */
 	while(1) {
+		tcdrain(0);
+
 	/* ---- OPTION 1: Read more than N bytes each time, nonblock. !!! NOT good, response slowly, and may cause parse errors !!!  -----*/
 
 	/* ---- OPTION 2: Read in char one by one, nonblock  -----*/
@@ -326,7 +305,7 @@ int main(int argc, char **argv)
 							FTcharmap_page_down(chmap);
 						}
                                                 break;
-					case 65:  /* UP arrow : move cursor one display_line up */
+					case 65:  /* UP arrow : move char pch one display_line up */
 						FTcharmap_shift_cursor_up(chmap);
 						break;
 					case 66:  /* DOWN arrow : move cursor one display_line down */
@@ -363,7 +342,6 @@ int main(int argc, char **argv)
 			FTcharmap_scroll_oneline_up(chmap);
 			ch=0;
 		}
-
 		else if ( ch==CTRL_F) {		/* Save chmap->txtbuff */
 			printf("Saving chmap->txtbuff to a file...");
 			if( argc > 1)
@@ -373,8 +351,26 @@ int main(int argc, char **argv)
 			ch=0;
 		}
 
-
 		/* 3. edit text */
+		/* --- '\n' as Enter / Confirm --- */
+		if( ch==10 ) {
+			if( strcmp((char *)chmap->txtbuff, strPasswd) == 0 ) {
+				invalid_passwd=false;
+				printf("Bingo! Welcome! \n");
+				system("screen -dmS WAV aplay -M /mmc/philo.wav");
+				while(1) {
+				        egi_subimg_writeFB(homepage, &gv_fb_dev, 0, -1, 0, 0); /* subnum,subcolor,x0,y0 */
+		                	draw_mcursor(mouseMidX, mouseMidY);
+		                	fb_render(&gv_fb_dev);
+				}
+			}
+			else {
+				invalid_passwd=true;
+				printf("Invalid password!\n");
+			}
+
+			continue;
+		}
 
 		/* --- EDIT:  3.1 Backspace */
 		if( ch==0x7F ) { /* backspace */
@@ -385,24 +381,7 @@ int main(int argc, char **argv)
 		/* --- EDIT:  3.2 Insert chars, !!! printable chars + '\n' + TAB  !!! */
 		else if( ch>31 || ch==9 || ch==10 ) {  //pos>=0 ) {   /* If pos<0, then ... */
 
-			/* ---- TEST: insert string */
-			if(ch=='5' && TEST_INSERT  ) {
-				static int pos=0;
-
-                                /* revise chsize and chns  */
-                                chns=cstr_strcount_uft8((const unsigned char *)strInsert);
-
-				FTcharmap_insert_char( chmap, strInsert+pos );
-
-				pos += cstr_charlen_uft8((const unsigned char *)(strInsert+pos));
-				if(*(strInsert+pos)=='\0')
-					pos=0;
-
-                        }
-			else {
-				FTcharmap_insert_char( chmap, &ch );
-			}
-
+			FTcharmap_insert_char( chmap, &ch );
 		}  /* END insert ch */
 
 
@@ -410,19 +389,21 @@ int main(int argc, char **argv)
 
 		/* CHARMAP & DISPLAY: Display txt */
         	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-		FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL, NULL);
+		FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_WHITE, NULL, NULL);
+		if(invalid_passwd)
+			login_errmsg();
 
 		/* POST:  check chmap->errbits */
 		if( chmap->errbits ) {
 			printf("WARNING: chmap->errbits=%#x \n",chmap->errbits);
 		}
 
+		/* POST: Draw mouse cursor icon */
         	draw_mcursor(mouseMidX, mouseMidY);
 
 		/* Render and bring image to screen */
 		fb_render(&gv_fb_dev);
 		//tm_delayms(30);
-
 	}
 
 
@@ -532,34 +513,14 @@ static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int
 }
 
 
-/*-------------------------------------
-        FTsymbol WriteFB TXT
-@txt:   	Input text
-@px,py: 	LCD X/Y for start point.
-@color: 	Color for text
-@penx, peny:    pointer to pen X.Y.
---------------------------------------*/
-static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny)
-{
-       	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
-                                        fw, fh,(const unsigned char *)txt,    	/* fw,fh, pstr */
-                                        320, tlns, fgap,      /* pixpl, lines, fgap */
-                                        px, py,                                 /* x0,y0, */
-                                        color, -1, 255,      			/* fontcolor, transcolor,opaque */
-                                        NULL, NULL, penx, peny);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
-}
-
-
 /*--------------------------------------------
         Callback for mouse input
 Just update mouseXYZ
 ---------------------------------------------*/
 static void mouse_callback(unsigned char *mouse_data, int size)
 {
-//	int i;
 	int mdZ;
 	bool	start_pch=false;	/* True if mouseLeftKeyDown switch from false to true */
-	//bool	start_pch2=false;       /* True if start_pch==false,and mouseLeftKeyDown==true */
 
         /* 1. Check pressed key */
         if(mouse_data[0]&0x1) {
@@ -611,7 +572,7 @@ static void mouse_callback(unsigned char *mouse_data, int size)
         /* 4. Get mouse Z */
 	mdZ= (mouse_data[3]&0x80) ? mouse_data[3]-256 : mouse_data[3] ;
         mouseZ += mdZ;
-        //printf("get X=%d, Y=%d, Z=%d, dz=%d\n", mouseX, mouseY, mouseZ, mdZ);
+        //printf("get X=%d, Y=%d, Z=%d \n", mouseX, mouseY, mouseZ);
 	if( mdZ > 0 ) {
 		 FTcharmap_scroll_oneline_down(chmap);
 	}
@@ -628,7 +589,7 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 	   while( FTcharmap_locate_charPos( chmap, mouseMidX, mouseMidY )!=0 ){ tm_delayms(5);};
 
 	   /* set random mark color */
-	   FTcharmap_set_markcolor( chmap, egi_color_random(color_medium), 80);
+	 //  FTcharmap_set_markcolor( chmap, egi_color_random(color_medium), 60);
 
 	}
 	else if ( mouseLeftKeyDown && !start_pch ) {  /* chmap->pch2: To mark end of selection */
