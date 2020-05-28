@@ -187,8 +187,11 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
 	chmap->txtsize=txtsize+1;   /* +1 EOF */
 	chmap->pref=chmap->txtbuff; /* Init. pref pointing to txtbuff */
 
+	/* TEST */
+	printf(" --- TEST ---: sizeof(typeof(*chmap->txtdlinePos))=%d\n", sizeof(typeof(*chmap->txtdlinePos)) );
+
 	/* To allocate txtdlinePos */
-	chmap->txtdlines=1024;	/* Initial value,  to grow later ...*/
+	chmap->txtdlines=1024;	/* Initial value, Min>2, see mem_grow codes in FTcharmap_uft8strings_writeFB().*/
 	chmap->txtdlinePos=calloc(1, sizeof(typeof(*chmap->txtdlinePos))*(chmap->txtdlines) );
 	if( chmap->txtdlinePos == NULL) {
 		printf("%s: Fail to calloc chmap txtdlinePos!\n",__func__);
@@ -260,6 +263,40 @@ void FTcharmap_set_markcolor(EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, EGI_8
 
 	chmap->markcolor=color;
 	chmap->markalpha=alpha;
+}
+
+
+/*--------------------------------------------------------------
+Grow/realloc chmap->txtbuff more_size units.
+
+Return:
+	0	Ok
+	<0	Fails.
+---------------------------------------------------------------*/
+inline int FTcharmap_memGrow_txtbuff(EGI_FTCHAR_MAP *chmap, size_t more_size)
+{
+	int off;
+
+	if( chmap==NULL )
+		return -1;
+
+	/* Save current offset of pref */
+	off=chmap->pref-chmap->txtbuff;
+
+	/* Grow and initial reset to 0 in egi_mem_grow() */
+        if( egi_mem_grow( (void **)&chmap->txtbuff,
+                        sizeof(typeof(*chmap->txtbuff))*chmap->txtsize, sizeof(typeof(*chmap->txtbuff))*more_size ) !=0 )
+		return -2;
+        else {
+        	chmap->txtsize += more_size; /* size in units */
+
+		/*  --- Critical ---
+		 * Since chmap->pref is a pointer to chmap->txtbuff, so as chmap->txtbuff changes, It MUST adjust accordingly!
+		 */
+		chmap->pref = chmap->txtbuff+off;
+        }
+
+	return 0;
 }
 
 
@@ -489,6 +526,7 @@ TODO: 1. Alphabetic words are treated letter by letter, and they may be separate
 	 see 'EXCLUDE WARNING' in the function.
 
 @fbdev:         FB device
+		If NULL: Ignore to redraw bkgcolor and curosr!
 @chmap:		pointer to an EGI_FTCHAR_MAP
 @face:          A face object in FreeType2 library.
 @fh,fw:		Height and width of the wchar.
@@ -512,7 +550,7 @@ use following COLOR:
 #define SYM_NOTRANSP_COLOR -1  --- no transparent color defined for a symbol or font
 
 @opaque:        >=0     set aplha value (0-255) for all pixels, and alpha data in sympage
-			will be ignored.
+			will be ignored
                 <0      Use symbol alpha data, or none.
                 0       100% back ground color/transparent
                 255     100% front color
@@ -550,7 +588,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	int pchx=0;			/* if(chmap->fix_cursor), then save charXY[pch] */
 	int pchy=0;
 	int charlen;
-
+	struct timeval tm_now;
  	wchar_t wcstr[1];
 
 
@@ -598,16 +636,15 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 START_CHARMAP:	/* If follow_cursor, loopback here */
 
 	/* Draw/clear blank paper/canvas, not only when follow_cursor  */
-	if( chmap->bkgcolor >= 0) {
+	if( chmap->bkgcolor >= 0 && fb_dev != NULL ) {
 	       	fbset_color(chmap->bkgcolor);
        		draw_filled_rect(&gv_fb_dev, chmap->mapx0, chmap->mapy0,  chmap->mapx0+chmap->width, chmap->mapy0+chmap->height );
+		#if 1 /* Draw grids */
+	        fbset_color(WEGI_COLOR_GRAYB);
+        	for(k=0; k<=chmap->maplines; k++)
+                	draw_line(&gv_fb_dev, x0, y0+k*chmap->maplndis-1, x0+chmap->mappixpl-1, y0+k*chmap->maplndis-1);
+		#endif
 	}
-	/* Draw grids */
-	#if 0
-        fbset_color(WEGI_COLOR_GRAYB);
-        for(k=0; k<=chmap->maplines; k++)
-                draw_line(&gv_fb_dev, x0, y0+k*chmap->maplndis-1, x0+chmap->mappixpl-1, y0+k*chmap->maplndis-1);
-	#endif
 
 	/* Init pstr and p */
 	pstr=chmap->pref;  /* However, pref may be NULL */
@@ -624,7 +661,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 	if(pixpl==0 || lines==0)
 		return -4; //goto CHARMAP_END;
 
-	/* Must reset maplinePos[] and clear old data */
+	/* Must reset temp charmap vars and clear old data */
 	memset(chmap->maplinePos, 0, chmap->maplines*sizeof(typeof(*chmap->maplinePos)) );
 	memset(chmap->charPos, 0, chmap->mapsize*sizeof(typeof(*chmap->charPos)));
 	memset(chmap->charX, 0, chmap->mapsize*sizeof(typeof(*chmap->charX)) );
@@ -632,7 +669,6 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 
 	/* Reset/Init. charmap data, first maplinePos */
 	chmap->chcount=0;
-
 	chmap->maplncount=0;
 	chmap->maplinePos[chmap->maplncount]=0; /* relative to chmap->pref */
 	chmap->maplncount++;	/* MAPLNCOUNT_PRE_INCREMENT */
@@ -641,8 +677,27 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 	/* NOTE: !!! chmap->txtdlncount=xxx, MUST preset before calling this function */
 	chmap->txtdlinePos[chmap->txtdlncount++]=chmap->pref-chmap->txtbuff;
 
-
 	while( *p ) {
+
+		/* Check txtdlncount and mem_grow txtdlinePos[] if necessary. */
+		 if(chmap->txtdlncount >= chmap->txtdlines-2) {  /* ==chmap->txtdlines-1-1, -1 for allowance. */
+			EGI_PDEBUG(DBG_CHARMAP,"txtdlncount=%d, txtdlines=%d, maplncount=%d, mem_grow chmap->txtdlinePos...\n",
+										chmap->txtdlncount, chmap->txtdlines,chmap->maplncount);
+			/* Grow chmap->txtdlinePos[], initial reset to 0 in egi_mem_grow() */
+			if( egi_mem_grow( (void **)&chmap->txtdlinePos,
+			      sizeof(typeof(*chmap->txtdlinePos))*chmap->txtdlines, sizeof(typeof(*chmap->txtdlinePos))*TXTDLINES_GROW_SIZE ) !=0 )
+			{
+				printf("%s: Fail to mem_grow chmap->txtdlinePos from %d to %d units more!\n",
+											   __func__, chmap->txtdlines, TXTDLINES_GROW_SIZE);
+	  	/*  <-------- Put mutex lock */
+	  			pthread_mutex_unlock(&chmap->mutex);
+				return -5;
+			}
+			else {
+				chmap->txtdlines += TXTDLINES_GROW_SIZE;  /* size in units */
+				printf("%s: OK, mem_grow champ->txtdlines to %d\n", __func__, chmap->txtdlines);
+			}
+		}
 
 		/* --- check whether lines are used up --- */
 		if( lines < ln+1) {  /* ln index from 0, lines size_t */
@@ -668,6 +723,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 			count++;
 		}
 		else {	/* If fails, try to step 1 byte forward to locate next recognizable unicode wchar */
+			printf("%s: WARNING! char_size < 0!\n",__func__);
 			p++;
 			continue;
 		}
@@ -692,7 +748,6 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 					/* set txtdlinePos[] */
 					if(chmap->txtdlncount < chmap->txtdlines-1 )
 						chmap->txtdlinePos[chmap->txtdlncount++]=p-(chmap->txtbuff); /* keep p+size */
-					//else grow space ...
 				}
 			}
 
@@ -717,7 +772,6 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 
 		/* write unicode bitmap to FB, and get xleft renewed. */
 		px=x0+pixpl-xleft;
-		//printf("%s:unicode_writeFB...\n", __func__);
 		if( chmap->maskchar !=0 ) {
 			/* Display */
 			FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, chmap->maskchar, &xleft,
@@ -741,7 +795,6 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
                                         /* set txtdlinePos[] */
 					if(chmap->txtdlncount < chmap->txtdlines-1)
 	                                        chmap->txtdlinePos[chmap->txtdlncount++]=p-(chmap->txtbuff)-size;
-					//else grow space ....
 				}
 				else /* xleft==0 */ {
 					/* set maplinePos[] */
@@ -750,7 +803,6 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 					if(chmap->txtdlncount < chmap->txtdlines-1)
                                         	chmap->txtdlinePos[chmap->txtdlncount++]=p-(chmap->txtbuff);
 				}
-				//chmap->maplncount++;  /* Increment after */
 			}
 
 			/* Fail to  writeFB. reel back pointer p, only if xleft<0 */
@@ -879,10 +931,14 @@ CHARMAP_END:
 		EGI_PDEBUG(DBG_CHARMAP,"Continue charmapping to follow cursor...\n");
 
 		/* PRE_1: set txtdlncount: noticed that now chmap->txtdlinePos[txtdlncount]==chmap->maplinePos[0] */
-		if( chmap->pchoff > off+chmap->charPos[chmap->chcount-1] )
+		if( chmap->pchoff > off+chmap->charPos[chmap->chcount-1] ) {
+			EGI_PDEBUG(DBG_CHARMAP,"Scroll down to follow cursor...\n");
 			chmap->txtdlncount++;	/* Scroll down */
-		else if ( chmap->pchoff < off+chmap->charPos[0] )
+		}
+		else if ( chmap->pchoff < off+chmap->charPos[0] ) {
+			EGI_PDEBUG(DBG_CHARMAP,"Scroll up to follow cursor...\n");
 			chmap->txtdlncount--;	/* Scroll up */
+		}
 		else
 			printf("%s: chmap->pch ERROR!\n", __func__);
 
@@ -921,8 +977,7 @@ CHARMAP_END:
 		FTcharmap_mark_selection(fb_dev, chmap);
 
 	/* 8. Draw blinking cursor */
-	struct timeval tm_now;
-	if( chmap->draw_cursor != NULL )
+	if( chmap->draw_cursor != NULL && fb_dev!=NULL )
 	{
 		/* Draw cursor first, so you may manually turn on cursor_on. */
 		if( chmap->cursor_on && chmap->pch>=0 )
@@ -2526,10 +2581,10 @@ int FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap )
 
 
 /*---------------------------------------------------------------
-If cursor OR head of selection NOT in current charmap:
-	Set to scroll to dline where it located.
-Else:
-	Insert a char(ASCII or UFT-8 encoding) into the chmap->txtbuff.
+1. If cursor OR head of selection NOT in current charmap,
+   Set to scroll to dline where it located.
+2. If selection marked, delete all selected chars first.
+3. Then insert a char(ASCII or UFT-8 encoding) into the chmap->txtbuff.
 
 			!!! --- WARNING --- !!!
 
@@ -2547,7 +2602,6 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 {
 	int chsize;  /* Size of inserted char */
 	int off;
-	int minoff;  /* Min(pchoff, pch2off) */
 	int dln;
 	int startPos, endPos;
 	//int chns;    /* Total number of inserted chars, ==1 NOW */
@@ -2589,18 +2643,22 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 	/* 0. Get totabl number of inserting char */
 	//chns=1;			/* 1 char only NOW */
 
-	/* 1. Check txtbuff space */
-	if( chmap->txtlen +chsize > chmap->txtsize-1 ) {
-		printf("%s: chmap->txtbuff is full! Fail to insert char. chmap->txtlen=%d, chmap->txtsize-1=%d \n",
-										 __func__, chmap->txtlen, chmap->txtsize-1);
-		chmap->errbits |= CHMAPERR_TXTSIZE_LIMIT;
-		/* TODO: txtsize auto. grow */
+	/* 1. Check txtbuff space, and auto mem_grow if necessary. */
+	if( chmap->txtlen +chsize > chmap->txtsize-1 -1) {
 
-        /*  <-------- Put mutex lock */
-        	pthread_mutex_unlock(&chmap->mutex);
-		return -4;
+		//chmap->errbits |= CHMAPERR_TXTSIZE_LIMIT;
+                EGI_PDEBUG(DBG_CHARMAP,"chmap->txtbuff is full! txtlen=%d + chsize=%d > txtsize-1=%d, mem_grow chmap->txtbuff...\n",
+                                                                                	chmap->txtlen, chsize,chmap->txtsize-1);
+		if( FTcharmap_memGrow_txtbuff(chmap, TXTBUFF_GROW_SIZE) !=0 )
+		{
+                	printf("%s: Fail to mem_grow chmap->txtbuff from %d to %d units more!\n",
+									__func__, chmap->txtsize, TXTBUFF_GROW_SIZE);
+       		/*  <-------- Put mutex lock */
+		        	pthread_mutex_unlock(&chmap->mutex);
+				return -4;
+		}
+                EGI_PDEBUG(DBG_CHARMAP,"OK, mem_grow champ->txtbuff to %d units.\n", chmap->txtsize);
 	}
-
 	//printf("current chmap->pch=%d\n", chmap->pch);
 
 	/* 1. If head of selection (pchoff or pchoff2) Not in current charmap page, set to scroll to */
@@ -2632,11 +2690,11 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 			/* --- Do nothing! --- */
 		}
 		else {
-       	        		/* PRE_: Update chmap->txtdlncount */
-				chmap->txtdlncount=dln;
-        		        /* PRE_: Update chmap->pref */
-	                	chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
-				/* In charmapping, chmap->pch will be updated according to chmap->pchoff */
+       			/* PRE_: Update chmap->txtdlncount */
+			chmap->txtdlncount=dln;
+        		/* PRE_: Update chmap->pref */
+	                chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+			/* In charmapping, chmap->pch will be updated according to chmap->pchoff */
 		}
 	}
 
@@ -2668,7 +2726,6 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 		printf("%s: Insert a char at EOF.\n", __func__);
 
 		/* 1 Insert char to the EOF, notice that charPos[] have not been updated yet, it holds just insterting pos. */
-		//strncpy((char *)chmap->pref+chmap->charPos[chmap->pch], ch, chsize);
 		strncpy((char *)chmap->txtbuff+chmap->pchoff, ch, chsize);
 
 		/* 2 --- Always reset txtbuff EOF here! ----
@@ -2676,8 +2733,7 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 		 * So after deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes need to be cleared.
 		 * For the case, we insert the char just at the fore-mentioned position of '\0', and the next byte may be NOT '\0'!
 		 */
-		//chmap->pref[chmap->charPos[chmap->pch]+chsize]='\0';
-		chmap->txtbuff[chmap->pchoff]='\0';
+		chmap->txtbuff[chmap->pchoff+chsize]='\0';
 
 		/* 3 Update chmap->txtlen: size check at beginning. */
 		chmap->txtlen +=chsize;
@@ -2690,15 +2746,10 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 		//printf("%s: Insert at chmap->pch=%d of chcount=%d\n", __func__,chmap->pch, chmap->chcount);
 
 		/* 1 Move string forward to leave space for the inserting char */
-
-		//memmove(chmap->pref+chmap->charPos[chmap->pch]+chsize, chmap->pref+chmap->charPos[chmap->pch],
-		//					strlen((char *)(chmap->pref+chmap->charPos[chmap->pch] )) +1);
-
 		memmove(chmap->txtbuff+chmap->pchoff+chsize, chmap->txtbuff+chmap->pchoff,
 							strlen((char *)(chmap->txtbuff+chmap->pchoff)) +1);
 
 		/* 2 Insert the char, notice that charPos[] have not been updated yet, it holds just  insterting pos. */
-		//strncpy((char *)chmap->pref+chmap->charPos[chmap->pch], ch, chsize);
 		strncpy((char *)chmap->txtbuff+chmap->pchoff, ch, chsize);
 
 		/* 3 Update chmap->txtlen: size check at beginning. */
@@ -2709,28 +2760,15 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 	      *  (here chmap->pch is preset as above ), then we need to scroll one line down to update the cursor.
 	      *  we'll need pchoff to locate the typing position in charmapping function.
 	      */
-	     //chmap->pchoff=off+chmap->charPos[chmap->pch]+chsize; /* : NOW typing/inserting cursor position relative to txtbuff */
 	     chmap->pchoff += chsize; 	       /* : NOW typing/inserting cursor position relative to txtbuff */
 	     chmap->pchoff2 = chmap->pchoff;  /* interlocked with pchoff */
 	     //printf("%s: pchoff2=phoff=%d \n",__func__, chmap->pchoff);
 
-	     /* TODO: ONLY if pchoff out of current charmap, or newline '\n',  scroll down one dline then.... */
-	     /* If at the end of charmap(may still in current charmap), then scroll down,
-	      * if chmap->maplines==1!, then txtdlinePos[+1] MAY have NO data!!
+	     /* If pchoff out of current charmap, or newline '\n',  scroll down one dline then....
+	      * if chmap->maplines==1!, then txtdlinePos[+1] MAY have NO data!
+	      * Set follow_cursor to force to scroll in charmapping until cursor/pchoff get into current charmap.
 	      */
 	     chmap->follow_cursor=true;
-
-	     #if 0
-	     if(chmap->pch == chmap->chcount-1 && chmap->maplines >1 ) {
-        	        /* PRE_: Update chmap->txtdlncount */
-			chmap->txtdlncount +=1;
-       		        /* PRE_: Update chmap->pref */
-                	chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
-	     }
-	     #endif
-	     /* ELSE if (chmap->maplines==1), then after insertion chmap->pch will not in current charmap page,
-	      * and it will scroll to dline first, see above in if(chmap->pch<0) { ,,,,}  */
-
 	}
 
 	/* Keep cursor on */

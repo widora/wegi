@@ -135,18 +135,22 @@ struct  FTsymbol_char_map {
 	unsigned int	errbits;		/* to record types of errs that have gone through.  */
 	pthread_mutex_t mutex;      		/* mutex lock for charmap */
 
-	unsigned char	*txtbuff;		/* txt buffer */
 	int		txtsize;		/* Size of txtbuff mem space allocated, in bytes */
+	unsigned char	*txtbuff;		/* txt buffer, auto mem_grow. */
+	#define TXTBUFF_GROW_SIZE       64      /* Auto. mem_grow size for chmap->txtbuff[] */
+
 	int		txtlen;			/* strlen of txtbuff, exclude '\0', need to be updated if content of txtbuff changed.  */
 
 	/* disline/dline: displayed/charmapped line, A line starts/ends at displaying window left/right end side.
 	 * retline: A line starts/ends by a new line token '\n'.
 	 */
-	int		txtdlines;		/* LIMIT: Size of txtdlinePos[]  */
+	int		txtdlines;		/* LIMIT: Size of txtdlinePos[], auto mem_grow.  */
 	unsigned int	*txtdlinePos;		/* An array to store offset position(relative to txtbuff) of each txt dlines, which
 						 * have already been charmapped, and MAYBE not displayed in the current charmap.
 					         */
-	int		txtdlncount;		/* displayed/charmapped line count, for txtbuff
+	#define TXTDLINES_GROW_SIZE     1024    /* Auto. mem_grow size for chmap->txtdlines and chmap->txtdlinePos[] */
+
+	int		txtdlncount;		/* displayed/charmapped line count, for all txtbuff
 						 * 			--- NOTE ---
 						 * 1. ALWAYS set txtdlncount to the start/right position before calling FTcharmap_uft8strings_writeFB(),
 						 *     			--- IMPORTANT ---
@@ -159,8 +163,10 @@ struct  FTsymbol_char_map {
 						 * 3. Only a line_shift OR page_shift action can change/reset the value of txtdlncount.
 						 */
 
-
-	int	 	bkgcolor;		 /* background/paper color. <0, ignore no bkg color, >=0 set as EGI_16BIT_COLOR */
+	int	 	bkgcolor;		 /* background/paper color.
+						  * If bkgcolor<0, ignore. no bkg color,
+						  * Else if bkgcolor>=0 set as EGI_16BIT_COLOR
+						  */
 	EGI_16BIT_COLOR fontcolor;		 /* font color */
 
 	EGI_16BIT_COLOR	markcolor;		 /* Selection mark color */
@@ -254,7 +260,6 @@ struct  FTsymbol_char_map {
 
 	/* Extension: color,size,...*/
 
-
 	#define CURSOR_BLINK_INTERVAL_MS 500 	/* typing_cursor blink interval in ms, cursor ON and OFF duration time, same.*/
 	bool		cursor_on;		/* To turn ON cursor */
 	struct timeval tm_blink;		/* For cursor blinking timimg */
@@ -266,7 +271,7 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
                                  size_t mapsize, size_t maplines, size_t mappixpl, int maplndis );
 
 void 	FTcharmap_set_markcolor(EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha);
-
+int 	FTcharmap_memGrow_txtbuff(EGI_FTCHAR_MAP *chmap, size_t more_size);
 int 	FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize);
 int 	FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap);	/* mutex_lock */
 

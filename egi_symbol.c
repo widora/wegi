@@ -764,7 +764,7 @@ use following COLOR:
 		>255	alpha=255
 
 -----------------------------------------------------------------------------------------*/
-void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
+inline void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 		int fontcolor, int transpcolor, int x0, int y0, unsigned int sym_code, int opaque)
 {
 	/* check data */

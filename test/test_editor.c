@@ -72,9 +72,8 @@ midaszhou@yahoo.com
 #include "egi_FTcharmap.h"
 #include "egi_FTsymbol.h"
 #include "egi_cstring.h"
+#include "egi_utils.h"
 
-
-//#define 	BLINK_INTERVAL_MS	500	/* typing_cursor blink interval in ms */
 #define 	CHMAP_TXTBUFF_SIZE	64//1024     /* 256,text buffer size for EGI_FTCHAR_MAP.txtbuff */
 #define		CHMAP_SIZE		256  /* NOT less than Max. total number of chars (include '\n's and EOF) that may displayed in the txtbox */
 
@@ -226,6 +225,24 @@ int main(int argc, char **argv)
 				CHMAP_SIZE, tlns, 320-20-2*smargin, fh+fgap);   /* mapsize, lines, pixpl, lndis */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 
+	#if  0 /* TEST: mem_grow() */
+        if( egi_mem_grow( chmap->txtdlinePos,
+                          sizeof(typeof(*chmap->txtdlinePos))*chmap->txtdlines, sizeof(typeof(*chmap->txtdlinePos))*1024 ) !=0 )
+	{
+                         printf("%s: Fail to mem_grow chmap->txtdlinePos from %d to 1024 units more!\n",__func__, chmap->txtdlines);
+	}
+        else {
+        	chmap->txtdlines += 1024;
+                printf("%s: Grow champ->txtdlines to %d\n", __func__, chmap->txtdlines);
+        }
+	int i;
+ 	for(i=0; i<2048; i++)
+		chmap->txtdlinePos[i]=8888;
+	 printf("txtdlinePos[1555]=%d\n",chmap->txtdlinePos[1555]);
+	 printf("txtdlinePos[2047]=%d\n",chmap->txtdlinePos[2047]);
+	 exit(0);
+	#endif //////////////////////
+
 	/* Load file to chmap */
 	if( argc>1 ) {
 		if(FTcharmap_load_file(argv[1], chmap, CHMAP_TXTBUFF_SIZE) !=0 )
@@ -265,9 +282,17 @@ int main(int argc, char **argv)
 //	gettimeofday(&tm_blink,NULL);
 
 	/* To fill initial charmap and get penx,peny */
-	FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, &penx, &peny);
+	FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL, NULL); //&penx, &peny);
 	fb_render(&gv_fb_dev);
 
+	/* Charmap to the end */
+	while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
+	{
+		FTcharmap_page_down(chmap);
+		FTcharmap_writeFB(NULL, 0, NULL, NULL); //&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL); //&penx, &peny);
+		//fb_render(&gv_fb_dev);
+	}
+	printf("Loop editing...\n");
 
 	/* Loop editing ...   Read from TTY standard input, without funcion keys on keyboard ...... */
 	while(1) {
@@ -417,7 +442,8 @@ int main(int argc, char **argv)
 			printf("WARNING: chmap->errbits=%#x \n",chmap->errbits);
 		}
 
-        	draw_mcursor(mouseMidX, mouseMidY);
+		//printf("Draw mcursor......\n");
+       		draw_mcursor(mouseMidX, mouseMidY);
 
 		/* Render and bring image to screen */
 		fb_render(&gv_fb_dev);
@@ -515,7 +541,7 @@ static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int
 
        	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,          	/* FBdev, charmap*/
                                         egi_sysfonts.regular, fw, fh,   /* fontface, fw,fh */
-                                        color, -1, 255,      		/* fontcolor, transcolor,opaque */
+	                                        color, -1, 255,      		/* fontcolor, transcolor,opaque */
                                         NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
         /* Double check! */

@@ -7,6 +7,7 @@ Utility functions, mem.
 
 
 Midas Zhou
+midaszhou@yahoo.com
 -----------------------------------------------------------------*/
 #include "egi_utils.h"
 #include "egi_log.h"
@@ -35,6 +36,34 @@ inline void egi_free_char(char **p)
 		free(*p);
 		*p=NULL;
 	}
+}
+
+
+/*--------------------------------------------------------
+Reallocate more memory space for then pointed memory block.
+
+@ptr:	    P*Pointer to memory block.
+@old_size:  Original size of the memory block, in bytes.
+@more_size: More size for the memory block, inbytes.
+
+Return:
+	0	OK
+	<0	Fails, the original memory block left untouched.
+
+-----------------------------------------------------------*/
+int egi_mem_grow(void **ptr, size_t old_size, size_t more_size)
+{
+	void *ptmp;
+
+	if( (ptmp=realloc( *ptr, old_size+more_size)) == NULL )
+		return -1;
+	else
+		*ptr=ptmp;
+
+	/* realloc will not initiliaze added memory */
+	memset( ptmp+old_size, 0, more_size);
+
+	return 0;
 }
 
 

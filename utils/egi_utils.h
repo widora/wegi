@@ -19,6 +19,7 @@ Midas Zhou
 #define EGI_FEXTBUFF_MAX 16 /* Max items of separated extension names  */
 
 void 	egi_free_char(char **p);
+int 	egi_mem_grow(void **ptr, size_t old_size, size_t more_size);
 int 	egi_shuffle_intArray(int *array, int size);
 int 	egi_util_mkdir(char *dir, mode_t mode);
 int 	egi_copy_file(char const *fsrc_path, char const *fdest_path);

@@ -820,7 +820,7 @@ use following COLOR:
                 0       100% back ground color/transparent
                 255     100% front color
 --------------------------------------------------------------------------------------------------*/
-void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar_t wcode, int *xleft,
+inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar_t wcode, int *xleft,
 				int x0, int y0, int fontcolor, int transpcolor,int opaque )
 {
   	FT_Error      error;
@@ -915,7 +915,6 @@ void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar
 
 	/* write to FB,  symcode =0, whatever  */
 	if(fb_dev != NULL) {
-		//printf("%s: symbol_writeFB...\n",__func__);
 		symbol_writeFB(fb_dev, &ftsympg, fontcolor, transpcolor, x0+delX, y0+delY, 0, opaque);
 	}
 }
