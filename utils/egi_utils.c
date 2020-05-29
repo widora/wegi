@@ -10,6 +10,7 @@ Midas Zhou
 midaszhou@yahoo.com
 -----------------------------------------------------------------*/
 #include "egi_utils.h"
+#include "egi_debug.h"
 #include "egi_log.h"
 #include "egi_math.h"
 #include "egi_cstring.h"
@@ -21,7 +22,7 @@ midaszhou@yahoo.com
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <libgen.h>
 
@@ -40,16 +41,15 @@ inline void egi_free_char(char **p)
 
 
 /*--------------------------------------------------------
-Reallocate more memory space for then pointed memory block.
+Reallocate more memory space for the pointed memory block.
 
-@ptr:	    P*Pointer to memory block.
+@ptr:	    *Pointer to memory block.
 @old_size:  Original size of the memory block, in bytes.
-@more_size: More size for the memory block, inbytes.
+@more_size: More size for the memory block, in bytes.
 
 Return:
 	0	OK
 	<0	Fails, the original memory block left untouched.
-
 -----------------------------------------------------------*/
 int egi_mem_grow(void **ptr, size_t old_size, size_t more_size)
 {
@@ -67,9 +67,220 @@ int egi_mem_grow(void **ptr, size_t old_size, size_t more_size)
 }
 
 
+/*---------------------------------------------------------
+Copy pstr pointed content to EGI SYSPAD, which is acutually
+a file. It truncates the file to zero length first,
+so old data will lost.
+
+@pstr:	Pointer to content for copying to EGI_SYSPAD
+@size: 	Size for copy_to  operation, in bytes.
+
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------------------*/
+int egi_copy_to_syspad( const unsigned char *pstr, size_t size)
+{
+	FILE *fil=NULL;
+	int nwrite;
+	int ret=0;
+
+	if(pstr==NULL)
+		return -1;
+
+	if( (fil=fopen(EGI_SYSPAD_PATH,"we"))==NULL) {
+		printf("%s: Fail to open EGI SYSPAD '%s' for copy_to operation!\n",__func__, EGI_SYSPAD_PATH);
+		return -2;
+	}
+
+        nwrite=fwrite(pstr, 1, size, fil);
+        if(nwrite < size) {
+                if(ferror(fil))
+                        printf("%s: Fail to copy to EGI_SYSPAD '%s'.\n", __func__, EGI_SYSPAD_PATH);
+                else
+                        printf("%s: WARNING! fwrite %d bytes of total %d bytes to EGI SYSPAD.\n", __func__, nwrite, size);
+                ret=-3;
+        }
+        EGI_PDEBUG(DBG_CHARMAP,"%d bytes copy_to EGI SYSPAD.\n", nwrite);
+
+        /* Close fil */
+        if( fclose(fil) !=0 ) {
+                printf("%s: Fail to close EGI SYSPAD '%s': %s\n", __func__, EGI_SYSPAD_PATH, strerror(errno));
+                ret=-4;
+        }
+
+	return ret;
+}
+
+
+/*----------------------------------------------
+Copy content in EGI_SYSPAD to pstr pointed mem.
+
+WARNING! The caller must ensure enough mem space
+pointed by pstr.
+
+@pstr:	Pointer to receiving buffer.
+
+Return:
+	0	OK
+	<0	Fails
+----------------------------------------------*/
+int egi_copy_from_syspad(unsigned char *pstr)
+{
+	FILE *fil=NULL;
+	int nread;
+	int ret=0;
+	int fsize;
+	struct stat sb;
+
+	if(pstr==NULL)
+		return -1;
+
+	if( (fil=fopen(EGI_SYSPAD_PATH,"re"))==NULL) {
+		printf("%s: Fail to open EGI SYSPAD '%s' for copy_from operation!\n",__func__, EGI_SYSPAD_PATH);
+		return -2;
+	}
+
+        /* Obtain file stat */
+        if( fstat( fileno(fil), &sb )<0 ) {
+                printf("%s: Fail call fstat for EGI_SYSPAD '%s': %s\n", __func__, EGI_SYSPAD_PATH, strerror(errno));
+        	if( fclose(fil) !=0 )
+                	printf("%s: Fail to close EGI SYSPAD '%s': %s\n", __func__, EGI_SYSPAD_PATH, strerror(errno));
+                return -3;
+        }
+        fsize=sb.st_size;
+
+	/* Read content */
+        nread=fread(pstr, 1, fsize, fil);
+        if(nread < fsize) {
+                if(ferror(fil))
+                        printf("%s: Fail to copy from EGI_SYSPAD '%s'.\n", __func__, EGI_SYSPAD_PATH);
+                else
+                        printf("%s: WARNING! fread %d bytes of total %d bytes from EGI SYSPAD.\n", __func__, nread, fsize);
+                ret=-3;
+        }
+        EGI_PDEBUG(DBG_CHARMAP,"%d bytes cop_to EGI SYSPAD.\n", nread);
+
+        /* Close fil */
+        if( fclose(fil) !=0 ) {
+                printf("%s: Fail to close EGI SYSPAD '%s': %s\n", __func__, EGI_SYSPAD_PATH, strerror(errno));
+                ret=-4;
+        }
+
+	return ret;
+}
+
+
+/*-----------------------------------------------
+Create an EGI_SYSPAD_BUFF struct
+
+@size:	Size of buffer.
+
+Return:
+	A pointer to EGI_SYSPAD_BUFF	OK
+	NULL				Fails
+------------------------------------------------*/
+EGI_SYSPAD_BUFF *egi_sysPadBuff_create(size_t size)
+{
+	EGI_SYSPAD_BUFF *padbuff=NULL;
+
+	if(size<=0)
+		return NULL;
+
+	padbuff=calloc(1, sizeof(EGI_SYSPAD_BUFF));
+	if(padbuff==NULL) {
+		printf("%s: Fail to calloc padbuff!\n",__func__);
+		return NULL;
+	}
+
+	padbuff->data=calloc(1, sizeof(typeof(*padbuff->data))*size);
+	if(padbuff->data==NULL) {
+		printf("%s: Fail to calloc padbuff->data!\n",__func__);
+		free(padbuff);
+		return NULL;
+	}
+
+	return padbuff;
+}
+
+/*-----------------------------------------------
+	Free an EGI_SYSPAD_BUFF struct
+------------------------------------------------*/
+void egi_sysPadBuff_free(EGI_SYSPAD_BUFF **padbuff)
+{
+	if(padbuff==NULL || *padbuff==NULL)
+		return;
+
+	free( (*padbuff)->data );
+	free(*padbuff);
+
+	*padbuff=NULL;
+}
+
+
+/*----------------------------------------------
+Copy content in EGI_SYSPAD to an EG_SYSPAD_BUFF.
+
+Return:
+	An pointer to EGI_SYSPAD_BUFF	OK
+	NULL				Fails
+----------------------------------------------*/
+EGI_SYSPAD_BUFF *egi_buffer_syspad(void)
+{
+	EGI_SYSPAD_BUFF *padbuff=NULL;
+	int fd;
+	char *fp=MAP_FAILED; /* as token */
+	int fsize;
+	struct stat sb;
+
+        /* Mmap input file */
+        fd=open(EGI_SYSPAD_PATH, O_CREAT|O_RDWR|O_CLOEXEC);
+        if(fd<0) {
+                printf("%s: Fail to open EGI_SYSPAD_PATH '%s': %s\n", __func__, EGI_SYSPAD_PATH, strerror(errno));
+                return NULL;
+        }
+        /* Obtain file stat */
+        if( fstat(fd,&sb)<0 ) {
+                printf("%s: Fail to get fstat for EGI_SYSPAD_PATH: %s\n", __func__, strerror(errno));
+		goto FUNC_END;
+        }
+	/* Get file size */
+        fsize=sb.st_size;
+
+        /* Only if fsize>0: mmap SYSPAD file */
+        if(fsize >0) {
+                fp=mmap(NULL, fsize, PROT_READ, MAP_PRIVATE, fd, 0);
+                if(fp==MAP_FAILED) {
+                        printf("%s: Fail to mmap EGI_SYSPAD_PATH: %s\n", __func__, strerror(errno));
+			goto FUNC_END;
+		}
+        }
+
+	/* Create EGI_SYSPAD_BUFF */
+	padbuff=egi_sysPadBuff_create(fsize);
+	if(padbuff==NULL) {
+		printf("%s: Fail to create padbuff!\n",__func__);
+		goto FUNC_END;
+	}
+
+	/* TODO: verify uft-8 encoding for padbuff->data */
+
+
+FUNC_END:
+        /* munmap file */
+        if( fp!=MAP_FAILED ) {
+		if( munmap(fp,fsize) !=0 )
+                	printf("%s: Fail to munmap SYSPAD file '%s': %s!\n",__func__, EGI_SYSPAD_PATH, strerror(errno));
+	}
+        if( close(fd) !=0 )
+                printf("%s: Fail to close SYSPAD file '%s': %s!\n",__func__, EGI_SYSPAD_PATH, strerror(errno));
+
+	return padbuff;
+}
+
+
 /*---------------------------------------------
 Shuffle an integer array.
-
 @size:	size of array.
 @in:	Input array
 @out:	Shuffled array.
@@ -143,6 +354,7 @@ int egi_util_mkdir(char *dir, mode_t mode)
 
         return mkdir(dir,mode);
 }
+
 
 
 /*---------------------------------------------

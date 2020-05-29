@@ -18,10 +18,29 @@ Midas Zhou
 #define EGI_FEXTNAME_MAX 10 /* !!! exclude '.', length of extension name */
 #define EGI_FEXTBUFF_MAX 16 /* Max items of separated extension names  */
 
+
+/* A file, functions as the system memo pad, for copy/paste operation */
+#define EGI_SYSPAD_PATH "/tmp/.egi_syspad"
+
+
+/* EGI SYSPAD buffer struct */
+typedef struct {
+	unsigned char*	data;
+	size_t		size;
+} EGI_SYSPAD_BUFF;
+EGI_SYSPAD_BUFF *egi_sysPadBuff_create(size_t size);
+void 		egi_sysPadBuff_free(EGI_SYSPAD_BUFF **padbuff);
+EGI_SYSPAD_BUFF *egi_buffer_syspad(void);
+int 		egi_copy_to_syspad(const unsigned char *pstr, size_t size);
+int 		egi_copy_from_syspad(unsigned char *pstr);
+
+
 void 	egi_free_char(char **p);
 int 	egi_mem_grow(void **ptr, size_t old_size, size_t more_size);
+
 int 	egi_shuffle_intArray(int *array, int size);
 int 	egi_util_mkdir(char *dir, mode_t mode);
+
 int 	egi_copy_file(char const *fsrc_path, char const *fdest_path);
 unsigned char** egi_malloc_buff2D(int items, int item_size) __attribute__((__malloc__));
 int 	egi_realloc_buff2D(unsigned char ***buff, int old_items, int new_items, int item_size);
