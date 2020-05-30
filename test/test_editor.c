@@ -3,7 +3,7 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-An example of a simple editor, read input from termios and put it on to
+mouseXAn example of a simple editor, read input from termios and put it on to
 the screen.
 
 
@@ -115,8 +115,12 @@ static EGI_FTCHAR_MAP *chmap;	/* FTchar map to hold char position data */
 static unsigned int chns;	/* total number of chars in a string */
 
 static bool mouseLeftKeyDown;
+static bool start_pch=false;	/* True if mouseLeftKeyDown switch from false to true */
 static int  mouseX, mouseY, mouseZ; /* Mouse point position */
 static int  mouseMidX, mouseMidY;   /* Mouse cursor mid position */
+static int  menuX0, menuY0;
+static bool RCMenuActive;	/* Right_click_menu_is_active */
+static bool WTBMenuActive;	/* Window_top_bar_menu_is_active */
 
 static int fw=18;	/* Font size */
 static int fh=20;
@@ -126,11 +130,22 @@ static int tlns;  //=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total avail
 static int penx;	/* Pen position */
 static int peny;
 
+/* Component elements in the APP, Only one of them is active at one point. */
+enum CompElem
+{
+	CompNone=0,
+	CompTXTBox,	/* Txtbox */
+	CompRCMenu,	/* Right click menu */
+	CompWTBMenu,	/* Window top bar menu */
+};
+static enum CompElem ActiveComp;  /* Active component element */
+
 static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void mouse_callback(unsigned char *mouse_data, int size);
 static void draw_mcursor(int x, int y);
-
+static void draw_RCMenu(int x0, int y0);  /* Draw right_click menu */
+static void draw_WTBMenu(int x0, int y0); /* Draw window_top_bar menu */
 
 int main(int argc, char **argv)
 {
@@ -215,6 +230,7 @@ int main(int argc, char **argv)
 	int retval;
 	struct timeval tmval;
 
+	ActiveComp=CompTXTBox;
 
 	/* Total available lines of space for displaying chars */
 	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/(fh+fgap);
@@ -224,24 +240,6 @@ int main(int argc, char **argv)
 		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
 				CHMAP_SIZE, tlns, 320-20-2*smargin, fh+fgap);   /* mapsize, lines, pixpl, lndis */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
-
-	#if  0 /* TEST: mem_grow() */
-        if( egi_mem_grow( chmap->txtdlinePos,
-                          sizeof(typeof(*chmap->txtdlinePos))*chmap->txtdlines, sizeof(typeof(*chmap->txtdlinePos))*1024 ) !=0 )
-	{
-                         printf("%s: Fail to mem_grow chmap->txtdlinePos from %d to 1024 units more!\n",__func__, chmap->txtdlines);
-	}
-        else {
-        	chmap->txtdlines += 1024;
-                printf("%s: Grow champ->txtdlines to %d\n", __func__, chmap->txtdlines);
-        }
-	int i;
- 	for(i=0; i<2048; i++)
-		chmap->txtdlinePos[i]=8888;
-	 printf("txtdlinePos[1555]=%d\n",chmap->txtdlinePos[1555]);
-	 printf("txtdlinePos[2047]=%d\n",chmap->txtdlinePos[2047]);
-	 exit(0);
-	#endif //////////////////////
 
 	/* Load file to chmap */
 	if( argc>1 ) {
@@ -259,8 +257,9 @@ int main(int argc, char **argv)
         mouseY=gv_fb_dev.pos_yres/2;
 
         /* Init. FB working buffer */
-        fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_DARKGRAY); //GRAY4);
-	FTsymbol_writeFB("EGI Editor",120,5,WEGI_COLOR_LTBLUE, NULL, NULL);
+        fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY4);
+	FTsymbol_writeFB("File  Help",20,5,WEGI_COLOR_WHITE, NULL, NULL);
+	FTsymbol_writeFB("EGI记事本",140,5,WEGI_COLOR_LTBLUE, NULL, NULL);
 
 	/* Draw blank paper + margins */
 	fbset_color(WEGI_COLOR_WHITE);
@@ -290,6 +289,8 @@ int main(int argc, char **argv)
 	{
 		FTcharmap_page_down(chmap);
 		FTcharmap_writeFB(NULL, 0, NULL, NULL); //&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL); //&penx, &peny);
+		if(chmap->txtdlncount > 300)
+			break;
 		//fb_render(&gv_fb_dev);
 	}
 	printf("Loop editing...\n");
@@ -391,10 +392,14 @@ int main(int argc, char **argv)
 
 		else if ( ch==CTRL_F) {		/* Save chmap->txtbuff */
 			printf("Saving chmap->txtbuff to a file...");
-			if( argc > 1)
+			if( argc > 1) {
 				FTcharmap_save_file(argv[1], chmap);
-			else
+				egi_copy_to_syspad( chmap->txtbuff, chmap->txtlen);
+			}
+			else {
 				FTcharmap_save_file("/tmp/hello.txt", chmap);
+				egi_copy_to_syspad( chmap->txtbuff, chmap->txtlen);
+			}
 			ch=0;
 		}
 
@@ -442,13 +447,58 @@ int main(int argc, char **argv)
 			printf("WARNING: chmap->errbits=%#x \n",chmap->errbits);
 		}
 
+	   /* --- Handle Active Menu: active_menu_handle --- */
+	   switch( ActiveComp )
+	   {
+		/* Righ_click menu */
+		case CompRCMenu:
+			/* Backup desktop bkg */
+	        	fb_copy_FBbuffer(&gv_fb_dev,FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
+
+			while( !start_pch ) {  /* Wait for click */
+        			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
+				draw_RCMenu(menuX0, menuY0);
+
+
+       				draw_mcursor(mouseMidX, mouseMidY);
+				fb_render(&gv_fb_dev);
+			}
+
+			/* Exit Menu handler */
+			ActiveComp=CompTXTBox;
+			break;
+
+		/* Window Bar menu */
+		case CompWTBMenu:
+			/* In case that start_pch MAY have NOT reset yet */
+			start_pch=false;
+
+			printf("WTBmenu Open\n");
+			/* Backup desktop bkg */
+	        	fb_copy_FBbuffer(&gv_fb_dev,FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
+
+			while( !start_pch || mouseLeftKeyDown==false ) {  /* Wait for next click */
+        			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
+				draw_WTBMenu( txtbox.startxy.x, txtbox.startxy.y );
+
+       				draw_mcursor(mouseMidX, mouseMidY);
+				fb_render(&gv_fb_dev);
+			}
+			printf("WTBmenu Close\n");
+
+			/* Exit Menu handler */
+			ActiveComp=CompTXTBox;
+			break;
+
+	    } /* END Switch */
+
+
 		//printf("Draw mcursor......\n");
        		draw_mcursor(mouseMidX, mouseMidY);
 
 		/* Render and bring image to screen */
 		fb_render(&gv_fb_dev);
 		//tm_delayms(30);
-
 	}
 
 
@@ -578,29 +628,35 @@ static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, i
 
 /*--------------------------------------------
         Callback for mouse input
-Just update mouseXYZ
+1. Just update mouseXYZ
+2. Check and set ACTIVE token for menus.
 ---------------------------------------------*/
 static void mouse_callback(unsigned char *mouse_data, int size)
 {
 //	int i;
 	int mdZ;
-	bool	start_pch=false;	/* True if mouseLeftKeyDown switch from false to true */
-	//bool	start_pch2=false;       /* True if start_pch==false,and mouseLeftKeyDown==true */
+	EGI_POINT  pxy={0,0};
 
         /* 1. Check pressed key */
         if(mouse_data[0]&0x1) {
-
 		/* Start selecting */
-		if(mouseLeftKeyDown==false) {
+		if( mouseLeftKeyDown==false ) {  /* check old status */
                 	printf("Leftkey press!\n");
 			start_pch=true;
+
+			/* Activate window top bar menu */
+			if( mouseY < txtbox.startxy.y && mouseX <90 )
+				ActiveComp=CompWTBMenu;
+
 			/* reset pch2 = pch */
-			FTcharmap_reset_charPos2(chmap);
+			if( ActiveComp==CompTXTBox )
+				FTcharmap_reset_charPos2(chmap);
 		}
 		else {
+			/* Leftkey press hold */
 			start_pch=false;
 		}
-
+		/* ! Set at last */
 		mouseLeftKeyDown=true;
 	}
 	else {
@@ -609,11 +665,20 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 			printf("LeftKey release!\n");
 		}
 		start_pch=false;
+		/* ! Set at last */
 		mouseLeftKeyDown=false;
 	}
 
-        if(mouse_data[0]&0x2)
+	/* Right click down */
+        if(mouse_data[0]&0x2) {
                 printf("Right key down!\n");
+		pxy.x=mouseX; pxy.y=mouseY;
+		if( point_inbox(&pxy, &txtbox ) ) {
+			ActiveComp=CompRCMenu;
+			menuX0=mouseX;
+			menuY0=mouseY;
+		}
+	}
 
         if(mouse_data[0]&0x4)
                 printf("Mid key down!\n");
@@ -634,6 +699,10 @@ static void mouse_callback(unsigned char *mouse_data, int size)
         else if(mouseY<0)
                 mouseY=0;
 
+      	mouseMidY=mouseY+fh/2;
+       	mouseMidX=mouseX+fw/2;
+//       	printf("mouseMidX,Y=%d,%d \n",mouseMidX, mouseMidY);
+
         /* 4. Get mouse Z */
 	mdZ= (mouse_data[3]&0x80) ? mouse_data[3]-256 : mouse_data[3] ;
         mouseZ += mdZ;
@@ -645,24 +714,21 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 		 FTcharmap_scroll_oneline_up(chmap);
 	}
 
-	/* 5. To get current byte/char position  */
-	if(mouseLeftKeyDown && start_pch ) {		/* champ->pch and pch2: To mark start of selection */
-	   mouseMidY=mouseY+fh/2;
-	   mouseMidX=mouseX+fw/2;
-	   printf("mouseMidX,Y=%d,%d \n",mouseMidX, mouseMidY);
-	   /* continue checking */
-	   while( FTcharmap_locate_charPos( chmap, mouseMidX, mouseMidY )!=0 ){ tm_delayms(5);};
+	/* 5. To get current cursor/pchoff position  */
+	if(mouseLeftKeyDown && !RCMenuActive && !WTBMenuActive) {
+		/* Cursor position/Start of selection */
+		if(start_pch) {
+		        /* continue checking request! */
+           		while( FTcharmap_locate_charPos( chmap, mouseMidX, mouseMidY )!=0 ){ tm_delayms(5);};
+           		/* set random mark color */
+           		FTcharmap_set_markcolor( chmap, egi_color_random(color_medium), 80);
+		}
+		/* End of selection */
+		else {
+		   	/* Continue checking request! */
+		   	while( FTcharmap_locate_charPos2( chmap, mouseMidX, mouseMidY )!=0){ tm_delayms(5); } ;
 
-	   /* set random mark color */
-	   FTcharmap_set_markcolor( chmap, egi_color_random(color_medium), 80);
-
-	}
-	else if ( mouseLeftKeyDown && !start_pch ) {  /* chmap->pch2: To mark end of selection */
-	   mouseMidY=mouseY+fh/2;
-	   mouseMidX=mouseX+fw/2;
-	   printf("2mouseMidX,Y=%d,%d \n",mouseMidX, mouseMidY);
-	   /* Continue checking */
-	   while( FTcharmap_locate_charPos2( chmap, mouseMidX, mouseMidY )!=0){ tm_delayms(5); } ;
+		}
 	}
 }
 
@@ -694,11 +760,17 @@ static void draw_mcursor(int x, int y)
 	pt.x=mouseX;	pt.y=mouseY;  /* Mid */
 
         /* OPTION 1: Use EGI_IMGBUF */
-	if( point_inbox(&pt, &txtbox) && tcimg!=NULL ) {
-                egi_subimg_writeFB(tcimg, &gv_fb_dev, 0, WEGI_COLOR_RED, mouseX, mouseY ); /* subnum,subcolor,x0,y0 */
-	}
-	else if(mcimg) {
+
+	/* If txtbox is NOT active */
+	if( ActiveComp != CompTXTBox )
                	egi_subimg_writeFB(mcimg, &gv_fb_dev, 0, -1, mouseX, mouseY ); /* subnum,subcolor,x0,y0 */
+	/* Editor box is active */
+	else {
+	    if( point_inbox(&pt, &txtbox) && tcimg!=NULL )
+                egi_subimg_writeFB(tcimg, &gv_fb_dev, 0, WEGI_COLOR_RED, mouseX, mouseY ); /* subnum,subcolor,x0,y0 */
+
+	   else if(mcimg)
+             	egi_subimg_writeFB(mcimg, &gv_fb_dev, 0, -1, mouseX, mouseY ); /* subnum,subcolor,x0,y0 */
 	}
 
         /* OPTION 2: Draw geometry */
@@ -706,3 +778,139 @@ static void draw_mcursor(int x, int y)
 }
 
 
+/*-------------------------------------
+Draw right_click menu.
+@x0,y0:	Left top origin of the menu.
+--------------------------------------*/
+static void draw_RCMenu(int x0, int y0)
+{
+	char *mwords[3]={"Copy", "Paste", "Cut" };
+
+	int mw=70;   /* menu width */
+	int smh=33;  /* sub menu height */
+	int mh=smh*3;  /* menu height */
+
+	int i;
+	int mp;	/* 0,1,2 OR <0 Non,  Mouse pointed menu item */
+
+	/* Decide submenu items as per mouse position on the right_click menu */
+	if( mouseX>x0 && mouseX<x0+mw && mouseY>y0 && mouseY<y0+mh )
+		mp=(mouseY-y0)/smh;
+	else
+		mp=-1;
+
+	/* Draw submenus */
+	for(i=0; i<3; i++)
+	{
+		/* Menu pad */
+		if(mp==i)
+			fbset_color(WEGI_COLOR_ORANGE);
+		else
+			fbset_color(WEGI_COLOR_GRAY4);
+		draw_filled_rect(&gv_fb_dev, x0, y0+i*smh, x0+mw, y0+(i+1)*smh);
+
+		/* Menu Words */
+        	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
+                                        fw, fh,(const unsigned char *)mwords[i],    /* fw,fh, pstr */
+                                        100, 1, 0,      			    /* pixpl, lines, fgap */
+                                        x0+10, y0+2+i*smh,                      /* x0,y0, */
+                                        WEGI_COLOR_WHITE, -1, mp==i?255:100,        /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+	}
+	/* Draw rim */
+	fbset_color(WEGI_COLOR_BLACK);
+	draw_rect(&gv_fb_dev, x0, y0, x0+mw, y0+mh);
+
+}
+
+/*-------------------------------------
+Draw window top bar menu.
+@x0,y0:	Left top origin of the menu.
+--------------------------------------*/
+static void draw_WTBMenu(int x0, int y0)
+{
+	static int  mtag=-1;	/* 0-File,  1-Help */
+
+	char *MFileItems[3]={"Open", "Save", "Exit" };
+	char *MHelpItems[2]={"Help", "About" };
+
+	int mw=70;   /* menu width */
+	int smh=33;  /* menu item height */
+	int mh=smh*3;  /* menu box height */
+
+	int i;
+	int mp;	/* 0,1,2 OR <0 Non,  Mouse pointed menu item */
+
+	/* On 'File' or 'Help': Only to select it. NOT deselect! */
+	if( mouseX<90 && mouseY<txtbox.startxy.y ) {
+		mtag=mouseX/45;
+	}
+	//else
+	//	mtag=-1; /* No tag selected */
+
+
+   /* 1. On Tag_File */
+   if(mtag==0)
+   {
+	/* Check mouse position on the menu */
+	if( mouseX>x0 && mouseX<x0+mw && mouseY>y0 && mouseY<y0+mh )
+		mp=(mouseY-y0)/smh;
+	else
+		mp=-1;  /* Not on the menu */
+
+	/* Draw itmes of tag 'File' */
+	for(i=0; i<3; i++)
+	{
+		/* Menu pad */
+		if(mp==i)
+			fbset_color(WEGI_COLOR_ORANGE);
+		else
+			fbset_color(WEGI_COLOR_GRAY4);
+		draw_filled_rect(&gv_fb_dev, x0, y0+i*smh, x0+mw, y0+(i+1)*smh);
+
+		/* Menu Words */
+        	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
+                                        fw, fh,(const unsigned char *)MFileItems[i],    /* fw,fh, pstr */
+                                        100, 1, 0,      			    /* pixpl, lines, fgap */
+                                        x0+10, y0+2+i*smh,                      /* x0,y0, */
+                                        WEGI_COLOR_WHITE, -1, 255,        /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+	}
+	/* Draw rim */
+	fbset_color(WEGI_COLOR_BLACK);
+	draw_rect(&gv_fb_dev, x0, y0, x0+mw, y0+mh);
+    }
+
+   /* 2. On Tag_Help */
+   else if(mtag==1)
+   {
+	/* Check mouse position on the menu */
+	if( mouseX>x0+45 && mouseX<x0+45+mw && mouseY>y0 && mouseY<y0+mh )
+		mp=(mouseY-y0)/smh;
+	else
+		mp=-1;  /* Not on the menu */
+
+	/* Draw itmes of tag 'Help' */
+	for(i=0; i<2; i++) /* 2 itmes */
+	{
+		/* Menu pad */
+		if(mp==i)
+			fbset_color(WEGI_COLOR_ORANGE);
+		else
+			fbset_color(WEGI_COLOR_GRAY4);
+		draw_filled_rect(&gv_fb_dev, x0+45, y0+i*smh, x0+45+mw, y0+(i+1)*smh);
+
+		/* Menu Words */
+        	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
+                                        fw, fh,(const unsigned char *)MHelpItems[i],    /* fw,fh, pstr */
+                                        100, 1, 0,      			    /* pixpl, lines, fgap */
+                                        x0+45+10, y0+2+i*smh,                      /* x0,y0, */
+                                        WEGI_COLOR_WHITE, -1, 255,        /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+	}
+	/* Draw rim */
+	fbset_color(WEGI_COLOR_BLACK);
+	draw_rect(&gv_fb_dev, x0+45, y0, x0+45+mw, y0+2*smh);
+    }
+
+}

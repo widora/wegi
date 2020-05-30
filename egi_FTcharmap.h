@@ -139,11 +139,20 @@ struct  FTsymbol_char_map {
 	unsigned char	*txtbuff;		/* txt buffer, auto mem_grow. */
 	#define TXTBUFF_GROW_SIZE       64      /* Auto. mem_grow size for chmap->txtbuff[] */
 
-	int		txtlen;			/* strlen of txtbuff, exclude '\0', need to be updated if content of txtbuff changed.  */
+	int		txtlen;			/* string length of txtbuff,  txtbuff EOF '\0' is NOT counted in!
+						 * To be updated if content of txtbuff changed.
+						 */
 
 	/* disline/dline: displayed/charmapped line, A line starts/ends at displaying window left/right end side.
-	 * retline: A line starts/ends by a new line token '\n'.
+	 * retline/rline: A line starts/ends by a new line token '\n'.
 	 */
+	int		txtrlines;		/* LIMIT: Size of txtdlinePos[], auto mem_grow.  */
+	unsigned int	*txtrlinePos;		/* An array to store offset position(relative to txtbuff) of each txt dlines, which
+						 * have already been charmapped, and MAYBE not displayed in the current charmap.
+					         */
+	#define TXTRLINES_GROW_SIZE     1024    /* Auto. mem_grow size for chmap->txtdlines and chmap->txtdlinePos[] */
+
+
 	int		txtdlines;		/* LIMIT: Size of txtdlinePos[], auto mem_grow.  */
 	unsigned int	*txtdlinePos;		/* An array to store offset position(relative to txtbuff) of each txt dlines, which
 						 * have already been charmapped, and MAYBE not displayed in the current charmap.
@@ -271,7 +280,7 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
                                  size_t mapsize, size_t maplines, size_t mappixpl, int maplndis );
 
 void 	FTcharmap_set_markcolor(EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha);
-int 	FTcharmap_memGrow_txtbuff(EGI_FTCHAR_MAP *chmap, size_t more_size);
+int 	FTcharmap_memGrow_txtbuff(EGI_FTCHAR_MAP *chmap, size_t more_size);	/* NO lock */
 int 	FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize);
 int 	FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap);	/* mutex_lock */
 
@@ -309,6 +318,8 @@ int 	FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln); /* ret p
 int 	FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  int pchoff);
 
 int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
+
+
 int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock + request */
 
 /* Delete a char preceded by cursor OR chars selected between pchoff2 and pchoff */
