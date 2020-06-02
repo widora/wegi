@@ -11,14 +11,7 @@ Midas Zhou
 #include <string.h>
 #include <time.h>
 #include "egi_common.h"
-//#include "egi_bjp.h"
-//#include "egi_color.h"
-//#include "egi.h"
-//#include "egi_txt.h"
 #include "egi_objtxt.h"
-//#include "egi_timer.h"
-//#include "egi_debug.h"
-//#include "egi_timer.h"
 #include "egi_symbol.h"
 
 
@@ -36,9 +29,9 @@ EGI_EBOX *create_ebox_memo(void)
 {
 	/* 1. create memo_txt */
 	EGI_DATA_TXT *memo_txt=egi_txtdata_new(
-		5,5, /* offset X,Y */
-      	  	12, /*int nl, lines  */
-       	 	24, /*int llen, chars per line */
+		5,5, 		/* offset X,Y */
+      	  	12, 		/*int nl, lines  */
+       	 	24, 		/*int llen, chars per line */
         	&sympg_testfont, /*EGI_SYMPAGE *font */
         	WEGI_COLOR_BLACK /* uint16_t color */
 	);
@@ -48,13 +41,13 @@ EGI_EBOX *create_ebox_memo(void)
 
 	/* 3. create memo ebox */
 	EGI_EBOX  *ebox_memo= egi_txtbox_new(
-		"memo stick", /* tag */
-        	memo_txt,  /* EGI_DATA_TXT pointer */
-        	true, /* bool movable */
-       	 	12,0, /* int x0, int y0 */
-        	240,320, /* int width, int height */
-        	-1, /* int frame, -1=no frame */
-        	WEGI_COLOR_ORANGE /*int prmcolor*/
+		"memo stick", 	/* tag */
+        	memo_txt,  	/* EGI_DATA_TXT pointer */
+        	true, 		/* bool movable */
+       	 	12,0, 		/* int x0, int y0 */
+        	240,320, 	/* int width, int height */
+        	-1, 		/* int frame, -1=no frame */
+        	WEGI_COLOR_ORANGE 	/*int prmcolor*/
 	);
 
 	return ebox_memo;
@@ -72,24 +65,24 @@ EGI_EBOX *create_ebox_clock(void)
 
 	/* 1. create a data_txt */
 	EGI_DATA_TXT *clock_txt=egi_txtdata_new(
-		20,0, /* offset X,Y */
-      	  	3, /*int nl, lines  */
-       	 	64, /*int llen, chars per line */
-        	&sympg_testfont, /*EGI_SYMPAGE *font */
-        	WEGI_COLOR_BLACK /* uint16_t color */
+		20,0, 			/* offset X,Y */
+      	  	3, 			/* int nl, lines  */
+       	 	64, 			/* int llen, chars per line */
+        	&sympg_testfont, 	/* EGI_SYMPAGE *font */
+        	WEGI_COLOR_BLACK 	/* uint16_t color */
 	);
 
 	strncpy(clock_txt->txt[1],"abcdefg",5);
 
 	/* 2. create memo ebox */
 	EGI_EBOX  *ebox_clock= egi_txtbox_new(
-		"timer txt", /* tag */
-        	clock_txt,  /* EGI_DATA_TXT pointer */
-        	true, /* bool movable */
-       	 	60,5, /* int x0, int y0 */
-        	120,20, /* int width, int height */
-        	0, /* int frame,0=simple frmae, -1=no frame */
-        	WEGI_COLOR_BROWN /*int prmcolor*/
+		"timer txt", 		/* tag */
+        	clock_txt,  		/* EGI_DATA_TXT pointer */
+        	true, 			/* bool movable */
+       	 	60,5, 			/* int x0, int y0 */
+        	120,20, 		/* int width, int height */
+        	0, 			/* int frame,0=simple frmae, -1=no frame */
+        	WEGI_COLOR_BROWN 	/* int prmcolor */
 	);
 
 	return ebox_clock;
@@ -102,21 +95,21 @@ EGI_EBOX *create_ebox_note(void)
 
 	/* 1. create a data_txt */
 	EGI_DATA_TXT *note_txt=egi_txtdata_new(
-		5,5, /* offset X,Y */
-      	  	2, /*int nl, lines  */
-       	 	32, /*int llen, chars per line */
-        	&sympg_testfont, /*EGI_SYMPAGE *font */
+		5,5, 		/* offset X,Y */
+      	  	2, 		/* int nl, lines  */
+       	 	32, 		/* int llen, chars per line */
+        	&sympg_testfont, /* EGI_SYMPAGE *font */
         	WEGI_COLOR_BLACK /* uint16_t color */
 	);
 
 	/* 2. create memo ebox */
 	EGI_EBOX  *ebox_note= egi_txtbox_new(
-		"note pad", /* tag */
-        	note_txt,  /* EGI_DATA_TXT pointer */
-        	true, /* bool movable */
-       	 	5,80, /* int x0, int y0 */
-        	230,60, /* int width, int height */
-        	-1, /* int frame, -1=no frame */
+		"note pad", 	/* tag */
+        	note_txt,  	/* EGI_DATA_TXT pointer */
+        	true, 		/* bool movable */
+       	 	5,80, 		/* int x0, int y0 */
+        	230,60, 	/* int width, int height */
+        	-1, 		/* int frame, -1=no frame */
         	WEGI_COLOR_GRAY /*int prmcolor*/
 	);
 
@@ -140,11 +133,11 @@ EGI_EBOX *create_ebox_notes(int num, int x0, int y0, uint16_t bkcolor)
 	/* 1. create a data_txt */
 	EGI_PDEBUG(DBG_OBJTXT,"start to egi_txtdata_new()...\n");
 	EGI_DATA_TXT *clock_txt=egi_txtdata_new(
-		10,30, /* offset X,Y */
-      	  	3, /*int nl, lines  */
-       	 	64, /*int llen, chars per line */
-        	&sympg_testfont, /*EGI_SYMPAGE *font */
-        	WEGI_COLOR_BLACK /* uint16_t color */
+		10,30, 			/* offset X,Y */
+      	  	3, 			/* int nl, lines  */
+       	 	64, 			/* int llen, chars per line */
+        	&sympg_testfont, 	/* EGI_SYMPAGE *font */
+        	WEGI_COLOR_BLACK 	/* uint16_t color */
 	);
 
 	if(clock_txt == NULL)
@@ -165,13 +158,13 @@ EGI_EBOX *create_ebox_notes(int num, int x0, int y0, uint16_t bkcolor)
 	/* 2. create memo ebox */
 	EGI_PDEBUG(DBG_OBJTXT,"create_ebox_notes(): strat to egi_txtbox_new().....\n");
 	EGI_EBOX  *ebox_clock= egi_txtbox_new(
-		NULL, /* tag, put later */
-        	clock_txt,  /* EGI_DATA_TXT pointer */
-        	true, /* bool movable */
-       	 	x0,y0, /* int x0, int y0 */
-        	160,66, /* int width, int height */
-        	0, /* int frame,0=simple frmae, -1=no frame */
-        	bkcolor /*int prmcolor*/
+		NULL, 		/* tag, put later */
+        	clock_txt,  	/* EGI_DATA_TXT pointer */
+        	true, 		/* bool movable */
+       	 	x0,y0, 		/* int x0, int y0 */
+        	160,66, 	/* int width, int height */
+        	0, 		/* int frame,0=simple frmae, -1=no frame */
+        	bkcolor 	/* int prmcolor */
 	);
 
 	return ebox_clock;
@@ -264,11 +257,11 @@ EGI_EBOX *create_ebox_titlebar(
 	/* 1. create a data_txt */
 	EGI_PDEBUG(DBG_OBJTXT,"start to egi_txtdata_new()...\n");
 	EGI_DATA_TXT *title_txt=egi_txtdata_new(
-		offx,offy, /* offset X,Y */
-      	  	1, /*int nl, lines  */
-       	 	64, /*int llen, chars per line, however also limited by width */
-        	&sympg_testfont, /*EGI_SYMPAGE *font */
-        	WEGI_COLOR_BLACK /* int16_t color */
+		offx,offy, 		/* offset X,Y */
+      	  	1, 			/* int nl, lines  */
+       	 	64, 			/* int llen, chars per line, however also limited by width */
+        	&sympg_testfont, 	/* EGI_SYMPAGE *font */
+        	WEGI_COLOR_BLACK 	/* int16_t color */
 	);
 
 	if(title_txt == NULL)
@@ -297,13 +290,13 @@ EGI_EBOX *create_ebox_titlebar(
 	/* 3. create memo ebox */
 	EGI_PDEBUG(DBG_OBJTXT,"create_ebox_titlebar(): start egi_txtbox_new().....\n");
 	EGI_EBOX  *ebox_title= egi_txtbox_new(
-		"title_bar", /* tag, or put later */
-        	title_txt,  /* EGI_DATA_TXT pointer */
-        	true, /* bool movable */
-       	 	x0,y0, /* int x0, int y0 */
-        	240,30, /* int width;  int height,which also related with symheight and offy */
-        	0, /* int frame, 0=simple frmae, -1=no frame */
-        	bkcolor /*int prmcolor*/
+		"title_bar", 	/* tag, or put later */
+        	title_txt,  	/* EGI_DATA_TXT pointer */
+        	true, 		/* bool movable */
+       	 	x0,y0, 		/* int x0, int y0 */
+        	240,30, 	/* int width;  int height,which also related with symheight and offy */
+        	0, 		/* int frame, 0=simple frmae, -1=no frame */
+        	bkcolor 	/*int prmcolor*/
 	);
 
 	return ebox_title;

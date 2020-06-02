@@ -30,7 +30,7 @@ typedef struct {
 } EGI_SYSPAD_BUFF;
 EGI_SYSPAD_BUFF *egi_sysPadBuff_create(size_t size);
 void 		egi_sysPadBuff_free(EGI_SYSPAD_BUFF **padbuff);
-EGI_SYSPAD_BUFF *egi_buffer_syspad(void);
+EGI_SYSPAD_BUFF *egi_buffer_from_syspad(void);
 int 		egi_copy_to_syspad(const unsigned char *pstr, size_t size);
 int 		egi_copy_from_syspad(unsigned char *pstr);
 

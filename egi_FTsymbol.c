@@ -793,6 +793,7 @@ int FTsymbol_get_symheight(FT_Face face, const unsigned char *pstr, int fw, int 
    a good idea to display CJK and wester charatcters separately by calling differenct functions.
    i.e. symbol_writeFB() for alphabets and FTsymbol_unicode_writeFB() for CJKs.
 
+TODO: buffer all font bitmaps for further use.
 
 @fbdev:         FB device
 		or Virt FB!!

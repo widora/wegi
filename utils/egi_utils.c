@@ -200,6 +200,8 @@ EGI_SYSPAD_BUFF *egi_sysPadBuff_create(size_t size)
 		return NULL;
 	}
 
+	padbuff->size=size;
+
 	return padbuff;
 }
 
@@ -225,7 +227,7 @@ Return:
 	An pointer to EGI_SYSPAD_BUFF	OK
 	NULL				Fails
 ----------------------------------------------*/
-EGI_SYSPAD_BUFF *egi_buffer_syspad(void)
+EGI_SYSPAD_BUFF *egi_buffer_from_syspad(void)
 {
 	EGI_SYSPAD_BUFF *padbuff=NULL;
 	int fd;
@@ -234,7 +236,7 @@ EGI_SYSPAD_BUFF *egi_buffer_syspad(void)
 	struct stat sb;
 
         /* Mmap input file */
-        fd=open(EGI_SYSPAD_PATH, O_CREAT|O_RDWR|O_CLOEXEC);
+        fd=open(EGI_SYSPAD_PATH, O_CREAT|O_RDWR|O_CLOEXEC, S_IRWXU|S_IRWXG);
         if(fd<0) {
                 printf("%s: Fail to open EGI_SYSPAD_PATH '%s': %s\n", __func__, EGI_SYSPAD_PATH, strerror(errno));
                 return NULL;
@@ -264,7 +266,8 @@ EGI_SYSPAD_BUFF *egi_buffer_syspad(void)
 	}
 
 	/* TODO: verify uft-8 encoding for padbuff->data */
-
+	/* Buffer content to padbuff */
+	memcpy( padbuff->data, fp, fsize);
 
 FUNC_END:
         /* munmap file */

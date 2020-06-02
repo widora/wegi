@@ -198,6 +198,7 @@ struct  FTsymbol_char_map {
 					         *  and also size of maplinePos[] mem space allocatd.
 						 */
 	int		mapsize;		/* Size of map member arrays(charX,charY,charPos) mem space allocated , Max. number for chcount+1 */
+	#define MAPSIZE_GROW_SIZE       1024    /* Auto. mem_grow size for charX[] ,charY[],charPos[]  */
 
 /* 2. Temporary vars for being displayed/charmapped txt.  ( offset position relative to pref )
 	 * 1. A map for displayed chars only! A map to tell LCD coordinates of displayed chars and their offset/position in pref[].
@@ -262,9 +263,9 @@ struct  FTsymbol_char_map {
 						 * chmap->pch/pch2 is derived from chmap->pchoff/pchoff2 in charmapping!
 						 * If pchoff2 NOT in current charmap, then pch2<0.
 						 */
-	int 		*charX;			/* Array, Char start point(left top) FB/LCD coordinates X,Y */
-	int 		*charY;
-	unsigned int	*charPos;		/* Array, Char offset position relative to pref, in bytes. */
+	int 		*charX;			/* Array, Char start point(left top) FB/LCD coordinates X,Y  auto_grow */
+	int 		*charY;			/*  auto_grow */
+	unsigned int	*charPos;		/* Array, Char offset position relative to pref, in bytes. auto_grow */
 	//unsigned int 	*charW;			/* Array,Widths of chars */
 
 	/* Extension: color,size,...*/
@@ -281,6 +282,8 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
 
 void 	FTcharmap_set_markcolor(EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha);
 int 	FTcharmap_memGrow_txtbuff(EGI_FTCHAR_MAP *chmap, size_t more_size);	/* NO lock */
+int 	FTcharmap_memGrow_txtdlinePos(EGI_FTCHAR_MAP *chmap, size_t more_size); /* No lock */
+int 	FTcharmap_memGrow_mapsize(EGI_FTCHAR_MAP *chmap, size_t more_size);   	/* NO lock */
 int 	FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize);
 int 	FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap);	/* mutex_lock */
 
@@ -319,10 +322,15 @@ int 	FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  int pchoff);
 
 int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
 
+int 	FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned char *pstr, size_t strsize );
+int 	FTcharmap_insert_string( EGI_FTCHAR_MAP *chmap, const unsigned char *pstr, size_t strsize );  /* mutex_lock + request */
+
+int 	FTcharmap_copy_from_syspad( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
+int 	FTcharmap_copy_to_syspad( EGI_FTCHAR_MAP *chmap );
 
 int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock + request */
 
 /* Delete a char preceded by cursor OR chars selected between pchoff2 and pchoff */
-int 	FTcharmap_delete_char( EGI_FTCHAR_MAP *chmap );			/* mutex_lock + request */
+int 	FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap );			/* mutex_lock + request */
 
 #endif

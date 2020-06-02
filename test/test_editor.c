@@ -74,8 +74,14 @@ midaszhou@yahoo.com
 #include "egi_cstring.h"
 #include "egi_utils.h"
 
+#ifdef LETS_NOTE
+	#define DEFAULT_FILE_PATH	"/home/midas-zhou/egi/hlm_all.txt"
+#else
+	#define DEFAULT_FILE_PATH	"/mmc/hlm_all.txt"
+#endif
+
 #define 	CHMAP_TXTBUFF_SIZE	64//1024     /* 256,text buffer size for EGI_FTCHAR_MAP.txtbuff */
-#define		CHMAP_SIZE		256  /* NOT less than Max. total number of chars (include '\n's and EOF) that may displayed in the txtbox */
+#define		CHMAP_SIZE		2048 //256  /* NOT less than Max. total number of chars (include '\n's and EOF) that may displayed in the txtbox */
 
 /* TTY input escape sequences.  USB Keyboard hidraw data is another story...  */
 #define		TTY_ESC		"\033"
@@ -101,17 +107,17 @@ midaszhou@yahoo.com
 #define 	CTRL_F  6	/* ASCII: Ctrl + f */
 
 char *strInsert="Widora和小伙伴们";
+char *fpath="/tmp/hello.txt";
 
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
 static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Text displaying area */
+
 static int smargin=5; 		/* left and right side margin of text area */
 static int tmargin=2;		/* top margin of text area */
 
 /* NOTE: char position, in respect of txtbuff index and data_offset: pos=chmap->charPos[pch] */
 static EGI_FTCHAR_MAP *chmap;	/* FTchar map to hold char position data */
-//static unsigned int pchoff;
-//static unsigned int chsize;	/* byte size of a char */
 static unsigned int chns;	/* total number of chars in a string */
 
 static bool mouseLeftKeyDown;
@@ -119,8 +125,6 @@ static bool start_pch=false;	/* True if mouseLeftKeyDown switch from false to tr
 static int  mouseX, mouseY, mouseZ; /* Mouse point position */
 static int  mouseMidX, mouseMidY;   /* Mouse cursor mid position */
 static int  menuX0, menuY0;
-static bool RCMenuActive;	/* Right_click_menu_is_active */
-static bool WTBMenuActive;	/* Window_top_bar_menu_is_active */
 
 static int fw=18;	/* Font size */
 static int fh=20;
@@ -140,13 +144,41 @@ enum CompElem
 };
 static enum CompElem ActiveComp;  /* Active component element */
 
+/* Right_Click Menu Command */
+enum RCMenu_Command {
+	RCMENU_COMMAND_NONE	=-1,
+	RCMENU_COMMAND_COPY	=0,
+	RCMENU_COMMAND_PASTE	=1,
+	RCMENU_COMMAND_CUT	=2,
+};
+static int RCMenu_Command_ID=RCMENU_COMMAND_NONE;
+
+/* Window_Bar_Top Menu Command */
+enum WBTMenu_Command {
+	WBTMENU_COMMAND_NONE 	=-1,
+	WBTMENU_COMMAND_OPEN 	=0,
+	WBTMENU_COMMAND_SAVE 	=1,
+	WBTMENU_COMMAND_EXIT 	=2,
+	WBTMENU_COMMAND_HELP 	=3,
+	WBTMENU_COMMAND_ABOUT 	=4,
+};
+static int WBTMenu_Command_ID=WBTMENU_COMMAND_NONE;
+
+/* Functions */
 static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void mouse_callback(unsigned char *mouse_data, int size);
 static void draw_mcursor(int x, int y);
 static void draw_RCMenu(int x0, int y0);  /* Draw right_click menu */
 static void draw_WTBMenu(int x0, int y0); /* Draw window_top_bar menu */
+static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg, int pv);
+static void RCMenu_execute(enum RCMenu_Command Command_ID);
+static void WBTMenu_execute(enum WBTMenu_Command Command_ID);
 
+
+/* ============================
+	    MAIN()
+============================ */
 int main(int argc, char **argv)
 {
 
@@ -230,6 +262,14 @@ int main(int argc, char **argv)
 	int retval;
 	struct timeval tmval;
 
+	if( argc > 1 )
+		fpath=argv[1];
+
+	/* Reset main window size */
+	txtbox.endxy.x=gv_fb_dev.pos_xres-1-10;
+	txtbox.endxy.y=gv_fb_dev.pos_yres-1-10;
+
+	/* Activate main window */
 	ActiveComp=CompTXTBox;
 
 	/* Total available lines of space for displaying chars */
@@ -238,7 +278,7 @@ int main(int argc, char **argv)
 
 	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,		/* txtsize,  x0, y0  */
 		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
-				CHMAP_SIZE, tlns, 320-20-2*smargin, fh+fgap);   /* mapsize, lines, pixpl, lndis */
+				CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-20-2*smargin, fh+fgap);   /* mapsize, lines, pixpl, lndis */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 
 	/* Load file to chmap */
@@ -247,9 +287,8 @@ int main(int argc, char **argv)
 			printf("Fail to load file to champ!\n");
 	}
 	else {
-		if( FTcharmap_load_file("/mmc/hlm_all.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
-//		if( FTcharmap_load_file("/tmp/hello.txt", chmap, CHMAP_TXTBUFF_SIZE) !=0 )
-		printf("Fail to load file to champ!\n");
+		if( FTcharmap_load_file(DEFAULT_FILE_PATH, chmap, CHMAP_TXTBUFF_SIZE) !=0 )
+			printf("Fail to load file to champ!\n");
 	}
 
         /* Init. mouse position */
@@ -277,9 +316,6 @@ int main(int argc, char **argv)
         new_settings.c_cc[VTIME]=0;
         tcsetattr(0, TCSANOW, &new_settings);
 
-	/* Set timer for blink*/
-//	gettimeofday(&tm_blink,NULL);
-
 	/* To fill initial charmap and get penx,peny */
 	FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL, NULL); //&penx, &peny);
 	fb_render(&gv_fb_dev);
@@ -288,11 +324,20 @@ int main(int argc, char **argv)
 	while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
 	{
 		FTcharmap_page_down(chmap);
-		FTcharmap_writeFB(NULL, 0, NULL, NULL); //&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL); //&penx, &peny);
+		//FTcharmap_writeFB(NULL, 0, NULL, NULL);
+		FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL);
+
 		if(chmap->txtdlncount > 300)
 			break;
-		//fb_render(&gv_fb_dev);
+
+        	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
+		draw_progress_msgbox( &gv_fb_dev, (320-260)/2, (240-120)/2, "文件加载中...", 100*chmap->txtdlncount/300);
+								//100*chmap->txtdlinePos[chmap->txtdlncount]/chmap->txtlen);
+		fb_render(&gv_fb_dev);
 	}
+        fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
+	draw_progress_msgbox( &gv_fb_dev, (320-280)/2, (240-140)/2, "文件加载完成", 100);
+
 	printf("Loop editing...\n");
 
 	/* Loop editing ...   Read from TTY standard input, without funcion keys on keyboard ...... */
@@ -331,7 +376,7 @@ int main(int argc, char **argv)
 						read(STDIN_FILENO,&ch, 1);
 		                                printf("ch=%d\n",ch);
 						if( ch ==126 ) /* Try to delete a char pointed by chmap->pch */
-							FTcharmap_delete_char(chmap);
+							FTcharmap_delete_string(chmap);
 						break;
 					case 52: /* END */
 						read(STDIN_FILENO,&ch, 1);
@@ -392,17 +437,9 @@ int main(int argc, char **argv)
 
 		else if ( ch==CTRL_F) {		/* Save chmap->txtbuff */
 			printf("Saving chmap->txtbuff to a file...");
-			if( argc > 1) {
-				FTcharmap_save_file(argv[1], chmap);
-				egi_copy_to_syspad( chmap->txtbuff, chmap->txtlen);
-			}
-			else {
-				FTcharmap_save_file("/tmp/hello.txt", chmap);
-				egi_copy_to_syspad( chmap->txtbuff, chmap->txtlen);
-			}
+			FTcharmap_save_file(fpath, chmap);
 			ch=0;
 		}
-
 
 		/* 3. edit text */
 
@@ -463,6 +500,8 @@ int main(int argc, char **argv)
        				draw_mcursor(mouseMidX, mouseMidY);
 				fb_render(&gv_fb_dev);
 			}
+			/* Execute Menu Command */
+			RCMenu_execute(RCMenu_Command_ID);
 
 			/* Exit Menu handler */
 			ActiveComp=CompTXTBox;
@@ -485,6 +524,8 @@ int main(int argc, char **argv)
 				fb_render(&gv_fb_dev);
 			}
 			printf("WTBmenu Close\n");
+			/* Execute Menu Command */
+			WBTMenu_execute(WBTMenu_Command_ID);
 
 			/* Exit Menu handler */
 			ActiveComp=CompTXTBox;
@@ -492,15 +533,13 @@ int main(int argc, char **argv)
 
 	    } /* END Switch */
 
-
 		//printf("Draw mcursor......\n");
        		draw_mcursor(mouseMidX, mouseMidY);
 
 		/* Render and bring image to screen */
 		fb_render(&gv_fb_dev);
-		//tm_delayms(30);
+		//tm_delayms(20);
 	}
-
 
 
 	/* <<<<<<<<<<<<<<<<<<<<    Read from USB Keyboard HIDraw   >>>>>>>>>>>>>>>>>>> */
@@ -715,7 +754,7 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 	}
 
 	/* 5. To get current cursor/pchoff position  */
-	if(mouseLeftKeyDown && !RCMenuActive && !WTBMenuActive) {
+	if(mouseLeftKeyDown && ActiveComp==CompTXTBox ) {
 		/* Cursor position/Start of selection */
 		if(start_pch) {
 		        /* continue checking request! */
@@ -750,6 +789,7 @@ static void draw_mcursor(int x, int y)
 	#define MCURSOR_ICON_PATH 	"/mmc/mcursor.png"
 	#define TXTCURSOR_ICON_PATH 	"/mmc/txtcursor.png"
 #endif
+
         if(mcimg==NULL)
                 mcimg=egi_imgbuf_readfile(MCURSOR_ICON_PATH);
 	if(tcimg==NULL) {
@@ -799,6 +839,9 @@ static void draw_RCMenu(int x0, int y0)
 	else
 		mp=-1;
 
+	/* Assign command ID */
+	RCMenu_Command_ID=mp;
+
 	/* Draw submenus */
 	for(i=0; i<3; i++)
 	{
@@ -831,7 +874,7 @@ static void draw_WTBMenu(int x0, int y0)
 {
 	static int  mtag=-1;	/* 0-File,  1-Help */
 
-	char *MFileItems[3]={"Open", "Save", "Exit" };
+	char *MFileItems[3]={"Open", "Save", "Exit"};
 	char *MHelpItems[2]={"Help", "About" };
 
 	int mw=70;   /* menu width */
@@ -857,6 +900,9 @@ static void draw_WTBMenu(int x0, int y0)
 		mp=(mouseY-y0)/smh;
 	else
 		mp=-1;  /* Not on the menu */
+
+	/* Assig WBTMenu_Command_ID */
+	WBTMenu_Command_ID=mp;
 
 	/* Draw itmes of tag 'File' */
 	for(i=0; i<3; i++)
@@ -890,6 +936,12 @@ static void draw_WTBMenu(int x0, int y0)
 	else
 		mp=-1;  /* Not on the menu */
 
+	/* Assig WBTMenu_Command_ID */
+	if( mp > -1 )
+		WBTMenu_Command_ID=3+mp;
+	else
+		WBTMenu_Command_ID=-1;
+
 	/* Draw itmes of tag 'Help' */
 	for(i=0; i<2; i++) /* 2 itmes */
 	{
@@ -913,4 +965,135 @@ static void draw_WTBMenu(int x0, int y0)
 	draw_rect(&gv_fb_dev, x0+45, y0, x0+45+mw, y0+2*smh);
     }
 
+}
+
+
+/*-------------------------------------------------------
+WriteFB a progressing msg box
+
+@x0,y0:  	Left top coordinate of the msgbox.
+@msg:	 	Message string in UFT-8 encoding.
+@pv:	 	Progress in percentage value.
+
+-------------------------------------------------------------*/
+static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg, int pv)
+{
+	int width=260;	/* Width and height of the msgbox */
+	int height=120;
+	int fh=16;	/* Font height and width */
+	int fw=16;
+	int smargin=20;	/* Side margin */
+	int bw=9;		/* width of progressing bar */
+	int barY;	/* Y coordinate of the bar */
+	int barEndX;	/* End point X coordinate of the bar */
+	char strPercent[16];
+	int pixlen;
+
+        EGI_16BIT_COLOR color=WEGI_COLOR_GRAY4; 	/* Color of the msgbox. */
+	EGI_8BIT_ALPHA  alpha=255;			/* Alpha value of the msgbox. */
+
+	/* Check input */
+	if(fb_dev==NULL)
+		return;
+	if(pv<0)pv=0;
+	else if(pv>100)pv=100;
+
+	/* Initiate vars */
+	barY=y0+height/2; //y0+15+fh+15+(bw+1)/2;	/* in mid of height */
+	bzero(strPercent,sizeof(strPercent));
+	sprintf(strPercent,"%d%%",pv);
+
+	/* 1. Draw msgbox pad */
+        draw_blend_filled_roundcorner_rect( &gv_fb_dev, x0,y0, x0+width-1, y0+height-1, 5,    /* fbdev, x1, y1, x2, y2, r */
+                                            color, alpha);                           /* color, alpha */
+
+	/* 2. Put message */
+       	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_sysfonts.regular,         /* FBdev, fontface */
+                                       fw, fh,(const unsigned char *)msg,     	/* fw,fh, pstr */
+                                       width-2*smargin, 5, 5, 		    	/* pixpl, lines, fgap */
+                                       x0+smargin, y0+15,                     	/* x0,y0, */
+                                       WEGI_COLOR_WHITE, -1, 255,        	/* fontcolor, transcolor,opaque */
+                                       NULL, NULL, NULL, NULL);      		/* int *cnt, int *lnleft, int* penx, int* peny */
+
+	/* 3. Draw bkg empty progressing bar */
+	fbset_color2(&gv_fb_dev, WEGI_COLOR_GRAY);
+	draw_wline( &gv_fb_dev, x0+smargin, barY, x0+width-smargin, barY, bw);
+
+	/* 4. Draw progressing bar */
+	barEndX=(x0+smargin)+(width-2*smargin)*pv/100;
+	fbset_color2(&gv_fb_dev, WEGI_COLOR_GREEN);
+	draw_wline( &gv_fb_dev, x0+smargin, barY, barEndX, barY, bw);
+
+	/* 6. Put percentage */
+	pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.regular, fw, fh, (const unsigned char *)strPercent);
+       	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_sysfonts.regular,         /* FBdev, fontface */
+                                       fw, fh,(const unsigned char *)strPercent,   	/* fw,fh, pstr */
+                                       width-2*smargin, 1, 0, 		    	/* pixpl, lines, fgap */
+                                       x0+(width-pixlen)/2, barY+20,              	/* x0,y0, */
+                                       WEGI_COLOR_WHITE, -1, 255,        	/* fontcolor, transcolor,opaque */
+                                       NULL, NULL, NULL, NULL);      		/* int *cnt, int *lnleft, int* penx, int* peny */
+}
+
+
+/*----------------------------------------------
+Exectue command for selected right_click menu
+
+@RCMenu_Command_ID: Command ID, <0 ingnore.
+
+------------------------------------------------*/
+static void RCMenu_execute(enum RCMenu_Command RCMenu_Command_ID)
+{
+	if(RCMenu_Command_ID<0)
+		return;
+
+	switch(RCMenu_Command_ID) {
+		case RCMENU_COMMAND_COPY:
+			printf("RCMENU_COMMAND_COPY\n");
+			FTcharmap_copy_to_syspad(chmap);
+			break;
+		case RCMENU_COMMAND_PASTE:
+			printf("RCMENU_COMMAND_PASTE\n");
+			FTcharmap_copy_from_syspad(chmap);
+			break;
+		case RCMENU_COMMAND_CUT:
+			printf("RCMENU_COMMAND_CUT\n");
+			break;
+		default:
+			printf("RCMENU_COMMAND_NONE\n");
+			break;
+	}
+}
+
+
+/*----------------------------------------------------
+Exectue command for selected right_click menu
+
+@Command_ID: WBTMenu Command ID, <0 ingnore.
+-----------------------------------------------------*/
+static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
+{
+	if(Command_ID<0)
+		return;
+
+	switch(Command_ID) {
+		case WBTMENU_COMMAND_OPEN:
+			printf("WBTMENU_COMMAND_OPEN\n");
+			break;
+		case WBTMENU_COMMAND_SAVE:
+			printf("WBTMENU_COMMAND_SAVE\n");
+			FTcharmap_save_file(fpath, chmap);
+			break;
+		case WBTMENU_COMMAND_EXIT:
+			printf("WBTMENU_COMMAND_EXIT\n");
+			break;
+		case WBTMENU_COMMAND_HELP:
+			printf("WBTMENU_COMMAND_HELP\n");
+			break;
+		case WBTMENU_COMMAND_ABOUT:
+			printf("WBTMENU_COMMAND_ABOUT\n");
+			break;
+		default:
+			printf("WBTMENU_COMMAND_NONE\n");
+			break;
+	}
 }
