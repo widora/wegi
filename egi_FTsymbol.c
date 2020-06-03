@@ -779,6 +779,35 @@ int FTsymbol_get_symheight(FT_Face face, const unsigned char *pstr, int fw, int 
 }
 
 
+/*--------------------------------------------------------------------------
+Return FT_Face->size->metrics.height, which is the Max. possible face height
+for given font size.
+Usually it's much bigger than symheight and bitmap height. and may be used
+for line distance.
+
+@fh,fw:		Expected font size.
+
+Return:
+	>0	OK
+	<0	Fails
+---------------------------------------------------------------------------*/
+inline int FTsymbol_get_FTface_Height(FT_Face face, int fw, int fh)
+{
+  	FT_Error      error;
+
+	/* set character size in pixels */
+	error = FT_Set_Pixel_Sizes(face, fw, fh);
+   	/* OR set character size in 26.6 fractional points, and resolution in dpi
+   	   error = FT_Set_Char_Size( face, 32*32, 0, 100,0 ); */
+	if(error) {
+		printf("%s: FT_Set_Pixel_Sizes() fails!\n",__func__);
+		return -1;
+	}
+
+	return face->size->metrics.height>>6;
+}
+
+
 /*-----------------------------------------------------------------------------------------------
 1. Render a CJK character presented in UNICODE with the specified face type, then write the
    bitmap to FB.
@@ -799,7 +828,7 @@ TODO: buffer all font bitmaps for further use.
 		or Virt FB!!
 		if NULL, just ignore to write to FB.
 @face:          A face object in FreeType2 library.
-@fh,fw:		Height and width of the wchar.
+@fh,fw:		Expected font size.
 @wcode:		UNICODE number for the character.
 @xleft:		Pixel space left in FB X direction (horizontal writing)
 		Xleft will be subtrated by slot->advance.x first anyway, If xleft<0 then, it aborts.
@@ -842,6 +871,9 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 		printf("%s: FT_Set_Pixel_Sizes() fails!\n",__func__);
 		return;
 	}
+
+	/* This is the MAX. possible height of glyph, as for line distance. */
+	//printf("Current FT_Face height=%d pixels\n", face->size->metrics.height>>6 );
 
 	/* Do not set transform, keep up_right and pen position(0,0)
     		FT_Set_Transform( face, &matrix, &pen ); */
