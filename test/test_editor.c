@@ -109,9 +109,12 @@ midaszhou@yahoo.com
 char *strInsert="Widora和小伙伴们";
 char *fpath="/tmp/hello.txt";
 
+
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
-static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Text displaying area */
+//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Text displaying area */
+static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1} };	/* Text displaying area */
+/* To adjust later */
 
 static int smargin=5; 		/* left and right side margin of text area */
 static int tmargin=2;		/* top margin of text area */
@@ -261,24 +264,29 @@ int main(int argc, char **argv)
 	fd_set rfds;
 	int retval;
 	struct timeval tmval;
+	int lndis; /* Distance between lines */
 
 	if( argc > 1 )
 		fpath=argv[1];
 
 	/* Reset main window size */
-	txtbox.endxy.x=gv_fb_dev.pos_xres-1-10;
-	txtbox.endxy.y=gv_fb_dev.pos_yres-1-10;
+	txtbox.startxy.x=0;
+	txtbox.startxy.y=30;
+	txtbox.endxy.x=gv_fb_dev.pos_xres-1;
+	txtbox.endxy.y=gv_fb_dev.pos_yres-1;
 
 	/* Activate main window */
 	ActiveComp=CompTXTBox;
 
 	/* Total available lines of space for displaying chars */
-	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/(fh+fgap);
+	//lndis=fh+fgap;
+	lndis=FTsymbol_get_FTface_Height(egi_sysfonts.regular, fw, fh);
+	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/lndis;
 	printf("Blank lines tlns=%d\n", tlns);
 
 	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,		/* txtsize,  x0, y0  */
 		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
-				CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-20-2*smargin, fh+fgap);   /* mapsize, lines, pixpl, lndis */
+				CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis);   /* mapsize, lines, pixpl, lndis */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 
 	/* Load file to chmap */
@@ -1057,6 +1065,7 @@ static void RCMenu_execute(enum RCMenu_Command RCMenu_Command_ID)
 			break;
 		case RCMENU_COMMAND_CUT:
 			printf("RCMENU_COMMAND_CUT\n");
+			FTcharmap_cut_to_syspad(chmap);
 			break;
 		default:
 			printf("RCMENU_COMMAND_NONE\n");

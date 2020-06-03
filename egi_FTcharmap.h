@@ -46,6 +46,10 @@ published by the Free Software Foundation.
 7. EOF:         For txtbuff:      A '\0' token to signal as end of the buffered string.
                 For saved file:   A '\n' to comply with UNIX/POSIX file end standard.
 
+8. Selection mark:
+                Two offsets of txtbuff, pchoff and pchoff2, which defines selected content/chars btween them.
+                if(pchoff==pchoff2), then no selection.
+
 
                         --- PRE_Charmap Actions ---
 
@@ -325,12 +329,16 @@ int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request *
 int 	FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned char *pstr, size_t strsize );
 int 	FTcharmap_insert_string( EGI_FTCHAR_MAP *chmap, const unsigned char *pstr, size_t strsize );  /* mutex_lock + request */
 
-int 	FTcharmap_copy_from_syspad( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
-int 	FTcharmap_copy_to_syspad( EGI_FTCHAR_MAP *chmap );
 
 int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock + request */
 
 /* Delete a char preceded by cursor OR chars selected between pchoff2 and pchoff */
-int 	FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap );			/* mutex_lock + request */
+int 	FTcharmap_delete_string_nolock( EGI_FTCHAR_MAP *chmap );	/* mutex_lock + request */
+int 	FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
+
+/* To/from EGI_SYSPAD */
+int 	FTcharmap_copy_from_syspad( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
+int 	FTcharmap_copy_to_syspad( EGI_FTCHAR_MAP *chmap );
+int 	FTcharmap_cut_to_syspad( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
 
 #endif

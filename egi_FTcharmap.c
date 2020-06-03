@@ -60,7 +60,8 @@ Note:
 		For saved file:   A '\n' to comply with UNIX/POSIX file end standard.
 
 8. Selection mark:
-
+		Two offsets of txtbuff, pchoff and pchoff2, which defines selected content/chars btween them.
+		if(pchoff==pchoff2), then no selection.
 
                         	<--- PRE_Charmap Actions --->
 
@@ -100,8 +101,7 @@ POST_2: Check chmap->errbits
 TODO:
 1. A faster way to memmove...
 2. A faster way to locate pch...
-3. Auto grow mem. for chmap members.
-4. Delete/insert/.... editing functions will fail if chmap->request!=0. ( loop trying/waiting ??)
+3. Delete/insert/.... editing functions will fail/abort if chmap->request!=0. ( loop trying/waiting ??)
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -460,7 +460,7 @@ int FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap)
 	int nwrite=0;
 
 	/* Check input */
-	if(chmap==NULL)
+	if(chmap==NULL || chmap->txtsize<1 )
 		return -1;
 
 	fil=fopen(fpath, "w");
@@ -476,16 +476,20 @@ int FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap)
         }
 
 	/* Write txtbuff to fil */
-	/* Min LEN */
-	if(chmap->txtlen==0)
+	/* Min LEN.  In case it's a new empty file. */
+	if(chmap->txtlen==0) {
+		chmap->txtbuff[0]='\n';
 		chmap->txtlen=1;
+	}
 
-	/* EOF */
+	#if 0   /* NOPE!!! This will increase chmap->txtlen, instead to put EOF after fwriting txtbuff !!! */
 	if(chmap->txtbuff[chmap->txtlen-1]!='\n') {	/* txtbuff[txtlen] is ALWAYS '\0', as txtbuff EOF */
 		chmap->txtbuff[chmap->txtlen]='\n';	/* UNIX File EOF standard */
 		chmap->txtlen++;
 	}
-	nwrite=fwrite(chmap->txtbuff, 1, chmap->txtlen, fil); /* +1 EOF */
+	#endif
+
+	nwrite=fwrite(chmap->txtbuff, 1, chmap->txtlen, fil);
 	if(nwrite < chmap->txtlen) {
 		if(ferror(fil))
 			printf("%s: Fail to write to '%s'.\n", __func__, fpath);
@@ -494,6 +498,10 @@ int FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap)
 		ret=-4;
 	}
 	EGI_PDEBUG(DBG_CHARMAP,"%d bytes written.\n", nwrite);
+
+	/* End_Of_File: UNIX/POSIX standard */
+	if(chmap->txtbuff[chmap->txtlen-1]!='\n')	/* txtbuff[txtlen] is ALWAYS '\0', as txtbuff EOF */
+		fwrite("\n", 1, 1, fil);		/* No error check here!!! */
 
 	/* Close fil */
 	if( fclose(fil) !=0 ) {
@@ -587,6 +595,10 @@ TODO: 1. Alphabetic words are treated letter by letter, and they may be separate
 	 Example: when shift chmap->pchoff, it MAY points to a char that has NO charmap data at all!
 	 example: TAB(9) and CR(13)!
 	 see 'EXCLUDE WARNING' in the function.
+      4. To investigate:
+	 If you try to insert a samll size char( like '.') in the beginning of a dline, and it happens
+	 that there is just enough space left in previous dline, then after charmapping the char
+	 will be displayed at the end of the last dline!  ---- Any further problems ???
 
 @fbdev:         FB device
 		If NULL: Ignore to redraw bkgcolor and curosr!
@@ -644,7 +656,6 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
         int ln; 			/* lines used */
 	unsigned int lines;		/* Total lines, =chmap->maplines */
 	unsigned int pixpl;		/* pixels per line, =chmap->mappixpl */
-	//int gap;			/* line gap, =chmap->maplngap */
 	unsigned off=0;
 	int x0;				/* charmap left top point, exclude margin */
 	int y0;
@@ -2857,71 +2868,6 @@ int FTcharmap_insert_string( EGI_FTCHAR_MAP *chmap, const unsigned char *pstr, s
 	return 0;
 }
 
-/*----------------------------------------------------
-Copy content in EGI SYSPAD to chmap->txtbuff.
-
-Return:
-	0	OK
-	<0	Fail
------------------------------------------------------*/
-int FTcharmap_copy_from_syspad( EGI_FTCHAR_MAP *chmap )
-{
-	int ret=0;
-
-	if( chmap==NULL || chmap->txtbuff==NULL )
-		return -1;
-
-	/* Get buffer from EGI SYSPAD */
-	EGI_SYSPAD_BUFF *padbuff=egi_buffer_from_syspad();
-	if(padbuff==NULL)
-		return -2;
-
-	/* Insert to charmap, with mutex_lock */
-	printf("%s: insert string: '%s'\n",__func__, (char *)padbuff->data);
-	ret=FTcharmap_insert_string( chmap, padbuff->data, padbuff->size );
-
-	/* Free pad buffer */
-	egi_sysPadBuff_free(&padbuff);
-
-	return ret;
-}
-
-/*----------------------------------------------------
-Copy selected content in charmap to EGI SYSPAD PATH.
-
-No mutex_lock applied!
-
-Return:
-	0	OK
-	<0	Fail
------------------------------------------------------*/
-int FTcharmap_copy_to_syspad( EGI_FTCHAR_MAP *chmap )
-{
-	int startPos, endPos;
-
-	if( chmap==NULL || chmap->txtbuff==NULL )
-		return -1;
-
-	/* If NO selection */
-	if( chmap->pchoff == chmap->pchoff2 )
-		return -2;
-
-	/* Get selection */
-	if(chmap->pchoff > chmap->pchoff2) {
-		startPos=chmap->pchoff2;
-		endPos=chmap->pchoff;
-	}
-	else {
-		startPos=chmap->pchoff;
-		endPos=chmap->pchoff2;
-	}
-
-	/* Save to EGI_SYSPAD file */
-	if( egi_copy_to_syspad( chmap->txtbuff+startPos, endPos-startPos) != 0 )
-		return -3;
-
-	return 0;
-}
 
 
 /*---------------------------------------------------------------
@@ -3134,8 +3080,8 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 }
 
 
-
-/*----------------------------------------------------------------------------
+/*----------------------------------------------------------------
+Without mutex_lock and request!
 If ( pchoff==pchoff2) delete a char preceded by cursor.
 If ( pchoff!=pchoff1) delete all chars between pchoff and pchoff2
 
@@ -3152,8 +3098,8 @@ Note:
 Return:
         0       OK
         <0      Fail
----------------------------------------------------------------------------*/
-int FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap )
+----------------------------------------------------------------*/
+inline int FTcharmap_delete_string_nolock( EGI_FTCHAR_MAP *chmap )
 {
 	int charlen=0;
 	int startPos=0;
@@ -3167,31 +3113,12 @@ int FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap )
                 return -1;
         }
 
-        /*  Get mutex lock   ----------->  */
-        if(pthread_mutex_lock(&chmap->mutex) !=0){
-                printf("%s: Fail to lock charmap mutex!", __func__);
-                return -2;
-        }
-
-	/* Check request ? OR wait ??? */
-	if( chmap->request !=0 ) {
-       	/*  <-------- Put mutex lock */
-	        pthread_mutex_unlock(&chmap->mutex);
-		return -3;
-	}
-
 	#if 0 /* -----TEST:  */
 	wchar_t wcstr;
 	if(char_uft8_to_unicode(chmap->pref+chmap->charPos[chmap->pch], &wcstr) >0) {
 		printf("Del wchar = %d\n", wcstr);
 	}
 	#endif
-
-	/* NOTE: DEL/BACKSPACE operation acturally copys string including only ONE '\0' at end.
-         *  After deleting/moving a more_than_1_byte_width uft-8 char, there are still several bytes
-         *  need to be cleared. and EOF token MUST reset when insert char at the end of txtbuff[] later.
-         */
-
 
         /* Only if txtbuff is NOT empty  */
         if( chmap->txtlen > 0 ) {
@@ -3290,6 +3217,56 @@ int FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap )
 	}
 	/* ELSE: txtlen==0, chmap->txtbuff is empty! */
 
+	return 0;
+}
+
+
+/*----------------------------------------------------------------------------
+If ( pchoff==pchoff2) delete a char preceded by cursor.
+If ( pchoff!=pchoff1) delete all chars between pchoff and pchoff2
+
+Note:
+1. No matter where is the editing cursor(pchoff), it will execute deletion anyway,
+   even the cursor(pchoff) is NOT in the current charmap.
+2. If NOT in current charmap, reset chmap->txtdlncount,pref after deleting.
+   Point chmap->pref to the dline where chmap->pchoff located.
+3. Otherwise deletes the char pointed by pch, and chmap->pch/pchoff keeps unchanged!
+4. The EOF will NOT be deleted!
+
+@chmap:         Pointer to the EGI_FTCHAR_MAP.
+
+Return:
+        0       OK
+        <0      Fail
+---------------------------------------------------------------------------*/
+int FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap )
+{
+	/* Check input */
+        if( chmap==NULL || chmap->txtbuff==NULL ) {
+                printf("%s: Input FTCHAR map is empty!\n", __func__);
+                return -1;
+        }
+
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+
+	/* Check request ? OR wait ??? */
+	if( chmap->request !=0 ) {
+       	/*  <-------- Put mutex lock */
+	        pthread_mutex_unlock(&chmap->mutex);
+		return -3;
+	}
+
+	if( FTcharmap_delete_string_nolock(chmap) != 0 ) {
+		printf("%s: Fail to call FTcharmap_delete_string_nolock()!\n",__func__);
+       	/*  <-------- Put mutex lock */
+	        pthread_mutex_unlock(&chmap->mutex);
+		return -4;
+	}
+
 	/* Keep cursor on */
 	gettimeofday(&chmap->tm_blink,NULL);
 	chmap->cursor_on=true;
@@ -3303,5 +3280,144 @@ int FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap )
 	return 0;
 }
 
+
+/*----------------------------------------------------
+Copy content in EGI SYSPAD to chmap->txtbuff.
+
+Return:
+	0	OK
+	<0	Fail
+-----------------------------------------------------*/
+int FTcharmap_copy_from_syspad( EGI_FTCHAR_MAP *chmap )
+{
+	int ret=0;
+
+	if( chmap==NULL || chmap->txtbuff==NULL )
+		return -1;
+
+	/* Get buffer from EGI SYSPAD */
+	EGI_SYSPAD_BUFF *padbuff=egi_buffer_from_syspad();
+	if(padbuff==NULL)
+		return -2;
+
+	/* Insert to charmap, with mutex_lock */
+	printf("%s: insert string: '%s'\n",__func__, (char *)padbuff->data);
+	ret=FTcharmap_insert_string( chmap, padbuff->data, padbuff->size );
+
+	/* Free pad buffer */
+	egi_sysPadBuff_free(&padbuff);
+
+	return ret;
+}
+
+
+/*----------------------------------------------------
+Copy selected content in charmap to EGI SYSPAD PATH.
+
+No mutex_lock applied!
+
+Return:
+	0	OK
+	<0	Fail
+-----------------------------------------------------*/
+int FTcharmap_copy_to_syspad( EGI_FTCHAR_MAP *chmap )
+{
+	int startPos, endPos;
+
+	if( chmap==NULL || chmap->txtbuff==NULL )
+		return -1;
+
+	/* If NO selection */
+	if( chmap->pchoff == chmap->pchoff2 )
+		return -2;
+
+	/* Get selection */
+	if(chmap->pchoff > chmap->pchoff2) {
+		startPos=chmap->pchoff2;
+		endPos=chmap->pchoff;
+	}
+	else {
+		startPos=chmap->pchoff;
+		endPos=chmap->pchoff2;
+	}
+
+	/* Save to EGI_SYSPAD file */
+	if( egi_copy_to_syspad( chmap->txtbuff+startPos, endPos-startPos) != 0 )
+		return -3;
+
+	return 0;
+}
+
+
+/*--------------------------------------------------
+No mutex_lock and request!
+
+Delete selected content in charmap and put it to
+EGI SYSPAD PATH.
+
+Return:
+	0	OK
+	<0	Fail
+--------------------------------------------------*/
+int FTcharmap_cut_to_syspad( EGI_FTCHAR_MAP *chmap )
+{
+	int startPos, endPos;
+
+	/* Check input */
+        if( chmap==NULL || chmap->txtbuff==NULL ) {
+                printf("%s: Input FTCHAR map is empty!\n", __func__);
+                return -1;
+        }
+
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+
+	/* Check request ? OR wait ??? */
+	if( chmap->request !=0 ) {
+       	/*  <-------- Put mutex lock */
+	        pthread_mutex_unlock(&chmap->mutex);
+		return -3;
+	}
+
+	/* If NO selection */
+	if( chmap->pchoff == chmap->pchoff2 )
+		return -4;
+
+	/* Get selection */
+	if(chmap->pchoff > chmap->pchoff2) {
+		startPos=chmap->pchoff2;
+		endPos=chmap->pchoff;
+	}
+	else {
+		startPos=chmap->pchoff;
+		endPos=chmap->pchoff2;
+	}
+
+	/* Save selected content to EGI_SYSPAD file */
+	if( egi_copy_to_syspad( chmap->txtbuff+startPos, endPos-startPos) != 0 )
+		return -5;
+
+	if( FTcharmap_delete_string_nolock(chmap) != 0 ) {
+		printf("%s: Fail to call FTcharmap_delete_string_nolock()!\n",__func__);
+       	/*  <-------- Put mutex lock */
+	        pthread_mutex_unlock(&chmap->mutex);
+		return -6;
+	}
+
+	/* Keep cursor on */
+	gettimeofday(&chmap->tm_blink,NULL);
+	chmap->cursor_on=true;
+
+	/* Set chmap->request for charmapping */
+	chmap->request=1;
+
+        /*  <-------- Put mutex lock */
+        pthread_mutex_unlock(&chmap->mutex);
+
+	return 0;
+}
 
 
