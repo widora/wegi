@@ -24,6 +24,7 @@ published by the Free Software Foundation.
 1. char:    A printable ASCII code OR a local character with UFT-8 encoding.
 2. charmap: A EGI_FTCHAR_MAP struct that holds data of currently displayed chars,
             of both their corresponding coordinates in displaying window and offset position in memory.
+	    FAINT WARNING: Do NOT confuse with Freetype charmap concept!
 3. dline:  displayed/charmapped line, A line starts/ends at displaying window left/right end side.
    retline: A line starts/ends by a new line token '\n'.
 
@@ -116,7 +117,7 @@ enum FTcharmap_errcode {
 	CHMAPERR_TXTDLINES_LIMIT =1<<2,
 };
 
-
+/* FAINT WARNING: Do NOT confuse with Freetype charmap concept! */
 typedef struct FTsymbol_char_map	EGI_FTCHAR_MAP;		/* Char map for visiable/displayed characters. ---NOW!
 								 * A map to relate displayed chars with their positions on LCD.
 								 * Call FTsymbol_uft8strings_writeFB() to fill in the struct.
@@ -251,8 +252,9 @@ struct  FTsymbol_char_map {
 						 * After charmapping, set pch as to re_locate cursor nearest to its previous (x,y) postion.
 						 * set as true when shift cursor up/down to cross top/bottom dline.
 						 */
-	bool		follow_cursor;		/* If true: charmapping will continue until pchoff/pch cursor gets into current charmap,
-						 * and results in pch>=0.
+	bool		follow_cursor;		/* If true: charmapping will continue to shift dline by dline until pchoff/pch cursor gets into
+					  	 * current charmap,and results in pch>=0.
+						 * Charmapped image will be rendered/displayed after shifting each dline.
 						 */
 	int		pch;			/* Index of displayed char as of charX[],charY and charPos[], pch=0 is the first displayed char.
 						 * chmap->pch/pch2 is derived from chmap->pchoff/pchoff2 in charmapping!

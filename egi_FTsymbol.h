@@ -12,6 +12,7 @@ Midas Zhou
 #include "egi_symbol.h"
 #include <freetype2/ft2build.h>
 #include <freetype2/ftglyph.h>
+#include <freetype2/ftadvanc.h>
 #include <arpa/inet.h>
 #include FT_FREETYPE_H
 
@@ -27,7 +28,6 @@ struct FTsymbol_library {
 	 *   and FT_Done_Face. "
 	 */
 	FT_Library     library;		/* NOTE: typedef struct FT_LibraryRec_  *FT_Library */
-
 
 	/* Regular type */
         FT_Face         regular;	/* NOTE: typedef struct FT_FaceRec_*  FT_Face */
@@ -65,6 +65,8 @@ void	FTsymbol_release_allfonts(void);
 int  	FTsymbol_load_asciis_from_fontfile( EGI_SYMPAGE *symfont_page, const char *font_path, int Wp, int Hp );
 int 	FTsymbol_get_symheight(FT_Face face, const unsigned char *pstr, int fw, int fh );
 int 	FTsymbol_get_FTface_Height(FT_Face face, int fw, int fh);
+int 	FTsymbol_uft8string_getAdvances(FT_Face face, int fw, int fh, const unsigned char *ptr);
+int 	FTsymbol_cooked_charWidth(wchar_t wcode, int fw);
 void 	FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar_t wcode, int *xleft,
 				int x0, int y0, int fontcolor, int transpcolor,int opaque);
 

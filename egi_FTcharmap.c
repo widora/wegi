@@ -9,8 +9,8 @@ Note:
 
 2. If there are any selection marks, but not displayed in current charmap,
    To press 'DEL' or 'BACKSPACE':  it first deletes those selected chars,
-   then scrolls charmap to display the typing cursor.
-   To press any other key: it just scrolls charmap to display selection marks.
+   then scrolls charmap to display/locate the typing cursor.
+   To press any other key: it just scrolls charmap to display/locate selection marks.
 
 3. Sometimes it may needs more than one press/operation ( delete, backspace, shift etc.)
    to make the cursor move, this is because there is/are unprintable chars
@@ -37,6 +37,7 @@ Note:
 1. char:    A printable ASCII code OR a local character with UFT-8 encoding.
 2. charmap: A EGI_FTCHAR_MAP struct that holds data of currently displayed chars,
 	    of both their corresponding coordinates in displaying window and offset position in memory.
+	    FAINT WARNING: Do NOT confuse with Freetype charmap concept!
 3. dlines:  displayed/charmapped line, A line starts/ends at displaying window left/right end side.
    retline: A line starts/ends by a new line token '\n'.
 
@@ -137,7 +138,7 @@ static void FTcharmap_draw_cursor(int x, int y, int lndis )
 
 
 /*------------------------------------------------
-To create a char map with given size.
+To create a char map with given params.
 
 @txtsize: Size of txtbuff[], exclude '\0'.
 	 ! txtsize+1(EOF) bytes to be allocated.
@@ -590,9 +591,9 @@ TODO: 1. Alphabetic words are treated letter by letter, and they may be separate
          a line, so it looks not good.
       2. Apply character functions in <ctype.h> to rule out chars, with consideration of locale setting?
       3. !!! WARNING !!!
-	 Any ASCII codes that may be preseted in the txtbuff MUST all be included in charmapping.
-	 MUST NOT skip any char in charmapping, OR it will cause charmap data error in further operation,
-	 Example: when shift chmap->pchoff, it MAY points to a char that has NO charmap data at all!
+	 Any ASCII codes that may be preseted in the txtbuff MUST all be charmapped into charX/Y/Pos[].
+	 MUST NOT skip any char,event it has zero width, OR it will cause charmap data error in further operation,
+	 Example: when shift chmap->pchoff, it MAY point to a char that has NO charmap data at all!
 	 example: TAB(9) and CR(13)!
 	 see 'EXCLUDE WARNING' in the function.
       4. To investigate:
@@ -651,11 +652,11 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	int count;			/* number of character written to FB*/
 	int px,py;			/* bitmap insertion origin(BBOX left top), relative to FB */
 	const unsigned char *pstr=NULL;	/* == chmap->pref */
-	const unsigned char *p=NULL;  	/* variable pointer, to each char in pstr[] */
-        int xleft; 			/* available pixels remainded in current line */
-        int ln; 			/* lines used */
-	unsigned int lines;		/* Total lines, =chmap->maplines */
-	unsigned int pixpl;		/* pixels per line, =chmap->mappixpl */
+	const unsigned char *p=NULL;  	/* variable pointer, to tranverse each char in pstr[] */
+        int xleft; 			/* available pixels remainded in current dline */
+        int ln; 			/* dlines used */
+	unsigned int lines;		/* Total dlines, =chmap->maplines */
+	unsigned int pixpl;		/* pixels per dline, =chmap->mappixpl */
 	unsigned off=0;
 	int x0;				/* charmap left top point, exclude margin */
 	int y0;
@@ -664,7 +665,9 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	int charlen;
 	struct timeval tm_now;
  	wchar_t wcstr[1];
-
+        FT_Fixed   advance; 		/* typedef signed long  FT_Fixed;   to store 16.16 fixed-point values */
+	FT_Error   error;
+	int sdw;			/* Self_defined width for some unicodes */
 
 	/* Check input font face */
 	if(face==NULL) {
@@ -766,25 +769,6 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 	  			pthread_mutex_unlock(&chmap->mutex);
 				return -5;
 			}
-
-#if 0 //////////////////////////
-			/* Grow chmap->txtdlinePos[], initial reset to 0 in egi_mem_grow() */
-			if( egi_mem_grow( (void **)&chmap->txtdlinePos,
-			      sizeof(typeof(*chmap->txtdlinePos))*chmap->txtdlines, sizeof(typeof(*chmap->txtdlinePos))*TXTDLINES_GROW_SIZE ) !=0 )
-			{
-				chmap->errbits |= CHMAPERR_TXTDLINES_LIMIT;
-				printf("%s: Fail to mem_grow chmap->txtdlinePos from %d to %d units more!\n",
-											   __func__, chmap->txtdlines, TXTDLINES_GROW_SIZE);
-	  	/*  <-------- Put mutex lock */
-	  			pthread_mutex_unlock(&chmap->mutex);
-				return -5;
-			}
-			else {
-				chmap->txtdlines += TXTDLINES_GROW_SIZE;  /* size in units */
-				printf("%s: OK, mem_grow champ->txtdlines to %d\n", __func__, chmap->txtdlines);
-			}
-#endif ////////////////////////////////
-
 		}
 
 		/* --- check whether lines are used up --- */
@@ -868,15 +852,41 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 		}
 		#endif
 
-		/* write unicode bitmap to FB, and get xleft renewed. */
+		/* Reset pen X position */
 		px=x0+pixpl-xleft;
-		if( chmap->maskchar !=0 ) {
-			FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, chmap->maskchar, &xleft,
-							 px, py, fontcolor, transpcolor, opaque );
+
+		/* Write unicode bitmap to FB, and get xleft renewed. */
+
+		/* If fb_dev==NULL: To get xleft in a fast way */
+		if( fb_dev== NULL) {
+		    	/* If has self_cooked width for some special unicodes, no bitmap. */
+		    	sdw=FTsymbol_cooked_charWidth(*wcstr, fw);
+		    	if(sdw>=0)
+				xleft -= sdw;
+		    	/* No self_cooked width, With bitmap */
+		    	else {
+				/* !!! WARNING !!! load_flags must be the same as in FT_Load_Char( face, wcode, flags ) when writeFB
+	                         * the same ptr string.
+				 * TODO: Self-defined width for some chars
+				 * Strange!!! a little faster than FT_Get_Advance()
+			 	 */
+				error= FT_Get_Advances(face, *wcstr, 1, FT_LOAD_RENDER, &advance);
+        	        	if(error)
+                			printf("%s: Fail to call FT_Get_Advances().\n",__func__);
+	                	else
+        	                	xleft -= advance>>16;
+		  	}
 		}
 		else
-			FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, wcstr[0], &xleft,
-							 px, py, fontcolor, transpcolor, opaque );
+		{
+			if( chmap->maskchar !=0 ) {
+				FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, chmap->maskchar, &xleft,
+								 px, py, fontcolor, transpcolor, opaque );
+			}
+			else
+				FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, wcstr[0], &xleft,
+								 px, py, fontcolor, transpcolor, opaque );
+		}
 
 		/* --- check line space --- */
 		if(xleft<=0) {  /* ! xleft==0: for unprintable char, xleft unchaged */
@@ -1056,6 +1066,9 @@ CHARMAP_END:
                 	}
 			chmap->pref=chmap->pref+chmap->charPos[chmap->chcount-1]+charlen;
 		}
+
+		/* Before repeating, render charmapped image */
+		fb_render(fb_dev);
 
 		goto  START_CHARMAP;
 	}

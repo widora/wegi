@@ -769,7 +769,7 @@ inline void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 {
 	/* check data */
 	if( sym_page==NULL || (sym_page->data==NULL && sym_page->alpha==NULL) ) {
-		printf("%s: Input symbol page has no valid data inside.\n",__func__);
+		printf("%s: Input symbol page has no valid data inside.\n",__func__); /* Example: A Freetype char with no bitmap */
 		return;
 	}
 
@@ -949,8 +949,8 @@ inline void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 				pcolor=*(data+poff);
 			}
 
-			/* ------- assign color data one by one,faster then memcpy  --------
-			   Wrtie to FB only if:
+			/* ------- Assign color data one by one,faster than memcpy  --------
+			   Write to FB only if:
 			   0.  Lumadev<0 (opaque<0), then transparent pixel to be darkened!
 			   1.  alpha value exists, then use alpha to blend image instead of transpcolor.
 			   2.  OR(no transp. color applied)

@@ -16,7 +16,9 @@ Midas Zhou
 #include "egi_utils.h"
 #include <freetype2/ft2build.h>
 #include <freetype2/ftglyph.h>
+#include <freetype2/ftadvanc.h>
 #include <arpa/inet.h>
+
 //#include FT_FREETYPE_H
 
 /* <<<<<<<<<<<<<<<<<<   FreeType Fonts  >>>>>>>>>>>>>>>>>>>>>>*/
@@ -166,17 +168,21 @@ void FTsymbol_release_allpages(void)
 }
 
 
-/*-------------------------------------------------------------
+/*---------------------------------------------------------------
 Initialize FT library and load faces.
 
 Note:
 1. You shall avoid to load all fonts in main process,
 it will slow down fork() process significantly.
+2.  When a new face is created (FT_New_Face or FT_Open_Face), the
+the library looks for a Unicode charmap within the list and
+automatically activates it. Or use FT_Select_Charmap to manually
+change encoding type.
 
 return:
         0       OK
         !0      Fails, or not all faces are loaded successfully.
--------------------------------------------------------------*/
+----------------------------------------------------------------*/
 int FTsymbol_load_library( EGI_FONTS *symlib )
 {
 	FT_Error	error;
@@ -727,11 +733,11 @@ and font size.
 
 1. Try NOT to use this function, it's slow. and use CAPITAL LETTERs instead
    of small letters.
-2. The purpose of this function is use the result symHeight to put the pstr in
-the middle of some space.
+2. The purpose of this function is to use the result symHeight to align string
+   in middle of some space.
 
-Note: For ASCII chars, for Chinese char, they are usually same height. So not
-      necessary to call this function.
+Note: It's usually for ASCII chars. For Chinese char, they are usually the same
+      height.
 
 Return:
 	>0	OK
@@ -808,6 +814,153 @@ inline int FTsymbol_get_FTface_Height(FT_Face face, int fw, int fh)
 }
 
 
+/*----------------------------------------------------------------------------------------------------
+Get total advance value of the input string.  the FT_Face shall be preseted with expected parameters,
+transforms etc. The purpose is to get the space needed for writFBing the string in a fast way.
+
+@face: 		FT_Face
+@load_flags:	A flag indicating what to load for this glyph
+		!!! WARNING !!! Must be the same as in FT_Load_Char( face, wcode, flags ) as for writeFB
+		the same string.
+@fw,fh:		Expected font width and height, Must be the same as in FT_Set_Pixel_Sizes() as for writeFB
+		the same string.
+@pstr:          pointer to a string with UTF-8 encoding.
+
+
+Return:
+	>0	Sum of andvances of the chars that successfully parsed. (in pixels)
+	<0	Fails,
+------------------------------------------------------------------------------------------------------*/
+inline int FTsymbol_uft8string_getAdvances(FT_Face face, int fw, int fh, const unsigned char *ptr)
+{
+	int size;
+  	FT_Error   error;
+	FT_Fixed   advance; /* typedef signed long  FT_Fixed;   to store 16.16 fixed-point values */
+	int 	   sum=0;   /* sumup of all advances, in pixels */
+	const unsigned char *p=ptr;
+ 	wchar_t    wcstr[1];
+
+	if(ptr==NULL)
+		return -1;
+
+	/* set character size in pixels */
+	error = FT_Set_Pixel_Sizes(face, fw, fh);
+   	/* OR set character size in 26.6 fractional points, and resolution in dpi
+   	   error = FT_Set_Char_Size( face, 32*32, 0, 100,0 ); */
+	if(error) {
+		printf("%s: FT_Set_Pixel_Sizes() fails!\n",__func__);
+		return -2;
+	}
+
+	while(*p) {
+		/* convert one character to unicode, return size of utf-8 code */
+		size=char_uft8_to_unicode(p, wcstr);
+		if(size > 0) {
+			/* FT_Get_Advances(FT_Face face, FT_UInt start, FT_UInt count, FT_Int32 load_flags, FT_Fixed *padvances)
+			 * !!! WARNING !!! load_flags must be the same as in FT_Load_Char( face, wcode, flags ) when writeFB
+                	 * the same ptr string.
+			 * Strange!!! a little faster than FT_Get_Advance()
+			 */
+			error= FT_Get_Advances( face, *wcstr, 1, FT_LOAD_RENDER , &advance );
+			if(error)
+				printf("%s: Fail to call FT_Get_Advances().\n",__func__);
+			else	/* TODO: consider FTsymbol_cooked_charWidth() */
+				sum += advance>>16;
+
+			p += size;
+		}
+		else {  /* If it's a wrong UFT-8 encoding, try to move on... */
+			p++;
+			continue;
+		}
+	}
+
+	return sum;
+}
+
+
+/*---------------------------------------------------------------------------------------------
+TODO: test
+Put all advance values of given chars to buffer. and return
+the pointer.
+
+@face: 		FT_Face
+//@load_flags:	A flag indicating what to load for this glyph
+		!!! WARNING !!! Must be the same as in FT_Load_Char( face, wcode, flags ) as for writeFB
+		the same string.
+@fw,fh:		Expected font width and height, Must be the same as in FT_Set_Pixel_Sizes() as for writeFB
+		the same string.
+@start:         the first glyph index.
+@count:		The number of advance values you want to retrieve.
+
+Return:
+	Pointer to long		OK
+	NULL			Fails
+---------------------------------------------------------------------------------------------*/
+long * FTsymbol_buffer_fontAdvances(FT_Face face, int fw, int fh, FT_UInt start, FT_UInt count)
+{
+  	FT_Error   error;
+	long 	   *advances=NULL;  /* typedef signed long  FT_Fixed;   to store 16.16 fixed-point values */
+
+	/* Calloc advances */
+	advances=calloc(count, sizeof(long));
+	if(advances==NULL) {
+		printf("%s: Fail to calloc advances.\n",__func__);
+		return NULL;
+	}
+
+	/* set character size in pixels */
+	error = FT_Set_Pixel_Sizes(face, fw, fh);
+   	/* OR set character size in 26.6 fractional points, and resolution in dpi
+   	   error = FT_Set_Char_Size( face, 32*32, 0, 100,0 ); */
+	if(error) {
+		printf("%s: FT_Set_Pixel_Sizes() fails!\n",__func__);
+		free(advances);
+		return NULL;
+	}
+
+	error= FT_Get_Advances( face, start, count, FT_LOAD_RENDER , advances );
+	if(error) {
+		printf("%s: Fail to call FT_Get_Advances().\n",__func__);
+		free(advances);
+		return NULL;
+	}
+
+	return advances;
+}
+
+
+/*----------------------------------------------------------
+Self_define/cook width for some special unicodes.
+NOTE: Those wcodes are assumed to have no bitmap!
+
+@wcode:		UNICODE value
+@fw:		Expected/norminal width
+
+Return:
+	>=0:	Ok, re_defined width, in pixels.
+	<0:	No red_efined width value for the wocde.
+-----------------------------------------------------------*/
+inline int FTsymbol_cooked_charWidth(wchar_t wcode, int fw)
+{
+	switch(wcode)
+	{
+		case 32:	/* ASCII SPACE */
+			return fw*factor_SpaceWidth/2;
+		case 9:		/* TAB */
+			return fw*factor_TabWidth;
+		case 13:	/* NEW LINE */
+			return 0;
+		case 12288:	/* SPACE defined in CJK Unicode group 'Spacing Modifier' */
+			return fw*factor_SpaceWidth;
+		case 65279:	/* ZERO_WIDTH_NO_BREAK SPACE */
+			return 0;
+		default:
+			return -1;
+	}
+}
+
+
 /*-----------------------------------------------------------------------------------------------
 1. Render a CJK character presented in UNICODE with the specified face type, then write the
    bitmap to FB.
@@ -821,6 +974,7 @@ inline int FTsymbol_get_FTface_Height(FT_Face face, int fw, int fh)
 6. Or to get symheight just as in symbol_load_asciis_from_fontfile() as BBOX_H. However it's maybe
    a good idea to display CJK and wester charatcters separately by calling differenct functions.
    i.e. symbol_writeFB() for alphabets and FTsymbol_unicode_writeFB() for CJKs.
+7. Note: FT_Face->size->metrics.height will cover all font height and with certain gaps.
 
 TODO: buffer all font bitmaps for further use.
 
@@ -829,9 +983,10 @@ TODO: buffer all font bitmaps for further use.
 		if NULL, just ignore to write to FB.
 @face:          A face object in FreeType2 library.
 @fh,fw:		Expected font size.
-@wcode:		UNICODE number for the character.
+@wcode:		UNICODE value
 @xleft:		Pixel space left in FB X direction (horizontal writing)
 		Xleft will be subtrated by slot->advance.x first anyway, If xleft<0 then, it aborts.
+		if NULL, Do NOT check.
 @x0,y0:		Left top coordinate of the character bitmap,relative to FB coord system.
 @transpcolor:   >=0 transparent pixel will not be written to FB, so backcolor is shown there.
                 <0       no transparent pixel
@@ -862,6 +1017,13 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 	int bbox_W;	/* boundary box width, taken bbox_H=fh */
 	int delX;	/* adjust bitmap position in boundary box, according to bitmap_top */
 	int delY;
+	int sdw;	/* Self defined width for the wcode */
+
+	/* check input data */
+	if(face==NULL) {
+		printf("%s: input FT_Face is NULL!\n",__func__);
+		return;
+	}
 
 	/* set character size in pixels */
 	error = FT_Set_Pixel_Sizes(face, fw, fh);
@@ -894,7 +1056,28 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 	advanceX = slot->advance.x>>6;
 	bbox_W = (advanceX > slot->bitmap.width ? advanceX : slot->bitmap.width);
 
-	/* Chars without bitmap, or any chars you don't want to draw!
+#if 0	/* TEST: --- special wocdes --- */
+	if( ftsympg.alpha==NULL || advanceX==0 || wcode==9 || wcode==13 || wcode==65279 ) {
+		/* 1. With bitmap */
+		if(ftsympg.alpha && advanceX==0)
+			printf("wcode %d has bitmap, and zero width.\n", wcode);
+		else if(ftsympg.alpha)
+			printf("wcode %d has bitmap, and advanceX=%d.\n", wcode, advanceX);
+
+		/* 2. Without bitmap */
+		if(ftsympg.alpha==NULL && advanceX==0 )
+			printf("wcode %d has no bitmap, and zero width.\n", wcode);
+		else if(ftsympg.alpha==NULL)
+			printf("wcode %d has no bitmap, and advanceX=%d.\n", wcode,advanceX);
+
+	}
+#endif
+
+     /* Check only when xleft is NOT NULL */
+     if( xleft != NULL )
+     {
+
+#if 0	/* Chars without bitmap, or any chars you don't want to draw!
 	 * You may modify width for special chars here
 	 * Check bitmap data, we need bbox_W here. alpha NULL chars:  SPACEs
 	 */
@@ -907,31 +1090,41 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 	 	 * but it has bitmap.width and advanced defined.
 	 	 */
 		/* If a HALF/FULL Width SPACE */
-		if( wcode == 12288 ) {  //   wcode==12288 LOCALE SPACE; wcode==32 ASCII SPACE
-			// *xleft -= fw;
+		if( wcode == 12288 ) {  	/* wcode==12288 LOCALE SPACE */
 			*xleft -= fw*factor_SpaceWidth;
 		}
-		else if ( wcode == 65279 ) /* ZERO_WIDTH_NO_BREAK SPACE */
+		else if ( wcode == 65279 ) 	/* ZERO_WIDTH_NO_BREAK SPACE */
 			*xleft -= 0;
-		else if ( wcode == 32 ) //(wchar_t)(L" ") )
-			// *xleft -= fw/2; //2*bbox_w;
+		else if ( wcode == 32 ) 	/* ASCII SPACE (wchar_t)(L" ") */
 			*xleft -= fw*factor_SpaceWidth/2;
-		else if ( wcode == 9 ) /* TAB */
+		else if ( wcode == 9 ) 		/* TAB */
 			*xleft -= fw*factor_TabWidth;
-		else { /* Maybe other unicode, it is supposed to have defined bitmap.width and advanceX */
-			*xleft -= 0; //bbox_W;
-		}
+		else				/* CR   ...Maybe other unicode, it is supposed to have defined bitmap.width and advanceX */
+			*xleft -= 0;
 
 		return;  /* DO NOT draw image */
 	}
-	else {
+	else
+#endif
+
+	/* Check if the wcode has re_defined width, those wcodes are assumed to have no bitmap. */
+	sdw=FTsymbol_cooked_charWidth(wcode, fw);
+	if( sdw >=0 )  {
+		*xleft -= sdw;
+		return;
+	}
+	else  {
 		/* reduce xleft */
 		*xleft -= bbox_W;
 	}
 
+	/* If NO space left, do NOT writeFB then. */
 	if( *xleft < 0 )
 		return;
+
 	/* taken bbox_H as fh */
+
+     }  /* END of if( xleft != NULL ) */
 
 	/* adjust bitmap position relative to boundary box */
 	delX= slot->bitmap_left;
@@ -1002,8 +1195,8 @@ int  FTsymbol_unicstrings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 {
 	int px,py;		/* bitmap insertion origin(BBOX left top), relative to FB */
 	wchar_t *p=(wchar_t *)pwchar;
-        int xleft; 	/* available pixels remainded in current line */
-        unsigned int ln; 	/* lines used */
+        int xleft; 		/* available pixels remainded in current dline */
+        unsigned int ln; 	/* dlines used */
 
 	/* check input data */
 	if(face==NULL) {
@@ -1195,7 +1388,6 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 
 		/* write unicode bitmap to FB, and get xleft renewed. */
 		px=x0+pixpl-xleft;
-		//printf("%s:unicode_writeFB...\n", __func__);
 		FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, wcstr[0], &xleft,
 							 px, py, fontcolor, transpcolor, opaque );
 
@@ -1262,6 +1454,8 @@ int  FTsymbol_uft8strings_writeFB_PAD(FBDEV *fb_dev, EGI_PAD pad,  FT_Face face,
 
 
 /*-------------------------------------------------------------------------------------
+( It's obsolete, to call FTsymbol_uft8string_getAdvances() instead, it's faster! )
+
 Get total length of characters in pixels.
 Note:
 1. Count all chars and '\n' will be ingnored!

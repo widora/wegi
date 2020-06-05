@@ -174,7 +174,7 @@ static void mouse_callback(unsigned char *mouse_data, int size);
 static void draw_mcursor(int x, int y);
 static void draw_RCMenu(int x0, int y0);  /* Draw right_click menu */
 static void draw_WTBMenu(int x0, int y0); /* Draw window_top_bar menu */
-static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg, int pv);
+static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg, int pv, int pev);
 static void RCMenu_execute(enum RCMenu_Command Command_ID);
 static void WBTMenu_execute(enum WBTMenu_Command Command_ID);
 
@@ -258,7 +258,6 @@ int main(int argc, char **argv)
 
 	int term_fd;
 	char ch;
-	//char chs[4];
 	int  k;
 	int  nch;
 	fd_set rfds;
@@ -269,6 +268,8 @@ int main(int argc, char **argv)
 	if( argc > 1 )
 		fpath=argv[1];
 
+
+MAIN_START:
 	/* Reset main window size */
 	txtbox.startxy.x=0;
 	txtbox.startxy.y=30;
@@ -306,7 +307,13 @@ int main(int argc, char **argv)
         /* Init. FB working buffer */
         fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY4);
 	FTsymbol_writeFB("File  Help",20,5,WEGI_COLOR_WHITE, NULL, NULL);
-	FTsymbol_writeFB("EGI记事本",140,5,WEGI_COLOR_LTBLUE, NULL, NULL);
+
+	/* TEST: getAdvances ---- */
+	int penx=140, peny=5;
+	FTsymbol_writeFB("EGI记事本护法",penx,peny,WEGI_COLOR_LTBLUE, &penx, &peny);
+	printf("FTsymbol_writFB get advanceX =%d\n", penx-140);
+	printf("FTsymbol_uft8string_getAdvances =%d\n",
+		FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fw, fh, (const unsigned char *)"EGI记事本护法") );
 
 	/* Draw blank paper + margins */
 	fbset_color(WEGI_COLOR_WHITE);
@@ -325,26 +332,35 @@ int main(int argc, char **argv)
         tcsetattr(0, TCSANOW, &new_settings);
 
 	/* To fill initial charmap and get penx,peny */
-	FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL, NULL); //&penx, &peny);
+	FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL, NULL);
 	fb_render(&gv_fb_dev);
 
 	/* Charmap to the end */
+	system("date");
+	int i=0;
 	while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
 	{
 		FTcharmap_page_down(chmap);
-		//FTcharmap_writeFB(NULL, 0, NULL, NULL);
-		FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL);
+		FTcharmap_writeFB(NULL, 0, NULL, NULL);
+		//FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL);
 
-		if(chmap->txtdlncount > 300)
+		if( chmap->txtdlinePos[chmap->txtdlncount] > chmap->txtlen/10 )
 			break;
 
-        	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
-		draw_progress_msgbox( &gv_fb_dev, (320-260)/2, (240-120)/2, "文件加载中...", 100*chmap->txtdlncount/300);
-								//100*chmap->txtdlinePos[chmap->txtdlncount]/chmap->txtlen);
-		fb_render(&gv_fb_dev);
+		if( i==5 ) {
+		   FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL);
+		   fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
+		   draw_progress_msgbox( &gv_fb_dev, (320-260)/2, (240-120)/2, "文件加载中...",
+								chmap->txtdlinePos[chmap->txtdlncount], chmap->txtlen/10);
+		   fb_render(&gv_fb_dev);
+		   i=0;
+		}
+		i++;
 	}
         fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
-	draw_progress_msgbox( &gv_fb_dev, (320-280)/2, (240-140)/2, "文件加载完成", 100);
+	draw_progress_msgbox( &gv_fb_dev, (320-280)/2, (240-140)/2, "文件加载完成", 100,100);
+	system("date");
+//	goto MAIN_END;
 
 	printf("Loop editing...\n");
 
@@ -550,7 +566,7 @@ int main(int argc, char **argv)
 	}
 
 
-	/* <<<<<<<<<<<<<<<<<<<<    Read from USB Keyboard HIDraw   >>>>>>>>>>>>>>>>>>> */
+#if 0	/* <<<<<<<<<<<<<<<<<<<<    Read from USB Keyboard HIDraw   >>>>>>>>>>>>>>>>>>> */
 	static char txtbuff[1024];	/* text buffer */
 
 	/* Open term */
@@ -585,17 +601,20 @@ int main(int argc, char **argv)
 										txtbuff[4],txtbuff[5],txtbuff[6],txtbuff[7]);
 		}
 	}
-
+#endif   /* <<<<<<<<<< HIDraw  >>>>>>>>>>>>>>> */
 
                   /*-----------------------------------
                    *         End of Main Program
                    -----------------------------------*/
+MAIN_END:
 
 	/* Reset termio */
         tcsetattr(0, TCSANOW,&old_settings);
 
 	/* My release */
 	FTcharmap_free(&chmap);
+
+goto MAIN_START;
 
 
  /* <<<<<  EGI general release   >>>>>> */
@@ -981,10 +1000,11 @@ WriteFB a progressing msg box
 
 @x0,y0:  	Left top coordinate of the msgbox.
 @msg:	 	Message string in UFT-8 encoding.
-@pv:	 	Progress in percentage value.
+@pv:	 	Progress value.
+@pev:		Progress end value.
 
 -------------------------------------------------------------*/
-static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg, int pv)
+static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg, int pv, int pev)
 {
 	int width=260;	/* Width and height of the msgbox */
 	int height=120;
@@ -1003,13 +1023,16 @@ static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg
 	/* Check input */
 	if(fb_dev==NULL)
 		return;
+
+	/* Set limit */
+	if(pev<1)pev=1;
 	if(pv<0)pv=0;
-	else if(pv>100)pv=100;
+	if(pv>pev)pv=pev;
 
 	/* Initiate vars */
 	barY=y0+height/2; //y0+15+fh+15+(bw+1)/2;	/* in mid of height */
 	bzero(strPercent,sizeof(strPercent));
-	sprintf(strPercent,"%d%%",pv);
+	sprintf(strPercent,"%d%%",100*pv/pev);
 
 	/* 1. Draw msgbox pad */
         draw_blend_filled_roundcorner_rect( &gv_fb_dev, x0,y0, x0+width-1, y0+height-1, 5,    /* fbdev, x1, y1, x2, y2, r */
@@ -1028,7 +1051,7 @@ static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg
 	draw_wline( &gv_fb_dev, x0+smargin, barY, x0+width-smargin, barY, bw);
 
 	/* 4. Draw progressing bar */
-	barEndX=(x0+smargin)+(width-2*smargin)*pv/100;
+	barEndX=(x0+smargin)+(width-2*smargin)*pv/pev;
 	fbset_color2(&gv_fb_dev, WEGI_COLOR_GREEN);
 	draw_wline( &gv_fb_dev, x0+smargin, barY, barEndX, barY, bw);
 

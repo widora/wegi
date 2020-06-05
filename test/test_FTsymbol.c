@@ -25,10 +25,9 @@ int main(int argc, char **argv)
 	 	ts=1;
 
         /* <<<<<  EGI general init  >>>>>> */
-#if 0
         printf("tm_start_egitick()...\n");
         tm_start_egitick();                     /* start sys tick */
-
+#if 0
         printf("egi_init_log()...\n");
         if(egi_init_log("/mmc/log_gif") != 0) {        /* start logger */
                 printf("Fail to init logger,quit.\n");
@@ -36,18 +35,24 @@ int main(int argc, char **argv)
         }
 #endif
 
-#if 1
+#if 0
         printf("symbol_load_allpages()...\n");
         if(symbol_load_allpages() !=0 ) {       /* load sys fonts */
                 printf("Fail to load sym pages,quit.\n");
                 return -2;
         }
-
         if(FTsymbol_load_appfonts() !=0 ) {     /* load FT fonts LIBS */
                 printf("Fail to load FT appfonts, quit.\n");
                 return -2;
         }
 #endif
+
+ 	printf("FTsymbol_load_sysfonts()...\n");
+	if(FTsymbol_load_sysfonts() !=0) {
+        	printf("Fail to load FT sysfonts, quit.\n");
+        	return -1;
+  	}
+
 
         printf("init_fbdev()...\n");
         if( init_fbdev(&gv_fb_dev) )            /* init sys FB */
@@ -57,15 +62,16 @@ int main(int argc, char **argv)
         printf("start touchread thread...\n");
         egi_start_touchread();                  /* start touch read thread */
 #endif
+
+	/* Set sys FB mode */
+  	fb_set_directFB(&gv_fb_dev,true);
+  	fb_position_rotate(&gv_fb_dev,0);
+
         /* <<<<------------------  End EGI Init  ----------------->>>> */
 
-	/* Direct FB */
-	fb_set_directFB(&gv_fb_dev, true);
-	/* set pos_rotation */
-	gv_fb_dev.pos_rotate=3;
 
 	/* backup current screen */
-       fb_page_saveToBuff(&gv_fb_dev, 0);
+        fb_page_saveToBuff(&gv_fb_dev, 0);
 
 #if 0
 	/* draw box */
@@ -78,6 +84,83 @@ int main(int argc, char **argv)
 	draw_wrect(&gv_fb_dev, offx, offy, offx+width, offy+height,3);
 #endif
 
+
+#if 1   /* All CJK UNICODE */
+	int k;
+	char strtmp[54];
+	wchar_t wcode;
+	typedef struct unicode_range { wchar_t start; wchar_t end;  char *name; } unicode_range;
+
+	unicode_range unicode_cjk[]=
+{
+	{ 0x0000,	0x007F, 	"C0 control and Basic Latin"  },		/* 0 */
+	{ 0x0080,	0x00FF,  	"C1 Control and Latin 1 Supplement" },
+	{ 0x0100,	0x017F,  	"Latin Extended-A" },
+	{ 0x0180,	0x024F, 	"Latin Extended-B" },
+	{ 0x02B0,	0x02FF,		"Spacing Modifier" },
+	{ 0x3000,	0x303F,		"CJK Symbols and Punctuation" },
+	{ 0x3040,	0x309F,		"Hiragana" },
+	{ 0x30A0,	0x30FF,		"Katakana" },
+	{ 0x3100,	0x312F,		"Bopomof" },
+	{ 0x3300,	0x33FF,		"CJK Compatibility" },				/* 9 */
+	{ 0x3400,	0x4DB5,		"CJK Unified Ideographs Extension A" },
+	{ 0x4E00,	0x9FFC,		"CJK Unified Ideographs" 	},
+	{ 0xF900,	0xFAD9,		"CJK Compatibility Ideographst"  },
+	{ 0x20000,	0x2A6DD,	"CJK Unified Ideographs Extension B" },
+	{ 0x2A700,	0x2B734,	"CJK Unified Ideographs Extension C" },
+	{ 0x2B740,	0x2B81D, 	"CJK Unified Ideographs Extension D"},
+	{ 0x2B820,	0x2CEA1,	"CJK Unified Ideographs Extension E" },
+	{ 0x2CEB0,	0x2EBE0,	"CJK Unified Ideographs Extension F" },
+	{ 0x30000,	0x3134A,	"CJK Unified Ideographs Extension G" },
+	{ 0x2F800,	0x2FA1D,	"CJK Compatibility Supplement" },
+};
+
+/* =================================================================
+
+wcode 9 has bitmap, and advanceX=50.
+wcode 13 has bitmap, and advanceX=50.
+wcode 32 has no bitmap, and advanceX=12.
+wcode 160 has no bitmap, and advanceX=12.
+wcode 12288 has no bitmap, and advanceX=50.
+wcode 12330 has bitmap, and zero width.
+wcode 12331 has bitmap, and zero width.
+wcode 12332 has bitmap, and zero width.
+wcode 12333 has bitmap, and zero width.
+
+================================================================== */
+
+while(1) {
+	//for(k=0; k<sizeof(unicode_cjk)/sizeof(unicode_cjk[0]); k++)
+	for(k=2; k<=9; k++)
+	{
+		printf("		--- %s ---\n",	unicode_cjk[k].name);
+		for( wcode=unicode_cjk[k].start; wcode<=unicode_cjk[k].end; wcode++)
+		{
+			bzero(strtmp,sizeof(strtmp));
+			sprintf(strtmp,"%d", wcode);
+
+			/* Display UNICODE */
+			clear_screen(&gv_fb_dev, WEGI_COLOR_BLACK);
+			FTsymbol_uft8strings_writeFB( 	&gv_fb_dev, egi_sysfonts.bold,         	/* FBdev, fontface */
+					      	30, 30,(const unsigned char *)strtmp, 	/* fw,fh, pstr */
+					      	320, 1, 0,                    	/* pixpl, lines, gap */
+						120, 30,                           	/* x0,y0, */
+                                     		WEGI_COLOR_WHITE, -1, -50,      /* fontcolor, transcolor,opaque */
+	                                     	NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
+
+			/* Display font */
+			FTsymbol_unicode_writeFB( &gv_fb_dev, egi_sysfonts.bold,         /* FBdev, fontface */
+					      	  50, 50, wcode, NULL, 			/* fw,fh, wcode, *xleft */
+						  30, 30,                          	/* x0,y0, */
+                        	             	  WEGI_COLOR_RED, -1, -20);      	/* fontcolor, transcolor,opaque */
+
+			tm_delayms(50);
+		}
+	}
+
+}
+	exit(0);
+#endif
 
 
 #if 1

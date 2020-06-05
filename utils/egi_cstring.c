@@ -489,7 +489,7 @@ Convert a character from UFT-8 to UNICODE.
 
 Return:
 	>0 	OK, bytes of src consumed and converted into unicode.
-	=0	Fails, or unrecognizable uft-8 .
+	<=0	Fails, or unrecognizable uft-8 .
 -----------------------------------------------------------------------*/
 inline int char_uft8_to_unicode(const unsigned char *src, wchar_t *dest)
 {
@@ -505,6 +505,8 @@ inline int char_uft8_to_unicode(const unsigned char *src, wchar_t *dest)
 	sp=(unsigned char *)src;
 
 	size=cstr_charlen_uft8(src);
+
+       /* size<0 fails, But we want to have error printed in switch(default), so go on... */
 
 #if 0 /////////////////////////////////////////////////////
 	if(size=<0) {
