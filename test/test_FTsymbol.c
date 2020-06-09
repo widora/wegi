@@ -98,7 +98,7 @@ int main(int argc, char **argv)
 	{ 0x0100,	0x017F,  	"Latin Extended-A" },
 	{ 0x0180,	0x024F, 	"Latin Extended-B" },
 	{ 0x02B0,	0x02FF,		"Spacing Modifier" },
-	{ 0x3000,	0x303F,		"CJK Symbols and Punctuation" },
+	{ 0x3000,	0x303F,		"CJK Symbols and Punctuation" },		/* 5 */
 	{ 0x3040,	0x309F,		"Hiragana" },
 	{ 0x30A0,	0x30FF,		"Katakana" },
 	{ 0x3100,	0x312F,		"Bopomof" },
@@ -129,15 +129,46 @@ wcode 12333 has bitmap, and zero width.
 
 ================================================================== */
 
+#if 0   /* -----TEST: single vowels ----*/
+wchar_t alls[]=L"ǎǒěǐǔǚňḿ ";  // ḿ \u1e3f
+while(1)
+{
+	for(k=0; k<sizeof(alls)/sizeof(wchar_t); k++)
+	{
+		wcode=alls[k];
+
+		bzero(strtmp,sizeof(strtmp));
+		sprintf(strtmp,"0x%04x", wcode);
+		/* Display UNICODE */
+		clear_screen(&gv_fb_dev, WEGI_COLOR_BLACK);
+		FTsymbol_uft8strings_writeFB( 	&gv_fb_dev, egi_sysfonts.bold,         	/* FBdev, fontface */
+					      	30, 30,(const unsigned char *)strtmp, 	/* fw,fh, pstr */
+					      	320, 1, 0,                    	/* pixpl, lines, gap */
+						120, 30,                           	/* x0,y0, */
+                                     		WEGI_COLOR_WHITE, -1, -50,      /* fontcolor, transcolor,opaque */
+	                                     	NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
+
+		/* Display font */
+		FTsymbol_unicode_writeFB( &gv_fb_dev, egi_sysfonts.bold,         /* FBdev, fontface */
+					      	  50, 50, wcode, NULL, 			/* fw,fh, wcode, *xleft */
+						  30, 30,                          	/* x0,y0, */
+                        	             	  WEGI_COLOR_RED, -1, -20);      	/* fontcolor, transcolor,opaque */
+
+		tm_delayms(1000);
+	}
+}
+#endif
+
+
 while(1) {
 	//for(k=0; k<sizeof(unicode_cjk)/sizeof(unicode_cjk[0]); k++)
-	for(k=2; k<=9; k++)
+	for(k=2; k<=3; k++) //for(k=2; k<=9; k++)
 	{
 		printf("		--- %s ---\n",	unicode_cjk[k].name);
 		for( wcode=unicode_cjk[k].start; wcode<=unicode_cjk[k].end; wcode++)
 		{
 			bzero(strtmp,sizeof(strtmp));
-			sprintf(strtmp,"%d", wcode);
+			sprintf(strtmp,"0x%04x", wcode);
 
 			/* Display UNICODE */
 			clear_screen(&gv_fb_dev, WEGI_COLOR_BLACK);
@@ -154,7 +185,7 @@ while(1) {
 						  30, 30,                          	/* x0,y0, */
                         	             	  WEGI_COLOR_RED, -1, -20);      	/* fontcolor, transcolor,opaque */
 
-			tm_delayms(50);
+			tm_delayms(200);
 		}
 	}
 

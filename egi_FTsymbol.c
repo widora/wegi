@@ -7,6 +7,8 @@ Note:
 1. FreeType 2 is licensed under FTL/GPLv3 or GPLv2.
    Based on freetype-2.5.5
 
+2. TODO: Font size class.
+
 Midas Zhou
 -------------------------------------------------------------------*/
 #include "egi_log.h"
@@ -932,14 +934,15 @@ long * FTsymbol_buffer_fontAdvances(FT_Face face, int fw, int fh, FT_UInt start,
 
 /*----------------------------------------------------------
 Self_define/cook width for some special unicodes.
-NOTE: Those wcodes are assumed to have no bitmap!
+NOTE: Those wcodes are assumed to have no bitmap, even it has
+it will be ingored!
 
 @wcode:		UNICODE value
 @fw:		Expected/norminal width
 
 Return:
 	>=0:	Ok, re_defined width, in pixels.
-	<0:	No red_efined width value for the wocde.
+	<0:	No re_defined width value for the wocde.
 -----------------------------------------------------------*/
 inline int FTsymbol_cooked_charWidth(wchar_t wcode, int fw)
 {
@@ -958,6 +961,7 @@ inline int FTsymbol_cooked_charWidth(wchar_t wcode, int fw)
 		default:
 			return -1;
 	}
+
 }
 
 
@@ -1054,7 +1058,8 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 
 	/* Check whether xleft is used up first. */
 	advanceX = slot->advance.x>>6;
-	bbox_W = (advanceX > slot->bitmap.width ? advanceX : slot->bitmap.width);
+	// bbox_W = (advanceX > slot->bitmap.width ? advanceX : slot->bitmap.width);
+	bbox_W = advanceX;  /* To be consistent with FTcharmap_uft8strings_writeFB() when calling FT_Get_Advances() to update xleft. */
 
 #if 0	/* TEST: --- special wocdes --- */
 	if( ftsympg.alpha==NULL || advanceX==0 || wcode==9 || wcode==13 || wcode==65279 ) {
@@ -1107,11 +1112,15 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 	else
 #endif
 
-	/* Check if the wcode has re_defined width, those wcodes are assumed to have no bitmap. */
+	/* Note: Even the wcode has no bitmap (ftsympg.alpha==NULL), it's advance value may NOT be zero!
+	 *	Example: wcode==32(SPACE), and wcode==160.
+	 */
+
+	/* Check if the wcode has re_defined width, those wcodes are assumed to have no bitmap.*/
 	sdw=FTsymbol_cooked_charWidth(wcode, fw);
 	if( sdw >=0 )  {
 		*xleft -= sdw;
-		return;
+		return;		/* Ignore bitmap */
 	}
 	else  {
 		/* reduce xleft */

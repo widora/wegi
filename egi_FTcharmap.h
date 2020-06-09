@@ -157,6 +157,8 @@ struct  FTsymbol_char_map {
 					         */
 	#define TXTRLINES_GROW_SIZE     1024    /* Auto. mem_grow size for chmap->txtdlines and chmap->txtdlinePos[] */
 
+	int		txtrlncount;		/* Counter for retlines */
+
 
 	int		txtdlines;		/* LIMIT: Size of txtdlinePos[], auto mem_grow.  */
 	unsigned int	*txtdlinePos;		/* An array to store offset position(relative to txtbuff) of each txt dlines, which

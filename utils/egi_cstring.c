@@ -178,8 +178,10 @@ char * cstr_dup_repextname(char *fpath, char *new_extname)
 
 
 
-/*--------------------------------------------------------
-Get pointer to the first char after Nth split char.
+/*----------------------------------------------------------
+Get pointer to the first char after Nth split char. content
+of original string NOT changed.
+Instead, you may use strtok().
 
 str:	source string.
 split:  split char (or string).
@@ -193,7 +195,7 @@ Example str:"data,12.23,94,343.43"
 Return:
 	pointer	to a char	OK, spaces trimed.
         NULL			Fail, or not found.
----------------------------------------------------------*/
+----------------------------------------------------------*/
 char * cstr_split_nstr(char *str, char *split, unsigned n)
 {
 	int i;

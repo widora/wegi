@@ -134,8 +134,8 @@ static int fh=20;
 static int fgap=20/4; //5;	/* Text line fgap : TRICKY ^_- */
 static int tlns;  //=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total available line space for displaying txt */
 
-static int penx;	/* Pen position */
-static int peny;
+//static int penx;	/* Pen position */
+//static int peny;
 
 /* Component elements in the APP, Only one of them is active at one point. */
 enum CompElem
@@ -174,6 +174,7 @@ static void mouse_callback(unsigned char *mouse_data, int size);
 static void draw_mcursor(int x, int y);
 static void draw_RCMenu(int x0, int y0);  /* Draw right_click menu */
 static void draw_WTBMenu(int x0, int y0); /* Draw window_top_bar menu */
+static void draw_msgbox( FBDEV *fb_dev, int x0, int y0, int width, const char *msg );
 static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg, int pv, int pev);
 static void RCMenu_execute(enum RCMenu_Command Command_ID);
 static void WBTMenu_execute(enum WBTMenu_Command Command_ID);
@@ -242,8 +243,8 @@ int main(int argc, char **argv)
   fb_position_rotate(&gv_fb_dev,0);
 
   /* Set mouse callback function and start mouse readloop */
-  egi_mouse_setCallback(mouse_callback);
-  egi_start_mouseread("/dev/input/mice");
+  //egi_mouse_setCallback(mouse_callback);
+  egi_start_mouseread("/dev/input/mice", mouse_callback);
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
@@ -256,13 +257,8 @@ int main(int argc, char **argv)
         struct termios old_settings;
         struct termios new_settings;
 
-	int term_fd;
 	char ch;
-	int  k;
-	int  nch;
-	fd_set rfds;
-	int retval;
-	struct timeval tmval;
+//	int  k;
 	int lndis; /* Distance between lines */
 
 	if( argc > 1 )
@@ -310,10 +306,10 @@ MAIN_START:
 
 	/* TEST: getAdvances ---- */
 	int penx=140, peny=5;
-	FTsymbol_writeFB("EGI记事本护法",penx,peny,WEGI_COLOR_LTBLUE, &penx, &peny);
+	FTsymbol_writeFB("记事本",penx,peny,WEGI_COLOR_LTBLUE, &penx, &peny);
 	printf("FTsymbol_writFB get advanceX =%d\n", penx-140);
 	printf("FTsymbol_uft8string_getAdvances =%d\n",
-		FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fw, fh, (const unsigned char *)"EGI记事本护法") );
+		FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fw, fh, (const unsigned char *)"记事本") );
 
 	/* Draw blank paper + margins */
 	fbset_color(WEGI_COLOR_WHITE);
@@ -344,14 +340,14 @@ MAIN_START:
 		FTcharmap_writeFB(NULL, 0, NULL, NULL);
 		//FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL);
 
-		if( chmap->txtdlinePos[chmap->txtdlncount] > chmap->txtlen/10 )
+		if( chmap->txtdlinePos[chmap->txtdlncount] > chmap->txtlen/20 )
 			break;
 
-		if( i==5 ) {
+		if( i==20 ) {
 		   FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL);
 		   fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 		   draw_progress_msgbox( &gv_fb_dev, (320-260)/2, (240-120)/2, "文件加载中...",
-								chmap->txtdlinePos[chmap->txtdlncount], chmap->txtlen/10);
+								chmap->txtdlinePos[chmap->txtdlncount], chmap->txtlen/20);
 		   fb_render(&gv_fb_dev);
 		   i=0;
 		}
@@ -554,7 +550,8 @@ MAIN_START:
 			/* Exit Menu handler */
 			ActiveComp=CompTXTBox;
 			break;
-
+		default:
+			break;
 	    } /* END Switch */
 
 		//printf("Draw mcursor......\n");
@@ -568,6 +565,10 @@ MAIN_START:
 
 #if 0	/* <<<<<<<<<<<<<<<<<<<<    Read from USB Keyboard HIDraw   >>>>>>>>>>>>>>>>>>> */
 	static char txtbuff[1024];	/* text buffer */
+	int term_fd;
+	int retval;
+	struct timeval tmval;
+	fd_set rfds;
 
 	/* Open term */
 	term_fd=open("/dev/hidraw0", O_RDONLY);
@@ -1035,11 +1036,11 @@ static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg
 	sprintf(strPercent,"%d%%",100*pv/pev);
 
 	/* 1. Draw msgbox pad */
-        draw_blend_filled_roundcorner_rect( &gv_fb_dev, x0,y0, x0+width-1, y0+height-1, 5,    /* fbdev, x1, y1, x2, y2, r */
+        draw_blend_filled_roundcorner_rect( fb_dev, x0,y0, x0+width-1, y0+height-1, 5,    /* fbdev, x1, y1, x2, y2, r */
                                             color, alpha);                           /* color, alpha */
 
 	/* 2. Put message */
-       	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_sysfonts.regular,         /* FBdev, fontface */
+       	FTsymbol_uft8strings_writeFB( fb_dev, egi_sysfonts.regular,         /* FBdev, fontface */
                                        fw, fh,(const unsigned char *)msg,     	/* fw,fh, pstr */
                                        width-2*smargin, 5, 5, 		    	/* pixpl, lines, fgap */
                                        x0+smargin, y0+15,                     	/* x0,y0, */
@@ -1052,17 +1053,91 @@ static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg
 
 	/* 4. Draw progressing bar */
 	barEndX=(x0+smargin)+(width-2*smargin)*pv/pev;
-	fbset_color2(&gv_fb_dev, WEGI_COLOR_GREEN);
-	draw_wline( &gv_fb_dev, x0+smargin, barY, barEndX, barY, bw);
+	fbset_color2(fb_dev, WEGI_COLOR_GREEN);
+	draw_wline(fb_dev, x0+smargin, barY, barEndX, barY, bw);
 
 	/* 6. Put percentage */
 	pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.regular, fw, fh, (const unsigned char *)strPercent);
-       	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_sysfonts.regular,         /* FBdev, fontface */
+       	FTsymbol_uft8strings_writeFB( fb_dev, egi_sysfonts.regular,         /* FBdev, fontface */
                                        fw, fh,(const unsigned char *)strPercent,   	/* fw,fh, pstr */
                                        width-2*smargin, 1, 0, 		    	/* pixpl, lines, fgap */
                                        x0+(width-pixlen)/2, barY+20,              	/* x0,y0, */
                                        WEGI_COLOR_WHITE, -1, 255,        	/* fontcolor, transcolor,opaque */
                                        NULL, NULL, NULL, NULL);      		/* int *cnt, int *lnleft, int* penx, int* peny */
+}
+
+
+/*-------------------------------------------------------
+WriteFB a progressing msg box
+
+Limit: 100 lines.
+
+@x0,y0:  	Left top coordinate of the msgbox.
+@msg:	 	Message string in UFT-8 encoding.
+@pv:	 	Progress value.
+@pev:		Progress end value.
+
+-------------------------------------------------------------*/
+static void draw_msgbox( FBDEV *fb_dev, int x0, int y0, int width, const char *msg )
+{
+	int height;	//=120;
+	int fh=18;	/* Font height and width */
+	int fw=18;
+	int fgap;
+	int tmargin=30; /* Top maring, including dot marks */
+	int bmargin=15; /* Bottom maring */
+	int smargin=15;	/* Side margin */
+	int lndis;	/* Distance between lines */
+	int peny;
+
+        EGI_16BIT_COLOR boxcolor=WEGI_COLOR_GRAY4; 	/* Color of the msgbox. */
+	EGI_8BIT_ALPHA  boxalpha=255;			/* Alpha value of the msgbox. */
+        EGI_16BIT_COLOR fontcolor=WEGI_COLOR_WHITE; 	/* Font color. */
+
+	/* Check input */
+	if(fb_dev==NULL)
+		return;
+
+	/* Set Width limit */
+	if(width<100)
+		width=100;
+
+	/* Cal. line gap */
+	lndis=FTsymbol_get_FTface_Height(egi_sysfonts.regular, fw, fh);
+	fgap=lndis-fh;  /* May adjust here */
+
+	/* Cal. msgbox height, writeFB NULL to get final peny.  */
+        FTsymbol_uft8strings_writeFB(  NULL, egi_sysfonts.regular,         	/* FBdev, fontface */
+                                       fw, fh,(const unsigned char *)msg,       /* fw,fh, pstr */
+                                       width-2*smargin, 100, fgap,           	/* pixpl, lines, fgap */
+                                       x0+smargin, y0+tmargin,                  /* x0,y0, */
+                                       0, -1, 255,               		/* fontcolor, transcolor,opaque */
+                                       NULL, NULL, NULL, &peny);                /* int *cnt, int *lnleft, int* penx, int* peny */
+	height=(peny+lndis)-(y0-1)+bmargin;
+
+	/* Set Height limit */
+
+
+	/* Draw msgbox pad */
+        draw_blend_filled_roundcorner_rect( fb_dev, x0,y0, x0+width-1, y0+height-1, 9,    /* fbdev, x1, y1, x2, y2, r */
+                                            boxcolor, boxalpha);                           /* color, alpha */
+
+	/* Draw top mark */
+	fbset_color2(fb_dev, WEGI_COLOR_ORANGE);
+	draw_filled_circle( fb_dev, x0+width-15, y0+15, 10 );
+	fbset_color2(fb_dev, WEGI_COLOR_LTGREEN);
+	draw_filled_circle( fb_dev, x0+width-15-25, y0+15-1, 10 ); /* -1, to balance visual error */
+	//fbset_color2(fb_dev, WEGI_COLOR_LTBLUE);
+	//draw_filled_circle( fb_dev, x0+width-15-25-25, y0+15, 10 );
+
+
+	/* Put message */
+       	FTsymbol_uft8strings_writeFB( fb_dev, egi_sysfonts.regular,         /* FBdev, fontface */
+                                      fw, fh,(const unsigned char *)msg,     	/* fw,fh, pstr */
+                                      width-2*smargin, 100, fgap,	    	/* pixpl, lines, fgap */
+                                      x0+smargin, y0+tmargin,                	/* x0,y0, */
+                                      fontcolor, -1, 255,        	/* fontcolor, transcolor,opaque */
+                                      NULL, NULL, NULL, NULL);      		/* int *cnt, int *lnleft, int* penx, int* peny */
 }
 
 
@@ -1114,6 +1189,15 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 		case WBTMENU_COMMAND_SAVE:
 			printf("WBTMENU_COMMAND_SAVE\n");
 			FTcharmap_save_file(fpath, chmap);
+
+			start_pch=false;
+                        while( !start_pch ) {  /* Wait for click */
+                                fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
+				draw_msgbox( &gv_fb_dev, 50, 50, 240, "文件已经保存！" );
+                                draw_mcursor(mouseMidX, mouseMidY);
+                                fb_render(&gv_fb_dev);
+                        }
+
 			break;
 		case WBTMENU_COMMAND_EXIT:
 			printf("WBTMENU_COMMAND_EXIT\n");
@@ -1123,9 +1207,20 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 			break;
 		case WBTMENU_COMMAND_ABOUT:
 			printf("WBTMENU_COMMAND_ABOUT\n");
+
+			start_pch=false;
+                        while( !start_pch ) {  /* Wait for click */
+                                fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
+				draw_msgbox( &gv_fb_dev, 50, 50, 240, "　　这是用EGI编制的一个简单的记事本. Widora和他的小伙伴们" );
+                                draw_mcursor(mouseMidX, mouseMidY);
+                                fb_render(&gv_fb_dev);
+                        }
+
 			break;
 		default:
 			printf("WBTMENU_COMMAND_NONE\n");
 			break;
 	}
+	printf("WBTMENU_COMMAND_NONE\n");
+
 }

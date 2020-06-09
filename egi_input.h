@@ -25,7 +25,7 @@ int 	egi_end_inputread(void);
 
 /* For mice device */
 void 	egi_mouse_setCallback(EGI_MOUSE_CALLBACK callback);
-int 	egi_start_mouseread(const char *dev_name);
+int 	egi_start_mouseread(const char *dev_name, EGI_MOUSE_CALLBACK callback);
 int 	egi_end_mouseread(void);
 
 #endif

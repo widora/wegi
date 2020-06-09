@@ -222,7 +222,7 @@ Return:
 	0	OK
 	<0	Fails
 -----------------------------------------------*/
-int egi_start_mouseread(const char *dev_name)
+int egi_start_mouseread(const char *dev_name, EGI_MOUSE_CALLBACK callback )
 {
 	if(tok_loopread_mouse_running==true) {
 		printf("%s: inevent loopread has been running already!\n",__func__);
@@ -231,7 +231,10 @@ int egi_start_mouseread(const char *dev_name)
 
 	cmd_end_loopread_mouse=false;
 
-        /* start touch_read thread */
+	/* Set callback */
+	mouse_callback=callback;
+
+        /* start loopread_mouse thread */
         if( pthread_create(&thread_loopread_mouse, NULL, (void *)egi_mouse_loopread, (void *)dev_name) !=0 )
         {
                 printf("%s: Fail to create mouse loopread thread!\n", __func__);

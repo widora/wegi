@@ -631,7 +631,7 @@ use following COLOR:
                 0       100% back ground color/transparent
                 255     100% front color
 
-@cnt:		Total printable characters written.
+@cnt:		Total recognizable UFT-8 characters written.
 @lnleft:	Lines left unwritten.
 @penx:		The last pen position X
 @peny:		The last pen position Y.
@@ -841,7 +841,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 			continue;
 		}
 
-		#if 0  /*  !!! EXCLUDE WARNING,  MUST NOT SKIP !!!
+		#if 0  /*  !!! EXCLUDE WARNING,  MUST NOT SKIP ANY UNPRITABLE CHARS HERE !!!
 			*   It will cause charmap data error in further operation, Example: when shift chmap->pchoff, it MAY
 			*   points to a char that has NO charmap data at all!!!
 		 	*/
@@ -858,16 +858,19 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 		/* Write unicode bitmap to FB, and get xleft renewed. */
 
 		/* If fb_dev==NULL: To get xleft in a fast way */
-		if( fb_dev== NULL) {
-		    	/* If has self_cooked width for some special unicodes, no bitmap. */
-		    	sdw=FTsymbol_cooked_charWidth(*wcstr, fw);
+		if( fb_dev == NULL) {
+		    	/* If has self_cooked width for some special unicodes, bitmap ignored. */
+		    	sdw=FTsymbol_cooked_charWidth(wcstr[0], fw);
 		    	if(sdw>=0)
 				xleft -= sdw;
 		    	/* No self_cooked width, With bitmap */
 		    	else {
+		        	/* set character size in pixels before calling FT_Get_Advances()! */
+        			error = FT_Set_Pixel_Sizes(face, fw, fh);
+			        if(error)
+			                printf("%s: FT_Set_Pixel_Sizes() fails!\n",__func__);
 				/* !!! WARNING !!! load_flags must be the same as in FT_Load_Char( face, wcode, flags ) when writeFB
 	                         * the same ptr string.
-				 * TODO: Self-defined width for some chars
 				 * Strange!!! a little faster than FT_Get_Advance()
 			 	 */
 				error= FT_Get_Advances(face, *wcstr, 1, FT_LOAD_RENDER, &advance);
@@ -877,8 +880,8 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
         	                	xleft -= advance>>16;
 		  	}
 		}
-		else
-		{
+		else /* fb_dev is NOT NULL */
+		{	/* Use marskchar to replace/cover original chars, such as asterisk. */
 			if( chmap->maskchar !=0 ) {
 				FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, chmap->maskchar, &xleft,
 								 px, py, fontcolor, transpcolor, opaque );
@@ -1003,13 +1006,8 @@ CHARMAP_END:
 	 */
 	chmap->txtdlncount -= chmap->maplncount;
 
-	/* 4. Update chmap->pch and pch2
-	 * to let it point to the same char before charmapping, as chmap->txtbuff[chmap->pchoff]
-	 * TODO: Any better solution??
-	 *  	How about if chmap->pchoff points outside of current charmap? Do not draw the typing cursor ???
-	 */
-
-	/* First set to <0, NOT in current charmap */
+	/* 4. Update chmap->pch and pch2 */
+	/* First set to <0, to assume the cursor is NOT in current charmap. */
 	chmap->pch=-1;
 	chmap->pch2=-1;
 	off=chmap->pref-chmap->txtbuff;
@@ -1043,12 +1041,20 @@ CHARMAP_END:
 
 		/* PRE_1: set txtdlncount: noticed that now chmap->txtdlinePos[txtdlncount]==chmap->maplinePos[0] */
 		if( chmap->pchoff > off+chmap->charPos[chmap->chcount-1] ) {
-			EGI_PDEBUG(DBG_CHARMAP,"Scroll down to follow cursor...\n");
-			chmap->txtdlncount++;	/* Scroll down */
+			#if 1
+			EGI_PDEBUG(DBG_CHARMAP,"Scroll down one dline to follow cursor...\n");
+			chmap->txtdlncount++;	/* Scroll down one dline each time. */
+			#else
+			EGI_PDEBUG(DBG_CHARMAP,"Scroll down one page to follow cursor...\n");
+			chmap->txtdlncount += chmap->maplncount-1; /* Scroll down one page eatch time. */
+			/* Note: When inserting a large block, it's faster. but when we typing in at the end of current page,
+			 * we just want to scroll one dline each time and keep our sight focus from jumping over too much.
+			 */
+			#endif
 		}
 		else if ( chmap->pchoff < off+chmap->charPos[0] ) {
 			EGI_PDEBUG(DBG_CHARMAP,"Scroll up to follow cursor...\n");
-			chmap->txtdlncount--;	/* Scroll up */
+			chmap->txtdlncount--;	/* Scroll up one dline each time.*/
 		}
 		else
 			printf("%s: chmap->pch ERROR!\n", __func__);
@@ -1076,7 +1082,7 @@ CHARMAP_END:
 		chmap->follow_cursor=false;
 	}
 
-	/* 6. After pchoff, IF chmap->fix_cursor set, reset pchoff. */
+	/* 6. After updating pchoff, IF chmap->fix_cursor set, reset pchoff. */
 	if( chmap->fix_cursor==true ) {
 		/* Relocate pch/pch2 as per pchx,pchy:  selection will be canclled!
 		 * chmap->pch/pch2, pchoff/pchoff2 all updated!
@@ -1481,9 +1487,7 @@ int FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap)
 
 
 /*-------------------------------------------------------------
-To locate chmap->pch(chmap->pch2) and pchoff/pchoff2  according
-to given x,y,
-chmap->pch2/pchoff2 is interlocked with chmap->pch/pchoff here!
+Refer to FTcharmap_locate_charPos_nolock(). with mutex_lock.
 
 1. !!! WARN !!!
    It will fail when chmap->request is set! So the caller
@@ -1531,14 +1535,22 @@ int FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
 	return ret;
 }
 
-/*--------------------------------------------------------------------------
-Refer to FTcharmap_locate_charPos( EGI_FTCHAR_MAP *chmap, int x, int y)
-Without mutx_lock.
+/*--------------------------------------------------------------------------------
+To locate chmap->pch/chmap->pch2) and pchoff/pchoff2  according
+to given x,y,
+chmap->pch2/pchoff2 is interlocked with chmap->pch/pchoff here!
 
 Note:
 1. chmap->pch/pch2, pchoff/pchoff2 all updated!
+2. If (x,y) falls into remaing blank space of a dline: The check point is middle of the
+   blank space,  If (x,y) is before the mid. point, the cursor goes to the last char
+   of the dline, else it goes to the first char of the NEXT dline.
+   See "3. The last char of the dline."
 
-------------------------------------------------------------------------------*/
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------------------------------------------*/
 inline static int FTcharmap_locate_charPos_nolock( EGI_FTCHAR_MAP *chmap, int x, int y)
 {
 	int i;
