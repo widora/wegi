@@ -45,37 +45,28 @@ Note:
 
 Midas Zhou
 -------------------------------------------------------------------------------*/
-#include "stdio.h"
-#include "stdlib.h"
-#include "string.h"
-#include "unistd.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <errno.h>
 #include "egi_common.h"
 #include "egi_FTsymbol.h"
 #include "egi_cstring.h"
+#include "egi_unihan.h"
+
+#define UNIHANS_DATA_PATH	"/tmp/unihans_pinyin.dat"
 
 #define UNICODE_HAIZI_START	0x4E00
 #define UNICODE_HAIZI_END	0x9FA5
 
-#define MAX_UNIHANS		(64*1024)	/* Max. number of unihans[] */
+#define MAX_UNIHANS		100 //(64*1024)	/* Max. number of unihans[] */
 
-/* A struct to store all haizi unicode
- * and its pinyin.
- * Notice: pinyin[] is the keyword! The same wcode may has several pinyin, each stored in a EGI_UNIHAN.
- */
-typedef struct egi_unihan  EGI_UNIHAN;  /* Unicode Han */
-struct egi_unihan
-{
-	wchar_t wcode;   	/* Unicode for a han char */
-	char pinyin[8];  	/* KEYWORD:  Keyboard input pinyin,
-				 * MAX. size example: "chuang3", here '3' indicates the tone.
-				 */
-	char reading[16]; 	/* Reading in kMandarin as in kHanyuPinyin.txt
-				 * MAX. size example: "chuǎng" , ǎ-ḿ   is 3-4bytes
-				 */
-};
-EGI_UNIHAN unihans[MAX_UNIHANS];  /* Totally 41377 chars */
+static EGI_UNIHAN unihans[MAX_UNIHANS];
 
 int convert_reading_to_pinyin( const unsigned char *reading, char *pinyin);
+int UniHan_save_file(const char *fpath, uint32_t n,  EGI_UNIHAN *unihans);
+int UniHan_load_file(const char *fpath, size_t size, EGI_UNIHAN *unihans);
 
 
 /*===================
@@ -85,8 +76,8 @@ int main(void)
 {
 	FILE *fil;
 	char linebuff[1024];
-	#define  WORD_MAX_LEN 256        /* Max. length of column words in each line of kHanyuPinyin.txt,  including '\0'. */
-
+	#define  WORD_MAX_LEN 		256	/* Max. length of column words in each line of kHanyuPinyin.txt,  including '\0'. */
+	#define  MAX_SPLIT_WORDS 	4  	/* Max number of words in linebuff[] as splitted by delimte */
 	/*--------------------------------------------------------
 	   To store words in linebuff[] as splitted by delimter.
 	   Exampe:      linefbuff:  "U+92FA	kHanyuPinyin	64225.040:yuǎn,yuān,wǎn,wān"
@@ -95,7 +86,6 @@ int main(void)
 			str_words[2]:	64225.040
 			str_words[3]:	yuǎn,yuān,wǎn,wān
 	---------------------------------------------------------*/
-	#define  MAX_SPLIT_WORDS 	4  	 /* Max number of words in linebuff[] as splitted by delimte */
 	char str_words[MAX_SPLIT_WORDS][WORD_MAX_LEN]; /* See above */
 	char strtmp[16]; 	/*  "chuǎng" , ǎ-ḿ   is 3-4bytes */
 	char *delim="	:\n"; /* delimiter: for splitting linebuff[] into 4 words */
@@ -122,6 +112,10 @@ int main(void)
         fb_position_rotate(&gv_fb_dev,0);
 
 
+	/* TEST ---- */
+	printf("sizeof(EGI_UNIHAN)=%d bytes\n", sizeof(EGI_UNIHAN));
+
+
 	/* Open Han mandrain txt file */
 	fil=fopen("/mmc/kHanyuPinyin.txt","r");
 	if(fil==NULL) {
@@ -138,6 +132,7 @@ int main(void)
 
 	        /* Separate linebuff[] as per given delimiter
 		 * linebuff: "U+92FA     kHanyuPinyin    64225.040:yuǎn,yuān,wǎn,wān"
+		 * Note: content in linebuff is modified!
 		 */
 	        pt=strtok(linebuff, delim);
 		for(m=0; pt!=NULL && m<MAX_SPLIT_WORDS; m++) {  /* Separate linebuff into 4 words */
@@ -151,7 +146,7 @@ int main(void)
 		}
 		//printf(" str_words[0]: %s, [1]:%s, [2]:%s \n",str_words[0], str_words[1], str_words[2]);
 
-/* --- 1. parse wcode --- */
+/* --- 1. Parse wcode --- */
 		/* Convert str_wcode to wcode */
 		sscanf(str_words[0]+2, "%x", &wcode); /* +2 bytes to escape 'U+' in "U+3404" */
 
@@ -159,7 +154,7 @@ int main(void)
 		if( wcode < UNICODE_HAIZI_START || wcode > UNICODE_HAIZI_END )
 			continue;
 
-/* --- 2. parse reading and convert to pinyin --- */
+/* --- 2. Parse reading and convert to pinyin --- */
 
 	        /* Split str_words[3] to several pinyins, Example: "yuǎn,yuān,wǎn,wān" */
 		//printf("str_words[3]: %s\n",str_words[3]);
@@ -169,22 +164,27 @@ int main(void)
 			pt=str_words[3];
 
 		for(m=0; pt!=NULL; m++) {
-/* ---- 3. Save unihans[], notice that pinyin/reading is the keyword! ---- */
+/* ---- 3. Save unihans[] memebers ---- */
 
 			/* 1. wcode */
 			unihans[k].wcode=wcode;
 			/* 2. reading */
 			strncpy(unihans[k].reading, pt, sizeof(unihans[0].reading) );
 			/* 3. convert reading to pinyin, as for keyboard input */
-			convert_reading_to_pinyin( (const unsigned char *)unihans[k].reading, unihans[k].pinyin);
+			convert_reading_to_pinyin( (const unsigned char *)unihans[k].reading, unihans[k].typing);
 
 			printf("unihans[%d]:  wcode:%d, reading:%s, pinying:%s\n",
-					k, unihans[k].wcode, unihans[k].reading, unihans[k].pinyin);
+					k, unihans[k].wcode, unihans[k].reading, unihans[k].typing);
 
 			/* Check space capacity */
 			k++;
-			if(k > MAX_UNIHANS) {
-				printf(" K out of range! \n");
+			if(k >= MAX_UNIHANS) {
+				printf(" K out of range! save to file ...\n");
+
+				/* TEST: Save/Read unihans to/from file */
+				UniHan_save_file(UNIHANS_DATA_PATH, MAX_UNIHANS, unihans);
+				UniHan_load_file(UNIHANS_DATA_PATH, MAX_UNIHANS, unihans);
+
 				exit(1);
 			}
 
@@ -217,7 +217,6 @@ int main(void)
 
 
 		usleep(50000);
-
 	}
 
 
@@ -393,7 +392,7 @@ int convert_reading_to_pinyin( const unsigned char *reading, char *pinyin)
 		/* 4. Move p */
 		p+=size;
 
-		/* 5. Increase k to parse next char */
+		/* 5. Increase k as index for next pinyin[] */
 		k++;
 	}
 
@@ -402,3 +401,172 @@ int convert_reading_to_pinyin( const unsigned char *reading, char *pinyin)
 
 	return 0;
 }
+
+
+/*----------------------------------------------------------
+Save structs of EGI_UNIHAN to a file.
+
+NOTE:
+1. If the file exists, then it will be replaced.
+2. The EGI_UNIHAN struct MUST be packed type, and MUST NOT
+   include any pointers.
+
+@fpath:		File path.
+@num:		Total number of EGI_UNIHANs that will
+		be saved.
+@unihans: 	Pointer to EGI_UNIHANs.
+
+Return:
+	0	OK
+	<0	Fails
+----------------------------------------------------------*/
+int UniHan_save_file(const char *fpath, uint32_t num,  EGI_UNIHAN *unihans)
+{
+	int i;
+	int nwrite;
+	int nmemb;
+	FILE *fil;
+	uint8_t nq;
+	int ret=0;
+
+	if(unihans==NULL)
+		return -1;
+
+	/* Open/create file */
+        fil=fopen(fpath, "wb");
+        if(fil==NULL) {
+                printf("%s: Fail to open file '%s' for write. ERR:%s\n", __func__, fpath, strerror(errno));
+                return -2;
+        }
+
+	/* Write total number of EGI_UNIHANs to be saved */
+	nmemb=1;
+	for( i=0; i<4; i++) {
+		nq=(num>>(i<<3))&0xFF;			/* Split n to bytes, The least significant byte first. */
+		nwrite=fwrite( &nq, 1, nmemb, fil);  	/* 1 byte each time */
+	        if(nwrite < nmemb) {
+	                if(ferror(fil))
+        	                printf("%s: Fail to write number of EGI_UNIHANs to '%s'.\n", __func__, fpath);
+                	else
+                        	printf("%s: WARNING! fwrite number of EGI_UNIHANs %d bytes of total %d bytes.\n", __func__, nwrite, nmemb);
+                	ret=-3;
+			goto END_FUNC;
+		}
+        }
+	/* Write all EGI_UNIHANs */
+	nmemb=sizeof(EGI_UNIHAN);
+	for( i=0; i<num; i++) {
+		nwrite=fwrite( unihans+i, 1, nmemb, fil);
+	        if(nwrite < nmemb) {
+	                if(ferror(fil))
+        	                printf("%s: Fail to write EGI_UNIHANs to '%s'.\n", __func__, fpath);
+                	else
+                        	printf("%s: WARNING! fwrite EGI_UNIHANs  %d bytes of total %d bytes.\n", __func__, nwrite, nmemb);
+                	ret=-4;
+			goto END_FUNC;
+		}
+	}
+
+
+END_FUNC:
+        /* Close fil */
+        if( fclose(fil) !=0 ) {
+                printf("%s: Fail to close file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+                ret=-5;
+        }
+
+	return ret;
+}
+
+
+/*--------------------------------------------------------------------
+Read EGI_UNIHANs from a file and load them to unihans.
+
+@fpath:		File path.
+@size:		Max. number of EGI_UNIHANs that unihans can hold.
+@unihans: 	Pointer to EGI_UNIHANs.
+
+Return:
+	>=0	OK, Total number of EGI_UNIHAs read from file.
+		!!!! It may greater than size.
+	<0	Fails
+----------------------------------------------------------------------*/
+int UniHan_load_file(const char *fpath, size_t size, EGI_UNIHAN *unihans)
+{
+	int i;
+	int nread;
+	int nmemb;
+	FILE *fil;
+	uint8_t nq;  		/* quarter of uint32_t */
+	uint32_t total=0;	/* total number of EGI_UNIHAN in the file */
+	int ret=0;
+
+
+	if(unihans==NULL)
+		return -1;
+
+	/* Open/create file */
+        fil=fopen(fpath, "rb");
+        if(fil==NULL) {
+                printf("%s: Fail to open file '%s' for read. ERR:%s\n", __func__, fpath, strerror(errno));
+                return -2;
+        }
+
+	/* Read total number of EGI_UNIHANs */
+	nmemb=1;
+	for( i=0; i<4; i++) {
+		nq=0;
+		nread=fread( &nq, 1, nmemb, fil);      /* read 1 byte each time */
+	        if(nread < nmemb) {
+	                if(ferror(fil))
+        	                printf("%s: Fail to read %d_th nq from '%s'.\n", __func__, i, fpath);
+                	else
+                        	printf("%s: WARNING! read %d_th nq, read %d bytes of total %d bytes.\n", __func__, i, nread, nmemb);
+                	ret=-3;
+
+			goto END_FUNC;
+		}
+
+		total += nq<<i;			/* Assembly uint8_t to uint32_t, The least significant byte first. */
+        }
+	/* Check unihans space limit */
+	if( size < total ) {
+		printf("%s: size=%d < total=%d, Do NOT have enough space to store EGI_UNIHANs! \n",__func__, size, total);
+		ret=-4;
+
+		goto END_FUNC;
+	}
+
+	/* Readin all EGI_UNIHANs */
+	nmemb=sizeof(EGI_UNIHAN);
+	for( i=0; i<total; i++) {
+		nread=fread( unihans+i, 1, nmemb, fil);
+	        if(nread < nmemb) {
+	                if(ferror(fil))
+        	                printf("%s: Fail to read %d_th EGI_UNIHAN from '%s'.\n", __func__, i, fpath);
+                	else
+                        	printf("%s: WARNING! fread %d_th EGI_UNIHAN,  %d bytes of total %d bytes.\n", __func__, i, nread, nmemb);
+                	ret=-4;
+
+			goto END_FUNC;
+		}
+
+		/* TEST: --- */
+		printf("[%d]: wcode:%d, typing:%s, reading:%s \n", i, unihans[i].wcode, unihans[i].typing, unihans[i].reading);
+	}
+
+
+END_FUNC:
+        /* Close fil */
+        if( fclose(fil) !=0 ) {
+                printf("%s: Fail to close file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+                ret=-5;
+        }
+
+	/* Return */
+	if(ret<0)
+		return ret;
+	else
+		return total;
+}
+
