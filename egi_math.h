@@ -87,7 +87,8 @@ void 		mat_create_fpTrigonTab(void);
 uint64_t 	mat_fp16_sqrtu32(uint32_t x);
 void 		mat_floatArray_limits(float *data, int num, float *min, float *max);
 int 		mat_random_range(int max);
-
+void 		mat_insert_sort( int *array, int n );
+void 		mat_quick_sort( int *array, int start, int end, int cutoff );
 
 /*
 void mat_pointrotate_SQMap(int n, int angle, struct egi_point_coord centxy,

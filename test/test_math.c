@@ -10,11 +10,64 @@ Midas Zhou
 #include <stdio.h>
 #include <stdlib.h>
 #include "egi_math.h"
+#include "egi_timer.h"
 #include <math.h>
 #include <inttypes.h>
 
-int main(void)
+
+int main(int argc, char **argv)
 {
+
+#if 1 /* ---- TEST: quick sort ---- */
+//   int array[]={ 0,1000000,1,1,1,3,4,2,7,45,2,67,39,23,464,52,12,23 };
+//   int n=sizeof(array)/sizeof(array[0]);
+   int *array;
+   int n=0;
+   int w;
+   struct timeval tm_start;
+   struct timeval tm_end;
+
+   /* set n */
+   if(argc>1)
+   	n=atoi(argv[1]);
+   if(n<10)n=10;
+
+   array=calloc(n, sizeof(int));
+   if(array==NULL)exit(1);
+
+   printf("Original data:\n");
+   for(w=0; w<n; w++) {
+	array[w]=mat_random_range(n<<2);
+	printf("%d ",array[w]);
+   }
+   printf("\n");
+
+// mat_insert_sort(array,n);
+   gettimeofday(&tm_start,NULL);
+   mat_quick_sort(array, 0, n-1, 10);
+   gettimeofday(&tm_end,NULL);
+
+   printf("Sorted result:\n");
+   for(w=0; w<n; w++) {
+	printf("%d ",array[w]);
+	/* Check */
+	if( w>0 && !(array[w]>=array[w-1]) ) {
+		printf("\n-------------- ERROR ------------\n");
+		exit(1);
+	}
+   }
+   printf("\n");
+
+   printf("Finishing sorting %d random integers, sorting time=%ldms.\n", n, tm_diffus(tm_start, tm_end)/1000 );
+
+   return 0;
+#endif
+
+#if 1 /* ---- TEST: Random ---- */
+  int max=atoi(argv[1]);
+  printf("mat_random_range( %d ): %d\n", max, mat_random_range(max) );
+  return 0;
+#endif
 
 #if 1 /* ----- test  pseduo curvatur ----- */
 EGI_POINT pt[3]={ {0,3}, {2,2}, {3,0} };

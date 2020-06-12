@@ -1177,8 +1177,8 @@ Example:
 egi_random_range(5):  0,1,2,3,4
 egi_random_range(-5): -4,-3,-2,-1,0
 
-max>0:  0<= ret <=max-1
-max=0:  0
+max>1:  0<= ret <=max-1
+max=0 or 1:  0
 max<0:  max+1 <= ret <=0
 ---------------------------------------*/
 int mat_random_range(int max)
@@ -1197,3 +1197,134 @@ int mat_random_range(int max)
 	return  (int)((float)max*rand()/(RAND_MAX+1.0));
 }
 
+
+/*---------------------------------------------------------------
+Sort integers with Insertion_Sort algorithm.
+
+With reference to:
+	"Data structures and algorithm analysis in C"
+		by Mark Allen Weiss
+
+@array:		An integer array.
+@n:		size of the array.
+---------------------------------------------------------------*/
+void mat_insert_sort( int *array, int n )
+{
+	int i;		/* To tranverse elements in array, 1 --> n-1 */
+	int k;		/* To decrease, k --> 1,  */
+	int tmp;
+
+	for( i=1; i<n; i++) {
+		tmp=array[i];	/* the inserting integer */
+
+	/* Slide the inseting integer left, until to the first smaller integer */
+		for( k=i; k>0 && array[k-1]>tmp; k--)
+			array[k]=array[k-1];
+
+		array[k]=tmp;
+	}
+}
+
+
+/*---------------------------------------------------------------
+Sort integers with Quick_Sort algorithm.
+
+With reference to:
+	"Data structures and algorithm analysis in C"
+			by Mark Allen Weiss
+
+@array:		An integer array.
+@start:		Satrt index of array[]
+@end:		End index of array[]
+
+---------------------------------------------------------------*/
+//#define QUICK_SORT_CUTOFF	(3)   /* At least 3, for mid=(start+end)/2 */
+void mat_quick_sort( int *array, int start, int end, int cutoff )
+{
+	int i,j;
+	int pivot;
+	int mid;   /* As pivot index */
+	int tmp;
+
+	/* Adjust cutoff */
+	if(cutoff<3)
+		cutoff=3;
+
+/* 1. Implement quicksort */
+	if( end-start >= cutoff ) //QUICK_SORT_CUTOFF )
+	{
+	/* 1.1 Select pivot, by sorting array[start], array[mid], array[end] */
+		/* Get mid index */
+		mid=(start+end)/2;
+		//printf("Befor_3_sort: %d, %d, %d\n", array[start], array[mid], array[end]);
+
+		/* Sort [start] and [mid] */
+		if( array[start] > array[mid] ) {
+			tmp=array[start];
+			array[start]=array[mid];
+			array[mid]=tmp;
+		}
+		/* Now: [start]<=array[mid] */
+
+		/* IF: [mid] >= [start] > [end] */
+		if( array[start] > array[end] ) {
+			tmp=array[start]; /* [start] is center */
+			array[start]=array[end];
+			array[end]=array[mid];
+			array[mid]=tmp;
+		}
+		/* ELSE:   [start]<=[mid] AND [start]<=[end] */
+		else if( array[mid] > array[end] ) {
+			/* If: [start]<=[end]<[mid] */
+			if( array[mid] > array[end] ) {
+				tmp=array[end];   /* [end] is center */
+				array[end]=array[mid];
+				array[mid]=tmp;
+			}
+			/* Else: [start]<=[mid]<=[end] */
+		}
+		/* Now: array[start] <= array[mid] <= array[end] */
+
+		pivot=array[mid];
+		//printf("After_3_sort: %d, %d, %d\n", array[start], array[mid], array[end]);
+
+		/* Swap array[mid] and array[end-1], still keep array[start] <= array[mid] <= array[end]!   */
+		tmp=array[end-1];
+		array[end-1]=array[mid];   /* !NOW, we set memeber [end-1] as pivot */
+		array[mid]=tmp;
+
+	/* 1.2 Quick sort: array[start] ... array[end-1], array[end]  */
+		i=start;
+		j=end-1;   /* As already sorted to: array[start]<=pivot<=array[end-1]<=array[end], see 1. above */
+		for(;;)
+		{
+			/* Stop at array[i]>=pivot: We preset array[end-1]==pivot as sentinel, so i will stop at [end-1]  */
+			while( array[++i] < pivot ){ };  /*  Acturally: array[++i] < array[end-1] which is the pivot memeber */
+
+			/* Stop at array[j]<=pivot: We preset array[start]<=pivot as sentinel, so j will stop at [start]  */
+			while( array[--j] > pivot ){ };
+
+			if( i<j ) {
+				/* Swap array[i] and array[j] */
+				tmp=array[i];
+				array[i]=array[j];
+				array[j]=tmp;
+			}
+			else {
+				break;
+			}
+		}
+		/* Swap pivot memeber array[end-1] with array[i], we left this step at last.  */
+		array[end-1]=array[i];
+		array[i]=pivot; /* Same as array[i]=array[end-1] */
+
+	/* 1.3 Quick sort: recursive call for sorted parts. and leave array[i] as mid of the two parts */
+		mat_quick_sort(array, start, i-1, cutoff);
+		mat_quick_sort(array, i+1, end, cutoff);
+
+	}
+/* 2. Implement insertsort */
+	else
+		mat_insert_sort( array+start, end-start+1 );
+
+}
