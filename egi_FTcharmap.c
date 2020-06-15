@@ -389,14 +389,14 @@ int FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize
 	/* Mmap input file */
         fd=open(fpath, O_CREAT|O_RDWR|O_CLOEXEC, S_IRWXU|S_IRWXG );
         if(fd<0) {
-                printf("%s: Fail to open input file '%s': %s\n", __func__, fpath, strerror(errno));
+                printf("%s: Fail to open input file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
                 return -1;
         }
         /* Obtain file stat */
         if( fstat(fd,&sb)<0 ) {
-                printf("%s: Fail call fstat for file '%s': %s\n", __func__, fpath, strerror(errno));
+                printf("%s: Fail call fstat for file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
 		if( close(fd) !=0 )
-			printf("%s: Fail to close file '%s': %s!\n",__func__, fpath, strerror(errno));
+			printf("%s: Fail to close file '%s'. ERR:%s!\n",__func__, fpath, strerror(errno));
                 return -2;
         }
         fsize=sb.st_size;
@@ -405,9 +405,9 @@ int FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize
 	if(fsize >0) {
 	        fp=mmap(NULL, fsize, PROT_READ, MAP_PRIVATE, fd, 0);
         	if(fp==MAP_FAILED) {
-                	printf("%s: Fail to mmap file '%s': %s\n", __func__, fpath, strerror(errno));
+                	printf("%s: Fail to mmap file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
 			if( close(fd) !=0 )
-				printf("%s: Fail to close file '%s': %s!\n",__func__, fpath, strerror(errno));
+				printf("%s: Fail to close file '%s'. ERR:%s!\n",__func__, fpath, strerror(errno));
 			return -3;
 		}
 	}
@@ -435,10 +435,10 @@ int FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize
 
 	/* munmap file */
 	if( fsize>0 && munmap(fp,fsize) !=0 )
-		printf("%s: Fail to munmap file '%s': %s!\n",__func__, fpath, strerror(errno));
+		printf("%s: Fail to munmap file '%s'. ERR:%s!\n",__func__, fpath, strerror(errno));
 
 	if( close(fd) !=0 )
-		printf("%s: Fail to close file '%s': %s!\n",__func__, fpath, strerror(errno));
+		printf("%s: Fail to close file '%s'. ERR:%s!\n",__func__, fpath, strerror(errno));
 
 	return 0;
 }
@@ -466,7 +466,7 @@ int FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap)
 
 	fil=fopen(fpath, "w");
 	if(fil==NULL) {
-                printf("%s: Fail to open file '%s' for write: %s\n", __func__, fpath, strerror(errno));
+                printf("%s: Fail to open file '%s' for write. ERR:%s\n", __func__, fpath, strerror(errno));
 		return -2;
 	}
 
@@ -506,7 +506,7 @@ int FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap)
 
 	/* Close fil */
 	if( fclose(fil) !=0 ) {
-                printf("%s: Fail to close file '%s': %s\n", __func__, fpath, strerror(errno));
+                printf("%s: Fail to close file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
 		ret=-5;
 	}
 

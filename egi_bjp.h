@@ -6,9 +6,7 @@ published by the Free Software Foundation.
 
 Original source: https://blog.csdn.net/luxiaoxun/article/details/7622988
 
-1. Modified for a 240x320 SPI LCD display.
-2. The width of the displaying picture must be a multiple of 4.
-3. Applay show_jpg() or show_bmp() in main().
+1. The width of the displaying picture must be a multiple of 4.
 
 TODO:
     1. to pad width to a multiple of 4 for bmp file.

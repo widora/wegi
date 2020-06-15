@@ -503,6 +503,9 @@ inline int char_uft8_to_unicode(const unsigned char *src, wchar_t *dest)
 	if(src==NULL || dest==NULL )
 		return 0;
 
+	if( *src=='\0' )
+		return 0;
+
 //	cp=(unsigned char *)dest;
 	sp=(unsigned char *)src;
 

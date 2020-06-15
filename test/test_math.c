@@ -19,6 +19,7 @@ int main(int argc, char **argv)
 {
 
 #if 1 /* ---- TEST: quick sort ---- */
+
 //   int array[]={ 0,1000000,1,1,1,3,4,2,7,45,2,67,39,23,464,52,12,23 };
 //   int n=sizeof(array)/sizeof(array[0]);
    int *array;
@@ -32,22 +33,28 @@ int main(int argc, char **argv)
    	n=atoi(argv[1]);
    if(n<10)n=10;
 
+while(1)  {  /* ----- LOOP TEST ---*/
+
+   printf("Allocate %dBytes(%dk) mem for the array ...\n", n*sizeof(int), (n*sizeof(int))>>10);
    array=calloc(n, sizeof(int));
    if(array==NULL)exit(1);
+   printf("OK\n");
 
-   printf("Original data:\n");
+   printf("Generate %d random integers...\n", n);
    for(w=0; w<n; w++) {
 	array[w]=mat_random_range(n<<2);
-	printf("%d ",array[w]);
+//	printf("%d ",array[w]);
    }
-   printf("\n");
+   printf("OK\n");
 
 // mat_insert_sort(array,n);
+
+   printf("Start sorting...\n");
    gettimeofday(&tm_start,NULL);
    mat_quick_sort(array, 0, n-1, 10);
    gettimeofday(&tm_end,NULL);
 
-   printf("Sorted result:\n");
+   printf("Finish sorting. checking...\n");
    for(w=0; w<n; w++) {
 	printf("%d ",array[w]);
 	/* Check */
@@ -56,9 +63,13 @@ int main(int argc, char **argv)
 		exit(1);
 	}
    }
-   printf("\n");
+   printf("OK \n");
 
    printf("Finishing sorting %d random integers, sorting time=%ldms.\n", n, tm_diffus(tm_start, tm_end)/1000 );
+   free(array);
+
+   exit(1);
+}/* ----- END LOOP TEST ------ */
 
    return 0;
 #endif

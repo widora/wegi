@@ -36,12 +36,13 @@ Midas Zhou
 #define DBG_PCM		(1<<18)
 #define DBG_IMAGE	(1<<19)
 #define DBG_CHARMAP	(1<<20)
+#define DBG_UNIHAN	(1<<21)
 #define DBG_TEST	(1<<21)
 
 #define ENABLE_EGI_DEBUG
 
 /* default debug flags */
-#define DEFAULT_DBG_FLAGS   (DBG_NONE|DBG_CHARMAP) //DBG_FFPLAY|DBG_PAGE ) //|DBG_TOUCH ) // |DBG_BTN)  //DBG_TOUCH )
+#define DEFAULT_DBG_FLAGS   (DBG_NONE|DBG_UNIHAN|DBG_CHARMAP) //DBG_FFPLAY|DBG_PAGE ) //|DBG_TOUCH ) // |DBG_BTN)  //DBG_TOUCH )
 
 #ifdef ENABLE_EGI_DEBUG
 	/* define egi_pdebug() */

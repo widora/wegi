@@ -85,6 +85,23 @@ int main(int argc, char **argv)
 #endif
 
 
+#if 0   /* Strange wcode :  with Combining Diacritical Marks  */
+        int m, pos;
+        wchar_t wcode;
+        //char *stranges="ê̄,ế,éi,ê̌,ěi,ề,èi";   /* ê̄,ế,ê̌,ề   ế =[0x1ebf]  ê̄ =[0xea  0x304]  ê̌ =[0xea  0x30c] ề =[0x1ec1] */
+        char *stranges="ńňǹḿ m̀"; /*   0x144  0x148  0x1f9   ḿ =[0x1e3f  0x20]  m̀=[0x6d  0x300] */
+        printf("stranges: %s\n", stranges);
+        m=0; pos=0;
+        while( (m=char_uft8_to_unicode( (const UFT8_PCHAR)(stranges+pos), &wcode)) > 0 )
+        {
+                pos+=m;
+                printf("0x%x  ", wcode);
+        }
+        printf("\n");
+        exit(1);
+#endif
+
+
 #if 1   /* All CJK UNICODE */
 	int k;
 	char strtmp[54];
@@ -98,11 +115,14 @@ int main(int argc, char **argv)
 	{ 0x0100,	0x017F,  	"Latin Extended-A" },
 	{ 0x0180,	0x024F, 	"Latin Extended-B" },
 	{ 0x02B0,	0x02FF,		"Spacing Modifier" },
-	{ 0x3000,	0x303F,		"CJK Symbols and Punctuation" },		/* 5 */
+	{ 0x0300,	0x036F,		"Combining Diacritical Marks" },		/* 5 */
+	{ 0x0370,	0x03FF,		"Greek and Coptic" },
+	{ 0x2000,	0x206F,		"General Punctuation" },			/* 7 */
+	{ 0x3000,	0x303F,		"CJK Symbols and Punctuation" },
 	{ 0x3040,	0x309F,		"Hiragana" },
 	{ 0x30A0,	0x30FF,		"Katakana" },
 	{ 0x3100,	0x312F,		"Bopomof" },
-	{ 0x3300,	0x33FF,		"CJK Compatibility" },				/* 9 */
+	{ 0x3300,	0x33FF,		"CJK Compatibility" },
 	{ 0x3400,	0x4DB5,		"CJK Unified Ideographs Extension A" },
 	{ 0x4E00,	0x9FFC,		"CJK Unified Ideographs" 	},
 	{ 0xF900,	0xFAD9,		"CJK Compatibility Ideographst"  },
@@ -162,7 +182,8 @@ while(1)
 
 while(1) {
 	//for(k=0; k<sizeof(unicode_cjk)/sizeof(unicode_cjk[0]); k++)
-	for(k=2; k<=3; k++) //for(k=2; k<=9; k++)
+	//for(k=2; k<=3; k++) //for(k=2; k<=9; k++)
+	k=5;
 	{
 		printf("		--- %s ---\n",	unicode_cjk[k].name);
 		for( wcode=unicode_cjk[k].start; wcode<=unicode_cjk[k].end; wcode++)
@@ -185,7 +206,7 @@ while(1) {
 						  30, 30,                          	/* x0,y0, */
                         	             	  WEGI_COLOR_RED, -1, -20);      	/* fontcolor, transcolor,opaque */
 
-			tm_delayms(200);
+			tm_delayms(1000);
 		}
 	}
 

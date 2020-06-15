@@ -1246,7 +1246,11 @@ void mat_quick_sort( int *array, int start, int end, int cutoff )
 	int mid;   /* As pivot index */
 	int tmp;
 
-	/* Adjust cutoff */
+	/* Start and End */
+	if(start>=end)
+		return;
+
+	/* Limit cutoff */
 	if(cutoff<3)
 		cutoff=3;
 
@@ -1274,13 +1278,12 @@ void mat_quick_sort( int *array, int start, int end, int cutoff )
 			array[mid]=tmp;
 		}
 		/* ELSE:   [start]<=[mid] AND [start]<=[end] */
-		else if( array[mid] > array[end] ) {
-			/* If: [start]<=[end]<[mid] */
-			if( array[mid] > array[end] ) {
+		else if( array[mid] > array[end] ) {  /* If: [start]<=[end]<[mid] */
+		//	if( array[mid] > array[end] ) {
 				tmp=array[end];   /* [end] is center */
 				array[end]=array[mid];
 				array[mid]=tmp;
-			}
+		//	}
 			/* Else: [start]<=[mid]<=[end] */
 		}
 		/* Now: array[start] <= array[mid] <= array[end] */
