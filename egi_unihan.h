@@ -57,7 +57,6 @@ struct egi_unihan_set
         uint32_t                size;           /* Size of unihans, total number of EGI_UNIHANs in unihans[]
                                                  * Do not change the type, we'll assembly/disassembly from/into uint8_t when read/write to file.
                                                  */
-
 //      int                     input_method;   /* input method: pinyin, ...  */
 
         EGI_UNIHAN              *unihans;       /* Array of EGI_UNIHANs */
@@ -75,15 +74,19 @@ EGI_UNIHAN_HEAP* UniHan_create_heap(size_t capacity);
 void 		UniHan_free_heap( EGI_UNIHAN_HEAP **heap);
 
 /* Sorting Functions */
+#define  CMPTYPING_IS_AHEAD    -1
+#define  CMPTYPING_IS_SAME      0
+#define  CMPTYPING_IS_AFTER     1
 int 	UniHan_compare_typing(const EGI_UNIHAN *uhan1, const EGI_UNIHAN *uhan2);
-void 	UniHan_insert_sort( EGI_UNIHAN* unihans, int n );
+void 	UniHan_insertSort( EGI_UNIHAN* unihans, int n );
+int 	UniHan_quickSort(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff);
 
 /* UNIHAN SET Functions */
 EGI_UNIHAN_SET* UniHan_create_uniset(const char *name, size_t size);
 void 		UniHan_free_uniset( EGI_UNIHAN_SET **set);
 int 		UniHan_save_uniset(const char *fpath,  const EGI_UNIHAN_SET *set);
 EGI_UNIHAN_SET* UniHan_load_uniset(const char *fpath);
-EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath);
+EGI_UNIHAN_SET* UniHan_load_HanyuPinyinTxt(const char *fpath);
 
 /* Convert reading to pinyin */
 int UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin);
