@@ -88,6 +88,63 @@ void UniHan_free_heap( EGI_UNIHAN_HEAP **heap)
 }
 
 
+/*------------------------------------------------
+Create a set of unihan, with empty data.
+
+@name: 	    Short name for the set, MAX len 16-1.
+@capacity:  Capacity to total max. number of unihans in the set.
+
+Return:
+	A pointer to EGI_UNIHAN_SET	Ok
+	NULL				Fail
+------------------------------------------------*/
+EGI_UNIHAN_SET* UniHan_create_uniset(const char *name, size_t capacity)
+{
+
+	EGI_UNIHAN_SET	*unihan_set=NULL;
+
+	if(capacity==0)
+		return NULL;
+
+	/* Calloc unihan set */
+	unihan_set = calloc(1, sizeof(EGI_UNIHAN_SET));
+	if(unihan_set==NULL) {
+		printf("%s: Fail to calloc unihan_set.\n",__func__);
+		return NULL;
+	}
+
+	/* Calloc unihan_set->unihans  */
+	unihan_set->unihans = calloc(capacity+1, sizeof(EGI_UNIHAN)); /* +1 as for END token */
+	if(unihan_set->unihans==NULL) {
+		printf("%s: Fail to calloc unihan_set->unihans.\n",__func__);
+		free(unihan_set);
+		return NULL;
+	}
+
+	/* Assign memebers */
+	printf("%s:sizeof(unihan_set->name)=%d\n", __func__, sizeof(unihan_set->name));
+	strncpy(unihan_set->name, name, sizeof(unihan_set->name)-1);
+	unihan_set->capacity=capacity;
+	/* unihan_set->size=0 */
+
+	return unihan_set;
+}
+
+/*---------------------------------------
+	Free an EGI_UNIHAN_SET.
+----------------------------------------*/
+void UniHan_free_uniset( EGI_UNIHAN_SET **set)
+{
+	if( set==NULL || *set==NULL )
+		return;
+
+	free( (*set)->unihans );
+	free(*set);
+	*set=NULL;
+}
+
+
+
 #if 0 ///////////////////////////////////////////////////////
 /*----------------------------------------------------------------
 Insert an unihan into the heap as per "Priority Binary Heap" Rule.
@@ -176,10 +233,11 @@ int UniHan_compare_typing(const EGI_UNIHAN *uhan1, const EGI_UNIHAN *uhan2)
 			return 1;
 		else if ( uhan1->typing[i] < uhan2->typing[i])
 			return -1;
-
 		/* End of typing[] */
-		if(uhan1->typing[i]==0 && uhan2->typing[i]==0)
+		else if(uhan1->typing[i]==0 && uhan2->typing[i]==0)
 			break;
+
+		/* else: uhan1->typing[i] == uhan2->typing[i] != 0  */
 	}
 
 	/* 4. Compare frequencey number: EGI_UNIHAN.freq */
@@ -193,17 +251,22 @@ int UniHan_compare_typing(const EGI_UNIHAN *uhan1, const EGI_UNIHAN *uhan2)
 }
 
 
-/*--------------------------------------------------------------------
-Sort EGI_UNIHAN array(dictionary order) with Insertion_Sort algorithm.
+/*------------------------------------------------------------------------
+Sort an EGI_UNIHAN array by Insertion_Sort algorithm, to rearrange unihans
+with typing(as KEY) in dictionary order.
+
 Also ref. to mat_insert_sort() in egi_math.c.
 
-Note: The caller MUST ensure unihans has at least n memebers!
+Note:
+1.The caller MUST ensure unihans has at least n memebers!
+2.Input 'n' MAY includes empty unihans with typing[0]==0, and they will
+  be rearranged to the end of the array.
 
 @unihans:       An array of EGI_UNIHANs.
-@n:             size of the array.
+@n:             size of the array. ( NOT capacity )
 
---------------------------------------------------------------------*/
-void UniHan_insertSort( EGI_UNIHAN* unihans, int n )
+------------------------------------------------------------------------*/
+void UniHan_insertSort_typing( EGI_UNIHAN* unihans, int n )
 {
         int i;          /* To tranverse elements in array, 1 --> n-1 */
         int k;          /* To decrease, k --> 1,  */
@@ -225,9 +288,11 @@ void UniHan_insertSort( EGI_UNIHAN* unihans, int n )
         }
 }
 
+/////
+/*--------------------------------------------------------------------
+Sort an EGI_UNIHAN array by Quick_Sort algorithm, to rearrange unihans
+with typing (as KEY) in dictionary+frequency order.
 
-/*---------------------------------------------------------------------------
-Sort a part of EGI_UNIHAN array in dictionary+freqency order.
 Refert to mat_quick_sort() in egi_math.h.
 
  	!!! WARNING !!! This is a recursive function.
@@ -243,8 +308,8 @@ Note:
 Return:
 	0	Ok
 	<0	Fails
-----------------------------------------------------------------------------*/
-int UniHan_quickSort(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff)
+----------------------------------------------------------------------*/
+int UniHan_quickSort_typing(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff)
 {
 	int i=start;
 	int j=end;
@@ -331,71 +396,173 @@ int UniHan_quickSort(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, 
                 unihans[i]=pivot; /* Same as array[i]=array[end-1] */
 
         /* 1.3 Quick sort: recursive call for sorted parts. and leave array[i] as mid of the two parts */
-		UniHan_quickSort(unihans, start, i-1, cutoff);
-		UniHan_quickSort(unihans, i+1, end, cutoff);
+		UniHan_quickSort_typing(unihans, start, i-1, cutoff);
+		UniHan_quickSort_typing(unihans, i+1, end, cutoff);
 
         }
 /* 2. Implement insertsort */
         else
-		UniHan_insertSort( unihans+start, end-start+1);
+		UniHan_insertSort_typing( unihans+start, end-start+1);
 
 
 	return 0;
 }
 
 
-/*------------------------------------------------
-Create a set of unihan, with empty data.
+/*------------------------------------------------------------------------
+Sort an EGI_UNIHAN array by Insertion_Sort algorithm, to rearrange unihans
+with wcode (as KEY) in dictionary order.
 
-@name: 	Short name for the set, MAX len 16-1.
-@size:  Total number of unihans in the set.
+Also ref. to mat_insert_sort() in egi_math.c.
 
-Return:
-	A pointer to EGI_UNIHAN_SET	Ok
-	NULL				Fail
-------------------------------------------------*/
-EGI_UNIHAN_SET* UniHan_create_uniset(const char *name, size_t size)
+Note:
+1.The caller MUST ensure unihans has at least n memebers!
+2.Input 'n' should NOT includes empty unihans with wcode==0, OR they will
+  be rearranged to the beginning of the array.
+
+
+@unihans:       An array of EGI_UNIHANs.
+@n:             size of the array. ( NOT capacity )
+
+-----------------------------------------------------------------------*/
+void UniHan_insertSort_wcode( EGI_UNIHAN* unihans, int n )
 {
+        int i;          /* To tranverse elements in array, 1 --> n-1 */
+        int k;          /* To decrease, k --> 1,  */
+        EGI_UNIHAN tmp;
 
-	EGI_UNIHAN_SET	*unihan_set=NULL;
+	if(unihans==NULL)
+		return;
 
-	if(size==0)
-		return NULL;
+	/* Start sorting ONLY when i>1 */
+        for( i=1; i<n; i++) {
+                tmp=unihans[i];   /* the inserting integer */
 
-	/* Calloc unihan set */
-	unihan_set = calloc(1, sizeof(EGI_UNIHAN_SET));
-	if(unihan_set==NULL) {
-		printf("%s: Fail to calloc unihan_set.\n",__func__);
-		return NULL;
-	}
+        	/* Slide the inseting integer left, until to the first smaller unihan  */
+                for( k=i; k>0 && unihans[k-1].wcode > tmp.wcode; k--)
+				unihans[k]=unihans[k-1];   /* swap */
 
-	/* Calloc unihan_set->unihans */
-	unihan_set->unihans = calloc(size, sizeof(EGI_UNIHAN));
-	if(unihan_set->unihans==NULL) {
-		printf("%s: Fail to calloc unihan_set->unihans.\n",__func__);
-		free(unihan_set);
-		return NULL;
-	}
-
-	/* Assign memebers */
-	printf("%s:sizeof(unihan_set->name)=%d\n", __func__, sizeof(unihan_set->name));
-	strncpy(unihan_set->name, name, sizeof(unihan_set->name)-1);
-	unihan_set->size=size;
-
-	return unihan_set;
+		/* Settle the inserting unihan at last swapped place */
+                unihans[k]=tmp;
+        }
 }
 
-/*---------------------------------------
-	Free an EGI_UNIHAN_SET.
-----------------------------------------*/
-void UniHan_free_uniset( EGI_UNIHAN_SET **set)
-{
-	if(set==NULL || *set==NULL)
-		return
 
-	free( (*set)->unihans );
-	free(*set);
-	*set=NULL;
+/*--------------------------------------------------------------------
+Sort an EGI_UNIHAN array by Quick_Sort algorithm, to rearrange unihans
+with wcode (as KEY) in dictionary+frequency order.
+
+Refert to mat_quick_sort() in egi_math.h.
+
+ 	!!! WARNING !!! This is a recursive function.
+
+Note:
+1. The caller MUST ensure start/end are within the legal range.
+
+
+@start:		start index, as of unihans[start]
+@End:		end index, as of unihans[end]
+@cutoff:	cutoff value for switch to insert_sort.
+
+Return:
+	0	Ok
+	<0	Fails
+----------------------------------------------------------------------*/
+int UniHan_quickSort_wcode(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff)
+{
+	int i=start;
+	int j=end;
+	int mid;
+	EGI_UNIHAN	tmp;
+	EGI_UNIHAN	pivot;
+
+	/* End sorting */
+	if( start >= end )
+		return 0;
+
+        /* Limit cutoff */
+        if(cutoff<3)
+                cutoff=3;
+
+/* 1. Implement quicksort */
+        if( end-start >= cutoff ) //QUICK_SORT_CUTOFF )
+        {
+        /* 1.1 Select pivot, by sorting array[start], array[mid], array[end] */
+                /* Get mid index */
+                mid=(start+end)/2;
+
+                /* Sort [start] and [mid] */
+                /* if( array[start] > array[mid] ) */
+		if( unihans[start].wcode > unihans[mid].wcode ) {
+                        tmp=unihans[start];
+                        unihans[start]=unihans[mid];
+                        unihans[mid]=tmp;
+                }
+                /* Now: [start]<=array[mid] */
+
+                /* IF: [mid] >= [start] > [end] */
+                /* if( array[start] > array[end] ) { */
+		if( unihans[start].wcode > unihans[end].wcode ) {
+                        tmp=unihans[start]; /* [start] is center */
+                        unihans[start]=unihans[end];
+                        unihans[end]=unihans[mid];
+                        unihans[mid]=tmp;
+                }
+                /* ELSE:   [start]<=[mid] AND [start]<=[end] */
+                /* else if( array[mid] > array[end] ) { */
+		if( unihans[mid].wcode > unihans[end].wcode ) {
+                        /* If: [start]<=[end]<[mid] */
+                                tmp=unihans[end];   /* [end] is center */
+                                unihans[end]=unihans[mid];
+                                unihans[mid]=tmp;
+                        /* Else: [start]<=[mid]<=[end] */
+                }
+                /* Now: array[start] <= array[mid] <= array[end] */
+
+                pivot=unihans[mid];
+                //printf("After_3_sort: %d, %d, %d\n", array[start], array[mid], array[end]);
+
+                /* Swap array[mid] and array[end-1], still keep array[start] <= array[mid] <= array[end]!   */
+                tmp=unihans[end-1];
+                unihans[end-1]=unihans[mid];   /* !NOW, we set memeber [end-1] as pivot */
+                unihans[mid]=tmp;
+
+        /* 1.2 Quick sort: array[start] ... array[end-1], array[end]  */
+                i=start;
+                j=end-1;   /* As already sorted to: array[start]<=pivot<=array[end-1]<=array[end], see 1. above */
+                for(;;)
+                {
+                        /* Stop at array[i]>=pivot: We preset array[end-1]==pivot as sentinel, so i will stop at [end-1]  */
+                        /* while( array[++i] < pivot ){ };   Acturally: array[++i] < array[end-1] which is the pivot memeber */
+			while( unihans[++i].wcode < pivot.wcode ) { };
+                        /* Stop at array[j]<=pivot: We preset array[start]<=pivot as sentinel, so j will stop at [start]  */
+                        /* while( array[--j] > pivot ){ }; */
+			while( unihans[--j].wcode > pivot.wcode ) { };
+
+                        if( i<j ) {
+                                /* Swap array[i] and array[j] */
+                                tmp=unihans[i];
+                                unihans[i]=unihans[j];
+                                unihans[j]=tmp;
+                        }
+                        else {
+                                break;
+			}
+		}
+                /* Swap pivot memeber array[end-1] with array[i], we left this step at last.  */
+                unihans[end-1]=unihans[i];
+                unihans[i]=pivot; /* Same as array[i]=array[end-1] */
+
+        /* 1.3 Quick sort: recursive call for sorted parts. and leave array[i] as mid of the two parts */
+		UniHan_quickSort_wcode(unihans, start, i-1, cutoff);
+		UniHan_quickSort_wcode(unihans, i+1, end, cutoff);
+
+        }
+/* 2. Implement insertsort */
+        else
+		UniHan_insertSort_wcode( unihans+start, end-start+1);
+
+	return 0;
 }
 
 
@@ -494,7 +661,7 @@ Return:
 -----------------------------------------------------------------------------*/
 EGI_UNIHAN_SET* UniHan_load_uniset(const char *fpath)
 {
-	EGI_UNIHAN_SET *set=NULL;
+	EGI_UNIHAN_SET *uniset=NULL;
 	int i;
 	int nread;
 	int nmemb;
@@ -528,16 +695,19 @@ EGI_UNIHAN_SET* UniHan_load_uniset(const char *fpath)
 	printf("%s: Totally %d unihans in file '%s'.\n",__func__, total, fpath);
 
 	/* Create UNISET */
-	set=UniHan_create_uniset("chpinyin", total);
-	if(set==NULL) {
+	uniset=UniHan_create_uniset("chpinyin", total); /* total is capacity, NOT size! */
+	if(uniset==NULL) {
 		printf("%s: Fail to create uniset!\n", __func__);
 		goto END_FUNC;
 	}
 
+	/* Assign size */
+	uniset->size=total;
+
 	/* FReadin all EGI_UNIHANs */
 	nmemb=sizeof(EGI_UNIHAN);
 	for( i=0; i<total; i++) {
-		nread=fread( set->unihans+i, 1, nmemb, fil);
+		nread=fread( uniset->unihans+i, 1, nmemb, fil);
 	        if(nread < nmemb) {
 	                if(ferror(fil))
         	                printf("%s: Fail to read %d_th EGI_UNIHAN from '%s'.\n", __func__, i, fpath);
@@ -549,7 +719,7 @@ EGI_UNIHAN_SET* UniHan_load_uniset(const char *fpath)
 
 		/* TEST: --- */
 		printf("[%d]: wcode:%d, typing:%s, reading:%s \n",
-					i, set->unihans[i].wcode, set->unihans[i].typing, set->unihans[i].reading);
+					i, uniset->unihans[i].wcode, uniset->unihans[i].typing, uniset->unihans[i].reading);
 	}
 
 
@@ -559,7 +729,7 @@ END_FUNC:
                 printf("%s: Fail to close file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
         }
 
-	return set;
+	return uniset;
 }
 
 
@@ -574,6 +744,9 @@ input sequence).
 
 NOTE:
 1. The caller MUST ensure enough space for a pinyin.
+2. It will fail to convert following readings with Combining Diacritical Marks:
+ 	ê̄  [0xea  0x304]  ê̌ [0xea  0x30c]
+        ḿ  [0x1e3f  0x20] m̀=[0x6d  0x300]
 
 Return:
 	0	OK
@@ -761,7 +934,7 @@ Note:
 2. The text file can be generated by follow shell command:
    cat Unihan_Readings.txt | grep kHanyuPinyin > kHanyuPinyin.txt
 
-3. To pick out some strange form....
+3. To pick out some unicodes with strange written reading.
 
    3.1---- Some readings are with Combining Diacritical Marks:
    	ế =[0x1ebf]  ê̄ =[0xea  0x304]  ê̌ =[0xea  0x30c] ề =[0x1ec1]
@@ -775,12 +948,11 @@ Note:
 	U+5463	kHanyuPinyin	10610.080:móu,ḿ,m̀
 	U+5514	kHanyuPinyin	10627.020:wù,wú,ńg,ḿ
 
-   3.2----- Same unihan in 2 pages: (Keep, but words after SPACE will be discarded!!! ).
+   3.2----- Same unihans found in 2 pages: (Keep, but words after SPACE will be discarded!!! ).
    	U+5448	kHanyuPinyin	10585.010:kuáng 10589.110:chéng,chěng
    	U+9848	kHanyuPinyin	53449.060:xuǎn,jiōng 74379.120:jiǒng,xiàn,xuǎn,jiōng
 	... ...
 	many ... ...
-
 
 4. The return EGI_UNIHAN_SET usually contains empty unihans, as
    left unused after malloc.
@@ -800,14 +972,21 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 	char linebuff[1024];			/* Readin line buffer */
 	#define  WORD_MAX_LEN 		256	/* Max. length of column words in each line of kHanyuPinyin.txt,  including '\0'. */
 	#define  MAX_SPLIT_WORDS 	4  	/* Max number of words in linebuff[] as splitted by delimters */
-	/*--------------------------------------------------------
+	/*----------------------------------------------------------------------------------
 	   To store words in linebuff[] as splitted by delimter.
-	   Exampe:      linefbuff:  "U+92FA	kHanyuPinyin	64225.040:yuǎn,yuān,wǎn,wān"
+	   Example:      linefbuff:  "U+92FA	kHanyuPinyin	64225.040:yuǎn,yuān,wǎn,wān"
 			str_words[0]:	U+92FA
 			str_words[1]:	kHanyuPinyin
 			str_words[2]:	64225.040
 			str_words[3]:	yuǎn,yuān,wǎn,wān
-	---------------------------------------------------------*/
+
+	Note: Many execptional cases, words after SPACE to be discarded.
+	  Example:
+	   	U+5448	kHanyuPinyin	10585.010:kuáng 10589.110:chéng,chěng
+					"10589.110:chéng,chěng" will be discarded.
+		U+9848  kHanyuPinyin    53449.060:xuǎn,jiōng 74379.120:jiǒng,xiàn,xuǎn,jiōng
+					"74379.120:jiǒng,xiàn,xuǎn,jiōng" will be discarded.
+	------------------------------------------------------------------------------------*/
 	char str_words[MAX_SPLIT_WORDS][WORD_MAX_LEN]; /* See above */
 	char *delim="	 :\n"; 		/* delimiters: TAB,SPACE,':','\n'.  for splitting linebuff[] into 4 words. see above. */
 	int  m;
@@ -845,7 +1024,7 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 		pt=strtok(linebuff, delim);
 		for(m=0; pt!=NULL && m<MAX_SPLIT_WORDS; m++) {  /* Separate linebuff into 4 words */
 			bzero(str_words[m], sizeof(str_words[0]));
-			snprintf( str_words[m], WORD_MAX_LEN, "%s", pt);
+			snprintf( str_words[m], WORD_MAX_LEN-1, "%s", pt);
 			pt=strtok(NULL, delim);
 		}
 		if(m<2) {
@@ -877,7 +1056,7 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 			/* 1. Assign wcode */
 			uniset->unihans[k].wcode=wcode;
 			/* 2. Assign reading */
-			strncpy(uniset->unihans[k].reading, pt, UNIHAN_READING_MAXLEN);
+			strncpy(uniset->unihans[k].reading, pt, UNIHAN_READING_MAXLEN-1);
 			/* 3. Convert reading to PINYIN typing and assign */
 			UniHan_reading_to_pinyin( (UFT8_PCHAR)uniset->unihans[k].reading, uniset->unihans[k].typing);
 
@@ -912,7 +1091,8 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 	} /* End while(Read in lines) */
 
 	/* Finally, assign total size */
-	uniset->size=size;
+	uniset->size=k;
+	uniset->capacity=size;
 
 END_FUNC:
 	/* close FILE */
@@ -920,4 +1100,71 @@ END_FUNC:
 		printf("Fail to close han_mandrian txt.\n");
 
 	return uniset;
+}
+
+
+/*-------------------------------------------------------------------------------------
+To locate the index of first unihan bearing the given wcode in the uniset, whose wcodes
+MUST be prearranged in ascending order. and set uniset->puh as the index.
+Usually there are more than one unihans that have the save wcode, as one UNIHAN may
+have several typings. and indexse of those unihans MUST be consecutive.
+
+@uniset		The target EGI_UNIHAN_SET.
+@wcode		The wanted UNICODE.
+
+Return:
+	=0		OK, set uniset->puh accordingly.
+	<0		Fails, or no result.
+--------------------------------------------------------------------------------------*/
+int UniHan_locate_wcode(EGI_UNIHAN_SET* uniset, wchar_t wcode)
+{
+	unsigned int start,end,mid;
+	EGI_UNIHAN *unihans=NULL;
+
+	if(uniset==NULL || uniset->unihans==NULL || uniset->size==0) /* If empty */
+		return -1;
+
+	/* Get pointer to unihans */
+	unihans=uniset->unihans;
+
+	/* Mark start/end/mid of unihans index */
+	start=0;
+	end=uniset->size-1;
+	mid=(start+end)/2;
+
+	/* binary search for the wcode  */
+	while( unihans[mid].wcode != wcode ) {
+
+		/* check if searched all wcodes */
+		if(start==end)
+			return -2;
+
+		/* !!! If mid+1 == end: then mid=(n+(n+1))/2 = n, and mid will never increase to n+1! */
+		if( mid+1==end ) {
+			if( unihans[mid+1].wcode==wcode ) {
+				mid += 1;  /* Let mid be the index of unihans, see following... */
+				break;
+			}
+			else
+				return -3;
+		}
+
+		if( unihans[mid].wcode > wcode ) {   /* then search upper half */
+			end=mid;
+			mid=(start+end)/2;
+			continue;
+		}
+		else if( unihans[mid].wcode < wcode) {
+			start=mid;
+			mid=(start+end)/2;
+			continue;
+		}
+	}
+	/* Finally unihans[mid].wcode==wcode  */
+
+        /* NOW move up to locate the first unihan bearing the same wcode. */
+	while( mid>0 && unihans[mid-1].wcode==wcode ){ mid--; };
+	uniset->puh=mid;
+
+	return 0;
 }

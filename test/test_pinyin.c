@@ -99,36 +99,93 @@ int main(void)
 	exit(1);
 #endif
 
+
+#if 0 /*-------------  1. test INSERT_SORT tmpset  ------------------*/
 	/* Read txt  into EGI_UNIHAN_SET */
 	tmpset=UniHan_load_HanyuPinyinTxt(HANYUPINYIN_TXT_PATH);
-	uniset=UniHan_load_HanyuPinyinTxt(HANYUPINYIN_TXT_PATH);
-	if( tmpset==NULL || uniset==NULL )
+	if( tmpset==NULL )
 		exit(1);
 
-        printf("total size=%d:\n", uniset->size);
-        for(i=0; i< uniset->size; i++) {
+        printf("tmpset total size=%d:\n", tmpset->size);
+        for(i=0; i< tmpset->size; i++) {
 		bzero(pch,sizeof(pch));
 	    //if(uniset->unihans[i].wcode==0x54B9)
+        	printf("[%s:%d]%s ",char_unicode_to_uft8(&(tmpset->unihans[i].wcode), pch)>0?pch:" ",
+								tmpset->unihans[i].wcode, tmpset->unihans[i].typing);
+	}
+        printf("\n");
+
+	/* Insert sort tmpset */
+	printf("Start insertSort() UNISET typings...\n");
+	gettimeofday(&tm_start,NULL);
+	UniHan_insertSort_typing(tmpset->unihans, tmpset->size);
+	gettimeofday(&tm_end,NULL);
+        printf("OK! Finish insert_sorting, total size=%d, cost time=%ldms.\n", uniset->size, tm_diffus(tm_start, tm_end)/1000);
+
+	/* Check result tmpset */
+	printf("Check results of insertSort() tmpset.\n");
+	for(i=0; i< uniset->size; i++) {
+		#if 0
+		bzero(pch,sizeof(pch));
+       		printf("[%s:%d]%s",char_unicode_to_uft8(&(tmpset->unihans[i].wcode), pch)>0?pch:" ",
+								tmpset->unihans[i].wcode, tmpset->unihans[i].typing);
+		#endif
+		if( i>0 && UniHan_compare_typing(tmpset->unihans+i, tmpset->unihans+i-1) == CMPTYPING_IS_AHEAD )
+				printf("\n------------- i=%d, tmpset[] ERROR ---------------\n",i);
+
+	}
+        printf("OK. \n");
+
+	/* Display some */
+	printf("============ tmpset ===============\n");
+	for( i=12000; i<12100; i++ ) {
+			bzero(pch,sizeof(pch));
+        		printf("unihans[%d]: [%s:%d]%s\n", i, char_unicode_to_uft8(&(tmpset->unihans[i].wcode), pch)>0?pch:" ",
+								tmpset->unihans[i].wcode, tmpset->unihans[i].typing);
+	}
+
+#endif  /*-------- END Insert_sort tmpset -------- */
+
+
+#if 1 /*-------------- 2. test QUICK_SORT uniset ------------------*/
+	/* Read txt into uniset */
+	uniset=UniHan_load_HanyuPinyinTxt(HANYUPINYIN_TXT_PATH);
+	if( uniset==NULL )
+		exit(1);
+        printf("uniset total size=%d:\n", uniset->size);
+
+	#if 1
+        for(i=0; i< uniset->size; i++) {
+		bzero(pch,sizeof(pch));
+	    if(uniset->unihans[i].wcode==0x5B71) //0x4E00) //0x9FA4) //0x9FA5) //0x54B9
         	printf("[%s:%d]%s ",char_unicode_to_uft8(&(uniset->unihans[i].wcode), pch)>0?pch:" ",
 								uniset->unihans[i].wcode, uniset->unihans[i].typing);
 	}
         printf("\n");
+	#endif
 
-	/* Sort uniset */
-	printf("Start insertSort() UNISET typings...\n");
-	gettimeofday(&tm_start,NULL);
-	UniHan_insertSort(tmpset->unihans, tmpset->size);
-	gettimeofday(&tm_end,NULL);
-        printf("OK! Finish insert_sorting, total size=%d, cost time=%ldms.\n", uniset->size, tm_diffus(tm_start, tm_end)/1000);
+	/* Locate the wcode */
+	wchar_t  swcode=0x5B71; //0x4E00; //0x9FA4;
+	if( UniHan_locate_wcode(uniset,swcode) !=0 ) //9FA5); //x54B9);
+		printf("swcode NOT found!\n");
+	while( uniset->unihans[uniset->puh].wcode==swcode ) {
+		bzero(pch,sizeof(pch));
+        	printf("[%s:%d]%s\n",char_unicode_to_uft8(&(uniset->unihans[uniset->puh].wcode), pch)>0?pch:" ",
+								uniset->unihans[uniset->puh].wcode, uniset->unihans[uniset->puh].typing);
 
+		uniset->puh++;
+	}
+	exit(1);
+
+	/* Quick sort uniset */
 	printf("Start quickSort() UNISET typings...\n");
 	gettimeofday(&tm_start,NULL);
-	UniHan_quickSort(uniset->unihans, 0, uniset->size-1, 10);
+	UniHan_quickSort_typing(uniset->unihans, 0, uniset->size-1, 10);
 	gettimeofday(&tm_end,NULL);
         printf("OK! Finish quick_sorting, total size=%d, cost time=%ldms.\n", uniset->size, tm_diffus(tm_start, tm_end)/1000);
 
-	/* Check result */
-	printf("Check results of quickSort()\n");
+	/* Check result uniset */
+	printf("Check results of quickSort() uniset.\n");
 	for(i=0; i< uniset->size; i++) {
 		#if 0
 		bzero(pch,sizeof(pch));
@@ -137,9 +194,6 @@ int main(void)
 		#endif
 		if( i>0 && UniHan_compare_typing(uniset->unihans+i, uniset->unihans+i-1) == CMPTYPING_IS_AHEAD )
 				printf("\n------------- i=%d, uniset[] ERROR ---------------\n",i);
-
-		if( i>0 && UniHan_compare_typing(tmpset->unihans+i, tmpset->unihans+i-1) == CMPTYPING_IS_AHEAD )
-				printf("\n------------- i=%d, tmpset[] ERROR ---------------\n",i);
 
 	}
         printf("OK. \n");
@@ -151,14 +205,10 @@ int main(void)
         		printf("unihans[%d]: [%s:%d]%s\n", i, char_unicode_to_uft8(&(uniset->unihans[i].wcode), pch)>0?pch:" ",
 								uniset->unihans[i].wcode, uniset->unihans[i].typing);
 	}
-	printf("============ tmpset ===============\n");
-	for( i=12000; i<12100; i++ ) {
-			bzero(pch,sizeof(pch));
-        		printf("unihans[%d]: [%s:%d]%s\n", i, char_unicode_to_uft8(&(tmpset->unihans[i].wcode), pch)>0?pch:" ",
-								tmpset->unihans[i].wcode, tmpset->unihans[i].typing);
-	}
+#endif  /*-------- END quick_sort uniset -------- */
 
-	/* Compare insertSort() AND quickSort() */
+
+#if 0  /* ---------  Compare tmpset and uniset as results of insertSort() AND quickSort() ------- */
 	printf("Compare results of insertSort() and quickSort()\n");
 	for(i=0; i< uniset->size; i++) {
 		if( strcmp(tmpset->unihans[i].reading, uniset->unihans[i].reading)!=0 )
@@ -176,6 +226,7 @@ int main(void)
 		}
 	}
 	printf("OK\n");
+#endif
 
 	return 0;
 }
