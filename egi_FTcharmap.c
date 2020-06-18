@@ -664,7 +664,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	int pchy=0;
 	int charlen;
 	struct timeval tm_now;
- 	wchar_t wcstr[1];
+ 	wchar_t wcstr[1];  		/* BETTER AS: wchart_t wcode */
         FT_Fixed   advance; 		/* typedef signed long  FT_Fixed;   to store 16.16 fixed-point values */
 	FT_Error   error;
 	int sdw;			/* Self_defined width for some unicodes */

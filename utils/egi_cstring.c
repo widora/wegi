@@ -24,6 +24,26 @@ Midas Zhou
 
 
 /*-----------------------------------------------------------
+Compare 'len' chars of two strings to judge their dictionary
+order.
+
+@str1,str2:	Strings for comparison.
+@len:		Comparing length.
+
+Return:
+	0	DICTODER_IS_SAME    ( str1 and str2 same order)
+        1      	DICTODER_IS_AHEAD   ( str1 is aheah of str2 )
+	2	DICTODER_IS_AFTER   ( str1 is behind str2 )
+	<0	fails
+-----------------------------------------------------------*/
+int cstr_compare_dictOrder(const char *str1, const char *str2, size_t len)
+{
+
+
+}
+
+
+/*-----------------------------------------------------------
 Clear all specified char and squeeze the string.
 
 @buff:  String buffer.

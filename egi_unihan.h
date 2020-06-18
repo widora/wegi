@@ -34,7 +34,7 @@ struct egi_unihan
         unsigned int            freq;           /* Frequency of the wcode. */
 
 	#define			UNIHAN_TYPING_MAXLEN	8
-        char                    typing[UNIHAN_TYPING_MAXLEN];      /* Keyboard input sequence that representing the wcode , in ASCII lowcase.
+        char                    typing[UNIHAN_TYPING_MAXLEN];      /* Keyboard input sequence that representing the wcode , in ASCII lowercase.
 					 	 * Example: typing of "chuǎng" is "chuang3" or "chuang"
                                                  * 1. Its size depends on input method.
                                                  * 2. For PINYIN typing, 8bytes is enough.
@@ -58,11 +58,10 @@ struct egi_unihan_set
         uint32_t                size;           /* Size of unihans, total number of EGI_UNIHANs in unihans[], exclude empty ones.
                                                  * Do not change the type, we'll assembly/disassembly from/into uint8_t when read/write to file.
                                                  */
-//      int                     input_method;   /* input method: pinyin, ...  */
+//      int                     input_method;   /* input method: pinyin,  ...  */
 
-	unsigned int		puh;		/* index to unihans[]  */
+	unsigned int		puh;		/* Index to an unihans[], usually to store result of loacting/searching.  */
         EGI_UNIHAN              *unihans;       /* Array of EGI_UNIHANs, NOTE: Always malloc capacity+1, with bottom safe guard! */
-
      	/* +1 EGI_UNIHAN as bottom safe guard */
 };
 
@@ -71,31 +70,43 @@ struct egi_unihan_heap
 	size_t		capacity;	/* Mem. capacity to hold max number of unihans, */
 	size_t		size; 	 	/* Current size, total number of unihans. MUST < capacity  */
 	EGI_UNIHAN	*unihans;	/* Array of EGI_UNIHANs, for a binary heap, index starts from 1, NOT 0. */
+     	/* +1 EGI_UNIHAN as bottom safe guard */
 };
 
 /* UNIHAN HEAP Funcitons */
 EGI_UNIHAN_HEAP* UniHan_create_heap(size_t capacity);
-void 		UniHan_free_heap( EGI_UNIHAN_HEAP **heap);
+void 		 UniHan_free_heap( EGI_UNIHAN_HEAP **heap);
 
 /* Sorting Functions */
 #define  CMPTYPING_IS_AHEAD    -1
 #define  CMPTYPING_IS_SAME      0
 #define  CMPTYPING_IS_AFTER     1
 int 	UniHan_compare_typing(const EGI_UNIHAN *uhan1, const EGI_UNIHAN *uhan2);
+
+void 	UniHan_insertSort_freq( EGI_UNIHAN* unihans, int n );
+
 void 	UniHan_insertSort_typing( EGI_UNIHAN* unihans, int n );
 int 	UniHan_quickSort_typing(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff);
+
 void 	UniHan_insertSort_wcode( EGI_UNIHAN* unihans, int n );
 int 	UniHan_quickSort_wcode(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff);
 
 /* UNIHAN SET Functions */
 EGI_UNIHAN_SET* UniHan_create_uniset(const char *name, size_t capacity);
 void 		UniHan_free_uniset( EGI_UNIHAN_SET **set);
+
 int 		UniHan_save_uniset(const char *fpath,  const EGI_UNIHAN_SET *set);
 EGI_UNIHAN_SET* UniHan_load_uniset(const char *fpath);
+
 EGI_UNIHAN_SET* UniHan_load_HanyuPinyinTxt(const char *fpath);
+
 int 		UniHan_locate_wcode(EGI_UNIHAN_SET* uniset, wchar_t wcode);
+int 		UniHan_locate_typing(EGI_UNIHAN_SET* uniset, const char* typing);
+
+int 		UniHan_poll_freq(EGI_UNIHAN_SET *uniset, const char *fpath);
 
 /* Convert reading to pinyin */
 int 		UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin);
+
 
 #endif

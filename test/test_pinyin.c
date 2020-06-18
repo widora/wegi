@@ -33,7 +33,7 @@ Note:
 1. Prepare kHanyuPinyin.txt
 	cat Unihan_Readings.txt | grep kHanyuPinyin > kHanyuPinyin.txt
 
-   File 'kHanyuPinyin.txt' contains unicode and mandarin reading(original pinyin):
+   File 'kHanyuPinyin.txt' contains unicode, dict page number and mandarin reading(original pinyin):
 	... ...
 	U+92E7	kHanyuPinyin	64207.100:xiàn
 	U+92E8	kHanyuPinyin	64208.110:tiě,é

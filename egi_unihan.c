@@ -5,21 +5,18 @@ published by the Free Software Foundation.
 
 Note:
 1. See Unicode Character Database in http://www.unicode.org.
-        # Unicode Character Database
+	# Unicode Character Database
         # © 2020 Unicode®, Inc.
         # Unicode and the Unicode Logo are registered trademarks of Unicode, Inc. in the U.S. and other countries.
         # For terms of use, see http://www.unicode.org/terms_of_use.html
         # For documentation, see http://www.unicode.org/reports/tr38/
 
 2. With reference to:
-  1. https://blog.csdn.net/firehood_/article/details/7648625
-  2. https://blog.csdn.net/FortuneWang/article/details/41575039
-  3. http://www.unicode.org/Public/UCD/latest/ucd/Unihan.zip (Unihan_Readings.txt)
-  4. http://www.unicode.org/reports/tr38
+  2.1 https://blog.csdn.net/firehood_/article/details/7648625
+  2.2 https://blog.csdn.net/FortuneWang/article/details/41575039
+  2.3 http://www.unicode.org/Public/UCD/latest/ucd/Unihan.zip (Unihan_Readings.txt)
+  2.3 http://www.unicode.org/reports/tr38
 
-
-TODO:
-1. Sort out frequently_used UniHans.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -28,6 +25,8 @@ midaszhou@yahoo.com
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 #include <errno.h>
 #include "egi_debug.h"
 #include "egi_unihan.h"
@@ -130,6 +129,7 @@ EGI_UNIHAN_SET* UniHan_create_uniset(const char *name, size_t capacity)
 	return unihan_set;
 }
 
+
 /*---------------------------------------
 	Free an EGI_UNIHAN_SET.
 ----------------------------------------*/
@@ -142,7 +142,6 @@ void UniHan_free_uniset( EGI_UNIHAN_SET **set)
 	free(*set);
 	*set=NULL;
 }
-
 
 
 #if 0 ///////////////////////////////////////////////////////
@@ -192,20 +191,23 @@ or greater than zero, if unha1 is found to be ahead of, at same order of,
 or behind uhans2 in dictionary order respectively.
 
 Note:
-1. It first compares their dictionary order, if NOT in the same place, return
+1. !!! CAUTION !!!  Here typing refers to PINYIN, other type MAY NOT work.
+2. All typing letters MUST be lowercase.
+3. It first compares their dictionary order, if NOT in the same place, return
 the result, if in the same place, then compare their frequency number.
 
-2. If uhan1->freq is GREATER than uhan2->freq, it returns -1(IS_AHEAD);
+4. If uhan1->freq is GREATER than uhan2->freq, it returns -1(IS_AHEAD);
    else if uhan1->fre is LESS than uhan2->freq, then return 1(IS_AFTER);
    if EQUAL, it returns 0(IS_SAME).
 
-3. A NULL is always 'AFTER' an EGI_UNIHAN pointer.
+5. A NULL is always 'AFTER' an EGI_UNIHAN pointer.
 
 Return:
-	Relative Priority Sequence position.
-	<0	unhan1 is  'less than' OR 'ahead of' unhan2
-	=0	unhan1 and unhan2 are at the same place.
-	>0	unhan1 is  'greater than' OR 'behind' unhan2.
+	Relative Priority Sequence position:
+	CMPTYPING_IS_AHEAD    -1 (<0)	unhan1 is  'less than' OR 'ahead of' unhan2
+	CMPTYPING_IS_SAME      0 (=0)   unhan1 and unhan2 are at the same place.
+	CMPTYPING_IS_AFTER     1 (>0)   unhan1 is  'greater than' OR 'behind' unhan2.
+
 -------------------------------------------------------------------------*/
 int UniHan_compare_typing(const EGI_UNIHAN *uhan1, const EGI_UNIHAN *uhan2)
 {
@@ -213,11 +215,11 @@ int UniHan_compare_typing(const EGI_UNIHAN *uhan1, const EGI_UNIHAN *uhan2)
 
 	/* 1. If uhan1 and/or uhan2 is NULL */
 	if( uhan1==NULL && uhan2==NULL )
-		return 0;
+		return CMPTYPING_IS_SAME;
 	else if( uhan1==NULL )
-		return 1;
+		return CMPTYPING_IS_AFTER;
 	else if( uhan2==NULL )
-		return -1;
+		return CMPTYPING_IS_AHEAD;
 
 	/* 2. Put the empty EGI_UNIHAN to the last, OR check typing[0] ? */
 	if(uhan1->wcode==0 && uhan2->wcode!=0)
@@ -230,30 +232,31 @@ int UniHan_compare_typing(const EGI_UNIHAN *uhan1, const EGI_UNIHAN *uhan2)
 	/* 3. Compare dictionary oder of EGI_UNIHAN.typing[] */
 	for( i=0; i<UNIHAN_TYPING_MAXLEN; i++) {
 		if( uhan1->typing[i] > uhan2->typing[i] )
-			return 1;
+			return CMPTYPING_IS_AFTER;
 		else if ( uhan1->typing[i] < uhan2->typing[i])
-			return -1;
+			return CMPTYPING_IS_AHEAD;
 		/* End of typing[] */
 		else if(uhan1->typing[i]==0 && uhan2->typing[i]==0)
 			break;
 
 		/* else: uhan1->typing[i] == uhan2->typing[i] != 0  */
 	}
+	/* NOW: CMPTYPING_IS_SAME */
 
 	/* 4. Compare frequencey number: EGI_UNIHAN.freq */
 	if( uhan1->freq > uhan2->freq )
-		return -1;
+		return CMPTYPING_IS_AHEAD;
 	else if( uhan1->freq < uhan2->freq )
-		return 1;
+		return CMPTYPING_IS_AFTER;
 	else
-		return 0;
-
+		return CMPTYPING_IS_SAME;
 }
+
 
 
 /*------------------------------------------------------------------------
 Sort an EGI_UNIHAN array by Insertion_Sort algorithm, to rearrange unihans
-with typing(as KEY) in dictionary order.
+with typing and freq as sorting KEY. (typing:in dictionary order)
 
 Also ref. to mat_insert_sort() in egi_math.c.
 
@@ -288,7 +291,7 @@ void UniHan_insertSort_typing( EGI_UNIHAN* unihans, int n )
         }
 }
 
-/////
+
 /*--------------------------------------------------------------------
 Sort an EGI_UNIHAN array by Quick_Sort algorithm, to rearrange unihans
 with typing (as KEY) in dictionary+frequency order.
@@ -411,7 +414,42 @@ int UniHan_quickSort_typing(EGI_UNIHAN* unihans, unsigned int start, unsigned in
 
 /*------------------------------------------------------------------------
 Sort an EGI_UNIHAN array by Insertion_Sort algorithm, to rearrange unihans
-with wcode (as KEY) in dictionary order.
+with freq (as KEY) in ascending order.
+
+Also ref. to mat_insert_sort() in egi_math.c.
+
+Note:
+1.The caller MUST ensure unihans has at least n memebers!
+
+@unihans:       An array of EGI_UNIHANs.
+@n:             size of the array. ( NOT capacity )
+-----------------------------------------------------------------------*/
+void UniHan_insertSort_freq( EGI_UNIHAN* unihans, int n )
+{
+        int i;          /* To tranverse elements in array, 1 --> n-1 */
+        int k;          /* To decrease, k --> 1,  */
+        EGI_UNIHAN tmp;
+
+	if(unihans==NULL)
+		return;
+
+	/* Start sorting ONLY when i>1 */
+        for( i=1; i<n; i++) {
+                tmp=unihans[i];
+
+        	/* Slide the inseting integer left, until to the first smaller unihan  */
+                for( k=i; k>0 && unihans[k-1].freq > tmp.freq; k--)
+				unihans[k]=unihans[k-1];   /* swap */
+
+		/* Settle the inserting unihan at last swapped place */
+                unihans[k]=tmp;
+        }
+}
+
+
+/*------------------------------------------------------------------------
+Sort an EGI_UNIHAN array by Insertion_Sort algorithm, to rearrange unihans
+with wcode (as KEY) in ascending order.
 
 Also ref. to mat_insert_sort() in egi_math.c.
 
@@ -423,7 +461,6 @@ Note:
 
 @unihans:       An array of EGI_UNIHANs.
 @n:             size of the array. ( NOT capacity )
-
 -----------------------------------------------------------------------*/
 void UniHan_insertSort_wcode( EGI_UNIHAN* unihans, int n )
 {
@@ -436,7 +473,7 @@ void UniHan_insertSort_wcode( EGI_UNIHAN* unihans, int n )
 
 	/* Start sorting ONLY when i>1 */
         for( i=1; i<n; i++) {
-                tmp=unihans[i];   /* the inserting integer */
+                tmp=unihans[i];
 
         	/* Slide the inseting integer left, until to the first smaller unihan  */
                 for( k=i; k>0 && unihans[k-1].wcode > tmp.wcode; k--)
@@ -646,7 +683,7 @@ END_FUNC:
 }
 
 
-/*----------------------------------------------------------------------------
+/*------------------------------------------------------------------------------
 Read EGI_UNIHANs from a file and load them to an EGI_UNIHAN_SET.
 
 @fpath:		File path.
@@ -722,7 +759,6 @@ EGI_UNIHAN_SET* UniHan_load_uniset(const char *fpath)
 					i, uniset->unihans[i].wcode, uniset->unihans[i].typing, uniset->unihans[i].reading);
 	}
 
-
 END_FUNC:
         /* Close fil */
         if( fclose(fil) !=0 ) {
@@ -731,6 +767,104 @@ END_FUNC:
 
 	return uniset;
 }
+
+
+/*--------------------------------------------------------------
+Extract each UNIHAN/char in the input text and try to update
+uniset->unihans[].freq accordingly. ONLY unihans available in
+the uniset will be updated.
+
+Note:
+1. The uniset MUST be prearranged in ascending order of wcodes.
+
+@uniset:	A pointer to an EGI_UNIHAN_SET, with unihans in
+		ascending order of wcodes.
+
+@fpath:		Full path of a text file.
+		The text MUST be UFT-8 encoding.
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------------------------*/
+int UniHan_poll_freq(EGI_UNIHAN_SET *uniset, const char *fpath)
+{
+	int		ret;
+        int             fd;
+        int             fsize=-1;  /* AS token */
+	int		chsize;
+	struct stat     sb;
+        char *          fp=NULL;
+	char *		p;
+	wchar_t		wcode;
+
+	/* Check input */
+	if(uniset==NULL || uniset->unihans==NULL || uniset->size==0) /* If empty */
+		return -1;
+
+        /* Open text file */
+        fd=open(fpath, O_RDONLY, S_IRUSR);
+        if(fd<0) {
+                printf("%s: Fail to open input file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+                return -2;
+        }
+
+        /* Obtain file stat */
+        if( fstat(fd,&sb)<0 ) {
+                printf("%s: Fail call fstat for file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+		ret=-3;
+		goto END_FUNC;
+        }
+        fsize=sb.st_size;
+
+        /* MMAP Text file */
+        if(fsize >0) {
+                fp=mmap(NULL, fsize, PROT_READ, MAP_PRIVATE, fd, 0);
+                if(fp==MAP_FAILED) {
+                        printf("%s: Fail to mmap file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+			ret=-4;
+			goto END_FUNC;
+                }
+        }
+
+	/* Count freqency */
+	p=fp;
+	while(*p) {
+                /* Convert UFT-8 encoding to UNICODE, return size of uft-8 code. */
+                chsize=char_uft8_to_unicode((const UFT8_PCHAR)p, &wcode);
+
+                if(chsize>0) {
+			/* Increase freq of unihans in the uniset */
+			if( UniHan_locate_wcode(uniset, wcode)==0 ) {
+				while( uniset->unihans[uniset->puh].wcode == wcode ) {
+					uniset->unihans[uniset->puh].freq +=1;
+					uniset->puh++;
+				}
+			}
+			/* move on... */
+                        p+=chsize;
+                }
+                else {
+                        printf("%s: Unrecoginzable unicode, breakl!\n",__func__);
+			ret=-5;
+			goto END_FUNC;
+                }
+	}
+
+
+END_FUNC:
+        /* Munmap file */
+        if( fsize>0 && fp!=MAP_FAILED ) {
+		if(munmap(fp,fsize) !=0 )
+                	printf("%s: Fail to munmap file '%s'. ERR:%s!\n",__func__, fpath, strerror(errno));
+	}
+
+	/* Close File */
+        if( close(fd) !=0 )
+                printf("%s: Fail to close file '%s'. ERR:%s!\n",__func__, fpath, strerror(errno));
+
+        return ret;
+}
+
 
 
 /*-----------------------------------------------------------------------------
@@ -884,7 +1018,7 @@ int UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin)
 					break;
 
 				case 0x1E3F:	/* ḿ  */
-				 		/* m̀ */
+				 		/* m̀ */	 /* Pick out */
 					pinyin[k]='m';
 					break;
 
@@ -894,7 +1028,6 @@ int UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin)
 					pinyin[k]=wcode;
 					break;
 			}
-
 		}
 
 		/* 3. ----- Unrecoginzable char ----- */
@@ -1103,11 +1236,16 @@ END_FUNC:
 }
 
 
-/*-------------------------------------------------------------------------------------
-To locate the index of first unihan bearing the given wcode in the uniset, whose wcodes
-MUST be prearranged in ascending order. and set uniset->puh as the index.
-Usually there are more than one unihans that have the save wcode, as one UNIHAN may
-have several typings. and indexse of those unihans MUST be consecutive.
+/*------------------------------------------------------------------------
+To locate the index of first unihan[] bearing the given wcode, and set
+uniset->puh as the index.
+
+Note:
+1. The uniset MUST be prearranged in ascending order of wcodes.
+2. Usually there are more than one unihans that have the save wcode, as
+one UNIHAN may have several typings, and indexse of those unihans
+should be consecutive in the uniset (see 1). Finally the first index will
+be located.
 
 @uniset		The target EGI_UNIHAN_SET.
 @wcode		The wanted UNICODE.
@@ -1115,7 +1253,7 @@ have several typings. and indexse of those unihans MUST be consecutive.
 Return:
 	=0		OK, set uniset->puh accordingly.
 	<0		Fails, or no result.
---------------------------------------------------------------------------------------*/
+-----------------------------------------------------------------------*/
 int UniHan_locate_wcode(EGI_UNIHAN_SET* uniset, wchar_t wcode)
 {
 	unsigned int start,end,mid;
@@ -1164,7 +1302,101 @@ int UniHan_locate_wcode(EGI_UNIHAN_SET* uniset, wchar_t wcode)
 
         /* NOW move up to locate the first unihan bearing the same wcode. */
 	while( mid>0 && unihans[mid-1].wcode==wcode ){ mid--; };
-	uniset->puh=mid;
+	uniset->puh=mid;  /* assign to uniset->puh */
 
 	return 0;
 }
+
+
+/*------------------------------------------------------------------------------
+To locate the index of first unihan[] containing the given typing in the
+beginning of its typing. and set uniset->puh as the index.
+
+			!!! IMPORTANT !!!
+"Containing the give typing" means unihan[].typing is SAME as then given
+typing, OR the given typing are contained in beginning of unihan[].typing.
+
+This criteria is ONLY based on PINYIN. Other types of typing may NOT comply.
+
+Note:
+1. The uniset MUST be prearranged in dictionary ascending order of typing.
+2. Pronunciation tones of PINYIN are neglected.
+3. Usually there are more than one unihans that have the save typing,
+(same pronuciation, but differenct UNIHANs), and indexse of those unihans
+should be consecutive in the uniset (see 1). Finally the firt index will
+be located.
+4. This algorithm depends on typing type PINYIN, others MAY NOT work.
+
+@uniset		The target EGI_UNIHAN_SET.
+@typing		The wanted typing. it will be trimmed to be UNIHAN_TYPING_MAXLEN
+		bytes including '\0'.
+
+Return:
+	=0		OK, set uniset->puh accordingly.
+	<0		Fails, or no result.
+------------------------------------------------------------------------------*/
+int UniHan_locate_typing(EGI_UNIHAN_SET* uniset, const char* typing)
+{
+	unsigned int start,end,mid;
+	EGI_UNIHAN *unihans=NULL;
+	EGI_UNIHAN  tmphan;
+
+	if(uniset==NULL || uniset->unihans==NULL || uniset->size==0) /* If empty */
+		return -1;
+
+	/* Get pointer to unihans */
+	unihans=uniset->unihans;
+
+	/* Mark start/end/mid of unihans index */
+	start=0;
+	end=uniset->size-1;
+	mid=(start+end)/2;
+
+	/* binary search for the wcode  */
+	/* While if NOT containing the typing string at beginning */
+	while( strstr(unihans[mid].typing, typing) != unihans[mid].typing ) {
+
+		/* check if searched all wcodes */
+		if(start==end)
+			return -2;
+
+		/* !!! If mid+1 == end: then mid=(n+(n+1))/2 = n, and mid will never increase to n+1! */
+		if( mid+1==end ) {
+			//if( unihans[mid+1].wcode==wcode ) {
+			/* Check if given typing are contained in beginning of unihan[mid-1].typing. */
+			if( strstr(unihans[mid+1].typing, typing) == unihans[mid].typing ) {
+				mid += 1;  /* Let mid be the index of unihans, see following... */
+				break;
+			}
+			else
+				return -3;
+		}
+
+		/* Setup a tmp. UNIHAN */
+		tmphan=unihans[mid];
+		strncpy(tmphan.typing, typing, UNIHAN_TYPING_MAXLEN-1);
+		tmphan.typing[UNIHAN_TYPING_MAXLEN-1]='\0';  /* Set EOF */
+
+		//if( unihans[mid].wcode > wcode ) {   /* then search upper half */
+		if ( UniHan_compare_typing(&unihans[mid], &tmphan)==CMPTYPING_IS_AFTER ) {
+			end=mid;
+			mid=(start+end)/2;
+			continue;
+		}
+		//else if( unihans[mid].wcode < wcode) {
+		if ( UniHan_compare_typing(&unihans[mid], &tmphan)==CMPTYPING_IS_AHEAD ) {
+			start=mid;
+			mid=(start+end)/2;
+			continue;
+		}
+	}
+	/* NOW unhihan[mid] has the same typing */
+
+        /* Move up to locate the first unihan bearing the same typing. */
+	/* Check if given typing are contained in beginning of unihan[mid-1].typing. */
+	while ( mid>0 && (strstr(unihans[mid-1].typing, typing) == unihans[mid-1].typing) ) { mid--; };
+	uniset->puh=mid;  /* assign to uniset->puh */
+
+	return 0;
+}
+
