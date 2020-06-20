@@ -13,9 +13,16 @@ midaszhou@yahoo.com
 
 typedef unsigned char * UFT8_PCHAR;
 
-/* Define P.R.C simple Haizi range */
+/* UNICODE range for P.R.C simplified Haizi/UNIHAN */
 #define UNICODE_PRC_START     0x4E00
 #define UNICODE_PRC_END       0x9FA5
+
+#define HANYUPINYIN_TXT_PATH    "/mmc/kHanyuPinyin.txt"		/* kHanyuPinyin.txt from Unihan_Readings.txt, see UniHan_load_HanyuPinyinTxt() */
+#define UNIHANS_DATA_PATH       "/tmp/unihans_pinyin.dat"	/* Saved UNIHAN SET containing above unihans */
+
+#define PINYIN3500_TXT_PATH        "/mmc/pinyin3500.txt"	/* 3500 frequently used Haizi TXT */
+#define PINYIN3500_DATA_PATH       "/mmc/unihan3500.dat"	/* Saved UNIHAN SET containing above unihans */
+
 
 
 /* ------------------   EGI_UNIHAN   ------------------
@@ -39,6 +46,7 @@ struct egi_unihan
                                                  * 1. Its size depends on input method.
                                                  * 2. For PINYIN typing, 8bytes is enough.
                                                  *    MAX. size example: "chuang3", here '3' indicates the tone.
+						 * 3. If tones are ignored then reading[] will also be no use.
                                                  */
 
 	#define			UNIHAN_READING_MAXLEN	16
@@ -52,7 +60,7 @@ struct egi_unihan
 
 struct egi_unihan_set
 {
-        char                    name[16];       /* Short name for the UniHan set */
+        char                    name[16];       /* Short name for the UniHan set, MUST NOT be a pointer. */
 
 	size_t			capacity;	/* Capacity to hold max number of UNIHANS */
         uint32_t                size;           /* Size of unihans, total number of EGI_UNIHANs in unihans[], exclude empty ones.
@@ -61,6 +69,8 @@ struct egi_unihan_set
 //      int                     input_method;   /* input method: pinyin,  ...  */
 
 	unsigned int		puh;		/* Index to an unihans[], usually to store result of loacting/searching.  */
+
+	#define 		UNIHANS_GROW_SIZE   64
         EGI_UNIHAN              *unihans;       /* Array of EGI_UNIHANs, NOTE: Always malloc capacity+1, with bottom safe guard! */
      	/* +1 EGI_UNIHAN as bottom safe guard */
 };
@@ -83,10 +93,11 @@ void 		 UniHan_free_heap( EGI_UNIHAN_HEAP **heap);
 #define  CMPTYPING_IS_AFTER     1
 int 	UniHan_compare_typing(const EGI_UNIHAN *uhan1, const EGI_UNIHAN *uhan2);
 
-void 	UniHan_insertSort_freq( EGI_UNIHAN* unihans, int n );
-
 void 	UniHan_insertSort_typing( EGI_UNIHAN* unihans, int n );
 int 	UniHan_quickSort_typing(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff);
+
+void 	UniHan_insertSort_freq( EGI_UNIHAN* unihans, int n );
+int 	UniHan_quickSort_freq(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff);
 
 void 	UniHan_insertSort_wcode( EGI_UNIHAN* unihans, int n );
 int 	UniHan_quickSort_wcode(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff);
@@ -94,6 +105,7 @@ int 	UniHan_quickSort_wcode(EGI_UNIHAN* unihans, unsigned int start, unsigned in
 /* UNIHAN SET Functions */
 EGI_UNIHAN_SET* UniHan_create_uniset(const char *name, size_t capacity);
 void 		UniHan_free_uniset( EGI_UNIHAN_SET **set);
+void 		UniHan_reset_freq( EGI_UNIHAN_SET *uniset );
 
 int 		UniHan_save_uniset(const char *fpath,  const EGI_UNIHAN_SET *set);
 EGI_UNIHAN_SET* UniHan_load_uniset(const char *fpath);
@@ -102,8 +114,10 @@ EGI_UNIHAN_SET* UniHan_load_HanyuPinyinTxt(const char *fpath);
 
 int 		UniHan_locate_wcode(EGI_UNIHAN_SET* uniset, wchar_t wcode);
 int 		UniHan_locate_typing(EGI_UNIHAN_SET* uniset, const char* typing);
-
 int 		UniHan_poll_freq(EGI_UNIHAN_SET *uniset, const char *fpath);
+int 		UniHan_merge_uniset(const EGI_UNIHAN_SET* uniset1, EGI_UNIHAN_SET* uniset2);
+
+void 		UniHan_check_uniset(const EGI_UNIHAN_SET* uniset );
 
 /* Convert reading to pinyin */
 int 		UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin);

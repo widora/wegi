@@ -91,6 +91,7 @@ void UniHan_free_heap( EGI_UNIHAN_HEAP **heap)
 Create a set of unihan, with empty data.
 
 @name: 	    Short name for the set, MAX len 16-1.
+	    If NULL, ignore.
 @capacity:  Capacity to total max. number of unihans in the set.
 
 Return:
@@ -121,8 +122,9 @@ EGI_UNIHAN_SET* UniHan_create_uniset(const char *name, size_t capacity)
 	}
 
 	/* Assign memebers */
-	printf("%s:sizeof(unihan_set->name)=%d\n", __func__, sizeof(unihan_set->name));
-	strncpy(unihan_set->name, name, sizeof(unihan_set->name)-1);
+	//printf("%s:sizeof(unihan_set->name)=%d\n", __func__, sizeof(unihan_set->name));
+	if(name != NULL)
+		strncpy(unihan_set->name, name, sizeof(unihan_set->name)-1);
 	unihan_set->capacity=capacity;
 	/* unihan_set->size=0 */
 
@@ -185,6 +187,24 @@ int UniHan_heap_insert(EGI_UNIHAN_HEAP* heap, const EGI_UNIHAN* unihan)
 #endif  //////////////////////////////
 
 
+
+/*---------------------------------------------
+Reset freq of all unihans in the uniset to 0.
+---------------------------------------------*/
+void UniHan_reset_freq( EGI_UNIHAN_SET *uniset )
+{
+	int i;
+
+	/* Check input */
+	if(uniset==NULL || uniset->unihans==NULL || uniset->size==0) /* If empty */
+		return;
+
+	for(i=0; i < uniset->size; i++)
+		uniset->unihans[i].freq=0;
+
+}
+
+
 /*-------------------------------------------------------------------------
 Compare typings of two unihans and return an integer less than, equal to,
 or greater than zero, if unha1 is found to be ahead of, at same order of,
@@ -193,13 +213,12 @@ or behind uhans2 in dictionary order respectively.
 Note:
 1. !!! CAUTION !!!  Here typing refers to PINYIN, other type MAY NOT work.
 2. All typing letters MUST be lowercase.
-3. It first compares their dictionary order, if NOT in the same place, return
-the result, if in the same place, then compare their frequency number.
-
+3. It first compares their dictionary order, if NOT in the same order, return
+the result; if in the same order, then compare their frequency number to
+decide the order.
 4. If uhan1->freq is GREATER than uhan2->freq, it returns -1(IS_AHEAD);
-   else if uhan1->fre is LESS than uhan2->freq, then return 1(IS_AFTER);
+   else if uhan1->freq is LESS than uhan2->freq, then return 1(IS_AFTER);
    if EQUAL, it returns 0(IS_SAME).
-
 5. A NULL is always 'AFTER' an EGI_UNIHAN pointer.
 
 Return:
@@ -261,7 +280,7 @@ with typing and freq as sorting KEY. (typing:in dictionary order)
 Also ref. to mat_insert_sort() in egi_math.c.
 
 Note:
-1.The caller MUST ensure unihans has at least n memebers!
+1.The caller MUST ensure unihans array has at least n memebers!
 2.Input 'n' MAY includes empty unihans with typing[0]==0, and they will
   be rearranged to the end of the array.
 
@@ -320,6 +339,10 @@ int UniHan_quickSort_typing(EGI_UNIHAN* unihans, unsigned int start, unsigned in
 	EGI_UNIHAN	tmp;
 	EGI_UNIHAN	pivot;
 
+	/* Check input */
+	if( unihans==NULL )
+		return -1;
+
 	/* End sorting */
 	if( start >= end )
 		return 0;
@@ -329,7 +352,7 @@ int UniHan_quickSort_typing(EGI_UNIHAN* unihans, unsigned int start, unsigned in
                 cutoff=3;
 
 /* 1. Implement quicksort */
-        if( end-start >= cutoff ) //QUICK_SORT_CUTOFF )
+        if( end-start >= cutoff )
         {
         /* 1.1 Select pivot, by sorting array[start], array[mid], array[end] */
                 /* Get mid index */
@@ -419,7 +442,7 @@ with freq (as KEY) in ascending order.
 Also ref. to mat_insert_sort() in egi_math.c.
 
 Note:
-1.The caller MUST ensure unihans has at least n memebers!
+1.The caller MUST ensure unihans array has at least n memebers!
 
 @unihans:       An array of EGI_UNIHANs.
 @n:             size of the array. ( NOT capacity )
@@ -447,6 +470,128 @@ void UniHan_insertSort_freq( EGI_UNIHAN* unihans, int n )
 }
 
 
+/*--------------------------------------------------------------------
+Sort an EGI_UNIHAN array by Quick_Sort algorithm, to rearrange unihans
+with freq (as KEY) in ascending order.
+
+Refert to mat_quick_sort() in egi_math.h.
+
+ 	!!! WARNING !!! This is a recursive function.
+
+Note:
+1. The caller MUST ensure start/end are within the legal range.
+
+@start:		start index, as of unihans[start]
+@End:		end index, as of unihans[end]
+@cutoff:	cutoff value for switch to insert_sort.
+
+Return:
+	0	Ok
+	<0	Fails
+----------------------------------------------------------------------*/
+int UniHan_quickSort_freq(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff)
+{
+	int i=start;
+	int j=end;
+	int mid;
+	EGI_UNIHAN	tmp;
+	EGI_UNIHAN	pivot;
+
+	/* Check input */
+	if( unihans==NULL )
+		return -1;
+
+	/* End sorting */
+	if( start >= end )
+		return 0;
+
+        /* Limit cutoff */
+        if(cutoff<3)
+                cutoff=3;
+
+/* 1. Implement quicksort */
+        if( end-start >= cutoff )
+        {
+        /* 1.1 Select pivot, by sorting array[start], array[mid], array[end] */
+                /* Get mid index */
+                mid=(start+end)/2;
+
+                /* Sort [start] and [mid] */
+                /* if( array[start] > array[mid] ) */
+		if( unihans[start].freq > unihans[mid].freq ) {
+                        tmp=unihans[start];
+                        unihans[start]=unihans[mid];
+                        unihans[mid]=tmp;
+                }
+                /* Now: [start]<=array[mid] */
+
+                /* IF: [mid] >= [start] > [end] */
+                /* if( array[start] > array[end] ) { */
+		if( unihans[start].freq > unihans[end].freq ) {
+                        tmp=unihans[start]; /* [start] is center */
+                        unihans[start]=unihans[end];
+                        unihans[end]=unihans[mid];
+                        unihans[mid]=tmp;
+                }
+                /* ELSE:   [start]<=[mid] AND [start]<=[end] */
+                /* else if( array[mid] > array[end] ) { */
+		if( unihans[mid].freq > unihans[end].freq ) {
+                        /* If: [start]<=[end]<[mid] */
+                                tmp=unihans[end];   /* [end] is center */
+                                unihans[end]=unihans[mid];
+                                unihans[mid]=tmp;
+                        /* Else: [start]<=[mid]<=[end] */
+                }
+                /* Now: array[start] <= array[mid] <= array[end] */
+
+                pivot=unihans[mid];
+                //printf("After_3_sort: %d, %d, %d\n", array[start], array[mid], array[end]);
+
+                /* Swap array[mid] and array[end-1], still keep array[start] <= array[mid] <= array[end]!   */
+                tmp=unihans[end-1];
+                unihans[end-1]=unihans[mid];   /* !NOW, we set memeber [end-1] as pivot */
+                unihans[mid]=tmp;
+
+        /* 1.2 Quick sort: array[start] ... array[end-1], array[end]  */
+                i=start;
+                j=end-1;   /* As already sorted to: array[start]<=pivot<=array[end-1]<=array[end], see 1. above */
+                for(;;)
+                {
+                        /* Stop at array[i]>=pivot: We preset array[end-1]==pivot as sentinel, so i will stop at [end-1]  */
+                        /* while( array[++i] < pivot ){ };   Acturally: array[++i] < array[end-1] which is the pivot memeber */
+			while( unihans[++i].freq < pivot.freq ) { };
+                        /* Stop at array[j]<=pivot: We preset array[start]<=pivot as sentinel, so j will stop at [start]  */
+                        /* while( array[--j] > pivot ){ }; */
+			while( unihans[--j].freq > pivot.freq ) { };
+
+                        if( i<j ) {
+                                /* Swap array[i] and array[j] */
+                                tmp=unihans[i];
+                                unihans[i]=unihans[j];
+                                unihans[j]=tmp;
+                        }
+                        else {
+                                break;
+			}
+		}
+                /* Swap pivot memeber array[end-1] with array[i], we left this step at last.  */
+                unihans[end-1]=unihans[i];
+                unihans[i]=pivot; /* Same as array[i]=array[end-1] */
+
+        /* 1.3 Quick sort: recursive call for sorted parts. and leave array[i] as mid of the two parts */
+		UniHan_quickSort_freq(unihans, start, i-1, cutoff);
+		UniHan_quickSort_freq(unihans, i+1, end, cutoff);
+
+        }
+/* 2. Implement insertsort */
+        else
+		UniHan_insertSort_freq( unihans+start, end-start+1);
+
+	return 0;
+}
+
+
+
 /*------------------------------------------------------------------------
 Sort an EGI_UNIHAN array by Insertion_Sort algorithm, to rearrange unihans
 with wcode (as KEY) in ascending order.
@@ -454,7 +599,7 @@ with wcode (as KEY) in ascending order.
 Also ref. to mat_insert_sort() in egi_math.c.
 
 Note:
-1.The caller MUST ensure unihans has at least n memebers!
+1.The caller MUST ensure unihans array has at least n memebers!
 2.Input 'n' should NOT includes empty unihans with wcode==0, OR they will
   be rearranged to the beginning of the array.
 
@@ -487,7 +632,7 @@ void UniHan_insertSort_wcode( EGI_UNIHAN* unihans, int n )
 
 /*--------------------------------------------------------------------
 Sort an EGI_UNIHAN array by Quick_Sort algorithm, to rearrange unihans
-with wcode (as KEY) in dictionary+frequency order.
+with wcode (as KEY) in ascending order.
 
 Refert to mat_quick_sort() in egi_math.h.
 
@@ -513,6 +658,10 @@ int UniHan_quickSort_wcode(EGI_UNIHAN* unihans, unsigned int start, unsigned int
 	EGI_UNIHAN	tmp;
 	EGI_UNIHAN	pivot;
 
+	/* Check input */
+	if( unihans==NULL )
+		return -1;
+
 	/* End sorting */
 	if( start >= end )
 		return 0;
@@ -522,7 +671,7 @@ int UniHan_quickSort_wcode(EGI_UNIHAN* unihans, unsigned int start, unsigned int
                 cutoff=3;
 
 /* 1. Implement quicksort */
-        if( end-start >= cutoff ) //QUICK_SORT_CUTOFF )
+        if( end-start >= cutoff )
         {
         /* 1.1 Select pivot, by sorting array[start], array[mid], array[end] */
                 /* Get mid index */
@@ -618,7 +767,7 @@ Return:
 	0	OK
 	<0	Fails
 --------------------------------------------------------------------*/
-int UniHan_save_uniset(const char *fpath,  const EGI_UNIHAN_SET *set)
+int UniHan_save_uniset(const char *fpath,  const EGI_UNIHAN_SET *uniset)
 {
 	int i;
 	int nwrite;
@@ -629,12 +778,12 @@ int UniHan_save_uniset(const char *fpath,  const EGI_UNIHAN_SET *set)
 	size_t size;		/* Total number of unihans in the uniset */
 	EGI_UNIHAN *unihans;
 
-	if( set==NULL )
+	if( uniset==NULL )
 		return -1;
 
 	/* Get uniset memebers */
-	unihans=set->unihans;
-	size=set->size;
+	unihans=uniset->unihans;
+	size=uniset->size;
 
 	/* Open/create file */
         fil=fopen(fpath, "wb");
@@ -657,6 +806,20 @@ int UniHan_save_uniset(const char *fpath,  const EGI_UNIHAN_SET *set)
 			goto END_FUNC;
 		}
         }
+
+	/* FWrite uniset name */
+	nmemb=sizeof(uniset->name);
+	printf("nmemb=sizeof((uniset->name))=%d\n",nmemb);
+	nwrite=fwrite( uniset->name, 1, nmemb, fil);
+        if(nwrite < nmemb) {
+        	if(ferror(fil))
+                	printf("%s: Fail to write uniset->name '%s'.\n", __func__, uniset->name);
+                else
+                        printf("%s: WARNING! fwrite number of uniset->name %d bytes of total %d bytes.\n", __func__, nwrite, nmemb);
+                ret=-4;
+                goto END_FUNC;
+        }
+
 	/* FWrite all EGI_UNIHANs */
 	nmemb=sizeof(EGI_UNIHAN);
 	for( i=0; i<size; i++) {
@@ -666,7 +829,7 @@ int UniHan_save_uniset(const char *fpath,  const EGI_UNIHAN_SET *set)
         	                printf("%s: Fail to write EGI_UNIHANs to '%s'.\n", __func__, fpath);
                 	else
                         	printf("%s: WARNING! fwrite EGI_UNIHANs  %d bytes of total %d bytes.\n", __func__, nwrite, nmemb);
-                	ret=-4;
+                	ret=-5;
 			goto END_FUNC;
 		}
 	}
@@ -732,14 +895,27 @@ EGI_UNIHAN_SET* UniHan_load_uniset(const char *fpath)
 	printf("%s: Totally %d unihans in file '%s'.\n",__func__, total, fpath);
 
 	/* Create UNISET */
-	uniset=UniHan_create_uniset("chpinyin", total); /* total is capacity, NOT size! */
+	uniset=UniHan_create_uniset(NULL, total); /* total is capacity, NOT size! */
 	if(uniset==NULL) {
 		printf("%s: Fail to create uniset!\n", __func__);
 		goto END_FUNC;
 	}
-
 	/* Assign size */
 	uniset->size=total;
+
+        /* FReadin uniset name */
+        nmemb=sizeof(uniset->name);
+        nread=fread( uniset->name, 1, nmemb, fil);
+        if(nread < nmemb) {
+                if(ferror(fil))
+                        printf("%s: Fail to read uniset name.\n", __func__);
+                else
+                        printf("%s: WARNING! fread uniset->name %d bytes of total %d bytes.\n", __func__, nread, nmemb);
+		UniHan_free_uniset(&uniset);
+                goto END_FUNC;
+        }
+	/* Whatever, set EOF */
+	uniset->name[sizeof(uniset->name)-1]='\0';
 
 	/* FReadin all EGI_UNIHANs */
 	nmemb=sizeof(EGI_UNIHAN);
@@ -751,6 +927,7 @@ EGI_UNIHAN_SET* UniHan_load_uniset(const char *fpath)
                 	else
                         	printf("%s: WARNING! fread %d_th EGI_UNIHAN,  %d bytes of total %d bytes.\n", __func__, i, nread, nmemb);
 
+			//UniHan_free_uniset(&uniset);
 			//Continue anyway .... //goto END_FUNC;
 		}
 
@@ -840,6 +1017,16 @@ int UniHan_poll_freq(EGI_UNIHAN_SET *uniset, const char *fpath)
 					uniset->puh++;
 				}
 			}
+			#if 1 /* TEST ---- */
+			else {
+				char pch[8];
+				if( UNICODE_PRC_START<=wcode && wcode<=UNICODE_PRC_END) {
+					printf("%s: WARNING %s 0x%04x NOT found in uniset!\n", __func__,
+							char_unicode_to_uft8(&wcode, pch)>0 ? pch : " ", wcode );
+				}
+			}
+			#endif
+
 			/* move on... */
                         p+=chsize;
                 }
@@ -892,14 +1079,15 @@ int UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin)
 	int k;   	/* index of pinyin[] */
 	int size;
 	char *p=(char *)reading;
-	char tone='0';
+	char tone='\0';
 
 	k=0;
 	while(*p)
 	{
 		size=char_uft8_to_unicode( (const UFT8_PCHAR)p, &wcode);
 
-		/* 1. ----- A vowel char: Get pronunciation tone ----- */
+#if 0		/* 1. ----- OPTION: A vowel char: Get pronunciation tone ----- */
+		/* NOTE: If option disabled: there will be repeated unihans in the uniset */
 		if(size>1) {
 
 			switch( wcode )
@@ -957,6 +1145,7 @@ int UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin)
 					break;
 			}
 		}
+#endif
 
 		/* 2. -----A vowel char or ASCII char:  Replace vowel with ASCII char ----- */
 		if(size >= 1) {
@@ -1059,6 +1248,19 @@ Each line in the file presents stricly in the same form as:
         U+92E8  kHanyuPinyin    64208.110:tiě,é
         ... ....
 
+			---- WARNING ----
+
+Some UNIHANs are NOT in kHanyuPinyin category:
+Examp: 说这宝贾们见毙...
+
+	Example "毙"
+U+6BD9	kCantonese	bai6
+U+6BD9	kDefinition	kill; die violent death
+U+6BD9	kHanyuPinlu	bì(17)
+U+6BD9	kMandarin	bì
+U+6BD9	kTGHZ2013	019.020:bì
+U+6BD9	kXHC1983	0060.160:bì
+
 Note:
 1. The HanyuPinyin text MUST be extracted from Unihan_Readings.txt,
    The Unihan_Readings.txt is included in Unihan.zip:
@@ -1098,7 +1300,7 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 {
 
 	EGI_UNIHAN_SET	*uniset=NULL;
-	size_t  size;			/* init. size=growsize */
+	size_t  capacity;			/* init. capacity=growsize */
 	size_t  growsize=1024;		/* memgrow size for uniset->unihans[], also inital for size */
 
 	FILE *fil;
@@ -1138,8 +1340,8 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 		printf("%s: Open '%s' to readn and load unihan set...\n", __func__, fpath);
 
 	/* Allocate uniset */
-	size=growsize;
-	uniset=UniHan_create_uniset("PRC_PINYIN", size);
+	capacity=growsize;
+	uniset=UniHan_create_uniset("PRC_PINYIN", capacity);
 	if(uniset==NULL) {
 		printf("%s: Fail to create uniset!\n", __func__);
 		return NULL;
@@ -1206,14 +1408,14 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 			k++;
 
 			/* Check space capacity, and memgrow uniset->unihans[] */
-			if( k==size ) {
-				if( egi_mem_grow( (void **)&uniset->unihans, size*sizeof(EGI_UNIHAN), growsize*sizeof(EGI_UNIHAN)) != 0 ) {
+			if( k==capacity ) {
+				if( egi_mem_grow( (void **)&uniset->unihans, capacity*sizeof(EGI_UNIHAN), growsize*sizeof(EGI_UNIHAN)) != 0 ) {
 					printf("%s: Fail to mem grow uniset->unihans!\n", __func__);
 					UniHan_free_uniset(&uniset);
 					goto END_FUNC;
 				}
-				size += growsize;
-				printf("%s: uniset->unihans mem grow from %d to %d.\n", __func__, size-growsize, size);
+				capacity += growsize;
+				printf("%s: uniset->unihans mem grow from %d to %d.\n", __func__, capacity-growsize, capacity);
 			}
 
 			/* Get next split pointer */
@@ -1225,7 +1427,7 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 
 	/* Finally, assign total size */
 	uniset->size=k;
-	uniset->capacity=size;
+	uniset->capacity=capacity;
 
 END_FUNC:
 	/* close FILE */
@@ -1236,7 +1438,7 @@ END_FUNC:
 }
 
 
-/*------------------------------------------------------------------------
+/*-----------------------------------------------------------------------
 To locate the index of first unihan[] bearing the given wcode, and set
 uniset->puh as the index.
 
@@ -1276,9 +1478,8 @@ int UniHan_locate_wcode(EGI_UNIHAN_SET* uniset, wchar_t wcode)
 		/* check if searched all wcodes */
 		if(start==end)
 			return -2;
-
 		/* !!! If mid+1 == end: then mid=(n+(n+1))/2 = n, and mid will never increase to n+1! */
-		if( mid+1==end ) {
+		else if( start==mid && mid+1==end ) {	/* start != 0 */
 			if( unihans[mid+1].wcode==wcode ) {
 				mid += 1;  /* Let mid be the index of unihans, see following... */
 				break;
@@ -1361,7 +1562,7 @@ int UniHan_locate_typing(EGI_UNIHAN_SET* uniset, const char* typing)
 			return -2;
 
 		/* !!! If mid+1 == end: then mid=(n+(n+1))/2 = n, and mid will never increase to n+1! */
-		if( mid+1==end ) {
+		else if( start==mid && mid+1==end ) {   /* start !=0 */
 			//if( unihans[mid+1].wcode==wcode ) {
 			/* Check if given typing are contained in beginning of unihan[mid-1].typing. */
 			if( strstr(unihans[mid+1].typing, typing) == unihans[mid].typing ) {
@@ -1400,3 +1601,122 @@ int UniHan_locate_typing(EGI_UNIHAN_SET* uniset, const char* typing)
 	return 0;
 }
 
+
+/*-------------------------------------------------------------------------
+Merge(Copy UNIHANs of) uniset1 into uniset2, each UNIHAN will be checked and
+copied to ONLY IF uniset2 does NOT have such an UNIHAN ( with the same wcode
+ AND typing ).
+
+Note:
+1. uniset1 MUST be streamlized and has NO repeated unihans inside.
+   OR they will all be merged into uniset2.
+2. UNIHANs are just added to the end of uniset2->unihans, and will NOT be
+   sorted!
+3. uniset1 will NOT be released/freed after operation!!!
+4. uniset2->unihans will mem_grow if capacity is NOT enough.
+
+@uniset1:	An UNIHAN SET to be emerged.
+@uniset2:	The receiving UNIHAN SET.
+
+Return:
+	0	Ok
+	<0	Fail
+--------------------------------------------------------------------------*/
+int UniHan_merge_uniset(const EGI_UNIHAN_SET* uniset1, EGI_UNIHAN_SET* uniset2)
+{
+	int i;
+	int more=0;	/* more unihans added to uniset2 */
+
+	/* Check input uniset1, check uniset2 in UniHan_quickSort_wcode() */
+	if(uniset1==NULL || uniset1->unihans==NULL)
+		return -1;
+
+	/* quickSort_wcode uniset2, before calling UniHan_locate_wcode(). */
+	if( UniHan_quickSort_wcode(uniset2->unihans, 0, uniset2->size-1, 10) != 0 )
+		return -2;
+
+	/* Copy unihans in uniset1 to uniset2 */
+	for(i=0; i < uniset1->size; i++)
+	{
+		/* If found same wocde in uniset2, uniset2->size NOT changed in all for() loops! */
+		if( UniHan_locate_wcode(uniset2, uniset1->unihans[i].wcode)==0 ) {
+			/* Check if has same typing */
+			while( strncmp( uniset2->unihans[uniset2->puh].typing, uniset1->unihans[i].typing, UNIHAN_TYPING_MAXLEN ) != 0 )
+			{
+				uniset2->puh++;
+				if(uniset2->puh == uniset2->size)
+					break;
+			}
+			/* Found same typing, skip to next. */
+			if( uniset2->puh < uniset2->size ) {
+				printf("wcode %d exists.\n", uniset1->unihans[i].wcode);
+				continue;
+			}
+		}
+
+		/* No same wcode in uniset 2 */
+		more++; /* count new ones */
+
+		/* Grow mem for unihans */
+		if( uniset2->size+more > uniset2->capacity ) {
+			if( egi_mem_grow( (void **)&uniset2->unihans, uniset2->capacity*sizeof(EGI_UNIHAN),
+								       UNIHANS_GROW_SIZE*sizeof(EGI_UNIHAN)) != 0 )
+			{
+                        	printf("%s: Fail to mem grow uniset->unihans!\n", __func__);
+				uniset2->size += (more-1); /* update final size */
+				return -3;
+			}
+			uniset2->capacity += UNIHANS_GROW_SIZE;
+			printf("%s: Mem grow capacity of uniset2->unihans from %d to %d units.\n",
+							__func__, uniset2->capacity-UNIHANS_GROW_SIZE, uniset2->capacity);
+		}
+
+		/* copy unihan[i] to uniset2. BUT DO NOT change uniset2->size, as the total number of sorted original data! */
+		uniset2->unihans[uniset2->size-1+more] = uniset1->unihans[i];
+
+	}
+
+	/* Finally, change size. */
+	uniset2->size += more;
+	printf("%s: Totally %d unihans merged into uniset2!\n",__func__, more);
+
+	return 0;
+}
+
+
+/*-------------------------------
+Check an UNIHAN SET
+--------------------------------*/
+void UniHan_check_uniset(const EGI_UNIHAN_SET* uniset )
+{
+	int i;
+	int k;
+
+	if(uniset==NULL)
+		return;
+
+	/* Print informatin */
+	printf("%s: UNISET '%s' size=%d, capacity=%d.\n", __func__,uniset->name, uniset->size, uniset->capacity);
+
+	/* quickSort wcode */
+	if( UniHan_quickSort_wcode(uniset->unihans, 0, uniset->size-1, 10) != 0 ) {
+		printf("%s: Fai to quickSort wcode!\n", __func__);
+		return;
+	}
+	else
+		printf("%s: Succeed to quickSort by KEY==wcode!\n", __func__);
+
+	/* Check repeated unihans */
+	k=0;
+	for(i=1; i< uniset->size; i++) {
+		if( uniset->unihans[i].wcode == uniset->unihans[i-1].wcode
+		    &&  strncmp( uniset->unihans[i].typing, uniset->unihans[i-1].typing, UNIHAN_TYPING_MAXLEN ) == 0 )
+		{
+			k++;
+			printf("%s: unihans[%d] AND unihans[%d] is repeated: UNICODE 0x%04x  TYPING '%s' \n",
+								__func__, i-1, i, uniset->unihans[i].wcode,uniset->unihans[i].typing );
+		}
+	}
+
+	printf("%s: Totally %d repeated unihans found!\n", __func__, k);
+}
