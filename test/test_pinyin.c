@@ -50,11 +50,15 @@ int main(void)
 {
 	EGI_UNIHAN_SET	*uniset=NULL;
 	EGI_UNIHAN_SET  *uniset3500=NULL;
+	EGI_UNIHAN_SET  *unisetMandarin=NULL;
 	EGI_UNIHAN_SET  *tmpset=NULL;
 	char pch[4];
 	int i,k;
 	struct timeval	tm_start,tm_end;
 	wchar_t  	swcode;
+        char pinyin[UNIHAN_TYPING_MAXLEN];
+        char strinput[UNIHAN_TYPING_MAXLEN];
+
 
 	/* Load sysfont */
         printf("FTsymbol_load_sysfonts()...\n");
@@ -89,6 +93,34 @@ int main(void)
 	exit(1);
 #endif
 
+#if 1 /*----------- Load uniset and test pinyin ---------- */
+	uniset=UniHan_load_uniset(UNIHANS_DATA_PATH);
+	if( uniset==NULL )
+		exit(1);
+        printf("Uniset total size=%d:\n", uniset->size);
+
+  while(1) {
+        /* Input pinyin */
+        printf("Input pinyin:"); fflush(stdout);
+        fgets(strinput, UNIHAN_TYPING_MAXLEN, stdin);
+        if( strlen(strinput)>0 )
+                strinput[strlen(strinput)-1]='\0';
+        else
+                continue;
+
+        /* Locate typing */
+        UniHan_locate_typing(uniset, strinput);
+	i=0; k=uniset->puh;
+	while( strncmp( uniset->unihans[k].typing, strinput, UNIHAN_TYPING_MAXLEN ) == 0 ) {
+		i++;
+                bzero(pch,sizeof(pch));
+                printf("%d.%s(%d) ", i, char_unicode_to_uft8(&(uniset->unihans[k].wcode), pch)>0 ? pch : " ", uniset->unihans[k].freq);
+		k++;
+        }
+        printf("\n");
+  }
+
+#endif
 
 
 
@@ -129,7 +161,7 @@ int main(void)
         printf("OK. \n");
 
 	/* Display some sorted unihans */
-	#if 1
+	#if 0
 	printf("============ tmpset ===============\n");
 	for( i=12000; i<12100; i++ ) {
 			bzero(pch,sizeof(pch));
@@ -145,8 +177,10 @@ int main(void)
 
 
 
-#if 1 /*-------------- 2. test QUICK_SORT uniset ------------------*/
-	/* Read kHanyuPinyin txt into uniset */
+#if 1 /*-------------- 2. test MERGE, PURIFY, QUICK_SORT，LOAD, SAVE uniset ------------------*/
+
+
+#if 0	/* Read kHanyuPinyin txt into uniset */
 	uniset=UniHan_load_HanyuPinyinTxt(HANYUPINYIN_TXT_PATH);
 	if( uniset==NULL )
 		exit(1);
@@ -155,7 +189,7 @@ int main(void)
 
 	/* Load saved uniset3500 */
         uniset3500=UniHan_load_uniset(PINYIN3500_DATA_PATH);
-        if(uniset==NULL)
+        if(uniset3500==NULL)
                 exit(2);
         else
                 printf("Load %s to uniset, name='%s', size=%d\n",PINYIN3500_DATA_PATH, uniset->name, uniset->size);
@@ -164,15 +198,41 @@ int main(void)
 	UniHan_merge_uniset(uniset3500, uniset);
 	getchar();
 
-	/* check merged uniset */
-	UniHan_check_uniset(uniset);
+#else   /* Load saved uniset3500 to uniset */
+        uniset=UniHan_load_uniset(PINYIN3500_DATA_PATH);
+        if(uniset==NULL)
+                exit(2);
+        else
+                printf("Load %s to uniset, name='%s', size=%d\n",PINYIN3500_DATA_PATH, uniset->name, uniset->size);
+
+	getchar();
+#endif
+
+	/* Read kMandarin txt into uniset */
+	unisetMandarin=UniHan_load_MandarinTxt(MANDARIN_TXT_PATH);
+	if( unisetMandarin==NULL )
+		exit(1);
+        printf("Load kMandarin txt to unisetMandarin, total size=%d:\n", unisetMandarin->size);
+	UniHan_print_wcode(unisetMandarin, 0x9E23);
+	getchar();
+
+	/* merge unisetMandarin into uniset */
+	UniHan_merge_uniset(unisetMandarin, uniset);
+        /* quickSort_wcode uniset2, before calling UniHan_locate_wcode(). */
+        UniHan_quickSort_wcode(uniset->unihans, 0, uniset->capacity-1, 10); /* Capacity NOT size */
+	UniHan_print_wcode(uniset, 0x9E23);
+	getchar();
+
+	/* purify merged uniset, clear redundant unihans */
+	UniHan_purify_uniset(uniset);
+	UniHan_print_wcode(uniset, 0x9E23);
 	getchar();
 
 	/* TEST: Locate a wcode */
-	#if 0
-	swcode=0x4E00; //0x9FA4;
+	#if 1
+	swcode=0x9E23; //0x4E00; //0x9FA4;
 	if( UniHan_locate_wcode(uniset,swcode) !=0 ) //9FA5); //x54B9);
-		printf("swcode NOT found!\n");
+		printf("wcode U+%04x NOT found!\n", swcode);
 	while( uniset->unihans[uniset->puh].wcode==swcode ) {
 		bzero(pch,sizeof(pch));
         	printf("[%s:%d]%s\n",char_unicode_to_uft8(&(uniset->unihans[uniset->puh].wcode), pch)>0?pch:" ",
@@ -180,7 +240,7 @@ int main(void)
 
 		uniset->puh++;
 	}
-	exit(1);
+	getchar();
 	#endif
 
         /*  Quick_Sort with KEY==wcode before poll freq  */
@@ -191,11 +251,15 @@ int main(void)
         /* Poll frequence by text, BEFORE quickSort_typing() */
         UniHan_reset_freq( uniset);
 
-	#if 0
+	#if 1
         printf("开始统计<红楼梦>字符频率 ..."); fflush(stdout);
         UniHan_poll_freq(uniset, "/mmc/hlm_all.txt");
+	#endif
+	#if 1
         printf("开始统计<西游记>字符频率 ..."); fflush(stdout);
         UniHan_poll_freq(uniset, "/mmc/xyj_all.txt");
+	#endif
+	#if 1
         printf("开始统计<三国演义>字符频率 ..."); fflush(stdout);
         UniHan_poll_freq(uniset, "/mmc/sgyy_all.txt");
 	#endif
@@ -222,6 +286,7 @@ int main(void)
 	getchar();
 	#endif
 
+
         /* Print 20 most frequently used UNIHANs in the text */
         i=0; k=0;
         while( k<30 )
@@ -239,35 +304,16 @@ int main(void)
         }
         getchar();
 
-	#if 1
-	swcode=9712;
-	for(i=0; i<uniset->size-1; i++) {
-		if( swcode==uniset->unihans[i].wcode ) {
-		                bzero(pch,sizeof(pch));
-	                printf("[%s:%d(%d)]%s\n",char_unicode_to_uft8(&(uniset->unihans[i].wcode), pch)>0?pch:" ",
-                                                                uniset->unihans[i].wcode, uniset->unihans[i].freq, uniset->unihans[i].typing);
-		}
-	}
-
-        UniHan_quickSort_wcode( uniset->unihans, 0, uniset->size-1, 10);
-	if( UniHan_locate_wcode(uniset,swcode) !=0 )
-		printf("swcode NOT found!\n");
-	while( uniset->unihans[uniset->puh].wcode==swcode ) {
-		bzero(pch,sizeof(pch));
-        	printf("[%s:%d]%s\n",char_unicode_to_uft8(&(uniset->unihans[uniset->puh].wcode), pch)>0?pch:" ",
-								uniset->unihans[uniset->puh].wcode, uniset->unihans[uniset->puh].typing);
-
-		uniset->puh++;
-	}
-	exit(1);
-	#endif
-
-
+	/* Print out a wcode */
+        UniHan_quickSort_wcode( uniset->unihans, 0, uniset->capacity-1, 10);
+	UniHan_print_wcode(uniset, 0x5BB6);
+	UniHan_print_wcode(uniset, 0x96BE);
+	getchar();
 
 	/* Quick sort uniset with KEY=typing */
 	printf("Start quickSort() UNISET typings..."); fflush(stdout);
 	gettimeofday(&tm_start,NULL);
-	UniHan_quickSort_typing(uniset->unihans, 0, uniset->size-1, 10);
+	UniHan_quickSort_typing(uniset->unihans, 0, uniset->capacity-1, 10);
 	gettimeofday(&tm_end,NULL);
         printf("OK! Finish quick_sorting, total size=%d, cost time=%ldms.\n", uniset->size, tm_diffus(tm_start, tm_end)/1000);
 
@@ -284,6 +330,51 @@ int main(void)
 
 	}
         printf("\nOK. \n");
+	getchar();
+
+	/* Save KEY=typing sorted uniset */
+	if( UniHan_save_uniset(UNIHANS_DATA_PATH, uniset) == 0 )
+		printf("Uniset is saved to '%s'.\n",UNIHANS_DATA_PATH);
+	getchar();
+
+        /* Print all unihans, grouped by PINYIN */
+        bzero(pinyin,sizeof(pinyin));
+        for( i=0; i< uniset->size; i++) {
+                if( strcmp(pinyin, uniset->unihans[i].typing) !=0 )
+                {
+                        strncpy(pinyin, uniset->unihans[i].typing, sizeof(pinyin)-1);
+                        printf("\n[%s]: ",pinyin);
+                }
+                bzero(pch,sizeof(pch));
+                printf("%s(%d)",char_unicode_to_uft8(&(uniset->unihans[i].wcode), pch)>0 ? pch : " ", uniset->unihans[i].freq );
+        }
+        printf("\n\n\n");
+
+
+#if 1  /* ---- TEST: pinyin Input.  To locate a typing, the uniset must alread have been sorted by typing. */
+  while(1) {
+        /* Input pinyin */
+        printf("Input pinyin:"); fflush(stdout);
+        fgets(strinput, UNIHAN_TYPING_MAXLEN, stdin);
+        if( strlen(strinput)>0 )
+                strinput[strlen(strinput)-1]='\0';
+        else
+                continue;
+
+        /* Locate typing */
+        UniHan_locate_typing(uniset, strinput);
+	i=0; k=uniset->puh;
+	while( strncmp( uniset->unihans[k].typing, strinput, UNIHAN_TYPING_MAXLEN ) == 0 ) {
+		i++;
+                bzero(pch,sizeof(pch));
+                printf("%d.%s(%d) ", i, char_unicode_to_uft8(&(uniset->unihans[k].wcode), pch)>0 ? pch : " ", uniset->unihans[k].freq);
+		k++;
+        }
+        printf("\n");
+  }
+#endif
+
+
 
 	/* Display some sorted unihans */
 	#if 0

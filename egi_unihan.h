@@ -17,6 +17,7 @@ typedef unsigned char * UFT8_PCHAR;
 #define UNICODE_PRC_START     0x4E00
 #define UNICODE_PRC_END       0x9FA5
 
+#define MANDARIN_TXT_PATH    	"/mmc/kMandarin.txt"		/* kMandarin.txt from Unihan_Readings.txt, see UniHan_load_MandarinTxt() */
 #define HANYUPINYIN_TXT_PATH    "/mmc/kHanyuPinyin.txt"		/* kHanyuPinyin.txt from Unihan_Readings.txt, see UniHan_load_HanyuPinyinTxt() */
 #define UNIHANS_DATA_PATH       "/tmp/unihans_pinyin.dat"	/* Saved UNIHAN SET containing above unihans */
 
@@ -110,17 +111,20 @@ void 		UniHan_reset_freq( EGI_UNIHAN_SET *uniset );
 int 		UniHan_save_uniset(const char *fpath,  const EGI_UNIHAN_SET *set);
 EGI_UNIHAN_SET* UniHan_load_uniset(const char *fpath);
 
-EGI_UNIHAN_SET* UniHan_load_HanyuPinyinTxt(const char *fpath);
-
 int 		UniHan_locate_wcode(EGI_UNIHAN_SET* uniset, wchar_t wcode);
 int 		UniHan_locate_typing(EGI_UNIHAN_SET* uniset, const char* typing);
 int 		UniHan_poll_freq(EGI_UNIHAN_SET *uniset, const char *fpath);
-int 		UniHan_merge_uniset(const EGI_UNIHAN_SET* uniset1, EGI_UNIHAN_SET* uniset2);
 
-void 		UniHan_check_uniset(const EGI_UNIHAN_SET* uniset );
+int 		UniHan_merge_uniset(const EGI_UNIHAN_SET* uniset1, EGI_UNIHAN_SET* uniset2);
+int 		UniHan_purify_uniset(EGI_UNIHAN_SET* uniset );
+
+/* Read uniha txt into uniset */
+EGI_UNIHAN_SET* UniHan_load_HanyuPinyinTxt(const char *fpath);
+EGI_UNIHAN_SET *UniHan_load_MandarinTxt(const char *fpath);
 
 /* Convert reading to pinyin */
 int 		UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin);
 
+void 		UniHan_print_wcode(EGI_UNIHAN_SET *uniset, wchar_t wcode);
 
 #endif

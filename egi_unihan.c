@@ -1,4 +1,4 @@
-/*------------------------------------------------------------------
+/*---------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
@@ -17,16 +17,22 @@ Note:
   2.3 http://www.unicode.org/Public/UCD/latest/ucd/Unihan.zip (Unihan_Readings.txt)
   2.3 http://www.unicode.org/reports/tr38
 
+3. After purification, the uniset usually contain some empty unihans(wcode==0)
+   and those unihans are distributed randomly. However the total size of the uniset does
+   NOT include those empty unihans, so if you sort swcode in such case, you MUST take
+   uniset->capacity (NOT uniset->size!!!) as total sorting itmes.
+   UniHan_quickSort_typing() will rearrange all empty unihans to the end.
 
 Midas Zhou
 midaszhou@yahoo.com
-------------------------------------------------------------------*/
+-----------------------------------------------------------------------*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <ctype.h>
 #include <errno.h>
 #include "egi_debug.h"
 #include "egi_unihan.h"
@@ -219,7 +225,8 @@ decide the order.
 4. If uhan1->freq is GREATER than uhan2->freq, it returns -1(IS_AHEAD);
    else if uhan1->freq is LESS than uhan2->freq, then return 1(IS_AFTER);
    if EQUAL, it returns 0(IS_SAME).
-5. A NULL is always 'AFTER' an EGI_UNIHAN pointer.
+5. An empty UNIHAN is always 'AFTER' a nonempty UNIHAN.
+6. A NULL is always 'AFTER' a non_NULL UNIHAN pointer.
 
 Return:
 	Relative Priority Sequence position:
@@ -605,7 +612,7 @@ Note:
 
 
 @unihans:       An array of EGI_UNIHANs.
-@n:             size of the array. ( NOT capacity )
+@n:             size/capacity of the array. (use capacity if empty unihans eixst)
 -----------------------------------------------------------------------*/
 void UniHan_insertSort_wcode( EGI_UNIHAN* unihans, int n )
 {
@@ -809,7 +816,7 @@ int UniHan_save_uniset(const char *fpath,  const EGI_UNIHAN_SET *uniset)
 
 	/* FWrite uniset name */
 	nmemb=sizeof(uniset->name);
-	printf("nmemb=sizeof((uniset->name))=%d\n",nmemb);
+	//printf("nmemb=sizeof((uniset->name))=%d\n",nmemb);
 	nwrite=fwrite( uniset->name, 1, nmemb, fil);
         if(nwrite < nmemb) {
         	if(ferror(fil))
@@ -932,7 +939,7 @@ EGI_UNIHAN_SET* UniHan_load_uniset(const char *fpath)
 		}
 
 		/* TEST: --- */
-		printf("[%d]: wcode:%d, typing:%s, reading:%s \n",
+		printf("Load [%d]: wcode:%d, typing:%s, reading:%s \n",
 					i, uniset->unihans[i].wcode, uniset->unihans[i].typing, uniset->unihans[i].reading);
 	}
 
@@ -946,23 +953,31 @@ END_FUNC:
 }
 
 
-/*--------------------------------------------------------------
-Extract each UNIHAN/char in the input text and try to update
-uniset->unihans[].freq accordingly. ONLY unihans available in
-the uniset will be updated.
+/*-----------------------------------------------------------------
+Examine each UNIHAN in the input text and try to update/poll the
+corresponding uniset->unihans[].freq accordingly. Each appearance
+of the UNIHAN in the text will add 1 more value to its frequency
+weigh. ONLY UNIHANs available in the uniset will be conidered.
 
 Note:
 1. The uniset MUST be prearranged in ascending order of wcodes.
+2. All ployphonic UNIHANs bearing the same wcode(UNICODE) will be
+   updated respectively.
+			   Example:
+Uniset->unihans[7387]:家, wcode:U+5BB6	reading:gū	typing:gu      freq:3934
+Uniset->unihans[7388]:家, wcode:U+5BB6	reading:jia	typing:jia     freq:3934
+Uniset->unihans[7389]:家, wcode:U+5BB6	reading:jià	typing:jia     freq:3934
+Uniset->unihans[7390]:家, wcode:U+5BB6	reading:jie	typing:jie     freq:3934
 
 @uniset:	A pointer to an EGI_UNIHAN_SET, with unihans in
 		ascending order of wcodes.
-
 @fpath:		Full path of a text file.
 		The text MUST be UFT-8 encoding.
+
 Return:
 	0	OK
 	<0	Fails
----------------------------------------------------------------*/
+-----------------------------------------------------------------*/
 int UniHan_poll_freq(EGI_UNIHAN_SET *uniset, const char *fpath)
 {
 	int		ret;
@@ -1010,8 +1025,9 @@ int UniHan_poll_freq(EGI_UNIHAN_SET *uniset, const char *fpath)
                 chsize=char_uft8_to_unicode((const UFT8_PCHAR)p, &wcode);
 
                 if(chsize>0) {
-			/* Increase freq of unihans in the uniset */
+			/* Increase frequency weigh of the UNIHAN */
 			if( UniHan_locate_wcode(uniset, wcode)==0 ) {
+				/* All ployphonic UNIHANs bearing the same wcode will be updated */
 				while( uniset->unihans[uniset->puh].wcode == wcode ) {
 					uniset->unihans[uniset->puh].freq +=1;
 					uniset->puh++;
@@ -1020,8 +1036,9 @@ int UniHan_poll_freq(EGI_UNIHAN_SET *uniset, const char *fpath)
 			#if 1 /* TEST ---- */
 			else {
 				char pch[8];
+				bzero(pch, sizeof(pch));
 				if( UNICODE_PRC_START<=wcode && wcode<=UNICODE_PRC_END) {
-					printf("%s: WARNING %s 0x%04x NOT found in uniset!\n", __func__,
+					printf("%s: WARNING %s U+%04x NOT found in uniset!\n", __func__,
 							char_unicode_to_uft8(&wcode, pch)>0 ? pch : " ", wcode );
 				}
 			}
@@ -1079,16 +1096,20 @@ int UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin)
 	int k;   	/* index of pinyin[] */
 	int size;
 	char *p=(char *)reading;
-	char tone='\0';
+	char tone='\0';	/* Default is NO tone number in unihan.reading, as for SOFT TONE */
 
 	k=0;
 	while(*p)
 	{
+		/* Clear the byte */
+		pinyin[k]='\0';
+
+
 		size=char_uft8_to_unicode( (const UFT8_PCHAR)p, &wcode);
 
 #if 0		/* 1. ----- OPTION: A vowel char: Get pronunciation tone ----- */
 		/* NOTE: If option disabled: there will be repeated unihans in the uniset */
-		if(size>1) {
+		if( size>1 && tone != '\0' ) {   /*  Check tone, to avoid Combining (Diacritical) Marks  */
 
 			switch( wcode )
 			{
@@ -1133,6 +1154,7 @@ int UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin)
 				case 0x00F9:	/* ù */
 				case 0x01DC:	/* ǜ */
 				case 0x01F9:	/* ǹ */
+				case 0x006D:	/* m̀ [0x6d  0x300] */
 					tone='4';
 					break;
 
@@ -1141,13 +1163,14 @@ int UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin)
 					break;
 
 				default:
-					tone='0';
+					tone='\0';	/* as EOF */
 					break;
 			}
 		}
 #endif
 
 		/* 2. -----A vowel char or ASCII char:  Replace vowel with ASCII char ----- */
+		/* NOTE: If NO tone number, then it's   */
 		if(size >= 1) {
 
 			switch( wcode )
@@ -1171,10 +1194,10 @@ int UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin)
 				case 0x011B:  	/* ě */
 				case 0x00E8:  	/* è */
 				case 0x00EA:  	/* ê */
-						/* ê̄  */  /* pick out */
-						/* ế */
-						/* ê̌ */
-						/* ề */
+						/* ê̄ [0xEA  0x304] */
+				case 0x1EBF:	/* ế [0x1ebf] */
+						/* ê̌ [0xEA  0x30c] */
+				case 0x1EC1:	/* ề [0x1ec1] */
 					pinyin[k]='e';
 					break;
 
@@ -1206,15 +1229,18 @@ int UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin)
 					pinyin[k]='n';
 					break;
 
-				case 0x1E3F:	/* ḿ  */
-				 		/* m̀ */	 /* Pick out */
+				case 0x1E3F:	/* ḿ  [0x1e3f  0x20] */
+				case 0x006D:	/* m̀ [0x6d  0x300] */
 					pinyin[k]='m';
 					break;
 
-				/* Default: An ASCII char */
+				/* Default: An ASCII char OR ingore */
 				default:
-					//printf("wcode=%d\n", wcode);
-					pinyin[k]=wcode;
+					if( size==1 && isalpha(wcode) ) {
+						//printf("wcode=%d\n", wcode);
+						pinyin[k]=wcode;
+					}
+					/* Else: Ignore some Combining Diacritical Marks */
 					break;
 			}
 		}
@@ -1230,7 +1256,8 @@ int UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin)
 		p+=size;
 
 		/* 5. Increase k as index for next pinyin[] */
-		k++;
+		if( pinyin[k] != '\0' ) /* Only if NOT empty */
+			k++;
 	}
 
 	/* Put tone at the end */
@@ -1289,7 +1316,7 @@ Note:
 	... ...
 	many ... ...
 
-4. The return EGI_UNIHAN_SET usually contains empty unihans, as
+4. The return EGI_UNIHAN_SET usually contains some empty unihans, as
    left unused after malloc.
 
 Return:
@@ -1305,8 +1332,8 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 
 	FILE *fil;
 	char linebuff[1024];			/* Readin line buffer */
-	#define  WORD_MAX_LEN 		256	/* Max. length of column words in each line of kHanyuPinyin.txt,  including '\0'. */
-	#define  MAX_SPLIT_WORDS 	4  	/* Max number of words in linebuff[] as splitted by delimters */
+	unsigned int  Word_Max_Len=256;		/* Max. length of column words in each line of kHanyuPinyin.txt,  including '\0'. */
+	unsigned int  Max_Split_Words=4;  	/* Max number of words in linebuff[] as splitted by delimters */
 	/*----------------------------------------------------------------------------------
 	   To store words in linebuff[] as splitted by delimter.
 	   Example:      linefbuff:  "U+92FA	kHanyuPinyin	64225.040:yuǎn,yuān,wǎn,wān"
@@ -1322,7 +1349,7 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 		U+9848  kHanyuPinyin    53449.060:xuǎn,jiōng 74379.120:jiǒng,xiàn,xuǎn,jiōng
 					"74379.120:jiǒng,xiàn,xuǎn,jiōng" will be discarded.
 	------------------------------------------------------------------------------------*/
-	char str_words[MAX_SPLIT_WORDS][WORD_MAX_LEN]; /* See above */
+	char str_words[Max_Split_Words][Word_Max_Len]; /* See above */
 	char *delim="	 :\n"; 		/* delimiters: TAB,SPACE,':','\n'.  for splitting linebuff[] into 4 words. see above. */
 	int  m;
 	char *pt=NULL;
@@ -1341,7 +1368,7 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 
 	/* Allocate uniset */
 	capacity=growsize;
-	uniset=UniHan_create_uniset("PRC_PINYIN", capacity);
+	uniset=UniHan_create_uniset("kHanyuPinyin", capacity);
 	if(uniset==NULL) {
 		printf("%s: Fail to create uniset!\n", __func__);
 		return NULL;
@@ -1357,12 +1384,12 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 		 * Note: content in linebuff[] is modified after parsing!
 		 */
 		pt=strtok(linebuff, delim);
-		for(m=0; pt!=NULL && m<MAX_SPLIT_WORDS; m++) {  /* Separate linebuff into 4 words */
+		for(m=0; pt!=NULL && m<Max_Split_Words; m++) {  /* Separate linebuff into 4 words */
 			bzero(str_words[m], sizeof(str_words[0]));
-			snprintf( str_words[m], WORD_MAX_LEN-1, "%s", pt);
+			snprintf( str_words[m], Word_Max_Len-1, "%s", pt);
 			pt=strtok(NULL, delim);
 		}
-		if(m<2) {
+		if(m<3) {
 			printf("Not a complete line!\n");
 			continue;
 		}
@@ -1399,7 +1426,7 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 		#if 0
 		 if( wcode==0x54B9 ) {
 			bzero(pch,sizeof(pch));
-			EGI_PDEBUG(DBG_UNIHAN,"unihans[%d]:%s, wcode:%d, reading:%s, pinying:%s\n",
+			EGI_PDEBUG(DBG_UNIHAN,"unihans[%d]:%s, wcode:U+%04x, reading:%s, pinying:%s\n",
 						k, char_unicode_to_uft8(&wcode, pch)>0?pch:" ",
 						uniset->unihans[k].wcode, uniset->unihans[k].reading, uniset->unihans[k].typing );
 		 }
@@ -1421,7 +1448,7 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 			/* Get next split pointer */
 			pt=strtok(NULL, ",");
 
-		}  /* End while(pare line) */
+		}  /* End while(pasre line) */
 
 	} /* End while(Read in lines) */
 
@@ -1432,10 +1459,182 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 END_FUNC:
 	/* close FILE */
 	if(fclose(fil)!=0)
-		printf("Fail to close han_mandrian txt.\n");
+		printf("%s: Fail to close '%s'.\n",__func__, fpath);
 
 	return uniset;
 }
+
+
+/*----------------------------------------------------------------------
+Read a kMandarin text file, and load data to an EGI_UNIHAN_SET.
+Each line in the file presents stricly in the same form as:
+        ... ...
+	U+3416	kMandarin	xié
+	U+343C	kMandarin	chèng
+        ... ....
+
+Note:
+1. The Mandarin text MUST be extracted from Unihan_Readings.txt,
+   The Unihan_Readings.txt is included in Unihan.zip:
+   http://www.unicode.org/Public/UCD/latest/ucd/Unihan.zip
+
+2. The text file can be generated by follow shell command:
+   cat Unihan_Readings.txt | grep kMandarin > Mandarin.txt
+
+3. To pick out some unicodes with strange written reading.
+   Some readings are with Combining Diacritical Marks:
+	ḿ =[0x1e3f  0x20]  m̀=[0x6d  0x300]
+
+   Pick out ḿ
+	U+5463	kMandarin	ḿ
+
+4. The return EGI_UNIHAN_SET usually contains some empty unihans, as left
+   unused after malloc.
+
+
+Return:
+	A pointer to EGI_UNIHAN_SET	Ok
+	NULL				Fail
+----------------------------------------------------------------------*/
+EGI_UNIHAN_SET *UniHan_load_MandarinTxt(const char *fpath)
+{
+
+	EGI_UNIHAN_SET	*uniset=NULL;
+	size_t  capacity;			/* init. capacity=growsize */
+	size_t  growsize=1024;		/* memgrow size for uniset->unihans[], also inital for size */
+
+	FILE *fil;
+	char linebuff[256];			/* Readin line buffer */
+	unsigned int  Word_Max_Len=64;		/* Max. length of column words in each line of kMardrin.txt,  including '\0'. */
+	unsigned int  Max_Split_Words=3;  	/* Max number of words in linebuff[] as splitted by delimters */
+	/*---------------------------------------------------------------
+	   To store words in linebuff[] as splitted by delimter.
+	   Example:      linefbuff:  "U+342E  kMandarin       xiāng"
+			str_words[0]:	U+342E
+			str_words[1]:	kMandarin
+			str_words[2]:	xiāng
+	----------------------------------------------------------------*/
+	char str_words[Max_Split_Words][Word_Max_Len]; /* See above */
+	char *delim="	 \n"; 		/* delimiters: TAB,SPACE,'\n'.  for splitting linebuff[] into 3 words. see above. */
+	int  m;
+	char *pt=NULL;
+	int  k;
+	wchar_t wcode;
+	char pch[4];
+
+	/* Open kHanyuPinyin file */
+	fil=fopen(fpath,"r");
+	if(fil==NULL) {
+		printf("%s: Fail to open '%s', ERR:%s.\n",__func__, fpath,  strerror(errno));
+		return NULL;
+	}
+	else
+		printf("%s: Open '%s' to readn and load unihan set...\n", __func__, fpath);
+
+	/* Allocate uniset */
+	capacity=growsize;
+	uniset=UniHan_create_uniset("kMandarin", capacity);
+	if(uniset==NULL) {
+		printf("%s: Fail to create uniset!\n", __func__);
+		return NULL;
+	}
+
+	/* Loop read in and parse to store to EGI_UNIHAN_SET */
+	k=0;
+	while ( fgets(linebuff, sizeof(linebuff), fil) != NULL )
+	{
+		//printf("%s: fgets line '%s'\n", __func__, linebuff);
+		/* Separate linebuff[] as per given delimiter
+		 * linefbuff:  "U+342E  kMandarin       xiāng"
+		 * Note: content in linebuff[] is modified after parsing!
+		 */
+		pt=strtok(linebuff, delim);
+		for(m=0; pt!=NULL && m<Max_Split_Words; m++) {  /* Separate linebuff into 4 words */
+			bzero(str_words[m], sizeof(str_words[0]));
+			snprintf( str_words[m], Word_Max_Len-1, "%s", pt);
+			pt=strtok(NULL, delim);
+		}
+		if(m<2) {
+			printf("Not a complete line!\n");
+			continue;
+		}
+		//printf(" str_words[0]: %s, [1]:%s, [2]:%s \n",str_words[0], str_words[1], str_words[2]);
+
+		/* --- 1. Parse wcode --- */
+		/* Convert str_wcode to wcode */
+		sscanf(str_words[0]+2, "%x", &wcode); /* +2 bytes to escape 'U+' in "U+3404" */
+		/* Assign unihans[k].wcode */
+		if( wcode < UNICODE_PRC_START || wcode > UNICODE_PRC_END )
+			continue;
+
+		/* --- 2. Parse reading and convert to pinyin --- */
+		/* NOTE:
+		 * 1.Split str_words[2] into several PINYINs,and store them in separated uniset->unihans
+		 *   and store them in separated uniset->unihans
+		 * 2.Currently, Each row in kMandarin has ONLY one typing, so delimiter "," does NOT exist at all!
+		 */
+		//printf("str_words[2]: %s\n",str_words[2]);
+		pt=strtok(str_words[2], ",");
+
+		/* NOW ONLY one typing: "U+8FE2	kMandarin	tiáo"  */
+		if(pt==NULL)
+			pt=str_words[2];
+
+		/* If more than one PINYIN, store them in separated uniset->unihans with same wcode */
+		while( pt != NULL ) {
+		/* ---- 3. Save unihans[] memebers ---- */
+
+			/* 1. Assign wcode */
+			uniset->unihans[k].wcode=wcode;
+			/* 2. Assign reading */
+			strncpy(uniset->unihans[k].reading, pt, UNIHAN_READING_MAXLEN-1);
+			/* 3. Convert reading to PINYIN typing and assign */
+			UniHan_reading_to_pinyin( (UFT8_PCHAR)uniset->unihans[k].reading, uniset->unihans[k].typing);
+
+		/* --- DEBUG --- */
+		#if 0
+		 if( wcode==0x9E23 ) {
+			bzero(pch,sizeof(pch));
+			EGI_PDEBUG(DBG_UNIHAN,"unihans[%d]:%s, wcode:U+%04x, reading:%s, pinying:%s\n",
+						k, char_unicode_to_uft8(&wcode, pch)>0?pch:" ",
+						uniset->unihans[k].wcode, uniset->unihans[k].reading, uniset->unihans[k].typing );
+			exit(1);
+		 }
+		#endif
+
+			/* 4. Count k as total number of unihans loaded to uniset. */
+			k++;
+
+			/* Check space capacity, and memgrow uniset->unihans[] */
+			if( k==capacity ) {
+				if( egi_mem_grow( (void **)&uniset->unihans, capacity*sizeof(EGI_UNIHAN), growsize*sizeof(EGI_UNIHAN)) != 0 ) {
+					printf("%s: Fail to mem grow uniset->unihans!\n", __func__);
+					UniHan_free_uniset(&uniset);
+					goto END_FUNC;
+				}
+				capacity += growsize;
+				printf("%s: uniset->unihans mem grow from %d to %d.\n", __func__, capacity-growsize, capacity);
+			}
+
+			/* Get next split pointer */
+			pt=strtok(NULL, ",");
+
+		}  /* End while(parse line) */
+
+	} /* End while(Read in lines) */
+
+	/* Finally, assign total size */
+	uniset->size=k;
+	uniset->capacity=capacity;
+
+END_FUNC:
+	/* close FILE */
+	if(fclose(fil)!=0)
+		printf("%s: Fail to close '%s'.\n",__func__, fpath);
+
+	return uniset;
+}
+
 
 
 /*-----------------------------------------------------------------------
@@ -1469,7 +1668,7 @@ int UniHan_locate_wcode(EGI_UNIHAN_SET* uniset, wchar_t wcode)
 
 	/* Mark start/end/mid of unihans index */
 	start=0;
-	end=uniset->size-1;
+	end=uniset->capacity-1;  /* NOT uniset->size!! Consider there may be some empty unihans at beginning!  */
 	mid=(start+end)/2;
 
 	/* binary search for the wcode  */
@@ -1632,8 +1831,10 @@ int UniHan_merge_uniset(const EGI_UNIHAN_SET* uniset1, EGI_UNIHAN_SET* uniset2)
 		return -1;
 
 	/* quickSort_wcode uniset2, before calling UniHan_locate_wcode(). */
-	if( UniHan_quickSort_wcode(uniset2->unihans, 0, uniset2->size-1, 10) != 0 )
+	if( UniHan_quickSort_wcode(uniset2->unihans, 0, uniset2->size-1, 10) != 0 ) {
+		printf("%s: Fail to quickSort_wcode!\n",__func__);
 		return -2;
+	}
 
 	/* Copy unihans in uniset1 to uniset2 */
 	for(i=0; i < uniset1->size; i++)
@@ -1673,27 +1874,42 @@ int UniHan_merge_uniset(const EGI_UNIHAN_SET* uniset1, EGI_UNIHAN_SET* uniset2)
 
 		/* copy unihan[i] to uniset2. BUT DO NOT change uniset2->size, as the total number of sorted original data! */
 		uniset2->unihans[uniset2->size-1+more] = uniset1->unihans[i];
-
 	}
 
 	/* Finally, change size. */
 	uniset2->size += more;
-	printf("%s: Totally %d unihans merged into uniset2!\n",__func__, more);
+	printf("%s: Totally %d unihans merged.\n",__func__, more);
 
 	return 0;
 }
 
 
-/*-------------------------------
-Check an UNIHAN SET
---------------------------------*/
-void UniHan_check_uniset(const EGI_UNIHAN_SET* uniset )
+/*----------------------------------------------------------
+Check an UNIHAN SET, if unihans found with same wcode
+and typing value, then keep only one of them and clear
+others.
+
+		!!! --- WARNING --- !!!
+
+1. Reading values are NOT checked here.
+2. After purification, the uniset usually contain some empty unihans(wcode==0)
+   and those unihans are distributed randomly. However the total size of the uniset does
+   NOT include those empty unihans, so if you sort swcode in such case, you MUST take
+   uniset->capacity (NOT uniset->size!!!) as total number of sorting itmes.
+
+Return:
+	>=0	Ok, total number of repeated unihans removed.
+	<0	Fails
+-----------------------------------------------------------*/
+int UniHan_purify_uniset(EGI_UNIHAN_SET* uniset )
 {
 	int i;
 	int k;
+	char pch[4];
+	wchar_t wcode;
 
 	if(uniset==NULL)
-		return;
+		return -1;
 
 	/* Print informatin */
 	printf("%s: UNISET '%s' size=%d, capacity=%d.\n", __func__,uniset->name, uniset->size, uniset->capacity);
@@ -1701,22 +1917,68 @@ void UniHan_check_uniset(const EGI_UNIHAN_SET* uniset )
 	/* quickSort wcode */
 	if( UniHan_quickSort_wcode(uniset->unihans, 0, uniset->size-1, 10) != 0 ) {
 		printf("%s: Fai to quickSort wcode!\n", __func__);
-		return;
+		return -2;
 	}
 	else
-		printf("%s: Succeed to quickSort by KEY==wcode!\n", __func__);
+		printf("%s: Succeed to quickSort by KEY=wcode!\n", __func__);
 
-	/* Check repeated unihans */
+	/* Check repeated unihans: with SAME wcode and typing value */
 	k=0;
 	for(i=1; i< uniset->size; i++) {
 		if( uniset->unihans[i].wcode == uniset->unihans[i-1].wcode
 		    &&  strncmp( uniset->unihans[i].typing, uniset->unihans[i-1].typing, UNIHAN_TYPING_MAXLEN ) == 0 )
 		{
 			k++;
-			printf("%s: unihans[%d] AND unihans[%d] is repeated: UNICODE 0x%04x  TYPING '%s' \n",
-								__func__, i-1, i, uniset->unihans[i].wcode,uniset->unihans[i].typing );
+
+			#if 1  /* TEST --- */
+			wcode=uniset->unihans[i].wcode;
+			bzero(pch,sizeof(pch));
+			printf("%s: unihans[%d] AND unihans[%d] is repeated: UNICODE U+%04x '%s' TYPING '%s' \n", __func__, i-1, i,
+				        uniset->unihans[i].wcode, char_unicode_to_uft8(&wcode, pch)>0?pch:"#?#", uniset->unihans[i].typing );
+			#endif
+
+			/* Clear/empty unihans[i-1] */
+			bzero(uniset->unihans+i-1, sizeof(EGI_UNIHAN));
 		}
 	}
+	printf("%s: Totally %d repeated unihans cleared!\n", __func__, k);
 
-	printf("%s: Totally %d repeated unihans found!\n", __func__, k);
+	/* Update size */
+	uniset->size -= k;
+
+	/* quickSort wcode */
+	if( UniHan_quickSort_wcode(uniset->unihans, 0, uniset->capacity-1, 10) != 0 ) {  /* NOTE: capacity NOT size! */
+		printf("%s: Fai to quickSort wcode after purification!\n", __func__);
+		return -3;
+	}
+
+	return k;
+}
+
+
+/*----------------------------------------------
+To print wcode info in the uniset.
+The uniset MUST be sorted by KEY=wcode before
+calling the function.
+-----------------------------------------------*/
+void UniHan_print_wcode(EGI_UNIHAN_SET *uniset, wchar_t wcode)
+{
+	int k;
+	char pch[4]={0};
+
+        if( UniHan_locate_wcode(uniset,wcode) !=0 ) {
+                printf("wcode U+%04x NOT found!\n", wcode);
+		return;
+	}
+
+	k=uniset->puh;
+
+	/* Print all (polyphonic) unihans with the same unicode/wcode */
+	while( uniset->unihans[k].wcode == wcode ) {
+		/* Note: readings are in uft8-encoding, so printf format does NOT work! */
+		printf("Uniset->unihans[%d]:%s, wcode:U+%04X	reading:%s	typing:%-7.7s freq:%d\n",
+			k, char_unicode_to_uft8(&wcode, pch)>0?pch:"#?#",
+			uniset->unihans[k].wcode, uniset->unihans[k].reading, uniset->unihans[k].typing, uniset->unihans[k].freq);
+		k++;
+	}
 }
