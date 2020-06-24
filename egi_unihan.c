@@ -19,7 +19,7 @@ Note:
 
 3. After purification, the uniset usually contain some empty unihans(wcode==0)
    and those unihans are distributed randomly. However the total size of the uniset does
-   NOT include those empty unihans, so if you sort swcode in such case, you MUST take
+   NOT include those empty unihans, so if you sort wcode in such case, you MUST take
    uniset->capacity (NOT uniset->size!!!) as total sorting itmes.
    UniHan_quickSort_typing() will rearrange all empty unihans to the end.
 
@@ -212,7 +212,7 @@ void UniHan_reset_freq( EGI_UNIHAN_SET *uniset )
 
 
 /*-------------------------------------------------------------------------
-Compare typings of two unihans and return an integer less than, equal to,
+Compare typing+freq ORDER of two unihans and return an integer less than, equal to,
 or greater than zero, if unha1 is found to be ahead of, at same order of,
 or behind uhans2 in dictionary order respectively.
 
@@ -221,18 +221,18 @@ Note:
 2. All typing letters MUST be lowercase.
 3. It first compares their dictionary order, if NOT in the same order, return
 the result; if in the same order, then compare their frequency number to
-decide the order.
+decide the order as in 4.
 4. If uhan1->freq is GREATER than uhan2->freq, it returns -1(IS_AHEAD);
    else if uhan1->freq is LESS than uhan2->freq, then return 1(IS_AFTER);
    if EQUAL, it returns 0(IS_SAME).
-5. An empty UNIHAN is always 'AFTER' a nonempty UNIHAN.
+5. An empty UNIHAN(wcode==0) is always 'AFTER' a nonempty UNIHAN.
 6. A NULL is always 'AFTER' a non_NULL UNIHAN pointer.
 
 Return:
 	Relative Priority Sequence position:
-	CMPTYPING_IS_AHEAD    -1 (<0)	unhan1 is  'less than' OR 'ahead of' unhan2
-	CMPTYPING_IS_SAME      0 (=0)   unhan1 and unhan2 are at the same place.
-	CMPTYPING_IS_AFTER     1 (>0)   unhan1 is  'greater than' OR 'behind' unhan2.
+	CMPORDER_IS_AHEAD    -1 (<0)	unhan1 is  'less than' OR 'ahead of' unhan2
+	CMPORDER_IS_SAME      0 (=0)   unhan1 and unhan2 are at the same order.
+	CMPORDER_IS_AFTER     1 (>0)   unhan1 is  'greater than' OR 'behind' unhan2.
 
 -------------------------------------------------------------------------*/
 int UniHan_compare_typing(const EGI_UNIHAN *uhan1, const EGI_UNIHAN *uhan2)
@@ -241,48 +241,99 @@ int UniHan_compare_typing(const EGI_UNIHAN *uhan1, const EGI_UNIHAN *uhan2)
 
 	/* 1. If uhan1 and/or uhan2 is NULL */
 	if( uhan1==NULL && uhan2==NULL )
-		return CMPTYPING_IS_SAME;
+		return CMPORDER_IS_SAME;
 	else if( uhan1==NULL )
-		return CMPTYPING_IS_AFTER;
+		return CMPORDER_IS_AFTER;
 	else if( uhan2==NULL )
-		return CMPTYPING_IS_AHEAD;
+		return CMPORDER_IS_AHEAD;
 
 	/* 2. Put the empty EGI_UNIHAN to the last, OR check typing[0] ? */
 	if(uhan1->wcode==0 && uhan2->wcode!=0)
-		return CMPTYPING_IS_AFTER;
+		return CMPORDER_IS_AFTER;
 	else if(uhan1->wcode!=0 && uhan2->wcode==0)
-		return CMPTYPING_IS_AHEAD;
+		return CMPORDER_IS_AHEAD;
 	else if(uhan1->wcode==0 && uhan2->wcode==0)
-		return CMPTYPING_IS_SAME;
+		return CMPORDER_IS_SAME;
 
 	/* 3. Compare dictionary oder of EGI_UNIHAN.typing[] */
 	for( i=0; i<UNIHAN_TYPING_MAXLEN; i++) {
 		if( uhan1->typing[i] > uhan2->typing[i] )
-			return CMPTYPING_IS_AFTER;
+			return CMPORDER_IS_AFTER;
 		else if ( uhan1->typing[i] < uhan2->typing[i])
-			return CMPTYPING_IS_AHEAD;
-		/* End of typing[] */
+			return CMPORDER_IS_AHEAD;
+		/* End of both typings, EOF */
 		else if(uhan1->typing[i]==0 && uhan2->typing[i]==0)
 			break;
 
 		/* else: uhan1->typing[i] == uhan2->typing[i] != 0  */
 	}
-	/* NOW: CMPTYPING_IS_SAME */
+	/* NOW: CMPORDER_IS_SAME */
 
 	/* 4. Compare frequencey number: EGI_UNIHAN.freq */
 	if( uhan1->freq > uhan2->freq )
-		return CMPTYPING_IS_AHEAD;
+		return CMPORDER_IS_AHEAD;
 	else if( uhan1->freq < uhan2->freq )
-		return CMPTYPING_IS_AFTER;
+		return CMPORDER_IS_AFTER;
 	else
-		return CMPTYPING_IS_SAME;
+		return CMPORDER_IS_SAME;
+}
+
+
+/*-------------------------------------------------------------------------
+Compare wcode+typing(+freq) ODER of two unihans and return an integer less than, equal to,
+or greater than zero, if unha1 is found to be ahead of, at same order of,
+or behind uhans2 in dictionary order respectively.
+
+Note:
+1. !!! CAUTION !!!  Here typing refers to PINYIN, other type MAY NOT work.
+2. All typing letters MUST be lowercase.
+3. It first compares their wcode value, if NOT in the same order, return
+the result; if in the same order, then compare their typing value to
+decide the order.
+4. An empty UNIHAN(wcode==0) is always 'AFTER' a nonempty UNIHAN !!!
+5. A NULL is always 'AFTER' a non_NULL UNIHAN pointer.
+
+Return:
+	Relative Priority Sequence position:
+	CMPORDER_IS_AHEAD    -1 (<0)	unhan1 is  'less than' OR 'ahead of' unhan2
+	CMPORDER_IS_SAME      0 (=0)   unhan1 and unhan2 are at the same order.
+	CMPORDER_IS_AFTER     1 (>0)   unhan1 is  'greater than' OR 'behind' unhan2.
+
+-------------------------------------------------------------------------*/
+int UniHan_compare_wcode(const EGI_UNIHAN *uhan1, const EGI_UNIHAN *uhan2)
+{
+
+	/* 1. If uhan1 and/or uhan2 is NULL */
+	if( uhan1==NULL && uhan2==NULL )
+		return CMPORDER_IS_SAME;
+	else if( uhan1==NULL )
+		return CMPORDER_IS_AFTER;
+	else if( uhan2==NULL )
+		return CMPORDER_IS_AHEAD;
+
+	/* 2. Put the empty EGI_UNIHAN to the last  */
+	if(uhan1->wcode==0 && uhan2->wcode!=0)
+		return CMPORDER_IS_AFTER;
+	else if(uhan1->wcode!=0 && uhan2->wcode==0)
+		return CMPORDER_IS_AHEAD;
+	else if(uhan1->wcode==0 && uhan2->wcode==0)
+		return CMPORDER_IS_SAME;
+
+	/* 3. Compare wcode value */
+	if(uhan1->wcode > uhan2->wcode)
+		return CMPORDER_IS_AFTER;
+	else if(uhan1->wcode < uhan2->wcode)
+		return CMPORDER_IS_AHEAD;
+
+	/* 4. If wcodes are the SAME, compare typing then */
+	return UniHan_compare_typing(uhan1, uhan2);
 }
 
 
 
 /*------------------------------------------------------------------------
 Sort an EGI_UNIHAN array by Insertion_Sort algorithm, to rearrange unihans
-with typing and freq as sorting KEY. (typing:in dictionary order)
+in ascending order of typing+freq. (typing:in dictionary order)
 
 Also ref. to mat_insert_sort() in egi_math.c.
 
@@ -309,7 +360,7 @@ void UniHan_insertSort_typing( EGI_UNIHAN* unihans, int n )
                 tmp=unihans[i];   /* the inserting integer */
 
         	/* Slide the inseting integer left, until to the first smaller unihan  */
-                for( k=i; k>0 && UniHan_compare_typing(unihans+k-1, &tmp)==CMPTYPING_IS_AFTER; k--)
+                for( k=i; k>0 && UniHan_compare_typing(unihans+k-1, &tmp)==CMPORDER_IS_AFTER; k--)
 				unihans[k]=unihans[k-1];   /* swap */
 
 		/* Settle the inserting unihan at last swapped place */
@@ -318,9 +369,9 @@ void UniHan_insertSort_typing( EGI_UNIHAN* unihans, int n )
 }
 
 
-/*--------------------------------------------------------------------
+/*------------------------------------------------------------------
 Sort an EGI_UNIHAN array by Quick_Sort algorithm, to rearrange unihans
-with typing (as KEY) in dictionary+frequency order.
+in ascending order of typing+freq.
 
 Refert to mat_quick_sort() in egi_math.h.
 
@@ -367,7 +418,7 @@ int UniHan_quickSort_typing(EGI_UNIHAN* unihans, unsigned int start, unsigned in
 
                 /* Sort [start] and [mid] */
                 /* if( array[start] > array[mid] ) */
-		if( UniHan_compare_typing(unihans+start, unihans+mid)==CMPTYPING_IS_AFTER ) {
+		if( UniHan_compare_typing(unihans+start, unihans+mid)==CMPORDER_IS_AFTER ) {
                         tmp=unihans[start];
                         unihans[start]=unihans[mid];
                         unihans[mid]=tmp;
@@ -376,7 +427,7 @@ int UniHan_quickSort_typing(EGI_UNIHAN* unihans, unsigned int start, unsigned in
 
                 /* IF: [mid] >= [start] > [end] */
                 /* if( array[start] > array[end] ) { */
-		if( UniHan_compare_typing(unihans+start, unihans+end)==CMPTYPING_IS_AFTER ) {
+		if( UniHan_compare_typing(unihans+start, unihans+end)==CMPORDER_IS_AFTER ) {
                         tmp=unihans[start]; /* [start] is center */
                         unihans[start]=unihans[end];
                         unihans[end]=unihans[mid];
@@ -384,7 +435,7 @@ int UniHan_quickSort_typing(EGI_UNIHAN* unihans, unsigned int start, unsigned in
                 }
                 /* ELSE:   [start]<=[mid] AND [start]<=[end] */
                 /* else if( array[mid] > array[end] ) { */
-		if( UniHan_compare_typing(unihans+mid,unihans+end)==CMPTYPING_IS_AFTER ) {
+		if( UniHan_compare_typing(unihans+mid,unihans+end)==CMPORDER_IS_AFTER ) {
                         /* If: [start]<=[end]<[mid] */
                                 tmp=unihans[end];   /* [end] is center */
                                 unihans[end]=unihans[mid];
@@ -408,11 +459,11 @@ int UniHan_quickSort_typing(EGI_UNIHAN* unihans, unsigned int start, unsigned in
                 {
                         /* Stop at array[i]>=pivot: We preset array[end-1]==pivot as sentinel, so i will stop at [end-1]  */
                         /* while( array[++i] < pivot ){ };   Acturally: array[++i] < array[end-1] which is the pivot memeber */
-			while( UniHan_compare_typing(unihans+(++i),&pivot)==CMPTYPING_IS_AHEAD ) { };
+			while( UniHan_compare_typing(unihans+(++i),&pivot)==CMPORDER_IS_AHEAD ) { };
 
                         /* Stop at array[j]<=pivot: We preset array[start]<=pivot as sentinel, so j will stop at [start]  */
                         /* while( array[--j] > pivot ){ }; */
-			while( UniHan_compare_typing(unihans+(--j),&pivot)==CMPTYPING_IS_AFTER ) { };
+			while( UniHan_compare_typing(unihans+(--j),&pivot)==CMPORDER_IS_AFTER ) { };
 
                         if( i<j ) {
                                 /* Swap array[i] and array[j] */
@@ -598,8 +649,8 @@ int UniHan_quickSort_freq(EGI_UNIHAN* unihans, unsigned int start, unsigned int 
 }
 
 
-
-/*------------------------------------------------------------------------
+#if 0 ////////////////////  Replaced!  //////////////////////////////
+/*--------------- wcode is the ONLY sorting KEY!!! ---------------------------
 Sort an EGI_UNIHAN array by Insertion_Sort algorithm, to rearrange unihans
 with wcode (as KEY) in ascending order.
 
@@ -613,7 +664,7 @@ Note:
 
 @unihans:       An array of EGI_UNIHANs.
 @n:             size/capacity of the array. (use capacity if empty unihans eixst)
------------------------------------------------------------------------*/
+------------------------------------------------------------------------------*/
 void UniHan_insertSort_wcode( EGI_UNIHAN* unihans, int n )
 {
         int i;          /* To tranverse elements in array, 1 --> n-1 */
@@ -635,9 +686,48 @@ void UniHan_insertSort_wcode( EGI_UNIHAN* unihans, int n )
                 unihans[k]=tmp;
         }
 }
+#endif ///////////////////////////////////////////////////////////////
 
+/*------------------------------------------------------------------------
+Sort an EGI_UNIHAN array by Insertion_Sort algorithm, to rearrange unihans
+in ascending order of wcode+typing(+freq). (typing:in dictionary order)
 
-/*--------------------------------------------------------------------
+Also ref. to mat_insert_sort() in egi_math.c.
+
+Note:
+1.The caller MUST ensure unihans array has at least n memebers!
+2.Input 'n' MAY includes empty unihans with wcode==0, and they will
+  be rearranged to the end of the array.
+
+@unihans:       An array of EGI_UNIHANs.
+@n:             size of the array. ( NOT capacity )
+
+------------------------------------------------------------------------*/
+void UniHan_insertSort_wcode( EGI_UNIHAN* unihans, int n )
+{
+        int i;          /* To tranverse elements in array, 1 --> n-1 */
+        int k;          /* To decrease, k --> 1,  */
+        EGI_UNIHAN tmp;
+
+	if(unihans==NULL)
+		return;
+
+	/* Start sorting ONLY when i>1 */
+        for( i=1; i<n; i++) {
+                tmp=unihans[i];
+
+        	/* Slide the inseting integer left, until to the first smaller unihan  */
+                //for( k=i; k>0 && unihans[k-1].wcode > tmp.wcode; k--)
+		for( k=i; k>0 && UniHan_compare_wcode(unihans+k-1, &tmp)==CMPORDER_IS_AFTER; k--)
+				unihans[k]=unihans[k-1];   /* swap */
+
+		/* Settle the inserting unihan at last swapped place */
+                unihans[k]=tmp;
+        }
+}
+
+#if 0 //////////////////  Replaced! ////////////////////////////
+/*----------------- wcode is the ONLY sorting KEY!!!--------------------
 Sort an EGI_UNIHAN array by Quick_Sort algorithm, to rearrange unihans
 with wcode (as KEY) in ascending order.
 
@@ -757,6 +847,136 @@ int UniHan_quickSort_wcode(EGI_UNIHAN* unihans, unsigned int start, unsigned int
 
 	return 0;
 }
+#endif /////////////////////////////////////////////////////////////////////////////////////
+
+
+/*--------------------------------------------------------------------
+Sort an EGI_UNIHAN array by Quick_Sort algorithm, to rearrange unihans
+in ascending order of wcode+typing(+freq). (typing:in dictionary order)
+
+
+Refert to mat_quick_sort() in egi_math.h.
+
+ 	!!! WARNING !!! This is a recursive function.
+
+Note:
+1. The caller MUST ensure start/end are within the legal range.
+
+
+@start:		start index, as of unihans[start]
+@End:		end index, as of unihans[end]
+@cutoff:	cutoff value for switch to insert_sort.
+
+Return:
+	0	Ok
+	<0	Fails
+----------------------------------------------------------------------*/
+int UniHan_quickSort_wcode(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff)
+{
+	int i=start;
+	int j=end;
+	int mid;
+	EGI_UNIHAN	tmp;
+	EGI_UNIHAN	pivot;
+
+	/* Check input */
+	if( unihans==NULL )
+		return -1;
+
+	/* End sorting */
+	if( start >= end )
+		return 0;
+
+        /* Limit cutoff */
+        if(cutoff<3)
+                cutoff=3;
+
+/* 1. Implement quicksort */
+        if( end-start >= cutoff )
+        {
+        /* 1.1 Select pivot, by sorting array[start], array[mid], array[end] */
+                /* Get mid index */
+                mid=(start+end)/2;
+
+                /* Sort [start] and [mid] */
+                /* if( array[start] > array[mid] ) */
+		// if( unihans[start].wcode > unihans[mid].wcode ) {
+		if( UniHan_compare_wcode(unihans+start, unihans+mid)==CMPORDER_IS_AFTER ) {
+                        tmp=unihans[start];
+                        unihans[start]=unihans[mid];
+                        unihans[mid]=tmp;
+                }
+                /* Now: [start]<=array[mid] */
+
+                /* IF: [mid] >= [start] > [end] */
+                /* if( array[start] > array[end] ) { */
+		// if( unihans[start].wcode > unihans[end].wcode ) {
+		if( UniHan_compare_wcode(unihans+start, unihans+end)==CMPORDER_IS_AFTER ) {
+                        tmp=unihans[start]; /* [start] is center */
+                        unihans[start]=unihans[end];
+                        unihans[end]=unihans[mid];
+                        unihans[mid]=tmp;
+                }
+                /* ELSE:   [start]<=[mid] AND [start]<=[end] */
+                /* else if( array[mid] > array[end] ) { */
+		// if( unihans[mid].wcode > unihans[end].wcode ) {
+		if( UniHan_compare_wcode(unihans+mid, unihans+end)==CMPORDER_IS_AFTER ) {
+                        /* If: [start]<=[end]<[mid] */
+                                tmp=unihans[end];   /* [end] is center */
+                                unihans[end]=unihans[mid];
+                                unihans[mid]=tmp;
+                        /* Else: [start]<=[mid]<=[end] */
+                }
+                /* Now: array[start] <= array[mid] <= array[end] */
+
+                pivot=unihans[mid];
+
+                /* Swap array[mid] and array[end-1], still keep array[start] <= array[mid] <= array[end]!   */
+                tmp=unihans[end-1];
+                unihans[end-1]=unihans[mid];   /* !NOW, we set memeber [end-1] as pivot */
+                unihans[mid]=tmp;
+
+        /* 1.2 Quick sort: array[start] ... array[end-1], array[end]  */
+                i=start;
+                j=end-1;   /* As already sorted to: array[start]<=pivot<=array[end-1]<=array[end], see 1. above */
+                for(;;)
+                {
+                        /* Stop at array[i]>=pivot: We preset array[end-1]==pivot as sentinel, so i will stop at [end-1]  */
+                        /* while( array[++i] < pivot ){ };   Acturally: array[++i] < array[end-1] which is the pivot memeber */
+			// while( unihans[++i].wcode < pivot.wcode ) { };
+			while( UniHan_compare_wcode(unihans+(++i), &pivot)==CMPORDER_IS_AHEAD ) { };
+                        /* Stop at array[j]<=pivot: We preset array[start]<=pivot as sentinel, so j will stop at [start]  */
+                        /* while( array[--j] > pivot ){ }; */
+			// while( unihans[--j].wcode > pivot.wcode ) { };
+			while( UniHan_compare_wcode(unihans+(--j), &pivot)==CMPORDER_IS_AFTER ) { };
+
+                        if( i<j ) {
+                                /* Swap array[i] and array[j] */
+                                tmp=unihans[i];
+                                unihans[i]=unihans[j];
+                                unihans[j]=tmp;
+                        }
+                        else {
+                                break;
+			}
+		}
+                /* Swap pivot memeber array[end-1] with array[i], we left this step at last.  */
+                unihans[end-1]=unihans[i];
+                unihans[i]=pivot; /* Same as array[i]=array[end-1] */
+
+        /* 1.3 Quick sort: recursive call for sorted parts. and leave array[i] as mid of the two parts */
+		UniHan_quickSort_wcode(unihans, start, i-1, cutoff);
+		UniHan_quickSort_wcode(unihans, i+1, end, cutoff);
+
+        }
+/* 2. Implement insertsort */
+        else
+		UniHan_insertSort_wcode( unihans+start, end-start+1);
+
+	return 0;
+}
+
+
 
 
 /*-------------------------------------------------------------------
@@ -841,6 +1061,7 @@ int UniHan_save_uniset(const char *fpath,  const EGI_UNIHAN_SET *uniset)
 		}
 	}
 
+	printf("%s: Write uniset '%s' with %d UNIHANs to file '%s' \n",__func__, uniset->name, size, fpath);
 
 END_FUNC:
         /* Close fil */
@@ -938,9 +1159,10 @@ EGI_UNIHAN_SET* UniHan_load_uniset(const char *fpath)
 			//Continue anyway .... //goto END_FUNC;
 		}
 
-		/* TEST: --- */
+		#if 0 /* TEST: --- */
 		printf("Load [%d]: wcode:%d, typing:%s, reading:%s \n",
 					i, uniset->unihans[i].wcode, uniset->unihans[i].typing, uniset->unihans[i].reading);
+		#endif
 	}
 
 END_FUNC:
@@ -957,10 +1179,10 @@ END_FUNC:
 Examine each UNIHAN in the input text and try to update/poll the
 corresponding uniset->unihans[].freq accordingly. Each appearance
 of the UNIHAN in the text will add 1 more value to its frequency
-weigh. ONLY UNIHANs available in the uniset will be conidered.
+weigh. ONLY UNIHANs available in the uniset will be considered.
 
 Note:
-1. The uniset MUST be prearranged in ascending order of wcodes.
+1. The uniset MUST be prearranged in ascending order of wcodes!
 2. All ployphonic UNIHANs bearing the same wcode(UNICODE) will be
    updated respectively.
 			   Example:
@@ -1038,7 +1260,7 @@ int UniHan_poll_freq(EGI_UNIHAN_SET *uniset, const char *fpath)
 				char pch[8];
 				bzero(pch, sizeof(pch));
 				if( UNICODE_PRC_START<=wcode && wcode<=UNICODE_PRC_END) {
-					printf("%s: WARNING %s U+%04x NOT found in uniset!\n", __func__,
+					printf("%s: WARNING %s U+%X NOT found in uniset!\n", __func__,
 							char_unicode_to_uft8(&wcode, pch)>0 ? pch : " ", wcode );
 				}
 			}
@@ -1355,7 +1577,6 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 	char *pt=NULL;
 	int  k;
 	wchar_t wcode;
-	char pch[4];
 
 	/* Open kHanyuPinyin file */
 	fil=fopen(fpath,"r");
@@ -1424,6 +1645,7 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 
 		/* --- DEBUG --- */
 		#if 0
+		 char pch[4];
 		 if( wcode==0x54B9 ) {
 			bzero(pch,sizeof(pch));
 			EGI_PDEBUG(DBG_UNIHAN,"unihans[%d]:%s, wcode:U+%04x, reading:%s, pinying:%s\n",
@@ -1520,7 +1742,6 @@ EGI_UNIHAN_SET *UniHan_load_MandarinTxt(const char *fpath)
 	char *pt=NULL;
 	int  k;
 	wchar_t wcode;
-	char pch[4];
 
 	/* Open kHanyuPinyin file */
 	fil=fopen(fpath,"r");
@@ -1593,6 +1814,7 @@ EGI_UNIHAN_SET *UniHan_load_MandarinTxt(const char *fpath)
 
 		/* --- DEBUG --- */
 		#if 0
+		 char pch[4];
 		 if( wcode==0x9E23 ) {
 			bzero(pch,sizeof(pch));
 			EGI_PDEBUG(DBG_UNIHAN,"unihans[%d]:%s, wcode:U+%04x, reading:%s, pinying:%s\n",
@@ -1668,7 +1890,7 @@ int UniHan_locate_wcode(EGI_UNIHAN_SET* uniset, wchar_t wcode)
 
 	/* Mark start/end/mid of unihans index */
 	start=0;
-	end=uniset->capacity-1;  /* NOT uniset->size!! Consider there may be some empty unihans at beginning!  */
+	end=uniset->size-1;  /* NOPE!! XXXXX NOT uniset->size!! Consider there may be some empty unihans at beginning!  */
 	mid=(start+end)/2;
 
 	/* binary search for the wcode  */
@@ -1713,16 +1935,16 @@ To locate the index of first unihan[] containing the given typing in the
 beginning of its typing. and set uniset->puh as the index.
 
 			!!! IMPORTANT !!!
-"Containing the give typing" means unihan[].typing is SAME as then given
+"Containing the give typing" means unihan[].typing is SAME as the given
 typing, OR the given typing are contained in beginning of unihan[].typing.
 
-This criteria is ONLY based on PINYIN. Other types of typing may NOT comply.
+This criterion is ONLY based on PINYIN. Other types of typing may NOT comply.
 
 Note:
 1. The uniset MUST be prearranged in dictionary ascending order of typing.
 2. Pronunciation tones of PINYIN are neglected.
 3. Usually there are more than one unihans that have the save typing,
-(same pronuciation, but differenct UNIHANs), and indexse of those unihans
+(same pronuciation, but different UNIHANs), and indexse of those unihans
 should be consecutive in the uniset (see 1). Finally the firt index will
 be located.
 4. This algorithm depends on typing type PINYIN, others MAY NOT work.
@@ -1778,13 +2000,13 @@ int UniHan_locate_typing(EGI_UNIHAN_SET* uniset, const char* typing)
 		tmphan.typing[UNIHAN_TYPING_MAXLEN-1]='\0';  /* Set EOF */
 
 		//if( unihans[mid].wcode > wcode ) {   /* then search upper half */
-		if ( UniHan_compare_typing(&unihans[mid], &tmphan)==CMPTYPING_IS_AFTER ) {
+		if ( UniHan_compare_typing(&unihans[mid], &tmphan)==CMPORDER_IS_AFTER ) {
 			end=mid;
 			mid=(start+end)/2;
 			continue;
 		}
 		//else if( unihans[mid].wcode < wcode) {
-		if ( UniHan_compare_typing(&unihans[mid], &tmphan)==CMPTYPING_IS_AHEAD ) {
+		if ( UniHan_compare_typing(&unihans[mid], &tmphan)==CMPORDER_IS_AHEAD ) {
 			start=mid;
 			mid=(start+end)/2;
 			continue;
@@ -1810,8 +2032,8 @@ Note:
 1. uniset1 MUST be streamlized and has NO repeated unihans inside.
    OR they will all be merged into uniset2.
 2. UNIHANs are just added to the end of uniset2->unihans, and will NOT be
-   sorted!
-3. uniset1 will NOT be released/freed after operation!!!
+   sorted after operation!
+3. uniset1 will NOT be released/freed after operation!
 4. uniset2->unihans will mem_grow if capacity is NOT enough.
 
 @uniset1:	An UNIHAN SET to be emerged.
@@ -1850,7 +2072,7 @@ int UniHan_merge_uniset(const EGI_UNIHAN_SET* uniset1, EGI_UNIHAN_SET* uniset2)
 			}
 			/* Found same typing, skip to next. */
 			if( uniset2->puh < uniset2->size ) {
-				printf("wcode %d exists.\n", uniset1->unihans[i].wcode);
+				printf("merge: wcode %d exists.\n", uniset1->unihans[i].wcode);
 				continue;
 			}
 		}
@@ -1884,23 +2106,34 @@ int UniHan_merge_uniset(const EGI_UNIHAN_SET* uniset1, EGI_UNIHAN_SET* uniset2)
 }
 
 
-/*----------------------------------------------------------
-Check an UNIHAN SET, if unihans found with same wcode
-and typing value, then keep only one of them and clear
-others.
+/*---------------------------------------------------------------------------
+Check an UNIHAN SET, if unihans found with same wcode and typing value, then
+keep only one of them and clear others. At last call UniHan_quickSort_wcode()
+to sort unihans in wcode+typing+freq order.
 
 		!!! --- WARNING --- !!!
 
 1. Reading values are NOT checked here.
-2. After purification, the uniset usually contain some empty unihans(wcode==0)
-   and those unihans are distributed randomly. However the total size of the uniset does
-   NOT include those empty unihans, so if you sort swcode in such case, you MUST take
-   uniset->capacity (NOT uniset->size!!!) as total number of sorting itmes.
+
+xxxxxxxxxxx  OK, Solved! as UniHan_quickSort_wcode() improved.  xxxxxxxxxxxx
+x
+x  2. After purification, the uniset usually contain some empty unihans(wcode==0)
+x  and those unihans are distributed randomly. However the total size of the
+x  uniset does NOT include those empty unihans, so if you sort swcode in such
+x  case, you MUST take uniset->capacity (NOT uniset->size!!!) as total number
+x  of sorting itmes.
+x
+x  3. TODO Follow case will NOT be purified. ...OK!
+x  Uniset->unihans[16131]:色, wcode:U+8272  reading:sè	typing:se     freq:0
+x  Uniset->unihans[16132]:色, wcode:U+8272  reading:	typing:shai   freq:1
+x  Uniset->unihans[16133]:色, wcode:U+8272  reading:	typing:se     freq:1
+x
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 Return:
 	>=0	Ok, total number of repeated unihans removed.
 	<0	Fails
------------------------------------------------------------*/
+---------------------------------------------------------------------------*/
 int UniHan_purify_uniset(EGI_UNIHAN_SET* uniset )
 {
 	int i;
@@ -1921,6 +2154,7 @@ int UniHan_purify_uniset(EGI_UNIHAN_SET* uniset )
 	}
 	else
 		printf("%s: Succeed to quickSort by KEY=wcode!\n", __func__);
+
 
 	/* Check repeated unihans: with SAME wcode and typing value */
 	k=0;
@@ -1946,7 +2180,7 @@ int UniHan_purify_uniset(EGI_UNIHAN_SET* uniset )
 	/* Update size */
 	uniset->size -= k;
 
-	/* quickSort wcode */
+	/* quickSort wcode:  sort in wcode+typing+freq order */
 	if( UniHan_quickSort_wcode(uniset->unihans, 0, uniset->capacity-1, 10) != 0 ) {  /* NOTE: capacity NOT size! */
 		printf("%s: Fai to quickSort wcode after purification!\n", __func__);
 		return -3;
@@ -1956,17 +2190,18 @@ int UniHan_purify_uniset(EGI_UNIHAN_SET* uniset )
 }
 
 
-/*----------------------------------------------
-To print wcode info in the uniset.
-The uniset MUST be sorted by KEY=wcode before
-calling the function.
------------------------------------------------*/
+/*------------------------------------------------------
+To find unihans with given wcode in the uniset and print
+out all of them.
+The uniset MUST be sorted by KEY=wcode before calling
+this function.
+------------------------------------------------------*/
 void UniHan_print_wcode(EGI_UNIHAN_SET *uniset, wchar_t wcode)
 {
 	int k;
 	char pch[4]={0};
 
-        if( UniHan_locate_wcode(uniset,wcode) !=0 ) {
+        if( UniHan_locate_wcode(uniset,wcode) !=0 ) {		/* sort: wcode+typing+freq */
                 printf("wcode U+%04x NOT found!\n", wcode);
 		return;
 	}

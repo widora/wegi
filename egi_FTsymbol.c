@@ -964,6 +964,18 @@ inline int FTsymbol_cooked_charWidth(wchar_t wcode, int fw)
 
 }
 
+/*-------------------------------------------
+Convert wcode to uft8 encoding and print it.
+If wcode is illegal,  then print a '#'.
+-------------------------------------------*/
+void FTsymbol_unicode_print(wchar_t wcode)
+{
+	char pch[8];
+        bzero(pch,sizeof(pch));
+
+        printf("%s",char_unicode_to_uft8(&wcode, pch)>0 ? pch : "#");
+}
+
 
 /*-----------------------------------------------------------------------------------------------
 1. Render a CJK character presented in UNICODE with the specified face type, then write the

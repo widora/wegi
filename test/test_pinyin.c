@@ -41,7 +41,7 @@ Midas Zhou
 #include "egi_cstring.h"
 #include "egi_unihan.h"
 #include <errno.h>
-
+#include <termios.h>
 
 /*===================
 	MAIN
@@ -53,7 +53,10 @@ int main(void)
 	EGI_UNIHAN_SET  *unisetMandarin=NULL;
 	EGI_UNIHAN_SET  *tmpset=NULL;
 	char pch[4];
-	int i,k;
+	int i,j,k;
+        struct termios old_settings;
+        struct termios new_settings;
+
 	struct timeval	tm_start,tm_end;
 	wchar_t  	swcode;
         char pinyin[UNIHAN_TYPING_MAXLEN];
@@ -76,6 +79,13 @@ int main(void)
         fb_set_directFB(&gv_fb_dev,true);
         fb_position_rotate(&gv_fb_dev,0);
 
+        /* Set termio */
+        tcgetattr(0, &old_settings);
+        new_settings=old_settings;
+        new_settings.c_lflag |= (ICANON);      /* disable canonical mode, no buffer */
+        new_settings.c_lflag |= (ECHO);        /* disable echo */
+        tcsetattr(0, TCSANOW, &new_settings);
+
 
 #if 0	/* ------------- Strange wcode -------------- */
 	int m, pos;
@@ -93,7 +103,7 @@ int main(void)
 	exit(1);
 #endif
 
-#if 1 /*----------- Load uniset and test pinyin ---------- */
+#if 0 /*----------- Load uniset and test pinyin ---------- */
 	uniset=UniHan_load_uniset(UNIHANS_DATA_PATH);
 	if( uniset==NULL )
 		exit(1);
@@ -154,7 +164,7 @@ int main(void)
        		printf("[%s:%d]%s",char_unicode_to_uft8(&(tmpset->unihans[i].wcode), pch)>0?pch:" ",
 								tmpset->unihans[i].wcode, tmpset->unihans[i].typing);
 		#endif
-		if( i>0 && UniHan_compare_typing(tmpset->unihans+i, tmpset->unihans+i-1) == CMPTYPING_IS_AHEAD )
+		if( i>0 && UniHan_compare_typing(tmpset->unihans+i, tmpset->unihans+i-1) == CMPORDER_IS_AHEAD )
 				printf("\n------------- i=%d, tmpset[] ERROR ---------------\n",i);
 
 	}
@@ -216,16 +226,16 @@ int main(void)
 	UniHan_print_wcode(unisetMandarin, 0x9E23);
 	getchar();
 
-	/* merge unisetMandarin into uniset */
+	/* Merge unisetMandarin into uniset */
 	UniHan_merge_uniset(unisetMandarin, uniset);
         /* quickSort_wcode uniset2, before calling UniHan_locate_wcode(). */
-        UniHan_quickSort_wcode(uniset->unihans, 0, uniset->capacity-1, 10); /* Capacity NOT size */
+        UniHan_quickSort_wcode(uniset->unihans, 0, uniset->size-1, 10);
 	UniHan_print_wcode(uniset, 0x9E23);
 	getchar();
 
-	/* purify merged uniset, clear redundant unihans */
+	/* Purify merged uniset, clear redundant unihans */
 	UniHan_purify_uniset(uniset);
-	UniHan_print_wcode(uniset, 0x9E23);
+	UniHan_print_wcode(uniset, 0x8272); //0x9E23);
 	getchar();
 
 	/* TEST: Locate a wcode */
@@ -305,9 +315,30 @@ int main(void)
         getchar();
 
 	/* Print out a wcode */
-        UniHan_quickSort_wcode( uniset->unihans, 0, uniset->capacity-1, 10);
+        UniHan_quickSort_wcode( uniset->unihans, 0, uniset->size-1, 10); //  uniset->capacity-1, 10);
 	UniHan_print_wcode(uniset, 0x5BB6);
 	UniHan_print_wcode(uniset, 0x96BE);
+	getchar();
+
+	/* Checking redundancy: with SAME wcode and typing */
+	printf("Start checking redundancy..."); fflush(stdout);
+	for(i=0; i< uniset->capacity-1; i++) {
+		for(j=i+1; j< uniset->capacity; j++) {
+			if( uniset->unihans[i].wcode!=0
+			   && uniset->unihans[i].wcode==uniset->unihans[j].wcode ) {
+				if( strncmp( uniset->unihans[i].typing, uniset->unihans[j].typing, UNIHAN_TYPING_MAXLEN ) ==0 ) {
+					/* print redundant unihans */
+					bzero(pch,sizeof(pch));
+        				printf("unihans[%d]: [%s:U+%X] %s ",i, char_unicode_to_uft8(&(uniset->unihans[i].wcode), pch)>0?pch:" ",
+									uniset->unihans[i].wcode, uniset->unihans[i].typing);
+					bzero(pch,sizeof(pch));
+        				printf("unihans[%d]: [%s:U+%X] %s ",j, char_unicode_to_uft8(&(uniset->unihans[j].wcode), pch)>0?pch:" ",
+									uniset->unihans[j].wcode, uniset->unihans[j].typing);
+				}
+			}
+		}
+	}
+        printf("\n Finish checking redundancy of wcode+typing. \n");
 	getchar();
 
 	/* Quick sort uniset with KEY=typing */
@@ -317,19 +348,19 @@ int main(void)
 	gettimeofday(&tm_end,NULL);
         printf("OK! Finish quick_sorting, total size=%d, cost time=%ldms.\n", uniset->size, tm_diffus(tm_start, tm_end)/1000);
 
-	/* Check result uniset */
+	/* Check typing order of two nearby unihans */
 	printf("Check results of quickSort() uniset..."); fflush(stdout);
-	for(i=0; i< uniset->size; i++) {
+	for(i=0; i< uniset->capacity; i++) {
 		#if 1
 		bzero(pch,sizeof(pch));
-       		printf("[%s:%d]%s",char_unicode_to_uft8(&(uniset->unihans[i].wcode), pch)>0?pch:" ",
+       		printf("[%s:U+%X]%s",char_unicode_to_uft8(&(uniset->unihans[i].wcode), pch)>0?pch:" ",
 								uniset->unihans[i].wcode, uniset->unihans[i].typing);
 		#endif
-		if( i>0 && UniHan_compare_typing(uniset->unihans+i, uniset->unihans+i-1) == CMPTYPING_IS_AHEAD )
+		if( i>0 && UniHan_compare_typing(uniset->unihans+i, uniset->unihans+i-1) == CMPORDER_IS_AHEAD )
 				printf("\n------------- i=%d, uniset[] ERROR ---------------\n",i);
 
 	}
-        printf("\nOK. \n");
+        printf("\n Finish checking typing order of two nearby unihans, OK. \n");
 	getchar();
 
 	/* Save KEY=typing sorted uniset */
@@ -339,16 +370,17 @@ int main(void)
 
         /* Print all unihans, grouped by PINYIN */
         bzero(pinyin,sizeof(pinyin));
-        for( i=0; i< uniset->size; i++) {
+        for( i=0; i< uniset->capacity; i++) {
                 if( strcmp(pinyin, uniset->unihans[i].typing) !=0 )
                 {
                         strncpy(pinyin, uniset->unihans[i].typing, sizeof(pinyin)-1);
                         printf("\n[%s]: ",pinyin);
                 }
                 bzero(pch,sizeof(pch));
-                printf("%s(%d)",char_unicode_to_uft8(&(uniset->unihans[i].wcode), pch)>0 ? pch : " ", uniset->unihans[i].freq );
+                printf("%s(U+%X)",char_unicode_to_uft8(&(uniset->unihans[i].wcode), pch)>0 ? pch : " ", uniset->unihans[i].freq );
         }
         printf("\n\n\n");
+
 
 
 #if 1  /* ---- TEST: pinyin Input.  To locate a typing, the uniset must alread have been sorted by typing. */
@@ -374,17 +406,6 @@ int main(void)
   }
 #endif
 
-
-
-	/* Display some sorted unihans */
-	#if 0
-	printf("============ uniset ===============\n");
-	for( i=12000; i<12100; i++ ) {
-			bzero(pch,sizeof(pch));
-        		printf("unihans[%d]: [%s:%d]%s\n", i, char_unicode_to_uft8(&(uniset->unihans[i].wcode), pch)>0?pch:"#", /* # empty unihan */
-								uniset->unihans[i].wcode, uniset->unihans[i].typing);
-	}
-	#endif
 
 #endif  /*-------- END quick_sort uniset -------- */
 

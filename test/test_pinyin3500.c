@@ -101,7 +101,7 @@ while(1) { /* ---------- LOOP TEST -------------- */
 			strncpy( uniset->unihans[k].typing, str_words[1], sizeof(str_words[0])-1);
 
 			/* --- 3. Assign freq ---- */
-			uniset->unihans[k].freq=1;
+			uniset->unihans[k].freq=0;  	/* Keep 0, same as UniHan_load_HanyuPinyinTxt() AND UniHan_load_MandarinTxt() */
 
 			/* increase count */
 			k++;
@@ -119,6 +119,8 @@ while(1) { /* ---------- LOOP TEST -------------- */
 
 	/* ----- 1. Save uniset to a file -----*/
 	UniHan_save_uniset( PINYIN3500_DATA_PATH, uniset);
+	printf("Finish saving uniset to '%s'.\n",PINYIN3500_DATA_PATH);
+	getchar();
 
 	/* Free uniset */
 	UniHan_free_uniset(&uniset);

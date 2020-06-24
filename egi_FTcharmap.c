@@ -2928,6 +2928,11 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
                 printf("%s: Input FTCHAR map is empty!\n", __func__);
                 return -1;
         }
+	if(ch==NULL)
+		return -1;
+	if( ch[0]=='\0' )
+		return -1;
+
 	/* Verify pch */
 	chsize=cstr_charlen_uft8((const unsigned char *)ch);
 	if(chsize<0) {

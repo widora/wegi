@@ -19,7 +19,7 @@ typedef unsigned char * UFT8_PCHAR;
 
 #define MANDARIN_TXT_PATH    	"/mmc/kMandarin.txt"		/* kMandarin.txt from Unihan_Readings.txt, see UniHan_load_MandarinTxt() */
 #define HANYUPINYIN_TXT_PATH    "/mmc/kHanyuPinyin.txt"		/* kHanyuPinyin.txt from Unihan_Readings.txt, see UniHan_load_HanyuPinyinTxt() */
-#define UNIHANS_DATA_PATH       "/tmp/unihans_pinyin.dat"	/* Saved UNIHAN SET containing above unihans */
+#define UNIHANS_DATA_PATH       "/mmc/unihans_pinyin.dat"	/* Saved UNIHAN SET containing above unihans */
 
 #define PINYIN3500_TXT_PATH        "/mmc/pinyin3500.txt"	/* 3500 frequently used Haizi TXT */
 #define PINYIN3500_DATA_PATH       "/mmc/unihan3500.dat"	/* Saved UNIHAN SET containing above unihans */
@@ -88,18 +88,20 @@ struct egi_unihan_heap
 EGI_UNIHAN_HEAP* UniHan_create_heap(size_t capacity);
 void 		 UniHan_free_heap( EGI_UNIHAN_HEAP **heap);
 
-/* Sorting Functions */
-#define  CMPTYPING_IS_AHEAD    -1
-#define  CMPTYPING_IS_SAME      0
-#define  CMPTYPING_IS_AFTER     1
+/* Order_comparing and Sort Functions */
+#define  CMPORDER_IS_AHEAD    -1
+#define  CMPORDER_IS_SAME      0
+#define  CMPORDER_IS_AFTER     1
 int 	UniHan_compare_typing(const EGI_UNIHAN *uhan1, const EGI_UNIHAN *uhan2);
 
+	/* Sort: typing + freq */
 void 	UniHan_insertSort_typing( EGI_UNIHAN* unihans, int n );
 int 	UniHan_quickSort_typing(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff);
-
+	/* Sort: freq only */
 void 	UniHan_insertSort_freq( EGI_UNIHAN* unihans, int n );
 int 	UniHan_quickSort_freq(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff);
 
+	/* Sort: wcode + typing + freq */
 void 	UniHan_insertSort_wcode( EGI_UNIHAN* unihans, int n );
 int 	UniHan_quickSort_wcode(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff);
 
@@ -118,7 +120,7 @@ int 		UniHan_poll_freq(EGI_UNIHAN_SET *uniset, const char *fpath);
 int 		UniHan_merge_uniset(const EGI_UNIHAN_SET* uniset1, EGI_UNIHAN_SET* uniset2);
 int 		UniHan_purify_uniset(EGI_UNIHAN_SET* uniset );
 
-/* Read uniha txt into uniset */
+/* Read formated txt into uniset */
 EGI_UNIHAN_SET* UniHan_load_HanyuPinyinTxt(const char *fpath);
 EGI_UNIHAN_SET *UniHan_load_MandarinTxt(const char *fpath);
 

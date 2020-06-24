@@ -14,7 +14,7 @@ midaszhou@yahoo.com
 #include <egi_imgbuf.h>
 #include <stdbool.h>
 
-extern struct egi_touch_data;
+//extern struct egi_touch_data;
 
 /* Simple rectangular button data */
 typedef struct egi_rectbtn EGI_RECTBTN;
