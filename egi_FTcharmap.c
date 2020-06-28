@@ -2909,7 +2909,7 @@ All chars MUST be printable, OR '\n', OR TAB, OR legal UFT-8 encoded.
 It MAY crash chmapping if any illegal char exists in champ->txtbuff.??
 
 @chmap:         Pointer to the EGI_FTCHAR_MAP.
-@ch:		Pointer to inserting char.
+@ch:		Pointer to inserting char/UNIHAN.
 
 Return:
         0       OK

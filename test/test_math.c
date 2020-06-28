@@ -47,11 +47,11 @@ while(1)  {  /* ----- LOOP TEST ---*/
    }
    printf("OK\n");
 
-// mat_insert_sort(array,n);
 
    printf("Start sorting...\n");
    gettimeofday(&tm_start,NULL);
-   mat_quick_sort(array, 0, n-1, 10);
+    mat_insert_sort(array,n);
+//   mat_quick_sort(array, 0, n-1, 10);
    gettimeofday(&tm_end,NULL);
 
    printf("Finish sorting. checking...\n");

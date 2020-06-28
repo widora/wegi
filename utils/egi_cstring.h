@@ -7,7 +7,7 @@ Midas Zhou
 -----------------------------------------------------------------*/
 #ifndef __EGI_CSTRING_H__
 #define __EGI_CSTRING_H__
-
+#include <wchar.h>
 
 #ifdef LETS_NOTE
  #define EGI_CONFIG_PATH "/home/midas-zhou/egi/egi.conf"
@@ -28,6 +28,8 @@ int 	cstr_strlen_uft8(const unsigned char *cp);
 int 	cstr_strcount_uft8(const unsigned char *pstr);
 int 	char_uft8_to_unicode(const unsigned char *src, wchar_t *dest);
 int 	char_unicode_to_uft8(const wchar_t *src, char *dest);
+wchar_t char_unicode_DBC2SBC(wchar_t dbc);
+int 	char_DBC2SBC_to_uft8(char dbc, char *dest);
 int 	cstr_unicode_to_uft8(const wchar_t *src, char *dest);
 
 int 	egi_count_file_lines(const char *fpath);

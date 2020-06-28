@@ -118,7 +118,7 @@ int main(int argc, char **argv)
 	{ 0x0300,	0x036F,		"Combining Diacritical Marks" },		/* 5 */
 	{ 0x0370,	0x03FF,		"Greek and Coptic" },
 	{ 0x2000,	0x206F,		"General Punctuation" },			/* 7 */
-	{ 0x3000,	0x303F,		"CJK Symbols and Punctuation" },
+	{ 0x3000,	0x303F,		"CJK Symbols and Punctuation" },		/* 0x3002 。　 */
 	{ 0x3040,	0x309F,		"Hiragana" },
 	{ 0x30A0,	0x30FF,		"Katakana" },
 	{ 0x3100,	0x312F,		"Bopomof" },

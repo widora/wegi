@@ -3,7 +3,6 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-
 Char and String Functions
 
 Midas Zhou
@@ -12,7 +11,6 @@ Midas Zhou
 #include <string.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <wchar.h>
 #include <stdint.h>
 #include <ctype.h>
 #include <sys/mman.h>
@@ -39,7 +37,7 @@ Return:
 int cstr_compare_dictOrder(const char *str1, const char *str2, size_t len)
 {
 
-
+	return 0;
 }
 
 
@@ -597,8 +595,10 @@ inline int char_uft8_to_unicode(const unsigned char *src, wchar_t *dest)
 }
 
 
+
 /*-------------------------------------------------------------------------
-Convert a character from UFT-8 to UNICODE.
+Convert a character from UNICODE to UFT-8 encoding.
+(MAX. size of dest[] is defined as UNIHAN_UCHAR_MAXLEN=4 in egi_unihan.h)
 
 @src:	A pointer to character in UNICODE.
 @dest:	A pointer to mem space to hold converted character in UFT-8 encoding.
@@ -618,7 +618,7 @@ Convert a character from UFT-8 to UNICODE.
 
 Return:
 	>0 	OK, bytes of dest in UFT-8 encoding.
-	<=0	Fail, or unrecognizable unicode
+	<=0	Fail, or unrecognizable unicode, dest[] keeps intact.
 --------------------------------------------------------------------------*/
 inline int char_unicode_to_uft8(const wchar_t *src, char *dest)
 {
@@ -667,10 +667,106 @@ inline int char_unicode_to_uft8(const wchar_t *src, char *dest)
 		size=1;
 	}
 
-
 	return size;
 }
 
+
+/*--------------------------------------------------
+Convert unicode of a char in DBC case(half_width) to
+SBC case (full_width).
+
+The conversion takes place according to following table:
+
+        ASCII   Unicode(DBC)   Unicode(SBC)
+        ------------------------------------
+        SPACE   U+0020          U+3000
+         !      U+0021          U+FF01
+         "      U+0022          U+FF02
+         #      U+0023          U+FF03
+
+         ...    ...             ...
+
+         |      U+007C          U+FF5C
+         }      U+007D          U+FF5D
+         ~      U+007E          U+FF5E
+
+
+@dbc:   Unicode of the char in DBC case.
+	Range from 0x20 to 0x7E only!
+
+Return:
+        Unicode of the char in SBC case.
+--------------------------------------------------*/
+inline wchar_t char_unicode_DBC2SBC(wchar_t dbc)
+{
+        /* 1. Out of range, SBC is same as DBC. */
+        if( dbc < 0x0020 || dbc > 0x007E )
+                return dbc;
+
+        /* 2. SPACE */
+        if(dbc==0x0020)
+                return 0x3000;
+        /* 3. Other ASCIIs */
+        else
+                return dbc+0xFEE0;
+}
+
+/*--------------------------------------------------
+Convert an ASCII char in DBC case(half_width) to
+SBC case (full_width), and pass out in UFT-8 encoding.
+
+The conversion takes place according to following table:
+
+        ASCII   Unicode(DBC)   Unicode(SBC)
+        ------------------------------------
+        SPACE   U+0020          U+3000
+         !      U+0021          U+FF01
+         "      U+0022          U+FF02
+         #      U+0023          U+FF03
+
+         ...    ...             ...
+
+         |      U+007C          U+FF5C
+         }      U+007D          U+FF5D
+         ~      U+007E          U+FF5E
+
+
+@dbc:   Unicode of the char in DBC case.
+        Range from 0x20 to 0x7E only!
+
+@dest:  Pointer to a string in UFT-8 encoding.
+        The caller MUST ensure enough space!
+
+Return:
+        >0      OK, bytes of dest in UFT-8 encoding.
+        <=0     Fail, or unrecognizable unicode and
+                dest[] keeps intact.
+--------------------------------------------------*/
+inline int char_DBC2SBC_to_uft8(char dbc, char *dest)
+{
+	wchar_t wcode;
+
+        if(dest==NULL)
+                return -1;
+
+        /* 1. Out of range, SBC is same as DBC. */
+        if( dbc < 0x0020 || dbc > 0x007E ) {
+                dest[0]=dbc;
+                return 1;
+        }
+
+        /* 2. SPACE */
+        if(dbc==0x0020) {
+		wcode=0x3000;
+                return char_unicode_to_uft8(&wcode, dest);
+	}
+
+        /* 3. Other ASCIIs */
+        else {
+                wcode=dbc+0xFEE0;
+                return char_unicode_to_uft8(&wcode, dest);
+        }
+}
 
 
 /*---------------------------------------------------------------------
@@ -1709,4 +1805,6 @@ int cstr_getSecFrom_ChnUft8TimeStr(const char *src, time_t *tp)
 	/* return time span/duration in seconds */
 	return ts;
 }
+
+
 

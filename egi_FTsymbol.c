@@ -934,6 +934,7 @@ long * FTsymbol_buffer_fontAdvances(FT_Face face, int fw, int fh, FT_UInt start,
 
 /*----------------------------------------------------------
 Self_define/cook width for some special unicodes.
+
 NOTE: Those wcodes are assumed to have no bitmap, even it has
 it will be ingored!
 
@@ -954,7 +955,7 @@ inline int FTsymbol_cooked_charWidth(wchar_t wcode, int fw)
 			return fw*factor_TabWidth;
 		case 13:	/* NEW LINE */
 			return 0;
-		case 12288:	/* SPACE defined in CJK Unicode group 'Spacing Modifier' */
+		case 12288:	/* (0x3000) SPACE defined in CJK Unicode group 'Spacing Modifier' */
 			return fw*factor_SpaceWidth;
 		case 65279:	/* ZERO_WIDTH_NO_BREAK SPACE */
 			return 0;
@@ -1107,7 +1108,7 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 	 	 * but it has bitmap.width and advanced defined.
 	 	 */
 		/* If a HALF/FULL Width SPACE */
-		if( wcode == 12288 ) {  	/* wcode==12288 LOCALE SPACE */
+		if( wcode == 12288 ) {  	/* wcode==12288(0x3000) LOCALE SPACE (SDB case/Full_width) */
 			*xleft -= fw*factor_SpaceWidth;
 		}
 		else if ( wcode == 65279 ) 	/* ZERO_WIDTH_NO_BREAK SPACE */

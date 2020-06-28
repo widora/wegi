@@ -132,10 +132,14 @@ static int smargin=5; 		/* left and right side margin of text area */
 static int tmargin=2;		/* top margin of text area */
 
 /* Input Method: PINYIN */
+wchar_t		wcode;
 EGI_UNIHAN_SET	*uniset;
 static bool enable_pinyin=false;  /* Enable input method PINYIN */
-char strPinyin[64];		  /* To store input pinyin string */
-char unihans[256][4];		  /* To store UNIHANs complied with input pinyin, in UFT8-encoding.  */
+char strPinyin[64]={0};		  /* To store input pinyin string */
+char unihans[512][4]; //[256][4]; /* To store UNIHANs complied with input pinyin, [4] in UFT8-encoding.  */
+char unicodes[512];		  /* To store UNICODE of unihans[512]  MAX for typing 'ji' totally 298 UNIHANs */
+unsigned int unindex;
+char phan[4];			  /* temp. */
 int  unicount;			  /* Count of unihans found */
 char strHanlist[128];		  /* List of unihans to be displayed for selecting, 5-10 unihans as a group. */
 char strItem[32];		  /* buffer for each UNIHAN with preceding index, example "1.啊"  */
@@ -286,7 +290,7 @@ int main(int argc, char **argv)
         struct termios new_settings;
 
 	char ch;
-//	int  k;
+	int  k;
 	int lndis; /* Distance between lines */
 
 	if( argc > 1 )
@@ -294,9 +298,9 @@ int main(int argc, char **argv)
 
   	/* Load UniHan Set for PINYIN Input */
   	uniset=UniHan_load_uniset(UNIHANS_DATA_PATH);
-  	if( uniset==NULL )
-                exit(1);
-   	printf("Load uniset with totally %d unihans:\n", uniset->size);
+  	if( uniset==NULL ) exit(1);
+	if( UniHan_quickSort_uniset(uniset, UNIORDER_TYPING_FREQ, 10) !=0 ) exit(2);
+	getchar();
 
 MAIN_START:
 	/* Reset main window size */
@@ -451,8 +455,9 @@ MAIN_START:
 							FTcharmap_page_down(chmap);
 						}
                                                 break;
-					case 65:  /* UP arrow : move cursor one display_line up */
-						if( enable_pinyin ) {
+					case 65:  /* UP arrow : move cursor one display_line up  */
+						/* Shift displaying UNIHAN group */
+						if( enable_pinyin && strPinyin[0]!='\0' ) {
 							if(HanGroupIndex > 0)
 								HanGroupIndex--;
 						}
@@ -460,7 +465,8 @@ MAIN_START:
 							FTcharmap_shift_cursor_up(chmap);
 						break;
 					case 66:  /* DOWN arrow : move cursor one display_line down */
-						if( enable_pinyin ) {
+						/* Shift displaying UNIHAN group */
+						if( enable_pinyin && strPinyin[0]!='\0' ) {
 							if(HanGroupIndex < HanGroups-1)
 								HanGroupIndex++;
 						}
@@ -542,42 +548,79 @@ MAIN_START:
 		else if( ch>31 || ch==9 || ch==10 ) {  //pos>=0 ) {   /* If pos<0, then ... */
 
 			/* 3.2.1 PINYING Input, put to strPinyin[]  */
-	   		if( enable_pinyin && ( ch==32 || isdigit(ch) || isalpha(ch) ) ) {
-				/* SPACE: Select then first unihan in displaying group  */
+	   		if( enable_pinyin ) {  //&& ( ch==32 || isdigit(ch) || isalpha(ch) ) ) {
+				/* SPACE: insert SAPCE */
 				if( ch==32 ) {
-					FTcharmap_insert_char( chmap, &unihans[HanGroupIndex*GroupMaxItems][0]);
-					/* clear strPinyin then */
-					bzero(strPinyin,sizeof(strPinyin));
-					unicount=0;
+					/* If no strPinyin is empty, insert SPACE into txt */
+					if( strPinyin[0]=='\0' ) {
+						FTcharmap_insert_char( chmap, &ch);
+					/* Else, insert the first unihan in the displaying panel  */
+					} else {
+						FTcharmap_insert_char( chmap, &unihans[HanGroupIndex*GroupMaxItems][0]);
+						/* Clear strPinyin and unihans[]  */
+						bzero(strPinyin,sizeof(strPinyin));
+						unicount=0;
+						//bzero(&unihans[0][0], sizeof(unihans));
+					}
 				}
-				/* DIGIT: Select unihan with index is from 1 to 7 */
-				else if( isdigit(ch) && (ch-48>0 && ch-48 <= GroupMaxItems) ) {   /* Select PINYIN resutl  48-'0' */
-					printf("Select %d\n", ch-48);
-					FTcharmap_insert_char( chmap, &unihans[HanGroupIndex*GroupMaxItems+ch-48-1][0]);
-					/* clear strPinyin then */
-					bzero(strPinyin,sizeof(strPinyin));
-					unicount=0;
+				/* DIGIT: Select unihan OR insert digit */
+				else if( isdigit(ch) ) { //&& (ch-48>0 && ch-48 <= GroupMaxItems) ) {   /* Select PINYIN result 48-'0' */
+					/* Select unihan with index (from 1 to 7) */
+					if(strPinyin[0]!='\0' && (ch-48>0 && ch-48 <= GroupMaxItems) ) {   /* unihans[] NOT cleared */
+						unindex=HanGroupIndex*GroupMaxItems+ch-48-1;
+					   	FTcharmap_insert_char( chmap, &unihans[unindex][0]);
+						/* Clear strPinyin and unihans[] */
+						bzero(strPinyin,sizeof(strPinyin));
+						unicount=0;
+						//bzero(&unihans[0][0], sizeof(unihans));
+
+						/* Increase freq weigh value */
+						UniHan_increase_freq(uniset, strPinyin, unicodes[unindex], 5);
+					}
+					else  {  /* Insert digit into TXT */
+						bzero(phan,sizeof(phan));
+						char_DBC2SBC_to_uft8(ch, phan);
+						FTcharmap_insert_char(chmap, phan);
+					}
 				}
 				/* ALPHABET: Input as PINYIN */
-				else if( isalpha(ch) ) {
-					/* Continue input to strPinyin buffer */
-					if( strlen(strPinyin)<sizeof(strPinyin)-1 ) {
-						strncat(strPinyin, &ch, 1);
-						printf("strPinyin:%s\n",strPinyin);
-					}
-					/* Since strPinyin updated: To find out all unihans complying with input pinyin  */
-					HanGroupIndex=0;
-					if( UniHan_locate_typing(uniset, strPinyin) == 0 ) {
-						unicount=0;
-						/* Put all complied UNIHANs to unihans[][4] */
-						bzero(&unihans[0][0], sizeof(unihans));
-		       				while( strncmp( uniset->unihans[uniset->puh].typing, strPinyin, UNIHAN_TYPING_MAXLEN ) == 0 ) {
-							char_unicode_to_uft8(&(uniset->unihans[uniset->puh].wcode), unihans[unicount]);
-							unicount++;
-                					uniset->puh++;
-			   			}
+				else if( isalpha(ch) && islower(ch) ) {
+					/* Continue input to strPinyin ONLY IF space is available */
+					if( strlen(strPinyin) < sizeof(strPinyin)-1 ) {
+					    strPinyin[strlen(strPinyin)]=ch;
+					    printf("strPinyin: %s\n", strPinyin);
+					    /* Since strPinyin updated: To find out all unihans complying with input pinyin  */
+					    HanGroupIndex=0;
+					    /* Put all complied UNIHANs to unihans[][4] */
+                                            bzero(&unihans[0][0], sizeof(unihans));
+					    if( UniHan_locate_typing(uniset,strPinyin) == 0 ) {
+						 unicount=0;
+						 k=uniset->puh;
+						 while( strncmp( uniset->unihans[k].typing, strPinyin, UNIHAN_TYPING_MAXLEN) == 0 ) {
+							 char_unicode_to_uft8(&(uniset->unihans[k].wcode), unihans[unicount]);
+							 printf("%s\n",unihans[unicount]);
+							 unicodes[unicount]=uniset->unihans[k].wcode;
+							 unicount++;
+							 if(unicount > sizeof(unihans)/sizeof(unihans[0]) )
+								break;
+							 k++;
+							 //uniset->puh++;
+						}
 						HanGroups=(unicount+GroupMaxItems-1)/GroupMaxItems;
+					    }
         				}
+				}
+				/* ELSE: convert to SBC case(full width) and insert to txt */
+				else {
+					/*  convert '.' to '。'*/
+					if( ch=='.' ) {
+						FTcharmap_insert_char(chmap, "。");
+					}
+					else {
+						bzero(phan,sizeof(phan));
+						char_DBC2SBC_to_uft8(ch, phan);
+						FTcharmap_insert_char(chmap, phan);
+					}
 				}
 				//continue;
 			}
@@ -603,6 +646,7 @@ MAIN_START:
 
 			}
 
+			ch=0;
 		}  /* END insert ch */
 
 		/* EDIT:  Need to refresh EGI_FTCHAR_MAP after editing !!! .... */
@@ -616,24 +660,8 @@ MAIN_START:
 			/* Back pad */
 			draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYB, 0, txtbox.endxy.y-60, txtbox.endxy.x, txtbox.endxy.y );
 
-#if 0 ///////////////////////////////////////////////////////////
-			/* To find out all unihans with input pinyin: TODO move to after inputing */
-			if( UniHan_locate_typing(uniset, strPinyin) == 0 ) {
-				unicount=0;
-				/* Put all complied UNIHANs to unihans[][4] */
-				bzero(&unihans[0][0], sizeof(unihans));
-		       		while( strncmp( uniset->unihans[uniset->puh].typing, strPinyin, UNIHAN_TYPING_MAXLEN ) == 0 ) {
-						//bzero(unihans[unicount], sizeof(unihans[0]));
-						char_unicode_to_uft8(&(uniset->unihans[uniset->puh].wcode), unihans[unicount]);
-						unicount++;
-                				uniset->puh++;
-			   	}
-				HanGroups=(unicount+GroupMaxItems-1)/GroupMaxItems;
-        		}
-#endif ////////////////////////////////////////////////////////////
-
 			/* Decoration for PINYIN bar */
-			FTsymbol_writeFB("EGI拼音输入", 320-120, txtbox.endxy.y-60+3, WEGI_COLOR_ORANGE, NULL, NULL);
+			FTsymbol_writeFB("EGI全拼输入", 320-120, txtbox.endxy.y-60+3, WEGI_COLOR_ORANGE, NULL, NULL);
 			fbset_color(WEGI_COLOR_WHITE);
 			draw_line(&gv_fb_dev, 15, txtbox.endxy.y-60+3+28, 320-15,txtbox.endxy.y-60+3+28);
 
@@ -642,7 +670,7 @@ MAIN_START:
 
 			/* Display grouped UNIHANs for selecting  */
 			if( unicount>0 ) {
-				printf("unicount=%d, HanGroups=%d, HanGroupIndex=%d\n", unicount, HanGroups,HanGroupIndex);
+				//printf("unicount=%d, HanGroups=%d, HanGroupIndex=%d\n", unicount, HanGroups,HanGroupIndex);
 				bzero(strHanlist, sizeof(strHanlist));
 				for( i=0; i < GroupMaxItems && i<unicount; i++ ) {
 					snprintf(strItem,sizeof(strItem),"%d.%s ",i+1,unihans[HanGroupIndex*GroupMaxItems+i]);
