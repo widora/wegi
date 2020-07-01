@@ -137,7 +137,7 @@ EGI_UNIHAN_SET	*uniset;
 static bool enable_pinyin=false;  /* Enable input method PINYIN */
 char strPinyin[64]={0};		  /* To store input pinyin string */
 char unihans[512][4]; //[256][4]; /* To store UNIHANs complied with input pinyin, [4] in UFT8-encoding.  */
-char unicodes[512];		  /* To store UNICODE of unihans[512]  MAX for typing 'ji' totally 298 UNIHANs */
+EGI_UNICODE unicodes[512];		  /* To store UNICODE of unihans[512]  MAX for typing 'ji' totally 298 UNIHANs */
 unsigned int unindex;
 char phan[4];			  /* temp. */
 int  unicount;			  /* Count of unihans found */
@@ -569,13 +569,15 @@ MAIN_START:
 					if(strPinyin[0]!='\0' && (ch-48>0 && ch-48 <= GroupMaxItems) ) {   /* unihans[] NOT cleared */
 						unindex=HanGroupIndex*GroupMaxItems+ch-48-1;
 					   	FTcharmap_insert_char( chmap, &unihans[unindex][0]);
+
+						/* Increase freq weigh value */
+						printf("unicodes[%d]: U+%X\n", unindex, unicodes[unindex]);
+						UniHan_increase_freq(uniset, strPinyin, unicodes[unindex], 10);
+
 						/* Clear strPinyin and unihans[] */
 						bzero(strPinyin,sizeof(strPinyin));
 						unicount=0;
 						//bzero(&unihans[0][0], sizeof(unihans));
-
-						/* Increase freq weigh value */
-						UniHan_increase_freq(uniset, strPinyin, unicodes[unindex], 5);
 					}
 					else  {  /* Insert digit into TXT */
 						bzero(phan,sizeof(phan));
@@ -598,7 +600,6 @@ MAIN_START:
 						 k=uniset->puh;
 						 while( strncmp( uniset->unihans[k].typing, strPinyin, UNIHAN_TYPING_MAXLEN) == 0 ) {
 							 char_unicode_to_uft8(&(uniset->unihans[k].wcode), unihans[unicount]);
-							 printf("%s\n",unihans[unicount]);
 							 unicodes[unicount]=uniset->unihans[k].wcode;
 							 unicount++;
 							 if(unicount > sizeof(unihans)/sizeof(unihans[0]) )

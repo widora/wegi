@@ -332,7 +332,7 @@ Note:
 2. If illegal coding is found...
 
 Return:
-	>0	OK, string length in bytes.
+	>=0	OK, string length in bytes.
 	<0	Fails
 ------------------------------------------------------------------------*/
 inline int cstr_charlen_uft8(const unsigned char *cp)
@@ -340,7 +340,9 @@ inline int cstr_charlen_uft8(const unsigned char *cp)
 	if(cp==NULL)
 		return -1;
 
-	if(*cp < 0b10000000 )
+	if( *cp == '\0' )
+		return 0;
+	else if( *cp < 0b10000000 )
 		return 1;	/* 1 byte */
 	else if( *cp >= 0b11110000 )
 		return 4;	/* 4 bytes */
