@@ -65,7 +65,7 @@ struct egi_unihan
 
 	#define			UNIHAN_TYPING_MAXLEN	8	/* 1 for EOF */
         char                    typing[UNIHAN_TYPING_MAXLEN];      /* Keyboard input sequence that representing the wcode , in ASCII lowercase.
-					 	 * Example: typing of "chuǎng" is "chuang3" or "chuang"
+					 	 * Example: PINYIN typing of "chuǎng" is "chuang3" or "chuang"
                                                  * 1. Its size depends on input method.
                                                  * 2. For PINYIN typing, 8bytes is enough.
                                                  *    MAX. size example: "chuang3", here '3' indicates the tone.
@@ -129,7 +129,7 @@ struct egi_uniHanGroup_set
 	UNIHAN_SORTORDER	sorder;		/* Sort order ID. */
 
 	size_t			ugroups_capacity;	/* Capacity of unihgroups[], include empty unihgrups[] with unihgrups->wcodes[0]==0 */
-	size_t			ugroups_size;		/* Current total number of UniHanGroups in */
+	size_t			ugroups_size;		/* Current total number of UniHanGroups in ugroups, excluding empty ones. */
         EGI_UNIHANGROUP        *ugroups;    		/* Array of UniHanGroups */
 	#define 		UHGROUP_UGROUPS_GROW_SIZE   64
 
@@ -143,6 +143,9 @@ struct egi_uniHanGroup_set
 	char			*typings;	/* A buffer to hold all typings, with '\0' as dilimiters */
 	#define 		UHGROUP_TYPINGS_GROW_SIZE   512
 };
+
+/* PINYIN Functions */
+int  UniHan_parse_pinyin(const char *strp, char *pinyin, int n);
 
 /* UNIHAN HEAP Funcitons */
 EGI_UNIHAN_HEAP* UniHan_create_heap(size_t capacity);
@@ -167,23 +170,23 @@ void 	UniHan_insertSort_wcode( EGI_UNIHAN* unihans, int n );
 int 	UniHan_quickSort_wcode(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff);
 
 /* UNISET Sort Function */
-int 	UniHan_quickSort_uniHanSet(EGI_UNIHAN_SET* uniset, UNIHAN_SORTORDER sorder, int cutoff);
+int 	UniHan_quickSort_set(EGI_UNIHAN_SET* uniset, UNIHAN_SORTORDER sorder, int cutoff);
 
 /* UNIHAN SET Functions */
-EGI_UNIHAN_SET* UniHan_create_uniHanSet(const char *name, size_t capacity);
+EGI_UNIHAN_SET* UniHan_create_set(const char *name, size_t capacity);
 void 		UniHan_free_set( EGI_UNIHAN_SET **set);
 void 		UniHan_reset_freq( EGI_UNIHAN_SET *uniset );
 
-int 		UniHan_save_uniHanSet(const char *fpath,  const EGI_UNIHAN_SET *set);
-EGI_UNIHAN_SET* UniHan_load_uniHanSet(const char *fpath);
+int 		UniHan_save_set(const char *fpath,  const EGI_UNIHAN_SET *set);
+EGI_UNIHAN_SET* UniHan_load_set(const char *fpath);
 
 int 		UniHan_locate_wcode(EGI_UNIHAN_SET* uniset, EGI_UNICODE wcode);
 int 		UniHan_locate_typing(EGI_UNIHAN_SET* uniset, const char* typing);
 int 		UniHan_poll_freq(EGI_UNIHAN_SET *uniset, const char *fpath);
 int 		UniHan_increase_freq(EGI_UNIHAN_SET *uniset, const char* typing, EGI_UNICODE wcode, int delt);
 
-int 		UniHan_merge_uniHanSet(const EGI_UNIHAN_SET* uniset1, EGI_UNIHAN_SET* uniset2);
-int 		UniHan_purify_uniHanSet(EGI_UNIHAN_SET* uniset );
+int 		UniHan_merge_set(const EGI_UNIHAN_SET* uniset1, EGI_UNIHAN_SET* uniset2);
+int 		UniHan_purify_set(EGI_UNIHAN_SET* uniset );
 
 /* Read formated txt into uniset */
 EGI_UNIHAN_SET* UniHan_load_HanyuPinyinTxt(const char *fpath);
