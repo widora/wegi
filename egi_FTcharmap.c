@@ -1046,7 +1046,7 @@ CHARMAP_END:
 			chmap->txtdlncount++;	/* Scroll down one dline each time. */
 			#else
 			EGI_PDEBUG(DBG_CHARMAP,"Scroll down one page to follow cursor...\n");
-			chmap->txtdlncount += chmap->maplncount-1; /* Scroll down one page eatch time. */
+			chmap->txtdlncount += chmap->maplncount-1; /* Scroll down one page each time. */
 			/* Note: When inserting a large block, it's faster. but when we typing in at the end of current page,
 			 * we just want to scroll one dline each time and keep our sight focus from jumping over too much.
 			 */
@@ -2399,6 +2399,111 @@ int FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap )
 
         return 0;
 }
+
+/*---------------------------------------------------------
+Go to the first dline of the txtbuff, and set pchoff/pchoff2
+to the very beginning.
+
+@chmap: an EGI_FTCHAR_MAP
+
+Return:
+        0       OK
+        <0      Fail
+----------------------------------------------------------*/
+int FTcharmap_goto_firstDline ( EGI_FTCHAR_MAP *chmap )
+{
+        if( chmap==NULL ) {
+                printf("%s: Input FTCHAR map is empty!\n", __func__);
+                return -1;
+        }
+
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+	/* Check request ? OR wait ??? */
+	if( chmap->request !=0 ) {
+       	/*  <-------- Put mutex lock */
+	        pthread_mutex_unlock(&chmap->mutex);
+		return -3;
+	}
+
+        /* PRE_1. Update chmap->txtdlncount */
+	chmap->txtdlncount=0;
+        /* PRE_2. Update chmap->pref */
+	chmap->pref=chmap->txtbuff;
+	/* PRE_3. Set pchoff/pchoff2 */
+	chmap->pchoff=0;
+	chmap->pchoff2=0;
+
+	/* Set chmap->request for charmapping */
+	chmap->request=1;
+
+        /*  <-------- Put mutex lock */
+        pthread_mutex_unlock(&chmap->mutex);
+
+        return 0;
+}
+
+
+#if 0 ////////////////////* TODO *////////////////////////////////
+/*---------------------------------------------------------
+Go to the last dline of txtbuff, and set pchoff/pchoff2
+to the beginning of the dline.
+
+@chmap: an EGI_FTCHAR_MAP
+
+Return:
+        0       OK
+        <0      Fail
+----------------------------------------------------------*/
+int FTcharmap_goto_lastDline ( EGI_FTCHAR_MAP *chmap )
+{
+	int dln;
+
+        if( chmap==NULL ) {
+                printf("%s: Input FTCHAR map is empty!\n", __func__);
+                return -1;
+        }
+
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+	/* Check request ? OR wait ??? */
+	if( chmap->request !=0 ) {
+       	/*  <-------- Put mutex lock */
+	        pthread_mutex_unlock(&chmap->mutex);
+		return -3;
+	}
+
+        /* Get txtdlncount for the end of txtbuff */
+        dln=FTcharmap_get_txtdlIndex(chmap, chmap->txtbuff+chmap->txtlen);
+        if(dln<0) {
+        	printf("%s: Fail to find index of chmap->txtdlinePos[] for pchoff!\n", __func__);
+                                /* --- Do nothing! --- */
+        }
+        else {
+        	/* PRE_1. Update chmap->txtdlncount */
+                chmap->txtdlncount=dln;
+                /* PRE_2. Update chmap->pref */
+                chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+		/* PRE_3. Set pchoff/pchoff2 */
+		chmap->pchoff=chmap->txtbuff+chmap->txtlen;
+		chmap->pchoff2=chmap->pchoff;
+	}
+
+	/* Set chmap->request for charmapping */
+	chmap->request=1;
+
+        /*  <-------- Put mutex lock */
+        pthread_mutex_unlock(&chmap->mutex);
+
+        return 0;
+}
+#endif //////////////////////////////////////////////////////////////////
 
 
 /*---------------------------------------------------------

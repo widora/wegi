@@ -18,6 +18,7 @@ HOME(or Fn+LEFT_ARROW!):	Return cursor to the begin of the retline.
 END(or Fn+RIGHT_ARROW!):	Move cursor to the end of the retline.
 CTRL+N:		Scroll down 1 line, keep typing cursor position.
 CTRL+O:		Scroll up 1 line, keep typing curso position.
+CTRL+E:		Go to the last page.
 CTRL+F:		Save current chmap->txtbuff to a file.
 PG_UP:		Page up
 PG_DN:		Page down
@@ -44,7 +45,6 @@ SPACE:		Select the first Haizi in the displaying panel
 	  (UP: decrease chmap->pch, 	  DOWN: increase chmap->pch )
 
 
-
 Note:
 1. Mouse_events and and key_events run in two independent threads.
    When you input keys while moving/scrolling mouse to change inserting position, it can
@@ -62,7 +62,6 @@ TODO:
 6. The typing cursor can NOT escape out of the displaying window. it always
    remains and blink in visible area.	---OK
 7. IO buffer/continuous key press/ slow writeFB response.
-
 
 
 Midas Zhou
@@ -112,11 +111,14 @@ midaszhou@yahoo.com
 
 #define 	TEST_INSERT 	1
 
-/* Some ASCII control key */
-#define		CTRL_N	14	/* ASCII: Ctrl + N, scroll down  */
-#define		CTRL_O	15	/* ASCII: Ctrl + O, scroll up  */
-#define 	CTRL_F  6	/* ASCII: Ctrl + f */
-#define		CTRL_E  5	/* PINYIN input ON/OFF toggle */
+/* Some Shell TTY ASCII control key */
+#define		CTRL_N	14	/* Ctrl + N: scroll down  */
+#define		CTRL_O	15	/* Ctrl + O: scroll up  */
+#define 	CTRL_F  6	/* Ctrl + f: save file */
+#define		CTRL_S  19	/* Ctrl + S */
+#define		CTRL_E  5	/* Ctrl + e: go to last page */
+#define		CTRL_H  8	/* Ctrl + h: go to the first dline, head of the txtbuff */
+#define		CTRL_P  16	/* Ctrl + p: PINYIN input ON/OFF toggle */
 
 char *strInsert="Widora和小伙伴们";
 char *fpath="/tmp/hello.txt";
@@ -199,6 +201,7 @@ static int WBTMenu_Command_ID=WBTMENU_COMMAND_NONE;
 
 /* Functions */
 static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
+static void FTcharmap_goto_end(void);
 static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void mouse_callback(unsigned char *mouse_data, int size);
 static void draw_mcursor(int x, int y);
@@ -297,9 +300,9 @@ int main(int argc, char **argv)
 		fpath=argv[1];
 
   	/* Load UniHan Set for PINYIN Input */
-  	uniset=UniHan_load_uniset(UNIHANS_DATA_PATH);
+  	uniset=UniHan_load_set(UNIHANS_DATA_PATH);
   	if( uniset==NULL ) exit(1);
-	if( UniHan_quickSort_uniset(uniset, UNIORDER_TYPING_FREQ, 10) !=0 ) exit(2);
+	if( UniHan_quickSort_set(uniset, UNIORDER_TYPING_FREQ, 10) !=0 ) exit(2);
 	getchar();
 
 MAIN_START:
@@ -494,30 +497,45 @@ MAIN_START:
 			ch=0;
 		}
 
-		/* 2. TTY Controls:   Pan displaying text */
-		if(ch==CTRL_E) {
-			enable_pinyin=!enable_pinyin;  /* Toggle input method to PINYIN */
-			if(enable_pinyin)
-				bzero(strPinyin,sizeof(strPinyin));
-			else {
-				unicount=0;		/* clear previous unihans */
-				HanGroupIndex=0;
-			}
-			ch=0;
-		}
-		else if( ch==CTRL_N ) {		/* Pan one line up, until the last line. */
-			FTcharmap_scroll_oneline_down(chmap);
-			//FTcharmap_set_pref_nextDispLine(chmap);
-			ch=0; /* to ignore  */
-		}
-		else if ( ch==CTRL_O) {		/* Pan one line down */
-			FTcharmap_scroll_oneline_up(chmap);
-			ch=0;
-		}
-		else if ( ch==CTRL_F) {		/* Save chmap->txtbuff */
-			printf("Saving chmap->txtbuff to a file...");
-			FTcharmap_save_file(fpath, chmap);
-			ch=0;
+		/* 2. TTY Controls  */
+		switch( ch )
+		{
+		    	case CTRL_P:
+				enable_pinyin=!enable_pinyin;  /* Toggle input method to PINYIN */
+				if(enable_pinyin)
+					bzero(strPinyin,sizeof(strPinyin));
+				else {
+					unicount=0;		/* clear previous unihans */
+					HanGroupIndex=0;
+				}
+				ch=0;
+			   	break;
+			case CTRL_H:
+				FTcharmap_goto_firstDline(chmap);
+				ch=0;
+				break;
+			case CTRL_E:
+				//FTcharmap_goto_firstDline(chmap);
+				FTcharmap_goto_end();
+				ch=0;
+				break;
+			case CTRL_N:			/* Pan one line up, until the last line. */
+				FTcharmap_scroll_oneline_down(chmap);
+				//FTcharmap_set_pref_nextDispLine(chmap);
+				ch=0; /* to ignore  */
+				break;
+			case CTRL_O:
+				FTcharmap_scroll_oneline_up(chmap);
+				ch=0;
+				break;
+			case CTRL_F:
+				printf("Saving chmap->txtbuff to a file...");
+				FTcharmap_save_file(fpath, chmap);
+                                draw_msgbox( &gv_fb_dev, 50, 50, 240, "文件已经保存！" );
+                                fb_render(&gv_fb_dev);
+				tm_delayms(300);
+				ch=0;
+				break;
 		}
 
 		/* 3. Edit text */
@@ -854,6 +872,35 @@ static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int
         }
 
 	return ret>0?ret:0;
+}
+
+/*----------------------------------------
+    Charmap to the last page of txtbuff.
+TODO: mutex_lock + request
+----------------------------------------*/
+static void FTcharmap_goto_end(void)
+{
+
+#if 1   /* OPTION 1: charmap to txtbuff end */
+        while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
+        {
+                FTcharmap_page_down(chmap);
+                FTcharmap_writeFB(NULL, 0, NULL, NULL);
+	}
+
+        /* Reset cursor position: pchoff/pchoff2 accordingly */
+        //chmap->pchoff=chmap->pref-chmap->txtbuff+chmap->charPos[chmap->chcount-1];
+	chmap->pchoff=chmap->txtlen;
+        chmap->pchoff2=chmap->pchoff;
+#else   /* OPTION 2:    */
+
+#endif
+
+	/* Display OR let MAIN to handle it */
+	#if 0
+        FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL);
+        fb_render(&gv_fb_dev);
+	#endif
 }
 
 
@@ -1249,18 +1296,16 @@ static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg
 }
 
 
-/*-------------------------------------------------------
+/*-----------------------------------------------------------
 WriteFB a progressing msg box
 
-Limit: 100 lines.
+Limit: Max. 100 line text.
 
 @x0,y0:  	Left top coordinate of the msgbox.
 @msg:	 	Message string in UFT-8 encoding.
-@pv:	 	Progress value.
-@pev:		Progress end value.
-
+@width:	 	width of the msgbox.
 -------------------------------------------------------------*/
-static void draw_msgbox( FBDEV *fb_dev, int x0, int y0, int width, const char *msg )
+static void draw_msgbox( FBDEV *fb_dev, int x0, int y0, int width, const char *msg)
 {
 	int height;	//=120;
 	int fh=18;	/* Font height and width */

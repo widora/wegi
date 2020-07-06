@@ -955,9 +955,11 @@ inline int FTsymbol_cooked_charWidth(wchar_t wcode, int fw)
 			return fw*factor_TabWidth;
 		case 13:	/* NEW LINE */
 			return 0;
-		case 12288:	/* (0x3000) SPACE defined in CJK Unicode group 'Spacing Modifier' */
+		case 0x3000:	/* 0x3000(12288) SPACE defined in CJK Unicode group 'Spacing Modifier' */
 			return fw*factor_SpaceWidth;
-		case 65279:	/* ZERO_WIDTH_NO_BREAK SPACE */
+		case 0xFEFF:	/* 0xFEFF(65279) ZERO_WIDTH_NO_BREAK SPACE, Normally for BOM(Byte-order-mark), at very beginning of a file. */
+			return 0;
+		case 0x2060:	/* 0x2060 Word Joiner */
 			return 0;
 		default:
 			return -1;
@@ -1111,7 +1113,7 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 		if( wcode == 12288 ) {  	/* wcode==12288(0x3000) LOCALE SPACE (SDB case/Full_width) */
 			*xleft -= fw*factor_SpaceWidth;
 		}
-		else if ( wcode == 65279 ) 	/* ZERO_WIDTH_NO_BREAK SPACE */
+		else if ( wcode == 0xFEFF ) 	/* 0xFEFF(65279) ZERO_WIDTH_NO_BREAK SPACE */
 			*xleft -= 0;
 		else if ( wcode == 32 ) 	/* ASCII SPACE (wchar_t)(L" ") */
 			*xleft -= fw*factor_SpaceWidth/2;

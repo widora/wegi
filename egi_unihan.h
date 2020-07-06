@@ -51,7 +51,7 @@ typedef struct egi_unihan_heap	EGI_UNIHAN_HEAP; /* A heap of Unicode Hans, It's 
 						  * Here refers to Priority Binary Heap
 						  */
 
-typedef struct egi_uniHanGroup		EGI_UNIHANGROUP;	/* A struct for Unicode Han Groups (as Words and Phrases) */
+typedef struct egi_uniHanGroup		EGI_UNIHANGROUP;	/* A struct for Unicode Han Groups (as Cizu/Words/Phrases) */
 typedef struct egi_uniHanGroup_set	EGI_UNIHANGROUP_SET;  	/* A set of Unicode Han Groups */
 
 struct egi_unihan
@@ -121,7 +121,6 @@ struct egi_uniHanGroup		/* UNIHAN Words/Phrasese/Cizus */
 struct egi_uniHanGroup_set
 {
         char                    name[32];       /* Short name for the UniHanGroups set, MUST NOT be a pointer. */
-
         //int                     input_method;   /* input method: pinyin,  ...  */
 
 	unsigned int		pgrp;		/* Index to an unihgroups[], usually to store result of loacting/searching.  */
@@ -144,8 +143,12 @@ struct egi_uniHanGroup_set
 	#define 		UHGROUP_TYPINGS_GROW_SIZE   512
 };
 
+
+
+
+
 /* PINYIN Functions */
-int  UniHan_parse_pinyin(const char *strp, char *pinyin, int n);
+int  UniHan_divide_pinyin(const char *strp, char *pinyin, int n);
 
 /* UNIHAN HEAP Funcitons */
 EGI_UNIHAN_HEAP* UniHan_create_heap(size_t capacity);
@@ -203,10 +206,18 @@ void 		   	UniHanGroup_free_set( EGI_UNIHANGROUP_SET **set);
 EGI_UNIHANGROUP_SET* 	UniHanGroup_load_CizuTxt(const char *fpath);
 
 int 	UniHanGroup_assemble_typings(EGI_UNIHANGROUP_SET *group_set, EGI_UNIHAN_SET *han_set);
-void 	UniHanGroup_print(const EGI_UNIHANGROUP_SET *group_set, unsigned int start, unsigned int end);
+void 	UniHanGroup_print_set(const EGI_UNIHANGROUP_SET *group_set, unsigned int start, unsigned int end);
+void 	UniHanGroup_print_group(const EGI_UNIHANGROUP_SET *group_set, unsigned int index);
+void 	UniHanGroup_search_uchar(const EGI_UNIHANGROUP_SET *group_set, UFT8_PCHAR uchar);
 int 	UniHanGroup_compare_typing( const EGI_UNIHANGROUP *group1, const EGI_UNIHANGROUP *group2, const EGI_UNIHANGROUP_SET *group_set);
 
 void 	UniHanGroup_insertSort_typing(EGI_UNIHANGROUP_SET *group_set, int start, int n);
 int 	UniHanGroup_quickSort_typing(EGI_UNIHANGROUP_SET* group_set, unsigned int start, unsigned int end, int cutoff);
+
+//static inline int compare_group_typings(const char *group_typing1, int nch1, const char *group_typing2, int nch2, bool TYPING2_IS_SHORT);
+
+int 	strstr_group_typings(const char *hold_typings, const char* try_typings);
+void 	print_group_typings(const char* typings, unsigned int nw);
+int  	UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typings);
 
 #endif

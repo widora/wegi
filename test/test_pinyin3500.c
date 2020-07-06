@@ -6,6 +6,16 @@ published by the Free Software Foundation.
 With reference to: http://a.dgqjj.com/rpinyin_3500ge.html
 Load frequently-used Haizi(pinyin3500) to an EGI_UNIHAN_SET.
 
+Note:
+1. Vowel 'ü' in pinyin3500 marked as 'uu', need to be replaced with 'v'
+   in the txt file. ( kMandarin.txt has those UNIHANs with right typings! )
+
+	...
+	NUU nuu 女恧衄
+	NUUE nuue 疟虐
+	LUU luu 驴吕侣铝旅偻屡缕履律虑滤率绿
+	LUUE luue 掠略
+	...
 
 Midas Zhou
 midaszhou@yahoo.com

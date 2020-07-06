@@ -36,6 +36,10 @@ midaszhou@yahoo.com
 #include "egi_utils.h"
 
 
+//static inline int strstr_group_typings(const char *hold_typings, const char* try_typings);
+static inline int compare_group_typings( const char *group_typing1, int nch1, const char *group_typing2, int nch2, bool TYPING2_IS_SHORT);
+
+
 /*----------------------------------------------------------------------------
 Parse an unbroken string into several groups of PINYIN typings.
 A PINYIN typing typically consists of a Shengmu(initial consonant) and a
@@ -54,7 +58,7 @@ Note:
  (But 'y,w' here are treated as Shengmu)
 	 b,p,m,f,d,t,n,l,g,k,h,j,q,x,zh,ch,sh,r,z,c,s,y,w
 
- 3. Yunmu(vowel/vowels) list(24):
+ 3. Yunmu(vowel/vowels) list:
 	a,o,e,
 	i,u,ü		(v)
         ai,ei,ui,
@@ -68,13 +72,12 @@ Note:
 	iao, uai, uei, uen, ueng
 	ian, uan, üan, iang, uang, iong
 	Notice that 'iou','uei','uen' 'ueng' are to be written as 'iu','ui','un','ong' respectively when preceded by a Shengmu.
-	(ueng?)
 
 			( ---  Yunmus in Typings as Classified --- )
 	a,ai,ao,an,ang
 	o,ou,ong,
 	e,ei,er,en,eng,
-	i,iu,ie,in, iao, ian, ing, iang, iong
+	i,iu,ie,in,ia, iao, ian, ing, iang, iong
 	u,ui,uo,ue,un,ua,uai,uan,uang
 	v,ve,vn,　　		（van ?)
 	(as ü replaced by v in typings )
@@ -82,7 +85,7 @@ Note:
 
   ( All 26 alphabets will be the initial char of a Shenmu/Yunmu except 'v' )
 
- 4. If there is ambiguous for parsing an unbroken pingyin string, such as "fangan", use '(0x27) or to separate.
+ 4. If there is ambiguous for parsing an unbroken pingyin string, such as "fangan", use '(0x27) to separate.
 	"xian"  	is parsed to:  xian
 	"xi'an" 	is parsed to:  xi an
 	"haobangai"	is parsed to:  hao bang ai
@@ -93,7 +96,9 @@ TODO:
 
 @strp:		An unbroken string of alphabet chars in lowercases,
 		terminated with a '\0'.
-		It SHOULD occupy UNIHAN_TYPING_MAXLEN*n bytes mem space.
+		It SHOULD occupy UNIHAN_TYPING_MAXLEN*n bytes mem space,
+		as the function will try to read the content in above range
+		withou checking position of the string terminal NULL!
 
 @pinyin:	To store parsed groups of PINYINs.
 		Each group takes UNIHAN_TYPING_MAXLEN bytes, including '\0's.
@@ -101,12 +106,13 @@ TODO:
 @n:		Max. groups of PINYINs expected.
 
 Return:
-	0	OK
-	<0	Fails
+	>0	OK, total number of PINYIN typings as divided into.
+	<=0	Fails
 ----------------------------------------------------------------------------*/
-int  UniHan_parse_pinyin(const char *strp, char *pinyin, int n)
+int  UniHan_divide_pinyin(const char *strp, char *pinyin, int n)
 {
-	int i,k;
+	int i;
+	int np;			/* count total number of PINYIN typings */
 	const char *ps;		/* Start of a complete PINYIN typing (Shengmu+Yunmu OR Yunmu) */
 	const char *pc=strp;
 	bool	zero_shengmu; /* True if has NO Shengmu */
@@ -116,6 +122,7 @@ int  UniHan_parse_pinyin(const char *strp, char *pinyin, int n)
 
 	/* Clear data */
 	memset(pinyin, 0, n*UNIHAN_TYPING_MAXLEN);
+	np=0;
 
 	for( i=0; i<n; i++) {
 		while( *pc != '\0' ) {   /* pc always points to the start of a new Shengmu or Yunmu */
@@ -222,7 +229,7 @@ int  UniHan_parse_pinyin(const char *strp, char *pinyin, int n)
 					}
 					break;
 
-				/* i,iu,ie,in,ing, iao, ian, iang, iong */
+				/* i,iu,ie,in,ing, ia, iao, ian, iang, iong */
 				case 'i':
 					switch(*(pc+1)) {
 						case 'u':			/* iu */
@@ -239,6 +246,7 @@ int  UniHan_parse_pinyin(const char *strp, char *pinyin, int n)
 							switch(*(pc+2)) {
 								case 'o':
 									pc+=3;			/* iao */
+									break;
 								case 'n':
 									if(*(pc+3)=='g')	/* iang */
 										pc+=4;
@@ -246,7 +254,7 @@ int  UniHan_parse_pinyin(const char *strp, char *pinyin, int n)
 										pc+=3;
 									break;
 								default:  /* takes only 'i'  */
-									pc++;			/* i */
+									pc+=2;			/* ia */
 									break;
 							}
 							break;
@@ -318,6 +326,7 @@ int  UniHan_parse_pinyin(const char *strp, char *pinyin, int n)
 
 			/* 3. Copy a complete PINYIN typing(Shengmu+Yunmu or Yunmu) to pinyin[] */
 			strncpy(pinyin+i*UNIHAN_TYPING_MAXLEN, ps, pc-ps);
+			np++;
 
 			/* 4. For the next PINYIN */
 			i++;
@@ -326,7 +335,7 @@ int  UniHan_parse_pinyin(const char *strp, char *pinyin, int n)
 
 	} /* for() */
 
-	return 0;
+	return np;
 }
 
 /*-------------------------------------------------
@@ -2423,7 +2432,7 @@ int UniHan_locate_typing(EGI_UNIHAN_SET* uniset, const char* typing)
 	end=uniset->size-1;
 	mid=(start+end)/2;
 
-	/* binary search for the wcode  */
+	/* binary search for the typing */
 	/* While if NOT containing the typing string at beginning */
 	while( strstr(unihans[mid].typing, typing) != unihans[mid].typing ) {
 
@@ -2669,7 +2678,6 @@ calling this function.
 void UniHan_print_wcode(EGI_UNIHAN_SET *uniset, EGI_UNICODE wcode)
 {
 	int k;
-	char pch[4]={0};
 
 	/* UniHan_locate_wcode(): Input check also inside. */
         if( UniHan_locate_wcode(uniset,wcode) !=0 ) {		/* sort: wcode+typing+freq */
@@ -2770,6 +2778,7 @@ void UniHanGroup_free_set( EGI_UNIHANGROUP_SET **set)
 	*set=NULL;
 }
 
+
 /*----------------------------------------------------------------
 Read an UFT-8 text file containing unihan_groups(words/phrases/Cizus)
 and load them to an EGI_UNIHANGROUP_SET struct.
@@ -2848,7 +2857,7 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 			continue;
 		}
 		else if( nch > UHGROUP_WCODES_MAXSIZE ) {
-			printf("%s:%s nch=%d, Too many wcodes for a uhgroup!\n", __func__, linebuff, nch);
+			printf("%s:%s nch=%d, Too many wcodes for a UNIHAN_GROUP!\n", __func__, linebuff, nch);
 			continue;
 		}
 
@@ -2953,6 +2962,7 @@ Note:
   so it MAY NOT be correct for some unihan_groups/phrases!
 	22511: 谋求 mo qiu   (x)
 	22512: 谋取 mo qu    (x)
+	地图: de tu
 
 @ugroup_set:	Unihan Group Set without typings.
 @uhan_set:	Unihan Set with typings.
@@ -3015,20 +3025,21 @@ int UniHanGroup_assemble_typings(EGI_UNIHANGROUP_SET *group_set, EGI_UNIHAN_SET 
 		/* 3. Get typing of each UNIHAN */
 		for(j=0; j<nch; j++)
 		{
-			if( UniHan_locate_wcode(han_set, group_set->ugroups[i].wcodes[j]) !=0 ) {
-				printf("%s: Fail to UniHan_locate_wcode U+%X (%s)\n",__func__, group_set->ugroups[i].wcodes[j],
-										   group_set->uchars+ group_set->ugroups[i].pos_uchar );
-				getchar();
-				/* Though empty typing for this UNIHAN, pos_typing space keeps. */
-			}
-			else {
+			if( UniHan_locate_wcode(han_set, group_set->ugroups[i].wcodes[j]) ==0 ) {
 			    	strncpy( group_set->typings+pos_typing+j*UNIHAN_TYPING_MAXLEN,
 						han_set->unihans[han_set->puh].typing, UNIHAN_TYPING_MAXLEN);
 				/* TEST --- */
 //				printf("%s ", han_set->unihans[han_set->puh].typing);
 			}
+			#if 0  /* TEST --- */
+			else {
+				printf("%s: Fail to UniHan_locate_wcode U+%X (%s), press a key to continue.\n",
+						__func__, group_set->ugroups[i].wcodes[j], group_set->uchars+ group_set->ugroups[i].pos_uchar );
+				getchar();
+				/* Though empty typing for this UNIHAN, go on to assign pos_typing and keep space. */
+			}
+			#endif
 		}
-//		printf("\n");
 
 		/* 4. Assign pos_typing for ugroups[i] */
 		group_set->ugroups[i].pos_typing=pos_typing;
@@ -3043,15 +3054,24 @@ int UniHanGroup_assemble_typings(EGI_UNIHANGROUP_SET *group_set, EGI_UNIHAN_SET 
 	return 0;
 }
 
+/*-----------------------------------
+Get number of unihans in a UNIHANGROUP
+
+------------------------------------*/
+int UniHanGroup_wcodes_size(const EGI_UNIHANGROUP *group)
+{
+
+
+}
 
 /*---------------------------------------------------
-		Print out  group set.
+Print out  unihan_goups in a group set.
 
 @group_set	Unihan Group Set
 @start		Start index of ugroups[]
 @end		End index of ugroups[]
 ---------------------------------------------------*/
-void UniHanGroup_print(const EGI_UNIHANGROUP_SET *group_set, unsigned int start, unsigned int end)
+void UniHanGroup_print_set(const EGI_UNIHANGROUP_SET *group_set, unsigned int start, unsigned int end)
 {
 	int i,j;
 	int nch;
@@ -3083,7 +3103,64 @@ void UniHanGroup_print(const EGI_UNIHANGROUP_SET *group_set, unsigned int start,
 }
 
 
-/*-------------------------------------------------------------------------
+/*--------------------------------------------------------------
+Print out UCHAR and TYPINGS of an unihan_group(cizu/phrase/words)
+from a group set.
+
+@group_set:	Unihan Group Set
+@index:		index of group_set->ugroups[].
+---------------------------------------------------------------*/
+void UniHanGroup_print_group(const EGI_UNIHANGROUP_SET *group_set, unsigned int index)
+{
+	int k;
+	int nch;
+
+	if(group_set==NULL)
+		return;
+
+	/* Limit index */
+	if( index > group_set->ugroups_size-1 )
+		return;
+
+        /* Count number of UNICODES in wcodes[] */
+        nch=UHGROUP_WCODES_MAXSIZE;
+        while( nch>0 && group_set->ugroups[index].wcodes[nch-1] == 0 ) { nch--; };
+
+	/* Print unihans and typings */
+	printf("%s: ",group_set->uchars+group_set->ugroups[index].pos_uchar);
+	for(k=0; k<nch; k++) {
+		printf("%s ",group_set->typings+group_set->ugroups[index].pos_typing+k*UNIHAN_TYPING_MAXLEN);
+	}
+	printf("\n");
+}
+
+
+/*---------------------------------------------------
+Search all unihan groups in a grou set to find out
+the input uchar, then print the unihan_group.
+
+@group_set:	Unihan Group Set
+@uchar:		Pointer to an UCHAR in UFT-8 enconding.
+---------------------------------------------------*/
+void UniHanGroup_search_uchar(const EGI_UNIHANGROUP_SET *group_set, UFT8_PCHAR uchar)
+{
+	int k;
+	char *pc;
+
+	if(group_set==NULL || uchar==NULL)
+		return;
+
+	for(k=0; k < group_set->ugroups_size; k++) {
+		pc=(char *)group_set->uchars+group_set->ugroups[k].pos_uchar;
+		if( strstr( pc, (char *)uchar)==pc ) {
+			printf("ugroups[%d]: ",k);
+			UniHanGroup_print_group(group_set, k);
+		}
+	}
+}
+
+
+/*----------------------------------------------------------------------------
 Compare typing+freq ORDER of two unihan_groupss and return an integer less
 than, equal to, or greater than zero, if unha1 is found to be ahead of,
 at same order of, or behind uhans2 in dictionary order respectively.
@@ -3091,25 +3168,26 @@ at same order of, or behind uhans2 in dictionary order respectively.
 Note:
 1. !!! CAUTION !!!  Here typing refers to PINYIN, other type MAY NOT work.
 2. All typing letters MUST be lowercase.
-3. It first compares their dictionary order, if NOT in the same order, return
+2. It frist compares number of unihans in the group, the greater one is
+   AFTER the smaller one.
+3. Then it compares their dictionary order, if NOT in the same order, return
 the result; if in the same order, then compare their frequency number to
-decide the order as in 4.
+decide the order.
 4. If group1->freq is GREATER than group2->freq, it returns -1(IS_AHEAD);
    else if group1->freq is LESS than group2->freq, then return 1(IS_AFTER);
    if EQUAL, it returns 0(IS_SAME).
 5. An empty unihan group(nch==0) is always 'AFTER' a nonempty one.
 6. A NULL is always 'AFTER' a non_NULL one.
 
-
-@group1, group2:	Comparing unihan groups.
+@group1, group2:	Unihan groups for comparision.
 @group_set:		Group Set that holds above uinhangroups.
 
 Return:
 	Relative Priority Sequence position:
-	CMPORDER_IS_AHEAD    -1 (<0)	unhan1 is  'less than' OR 'ahead of' unhan2
-	CMPORDER_IS_SAME      0 (=0)   unhan1 and unhan2 are at the same order.
-	CMPORDER_IS_AFTER     1 (>0)   unhan1 is  'greater than' OR 'behind' unhan2.
--------------------------------------------------------------------------*/
+	CMPORDER_IS_AHEAD    -1 (<0)	group1 is  'less than' OR 'ahead of' group2
+	CMPORDER_IS_SAME      0 (=0)    group1 and group2 are at the same order.
+	CMPORDER_IS_AFTER     1 (>0)    group1 is  'greater than' OR 'behind' group2.
+-----------------------------------------------------------------------------------*/
 int UniHanGroup_compare_typing( const EGI_UNIHANGROUP *group1, const EGI_UNIHANGROUP *group2, const EGI_UNIHANGROUP_SET *group_set)
 {
 	int k,i;
@@ -3135,16 +3213,26 @@ int UniHanGroup_compare_typing( const EGI_UNIHANGROUP *group1, const EGI_UNIHANG
         while( nch2>0 && group2->wcodes[nch2-1] == 0 ) { nch2--; };
 
 	/* 3. Put the empty ugroup to the last, OR check typing[0] ?
-	 *    It also screens out nch1==0 AND nch2==0
+	 *     It also screens out nch1==0 AND/OR nch2==0 !!
 	 */
-	if(group1->wcodes[0]==0 && group2->wcodes[0] !=0 )
+	//if(group1->wcodes[0]==0 && group2->wcodes[0] !=0 )
+	if( nch1==0 && nch1!=0 )
 		return CMPORDER_IS_AFTER;
-	else if(group1->wcodes[0]!=0 && group2->wcodes[0]==0)
+	//else if(group1->wcodes[0]!=0 && group2->wcodes[0]==0)
+	else if( nch1!=0 && nch2==0 )
 		return CMPORDER_IS_AHEAD;
-	else if(group1->wcodes[0]==0 && group2->wcodes[0]==0)
+	//else if(group1->wcodes[0]==0 && group2->wcodes[0]==0)
+	else if( nch1==0 && nch2==0 )
 		return CMPORDER_IS_SAME;
 
-	/* 3. Compare dictionary oder of group typing[] */
+	/* 4. NOW nch1>0 and nch2>0: Compare nch of group */
+	if( nch1 > nch2 )
+		return CMPORDER_IS_AFTER;
+	else if( nch1 < nch2 )
+		return CMPORDER_IS_AHEAD;
+	/* ELSE: ch1==ch2 */
+
+	/* 5. Compare dictionary oder of group typing[] */
 	for( k=0; k<UHGROUP_WCODES_MAXSIZE; k++)
 	{
 		/* Check nch1, nch2 whichever gets first */
@@ -3172,13 +3260,143 @@ int UniHanGroup_compare_typing( const EGI_UNIHANGROUP *group1, const EGI_UNIHANG
 	}
 	/* NOW: CMPORDER_IS_SAME */
 
-	/* 4. Compare frequencey number: EGI_UNIHAN.freq */
+	/* 6. Compare frequencey number: EGI_UNIHAN.freq */
 	if( group1->freq > group2->freq )
 		return CMPORDER_IS_AHEAD;
 	else if( group1->freq < group2->freq )
 		return CMPORDER_IS_AFTER;
 	else
 		return CMPORDER_IS_SAME;
+
+}
+
+/*----------------------------------------------------------------------------------
+		( This function is for UniHanGroup_locate_typings()! )
+Compare two group_typings only, without considering freq.
+
+                        !!! WARNING !!!
+1. The caller MUST ensure UHGROUP_WCODES_MAXSIZE*UNIHAN_TYPING_MAXLEN bytes
+   mem space for both hold_typings AND try_typings!
+2. And they MUST NOT be NULL.
+3. If they are both empty(all 0s), it will return CMPORDER_IS_SAME.
+4. Consecutive Comparing AND Interval/short_typing Comparing
+   'short_typing' means the typings is represeted by intial XINPIN alphabets.
+    Example:  'xiao mi' --> 'x m'	'qian qi bai guai' -->  'q q b g'
+
+   compare short_typing (group_typing2) "c j d q" with group_typing1
+		...
+	"chang hong dian qi"
+	"chang jia da qiao"
+	"cheng ji duo qu"
+		...
+   Consecutive comparing:  "c j d q" IS_AHEAD of "chang hong dian qi".
+   Interval comparing:     "c j d q" IS_AFTER  "chang hong dian qi".
+
+5. For shortyping comparing. Size of group MUST be same! as original grout_set
+   are sorted in ascending alphabetic order.
+   Example 'y f f s' will be compared to be AFTER 'yi fang'
+	....
+   	yi fan
+	yi fan feng shun
+   	yi fang
+	....
+
+@group_typing1:	Pointer to group1 typings
+@nch1:		Number of UNIHANs in group1
+
+@group_typing2:	Pointer to group2 typings  ( MAYBE  short_typing )
+@nch2:		Number of UNIHANs in group2
+
+
+Return:
+	Relative Priority Sequence position:
+	CMPORDER_IS_AHEAD    -1 (<0)   typing1 is  'less than' OR 'ahead of' typing2
+	CMPORDER_IS_SAME      0 (=0)   typing1 and unhan2 are at the same order.
+	CMPORDER_IS_AFTER     1 (>0)   typing1 is  'greater than' OR 'behind' typing2.
+------------------------------------------------------------------------------------*/
+static inline int compare_group_typings( const char *group_typing1, int nch1, const char *group_typing2, int nch2,
+					 bool TYPING2_IS_SHORT )
+{
+	int k,i;
+	char c1,c2;
+
+
+	/* Compare nch */
+    	if( nch1 > nch2 )
+		return  CMPORDER_IS_AFTER;
+    	else if( nch1 < nch2 )
+		return CMPORDER_IS_AHEAD;
+	/* NOW: nch1==nch2 */
+
+    /* OPTION 1:	Interval(short_typing) comparing,  group_typing2 as short_typing!  */
+    if(TYPING2_IS_SHORT) //&& nch1==nch2 )
+    {
+        /* Compare dictionary order of group typing[] */
+        for( k=0; k<UHGROUP_WCODES_MAXSIZE; k++)
+        {
+		/* Check nch1, nch2 whichever gets first, here k means number of compared typings */
+		if( nch1==k || nch2==k ) {			/* Also limit input nch1,ch2 */
+			if(nch1==k && nch2==k)
+				return CMPORDER_IS_SAME;
+			else if(nch1==k)
+				return CMPORDER_IS_AHEAD;
+			else if(nch2==k)
+				return CMPORDER_IS_SAME; 	/* For short_typing, NOT AFTER */
+		}
+
+                /* Compare typing for each wcode */
+                for( i=0; i<UNIHAN_TYPING_MAXLEN; i++) {
+                        c1=group_typing1[k*UNIHAN_TYPING_MAXLEN+i];
+                        c2=group_typing2[k*UNIHAN_TYPING_MAXLEN+i];
+                        if( c1 > c2 ) {
+				if( c2 !=0 )
+	                                return CMPORDER_IS_AFTER;
+				else
+					break;			/* Fort short_typing: c1>c2 && c2==0, IS_SAME */
+			}
+                        else if( c1 < c2 )
+                                return CMPORDER_IS_AHEAD;
+                        /* Gets to the end of both typings, EOF */
+                        else if( c1==0 && c2==0 )
+                                break;
+
+			/* Continue when c1==c2 */
+                }
+        }
+	return CMPORDER_IS_SAME;
+    }
+
+    /* OPTION 2:  Consecutive(complete) comparing */
+    else
+    {
+        /* Compare dictionary order of group typing[] */
+        for( k=0; k<UHGROUP_WCODES_MAXSIZE; k++)
+        {
+		/* Check nch1, nch2 whichever gets first, here k means number of compared typings */
+		if( nch1==k || nch2==k ) {			/* Also limit input nch1,ch2 */
+			if(nch1==k && nch2==k)
+				return CMPORDER_IS_SAME;
+			else if(nch1==k)
+				return CMPORDER_IS_AHEAD;
+			else if(nch2==k)
+				return CMPORDER_IS_AFTER;
+		}
+
+                /* Compare typing for each wcode */
+                for( i=0; i<UNIHAN_TYPING_MAXLEN; i++) {
+                        c1=group_typing1[k*UNIHAN_TYPING_MAXLEN+i];
+                        c2=group_typing2[k*UNIHAN_TYPING_MAXLEN+i];
+                        if( c1 > c2 )
+                                return CMPORDER_IS_AFTER;
+                        else if( c1 < c2 )
+                                return CMPORDER_IS_AHEAD;
+                        /* End of both typings, EOF */
+                        else if( c1==0 && c2==0 )
+                                break;
+                }
+        }
+	return CMPORDER_IS_SAME;
+    }
 }
 
 
@@ -3223,7 +3441,7 @@ void UniHanGroup_insertSort_typing(EGI_UNIHANGROUP_SET *group_set, int start, in
         }
 }
 
-/*------------------------------------------------------------------
+/*---------------------------------------------------------------------
 Sort unihan groups by Quick_Sort algorithm, to rearrange unihan_groups
 in ascending order of typing+freq.
 To see UniHanGroup_compare_typing() for the details of order comparing.
@@ -3344,4 +3562,175 @@ int UniHanGroup_quickSort_typing(EGI_UNIHANGROUP_SET* group_set, unsigned int st
 	return 0;
 }
 
+/*-------------------------------------------------------------------------------
+	( This function is for UniHanGroup_locate_typings()! )
+If each segment of try_typings is located/contained from the beginning of hold_typings'
+segments respectively, then it returns 0.
 
+Note:
+1. This function multiply calls strstr() to compare two UNIHANGROUP.typing[], each
+with UHGROUP_WCODES_MAXSIZE segments of typings, and each segment occupys
+UNIHAN_TYPING_MAXLEN bytes. Totally UHGROUP_WCODES_MAXSIZE*UNIHAN_TYPING_MAXLEN bytes.
+
+2. Try_typings MAY be a short_typing.
+   Examples:
+        short_typing "ch h d q" are contained in "chang hong dian qi"
+
+			!!! WARNING !!!
+The caller MUST ensure UHGROUP_WCODES_MAXSIZE*UNIHAN_TYPING_MAXLEN bytes
+mem space for both hold_typings AND try_typings!
+
+
+@hold_typings: 	Typings expected to contain the try_typings.
+@try_typings:   Typings expected to be contained in the hold_typings.
+		And it MAY be short_typings.
+
+Return:
+	0	Ok,
+	<0      Fails, or NOT contained
+---------------------------------------------------------------------------------*/
+inline int strstr_group_typings(const char *hold_typings, const char* try_typings)
+{
+	int i;
+
+	for(i=0; i<UHGROUP_WCODES_MAXSIZE; i++) {
+		if( strstr(hold_typings+UNIHAN_TYPING_MAXLEN*i, try_typings+UNIHAN_TYPING_MAXLEN*i)
+		    != hold_typings+UNIHAN_TYPING_MAXLEN*i )
+		{
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
+
+/*-----------------------------------------------------------------------------------
+To locate the index of first ugroups[] that contains the given typings in the
+beginning of its typings(UNIHANGROUP.typings[]=ugroups[].typings[ugroup->pos_typing]).
+and set group_set->pgrp as the index.
+Notice that each wcode of UNIHANGROUP has one typing, and each UNIHANGROUP(cizu)
+occupys UHGROUP_WCODES_MAXSIZE*UNIHAN_TYPING_MAXLEN bytes.
+
+                        !!! IMPORTANT !!!
+"Containing the given typing" means UHGROUP_WCODES_MAXSIZE(4) typings (
+in ugroups->typings[ugroup->pos_typing] ) of the wcode are the SAME as teh give
+typings, OR the given (4) typings are contained in beginning of
+ugroups->typings[ugroup->pos_typing] respectively.
+
+This criteria is ONLY based on PINYIN. Other types of typing may NOT comply.
+
+Note:
+1. The group_set MUST be prearranged in dictionary ascending order of typing+freq.
+2. And all uuniset->unhihans[0-size-1] are assumed to be valid/normal, with
+   wcode >0 AND typing[0]!='\0'.
+3. Pronunciation tones of PINYIN are neglected.
+4. Usually there are more than one unihans that have the save typing,
+(same pronuciation, but different UNIHANs), and indexse of those unihans
+should be consecutive in the uniset (see 1). Finally the firt index will
+be located.
+5. This algorithm depends on typing type PINYIN, others MAY NOT work.
+6. TODO: Some polyphonic UNIHANs will fail to locate, as UniHanGroup_assemble_typings()
+   does NOT know how to pick the right typings for an unihan group!
+	 ...
+	 地球: de qiu
+	 朝三暮四: chao san mu si
+	 出差: chu cha
+	 锒铛: lang cheng
+	 ...
+
+@group_set      The target EGI_UNIHAN_SET.
+@typings  	The wanted PINYIN typings, consists of UHGROUP_WCODES_MAXSIZE typing.
+		It MUST occupys UHGROUP_WCODES_MAXSIZE*UNIHAN_TYPING_MAXLEN bytes,
+		with each wcode corresponding to one typing of UNIHAN_TYPING_MAXLEN bytes.
+
+Return:
+        =0              OK, and set group_set->pgrp accordingly.
+        <0              Fails, or no result.
+---------------------------------------------------------------------------------------*/
+int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typings)
+{
+	unsigned int start,end,mid;
+	EGI_UNIHANGROUP *ugroups=NULL;
+	int nch1,nch2;
+
+	if(typings==NULL || typings[0] ==0 )
+		return -1;
+
+	if(group_set==NULL || group_set->ugroups==NULL || group_set->ugroups_size==0) /* If empty */
+		return -1;
+
+	/* TODO:  Check sort order */
+
+	/* Get pointer to unihans */
+	ugroups=group_set->ugroups;
+
+	/* Mark start/end/mid of ugroups[] index */
+	start=0;
+	end=group_set->ugroups_size-1;
+	mid=(start+end)/2;
+
+	/* Get total number of unihans/unicodes presented in input typings */
+       	nch2=UHGROUP_WCODES_MAXSIZE;
+        while( nch2>0 && typings[(nch2-1)*UNIHAN_TYPING_MAXLEN]=='\0' ) { nch2--; };
+
+	/* binary search for the typings  */
+	/* While if NOT containing the typing string at beginning */
+	//while( strstr(unihans[mid].typing, typing) != unihans[mid].typing ) {
+	while( strstr_group_typings( group_set->typings+ugroups[mid].pos_typing, typings ) !=0 ) {
+
+		/* check if searched all wcodes */
+		if(start==end) {
+			return -2;
+		}
+
+		/* !!! If mid+1 == end: then mid=(n+(n+1))/2 = n, and mid will never increase to n+1! */
+		else if( start==mid && mid+1==end ) {   /* start !=0 */
+			//if( unihans[mid+1].wcode==wcode ) {
+			/* Check if given typing are contained in beginning of unihan[mid+1].typing. */
+			//if( strstr(unihans[mid+1].typing, typing) == unihans[mid].typing ) {
+			if(strstr_group_typings( group_set->typings+ugroups[mid+1].pos_typing,
+						  				typings ) ==0 ) {
+						  //group_set->typings+ugroups[mid].pos_typing ) ==0 ) {
+				mid += 1;  /* Let mid be the index of group_set, see following... */
+				break;
+			}
+			else
+				return -3;
+		}
+
+		/* 2. Get total number of unihans/unicodes presented in ugroups[mid].wcodes[] */
+        	nch1=UHGROUP_WCODES_MAXSIZE;
+	        while( nch1>0 && ugroups[mid].wcodes[nch1-1] == 0 ) { nch1--; };
+
+		//if( unihans[mid].wcode > wcode ) {   /* then search upper half */
+		//if( UniHan_compare_typing(&unihans[mid], &tmphan)==CMPORDER_IS_AFTER ) {
+		if( compare_group_typings(group_set->typings+ugroups[mid].pos_typing, nch1, typings, nch2, false)==CMPORDER_IS_AFTER ) {
+			end=mid;
+			mid=(start+end)/2;
+			continue;
+		}
+		//else if( unihans[mid].wcode < wcode) {
+		//if ( UniHan_compare_typing(&unihans[mid], &tmphan)==CMPORDER_IS_AHEAD ) {
+		if( compare_group_typings(group_set->typings+ugroups[mid].pos_typing, nch1, typings, nch2, false)==CMPORDER_IS_AHEAD ) {
+			start=mid;
+			mid=(start+end)/2;
+			continue;
+		}
+
+	        /* NOW CMPORDER_IS_SAME: To rule out abnormal unihan with wcode==0!
+		 * UniHan_compare_typing() will return CMPORDER_IS_SAME if two unihans both with wocde==0 */
+		//if( unihans[mid].wcode==0 )
+		if( ugroups[mid].wcodes[0]==0 )
+			return -3;
+	}
+	/* NOW unhihan[mid] has the same typing */
+
+	/* Move up to locate the first unihan group that bearing the same typings. */
+	/* Check if given typing are contained in beginning of unihan[mid-1].typing. */
+	//while ( mid>0 && (strstr(unihans[mid-1].typing, typing) == unihans[mid-1].typing) ) { mid--; };
+	while( mid>0 && strstr_group_typings(group_set->typings+ugroups[mid-1].pos_typing, typings) ==0 ) { mid--; };
+	group_set->pgrp=mid;  /* assign to uniset->opuh */
+
+	return 0;
+}

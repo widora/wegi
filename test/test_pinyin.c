@@ -102,8 +102,8 @@ int main(void)
 	exit(1);
 #endif
 
-#if 1 /* ---------- Test: UniHan_parse_pinyin() ----------- */
-	char pinyin_group[UNIHAN_TYPING_MAXLEN*4];
+#if 0 /* ---------- Test: UniHan_divide_pinyin() ----------- */
+	char group_pinyin[UNIHAN_TYPING_MAXLEN*4];
 	while(1) {
 		printf("Input unbroken pinyins:"); fflush(stdout);
 		fgets(strinput, UNIHAN_TYPING_MAXLEN*4, stdin);
@@ -113,11 +113,11 @@ int main(void)
                 	continue;
 
 		/* Parse pinyin */
-		//bzero(pinyin_group,UNIHAN_TYPING_MAXLEN*4);
-		UniHan_parse_pinyin(strinput, pinyin_group, 4);
+		//bzero(group_pinyin,UNIHAN_TYPING_MAXLEN*4);
+		UniHan_divide_pinyin(strinput, group_pinyin, 4);
 		printf("Parsed pinyin: ");
 		for(i=0; i<4; i++)
-			printf("%s ",pinyin_group+UNIHAN_TYPING_MAXLEN*i);
+			printf("%s ",group_pinyin+UNIHAN_TYPING_MAXLEN*i);
 		printf("\n");
 	}
 #endif
@@ -168,9 +168,9 @@ int main(void)
 		group_set=UniHanGroup_load_CizuTxt("/mmc/chinese_cizu.txt");
 		if(group_set==NULL) exit(1);
 		printf("Finish load CizuTxt!\n");
-		printf(" group_set->ugroups[803].wcodes[0]: U+%X \n", group_set->ugroups[803].wcodes[0]);
+		//printf(" group_set->ugroups[803].wcodes[0]: U+%X \n", group_set->ugroups[803].wcodes[0]);
 		getchar();
-		//UniHanGroup_print(group_set, 0, group_set->ugroups_size-1);
+		//UniHanGroup_print_set(group_set, 0, group_set->ugroups_size-1);
 
 		printf("Start to assemble typings...\n");
 		if( UniHanGroup_assemble_typings(group_set, han_set) != 0) {
@@ -178,13 +178,49 @@ int main(void)
 			exit(1);
 		}
 		printf("Finish assmeble typings.\n"); getchar();
-		//UniHanGroup_print(group_set, 0, group_set->ugroups_size-1);
+		//UniHanGroup_print_set(group_set, 0, group_set->ugroups_size-1);
 
 		printf("Start to sort typings...\n");
 		//UniHanGroup_insertSort_typing(group_set, 0, group_set->ugroups_size-1); // 500);
-		UniHanGroup_quickSort_typing(group_set, 0, group_set->ugroups_size-1, 10);
+		UniHanGroup_quickSort_typing(group_set, 0, group_set->ugroups_size-1, 9);
 		printf("Finish sort typings.\n"); getchar();
-		UniHanGroup_print(group_set, 0, group_set->ugroups_size-1); // 500);
+
+		UniHanGroup_print_set(group_set, 0, group_set->ugroups_size-1); // 500);
+
+		//UniHanGroup_search_uchar(group_set, (UFT8_PCHAR)"地图");
+		UniHanGroup_search_uchar(group_set, (UFT8_PCHAR)"大家庭");
+
+	/* TEST ----Locate group_typing */
+	char group_pinyin[UNIHAN_TYPING_MAXLEN*4];
+	int np;
+	while(1) {
+		/* Input unbroken pinyins */
+		printf("Input unbroken pinyins:"); fflush(stdout);
+		fgets(strinput, UNIHAN_TYPING_MAXLEN*4, stdin);
+	        if( strlen(strinput)>0 )
+        	        strinput[strlen(strinput)-1]='\0';
+        	else
+                	continue;
+
+		/* Divide pinyin */
+		np=UniHan_divide_pinyin(strinput, group_pinyin, 4); /* bzero group_pinyin inside function */
+		for(i=0; i<4; i++)
+			printf("%s ",group_pinyin+UNIHAN_TYPING_MAXLEN*i);
+		printf(":\n");
+
+		/* Locate typing in the group set */
+		if( UniHanGroup_locate_typings(group_set, group_pinyin )==0 ) {
+			k=0;
+			/* print all results */
+			while ( strstr_group_typings(group_set->typings+group_set->ugroups[group_set->pgrp].pos_typing, group_pinyin) ==0 )
+			{
+				k++;
+				UniHanGroup_print_group(group_set, group_set->pgrp);
+				group_set->pgrp++;
+			}
+		} else
+			printf(": No result!\n");
+	}
 
 		UniHan_free_set(&han_set);
 		UniHanGroup_free_set(&group_set);
