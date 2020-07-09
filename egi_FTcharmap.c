@@ -2127,7 +2127,6 @@ int FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap)
 	int off;
 	int dln;
 	int doff;
-	int charlen;
 
 	if( chmap==NULL || chmap->txtbuff==NULL)
 		return -1;
@@ -2151,6 +2150,7 @@ int FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap)
 	/* 1. If chmap->pch Not in current charmap page */
 	if( chmap->pch < 0 ) {
 		#if 0 /* Move pchoff/cusor backward */
+		int charlen;
 		/* Get to the very beginning */
 		if(chmap->pchoff==0 )
 			charlen=0;   /* skip no char */

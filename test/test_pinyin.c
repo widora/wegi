@@ -177,18 +177,35 @@ int main(void)
 			printf("Fail to assmeble typings!\n");
 			exit(1);
 		}
-		printf("Finish assmeble typings.\n"); getchar();
+		printf("Finish assmebling typings.\n"); getchar();
 		//UniHanGroup_print_set(group_set, 0, group_set->ugroups_size-1);
 
+		printf("Start to load/merge han_set to group_set...\n");
+		if( UniHanGroup_load_uniset(group_set, han_set) !=0 ) {
+			printf("Fail to load han_set!\n");
+			exit(1);
+		}
+		printf("Finish loading han_set.\n"); getchar();
+
 		printf("Start to sort typings...\n");
+		gettimeofday(&tm_start,NULL);
 		//UniHanGroup_insertSort_typing(group_set, 0, group_set->ugroups_size-1); // 500);
 		UniHanGroup_quickSort_typing(group_set, 0, group_set->ugroups_size-1, 9);
-		printf("Finish sort typings.\n"); getchar();
+		gettimeofday(&tm_end,NULL);
+		printf("Finish quickSort typings. cost time: %ldms\n", tm_diffus(tm_start, tm_end)/1000); getchar();
 
-		UniHanGroup_print_set(group_set, 0, group_set->ugroups_size-1); // 500);
+		/* Print first 50 and last 50 groups */
+		UniHanGroup_print_set(group_set, 0, 50-1);
+		UniHanGroup_print_set(group_set, group_set->ugroups_size-1-50, group_set->ugroups_size-1);
+		getchar();
 
-		//UniHanGroup_search_uchar(group_set, (UFT8_PCHAR)"地图");
-		UniHanGroup_search_uchar(group_set, (UFT8_PCHAR)"大家庭");
+		#if 0
+		UniHanGroup_search_uchars(group_set, (UFT8_PCHAR)"大");
+		getchar();
+		if( (k=UniHanGroup_locate_uchars(group_set,(UFT8_PCHAR)"紧俏")) >=0 )
+		UniHanGroup_print_set(group_set, k-10, k+10);
+		getchar();
+		#endif
 
 	/* TEST ----Locate group_typing */
 	char group_pinyin[UNIHAN_TYPING_MAXLEN*4];
@@ -203,21 +220,28 @@ int main(void)
                 	continue;
 
 		/* Divide pinyin */
-		np=UniHan_divide_pinyin(strinput, group_pinyin, 4); /* bzero group_pinyin inside function */
-		for(i=0; i<4; i++)
+		np=UniHan_divide_pinyin(strinput, group_pinyin, UHGROUP_WCODES_MAXSIZE); /* bzero group_pinyin inside function */
+		for(i=0; i<UHGROUP_WCODES_MAXSIZE; i++)
 			printf("%s ",group_pinyin+UNIHAN_TYPING_MAXLEN*i);
 		printf(":\n");
 
 		/* Locate typing in the group set */
-		if( UniHanGroup_locate_typings(group_set, group_pinyin )==0 ) {
+		if( UniHanGroup_locate_typings(group_set, group_pinyin)==0 ) {
 			k=0;
 			/* print all results */
-			while ( strstr_group_typings(group_set->typings+group_set->ugroups[group_set->pgrp].pos_typing, group_pinyin) ==0 )
+			#if 0
+			while(
+		        ( np==1 && strcmp_group_typings(group_set->typings+group_set->ugroups[group_set->pgrp].pos_typing, group_pinyin, 1) ==0 )
+			|| ( np!=1 && strstr_group_typings(group_set->typings+group_set->ugroups[group_set->pgrp].pos_typing, group_pinyin, np) ==0 ) )
+			#else
+			while( strstr_group_typings(group_set->typings+group_set->ugroups[group_set->pgrp].pos_typing, group_pinyin, np) ==0 )
+			#endif
 			{
 				k++;
-				UniHanGroup_print_group(group_set, group_set->pgrp);
+				UniHanGroup_print_group(group_set, group_set->pgrp, true);
 				group_set->pgrp++;
 			}
+			printf("Totally %d results.\n",k);
 		} else
 			printf(": No result!\n");
 	}

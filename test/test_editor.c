@@ -530,8 +530,10 @@ MAIN_START:
 				break;
 			case CTRL_F:
 				printf("Saving chmap->txtbuff to a file...");
-				FTcharmap_save_file(fpath, chmap);
-                                draw_msgbox( &gv_fb_dev, 50, 50, 240, "文件已经保存！" );
+				if(FTcharmap_save_file(fpath, chmap)==0)
+	                                draw_msgbox( &gv_fb_dev, 50, 50, 240, "文件已经保存！" );
+				else
+	                                draw_msgbox( &gv_fb_dev, 50, 50, 240, "文件保存失败！" );
                                 fb_render(&gv_fb_dev);
 				tm_delayms(300);
 				ch=0;

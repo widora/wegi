@@ -10,7 +10,6 @@ midaszhou@yahoo.com
 #ifndef __EGI_UNIHAN_H__
 #define __EGI_UNIHAN_H__
 #include <stdlib.h>
-
 #include "egi_FTsymbol.h"
 /*----- See in egi_FTsymbol.h -----
 typedef unsigned char * UFT8_PCHAR;
@@ -25,8 +24,8 @@ typedef wchar_t 	EGI_UNICODE;
 #define HANYUPINYIN_TXT_PATH    "/mmc/kHanyuPinyin.txt"		/* kHanyuPinyin.txt from Unihan_Readings.txt, see UniHan_load_HanyuPinyinTxt() */
 #define UNIHANS_DATA_PATH       "/mmc/unihans_pinyin.dat"	/* Saved UNIHAN SET containing above unihans */
 
-#define PINYIN3500_TXT_PATH        "/mmc/pinyin3500.txt"	/* 3500 frequently used Haizi TXT */
-#define PINYIN3500_DATA_PATH       "/mmc/unihan3500.dat"	/* Saved UNIHAN SET containing above unihans */
+#define PINYIN3500_TXT_PATH	"/mmc/pinyin3500.txt"	/* 3500 frequently used Haizi TXT */
+#define PINYIN3500_DATA_PATH    "/mmc/unihan3500.dat"	/* Saved UNIHAN SET containing above unihans */
 
 
 typedef enum UniHanSortOrder
@@ -36,7 +35,7 @@ typedef enum UniHanSortOrder
 	UNIORDER_FREQ			=1,
 	UNIORDER_TYPING_FREQ		=2,
 	UNIORDER_WCODE_TYPING_FREQ	=3,
-
+	UNIORDER_NCH_TYPING_FREQ	=4,	/* For unihan_groups. NCH: number of unihans in a group. */
 } UNIHAN_SORTORDER;
 
 
@@ -61,7 +60,7 @@ struct egi_unihan
 	#define			UNIHAN_UCHAR_MAXLEN	(4+1)   /* 1 for EOF */
 	char			uchar[UNIHAN_UCHAR_MAXLEN];	/* For UFT-8 encoding */
 
-        unsigned int            freq;           /* Frequency of the wcode. */
+        unsigned int            freq;           /* Frequency of the wcode.  NOW: polyphonic unihans has the same freq value. */
 
 	#define			UNIHAN_TYPING_MAXLEN	8	/* 1 for EOF */
         char                    typing[UNIHAN_TYPING_MAXLEN];      /* Keyboard input sequence that representing the wcode , in ASCII lowercase.
@@ -89,7 +88,7 @@ struct egi_unihan_set
         uint32_t                size;           /* Size of unihans, total number of EGI_UNIHANs in unihans[], exclude empty ones.
                                                  * Do not change the type, we'll assembly/disassembly from/into uint8_t when read/write to file.
                                                  */
-      //int                     input_method;   /* input method: pinyin,  ...  */
+        //int                     input_method;   /* input method: pinyin,  ...  */
 
 	unsigned int		puh;		/* Index to an unihans[], usually to store result of loacting/searching.  */
 
@@ -142,9 +141,6 @@ struct egi_uniHanGroup_set
 	char			*typings;	/* A buffer to hold all typings, with '\0' as dilimiters */
 	#define 		UHGROUP_TYPINGS_GROW_SIZE   512
 };
-
-
-
 
 
 /* PINYIN Functions */
@@ -204,19 +200,27 @@ void 		UniHan_print_wcode(EGI_UNIHAN_SET *uniset, EGI_UNICODE wcode);
 EGI_UNIHANGROUP_SET* 	UniHanGroup_create_set(const char *name, size_t capacity);
 void 		   	UniHanGroup_free_set( EGI_UNIHANGROUP_SET **set);
 EGI_UNIHANGROUP_SET* 	UniHanGroup_load_CizuTxt(const char *fpath);
+int 	UniHanGroup_load_uniset(EGI_UNIHANGROUP_SET *group_set, const EGI_UNIHAN_SET *uniset);
 
 int 	UniHanGroup_assemble_typings(EGI_UNIHANGROUP_SET *group_set, EGI_UNIHAN_SET *han_set);
-void 	UniHanGroup_print_set(const EGI_UNIHANGROUP_SET *group_set, unsigned int start, unsigned int end);
-void 	UniHanGroup_print_group(const EGI_UNIHANGROUP_SET *group_set, unsigned int index);
-void 	UniHanGroup_search_uchar(const EGI_UNIHANGROUP_SET *group_set, UFT8_PCHAR uchar);
+
+int 	UniHanGroup_wcodes_size(const EGI_UNIHANGROUP *group);
+
+void 	UniHanGroup_print_set(const EGI_UNIHANGROUP_SET *group_set, int start, int end);
+void 	UniHanGroup_print_group(const EGI_UNIHANGROUP_SET *group_set, int index, bool line_feed);
+void 	UniHanGroup_search_uchars(const EGI_UNIHANGROUP_SET *group_set, UFT8_PCHAR uchar);
+int 	UniHanGroup_locate_uchars(const EGI_UNIHANGROUP_SET *group_set, UFT8_PCHAR uchars);
+
 int 	UniHanGroup_compare_typing( const EGI_UNIHANGROUP *group1, const EGI_UNIHANGROUP *group2, const EGI_UNIHANGROUP_SET *group_set);
 
+	/* Sort order: nch + typing + freq */
 void 	UniHanGroup_insertSort_typing(EGI_UNIHANGROUP_SET *group_set, int start, int n);
 int 	UniHanGroup_quickSort_typing(EGI_UNIHANGROUP_SET* group_set, unsigned int start, unsigned int end, int cutoff);
 
 //static inline int compare_group_typings(const char *group_typing1, int nch1, const char *group_typing2, int nch2, bool TYPING2_IS_SHORT);
 
-int 	strstr_group_typings(const char *hold_typings, const char* try_typings);
+int 	strstr_group_typings(const char *hold_typings, const char* try_typings, int nch);
+int 	strcmp_group_typings(const char *hold_typings, const char* try_typings, int nch);
 void 	print_group_typings(const char* typings, unsigned int nw);
 int  	UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typings);
 
