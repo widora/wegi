@@ -226,22 +226,15 @@ int main(void)
 		printf(":\n");
 
 		/* Locate typing in the group set */
+		gettimeofday(&tm_start,NULL);
 		if( UniHanGroup_locate_typings(group_set, group_pinyin)==0 ) {
-			k=0;
+			gettimeofday(&tm_end,NULL);
+
 			/* print all results */
-			#if 0
-			while(
-		        ( np==1 && strcmp_group_typings(group_set->typings+group_set->ugroups[group_set->pgrp].pos_typing, group_pinyin, 1) ==0 )
-			|| ( np!=1 && strstr_group_typings(group_set->typings+group_set->ugroups[group_set->pgrp].pos_typing, group_pinyin, np) ==0 ) )
-			#else
-			while( strstr_group_typings(group_set->typings+group_set->ugroups[group_set->pgrp].pos_typing, group_pinyin, np) ==0 )
-			#endif
-			{
-				k++;
-				UniHanGroup_print_group(group_set, group_set->pgrp, true);
-				group_set->pgrp++;
-			}
-			printf("Totally %d results.\n",k);
+			UniHanGroup_print_results(group_set);
+
+			printf("Finish locating typings. cost time: %ldms\n", tm_diffus(tm_start, tm_end)/1000);
+
 		} else
 			printf(": No result!\n");
 	}

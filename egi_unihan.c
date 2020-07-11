@@ -2753,6 +2753,15 @@ EGI_UNIHANGROUP_SET* UniHanGroup_create_set(const char *name, size_t capacity)
                 return NULL;
         }
 
+	/* Calloc group_set->resutls */
+	group_set->results_capacity=UHGROUP_RESULTS_GROW_SIZE;
+        group_set->results = calloc(group_set->results_capacity, sizeof(typeof(*group_set->results)));
+        if(group_set->results==NULL) {
+                printf("%s: Fail to calloc group_set->results.\n",__func__);
+		UniHanGroup_free_set(&group_set);
+                return NULL;
+        }
+
 	/* Assign other members */
 	group_set->sorder=UNIORDER_NONE;
 	if(name != NULL)
@@ -2773,6 +2782,7 @@ void UniHanGroup_free_set( EGI_UNIHANGROUP_SET **set)
 	free( (*set)->ugroups );
 	free( (*set)->uchars );
 	free( (*set)->typings );
+	free( (*set)->results );
 	free(*set);
 	*set=NULL;
 }
@@ -3280,6 +3290,24 @@ void UniHanGroup_print_group(const EGI_UNIHANGROUP_SET *group_set, int index, bo
 }
 
 
+/*-----------------------------------------------------------------
+Print out UCHAR and TYPINGS of all unihan groups in the result set.
+@group_set:     Unihan Group Set
+------------------------------------------------------------------*/
+void UniHanGroup_print_results(	const EGI_UNIHANGROUP_SET *group_set )
+{
+	int i;
+
+	if(group_set==NULL)
+		return;
+
+	for(i=0; i < group_set->results_size; i++)
+		UniHanGroup_print_group(group_set, group_set->results[i], true);
+
+	printf("Group set results size=%d\n",group_set->results_size);
+}
+
+
 /*-------------------------------------------------------
 Search all unihan groups in a group set to find out
 the input uchar, then print the unihan_group.
@@ -3534,7 +3562,7 @@ Comparing/sorting order (OPTION 1or2) MUST be the same as in UniHanGroup_compare
 Return:
 	Relative Priority Sequence position:
 	CMPORDER_IS_AHEAD    -1 (<0)   typing1 is  'less than' OR 'ahead of' typing2
-	CMPORDER_IS_SAME      0 (=0)   typing1 and unhan2 are at the same order.
+	CMPORDER_IS_SAME      0 (=0)   typing1 and typing2 are at the same order.
 	CMPORDER_IS_AFTER     1 (>0)   typing1 is  'greater than' OR 'behind' typing2.
 ------------------------------------------------------------------------------------*/
 static inline int compare_group_typings( const char *group_typing1, int nch1, const char *group_typing2, int nch2 )
@@ -3600,7 +3628,7 @@ in ascending order of typing+freq. (typing:in dictionary order)
 Also ref. to mat_insert_sort() in egi_math.c.
 
 Note:
-1.The caller MUST ensure ugroups has at least [start+n] memebers!
+1.The caller MUST ensure ugroups has at least [start+n-1] memebers!
 2.Input 'n' MAY includes empty unihans with typing[0]==0, and they will
   be rearranged to the end of the array.
 
@@ -3645,7 +3673,7 @@ Refert to mat_quick_sort() in egi_math.h.
  	!!! WARNING !!! This is a recursive function.
 
 Note:
-1. The caller MUST ensure start/end are within the legal range.
+1. The caller MUST ensure start/end are within the valid range.
 
 @group_set:	Group set that hold unihan_groups.
 @start:		start index, as of group_set->ugroups[start]
@@ -3759,6 +3787,7 @@ int UniHanGroup_quickSort_typing(EGI_UNIHANGROUP_SET* group_set, unsigned int st
 
 	return 0;
 }
+
 
 /*-------------------------------------------------------------------------------
 	( This function is for UniHanGroup_locate_typings()! )
@@ -3879,80 +3908,8 @@ be located.
 	 畅行无阻: chang hang wu zu
 	 ...
 
-7. TODO: For short_typing, two intials shall be nearly the same number, otherwise it may fail!
+7. Resolved! TO_DO: For short_typing, two intials shall be nearly the same number, otherwise it may fail!
    (To improve: First locate by initals, then search it in result collections. Example: 'huah' --> first 'hh' --> 'huah' )
-
-   Examples:
-Input pinyins:jiaoqi
-jiao qi
-脚气: jiao qi
-Input pinyins:jiaoq
-jiao q			<<<---------- No result!
-: No result!
-
-Input unbroken pinyins:zlh
-z l h  :
-展览会: zhan lan hui
-纸老虎: zhi lao hu
-自来火: zi lai huo
-Input unbroken pinyins:zhilh  <<<---------- No result!
-zhi l h  :
-: No result!
-
-------- Ambiguous for: jiaq ----
-奖旗: jiang qi
-将其: jiang qi
-脚气: jiao qi
-加强: jia qiang		<-----------
-架桥: jia qiao
-坚强: jian qiang
-剪切: jian qie
-家禽: jia qin		<----------
-嘉庆: jia qing
-减轻: jian qing
-见轻: jian qing
-讲情: jiang qing
-讲清: jiang qing
-
-
-( ----- Short_typing: fail to locate '胡话'  ----- )
-Input unbroken pinyins:huhua
-hu hua   :
-回话: hui hua
-毁坏: hui huai
-
-....
-花红: hua hong
-皇后: huang hou
-呼呼: hu hu
-胡话: hu hua	<<<---------- Right
-呼唤: hu huan
-互换: hu huan
-互惠: hu hui
-坏话: huai hua
-谎话: huang hua
-黄花: huang hua
-花会: hua hui
-花卉: hua hui
-换汇: huan hui
-黄昏: huang hun
-换货: huan huo
-回话: hui hua	<<<---------- Error
-毁坏: hui huai
-....
-
-Input unbroken pinyins:jianqin
-jian qin   :
-减轻: jian qing
-见轻: jian qing
-讲清: jiang qing
-讲情: jiang qing
-
-Input unbroken pinyins:jianq
-jian q   :
-建起: jian qi
-奖旗: jiang qi
-将其: jiang qi
 
 @group_set      The target EGI_UNIHAN_SET.
 @typings  	The wanted PINYIN typings, consists of UHGROUP_WCODES_MAXSIZE typing.
@@ -3965,9 +3922,11 @@ Return:
 ---------------------------------------------------------------------------------------*/
 int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typings)
 {
+	int i,k;
 	unsigned int start,end,mid;
 	EGI_UNIHANGROUP *ugroups=NULL;
 	int nch1,nch2;
+	char init_typings[UNIHAN_TYPING_MAXLEN*UHGROUP_WCODES_MAXSIZE];  /* with first inits of input typings only */
 
 	if(typings==NULL || typings[0] ==0 )
 		return -1;
@@ -3984,6 +3943,9 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 	/* Get pointer to unihans */
 	ugroups=group_set->ugroups;
 
+	/* Reset results size */
+	group_set->results_size=0;
+
 	/* Mark start/end/mid of ugroups[] index */
 	start=0;
 	end=group_set->ugroups_size-1;
@@ -3992,6 +3954,13 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 	/* Get total number of unihans/unicodes presented in input typings */
        	nch2=UHGROUP_WCODES_MAXSIZE;
         while( nch2>0 && typings[(nch2-1)*UNIHAN_TYPING_MAXLEN]=='\0' ) { nch2--; };
+
+	/* Prepare init_typings[], with first initial of typings! */
+	bzero(init_typings,sizeof(init_typings));
+	init_typings[0]=typings[0];
+	init_typings[1]=typings[1];	/* Tricky */
+	for(i=1; i<UHGROUP_WCODES_MAXSIZE; i++)
+		init_typings[i*UNIHAN_TYPING_MAXLEN]=typings[i*UNIHAN_TYPING_MAXLEN];
 
 	/* binary search for the typings  */
 	/* While if NOT containing the typing string at beginning */
@@ -4011,7 +3980,7 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 			//if（ unihans[mid+1].wcode==wcode ) {
 			/* Check if given typing are contained in beginning of unihan[mid+1].typing. */
 			if( nch1==nch2 && strstr_group_typings( group_set->typings+ugroups[mid+1].pos_typing,
-						  						typings, nch2 ) ==0 ) {
+						  						init_typings, nch2 ) ==0 ) {
 						  //group_set->typings+ugroups[mid].pos_typing ) ==0 ) {
 				mid += 1;  /* Let mid be the index of group_set, see following... */
 				break;
@@ -4021,13 +3990,13 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 		}
 
 		//if( unihans[mid].wcode > wcode ) {   /* then search upper half */
-		if( compare_group_typings(group_set->typings+ugroups[mid].pos_typing, nch1, typings, nch2)==CMPORDER_IS_AFTER ) {
+		if( compare_group_typings(group_set->typings+ugroups[mid].pos_typing, nch1, init_typings, nch2)==CMPORDER_IS_AFTER ) {
 			end=mid;
 			mid=(start+end)/2;
 			continue;
 		}
 		//else if( unihans[mid].wcode < wcode) {
-		if( compare_group_typings(group_set->typings+ugroups[mid].pos_typing, nch1, typings, nch2)==CMPORDER_IS_AHEAD ) {
+		if( compare_group_typings(group_set->typings+ugroups[mid].pos_typing, nch1, init_typings, nch2)==CMPORDER_IS_AHEAD ) {
 			start=mid;
 			mid=(start+end)/2;
 			continue;
@@ -4038,15 +4007,298 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 		//if( unihans[mid].wcode==0 )
 		if( ugroups[mid].wcodes[0]==0 )
 			return -3;
-	} while( nch1!=nch2 || strstr_group_typings( group_set->typings+ugroups[mid].pos_typing, typings, nch1) !=0 );
+	} while( nch1!=nch2 || strstr_group_typings( group_set->typings+ugroups[mid].pos_typing, init_typings, nch1) !=0 );
 	/* NOW unhihan[mid] has the same typing */
 
 	/* Move up to locate the first unihan group that bearing the same typings. */
-	/* Check if given typing are contained in beginning of unihan[mid-1].typing. */
-	while( mid>0 && strstr_group_typings(group_set->typings+ugroups[mid-1].pos_typing, typings, nch1) ==0 ) { mid--; };
-	group_set->pgrp=mid;  /* assign to uniset->opuh */
+	k=mid;
+	while( k>0 && strstr_group_typings(group_set->typings+ugroups[k-1].pos_typing, init_typings, nch1) ==0 )
+	{
+		/* Check input typings and put index to group_set->results */
+		if( strstr_group_typings(group_set->typings+ugroups[k-1].pos_typing, typings, nch1) ==0 ) {
+			if( group_set->results_size < group_set->results_capacity ) /* TODO memgrow group_set->results */
+				group_set->results[group_set->results_size++]=k-1;
+		}
+		k--;
+	};
+	group_set->pgrp=k;  /* Assign uniset->pgrp */
+
+	/* Move down to locate the last unihan group that bearing the same typings. */
+	k=mid;
+	while( k < group_set->ugroups_size && strstr_group_typings(group_set->typings+ugroups[k].pos_typing, init_typings, nch1) ==0 )
+	{
+		/* Check input typings and put index to group_set->results */
+		if( strstr_group_typings(group_set->typings+ugroups[k].pos_typing, typings, nch1) ==0 ) {
+			if( group_set->results_size < group_set->results_capacity )  /* TODO memgrow group_set->results */
+				group_set->results[group_set->results_size++]=k;
+		}
+		k++;
+	};
+
+	/* Sort result in order of TypingLen+Freq */
+	#if 0
+	UniHanGroup_insertSort_LTRIndex(group_set, 0, group_set->results_size);
+	#else
+	UniHanGroup_quickSort_LTRIndex(group_set, 0, group_set->results_size-1, 10);
+	#endif
+
+	return 0;
+}
 
 
+/*-----------------------------------------------------------------------------------------------
+	    ( ---- This function is for UniHanGroup_insertSort_LTRIndex() ---- )
+
+Compare TypingLen+freq ORDER of two unihan_groups as represented by index of group_set->ugroups[],
+the indexes MUST be from group_set->results! so all unihan_groups in the results have same nch value!
+
+Note:
+1. The caller MUST ensure that n1,n2 are within range [0 group_set->ugroups_size], and they are
+   picked from group_set->results[].
+2. It first compares total length of their typings. the smaller one is ahead the bigger one.
+3. Then compare frequency values, if group1->freq is GREATER than group2->freq, it returns -1(IS_AHEAD);
+   else if group1->freq is LESS than group2->freq, then return 1(IS_AFTER);
+   if EQUAL, it returns 0(IS_SAME).
+
+@n1, n2:	Index of group_set->ugroups[]
+@group_set:	Group Set that holds above uinhangroups.
+
+Return:
+	Relative Priority Sequence position:
+	CMPORDER_IS_AHEAD    -1 (<0)   group1 is  'less than' OR 'ahead of' group2
+	CMPORDER_IS_SAME      0 (=0)   group1 and group2 are at the same order.
+	CMPORDER_IS_AFTER     1 (>0)   group1 is  'greater than' OR 'behind' group2.
+-----------------------------------------------------------------------------------------------*/
+inline int UniHanGroup_compare_LTRIndex(EGI_UNIHANGROUP_SET* group_set, unsigned int n1, unsigned int n2)
+{
+	int i;
+	int nch;
+	int len1, len2;
+	unsigned int off1, off2;
+
+	/* check group_set */
+	if( group_set==NULL )
+		return CMPORDER_IS_SAME;
+
+
+	/* 1. Get number of chars of each group, Assume nch==nch1==nch2. */
+        nch=UHGROUP_WCODES_MAXSIZE;
+        while( nch>0 && group_set->ugroups[n1].wcodes[nch-1] == 0 ) { nch--; };
+
+	/* 2. Compare total length of typings */
+	len1=0;
+	len2=0;
+	off1=group_set->ugroups[n1].pos_typing;
+	off2=group_set->ugroups[n2].pos_typing;
+
+#if 0	/* Option 1: Check one by one! */
+	for(i=0; i<nch*UNIHAN_TYPING_MAXLEN; i++) {
+		if( *(group_set->typings+off1+i)!=0 )
+			len1++;
+		if( *(group_set->typings+off2+i)!=0 )
+			len2++;
+	}
+#else	/* Option 2: call strlen()  */
+	for(i=0; i<nch; i++) {
+		len1 += strlen(group_set->typings+off1+i*UNIHAN_TYPING_MAXLEN);
+		len2 += strlen(group_set->typings+off2+i*UNIHAN_TYPING_MAXLEN);
+	}
+#endif
+
+	#if 0 /* !!! NOPE: Suppose NO typing in results[] is empty! 3. Put empty typing at end. */
+	if( len1 == 0 && len2 ==0 )
+		return CMPORDER_IS_SAME;
+	else if( len1==0)
+		return CMPORDER_IS_AFTER;
+	else if( len2==0)
+		return CMPORDER_IS_AHEAD;
+	#endif
+
+	/* 4. Compare length */
+	if( len1 > len2 )
+		return CMPORDER_IS_AFTER;
+	else if( len1 < len2 )
+		return CMPORDER_IS_AHEAD;
+
+	/* ELSE: len1==len2, Compare frequency */
+	if( group_set->ugroups[n1].freq > group_set->ugroups[n2].freq )
+		return CMPORDER_IS_AHEAD;
+	if( group_set->ugroups[n1].freq < group_set->ugroups[n2].freq )
+		return CMPORDER_IS_AFTER;
+
+	return CMPORDER_IS_SAME;
+}
+
+
+/*-----------------------------------------------------------------------
+Sort group_set->results[] by Insertion_Sort algorithm, to rearrange those
+index so as to present their corresponding unihan_groups in ascending order
+of TypingLen+freq.
+
+Also ref. to mat_insert_sort() in egi_math.c.
+
+Note:
+1. Before calling this function, group_set->results[] MUST hold a set of
+   indexes of group_set->ugroups[], as a result locating/searching operation
+   (usually by UniHanGroup_locate_typings()).
+2. The caller MUST ensure group_set->results[] has at least [start+n-1] memebers!
+3. Input 'n' MAY includes empty unihans with typing[0]==0, and they will
+   be rearranged to the end of the array. 	--- NOPE, rule out.
+
+@group_set:	Group Set.
+@start:		Start index of group_set->result[]
+@n:             size of the array to be sorted, from [start] to [start+n-1].
+------------------------------------------------------------------------*/
+void UniHanGroup_insertSort_LTRIndex(EGI_UNIHANGROUP_SET *group_set, int start, int n)
+{
+        int i;          /* To tranverse elements in array, 1 --> n-1 */
+        int k;          /* To decrease, k --> 1,  */
+	int tmp_index;
+
+	if( group_set==NULL || group_set->ugroups==NULL || group_set->results_size ==0 )
+		return;
+
+	/* Start sorting ONLY when m>start+1 */
+        for( i=start+1; i< start+n; i++) {
+		tmp_index=group_set->results[i];
+
+        	/* Slide the inseting integer left, until to the first smaller unihan  */
+		//for( k=i; k>0 && array[k-1]>tmp; k--)
+		for( k=i; k>0 && UniHanGroup_compare_LTRIndex(group_set, group_set->results[k-1], tmp_index)==CMPORDER_IS_AFTER; k--) {
+				//unihans[k]=unihans[k-1];   /* swap */
+				group_set->results[k]=group_set->results[k-1]; /* swap */
+		}
+
+		/* Settle the inserting unihan at last swapped place */
+                group_set->results[k]=tmp_index;
+        }
+}
+
+
+/*--------------------------------------------------------------------------
+Sort group_set->results[] by Quick_Sort algorithm, to rearrange those
+index so as to present their corresponding unihan_groups in ascending
+order of TypingLen+freq.
+
+Also ref. to mat_quick_sort() in egi_math.c.
+
+Note:
+1. Before calling this function, group_set->results[] MUST hold a set of
+   indexes of group_set->ugroups[], as a result locating/searching operation
+   (usually by UniHanGroup_locate_typings()).
+2. The caller MUST ensure start/end are within the valid range.
+
+@group_set:	Group set that hold unihan_groups.
+@start:		start index, as of group_set->ugroups[start]
+@End:		end index, as of group_set->ugroups[end]
+@cutoff:	cutoff value for switch to insert_sort.
+
+Return:
+	0	Ok
+	<0	Fails
+---------------------------------------------------------------------------*/
+int UniHanGroup_quickSort_LTRIndex(EGI_UNIHANGROUP_SET* group_set, int start, int end, int cutoff)
+{
+	int i=start;
+	int j=end;
+	int mid;
+	int tmp;
+	int pivot;
+
+	/* Check input */
+	if( group_set==NULL )
+		return -1;
+
+	/* Rule out invalid params, rule out (end < start+1) in 1. */
+	if( start<0 || end<0 || end > group_set->results_size-1 )
+		return 0;
+
+	/* End sorting */
+	if( start >= end )
+		return 0;
+
+        /* Limit cutoff */
+        if(cutoff<3)
+                cutoff=3;
+
+/* 1. Implement quicksort */
+        if( end-start >= cutoff )  /* This will rule out end < start+1 */
+        {
+        /* 1.1 Select pivot, by sorting array[start], array[mid], array[end] */
+                /* Get mid index */
+                mid=(start+end)/2;
+
+                /* Sort [start] and [mid] */
+                /* if( array[start] > array[mid] ) */
+		if( UniHanGroup_compare_LTRIndex(group_set, start, mid)==CMPORDER_IS_AFTER ) {
+			tmp=group_set->results[start];
+			group_set->results[start]=group_set->results[mid];
+			group_set->results[mid]=tmp;
+                }
+                /* Now: [start]<=array[mid] */
+
+                /* IF: [mid] >= [start] > [end] */
+                /* if( array[start] > array[end] ) { */
+		if( UniHanGroup_compare_LTRIndex(group_set, start, end)==CMPORDER_IS_AFTER ) {
+			tmp=group_set->results[start]; /* [start] is center */
+			group_set->results[start]=group_set->results[end];
+			group_set->results[end]=group_set->results[mid];
+			group_set->results[mid]=tmp;
+                }
+                /* ELSE:   [start]<=[mid] AND [start]<=[end] */
+                /* else if( array[mid] > array[end] ) { */
+		if( UniHanGroup_compare_LTRIndex(group_set, mid, end)==CMPORDER_IS_AFTER ) {
+                        /* If: [start]<=[end]<[mid] */
+			tmp=group_set->results[end]; /* [start] is center */
+			group_set->results[end]=group_set->results[mid];
+			group_set->results[mid]=tmp;
+                        /* Else: [start]<=[mid]<=[end] */
+                }
+                /* Now: array[start] <= array[mid] <= array[end] */
+
+		pivot=group_set->results[mid];
+
+                /* Swap array[mid] and array[end-1], still keep array[start] <= array[mid] <= array[end]!   */
+		tmp=group_set->results[end-1]; /* [start] is center */
+		group_set->results[end-1]=group_set->results[mid];
+		group_set->results[mid]=tmp;
+
+        /* 1.2 Quick sort: array[start] ... array[end-1], array[end]  */
+                i=start;
+                j=end-1;   /* As already sorted to: array[start]<=pivot<=array[end-1]<=array[end], see 1. above */
+                for(;;)
+                {
+                        /* Stop at array[i]>=pivot: We preset array[end-1]==pivot as sentinel, so i will stop at [end-1]  */
+                        /* while( array[++i] < pivot ){ };   Acturally: array[++i] < array[end-1] which is the pivot memeber */
+			while ( UniHanGroup_compare_LTRIndex(group_set, group_set->results[++i], pivot) ==CMPORDER_IS_AHEAD ) { };
+                        /* Stop at array[j]<=pivot: We preset array[start]<=pivot as sentinel, so j will stop at [start]  */
+                        /* while( array[--j] > pivot ){ }; */
+			while ( UniHanGroup_compare_LTRIndex(group_set, group_set->results[--j], pivot) ==CMPORDER_IS_AFTER ) { };
+
+                        if( i<j ) {
+                                /* Swap array[i] and array[j] */
+				tmp=group_set->results[i];
+				group_set->results[i]=group_set->results[j];
+				group_set->results[j]=tmp;
+                        }
+                        else {
+                                break;
+			}
+		}
+                /* Swap pivot memeber array[end-1] with array[i], we left this step at last.  */
+		group_set->results[end-1]=group_set->results[i];
+		group_set->results[i]=pivot; /* Same as array[i]=array[end-1] */
+
+        /* 1.3 Quick sort: recursive call for sorted parts. and leave array[i] as mid of the two parts */
+		UniHanGroup_quickSort_LTRIndex(group_set, start, i-1, cutoff);
+		UniHanGroup_quickSort_LTRIndex(group_set, i+1, end, cutoff);
+
+        }
+/* 2. Implement insertsort */
+        else
+		UniHanGroup_insertSort_LTRIndex(group_set, start, end-start+1);
+
+        /* Do NOT reset group_set->sorder. it's for group_set->results only! */
 
 	return 0;
 }

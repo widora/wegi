@@ -107,7 +107,6 @@ struct egi_unihan_heap
      	/* +1 EGI_UNIHAN as bottom safe guard */
 };
 
-
 struct egi_uniHanGroup		/* UNIHAN Words/Phrasese/Cizus */
 {
 	#define		UHGROUP_WCODES_MAXSIZE   4   	/* Max. number of unihans contained in a uniHanGroup */
@@ -136,10 +135,17 @@ struct egi_uniHanGroup_set
 	UFT8_PCHAR		uchars;			/* A buffer to hold all unihans groups in uft8 encoding, with '\0' as dilimiters */
 	#define 		UHGROUP_UCHARS_GROW_SIZE    512
 
-	size_t			typings_capacity;	/* Total mem space allocated for typings[], in bytes */
+	size_t			typings_capacity;	/* Total mem space allocated for typings[], in bytes(sizeof(char)) */
 	size_t			typings_size;		/* Current used mem space, in bytes, including all '\0' as dilimiters */
-	char			*typings;	/* A buffer to hold all typings, with '\0' as dilimiters */
+	char			*typings;		/* A buffer to hold all typings, with '\0' as dilimiters */
 	#define 		UHGROUP_TYPINGS_GROW_SIZE   512
+
+	size_t			results_capacity;	/* Total mem allocated for result[], in sizeof(results). */
+	size_t			results_size;		/* number of available indexes in results[], NOT capacity of results[].   */
+	unsigned int		*results; 		/* An array for storing temporary ugroups[] indexes, as results of a search operation
+							 * by UniHanGroup_locate_typings(), AND for further sorting operations. 
+							 */
+	#define			UHGROUP_RESULTS_GROW_SIZE    512
 };
 
 
@@ -160,6 +166,8 @@ int 	UniHan_compare_typing(const EGI_UNIHAN *uhan1, const EGI_UNIHAN *uhan2);
 	/* Sort order: typing + freq */
 void 	UniHan_insertSort_typing(EGI_UNIHAN* unihans, int n );
 int 	UniHan_quickSort_typing(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff);
+
+
 	/* Sort order: freq only */
 void 	UniHan_insertSort_freq( EGI_UNIHAN* unihans, int n );
 int 	UniHan_quickSort_freq(EGI_UNIHAN* unihans, unsigned int start, unsigned int end, int cutoff);
@@ -208,11 +216,11 @@ int 	UniHanGroup_wcodes_size(const EGI_UNIHANGROUP *group);
 
 void 	UniHanGroup_print_set(const EGI_UNIHANGROUP_SET *group_set, int start, int end);
 void 	UniHanGroup_print_group(const EGI_UNIHANGROUP_SET *group_set, int index, bool line_feed);
+void 	UniHanGroup_print_results( const EGI_UNIHANGROUP_SET *group_set );
 void 	UniHanGroup_search_uchars(const EGI_UNIHANGROUP_SET *group_set, UFT8_PCHAR uchar);
 int 	UniHanGroup_locate_uchars(const EGI_UNIHANGROUP_SET *group_set, UFT8_PCHAR uchars);
 
 int 	UniHanGroup_compare_typing( const EGI_UNIHANGROUP *group1, const EGI_UNIHANGROUP *group2, const EGI_UNIHANGROUP_SET *group_set);
-
 	/* Sort order: nch + typing + freq */
 void 	UniHanGroup_insertSort_typing(EGI_UNIHANGROUP_SET *group_set, int start, int n);
 int 	UniHanGroup_quickSort_typing(EGI_UNIHANGROUP_SET* group_set, unsigned int start, unsigned int end, int cutoff);
@@ -223,5 +231,10 @@ int 	strstr_group_typings(const char *hold_typings, const char* try_typings, int
 int 	strcmp_group_typings(const char *hold_typings, const char* try_typings, int nch);
 void 	print_group_typings(const char* typings, unsigned int nw);
 int  	UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typings);
+
+	/* For UniHanGroup_locate_typings() result */
+int 	UniHanGroup_compare_LTRIndex(EGI_UNIHANGROUP_SET* group_set, unsigned int n1, unsigned int n2);
+void 	UniHanGroup_insertSort_LTRIndex(EGI_UNIHANGROUP_SET *group_set, int start, int n);
+int 	UniHanGroup_quickSort_LTRIndex(EGI_UNIHANGROUP_SET* group_set, int start, int end, int cutoff);
 
 #endif

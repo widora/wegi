@@ -121,7 +121,7 @@ midaszhou@yahoo.com
 #define		CTRL_P  16	/* Ctrl + p: PINYIN input ON/OFF toggle */
 
 char *strInsert="Widora和小伙伴们";
-char *fpath="/tmp/hello.txt";
+char *fpath="/mmc/hello.txt";
 
 
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
