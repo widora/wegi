@@ -2788,7 +2788,7 @@ void UniHanGroup_free_set( EGI_UNIHANGROUP_SET **set)
 }
 
 
-/*----------------------------------------------------------------
+/*-----------------------------------------------------------------------
 Read an UFT-8 text file containing unihan_groups(words/phrases/Cizus)
 and load them to an EGI_UNIHANGROUP_SET struct.
 
@@ -2799,30 +2799,45 @@ Note:
 2. Each unihan_group(words/phrases/Cizu) MUST occupy one line in the
 text file, such as:
 ...
-普通
-武则天
-日新月异
+笑　	xiao
+joke	xiao hua   ( 2.1 Non_UNIHAN: Ignored! )
+普通    	   ( 2.2 No typings: It still will reserve 2*UNIHAN_TYPING_MAXLEN bytes!)
+武则天	　wu ze	   ( 2.3 Incomplete typings: Leave typings as blank.)
+日新月异  ri xin yue yi
 ...
+
+3. Even NO typing in text file, it will still reserve nch*UNIHAN_TYPING_MAXLEN
+   mem space for the unihan_group.
+   Example: '普通' as above.
+
 
 @fpath:		Full path to the text file.
 
 Return:
 	A pointer to EGI_UNIHANGROUP_SET	OK
 	Null					Fails
------------------------------------------------------------------*/
+------------------------------------------------------------------------*/
 EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 {
 	EGI_UNIHANGROUP_SET* group_set=NULL;
 
 	FILE *fil;
-	char linebuff[128];
+	char linebuff[256];
+	unsigned int  Word_Max_Len=32;		/* Max. length of column words in each line,  including '\0'. */
+	unsigned int  Max_Split_Words=5;  	/* Max number of words in linebuff[] as splitted by delimters, 1group+4typings=5 */
+	char str_words[Max_Split_Words][Word_Max_Len]; /* See above */
+	char *delim=" 	\r\n"; 			/* delimiters: TAB,SPACE.\r\n  for splitting linebuff[] into 5 words. see above. */
+	int  m;
+	char *pt=NULL;
+
 	int i;
 	int k; 			 	/* For counting unihan groups */
 	int nch;		  	/* Number of UNICODEs */
-	unsigned int pos_uchar=0;
-	//unsigned int pos_typing=0;
+	unsigned int pos_uchar;
+	unsigned int pos_typing;
 	int len;
 	int chsize;
+
 
 	/* Open file */
 	fil=fopen(fpath,"r");
@@ -2842,11 +2857,13 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 
 	/* Loop read in and parse to store to EGI_UNIHANGROUP_SET */
 	k=0;
-	while ( fgets(linebuff, sizeof(linebuff), fil) != NULL  )  /* fgets(): a terminating null byte ALWAYS is stored at last! */
+	pos_uchar=0;
+	pos_typing=0;
+	while ( fgets(linebuff, sizeof(linebuff), fil) != NULL  )  /* fgets(): a terminating null byte ALWAYS is stored at the end! */
 	{
 		/* Get rid of 0xFEFF Byte_Order_Mark if any */
 
-		/* Get rid of NON_UNIHAN encoding chars at end. Example: '\n','\r',SPACE at end of each line */
+		#if  0 ///// NOT NECESSARY NOW ///// /* Get rid of NON_UNIHAN encoding chars at end. Example: '\n','\r',SPACE at end of each line */
 		for( len=strlen(linebuff);
 		     //linebuff[len-1] == '\n' || linebuff[len-1] == '\r' || linebuff[len-1] == ' ';
 		     len>0 && (unsigned int)linebuff[len-1] < 0x80;	/* 0b10XXXXXX as end of UNIHAN UFT8 encoding */
@@ -2854,9 +2871,26 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 		{
 			linebuff[len-1]='\0';
 		}
+		#endif
+
+		/* Readin words: uinhangroups + (0-4)typings */
+		pt=strtok(linebuff, delim);
+		bzero(&str_words[0][0], sizeof(str_words[0])*Max_Split_Words); /* Clear all! as nch is NOT available here. */
+		for(m=0; pt!=NULL && m<Max_Split_Words; m++) {  /* Separate linebuff into 4 words */
+			snprintf( str_words[m], Word_Max_Len-1, "%s", pt); /* pad EOF */
+			pt=strtok(NULL, delim);
+		}
+		/* Check m */
+		if(m<1)continue;
+
+		/* Check first byte to see if UFT8 encoding for an UNIHAN */
+		if( str_words[0][0] < (unsigned int)0b11000000 ) {
+			printf("%s: '%s' is Not an UNIHAN with UFT8 encoding!\n",__func__, str_words[0]);
+			continue;
+		}
 
 		/* Check total number of unihans in the group */
-		nch=cstr_strcount_uft8((const UFT8_PCHAR)linebuff);
+		nch=cstr_strcount_uft8((const UFT8_PCHAR)str_words[0]);
 		if( nch < 1 ) {
 			/* TEST ---- */
 			#if 0
@@ -2866,9 +2900,26 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 			continue;
 		}
 		else if( nch > UHGROUP_WCODES_MAXSIZE ) {
-			printf("%s:%s nch=%d > UHGROUP_WCODES_MAXSIZE=%d!\n", __func__, linebuff, nch, UHGROUP_WCODES_MAXSIZE);
+			//printf("%s:%s nch=%d > UHGROUP_WCODES_MAXSIZE=%d!\n", __func__, str_words[0], nch, UHGROUP_WCODES_MAXSIZE);
 			continue;
 		}
+
+		/* Check number of typings */
+		if( m-1 < nch ) {
+		    	if( m-1 > 0 )
+				printf("%s: Incomplete typings for '%s' ( ntypings=%d < nch=%d ). \n", __func__, str_words[0], m-1, nch);
+
+			/* Clear imcomplete typings */
+			bzero(&str_words[1][0], sizeof(str_words[0])*(Max_Split_Words-1));
+		}
+
+#if 0	/* TEST--- */
+		printf("%s: ",str_words[0]);
+		for(i=1; i<m; i++)
+			printf("%s ",str_words[i]);
+		printf("\n");
+		continue;
+#endif
 
 	/* 1. --- ugroup --- */
 		/* 1.1 Check ugroups mem */
@@ -2888,7 +2939,7 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 		/* 1.2 Store wcodes[] */
 		len=0; chsize=0;
 		for(i=0; i<nch; i++) {
-			chsize= char_uft8_to_unicode((const UFT8_PCHAR)linebuff+len, group_set->ugroups[k].wcodes+i);
+			chsize= char_uft8_to_unicode((const UFT8_PCHAR)str_words[0]+len, group_set->ugroups[k].wcodes+i);
 			if(chsize<0) {
 				UniHanGroup_free_set(&group_set);
 				goto END_FUNC;
@@ -2896,12 +2947,12 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 			len+=chsize;
 		}
 
-		/* NOW: len==strlen(linebuff) */
-		/* 1.3 Store pos_uchar */
-		group_set->ugroups[k].pos_uchar=pos_uchar;
-		//group_set->ugroups[k].pos_typing=pos_typing;
+		/* NOW: len==strlen(str_words[0]) */
 
 	/* 2. --- uchars --- */
+		/* 2.0 Store pos_uchar */
+		group_set->ugroups[k].pos_uchar=pos_uchar;
+
                 /* 2.1 Check uchars mem */
                 if( group_set->uchars_size+len+1 > group_set->uchars_capacity ) {		/* +1 '\0' delimiter  */
                         if( egi_mem_grow( (void **)&group_set->uchars,
@@ -2917,18 +2968,7 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
                 }
 
 		/* 2.2 Store uchars[] */
-		strncpy((char *)group_set->uchars+pos_uchar, linebuff, len+1); /* fget() ensure a '\0' at last of linebuff */
-
-                /* Test --- */
-		#if 0
-                if( nch<5 && k<3 ) {
-			printf("nch=%d [%s: ",nch,group_set->uchars+pos_uchar);
-               		for(i=0; i<nch; i++) {
-                                printf("U+%X ", group_set->ugroups[k].wcodes[i]);
-                	}
-                	printf("] \n");
-		}
-		#endif
+		strncpy((char *)group_set->uchars+pos_uchar, str_words[0], len+1); /* fget() ensure a '\0' at last of linebuff */
 
 		/* 2.3 Update pos_uchar for next group */
 		pos_uchar += len+1;	/* Add a '\0' as delimiter */
@@ -2936,16 +2976,37 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 		/* 2.4: update uchars_size */
 		group_set->uchars_size = pos_uchar; /* SAME AS += len+1, as uchar_size starts from 0 */
 
+	/* 3. --- typings --- */
+		/* 3.1 Check typings mem */
+                if( group_set->typings_size + nch*UNIHAN_TYPING_MAXLEN > group_set->typings_capacity ) {
+                        if( egi_mem_grow( (void **)&group_set->typings,
+                                                group_set->typings_capacity*1, 				//sizeof(typeof(*group_set->typings)),
+                                                      UHGROUP_TYPINGS_GROW_SIZE ) != 0 )
+                        {
+                                        printf("%s: Fail to mem grow group_set->typings!\n", __func__);
+                                        UniHanGroup_free_set(&group_set);
+                                        goto END_FUNC;
+                        }
+                        /* Update capacity */
+                        group_set->typings_capacity += UHGROUP_TYPINGS_GROW_SIZE;
+                }
+		/* 3.2 Store typings[]. Note: Even NO typing text, we still reserve mem space for it.  */
+		for(i=0; i<nch; i++) /* strcpy one by one, each str_words[] padded with a EOF */
+			strncpy( group_set->typings+pos_typing+i*UNIHAN_TYPING_MAXLEN, str_words[1+i], UNIHAN_TYPING_MAXLEN);
+		/* 3.3 Assign pos_typing for ugroups[i] */
+		group_set->ugroups[k].pos_typing=pos_typing;
+		/* 3.4 Update pos_typing for NEXT UNIHAN_GROUP */
+		pos_typing += nch*UNIHAN_TYPING_MAXLEN;
+		/* 3.5 Update typings_size */
+		group_set->typings_size = pos_typing; /* SAME AS: += nch*UNIHAN_TYPING_MAXLE, as typings_size starts from 0 */
+
+	/* 4. --- Count on --- */
 		/* Count number of unihan groups */
 		k++;
 		/* Update ugroups_size */
 		group_set->ugroups_size +=1;
 	}
-
-//	printf(" group_set->ugroups[803].wcodes[0]: U+%X \n", group_set->ugroups[803].wcodes[0]);
 	printf("%s: Finish reading %d unihan groups into group_set!\n",__func__, k);
-
-	/* 3. --- typings --- */
 
 END_FUNC:
         /* Close fil */
@@ -2956,7 +3017,75 @@ END_FUNC:
 }
 
 
-/*--------------------------------------------------------
+/*---------------------------------------------------------------
+Save a group set to a Cizu text file.
+
+Note:
+1. Only uchars and typings will be written to the text file,
+   which is also compatible for UniHanGroup_load_CizuTxt() to
+   read in.
+...
+普通  pu tong
+武则天  wu ze tian
+日新月异  ri xin yue yi
+....
+
+
+@group_set:	A pinter to an EGI_UNIHANGROUP_SET
+@fpath:		Full file path of saved file.
+
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------------------------*/
+int  UniHanGroup_saveto_CizuTxt(const EGI_UNIHANGROUP_SET *group_set, const char *fpath)
+{
+	int i,j;
+	int nwrite;
+	FILE *fil;
+	int ret=0;
+	unsigned int off;
+	int nch;
+
+	/* Check group_set */
+	if(group_set==NULL || group_set->ugroups_size<1 )
+		return -1;
+
+	/* Open/create file */
+        fil=fopen(fpath, "w");
+        if(fil==NULL) {
+                printf("%s: Fail to open file '%s' for write. ERR:%s\n", __func__, fpath, strerror(errno));
+                return -2;
+        }
+
+	for(i=0; i < group_set->ugroups_size; i++) {
+	        /* Get number of chars of each group */
+	        nch=UHGROUP_WCODES_MAXSIZE;
+       		while( nch>0 && group_set->ugroups[i].wcodes[nch-1] == 0 ) { nch--; };
+
+		/* write uchar */
+		off=group_set->ugroups[i].pos_uchar;
+		nwrite=fprintf(fil,"%s ",group_set->uchars+off);
+
+		/* write typings */
+		off=group_set->ugroups[i].pos_typing;
+		for(j=0; j<nch; j++)
+			nwrite=fprintf(fil,"%s ",group_set->typings+off+j*UNIHAN_TYPING_MAXLEN);
+
+		fprintf(fil,"\n");
+	}
+
+        /* Close fil */
+        if( fclose(fil) !=0 ) {
+                printf("%s: Fail to close file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+                ret=-5;
+        }
+
+	return ret;
+}
+
+
+/*----------------------------------------------------------
 Load an UNIHAN set into an UNIHANGROUP set, by adding all
 unihans at the end of the group_set.
 
@@ -2966,7 +3095,7 @@ unihans at the end of the group_set.
 Return:
 	0	OK
 	<0	Fails
---------------------------------------------------------*/
+----------------------------------------------------------*/
 int UniHanGroup_load_uniset(EGI_UNIHANGROUP_SET *group_set, const EGI_UNIHAN_SET *uniset)
 {
 	int i;
@@ -2984,13 +3113,7 @@ int UniHanGroup_load_uniset(EGI_UNIHANGROUP_SET *group_set, const EGI_UNIHAN_SET
         while( nch>0 && group_set->ugroups[group_set->ugroups_size-1].wcodes[nch-1] == 0 ) { nch--; };
 
 	/* Get pos_uchar for new unihan(group) */
-	pos_uchar=group_set->ugroups[group_set->ugroups_size-1].pos_uchar;
-	charlen=cstr_charlen_uft8(group_set->uchars+pos_uchar);
-	if(charlen<0) {
-		printf("%s: group_set->uchars data error!\n", __func__);
-		return -2;
-	}
-	pos_uchar += charlen+1; /* Add '\0' as delimiter */
+	pos_uchar = group_set->uchars_size;
 
 	/* Get pos_typoing for new unihan(group) */
 	pos_typing=group_set->ugroups[group_set->ugroups_size-1].pos_typing;
@@ -3018,18 +3141,19 @@ int UniHanGroup_load_uniset(EGI_UNIHANGROUP_SET *group_set, const EGI_UNIHAN_SET
 
 		/* 1.2 Store wcodes[], nch==1, append ugroups at the end */
 		group_set->ugroups[k].wcodes[0]=uniset->unihans[i].wcode;
-		/* 1.3 Store pos_uchar */
-		group_set->ugroups[k].pos_uchar=pos_uchar;
 
 	/* 2. --- Append uchars[] --- */
-		/* Get new uchar len */
+		/* 2.1 Store pos_uchar */
+		group_set->ugroups[k].pos_uchar=pos_uchar;
+
+		/* 2.2 Get new uchar len */
 		charlen=cstr_charlen_uft8((UFT8_PCHAR)uniset->unihans[i].uchar);
 		if(charlen<0) {
 			printf("%s: uniset->unihans[%d].uchar data error!\n", __func__, i);
 			return -4;
 		}
 
-                /* 2.1 Check uchars mem */
+                /* 2.3 Check uchars mem */
                 if( group_set->uchars_size+charlen+1 > group_set->uchars_capacity ) {		/* +1 '\0' delimiter */
                         if( egi_mem_grow( (void **)&group_set->uchars,
                                                 group_set->uchars_capacity*1, 				//sizeof(typeof(*group_set->uchars)),
@@ -3041,11 +3165,11 @@ int UniHanGroup_load_uniset(EGI_UNIHANGROUP_SET *group_set, const EGI_UNIHAN_SET
                         /* Update capacity */
                         group_set->uchars_capacity += UHGROUP_UCHARS_GROW_SIZE;
                 }
-		/* 2.2 Store uchars[] */
+		/* 2.4 Store uchars[] */
 		strncpy((char *)group_set->uchars+pos_uchar, (char *)uniset->unihans[i].uchar, charlen+1); /*  */
-		/* 2.3 Update pos_uchar for next group */
+		/* 2.5 Update pos_uchar for next group */
 		pos_uchar += charlen+1;	/* Add a '\0' as delimiter */
-		/* 2.4: update uchars_size */
+		/* 2.6 update uchars_size */
 		group_set->uchars_size = pos_uchar; /* SAME AS += len+1, as uchar_size starts from 0 */
 
 	/* 3. --- Append typings[] --- */
@@ -3088,23 +3212,24 @@ int UniHanGroup_load_uniset(EGI_UNIHANGROUP_SET *group_set, const EGI_UNIHAN_SET
 }
 
 
-/*----------------------------------------------------------------
+/*-----------------------------------------------------------------------
 Assemble typings for each unihan_group in ugroup_set, by copying
 typing of each UNIHAN from the input uhan_set.
 If the UNIHAN is polyphonic, ONLY the first typing will be used!
 so it MAY NOT be correct for some unihan_groups/phrases!
-The group_set->typings_size MUST be 0!
 
 Note:
-1.If char of Unihan Group is NOT included in the han_set, it will
+1.Group_set->typings MUST already have been allocated for each UNIHAN!
+2.If char of Unihan Group is NOT included in the han_set, it will
   fail to assemble typing!
   	ＡＢ公司  Fail to UniHan_locate_wcode
-
-2.TODO: If the UNIHAN is polyphonic, ONLY the first typing will be used!
+3.TODO: If the UNIHAN is polyphonic, ONLY the first typing will be used!
   so it MAY NOT be correct for some unihan_groups/phrases!
 	22511: 谋求 mo qiu   (x)
 	22512: 谋取 mo qu    (x)
 	地图: de tu
+
+4. If some group typings already exits, then it will keep.
 
 @ugroup_set:	Unihan Group Set without typings.
 @uhan_set:	Unihan Set with typings.
@@ -3112,21 +3237,18 @@ Note:
 Return:
 	0	OK
 	<0	Fails
------------------------------------------------------------------*/
+-----------------------------------------------------------------------*/
 int UniHanGroup_assemble_typings(EGI_UNIHANGROUP_SET *group_set, EGI_UNIHAN_SET *han_set)
 {
 	int i,j;
 	int nch;
-	unsigned int pos_typing=0;
+	unsigned off;
 
-	if( group_set==NULL || group_set->ugroups_size < 1 )
+	if( group_set==NULL || group_set->typings==NULL || group_set->ugroups_size < 1 )
 		return -1;
 
-	if( group_set->typings_size != 0 )
-		return -2;
-
 	if( han_set==NULL || han_set->size < 1 )
-		return -3;
+		return -2;
 
 	/* Sort han_set to UNIORDER_WCODE_TYPING_FREQ */
 	if( UniHan_quickSort_set(han_set, UNIORDER_WCODE_TYPING_FREQ, 10) !=0 ) {
@@ -3134,8 +3256,7 @@ int UniHanGroup_assemble_typings(EGI_UNIHANGROUP_SET *group_set, EGI_UNIHAN_SET 
 		return -4;
 	}
 
-	/* Tranverse UNIHAN_GROUPs */
-	pos_typing=0;
+	/* Traverse UNIHAN_GROUPs */
 	for(i=0; i < group_set->ugroups_size; i++)
 	{
 		/* 1. Count number of UNICODES in wcodes[] */
@@ -3148,49 +3269,29 @@ int UniHanGroup_assemble_typings(EGI_UNIHANGROUP_SET *group_set, EGI_UNIHAN_SET 
 			return -5;
 		}
 
-		/* 2. Check typings mem */
-                if( group_set->typings_size + nch*UNIHAN_TYPING_MAXLEN > group_set->typings_capacity ) {
-                        if( egi_mem_grow( (void **)&group_set->typings,
-                                                group_set->typings_capacity*1, 				//sizeof(typeof(*group_set->typings)),
-                                                      UHGROUP_TYPINGS_GROW_SIZE*1 ) != 0 )
-                        {
-                                        printf("%s: Fail to mem grow group_set->typings!\n", __func__);
-					return -6;
-                        }
-                        /* Update capacity */
-                        group_set->typings_capacity += UHGROUP_TYPINGS_GROW_SIZE;
-                }
-
 		/* TEST --- */
 //		printf("%s  ", group_set->uchars+group_set->ugroups[i].pos_uchar);
 
 		/* 3. Get typing of each UNIHAN */
-		for(j=0; j<nch; j++)
-		{
-			if( UniHan_locate_wcode(han_set, group_set->ugroups[i].wcodes[j]) ==0 ) {
-			    	strncpy( group_set->typings+pos_typing+j*UNIHAN_TYPING_MAXLEN,
-						han_set->unihans[han_set->puh].typing, UNIHAN_TYPING_MAXLEN);
-				/* TEST --- */
-//				printf("%s ", han_set->unihans[han_set->puh].typing);
-			}
-			#if 0  /* TEST --- */
-			else {
-				printf("%s: Fail to UniHan_locate_wcode U+%X (%s), press a key to continue.\n",
+		off=group_set->ugroups[i].pos_typing;
+		if(*(group_set->typings+off)=='\0') {   /* ONLY IF its typings does NOT exist. */
+			for(j=0; j<nch; j++) {
+				if( UniHan_locate_wcode(han_set, group_set->ugroups[i].wcodes[j]) ==0 ) {
+				    	strncpy( group_set->typings+off+j*UNIHAN_TYPING_MAXLEN,
+							han_set->unihans[han_set->puh].typing, UNIHAN_TYPING_MAXLEN);
+					/* TEST --- */
+//					printf("%s ", han_set->unihans[han_set->puh].typing);
+				}
+				#if 0  /* TEST --- */
+				else {
+					printf("%s: Fail to UniHan_locate_wcode U+%X (%s), press a key to continue.\n",
 						__func__, group_set->ugroups[i].wcodes[j], group_set->uchars+ group_set->ugroups[i].pos_uchar );
-				getchar();
-				/* Though empty typing for this UNIHAN, go on to assign pos_typing and keep space. */
+					getchar();
+					/* Though empty typing for this UNIHAN, go on to assign pos_typing and keep space. */
+				}
+				#endif
 			}
-			#endif
 		}
-
-		/* 4. Assign pos_typing for ugroups[i] */
-		group_set->ugroups[i].pos_typing=pos_typing;
-
-		/* 5. Update pos_typing for NEXT UNIHAN_GROUP */
-		pos_typing += nch*UNIHAN_TYPING_MAXLEN;
-
-		/* 6. Update typings_size */
-		group_set->typings_size = pos_typing; /* SAME AS: += nch*UNIHAN_TYPING_MAXLE, as typings_size starts from 0 */
 	}
 
 	return 0;

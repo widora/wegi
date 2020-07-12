@@ -408,7 +408,7 @@ inline int cstr_prevcharlen_uft8(const unsigned char *cp)
 
 
 /*--------------------------------------------------
-Get length of a character with UTF-8 encoding.
+Get length of a string with UTF-8 encoding.
 
 @cp:	A pointer to a string with UTF-8 encoding.
 

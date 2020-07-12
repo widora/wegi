@@ -149,6 +149,8 @@ struct egi_uniHanGroup_set
 };
 
 
+		/* ======= 	1. UniHan functions 	======== */
+
 /* PINYIN Functions */
 int  UniHan_divide_pinyin(const char *strp, char *pinyin, int n);
 
@@ -204,10 +206,13 @@ int 		UniHan_reading_to_pinyin( const UFT8_PCHAR reading, char *pinyin);
 
 void 		UniHan_print_wcode(EGI_UNIHAN_SET *uniset, EGI_UNICODE wcode);
 
-/* ======= UniHan_Group_Set functions ======== */
+		/* ======= 	2. UniHan Group functions 	======== */
+
 EGI_UNIHANGROUP_SET* 	UniHanGroup_create_set(const char *name, size_t capacity);
 void 		   	UniHanGroup_free_set( EGI_UNIHANGROUP_SET **set);
+
 EGI_UNIHANGROUP_SET* 	UniHanGroup_load_CizuTxt(const char *fpath);
+int	UniHanGroup_saveto_CizuTxt(const EGI_UNIHANGROUP_SET *group_set, const char *fpath);
 int 	UniHanGroup_load_uniset(EGI_UNIHANGROUP_SET *group_set, const EGI_UNIHAN_SET *uniset);
 
 int 	UniHanGroup_assemble_typings(EGI_UNIHANGROUP_SET *group_set, EGI_UNIHAN_SET *han_set);
@@ -217,6 +222,7 @@ int 	UniHanGroup_wcodes_size(const EGI_UNIHANGROUP *group);
 void 	UniHanGroup_print_set(const EGI_UNIHANGROUP_SET *group_set, int start, int end);
 void 	UniHanGroup_print_group(const EGI_UNIHANGROUP_SET *group_set, int index, bool line_feed);
 void 	UniHanGroup_print_results( const EGI_UNIHANGROUP_SET *group_set );
+
 void 	UniHanGroup_search_uchars(const EGI_UNIHANGROUP_SET *group_set, UFT8_PCHAR uchar);
 int 	UniHanGroup_locate_uchars(const EGI_UNIHANGROUP_SET *group_set, UFT8_PCHAR uchars);
 
