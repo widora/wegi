@@ -1,7 +1,12 @@
-/*---------------------------------------------------------------------
+/*-----------------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
+
+        UNIHAN                  汉字
+        UNIHAN_SET              汉字集
+        UNIHANGROUP             词组
+        UNIHANGROUP_SET         词组集
 
 Note:
 1. See Unicode Character Database in http://www.unicode.org.
@@ -17,10 +22,45 @@ Note:
   2.3 http://www.unicode.org/Public/UCD/latest/ucd/Unihan.zip (Unihan_Readings.txt)
   2.3 http://www.unicode.org/reports/tr38
 
+3. Procedure for generating UniHan data file for EGI_PINYIN IME:
+   3.1 	Run test_pinyin3500.c to generate and save PINYIN3500 UinHan set.
+	fil=fopen(PINYIN3500_TXT_PATH,"r");
+	read line to uniset....
+   	UniHan_save_set(uniset, PINYIN3500_DATA_PATH)
+   3.2 	Load unisetMandarin from text MANDARIN_TXT_PATH.
+	unisetMandarin=UniHan_load_MandarinTxt(MANDARIN_TXT_PATH)
+   3.3 	Merge unisetMandarin into uniset.
+	UniHan_merge_set(unisetMandarin, uniset)
+   3.4 	Sort and purify uniset.
+	UniHan_quickSort_set(uniset, UNIORDER_WCODE_TYPING_FREQ, 10)
+        UniHan_purify_set(uniset)
+   3.5 	Generate frequency values for UniHans in uniset.
+	UniHan_poll_freq(uniset, "/mmc/xyj_all.txt") ....
+   3.6 	Sort UniHan set.
+	UniHan_quickSort_set(uniset, UNIORDER_TYPING_FREQ, 10)
+   3.7 	Save to UniHan data.
+	UniHan_save_set(uniset, UNIHANS_DATA_PATH)
+
+4. Procedure for generating UniHanGroup data file for EGI_PINYIN IME:
+   4.1  Load UinHan data.
+	han_set=UniHan_load_set(UNIHANS_DATA_PATH);
+   4.2	Load UniHanGroup data from text.
+   	group_set=UniHanGroup_load_CizuTxt(CIZU_TXT_PATH);
+   4.3	Assemble typings for UniHanGroup
+   	UniHanGroup_assemble_typings(group_set, han_set)
+   4.4  Merge UniHan to UniHanGroup set.
+	UniHanGroup_load_uniset(group_set, han_set)
+   4.5  Sort UniHanGroup set.
+   	UniHanGroup_quickSort_typing(group_se ...);
+   4.6  Save to UniHanGroup data.
+	UniHanGroup_save_set(group_set, UNIHANGROUPS_DATA_PATH)
+   4.7  Save UniHanGroup to a text. (Option: for further modification)
+	UniHanGroup_saveto_CizuTxt(group_set, "/tmp/cizu+pinyin.txt")
+
 
 Midas Zhou
 midaszhou@yahoo.com
------------------------------------------------------------------------*/
+------------------------------------------------------------------------------*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -1347,7 +1387,7 @@ Return:
 	0	OK
 	<0	Fails
 --------------------------------------------------------------------*/
-int UniHan_save_set(const char *fpath,  const EGI_UNIHAN_SET *uniset)
+int UniHan_save_set(const EGI_UNIHAN_SET *uniset, const char *fpath)
 {
 	int i;
 	int nwrite;
@@ -1355,7 +1395,7 @@ int UniHan_save_set(const char *fpath,  const EGI_UNIHAN_SET *uniset)
 	FILE *fil;
 	uint8_t nq;
 	int ret=0;
-	size_t size;		/* Total number of unihans in the uniset */
+	uint32_t size;		/* Total number of unihans in the uniset */
 	EGI_UNIHAN *unihans;
 
 	if( uniset==NULL )
@@ -1428,16 +1468,13 @@ END_FUNC:
 
 
 /*------------------------------------------------------------------------------
-Read EGI_UNIHANs from a file and load them to an EGI_UNIHAN_SET.
+Read EGI_UNIHANs from a data file and load them to an EGI_UNIHAN_SET.
 
 @fpath:		File path.
-@set: 		A pointer to EGI_UNIHAN_SET.
-		The caller MUST ensure enough space to hold all
-		readin data.  !!! WARNING !!!
 
 Return:
 	A pointer to EGI_UNIHAN_SET	OK, however its data may not be complete
-					if fail happens during file reading.
+					if error occurs during file reading.
 	NULL				Fails
 -----------------------------------------------------------------------------*/
 EGI_UNIHAN_SET* UniHan_load_set(const char *fpath)
@@ -1449,8 +1486,9 @@ EGI_UNIHAN_SET* UniHan_load_set(const char *fpath)
 	FILE *fil;
 	uint8_t nq;  		/* quarter of uint32_t */
 	uint32_t total=0;	/* total number of EGI_UNIHAN in the file */
+	char setname[UNIHAN_SETNAME_MAX];
 
-	/* Open/create file */
+	/* Open file */
         fil=fopen(fpath, "rb");
         if(fil==NULL) {
                 printf("%s: Fail to open file '%s' for read. ERR:%s\n", __func__, fpath, strerror(errno));
@@ -1475,28 +1513,28 @@ EGI_UNIHAN_SET* UniHan_load_set(const char *fpath)
         }
 	printf("%s: Totally %d unihans in file '%s'.\n",__func__, total, fpath);
 
+        /* FReadin uniset name */
+        nmemb=UNIHAN_SETNAME_MAX;
+        nread=fread( setname, 1, nmemb, fil);
+        if(nread < nmemb) {
+                if(ferror(fil))
+                        printf("%s: Fail to read uniset name.\n", __func__);
+                else
+                        printf("%s: WARNING! fread uniset name %d bytes of total %d bytes.\n", __func__, nread, nmemb);
+		//UniHan_free_set(&uniset);
+                goto END_FUNC;
+        }
+	/* Whatever, set EOF */
+	setname[UNIHAN_SETNAME_MAX-1]='\0';
+
 	/* Create UNISET */
-	uniset=UniHan_create_set(NULL, total); /* total is capacity, NOT size! */
+	uniset=UniHan_create_set(setname, total); /* total is capacity, NOT size! */
 	if(uniset==NULL) {
 		printf("%s: Fail to create uniset!\n", __func__);
 		goto END_FUNC;
 	}
 	/* Assign size */
 	uniset->size=total;
-
-        /* FReadin uniset name */
-        nmemb=sizeof(uniset->name);
-        nread=fread( uniset->name, 1, nmemb, fil);
-        if(nread < nmemb) {
-                if(ferror(fil))
-                        printf("%s: Fail to read uniset name.\n", __func__);
-                else
-                        printf("%s: WARNING! fread uniset->name %d bytes of total %d bytes.\n", __func__, nread, nmemb);
-		UniHan_free_set(&uniset);
-                goto END_FUNC;
-        }
-	/* Whatever, set EOF */
-	uniset->name[sizeof(uniset->name)-1]='\0';
 
 	/* FReadin all EGI_UNIHANs */
 	nmemb=sizeof(EGI_UNIHAN);
@@ -3042,6 +3080,7 @@ int  UniHanGroup_saveto_CizuTxt(const EGI_UNIHANGROUP_SET *group_set, const char
 {
 	int i,j;
 	int nwrite;
+	int len;
 	FILE *fil;
 	int ret=0;
 	unsigned int off;
@@ -3065,12 +3104,19 @@ int  UniHanGroup_saveto_CizuTxt(const EGI_UNIHANGROUP_SET *group_set, const char
 
 		/* write uchar */
 		off=group_set->ugroups[i].pos_uchar;
+		len=strlen((char *)group_set->uchars+off);
 		nwrite=fprintf(fil,"%s ",group_set->uchars+off);
+		if(len+1 != nwrite) /* +1 SPACE */
+			printf("%s: WARNING! fprintf writes uchars %d of total %d bytes!\n", __func__, nwrite, len);
 
 		/* write typings */
 		off=group_set->ugroups[i].pos_typing;
-		for(j=0; j<nch; j++)
+		for(j=0; j<nch; j++) {
+			len=strlen(group_set->typings+off+j*UNIHAN_TYPING_MAXLEN);
 			nwrite=fprintf(fil,"%s ",group_set->typings+off+j*UNIHAN_TYPING_MAXLEN);
+			if(len+1 != nwrite)
+				printf("%s: WARNING! fprintf writes typings %d of total %d bytes!\n", __func__, nwrite, len);
+		}
 
 		fprintf(fil,"\n");
 	}
@@ -3540,7 +3586,7 @@ int UniHanGroup_compare_typing( const EGI_UNIHANGROUP *group1, const EGI_UNIHANG
 
 	/* 5. Compare order of group typing[] */
 
-#if 1   /* OPTION 1: Compare each byte in typing, with byte order + typing order.
+#if 1   /* OPTION 1 (OK): Compare each byte in typing, with byte order + typing order.
 	This is for short_typing locating and sorting!
 	typing[0][0], typing[1][0], typing[2][0], typiong[3][0], ...  ( 1. compare 0th byte, from 0-Nth typing )
 	typing[0][1], typing[1][1], typing[2][1], typiong[3][1], ...  ( 2. compare 1th byte,...)
@@ -3679,7 +3725,7 @@ static inline int compare_group_typings( const char *group_typing1, int nch1, co
 		return CMPORDER_IS_AHEAD;
 	/* NOW: nch1==nch2 */
 
-#if 1 /* OPTION 1:	Interval(short_typing) comparing,  group_typing2 as short_typing!  */
+#if 1 /* OPTION 1: (OK)  Interval(short_typing) comparing,  group_typing2 as short_typing!  */
     //if(enable_short_typing) //&& nch1==nch2 )
     {
         /* Compare typing bytes  in  byte order + typing order. See in UniHanGroup_compare_typing() */
@@ -3979,23 +4025,20 @@ occupys UHGROUP_WCODES_MAXSIZE*UNIHAN_TYPING_MAXLEN bytes.
 
                         !!! IMPORTANT !!!
 "Containing the given typing" means UHGROUP_WCODES_MAXSIZE(4) typings (
-in ugroups->typings[ugroup->pos_typing] ) of the wcode are the SAME as teh give
+in ugroups->typings[ugroup->pos_typing] ) of the wcode are the SAME as the given
 typings, OR the given (4) typings are contained in beginning of
 ugroups->typings[ugroup->pos_typing] respectively.
 
 This criteria is ONLY based on PINYIN. Other types of typing may NOT comply.
 
 Note:
-1. The group_set MUST be prearranged in dictionary ascending order of typing+freq.
+1. The group_set MUST be prearranged in dictionary ascending order of nch+typing+freq.
+   (UNIORDER_NCH_TYPING_FREQ)
 2. And all uuniset->unhihans[0-size-1] are assumed to be valid/normal, with
    wcode >0 AND typing[0]!='\0'.
 3. Pronunciation tones of PINYIN are neglected.
-4. Usually there are more than one unihans that have the save typing,
-(same pronuciation, but different UNIHANs), and indexse of those unihans
-should be consecutive in the uniset (see 1). Finally the firt index will
-be located.
-5. This algorithm depends on typing type PINYIN, others MAY NOT work.
-6. TODO: Some polyphonic UNIHANs will fail to locate, as UniHanGroup_assemble_typings()
+4. This algorithm depends on typing type PINYIN, others MAY NOT work.
+5. TODO: Some polyphonic UNIHANs will fail to locate, as UniHanGroup_assemble_typings()
    does NOT know how to pick the right typings for an unihan group!
    ( UniHanGroup_modify_group() to correct it )
 	 ...
@@ -4008,8 +4051,7 @@ be located.
 	 现身说法: xian shen shui fa
 	 畅行无阻: chang hang wu zu
 	 ...
-
-7. Resolved! TO_DO: For short_typing, two intials shall be nearly the same number, otherwise it may fail!
+6. Resolved! TO_DO: For short_typing, two intials shall be nearly the same number, otherwise it may fail!
    (To improve: First locate by initals, then search it in result collections. Example: 'huah' --> first 'hh' --> 'huah' )
 
 @group_set      The target EGI_UNIHAN_SET.
@@ -4024,6 +4066,7 @@ Return:
 int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typings)
 {
 	int i,k;
+	int step;
 	unsigned int start,end,mid;
 	EGI_UNIHANGROUP *ugroups=NULL;
 	int nch1,nch2;
@@ -4111,30 +4154,75 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 	} while( nch1!=nch2 || strstr_group_typings( group_set->typings+ugroups[mid].pos_typing, init_typings, nch1) !=0 );
 	/* NOW unhihan[mid] has the same typing */
 
-	/* Move up to locate the first unihan group that bearing the same typings. */
-	k=mid;
+	/* Reset group_set->results_size at beginning of the function */
+
+#if 0  /* OPTION 1:  Check results by Moving k UP and DOWN  from mid.
+	* 				!!! WARNING !!!
+	* The group_set->resutls[] from this way can NOT ensure Shortest_Typing_First principle! as k may NOT
+	* move up to the very beginning before group_set->results_size gets to LIMIT.
+        */
+	/* Move UP: to locate the first unihan group that bearing the same typings. */
+	k=mid; /* reset k to mid, k is init_typing index! */
 	while( k>0 && strstr_group_typings(group_set->typings+ugroups[k-1].pos_typing, init_typings, nch1) ==0 )
 	{
 		/* Check input typings and put index to group_set->results */
 		if( strstr_group_typings(group_set->typings+ugroups[k-1].pos_typing, typings, nch1) ==0 ) {
 			if( group_set->results_size < group_set->results_capacity ) /* TODO memgrow group_set->results */
 				group_set->results[group_set->results_size++]=k-1;
+			else
+				printf(" --- results_size LIMIT!---\n");
 		}
 		k--;
 	};
 	group_set->pgrp=k;  /* Assign uniset->pgrp */
 
-	/* Move down to locate the last unihan group that bearing the same typings. */
-	k=mid;
+	/* Move DOWN: to locate the last unihan group that bearing the same typings. */
+	k=mid; /* reset k to mid */
 	while( k < group_set->ugroups_size && strstr_group_typings(group_set->typings+ugroups[k].pos_typing, init_typings, nch1) ==0 )
 	{
 		/* Check input typings and put index to group_set->results */
 		if( strstr_group_typings(group_set->typings+ugroups[k].pos_typing, typings, nch1) ==0 ) {
 			if( group_set->results_size < group_set->results_capacity )  /* TODO memgrow group_set->results */
 				group_set->results[group_set->results_size++]=k;
+			else
+				printf(" --- results_size LIMIT!---\n");
 		}
 		k++;
 	};
+
+#else  /* OPTION 2: Move to the top(beginning) of the valid typings, then move down and check */
+	k=mid; /* reset k to mid, k is init_typing index! */
+
+	#if 0 /* --- METHOD_1 ---: Move k to top, STEP=1 */
+	while( k>0 && strstr_group_typings(group_set->typings+ugroups[k-1].pos_typing, init_typings, nch1) ==0 ) { k--; };
+	#else /* --- METHOD_2 ---: Move k to top, STEP=4 */
+	while(k>0) {
+		if(k>4) step=4; else step=1;
+		k -= step;
+		if( strstr_group_typings(group_set->typings+ugroups[k-step].pos_typing, init_typings, nch1) ==0 )
+			break;
+	}
+	if(k<0)k=0;
+	/* Now ugroups[k] MAY not contain init_tyings! Move down to the first one. */
+	while( strstr_group_typings(group_set->typings+ugroups[k].pos_typing, init_typings, nch1) !=0 ) { k++; };
+	#endif
+
+	group_set->pgrp=k;  /* Assign uniset->pgrp */
+
+	/* Move k down and Check input typings and put index to group_set->results */
+	while( strstr_group_typings(group_set->typings+ugroups[k].pos_typing, init_typings, nch1) ==0 ) {
+		if( strstr_group_typings(group_set->typings+ugroups[k].pos_typing, typings, nch1) ==0 ) {
+	        	if( group_set->results_size < group_set->results_capacity )  /* TODO memgrow group_set->results */
+        	        	group_set->results[group_set->results_size++]=k;
+                	else {
+                		printf(" --- results_size LIMIT!---\n");
+				break;
+			}
+		}
+       		k++;  /* k is init_typing index! */
+	}
+
+#endif
 
 	/* Sort result in order of TypingLen+Freq */
 	#if 0
@@ -4174,13 +4262,13 @@ inline int UniHanGroup_compare_LTRIndex(EGI_UNIHANGROUP_SET* group_set, unsigned
 {
 	int i;
 	int nch;
+	int chlen1[UHGROUP_WCODES_MAXSIZE], chlen2[UHGROUP_WCODES_MAXSIZE];
 	int len1, len2;
 	unsigned int off1, off2;
 
 	/* check group_set */
 	if( group_set==NULL )
 		return CMPORDER_IS_SAME;
-
 
 	/* 1. Get number of chars of each group, Assume nch==nch1==nch2. */
         nch=UHGROUP_WCODES_MAXSIZE;
@@ -4192,36 +4280,38 @@ inline int UniHanGroup_compare_LTRIndex(EGI_UNIHANGROUP_SET* group_set, unsigned
 	off1=group_set->ugroups[n1].pos_typing;
 	off2=group_set->ugroups[n2].pos_typing;
 
-#if 0	/* Option 1: Check one by one! */
-	for(i=0; i<nch*UNIHAN_TYPING_MAXLEN; i++) {
-		if( *(group_set->typings+off1+i)!=0 )
-			len1++;
-		if( *(group_set->typings+off2+i)!=0 )
-			len2++;
-	}
-#else	/* Option 2: call strlen()  */
+	/* Count charlength and strlength */
 	for(i=0; i<nch; i++) {
-		len1 += strlen(group_set->typings+off1+i*UNIHAN_TYPING_MAXLEN);
-		len2 += strlen(group_set->typings+off2+i*UNIHAN_TYPING_MAXLEN);
+		chlen1[i]=strlen(group_set->typings+off1+i*UNIHAN_TYPING_MAXLEN);
+		len1 += chlen1[i];
+		chlen2[i]=strlen(group_set->typings+off2+i*UNIHAN_TYPING_MAXLEN);
+		len2 += chlen2[i];
 	}
-#endif
 
-	#if 0 /* !!! NOPE: Suppose NO typing in results[] is empty! 3. Put empty typing at end. */
+	#if 0 /* !!! NOPE !!!: Suppose NO typing in results[] is empty! 3. Put empty typing at end. */
 	if( len1 == 0 && len2 ==0 )
 		return CMPORDER_IS_SAME;
 	else if( len1==0)
 		return CMPORDER_IS_AFTER;
 	else if( len2==0)
 		return CMPORDER_IS_AHEAD;
-	#endif
+	#endif /////////////////////////////////////////////////
 
-	/* 4. Compare length */
+	/* 4. Compare length of typings */
 	if( len1 > len2 )
 		return CMPORDER_IS_AFTER;
 	else if( len1 < len2 )
 		return CMPORDER_IS_AHEAD;
+	/* ELSE: Compare length of each typing */
+	for(i=0; i<nch; i++) {
+		if( chlen1[i]>chlen2[i] )
+			return CMPORDER_IS_AFTER;
+		else if( chlen1[i]<chlen2[i] )
+			return CMPORDER_IS_AHEAD;
+	}
+	/* NOW: each typing has same length */
 
-	/* ELSE: len1==len2, Compare frequency */
+	/* 5. Compare frequency */
 	if( group_set->ugroups[n1].freq > group_set->ugroups[n2].freq )
 		return CMPORDER_IS_AHEAD;
 	if( group_set->ugroups[n1].freq < group_set->ugroups[n2].freq )
@@ -4331,7 +4421,7 @@ int UniHanGroup_quickSort_LTRIndex(EGI_UNIHANGROUP_SET* group_set, int start, in
 
                 /* Sort [start] and [mid] */
                 /* if( array[start] > array[mid] ) */
-		if( UniHanGroup_compare_LTRIndex(group_set, start, mid)==CMPORDER_IS_AFTER ) {
+		if( UniHanGroup_compare_LTRIndex(group_set, group_set->results[start], group_set->results[mid])==CMPORDER_IS_AFTER ) {
 			tmp=group_set->results[start];
 			group_set->results[start]=group_set->results[mid];
 			group_set->results[mid]=tmp;
@@ -4340,7 +4430,7 @@ int UniHanGroup_quickSort_LTRIndex(EGI_UNIHANGROUP_SET* group_set, int start, in
 
                 /* IF: [mid] >= [start] > [end] */
                 /* if( array[start] > array[end] ) { */
-		if( UniHanGroup_compare_LTRIndex(group_set, start, end)==CMPORDER_IS_AFTER ) {
+		if( UniHanGroup_compare_LTRIndex(group_set, group_set->results[start], group_set->results[end])==CMPORDER_IS_AFTER ) {
 			tmp=group_set->results[start]; /* [start] is center */
 			group_set->results[start]=group_set->results[end];
 			group_set->results[end]=group_set->results[mid];
@@ -4348,7 +4438,7 @@ int UniHanGroup_quickSort_LTRIndex(EGI_UNIHANGROUP_SET* group_set, int start, in
                 }
                 /* ELSE:   [start]<=[mid] AND [start]<=[end] */
                 /* else if( array[mid] > array[end] ) { */
-		if( UniHanGroup_compare_LTRIndex(group_set, mid, end)==CMPORDER_IS_AFTER ) {
+		if( UniHanGroup_compare_LTRIndex(group_set, group_set->results[mid], group_set->results[end])==CMPORDER_IS_AFTER ) {
                         /* If: [start]<=[end]<[mid] */
 			tmp=group_set->results[end]; /* [start] is center */
 			group_set->results[end]=group_set->results[mid];
@@ -4402,4 +4492,348 @@ int UniHanGroup_quickSort_LTRIndex(EGI_UNIHANGROUP_SET* group_set, int start, in
         /* Do NOT reset group_set->sorder. it's for group_set->results only! */
 
 	return 0;
+}
+
+
+/*------------------------------------------------------------------------
+Save an EGI_UNIHANGROUP_SET to a file.
+
+NOTE:
+1. If the file exists, it will be truncated to zero length first.
+2. The struct egi_uniHanGroup MUST be packed type, and MUST NOT include any
+   pointers.
+
+@fpath:		File path.
+@set: 		Pointer to an EGI_UNIHANGROUP_SET.
+
+Return:
+	0	OK
+	<0	Fails
+--------------------------------------------------------------------------*/
+int UniHanGroup_save_set(const EGI_UNIHANGROUP_SET *group_set, const char *fpath)
+{
+	int i;
+	int nwrite;
+	int nmemb;
+	FILE *fil;
+	int ret=0;
+	char magic_words[16];
+	uint32_t ugroups_size;		/* Total number of unihan_groups in the group_set */
+	uint32_t uchars_size;		/* Total size of group_set->uchars */
+	uint32_t typings_size;		/* Total size of group_set->typings */
+	uint8_t size_bts[4];		/* size divided into 4 bytes */
+
+	if( group_set==NULL || group_set->ugroups==NULL )
+		return -1;
+
+	/* Get group_set memebers */
+	ugroups_size=group_set->ugroups_size;
+	uchars_size=group_set->uchars_size;
+	typings_size=group_set->typings_size;
+
+	/* Open/create file */
+        fil=fopen(fpath, "wb");
+        if(fil==NULL) {
+                printf("%s: Fail to open file '%s' for write. ERR:%s\n", __func__, fpath, strerror(errno));
+                return -2;
+        }
+
+	/* Write UNIHANGROUP magic words, Totally 16bytes. */
+	strncpy(magic_words,UNIHANGROUPS_MAGIC_WORDS,16);
+	nmemb=16;
+	nwrite=fwrite( magic_words, 1, nmemb, fil);     /* 1 byte each time */
+        if(nwrite < 16 ) {
+                if(ferror(fil))
+       	                printf("%s: Fail to write magic words to '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fwrite magic words %d bytes of total %d bytes.\n", __func__, nwrite, nmemb);
+               	ret=-3;
+		goto END_FUNC;
+	}
+
+	/* Write setname */
+	nmemb=UNIHANGROUP_SETNAME_MAX;
+	nwrite=fwrite(group_set->name, 1, nmemb, fil);  	/* 1 byte each time */
+        if(nwrite < nmemb) {
+                if(ferror(fil))
+       	                printf("%s: Fail to fwrite group_set name to '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fwrite group_set name %d bytes of total %d bytes.\n", __func__, nwrite, nmemb);
+               	ret=-4;
+		goto END_FUNC;
+	}
+
+	/* FWrite ugroups_size of EGI_UNIHANGROUPs */
+	for(i=0; i<4; i++)
+		size_bts[i]=(ugroups_size>>(i<<3))&0xFF; /* Split size to bytes, The least significant byte first. */
+	nmemb=4;
+	nwrite=fwrite( size_bts, 1, nmemb, fil);  	/* 1 byte each time */
+        if(nwrite < nmemb) {
+                if(ferror(fil))
+       	                printf("%s: Fail to fwrite ugroups_size of EGI_UNIHANGROUPs to '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fwrite ugroups_size of EGI_UNIHANGROUPs %d bytes of total %d bytes.\n", __func__, nwrite, nmemb);
+               	ret=-5;
+		goto END_FUNC;
+	}
+
+	/* FWrite uchars_size of EGI_UNIHANGROUPs */
+	for(i=0; i<4; i++)
+		size_bts[i]=(uchars_size>>(i<<3))&0xFF;	/* Split size to bytes, The least significant byte first. */
+	nmemb=4;
+	nwrite=fwrite( size_bts, 1, nmemb, fil);  	/* 1 byte each time */
+        if(nwrite < nmemb) {
+                if(ferror(fil))
+       	                printf("%s: Fail to fwrite uchars_size to '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fwrite uchars_size %d bytes of total %d bytes.\n", __func__, nwrite, nmemb);
+               	ret=-6;
+		goto END_FUNC;
+	}
+
+	/* FWrite typings_size of EGI_UNIHANGROUPs */
+	for(i=0; i<4; i++)
+		size_bts[i]=(typings_size>>(i<<3))&0xFF; /* Split size to bytes, The least significant byte first. */
+	nmemb=4;
+	nwrite=fwrite( size_bts, 1, nmemb, fil);  	/* 1 byte each time */
+        if(nwrite < nmemb) {
+                if(ferror(fil))
+       	                printf("%s: Fail to fwrite typings_size to '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fwrite typings_size %d bytes of total %d bytes.\n", __func__, nwrite, nmemb);
+               	ret=-7;
+		goto END_FUNC;
+	}
+
+	/* TEST ---- */
+	printf("%s: ugroups_size=%d, uchars_size=%d, typings_size=%d.\n",__func__, ugroups_size, uchars_size, typings_size);
+
+	/* 2. Fwrite ugroups */
+	nmemb=ugroups_size*sizeof(EGI_UNIHANGROUP);
+	nwrite=fwrite(group_set->ugroups, 1, nmemb, fil);  	/* 1 byte each time */
+        if(nwrite != nmemb) {
+                if(ferror(fil))
+       	                printf("%s: Fail to fwrite group_set->ugroups to '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fwrite group_set->ugroups %d bytes of total %d bytes.\n", __func__, nwrite, nmemb);
+               	ret=-8;
+		goto END_FUNC;
+	}
+
+	/* 3. Fwrite uchars */
+	nmemb=uchars_size*sizeof(typeof(*group_set->uchars));
+	nwrite=fwrite(group_set->uchars, 1, nmemb, fil);  	/* 1 byte each time */
+        if(nwrite != nmemb) {
+                if(ferror(fil))
+       	                printf("%s: Fail to fwrite group_set->uchars to '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fwrite group_set->uchars %d bytes of total %d bytes.\n", __func__, nwrite, nmemb);
+               	ret=-9;
+		goto END_FUNC;
+	}
+
+	/* 4. Fwrite typings */
+	nmemb=typings_size*sizeof(typeof(*group_set->typings));
+	nwrite=fwrite(group_set->typings, 1, nmemb, fil);  	/* 1 byte each time */
+        if(nwrite != nmemb) {
+                if(ferror(fil))
+       	                printf("%s: Fail to fwrite group_set->typings to '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fwrite group_set->typings %d bytes of total %d bytes.\n", __func__, nwrite, nmemb);
+               	ret=-10;
+		goto END_FUNC;
+	}
+
+
+END_FUNC:
+        /* Close fil */
+        if( fclose(fil) !=0 ) {
+                printf("%s: Fail to close file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+                ret=-11;
+        }
+
+	return ret;
+}
+
+
+/*--------------------------------------------------------------------------------
+Read EGI_UNIHANGROUPs from a data file and load them to an EGI_UNIHANGROUP_SET.
+
+@fpath:		File path.
+@set: 		A pointer to EGI_UNIHANGROUP_SET.
+		The caller MUST ensure enough space to hold all
+		readin data.  !!! WARNING !!!
+
+Return:
+   A pointer to EGI_UNIHANGROUP_SET	OK, however its data may not be complete
+                                    	    	if error occurs during file reading.
+   NULL					Fails
+---------------------------------------------------------------------------------*/
+EGI_UNIHANGROUP_SET* UniHanGroup_load_set(const char *fpath)
+{
+	EGI_UNIHANGROUP_SET *group_set=NULL;
+	int i;
+	int nread;
+	int nmemb;
+	FILE *fil;
+	char magic_words[16+1]={0};
+	uint32_t ugroups_size;		/* Total number of unihan_groups in the group_set */
+	uint32_t uchars_size;		/* Total size of group_set->uchars */
+	uint32_t typings_size;		/* Total size of group_set->typings */
+	uint8_t size_bts[4];		/* size divided into 4 bytes */
+	char setname[UNIHANGROUP_SETNAME_MAX];
+	void *ptmp;
+
+	/* Open/create file */
+        fil=fopen(fpath, "rb");
+        if(fil==NULL) {
+                printf("%s: Fail to open file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+		return NULL;
+	}
+
+	/* Read UNIHANGROUP magic words, Totally 16bytes. */
+	nmemb=16;
+	nread=fread(magic_words, 1, nmemb, fil);     /* 1 byte each time */
+        if(nread < nmemb ) {
+                if(ferror(fil))
+       	                printf("%s: Fail to read magic words from '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fread magic words %d bytes of total %d bytes.\n", __func__, nread, nmemb);
+		goto END_FUNC;
+	}
+	//printf("%s: magic_words: %s\n",__func__, magic_words);
+	/* Check magic words */
+	if( strncmp(magic_words,UNIHANGROUPS_MAGIC_WORDS,12) != 0 ) {
+		printf("%s: It's NOT an UNIHANGROUP data file!\n",__func__);
+		goto END_FUNC;
+	}
+
+	/* Read set name */
+	nmemb=UNIHANGROUP_SETNAME_MAX;
+	nread=fread(setname, 1, nmemb, fil);  	/* 1 byte each time */
+        if(nread < nmemb) {
+                if(ferror(fil))
+       	                printf("%s: Fail to fread group_set name to '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fread group_set name %d bytes of total %d bytes.\n", __func__, nread, nmemb);
+		goto END_FUNC;
+	}
+	/* Whatever, set EOF */
+	setname[UNIHANGROUP_SETNAME_MAX-1]='\0';
+
+	/* Read ugrops_size of unihan groups set */
+	nmemb=4;
+	nread=fread(size_bts, 1, nmemb, fil);
+        if(nread < nmemb ) {
+                if(ferror(fil))
+       	                printf("%s: Fail to read ugroups_size_bts from '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fread ugroups_size_bts %d bytes of total %d bytes.\n", __func__, nread, nmemb);
+		goto END_FUNC;
+	}
+	for(ugroups_size=0,i=0; i<4; i++)	/* Assemble to ugroups_size */
+		ugroups_size += size_bts[i]<<(i<<3);
+
+	/* Read uchars_size of unihan groups set */
+	nmemb=4;
+	nread=fread(size_bts, 1, nmemb, fil);
+        if(nread < nmemb ) {
+                if(ferror(fil))
+       	                printf("%s: Fail to read uchars_size_bts from '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fread uchars_size_bts %d bytes of total %d bytes.\n", __func__, nread, nmemb);
+		goto END_FUNC;
+	}
+	for(uchars_size=0,i=0; i<4; i++)	/* Assemble to ugroups_size */
+		uchars_size += size_bts[i]<<(i<<3);
+
+	/* Read typings_size of unihan groups set */
+	nmemb=4;
+	nread=fread(size_bts, 1, nmemb, fil);
+        if(nread < nmemb ) {
+                if(ferror(fil))
+       	                printf("%s: Fail to read typings_size_bts from '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fread typings_size_bts %d bytes of total %d bytes.\n", __func__, nread, nmemb);
+		goto END_FUNC;
+	}
+	for(typings_size=0,i=0; i<4; i++)	/* Assemble to ugroups_size */
+		typings_size += size_bts[i]<<(i<<3);
+
+	/* TEST ---- */
+	printf("%s: ugroups_size=%d, uchars_size=%d, typings_size=%d.\n",__func__, ugroups_size, uchars_size, typings_size);
+
+	/* 1. Create group set */
+	group_set=UniHanGroup_create_set(setname, ugroups_size); /* ugroups_size as capacity */
+	if(group_set==NULL)
+		goto END_FUNC;
+	/* Assign memebers */
+	group_set->ugroups_size=ugroups_size;
+	group_set->uchars_size=uchars_size;
+	group_set->typings_size=typings_size;
+
+
+	/* 2. Fread ugroups */
+	nmemb=ugroups_size*sizeof(EGI_UNIHANGROUP);
+	nread=fread(group_set->ugroups, 1, nmemb, fil);
+	if( nread != nmemb ) {
+                if(ferror(fil))
+       	                printf("%s: Fail to read ugroups from '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fread ugroups %d bytes of total %d bytes.\n", __func__, nread, nmemb);
+
+		UniHanGroup_free_set(&group_set);
+		goto END_FUNC;
+	}
+
+	/* 3. Fread uchars */
+	/* 3.1 realloc group_set->uchars */
+	ptmp=realloc(group_set->uchars, uchars_size);
+	if(ptmp==NULL) {
+		printf("%s: Fail to realloc group_set->uchars!\n",__func__);
+		UniHanGroup_free_set(&group_set);
+		goto END_FUNC;
+	}
+	group_set->uchars=ptmp;
+	/* 3.2 Fread group_set->uchars */
+	nmemb=uchars_size*sizeof(typeof(*group_set->uchars));
+	nread=fread(group_set->uchars, 1, nmemb, fil);
+	if( nread != nmemb ) {
+                if(ferror(fil))
+       	                printf("%s: Fail to read uchars from '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fread uchars %d bytes of total %d bytes.\n", __func__, nread, nmemb);
+		UniHanGroup_free_set(&group_set);
+		goto END_FUNC;
+	}
+
+	/* 4. Fread typings */
+	/* 4.1 realloc group_set->typings */
+	ptmp=realloc(group_set->typings, typings_size);
+	if(ptmp==NULL) {
+		printf("%s: Fail to realloc group_set->typings!\n",__func__);
+		UniHanGroup_free_set(&group_set);
+		goto END_FUNC;
+	}
+	group_set->typings=ptmp;
+	/* 4.2 Fread group_set->typings */
+	nmemb=typings_size*sizeof(typeof(*group_set->typings));
+	nread=fread(group_set->typings, 1, nmemb, fil);
+	if( nread != nmemb ) {
+                if(ferror(fil))
+       	                printf("%s: Fail to read typings from '%s'.\n", __func__, fpath);
+               	else
+                       	printf("%s: Error, fread typings %d bytes of total %d bytes.\n", __func__, nread, nmemb);
+		UniHanGroup_free_set(&group_set);
+		goto END_FUNC;
+	}
+
+
+END_FUNC:
+        /* Close fil */
+        if( fclose(fil) !=0 ) {
+                printf("%s: Fail to close file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+        }
+
+	return group_set;
 }

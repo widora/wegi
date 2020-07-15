@@ -3,10 +3,14 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+	UNIHAN			汉字
+	UNIHAN_SET		汉字集
+	UNIHANGROUP		词组
+	UNIHANGROUP_SET		词组集
 
 Midas Zhou
 midaszhou@yahoo.com
-------------------------------------------------------------------*/
+----------－--------------------------------------------------------*/
 #ifndef __EGI_UNIHAN_H__
 #define __EGI_UNIHAN_H__
 #include <stdlib.h>
@@ -24,9 +28,15 @@ typedef wchar_t 	EGI_UNICODE;
 #define HANYUPINYIN_TXT_PATH    "/mmc/kHanyuPinyin.txt"		/* kHanyuPinyin.txt from Unihan_Readings.txt, see UniHan_load_HanyuPinyinTxt() */
 #define UNIHANS_DATA_PATH       "/mmc/unihans_pinyin.dat"	/* Saved UNIHAN SET containing above unihans */
 
-#define PINYIN3500_TXT_PATH	"/mmc/pinyin3500.txt"	/* 3500 frequently used Haizi TXT */
-#define PINYIN3500_DATA_PATH    "/mmc/unihan3500.dat"	/* Saved UNIHAN SET containing above unihans */
+#define PINYIN3500_TXT_PATH	"/mmc/pinyin3500.txt"		/* 3500 frequently used Haizi TXT */
+#define PINYIN3500_DATA_PATH    "/mmc/unihan3500.dat"		/* Saved UNIHAN SET containing above unihans */
 
+#define CIZU_TXT_PATH		"/mmc/chinese_cizu.txt"		/* Cizu TXT file path */
+#define UNIHANGROUPS_DATA_PATH  "/mmc/unihangroups_pinyin.dat"	/* Saved UNIHANGROUP set */
+
+/* File data magic words */
+#define UNIHANS_MAGIC_WORDS		"UNIHANS0"		/* 8bytes, unihans data file magic words */
+#define UNIHANGROUPS_MAGIC_WORDS	"UNIHANGROUPS0000"	/* 12+4(Ver)=16bytes, unihan_groups data file magic words */
 
 typedef enum UniHanSortOrder
 {
@@ -82,7 +92,8 @@ struct egi_unihan
 
 struct egi_unihan_set
 {
-        char                    name[16];       /* Short name for the UniHan set, MUST NOT be a pointer. Will change data file! */
+	#define 		UNIHAN_SETNAME_MAX  16
+        char                    name[UNIHAN_SETNAME_MAX];  /* Short name for the UniHan set, MUST NOT be a pointer. Will change data file! */
 
 	size_t			capacity;	/* Capacity to hold max number of UNIHANS */
         uint32_t                size;           /* Size of unihans, total number of EGI_UNIHANs in unihans[], exclude empty ones.
@@ -118,7 +129,8 @@ struct egi_uniHanGroup		/* UNIHAN Words/Phrasese/Cizus */
 
 struct egi_uniHanGroup_set
 {
-        char                    name[32];       /* Short name for the UniHanGroups set, MUST NOT be a pointer. */
+	#define 		UNIHANGROUP_SETNAME_MAX  32
+        char                    name[UNIHANGROUP_SETNAME_MAX];       /* Short name for the UniHanGroups set, MUST NOT be a pointer. */
         //int                     input_method;   /* input method: pinyin,  ...  */
 
 	unsigned int		pgrp;		/* Index to an unihgroups[], usually to store result of loacting/searching.  */
@@ -126,26 +138,30 @@ struct egi_uniHanGroup_set
 	UNIHAN_SORTORDER	sorder;		/* Sort order ID. */
 
 	size_t			ugroups_capacity;	/* Capacity of unihgroups[], include empty unihgrups[] with unihgrups->wcodes[0]==0 */
-	size_t			ugroups_size;		/* Current total number of UniHanGroups in ugroups, excluding empty ones. */
+	uint32_t		ugroups_size;		/* Current total number of UniHanGroups in ugroups, excluding empty ones.
+						  	 * Do not change the type, we'll assembly/disassembly from/into uint8_t.
+							 */
         EGI_UNIHANGROUP        *ugroups;    		/* Array of UniHanGroups */
 	#define 		UHGROUP_UGROUPS_GROW_SIZE   64
 
 	size_t			uchars_capacity;	/* Total mem space allocated for uchars[], in bytes. */
-	size_t			uchars_size;		/* Current used mem space. in bytes. including all '\0' as dilimiters */
+	uint32_t		uchars_size;		/* Current used mem space. in bytes. including all '\0' as dilimiters, keep UINT32_T */
 	UFT8_PCHAR		uchars;			/* A buffer to hold all unihans groups in uft8 encoding, with '\0' as dilimiters */
 	#define 		UHGROUP_UCHARS_GROW_SIZE    512
 
 	size_t			typings_capacity;	/* Total mem space allocated for typings[], in bytes(sizeof(char)) */
-	size_t			typings_size;		/* Current used mem space, in bytes, including all '\0' as dilimiters */
+	uint32_t		typings_size;		/* Current used mem space, in bytes, including all '\0' as dilimiters, keep UINT32_T */
 	char			*typings;		/* A buffer to hold all typings, with '\0' as dilimiters */
 	#define 		UHGROUP_TYPINGS_GROW_SIZE   512
 
 	size_t			results_capacity;	/* Total mem allocated for result[], in sizeof(results). */
 	size_t			results_size;		/* number of available indexes in results[], NOT capacity of results[].   */
 	unsigned int		*results; 		/* An array for storing temporary ugroups[] indexes, as results of a search operation
-							 * by UniHanGroup_locate_typings(), AND for further sorting operations. 
+							 * by UniHanGroup_locate_typings(), AND for further sorting operations.
 							 */
-	#define			UHGROUP_RESULTS_GROW_SIZE    512
+	#define			UHGROUP_RESULTS_GROW_SIZE    512   /* Also as Result LIMITS for locating/searching typings
+								    * See at end of UniHanGroup_locate_typings().
+								    */
 };
 
 
@@ -186,7 +202,7 @@ EGI_UNIHAN_SET* UniHan_create_set(const char *name, size_t capacity);
 void 		UniHan_free_set( EGI_UNIHAN_SET **set);
 void 		UniHan_reset_freq( EGI_UNIHAN_SET *uniset );
 
-int 		UniHan_save_set(const char *fpath,  const EGI_UNIHAN_SET *set);
+int 		UniHan_save_set(const EGI_UNIHAN_SET *set, const char *fpath);
 EGI_UNIHAN_SET* UniHan_load_set(const char *fpath);
 
 int 		UniHan_locate_wcode(EGI_UNIHAN_SET* uniset, EGI_UNICODE wcode);
@@ -238,9 +254,12 @@ int 	strcmp_group_typings(const char *hold_typings, const char* try_typings, int
 void 	print_group_typings(const char* typings, unsigned int nw);
 int  	UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typings);
 
-	/* For UniHanGroup_locate_typings() result */
+	/* For UniHanGroup_locate_typings() results */
 int 	UniHanGroup_compare_LTRIndex(EGI_UNIHANGROUP_SET* group_set, unsigned int n1, unsigned int n2);
 void 	UniHanGroup_insertSort_LTRIndex(EGI_UNIHANGROUP_SET *group_set, int start, int n);
 int 	UniHanGroup_quickSort_LTRIndex(EGI_UNIHANGROUP_SET* group_set, int start, int end, int cutoff);
+
+int 			UniHanGroup_save_set(const EGI_UNIHANGROUP_SET *group_set, const char *fpath);
+EGI_UNIHANGROUP_SET* 	UniHanGroup_load_set(const char *fpath);
 
 #endif

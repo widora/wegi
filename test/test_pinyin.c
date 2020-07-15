@@ -165,13 +165,13 @@ int main(void)
 		han_set=UniHan_load_set(UNIHANS_DATA_PATH);
 		if(han_set==NULL) exit(2);
 	        printf("Uniset total size=%d:\n", han_set->size);
+		getchar();
 
-		group_set=UniHanGroup_load_CizuTxt("/mmc/chinese_cizu.txt");
+		group_set=UniHanGroup_load_CizuTxt(CIZU_TXT_PATH);
 		if(group_set==NULL) exit(1);
 		printf("Finish load CizuTxt!\n");
 		UniHanGroup_print_set(group_set, group_set->ugroups_size-50, group_set->ugroups_size-1);
-		getchar();
-
+//		getchar();
 
 		printf("Start to assemble typings...\n");
 		if( UniHanGroup_assemble_typings(group_set, han_set) != 0) {
@@ -180,7 +180,7 @@ int main(void)
 		}
 		printf("Finish assmebling typings.\n");
 		UniHanGroup_search_uchars(group_set, (UFT8_PCHAR)"电脑");
-		getchar();
+//		getchar();
 		//UniHanGroup_print_set(group_set, 0, 100);//group_set->ugroups_size-1);
 
 		printf("Start to load/merge han_set to group_set...\n");
@@ -190,7 +190,7 @@ int main(void)
 		}
 		printf("Finish loading han_set.\n");
 		UniHanGroup_search_uchars(group_set, (UFT8_PCHAR)"电脑");
-		getchar();
+//		getchar();
 
 		printf("Start to sort typings...\n");
 		gettimeofday(&tm_start,NULL);
@@ -199,7 +199,7 @@ int main(void)
 		gettimeofday(&tm_end,NULL);
 		printf("Finish quickSort typings. cost time: %ldms\n", tm_diffus(tm_start, tm_end)/1000);
 
-		getchar();
+//		getchar();
 
 		#if 0 /* Print first 50 and last 50 groups */
 		UniHanGroup_print_set(group_set, 0, 50-1);
@@ -207,10 +207,31 @@ int main(void)
 		getchar();
 		#endif
 
-		/* Save to txt */
-		if( UniHanGroup_saveto_CizuTxt(group_set, "/tmp/cizu+pinyin.txt")==0 )
-			printf("Save group_set to text file successfully!\n");
+		/* Test: Save to data file */
+	 //while(1) {  ///// --------- LOOP TEST UniHanGroup_save/load_set() -------- /////
+
+		printf("Start to save group_set to data file..."); fflush(stdout);
+		if( UniHanGroup_save_set(group_set, UNIHANGROUPS_DATA_PATH)==0 )
+			printf("Save group_set to cizu.data successfully!\n");
 		getchar();
+		/* ------ UNIHANGROUPS_DATA saved! ------ */
+
+		EGI_UNIHANGROUP_SET* tmpGroupSet=UniHanGroup_load_set(UNIHANGROUPS_DATA_PATH);
+		if(tmpGroupSet!=NULL) {
+			printf("Load set tmpGroupSet, setname:%s, size=%d\n",tmpGroupSet->name, tmpGroupSet->ugroups_size);
+			//getchar();
+			UniHanGroup_print_set(group_set, tmpGroupSet->ugroups_size-1-1000, tmpGroupSet->ugroups_size-1);
+			UniHanGroup_free_set(&tmpGroupSet);
+			//getchar();
+		}
+	 //}
+
+		#if 0 /* Save to txt */
+		printf("Start to save group_set to CizuTxt..."); fflush(stdout);
+		if( UniHanGroup_saveto_CizuTxt(group_set, "/tmp/cizu+pinyin.txt")==0 )
+			printf("Save group_set to cizu+pinyin.txt successfully!\n");
+		getchar();
+		#endif
 
 		#if 0  /* TEST search */
 		UniHanGroup_search_uchars(group_set, (UFT8_PCHAR)"大");
@@ -490,7 +511,7 @@ exit(1);
 	getchar();
 
 	/* Save sorted uniset UNIORDER_TYPING_FREQ */
-	if( UniHan_save_set(UNIHANS_DATA_PATH, uniset) == 0 )
+	if( UniHan_save_set(uniset, UNIHANS_DATA_PATH) == 0 )
 		printf("Uniset is saved to '%s'.\n",UNIHANS_DATA_PATH);
 	getchar();
 

@@ -72,7 +72,7 @@ while(1) { /* ---------- LOOP TEST -------------- */
 	 * 3500 pinyins need 4761 EGI_UNIHANs, as some of them are polyphonic chars with several different typings(PINYIN), and
 	 * each typing occupys an EGI_UNIHAN.
 	 */
-        uniset=UniHan_create_uniset("PRC_PINYIN",  10*1024-1); //   (3500/1024+1)*1024 -1 );
+        uniset=UniHan_create_set("PRC_PINYIN",  10*1024-1); //   (3500/1024+1)*1024 -1 );
         if(uniset==NULL) {
                 printf("Fail to create uniset!\n");
                 exit(-1);
@@ -131,20 +131,20 @@ while(1) { /* ---------- LOOP TEST -------------- */
 	uniset->size=k;
 
 	/* ----- 1. Save uniset to a file -----*/
-	UniHan_save_uniset( PINYIN3500_DATA_PATH, uniset);
+	UniHan_save_set(uniset, PINYIN3500_DATA_PATH);
 	printf("Finish saving uniset to '%s'.\n",PINYIN3500_DATA_PATH);
 	getchar();
 
 	/* Free uniset */
-	UniHan_free_uniset(&uniset);
+	UniHan_free_set(&uniset);
 
 	/* ---- 2. Load saved uniset ------- */
-	uniset=UniHan_load_uniset(PINYIN3500_DATA_PATH);
+	uniset=UniHan_load_set(PINYIN3500_DATA_PATH);
 	if(uniset==NULL)
 		exit(2);
 	else
 		printf("Load %s to uniset, name='%s', size=%d\n",PINYIN3500_DATA_PATH, uniset->name, uniset->size);
-	//getchar();
+	getchar();
 
 
 #if 0	/*  Insert_Sort by wcode */
@@ -154,7 +154,7 @@ while(1) { /* ---------- LOOP TEST -------------- */
 #else	/*  Quick_Sort by wcode */
 	printf("Start quick_sorting by wcode..."); fflush(stdout);
 	//UniHan_quickSort_wcode( uniset->unihans, 0, uniset->size-1, 5);
-	UniHan_quickSort_uniset(uniset, UNIORDER_WCODE_TYPING_FREQ, 5);
+	UniHan_quickSort_set(uniset, UNIORDER_WCODE_TYPING_FREQ, 5);
 	printf("...OK\n");
 #endif
 
@@ -173,7 +173,7 @@ while(1) { /* ---------- LOOP TEST -------------- */
 	    if( (i>0 && uniset->unihans[i].wcode==uniset->unihans[i-1].wcode )
 		|| uniset->unihans[i].wcode==uniset->unihans[i+1].wcode )
 	    {
-		printf("[%s:%d]%s ", uniset->unihans[i].uchar, uniset->unihans[i].wcode, uniset->unihans[i].typing);
+		printf("[%s:U+%d] %s   	", uniset->unihans[i].uchar, uniset->unihans[i].wcode, uniset->unihans[i].typing);
 
 	        if( uniset->unihans[i].wcode == uniset->unihans[i-1].wcode &&  uniset->unihans[i].wcode != uniset->unihans[i+1].wcode )
 			printf("\n");
@@ -189,7 +189,7 @@ for(m=0; m<4; m++) {
 	/*  Quick_Sort with KEY==wcode before poll freq  */
 	printf("Start quick_sorting by wcode..."); fflush(stdout);
 	//UniHan_quickSort_wcode( uniset->unihans, 0, uniset->size-1, 5);
-	UniHan_quickSort_uniset(uniset, UNIORDER_WCODE_TYPING_FREQ, 5);
+	UniHan_quickSort_set(uniset, UNIORDER_WCODE_TYPING_FREQ, 5);
 	printf("...OK\n");
 
 	/* Reset frequence */
@@ -223,7 +223,7 @@ for(m=0; m<4; m++) {
 	UniHan_insertSort_freq( uniset->unihans, uniset->size-1 );
 	#else
 	//UniHan_quickSort_freq( uniset->unihans, 0, uniset->size-1, 10);
-	UniHan_quickSort_uniset(uniset, UNIORDER_FREQ, 5);
+	UniHan_quickSort_set(uniset, UNIORDER_FREQ, 5);
 	#endif
 	printf("...OK\n");
 
@@ -247,7 +247,7 @@ for(m=0; m<4; m++) {
 	/* Quick_Sort by typing */
 	printf("Start quick_sorting by typing ...\n");
 	//UniHan_quickSort_typing(uniset->unihans, 0, uniset->size-1, 5);
-	UniHan_quickSort_uniset(uniset, UNIORDER_TYPING_FREQ, 5);
+	UniHan_quickSort_set(uniset, UNIORDER_TYPING_FREQ, 5);
 
 	/* Print all unihans, grouped by PINYIN */
 	bzero(pinyin,sizeof(pinyin));
@@ -286,7 +286,7 @@ for(m=0; m<4; m++) {
 #endif
 
 	/* Free */
-	UniHan_free_uniset(&uniset);
+	UniHan_free_set(&uniset);
 
         /* Close fil */
         if( fclose(fil) !=0 ) {
