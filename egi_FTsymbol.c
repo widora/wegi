@@ -20,6 +20,7 @@ Midas Zhou
 #include <freetype2/ftglyph.h>
 #include <freetype2/ftadvanc.h>
 #include <arpa/inet.h>
+#include <ctype.h>
 
 //#include FT_FREETYPE_H
 
@@ -828,6 +829,9 @@ transforms etc. The purpose is to get the space needed for writFBing the string 
 		the same string.
 @pstr:          pointer to a string with UTF-8 encoding.
 
+NOTE:
+  1. For ASCII symbols, results are NOT same as FTsymbol_uft8strings_pixlen()??! Example: abc , . : ...
+     So the function will call FTsymbol_uft8strings_pixlen() in that case.
 
 Return:
 	>0	Sum of andvances of the chars that successfully parsed. (in pixels)
@@ -841,6 +845,8 @@ inline int FTsymbol_uft8string_getAdvances(FT_Face face, int fw, int fh, const u
 	int 	   sum=0;   /* sumup of all advances, in pixels */
 	const unsigned char *p=ptr;
  	wchar_t    wcstr[1];
+	int sdw;        /* Self defined width for the wcode */
+	char pch[2]={0};
 
 	if(ptr==NULL)
 		return -1;
@@ -858,17 +864,29 @@ inline int FTsymbol_uft8string_getAdvances(FT_Face face, int fw, int fh, const u
 		/* convert one character to unicode, return size of utf-8 code */
 		size=char_uft8_to_unicode(p, wcstr);
 		if(size > 0) {
-			/* FT_Get_Advances(FT_Face face, FT_UInt start, FT_UInt count, FT_Int32 load_flags, FT_Fixed *padvances)
-			 * !!! WARNING !!! load_flags must be the same as in FT_Load_Char( face, wcode, flags ) when writeFB
-                	 * the same ptr string.
-			 * Strange!!! a little faster than FT_Get_Advance()
-			 */
-			error= FT_Get_Advances( face, *wcstr, 1, FT_LOAD_RENDER , &advance );
-			if(error)
-				printf("%s: Fail to call FT_Get_Advances().\n",__func__);
-			else	/* TODO: consider FTsymbol_cooked_charWidth() */
-				sum += advance>>16;
-
+			/* If cooked width */
+			sdw=FTsymbol_cooked_charWidth(*wcstr, fw);
+			if( sdw >= 0 ) {
+				sum += sdw;
+			}
+			else if( size==1 ) { //&& isascii(*p) ) {
+				pch[0]=*p;
+			 	sdw=FTsymbol_uft8strings_pixlen(face, fw, fh, (unsigned char *)pch);
+				if(sdw>0) sum += sdw;
+			}
+			else {
+				/* FT_Get_Advances(FT_Face face, FT_UInt start, FT_UInt count, FT_Int32 load_flags, FT_Fixed *padvances)
+				 * !!! WARNING !!! load_flags must be the same as in FT_Load_Char( face, wcode, flags ) when writeFB
+        	        	 * the same ptr string.
+				 * Strange!!! a little faster than FT_Get_Advance()
+				 */
+				//error= FT_Get_Advance( face, *wcstr, FT_LOAD_RENDER , &advance );
+				error= FT_Get_Advances( face, *wcstr, 1, FT_LOAD_RENDER , &advance );
+				if(error)
+					printf("%s: Fail to call FT_Get_Advances().\n",__func__);
+				else
+					sum += advance>>16;
+			}
 			p += size;
 		}
 		else {  /* If it's a wrong UFT-8 encoding, try to move on... */
@@ -1073,7 +1091,7 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 
 	/* Check whether xleft is used up first. */
 	advanceX = slot->advance.x>>6;
-	// bbox_W = (advanceX > slot->bitmap.width ? advanceX : slot->bitmap.width);
+	//bbox_W = (advanceX > slot->bitmap.width ? advanceX : slot->bitmap.width);
 	bbox_W = advanceX;  /* To be consistent with FTcharmap_uft8strings_writeFB() when calling FT_Get_Advances() to update xleft. */
 
 #if 0	/* TEST: --- special wocdes --- */
@@ -1478,12 +1496,16 @@ int  FTsymbol_uft8strings_writeFB_PAD(FBDEV *fb_dev, EGI_PAD pad,  FT_Face face,
 
 
 /*-------------------------------------------------------------------------------------
-( It's obsolete, to call FTsymbol_uft8string_getAdvances() instead, it's faster! )
+( In most case, try to call FTsymbol_uft8string_getAdvances() instead, it's faster! )
 
 Get total length of characters in pixels.
+
 Note:
 1. Count all chars and '\n' will be ingnored!
 2. Limit: Max. counter = 1<<30;
+3. For ASCII symbols, results are NOT same as FTsymbol_uft8string_getAdvances()??!
+   Example: abc , . : ..
+   So It will call FTsymbol_uft8strings_pixlen() in that case.
 
 Return:
 	>=0  	length in pixels

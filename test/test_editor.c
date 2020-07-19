@@ -6,8 +6,7 @@ published by the Free Software Foundation.
 mouseXAn example of a simple editor, read input from termios and put it on to
 the screen.
 
-
-		--- Keys and functions ---
+		( --- 1. The Editor: Keys and functions --- )
 
 Mouse move: 	Move typing cursor to LeftKeyDown to confimr it.
 Mouse scroll: 	Scroll charmap up and down.
@@ -18,26 +17,28 @@ HOME(or Fn+LEFT_ARROW!):	Return cursor to the begin of the retline.
 END(or Fn+RIGHT_ARROW!):	Move cursor to the end of the retline.
 CTRL+N:		Scroll down 1 line, keep typing cursor position.
 CTRL+O:		Scroll up 1 line, keep typing curso position.
+CTRL+H:		Go to the first page.
 CTRL+E:		Go to the last page.
 CTRL+F:		Save current chmap->txtbuff to a file.
 PG_UP:		Page up
 PG_DN:		Page down
 
 
-		--- PINYIN Input ---
+		( --- 2. PINYIN Input Method --- )
 
 CTRL+E:		Switch ON/OFF PINYIN input panel.
-ARROW_DOWN:	Show next group of Hanzi.
-ARROW_UP:	Show previous group of Hanzi.
-BACKSPACE:	Roll back pinyin.
-1-7:		Use index to select Haizi in the displaying panel.
-SPACE:		Select the first Haizi in the displaying panel
+ARROW_DOWN:	Show next group of Hanzi/Cizu.
+ARROW_UP:	Show previous group of Hanzi/Cizu.
+BACKSPACE:	Roll back pinyin input buffer.
+1-7:		Use index to select Haizi/Cizu in the displaying panel.
+SPACE:		Select the first Haizi/Cizu in the displaying panel
 
 Note:
-1. Use '(0x27) as delimiter to separate PINYIN entry. Example: xian --> xi'an.
+  	1. Use '(0x27) as delimiter to separate PINYIN entry. Example: xian --> xi'an.
+  	2. Press ESCAP to clear PINYIN input buffer.
 
 
-               --- Definition and glossary ---
+               ( --- 3. Definition and glossary --- )
 
 1. char:    A printable ASCII code OR a local character with UFT-8 encoding.
 2. dline:  displayed/charmapped line, A line starts/ends at displaying window left/right end side.
@@ -192,9 +193,10 @@ static enum CompElem ActiveComp;  /* Active component element */
 /* Right_Click Menu Command */
 enum RCMenu_Command {
 	RCMENU_COMMAND_NONE	=-1,
-	RCMENU_COMMAND_COPY	=0,
-	RCMENU_COMMAND_PASTE	=1,
-	RCMENU_COMMAND_CUT	=2,
+	RCMENU_COMMAND_SAVEWORDS=0,	/* Save new words for PINYIN */
+	RCMENU_COMMAND_COPY	=1,
+	RCMENU_COMMAND_PASTE	=2,
+	RCMENU_COMMAND_CUT	=3,
 };
 static int RCMenu_Command_ID=RCMENU_COMMAND_NONE;
 
@@ -303,7 +305,7 @@ int main(int argc, char **argv)
         struct termios new_settings;
 
 	char ch;
-	int  k;
+	int  j,k;
 	int lndis; /* Distance between lines */
 
 	if( argc > 1 )
@@ -313,14 +315,14 @@ int main(int argc, char **argv)
   	uniset=UniHan_load_set(UNIHANS_DATA_PATH);
   	if( uniset==NULL ) exit(1);
 	if( UniHan_quickSort_set(uniset, UNIORDER_TYPING_FREQ, 10) !=0 ) exit(2);
-	getchar();
+//	getchar();
 
   	/* Load UniHanGroup Set Set for PINYIN Input */
   	uniGroupSet=UniHanGroup_load_set(UNIHANGROUPS_DATA_PATH);
   	if( uniGroupSet==NULL ) exit(1);
 	if( UniHanGroup_quickSort_typing(uniGroupSet, 0, uniGroupSet->ugroups_size-1, 10) !=0 )
 		exit(2);
-	getchar();
+//	getchar();
 
 
 MAIN_START:
@@ -364,10 +366,11 @@ MAIN_START:
 
 	/* TEST: getAdvances ---- */
 	int penx=140, peny=5;
-	FTsymbol_writeFB("记事本",penx,peny,WEGI_COLOR_LTBLUE, &penx, &peny);
+	FTsymbol_writeFB("EGI笔记本",penx,peny,WEGI_COLOR_LTBLUE, &penx, &peny);
 	printf("FTsymbol_writFB get advanceX =%d\n", penx-140);
 	printf("FTsymbol_uft8string_getAdvances =%d\n",
-		FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fw, fh, (const unsigned char *)"记事本") );
+		FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fw, fh, (const unsigned char *)"EGI笔记本") );
+
 
 	/* Draw blank paper + margins */
 	fbset_color(WEGI_COLOR_WHITE);
@@ -390,7 +393,6 @@ MAIN_START:
 	fb_render(&gv_fb_dev);
 
 	/* Charmap to the end */
-	system("date");
 	int i=0;
 	while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
 	{
@@ -413,7 +415,6 @@ MAIN_START:
 	}
         fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 	draw_progress_msgbox( &gv_fb_dev, (320-280)/2, (240-140)/2, "文件加载完成", 100,100);
-	system("date");
 //	goto MAIN_END;
 
 	printf("Loop editing...\n");
@@ -485,8 +486,21 @@ MAIN_START:
 						}
 						#else /* PINYIN Input for UNIHANGROUPs (include UNIHANs) */
 						if( enable_pinyin && strPinyin[0]!='\0' ) {
-                                                        if( GroupStartIndex-GroupItems >0 )
-                                                                GroupStartIndex -= GroupItems;
+							for( i=7; i>0; i--) {
+								if(GroupStartIndex-i < 0)
+									continue;
+								bzero(strHanlist, sizeof(strHanlist));
+								for(j=0; j<i; j++) {
+					 			     snprintf(strItem,sizeof(strItem),"%d.%s ",j+1, unihans[GroupStartIndex-i+j]);
+								     strcat(strHanlist, strItem);
+								}
+								/* Check if space is OK */
+								if(FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fw, fh,
+														(UFT8_PCHAR)strHanlist) < 320-15 )
+									break;
+							}
+							/* Reset new GroupStartIndex and GroupItems */
+							GroupStartIndex -= i;
                                                 }
 						#endif
 						else
@@ -523,11 +537,20 @@ MAIN_START:
 						FTcharmap_goto_lineBegin(chmap);
 						break;
 				}
+				/* reset 0 to ch: NOT a char, just for the following precess to ignore it.  */
+				ch=0;
 			}
-
-			/* reset 0 to ch: NOT a char, just for the following precess to ignore it.  */
-			ch=0;
+			else if(ch==0) { /* ESCAP KEY: ch1==27 AND ch2==0 */
+				if(enable_pinyin) {
+					/* Clear all pinyin buffer */
+					bzero(strPinyin,sizeof(strPinyin));
+					bzero(display_pinyin,sizeof(display_pinyin));
+					unicount=0; HanGroupIndex=0;
+				}
+			}
+			/* ELSE: ch1==27 and (ch2!=91 AND ch2!=0)  */
 		}
+		/* ELSE: ch1 != 27, go on...  */
 
 		/* 2. TTY Controls  */
 		switch( ch )
@@ -535,12 +558,17 @@ MAIN_START:
 		    	case CTRL_P:
 				enable_pinyin=!enable_pinyin;  /* Toggle input method to PINYIN */
 				if(enable_pinyin) {
+					/* Shrink maplines, maplinePos[] mem space Ok, increase maplines NOT ok! */
+					if(chmap->maplines>2)
+						chmap->maplines -= 2;
+					/* Clear input pinyin buffer */
 					bzero(strPinyin,sizeof(strPinyin));
 					bzero(display_pinyin,sizeof(display_pinyin));
 				}
 				else {
-					unicount=0;		/* clear previous unihans */
-					HanGroupIndex=0;
+					/* Recover maplines */
+					chmap->maplines+=2;
+					unicount=0; HanGroupIndex=0;	/* clear previous unihans */
 				}
 				ch=0;
 			   	break;
@@ -602,8 +630,9 @@ MAIN_START:
 					strcat(display_pinyin, group_pinyin+i*UNIHAN_TYPING_MAXLEN);
 					strcat(display_pinyin, " ");
 				}
+				unicount=0;
 				if( UniHanGroup_locate_typings(uniGroupSet, group_pinyin)==0 ) {
-					unicount=0;
+					//unicount=0;
 					k=0; //uniGroupSet->results_size;
 					while( k < uniGroupSet->results_size ) {
 						pos_uchar=uniGroupSet->ugroups[uniGroupSet->results[k]].pos_uchar;
@@ -715,9 +744,9 @@ MAIN_START:
 						strcat(display_pinyin, group_pinyin+i*UNIHAN_TYPING_MAXLEN);
 						strcat(display_pinyin, " ");
 					    }
-
+					    unicount=0;
 					    if( UniHanGroup_locate_typings(uniGroupSet, group_pinyin)==0 ) {
-						unicount=0;
+						//unicount=0;
 						k=0; //uniGroupSet->results_size;
 						while( k < uniGroupSet->results_size ) {
 							pos_uchar=uniGroupSet->ugroups[uniGroupSet->results[k]].pos_uchar;
@@ -810,7 +839,8 @@ MAIN_START:
 					snprintf(strItem,sizeof(strItem),"%d.%s ",i-GroupStartIndex+1,unihans[i]);
 					strcat(strHanlist, strItem);
 					/* Check if out of range */
-					if( FTsymbol_uft8strings_pixlen(egi_sysfonts.regular, fw, fh, (UFT8_PCHAR)strHanlist) > 320-15 )
+					//if(FTsymbol_uft8strings_pixlen(egi_sysfonts.regular, fw, fh, (UFT8_PCHAR)strHanlist) > 320-15 )
+					if(FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fw, fh, (UFT8_PCHAR)strHanlist) > 320-15 )
 					{
 						strHanlist[strlen(strHanlist)-strlen(strItem)]='\0';
 						break;
@@ -1208,11 +1238,12 @@ Draw right_click menu.
 --------------------------------------*/
 static void draw_RCMenu(int x0, int y0)
 {
-	char *mwords[3]={"Copy", "Paste", "Cut" };
+	#define RCMENU_ITEMS	4
+	char *mwords[RCMENU_ITEMS]={"Words", "Copy", "Paste", "Cut" };
 
 	int mw=70;   /* menu width */
 	int smh=33;  /* sub menu height */
-	int mh=smh*3;  /* menu height */
+	int mh=smh*RCMENU_ITEMS;  /* menu height */
 
 	int i;
 	int mp;	/* 0,1,2 OR <0 Non,  Mouse pointed menu item */
@@ -1227,7 +1258,7 @@ static void draw_RCMenu(int x0, int y0)
 	RCMenu_Command_ID=mp;
 
 	/* Draw submenus */
-	for(i=0; i<3; i++)
+	for(i=0; i<RCMENU_ITEMS; i++)
 	{
 		/* Menu pad */
 		if(mp==i)
@@ -1507,6 +1538,10 @@ static void RCMenu_execute(enum RCMenu_Command RCMenu_Command_ID)
 		return;
 
 	switch(RCMenu_Command_ID) {
+		case RCMENU_COMMAND_SAVEWORDS:
+			printf("RCMENU_COMMAND_SAVEWORDS\n");
+			FTcharmap_save_words(chmap,"/tmp/pinyin_new_words");
+			break;
 		case RCMENU_COMMAND_COPY:
 			printf("RCMENU_COMMAND_COPY\n");
 			FTcharmap_copy_to_syspad(chmap);
@@ -1527,7 +1562,7 @@ static void RCMenu_execute(enum RCMenu_Command RCMenu_Command_ID)
 
 
 /*----------------------------------------------------
-Exectue command for selected right_click menu
+Exectue command for selected Window_Bar top menu
 
 @Command_ID: WBTMenu Command ID, <0 ingnore.
 -----------------------------------------------------*/

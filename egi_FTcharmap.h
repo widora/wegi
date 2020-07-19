@@ -348,4 +348,5 @@ int 	FTcharmap_copy_from_syspad( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + reque
 int 	FTcharmap_copy_to_syspad( EGI_FTCHAR_MAP *chmap );
 int 	FTcharmap_cut_to_syspad( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
 
+int 	FTcharmap_save_words( EGI_FTCHAR_MAP *chmap, const char *fpath );
 #endif

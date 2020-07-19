@@ -3,18 +3,18 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-        UNIHAN                  汉字
+        UNIHAN (Hanzi)          汉字
         UNIHAN_SET              汉字集
-        UNIHANGROUP             词组
+        UNIHANGROUP (Cizu)      词组
         UNIHANGROUP_SET         词组集
 
 Note:
 1. See Unicode Character Database in http://www.unicode.org.
-	# Unicode Character Database
-        # © 2020 Unicode®, Inc.
-        # Unicode and the Unicode Logo are registered trademarks of Unicode, Inc. in the U.S. and other countries.
-        # For terms of use, see http://www.unicode.org/terms_of_use.html
-        # For documentation, see http://www.unicode.org/reports/tr38/
+   # Unicode Character Database
+   # © 2020 Unicode®, Inc.
+   # Unicode and the Unicode Logo are registered trademarks of Unicode, Inc. in the U.S. and other countries.
+   # For terms of use, see http://www.unicode.org/terms_of_use.html
+   # For documentation, see http://www.unicode.org/reports/tr38/
 
 2. With reference to:
   2.1 https://blog.csdn.net/firehood_/article/details/7648625
@@ -139,9 +139,12 @@ TODO:
 
 @strp:		An unbroken string of alphabet chars in lowercases,
 		terminated with a '\0'.
-		It SHOULD occupy UNIHAN_TYPING_MAXLEN*n bytes mem space,
+		Note:
+		1. It SHOULD occupy UNIHAN_TYPING_MAXLEN*n bytes mem space,
 		as the function will try to read the content in above range
 		withou checking position of the string terminal NULL!
+		2. A terminal NULL '\0' will be written to strp as end of
+	        dividing n groups!
 
 @pinyin:	To store parsed groups of PINYINs.
 		Each group takes UNIHAN_TYPING_MAXLEN bytes, including '\0's.
@@ -152,13 +155,14 @@ Return:
 	>0	OK, total number of PINYIN typings as divided into.
 	<=0	Fails
 ----------------------------------------------------------------------------*/
-int  UniHan_divide_pinyin(const char *strp, char *pinyin, int n)
+int  UniHan_divide_pinyin(char *strp, char *pinyin, int n)
 {
 	int i;
 	int np;			/* count total number of PINYIN typings */
-	const char *ps;		/* Start of a complete PINYIN typing (Shengmu+Yunmu OR Yunmu) */
+	const char *ps=NULL;		/* Start of a complete PINYIN typing (Shengmu+Yunmu OR Yunmu) */
 	const char *pc=strp;
 	bool	zero_shengmu; /* True if has NO Shengmu */
+	char *pt=NULL;
 
 	if( strp==NULL || pinyin ==NULL || n<1 )
 		return -1;
@@ -167,8 +171,12 @@ int  UniHan_divide_pinyin(const char *strp, char *pinyin, int n)
 	memset(pinyin, 0, n*UNIHAN_TYPING_MAXLEN);
 	np=0;
 
-	for( i=0; i<n; i++) {
+	for( i=0; i<n+1; i++) {
 		while( *pc != '\0' ) {   /* pc always points to the start of a new Shengmu or Yunmu */
+
+			/* If i==4: break. as a full end of 4 groups. See below explanation. */
+			if( i==n )
+				break;
 
 			ps=pc;  /* mark start of a PINYIN typing  */
 
@@ -244,6 +252,8 @@ int  UniHan_divide_pinyin(const char *strp, char *pinyin, int n)
 						pc +=2;
 					else if( *(pc+1)=='n' && *(pc+2)=='g' ) /* ong */
 						pc +=3;
+					else if( *(pc+1)=='n') 		/* To appear on ! */
+						pc +=2;
 					else					/* o */
 						pc++;
 					break;
@@ -304,8 +314,12 @@ int  UniHan_divide_pinyin(const char *strp, char *pinyin, int n)
 						case 'o':
 							if( *(pc+2)=='n' && *(pc+3)=='g' )	/* iong */
 								pc+=4;
+							else if( *(pc+2)=='n' )
+								pc+=3;		/* Just to appear ion! */
+							else if( *(pc+2)=='n' )  /* To appear ion !! */
+								pc+=3;
 							else
-								pc++;	/* takes only 'i' */	/* i */
+								pc+=2;	/* To appear 'io' */	/* i */
 							break;
 
 						default:
@@ -367,16 +381,25 @@ int  UniHan_divide_pinyin(const char *strp, char *pinyin, int n)
 
 			/*  All 26 alphabets will be the initial char of a Shenmu or a Yunmu, except 'v'!  */
 
+
 			/* 3. Copy a complete PINYIN typing(Shengmu+Yunmu or Yunmu) to pinyin[] */
 			strncpy(pinyin+i*UNIHAN_TYPING_MAXLEN, ps, pc-ps);
 			np++;
 
 			/* 4. For the next PINYIN */
-			i++;
+			break;; // break while()
 
 		} /* while() */
 
 	} /* for() */
+
+	/* If i==n+1: full end of n groups. put terminal to pstr then!!
+	 * Example: 'ling dian xing dong', 'jin yan jiao xiong'.
+	 * Here 'ong' and 'iong' are special vowels, as 'on' and 'ion' are NOT vowels!
+	 * Others 'iang'-'ia','ian', 'uang'-'ua','uan',... are all vowels!
+	 */
+	if(i==n+1)
+		*(char *)pc='\0';  /* ps as start pointer of redundant chars. */
 
 	return np;
 }
@@ -3056,18 +3079,19 @@ END_FUNC:
 
 
 /*---------------------------------------------------------------
-Save a group set to a Cizu text file.
+Save a group set to a Cizu text file. ONLY UNIHANGROUPs will be
+saved and single UNIHANs will be screened out.
 
 Note:
 1. Only uchars and typings will be written to the text file,
    which is also compatible for UniHanGroup_load_CizuTxt() to
    read in.
 ...
+(小　 single UNIHAN to be ignored )
 普通  pu tong
 武则天  wu ze tian
 日新月异  ri xin yue yi
 ....
-
 
 @group_set:	A pinter to an EGI_UNIHANGROUP_SET
 @fpath:		Full file path of saved file.
@@ -3101,6 +3125,10 @@ int  UniHanGroup_saveto_CizuTxt(const EGI_UNIHANGROUP_SET *group_set, const char
 	        /* Get number of chars of each group */
 	        nch=UHGROUP_WCODES_MAXSIZE;
        		while( nch>0 && group_set->ugroups[i].wcodes[nch-1] == 0 ) { nch--; };
+
+		/* Rule out single UNIHAN */
+		if(nch<2)
+			continue;
 
 		/* write uchar */
 		off=group_set->ugroups[i].pos_uchar;
@@ -4034,11 +4062,20 @@ This criteria is ONLY based on PINYIN. Other types of typing may NOT comply.
 Note:
 1. The group_set MUST be prearranged in dictionary ascending order of nch+typing+freq.
    (UNIORDER_NCH_TYPING_FREQ)
-2. And all uuniset->unhihans[0-size-1] are assumed to be valid/normal, with
+2. And all uniset->unhihans[0-size-1] are assumed to be valid/normal, with
    wcode >0 AND typing[0]!='\0'.
 3. Pronunciation tones of PINYIN are neglected.
-4. This algorithm depends on typing type PINYIN, others MAY NOT work.
-5. TODO: Some polyphonic UNIHANs will fail to locate, as UniHanGroup_assemble_typings()
+4. If unihan_group(cizu) can NOT be located for the input typing, it will TRY to
+   search it at longer groups.
+   Example:
+	 typings 'zuo fa z'  ---> NO nch=3 unihan_groups ----> then locate at '作法自毙'
+
+   !!! However, it MAY fail to locate!!! As their sorting method diffs
+   	Example: for nch=3: 1->2->3(->1) sorting. for nch=4: 1->2->3->4(->1) sorting.
+   The bigger nch has more chance to locate a result!
+
+5. This algorithm depends on typing type PINYIN, others MAY NOT work.
+6. TODO: Some polyphonic UNIHANs will fail to locate, as UniHanGroup_assemble_typings()
    does NOT know how to pick the right typings for an unihan group!
    ( UniHanGroup_modify_group() to correct it )
 	 ...
@@ -4069,7 +4106,7 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 	int step;
 	unsigned int start,end,mid;
 	EGI_UNIHANGROUP *ugroups=NULL;
-	int nch1,nch2;
+	int nch1,nch2;   /* nch2 as input typings */
 	char init_typings[UNIHAN_TYPING_MAXLEN*UHGROUP_WCODES_MAXSIZE];  /* with first inits of input typings only */
 
 	if(typings==NULL || typings[0] ==0 )
@@ -4090,11 +4127,6 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 	/* Reset results size */
 	group_set->results_size=0;
 
-	/* Mark start/end/mid of ugroups[] index */
-	start=0;
-	end=group_set->ugroups_size-1;
-	mid=(start+end)/2;
-
 	/* Get total number of unihans/unicodes presented in input typings */
        	nch2=UHGROUP_WCODES_MAXSIZE;
         while( nch2>0 && typings[(nch2-1)*UNIHAN_TYPING_MAXLEN]=='\0' ) { nch2--; };
@@ -4106,6 +4138,12 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 	for(i=1; i<UHGROUP_WCODES_MAXSIZE; i++)
 		init_typings[i*UNIHAN_TYPING_MAXLEN]=typings[i*UNIHAN_TYPING_MAXLEN];
 
+START_SEARCH:
+	/* Mark start/end/mid of ugroups[] index */
+	start=0;
+	end=group_set->ugroups_size-1;
+	mid=(start+end)/2;
+
 	/* binary search for the typings  */
 	/* While if NOT containing the typing string at beginning */
 	//while( nch1!=nch2 || strstr_group_typings( group_set->typings+ugroups[mid].pos_typing, typings, ch2) !=0 ) {
@@ -4116,7 +4154,14 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 
 		/* check if searched all wcodes */
 		if(start==end) {
-			return -2;
+			/* Expand search range to longer groups */
+			if( nch2 < UHGROUP_WCODES_MAXSIZE ) {
+				nch2++;
+				init_typings[1]=0;     /* Tricky */
+				goto START_SEARCH;
+			}
+			else
+				return -2;
 		}
 
 		/* !!! If mid+1 == end: then mid=(n+(n+1))/2 = n, and mid will never increase to n+1! */
@@ -4129,8 +4174,16 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 				mid += 1;  /* Let mid be the index of group_set, see following... */
 				break;
 			}
-			else
-				return -3;
+			else {
+				/* Expand search range to longer groups */
+				if( nch2 < UHGROUP_WCODES_MAXSIZE ) {
+					nch2++;
+					init_typings[1]=0;     /* Tricky */
+					goto START_SEARCH;
+				}
+				else
+					return -3;
+			}
 		}
 
 		//if( unihans[mid].wcode > wcode ) {   /* then search upper half */
@@ -4151,13 +4204,13 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 		//if( unihans[mid].wcode==0 )
 		if( ugroups[mid].wcodes[0]==0 )
 			return -3;
-	} while( nch1!=nch2 || strstr_group_typings( group_set->typings+ugroups[mid].pos_typing, init_typings, nch1) !=0 );
+	} while( nch1 != nch2 || strstr_group_typings( group_set->typings+ugroups[mid].pos_typing, init_typings, nch1) !=0 );
 	/* NOW unhihan[mid] has the same typing */
 
 	/* Reset group_set->results_size at beginning of the function */
 
 #if 0  /* OPTION 1:  Check results by Moving k UP and DOWN  from mid.
-	* 				!!! WARNING !!!
+	* 				!!! --- WARNING --- !!!
 	* The group_set->resutls[] from this way can NOT ensure Shortest_Typing_First principle! as k may NOT
 	* move up to the very beginning before group_set->results_size gets to LIMIT.
         */
@@ -4193,13 +4246,13 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 #else  /* OPTION 2: Move to the top(beginning) of the valid typings, then move down and check */
 	k=mid; /* reset k to mid, k is init_typing index! */
 
-	#if 0 /* --- METHOD_1 ---: Move k to top, STEP=1 */
+	#if 1 /* --- METHOD_1 ---: Move k to top, STEP=1 */
 	while( k>0 && strstr_group_typings(group_set->typings+ugroups[k-1].pos_typing, init_typings, nch1) ==0 ) { k--; };
 	#else /* --- METHOD_2 ---: Move k to top, STEP=4 */
 	while(k>0) {
-		if(k>4) step=4; else step=1;
+		if(k>8) step=8; else step=1;
 		k -= step;
-		if( strstr_group_typings(group_set->typings+ugroups[k-step].pos_typing, init_typings, nch1) ==0 )
+		if( strstr_group_typings(group_set->typings+ugroups[k].pos_typing, init_typings, nch1) !=0 )
 			break;
 	}
 	if(k<0)k=0;

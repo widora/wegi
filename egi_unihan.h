@@ -3,10 +3,10 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-	UNIHAN			汉字
-	UNIHAN_SET		汉字集
-	UNIHANGROUP		词组
-	UNIHANGROUP_SET		词组集
+        UNIHAN (Hanzi)          汉字
+        UNIHAN_SET              汉字集
+        UNIHANGROUP (Cizu)      词组
+        UNIHANGROUP_SET         词组集
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -168,7 +168,7 @@ struct egi_uniHanGroup_set
 		/* ======= 	1. UniHan functions 	======== */
 
 /* PINYIN Functions */
-int  UniHan_divide_pinyin(const char *strp, char *pinyin, int n);
+int  UniHan_divide_pinyin(char *strp, char *pinyin, int n);
 
 /* UNIHAN HEAP Funcitons */
 EGI_UNIHAN_HEAP* UniHan_create_heap(size_t capacity);

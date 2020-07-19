@@ -3556,3 +3556,59 @@ int FTcharmap_cut_to_syspad( EGI_FTCHAR_MAP *chmap )
 }
 
 
+/*--------------------------------------------------------------
+Copy selected content(words/prases) in charmap to a file.
+If the file dose NOT exist, then create it first. New content are
+writen/appended to the end the file.
+If words/phrases alread exists in the file, then ignores.
+
+No mutex_lock applied!
+
+Return:
+	0	OK
+	<0	Fail
+-----------------------------------------------------------------*/
+int FTcharmap_save_words( EGI_FTCHAR_MAP *chmap, const char *fpath )
+{
+	int startPos, endPos;
+	char words[4*4+1]; /* Max. 4 UNIHANs */
+	int  wsize;	   /* words size, MUST < sizeof(words) */
+
+	if( chmap==NULL || chmap->txtbuff==NULL )
+		return -1;
+
+	/* If NO selection */
+	if( chmap->pchoff == chmap->pchoff2 )
+		return -2;
+
+	/* Get selection */
+	if(chmap->pchoff > chmap->pchoff2) {
+		startPos=chmap->pchoff2;
+		endPos=chmap->pchoff;
+	}
+	else {
+		startPos=chmap->pchoff;
+		endPos=chmap->pchoff2;
+	}
+
+	/* Words size */
+	wsize=endPos-startPos;
+	if( wsize > sizeof(words)-1 )
+		return -3;
+
+	/* Extract the words */
+	strncpy(words, (char *)chmap->txtbuff+startPos, wsize);
+	words[wsize]=0; /* EOF */
+
+	/* Search if the words exists */
+	if( egi_search_str_in_file(fpath, 0, words) >= 0 ) {
+		printf("%s: Words exists!\n",__func__);
+		return -4;
+	}
+
+	/* Save/Append to a file */
+	if( egi_copy_to_file( fpath, chmap->txtbuff+startPos, wsize, '\n') != 0 ) /* Add line feed as end_token */
+		return -3;
+
+	return 0;
+}

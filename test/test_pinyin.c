@@ -226,7 +226,7 @@ int main(void)
 		}
 	 //}
 
-		#if 0 /* Save to txt */
+		#if 1 /* Save to txt */
 		printf("Start to save group_set to CizuTxt..."); fflush(stdout);
 		if( UniHanGroup_saveto_CizuTxt(group_set, "/tmp/cizu+pinyin.txt")==0 )
 			printf("Save group_set to cizu+pinyin.txt successfully!\n");
