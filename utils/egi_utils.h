@@ -31,12 +31,13 @@ typedef struct {
 EGI_SYSPAD_BUFF *egi_sysPadBuff_create(size_t size);
 void 		egi_sysPadBuff_free(EGI_SYSPAD_BUFF **padbuff);
 EGI_SYSPAD_BUFF *egi_buffer_from_syspad(void);
+int 		egi_copy_to_file( const char *fpath, const unsigned char *pstr, size_t size, char endtok);
 int 		egi_copy_to_syspad(const unsigned char *pstr, size_t size);
 int 		egi_copy_from_syspad(unsigned char *pstr);
 
-
 void 	egi_free_char(char **p);
 int 	egi_mem_grow(void **ptr, size_t old_size, size_t more_size);
+int 	egi_search_str_in_file(const char *fpath, size_t off, const char *pstr);
 
 int 	egi_shuffle_intArray(int *array, int size);
 int 	egi_util_mkdir(char *dir, mode_t mode);

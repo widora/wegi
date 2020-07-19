@@ -67,10 +67,140 @@ int egi_mem_grow(void **ptr, size_t old_size, size_t more_size)
 }
 
 
+/*----------------------------------------------------------------------------
+Search a string in a file. If find, return offset value from the mmap.
+
+@fpath:		Full path to a text file.
+@off:		Offset value from mmap, as start position for a search.
+@pstr:		A pointer to a string.
+
+Return:
+	>=0	OK, offset value from mmap, as the beginning of the first located
+		string.
+	<0	Fails
+-------------------------------------------------------------------------------*/
+int egi_search_str_in_file(const char *fpath, size_t off, const char *pstr)
+{
+	int 		ret;
+        int             fd;
+        int             fsize=-1;  /* AS token */
+        struct stat	sb;
+        char *    	fp=NULL;
+	const char *	pc=NULL;
+
+        /* Open text file */
+        fd=open(fpath, O_RDONLY, S_IRUSR);
+        if(fd<0) {
+                printf("%s: Fail to open input file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+                return -2;
+        }
+
+        /* Obtain file stat */
+        if( fstat(fd,&sb)<0 ) {
+                printf("%s: Fail call fstat for file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+                ret=-3;
+                goto END_FUNC;
+        }
+        fsize=sb.st_size;
+
+	/* Check off */
+	if( off > fsize-1 ) {
+		ret=-4;
+		goto END_FUNC;
+	}
+
+        /* MMAP Text file */
+        if(fsize >0) {
+                fp=mmap(NULL, fsize, PROT_READ, MAP_PRIVATE, fd, 0);
+                if(fp==MAP_FAILED) {
+                        printf("%s: Fail to mmap file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+                        ret=-5;
+                        goto END_FUNC;
+                }
+        }
+
+	/* Search substring */
+	pc=strstr(fp,pstr);
+	if(pc==NULL) {
+                printf("%s: Substring '%s' NOT found in file '%s'!\n", __func__, pstr, fpath);
+		ret=-6;
+		goto END_FUNC;
+	}
+	else /* As offset value to the mmap */
+		ret=pc-fp;
+
+END_FUNC:
+        /* Munmap file */
+        if( fsize>0 && fp!=MAP_FAILED ) {
+                if(munmap(fp,fsize) !=0 )
+                        printf("%s: Fail to munmap file '%s'. ERR:%s!\n",__func__, fpath, strerror(errno));
+        }
+
+        /* Close File */
+        if( close(fd) !=0 )
+                printf("%s: Fail to close file '%s'. ERR:%s!\n",__func__, fpath, strerror(errno));
+
+
+	return ret;
+}
+
+
+/*----------------------------------------------------------
+Copy pstr pointed content to a file. If the file dose NOT
+exist, then create it first. New content are writen/appended
+to the end the file.
+
+@fpath: 	Full file path name.
+@pstr:		Pointer to content for copying to the file
+@size: 		Size for copy_to  operation, in bytes.
+@endtok:	An end token. If =0, ignore.
+
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------------------*/
+int egi_copy_to_file( const char *fpath, const unsigned char *pstr, size_t size, char endtok)
+{
+	FILE *fil=NULL;
+	int nwrite;
+	int ret=0;
+
+	if(pstr==NULL)
+		return -1;
+
+	if( (fil=fopen(fpath,"ae"))==NULL) {
+		printf("%s: Fail to open or create '%s' for copy_to operation, %s!\n",__func__, fpath, strerror(errno));
+		return -2;
+	}
+
+        nwrite=fwrite(pstr, 1, size, fil);
+	if(endtok) {
+		nwrite += fwrite(&endtok, 1, 1, fil);
+		size += 1;
+	}
+        if(nwrite < size) {
+                if(ferror(fil))
+                        printf("%s: Fail to copy to '%s'.\n", __func__, fpath);
+                else
+                        printf("%s: WARNING! fwrite %d bytes of total %d bytes to '%s'.\n", __func__, nwrite, size, fpath);
+                ret=-3;
+        }
+        EGI_PDEBUG(DBG_CHARMAP,"%d bytes copy_to '%s'.\n", nwrite, fpath);
+
+        /* Close fil */
+        if( fclose(fil) !=0 ) {
+                printf("%s: Fail to close '%s': %s\n", __func__, fpath, strerror(errno));
+                ret=-4;
+        }
+
+	return ret;
+}
+
+
 /*---------------------------------------------------------
 Copy pstr pointed content to EGI SYSPAD, which is acutually
 a file. It truncates the file to zero length first,
-so old data will lost.
+so old data will be lost.
 
 @pstr:	Pointer to content for copying to EGI_SYSPAD
 @size: 	Size for copy_to  operation, in bytes.
