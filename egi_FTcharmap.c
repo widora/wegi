@@ -103,6 +103,8 @@ TODO:
 1. A faster way to memmove...
 2. A faster way to locate pch...
 3. Delete/insert/.... editing functions will fail/abort if chmap->request!=0. ( loop trying/waiting ??)
+4. TAB key code in FTcharmap_uft8strings_writeFB() may affect some editing functions,  need to test/check.
+   As TAB key is NOT a fixed symwidth symbol any more!  cstr_charlen_uft8() will fail in some case.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -663,6 +665,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	int pchx=0;			/* if(chmap->fix_cursor), then save charXY[pch] */
 	int pchy=0;
 	int charlen;
+	int TabWidth;
 	struct timeval tm_now;
  	wchar_t wcstr[1];  		/* BETTER AS: wchart_t wcode */
         FT_Fixed   advance; 		/* typedef signed long  FT_Fixed;   to store 16.16 fixed-point values */
@@ -709,6 +712,9 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	lines=chmap->maplines;
 	pixpl=chmap->mappixpl;
 	//gap=chmap->maplngap;
+
+	/* Get TabWidth */
+	TabWidth=FTsymbol_cooked_charWidth(9,fw);
 
 START_CHARMAP:	/* If follow_cursor, loopback here */
 
@@ -857,8 +863,12 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 
 		/* Write unicode bitmap to FB, and get xleft renewed. */
 
+		/* If TAB(9) key, align to imaginary grid */
+		if( *wcstr==9 ) {
+			xleft = pixpl-((pixpl-xleft)/TabWidth +1)*TabWidth;
+		}
 		/* If fb_dev==NULL: To get xleft in a fast way */
-		if( fb_dev == NULL) {
+		else if( fb_dev == NULL) {
 		    	/* If has self_cooked width for some special unicodes, bitmap ignored. */
 		    	sdw=FTsymbol_cooked_charWidth(wcstr[0], fw);
 		    	if(sdw>=0)

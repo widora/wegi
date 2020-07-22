@@ -953,8 +953,11 @@ long * FTsymbol_buffer_fontAdvances(FT_Face face, int fw, int fh, FT_UInt start,
 /*----------------------------------------------------------
 Self_define/cook width for some special unicodes.
 
-NOTE: Those wcodes are assumed to have no bitmap, even it has
-it will be ingored!
+NOTE:
+1. Those wcodes are assumed to have no bitmap (in freetype),
+   even it has it will be ingored!
+2. However in ctypes: '\f','\v','\n','\r' all take spaces. Use
+   isspace() to confirm. --- Ignored here.
 
 @wcode:		UNICODE value
 @fw:		Expected/norminal width
@@ -1159,6 +1162,8 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 		/* reduce xleft */
 		*xleft -= bbox_W;
 	}
+
+
 
 	/* If NO space left, do NOT writeFB then. */
 	if( *xleft < 0 )

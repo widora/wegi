@@ -173,33 +173,63 @@ int main(void)
 		UniHanGroup_print_set(group_set, group_set->ugroups_size-50, group_set->ugroups_size-1);
 //		getchar();
 
+#if 1		/* TEST: --- sort wcodes ---- */
+		int sorder;
+
+		printf("Start to sort wcodes...\n");
+		gettimeofday(&tm_start,NULL);
+		//UniHanGroup_insertSort_wcodes(group_set, 0, group_set->ugroups_size);
+		UniHanGroup_quickSort_wcodes(group_set, 0, group_set->ugroups_size-1, 9);
+		gettimeofday(&tm_end,NULL);
+		printf("Finish quickSort wcodes. cost time: %ldms\n", tm_diffus(tm_start, tm_end)/1000);
+		//UniHanGroup_print_set(group_set, 0, group_set->ugroups_size-1);
+		printf("Start to check redundant wcodes...\n");
+		int rwcount=0;
+		for(i=1; i< group_set->ugroups_size; i++) {
+			for(j=0; j<UHGROUP_WCODES_MAXSIZE; j++) {
+				if( group_set->ugroups[i-1].wcodes[j] != group_set->ugroups[i].wcodes[j] )
+					break;
+			}
+			/* Redundant wcodes found ... */
+			if( j==UHGROUP_WCODES_MAXSIZE ) {
+				UniHanGroup_print_group(group_set,i,true);
+				rwcount++;
+			}
+		}
+		printf("Finish checking redundant wcodes, %d redundant groups found!\n", rwcount);
+		getchar();
+
+#endif
+
 		printf("Start to assemble typings...\n");
 		if( UniHanGroup_assemble_typings(group_set, han_set) != 0) {
 			printf("Fail to assmeble typings!\n");
 			exit(1);
 		}
 		printf("Finish assmebling typings.\n");
-		UniHanGroup_search_uchars(group_set, (UFT8_PCHAR)"电脑");
-//		getchar();
+		getchar();
 		//UniHanGroup_print_set(group_set, 0, 100);//group_set->ugroups_size-1);
 
 		printf("Start to load/merge han_set to group_set...\n");
-		if( UniHanGroup_load_uniset(group_set, han_set) !=0 ) {
+		if( UniHanGroup_add_uniset(group_set, han_set) !=0 ) {
 			printf("Fail to load han_set!\n");
 			exit(1);
 		}
 		printf("Finish loading han_set.\n");
-		UniHanGroup_search_uchars(group_set, (UFT8_PCHAR)"电脑");
-//		getchar();
+		getchar();
 
-		printf("Start to sort typings...\n");
+		printf("Start to purify group set and clear redundant ones ...\n");
+		UniHanGroup_purify_set(group_set);
+		printf("Finish purifying group_set!\n");
+		getchar();
+
+		printf("Start to quick sort typings...\n");
 		gettimeofday(&tm_start,NULL);
-		//UniHanGroup_insertSort_typing(group_set, 0, group_set->ugroups_size-1); // 500);
-		UniHanGroup_quickSort_typing(group_set, 0, group_set->ugroups_size-1, 9);
+		//UniHanGroup_insertSort_typings(group_set, 0, group_set->ugroups_size-1); // 500);
+		UniHanGroup_quickSort_typings(group_set, 0, group_set->ugroups_size-1, 9);
 		gettimeofday(&tm_end,NULL);
 		printf("Finish quickSort typings. cost time: %ldms\n", tm_diffus(tm_start, tm_end)/1000);
-
-//		getchar();
+		getchar();
 
 		#if 0 /* Print first 50 and last 50 groups */
 		UniHanGroup_print_set(group_set, 0, 50-1);
@@ -233,15 +263,15 @@ int main(void)
 		getchar();
 		#endif
 
-		#if 0  /* TEST search */
-		UniHanGroup_search_uchars(group_set, (UFT8_PCHAR)"大");
+		#if 1  /* TEST search */
+		UniHanGroup_search_uchars(group_set, (UFT8_PCHAR)"老有所乐");
 		getchar();
-		if( (k=UniHanGroup_locate_uchars(group_set,(UFT8_PCHAR)"紧俏")) >=0 )
-		UniHanGroup_print_set(group_set, k-10, k+10);
-		getchar();
+		//if( (k=UniHanGroup_locate_uchars(group_set,(UFT8_PCHAR)"紧俏")) >=0 )
+		//UniHanGroup_print_set(group_set, k-10, k+10);
+		//getchar();
 		#endif
 
-#if 1	/* TEST ----Locate group_typing */
+	#if 1	/* TEST ----Locate group_typing */
 	char group_pinyin[UNIHAN_TYPING_MAXLEN*4];
 	int np;
 	while(1) {
