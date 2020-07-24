@@ -315,18 +315,32 @@ int main(int argc, char **argv)
 	if( argc > 1 )
 		fpath=argv[1];
 
-  	/* Load UniHan Set for PINYIN Input */
+  	/* Load UniHan Set for PINYIN Assembly and Input */
   	uniset=UniHan_load_set(UNIHANS_DATA_PATH);
   	if( uniset==NULL ) exit(1);
 	if( UniHan_quickSort_set(uniset, UNIORDER_TYPING_FREQ, 10) !=0 ) exit(2);
-//	getchar();
 
-  	/* Load UniHanGroup Set Set for PINYIN Input */
+  	/* Load UniHanGroup Set Set for PINYIN Input, it also include nch==1 UniHans! */
   	uniGroupSet=UniHanGroup_load_set(UNIHANGROUPS_DATA_PATH);
   	if( uniGroupSet==NULL ) exit(1);
+
+	/* Readin new words and merge into uniGroupSet */
+        EGI_UNIHANGROUP_SET*  expend_set=UniHanGroup_load_CizuTxt(PINYIN_NEW_WORDS_FPATH);
+        if(expend_set != NULL) {
+		if( UniHanGroup_merge_set(expend_set, uniGroupSet)!=0 )
+			printf("Fail to merge expend_set!\n");
+		if( UniHanGroup_purify_set(uniGroupSet)!=0 )
+			printf("Fail to purify uniGroupSet!\n");
+		if( UniHanGroup_assemble_typings(uniGroupSet, uniset) != 0) {
+                        printf("Fail to assmeble typings!\n");
+                        exit(1);
+                }
+	}
+
+	/* quckSort typing for PINYIN input */
 	if( UniHanGroup_quickSort_typings(uniGroupSet, 0, uniGroupSet->ugroups_size-1, 10) !=0 )
 		exit(2);
-//	getchar();
+
 
 
 MAIN_START:
@@ -1546,7 +1560,7 @@ static void RCMenu_execute(enum RCMenu_Command RCMenu_Command_ID)
 	switch(RCMenu_Command_ID) {
 		case RCMENU_COMMAND_SAVEWORDS:
 			printf("RCMENU_COMMAND_SAVEWORDS\n");
-			FTcharmap_save_words(chmap,"/tmp/pinyin_new_words");
+			FTcharmap_save_words(chmap, PINYIN_NEW_WORDS_FPATH);
 			break;
 		case RCMENU_COMMAND_COPY:
 			printf("RCMENU_COMMAND_COPY\n");

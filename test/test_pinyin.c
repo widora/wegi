@@ -154,7 +154,7 @@ int main(void)
 		//UniHan_quickSort_uniset(uniset, UNIORDER_TYPING_FREQ, 10);
 	}
   }
-
+  exit(1);
 #endif
 
 #if 1 /*-------------  test UniHanGroup Functions  ------------------*/
@@ -173,7 +173,7 @@ int main(void)
 		UniHanGroup_print_set(group_set, group_set->ugroups_size-50, group_set->ugroups_size-1);
 //		getchar();
 
-#if 1		/* TEST: --- sort wcodes ---- */
+	#if 1	/* TEST: --- sort wcodes ---- */
 		int sorder;
 
 		printf("Start to sort wcodes...\n");
@@ -199,8 +199,9 @@ int main(void)
 		printf("Finish checking redundant wcodes, %d redundant groups found!\n", rwcount);
 		getchar();
 
-#endif
+	#endif
 
+		#if 0 /* NOT HERE! .... Assemble typings just AFTER merge/purify operation!  */
 		printf("Start to assemble typings...\n");
 		if( UniHanGroup_assemble_typings(group_set, han_set) != 0) {
 			printf("Fail to assmeble typings!\n");
@@ -208,7 +209,7 @@ int main(void)
 		}
 		printf("Finish assmebling typings.\n");
 		getchar();
-		//UniHanGroup_print_set(group_set, 0, 100);//group_set->ugroups_size-1);
+		#endif
 
 		printf("Start to load/merge han_set to group_set...\n");
 		if( UniHanGroup_add_uniset(group_set, han_set) !=0 ) {
@@ -218,11 +219,50 @@ int main(void)
 		printf("Finish loading han_set.\n");
 		getchar();
 
+	#if 1 /* ---TEST:  UniHanGroup merge and purify functions */
+		EGI_UNIHANGROUP_SET*  expend_set=UniHanGroup_load_CizuTxt(PINYIN_NEW_WORDS_FPATH);
+		if(expend_set==NULL) exit(1);
+		UniHanGroup_print_set(expend_set,0,expend_set->ugroups_size-1);
+		printf("Start to merge addon_set ...\n");
+		UniHanGroup_merge_set(expend_set, group_set);
+		UniHanGroup_free_set(&expend_set);
+		printf("Finish merging addon_set for new words!\n");
+		getchar();
+
+		#if 1 /* Test --- loate wcodes[] */
+		char strUFT8[4*4+1];
+		UniHanGroup_quickSort_set(group_set, UNIORDER_NCH_WCODES, 10);
+		while(1) {
+			bzero(strUFT8,sizeof(strUFT8));
+			printf("Input uchars:");
+			scanf("%s",strUFT8);
+			printf("Start to locate wcodes[] ...\n");
+			gettimeofday(&tm_start,NULL);
+			if( UniHanGroup_locate_wcodes(group_set, (UFT8_PCHAR)strUFT8 )==0 ) {
+				gettimeofday(&tm_end,NULL);
+				UniHanGroup_print_group(group_set, group_set->pgrp, true);
+			} else {
+				printf("Fail to locate wcodes[]:%s\n", strUFT8);
+			}
+			printf("Finish locate wcodes. cost time: %ldms\n", tm_diffus(tm_start, tm_end)/1000);
+			getchar();
+		}
+		#endif
+
 		printf("Start to purify group set and clear redundant ones ...\n");
 		UniHanGroup_purify_set(group_set);
 		printf("Finish purifying group_set!\n");
 		getchar();
 
+		printf("Start to assemble typings AFTER merge/purify ...\n");
+		if( UniHanGroup_assemble_typings(group_set, han_set) != 0) {
+			printf("Fail to assmeble typings!\n");
+			exit(1);
+		}
+		printf("Finish assmebling typings.\n");
+		getchar();
+
+	#endif
 		printf("Start to quick sort typings...\n");
 		gettimeofday(&tm_start,NULL);
 		//UniHanGroup_insertSort_typings(group_set, 0, group_set->ugroups_size-1); // 500);
@@ -242,7 +282,7 @@ int main(void)
 
 		printf("Start to save group_set to data file..."); fflush(stdout);
 		if( UniHanGroup_save_set(group_set, UNIHANGROUPS_DATA_PATH)==0 )
-			printf("Save group_set to cizu.data successfully!\n");
+			printf("Save group_set to '%s' successfully!\n", UNIHANGROUPS_DATA_PATH);
 		getchar();
 		/* ------ UNIHANGROUPS_DATA saved! ------ */
 
@@ -302,7 +342,7 @@ int main(void)
 		} else
 			printf(": No result!\n");
 	}
-#endif
+	#endif
 
 		UniHan_free_set(&han_set);
 		UniHanGroup_free_set(&group_set);
@@ -399,20 +439,26 @@ exit(1);
 		exit(1);
         printf("Load kMandarin txt to unisetMandarin, total size=%d:\n", unisetMandarin->size);
 	UniHan_quickSort_set(unisetMandarin, UNIORDER_WCODE_TYPING_FREQ, 10);
-	UniHan_print_wcode(unisetMandarin, 0x9E23);
+	UniHan_print_wcode(unisetMandarin, 0x81C2);
 	getchar();
 
+	printf("Start to merge unisetMandarin into uniset...\n");
 	/* Merge unisetMandarin into uniset */
 	UniHan_merge_set(unisetMandarin, uniset);
+	printf("Finish merging unisetMandarin into uniset!\n");
+	printf("Start to quickSort wcode for uniset....\n");
         /* quickSort_wcode uniset2, before calling UniHan_locate_wcode(). */
 	UniHan_quickSort_set(uniset, UNIORDER_WCODE_TYPING_FREQ, 10);
         //UniHan_quickSort_wcode(uniset->unihans, 0, uniset->size-1, 10);
-	UniHan_print_wcode(uniset, 0x9E23);
+	printf("Finish quickSort wcode for uniset....\n");
+	UniHan_print_wcode(uniset, 0x81C2);
 	getchar();
 
-	/* Purify merged uniset, clear redundant unihans */
+	/* Purify merged uniset, clear redundant unihans (with same wcode and tying) */
+	printf("Start to purify uniset...\n");
 	UniHan_purify_set(uniset);
-	UniHan_print_wcode(uniset, 0x8272); //0x9E23);
+	printf("Finish purifying uniset!\n");
+	UniHan_print_wcode(uniset, 0x81C2); //0x9E23);
 	getchar();
 
 	/* TEST: Locate a wcode */
@@ -526,6 +572,7 @@ exit(1);
 	UniHan_quickSort_set(uniset, UNIORDER_TYPING_FREQ, 10);
 	gettimeofday(&tm_end,NULL);
         printf("OK! Finish quick_sorting, total size=%d, cost time=%ldms.\n", uniset->size, tm_diffus(tm_start, tm_end)/1000);
+	getchar();
 
 	/* Check typing order of two nearby unihans */
 	printf("Check results of quickSort() uniset..."); fflush(stdout);
@@ -542,7 +589,7 @@ exit(1);
 
 	/* Save sorted uniset UNIORDER_TYPING_FREQ */
 	if( UniHan_save_set(uniset, UNIHANS_DATA_PATH) == 0 )
-		printf("Uniset is saved to '%s'.\n",UNIHANS_DATA_PATH);
+		printf("--- Uniset is saved to '%s'.\n",UNIHANS_DATA_PATH);
 	getchar();
 
         /* Print all unihans, grouped by PINYIN */
