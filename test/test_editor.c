@@ -1268,6 +1268,10 @@ static void draw_RCMenu(int x0, int y0)
 	int i;
 	int mp;	/* 0,1,2 OR <0 Non,  Mouse pointed menu item */
 
+	/* Limit x0,y0 */
+	if(x0 > 320-mw) x0=320-mw;
+	if(y0 > 240-mh) y0=240-mh;
+
 	/* Decide submenu items as per mouse position on the right_click menu */
 	if( mouseX>x0 && mouseX<x0+mw && mouseY>y0 && mouseY<y0+mh )
 		mp=(mouseY-y0)/smh;

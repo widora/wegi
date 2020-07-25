@@ -1,4 +1,5 @@
-Start with Hello World:  test/egi_helloworld.c
+Start with basic geometrics:        test/egi_geometry.c
+Start with Freetype text output:    test/egi_HelloWorld.c
 
 			----- 1. Basic Concepts -----
 

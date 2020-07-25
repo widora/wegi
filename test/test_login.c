@@ -73,7 +73,6 @@ static int penx;	/* Pen position */
 static int peny;
 
 static int  FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
-static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void mouse_callback(unsigned char *mouse_data, int size);
 static void draw_mcursor(int x, int y);
 
@@ -181,8 +180,7 @@ int main(int argc, char **argv)
   fb_position_rotate(&gv_fb_dev,0);
 
   /* Set mouse callback function and start mouse readloop */
-  egi_mouse_setCallback(mouse_callback);
-  egi_start_mouseread("/dev/input/mice");
+  egi_start_mouseread("/dev/input/mice", mouse_callback);
 
 
  /* <<<<<  End of EGI general init  >>>>>> */
@@ -218,7 +216,7 @@ int main(int argc, char **argv)
 	chmap->bkgcolor=-1;			/* no bkgcolor */
 	chmap->markcolor=WEGI_COLOR_GREEN; 	/* Selection mark color */
 	chmap->markalpha=180;
-	chmap->maskchar=0x2605;    // 0x2663;solid club //0x2661(2665); empty(solid) heart //0x2605; solid start //0x2103; DEGREE
+	//chmap->maskchar=0x2605;    // 0x2663;solid club //0x2661(2665); empty(solid) heart //0x2605; solid start //0x2103; DEGREE
 
         /* Init. mouse position */
         mouseX=gv_fb_dev.pos_xres/2;
@@ -284,7 +282,8 @@ int main(int argc, char **argv)
 						read(STDIN_FILENO,&ch, 1);
 		                                printf("ch=%d\n",ch);
 						if( ch ==126 ) /* Try to delete a char pointed by chmap->pch */
-							FTcharmap_delete_char(chmap);
+							//FTcharmap_delete_char(chmap);
+							FTcharmap_delete_string(chmap);
 						break;
 					case 52: /* END */
 						read(STDIN_FILENO,&ch, 1);

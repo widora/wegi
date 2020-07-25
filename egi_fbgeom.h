@@ -36,7 +36,7 @@ extern EGI_BOX gv_fb_box;
 //////////////////////////////////////////////////////////
 void    fbprint_fbcolor(void);
 void    fbprint_fbpix(FBDEV *dev);
-
+void 	fbset_speed(unsigned int speed);
 void 	fbset_color(uint16_t color);
 void	fbset_color2(FBDEV *dev, uint16_t color);
 

@@ -15,6 +15,7 @@ Midas Zhou
 #include <inttypes.h>
 #include <unistd.h> /* usleep */
 
+#define MATH_E		2.7182818284590452
 #define MATH_PI 	3.1415926535897932
 #define MATH_DIVEXP   	11  /* An odd number!!  exponent of 2, as for divisor of fixed point number */
 
@@ -105,8 +106,8 @@ void mat_pointrotate_fpSQMap(int n, int angle, struct egi_point_coord centxy,
 void mat_pointrotate_fpAnnulusMap(int n, int ni, int angle, struct egi_point_coord centxy,
                                                          struct egi_point_coord *ANMat_XRYR);
 
-int  mat_pseudo_curvature(const EGI_POINT *pt);
-
-
+int  	mat_pseudo_curvature(const EGI_POINT *pt);
+float 	mat_normal_distribute(float x, float u, float dev);
+float 	mat_rayleigh_distribute(float x, float dev);
 
 #endif

@@ -38,6 +38,19 @@ EGI_BOX gv_fb_box;
 static uint16_t fb_color=(30<<11)|(10<<5)|10;  //r(5)g(6)b(5)   /* For 16bpp */
 static uint32_t fb_rgb=0x0000ff;				/* For 24/32 bpp */
 
+/* default usleep time after each draw_point() */
+static unsigned int fb_drawdot_usleep;
+
+/* Set drawing speed: 1 - 10, 0==10  */
+void fbset_speed(unsigned int speed)
+{
+	/* Set Limit */
+	if(speed==0) speed=10;
+	if(speed>10) speed=10;
+
+	fb_drawdot_usleep=2*(10-speed)*(10-speed);
+}
+
 /* For DEBUG : print out sys.fb_color and FBDEV.pixcolor and FBDEV.pixalpha */
 void fbprint_fbcolor(void)
 {
@@ -698,9 +711,12 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 
    }
 
+   /* Sleep to adjust drawing speed */
+   if(fb_drawdot_usleep)
+   	usleep(fb_drawdot_usleep);
+
     return 0;
 }
-
 
 
 /*---------------------------------------------------

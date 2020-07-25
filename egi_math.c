@@ -19,7 +19,7 @@ Midas-Zhou
 #include <inttypes.h>
 #include <stdlib.h>
 
-#define MATH_PI 3.1415926535897932
+//#define MATH_PI 3.1415926535897932
 
 int fp16_sin[360]={0}; /* fixed point sin() value table, divisor 2<<16 */
 int fp16_cos[360]={0}; /* fixed point cos() value table, divisor 2<<16 */
@@ -1330,4 +1330,36 @@ void mat_quick_sort( int *array, int start, int end, int cutoff )
 	else
 		mat_insert_sort( array+start, end-start+1 );
 
+}
+
+/*---------------------------------------------------
+Normal (Gaussian) probability distribution.
+
+@x:	Random variable
+@u:	mean of distribution. MUST >=0.
+@dev:	standard deviation of distribution.
+
+Return normal probability distribution.
+----------------------------------------------------*/
+float mat_normal_distribute(float x, float u, float dev)
+{
+	if(dev<0)dev=0;
+	return 1.0/dev/sqrt(2.0*MATH_PI)*pow(MATH_E, -0.5*pow((x-u)/dev, 2.0));
+}
+
+
+/*-----------------------------------------------
+Rayleigh probability distribution.
+
+@x:	Random variable
+@dev:	standard deviation of distribution.
+
+Return Rayleigh probability distribution.
+------------------------------------------------*/
+float mat_rayleigh_distribute(float x, float dev)
+{
+	if(dev<0)dev=0;
+	if(x<0)x=0;
+
+	return x/pow(dev,2)*pow(MATH_E, -0.5*x*x/dev/dev);
 }

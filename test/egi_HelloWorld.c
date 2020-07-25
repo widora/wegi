@@ -45,7 +45,7 @@ int main(int argc, char **argv)
   }
   #endif
 
-  /* 1.4 Load freetype fonts 加载FreeTpype字体 */
+  /* 1.4 Load freetype fonts 加载FreeType字体 */
   /* 由于要用到sysfont的bold字体，在/home目录下建立一个egi.conf文件，
      收入如下内容：
      [SYS_FONTS]
