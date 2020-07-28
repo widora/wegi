@@ -8,7 +8,7 @@ the screen.
 
 		( --- 1. The Editor: Keys and functions --- )
 
-Mouse move: 	Move typing cursor to LeftKeyDown to confimr it.
+Mouse move: 	Move typing cursor to, LeftKeyDown to locate typing postion.
 Mouse scroll: 	Scroll charmap up and down.
 ARROW_KEYs: 	Shift typing cursor to locate insert/delete position.
 BACKSPACE: 	Delete chars before the cursor.
@@ -16,21 +16,22 @@ DEL:		Delete chars following the cursor.
 HOME(or Fn+LEFT_ARROW!):	Return cursor to the begin of the retline.
 END(or Fn+RIGHT_ARROW!):	Move cursor to the end of the retline.
 CTRL+N:		Scroll down 1 line, keep typing cursor position.
-CTRL+O:		Scroll up 1 line, keep typing curso position.
+CTRL+O:		Scroll up 1 line, keep typing cursor position.
 CTRL+H:		Go to the first page.
 CTRL+E:		Go to the last page.
-CTRL+F:		Save current chmap->txtbuff to a file.
+CTRL+F:		Save current chmap->txtbuff to a file. PINYIN DATA also saved
+		with update frequency weigh values.
 PG_UP:		Page up
 PG_DN:		Page down
 
 
 		( --- 2. PINYIN Input Method --- )
 
-CTRL+E:		Switch ON/OFF PINYIN input panel.
+CTRL+P:		Switch ON/OFF PINYIN input panel.
 ARROW_DOWN:	Show next group of Hanzi/Cizu.
 ARROW_UP:	Show previous group of Hanzi/Cizu.
 BACKSPACE:	Roll back pinyin input buffer.
-1-7:		Use index to select Haizi/Cizu in the displaying panel.
+1-7:		Use as index to select Haizi/Cizu in the displaying panel.
 SPACE:		Select the first Haizi/Cizu in the displaying panel
 
 Note:
@@ -131,7 +132,6 @@ midaszhou@yahoo.com
 char *strInsert="Widora和小伙伴们";
 char *fpath="/mmc/hello.txt";
 
-
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Text displaying area */
@@ -144,14 +144,15 @@ static int tmargin=2;		/* top margin of text area */
 /* Input Method: PINYIN */
 wchar_t wcode;
 EGI_UNIHAN_SET *uniset;
-EGI_UNIHANGROUP_SET *uniGroupSet;
+EGI_UNIHANGROUP_SET *group_set;
 static bool enable_pinyin=false;
 /* Enable input method PINYIN */
 char strPinyin[4*8]={0}; /* To store unbroken input pinyin string */
 char group_pinyin[UNIHAN_TYPING_MAXLEN*4]; 	/* For divided group pinyins */
-char display_pinyin[UNIHAN_TYPING_MAXLEN*4];    	/* For displaying */
+EGI_UNICODE group_wcodes[4];			/* group wcodes  */
+char display_pinyin[UNIHAN_TYPING_MAXLEN*4];    /* For displaying */
 unsigned int pos_uchar;
-char unihans[512][4*4]; //[256][4]; /* To store UNIHANs complied with input pinyin, in UFT8-encoding. 4unihans*4bytes */
+char unihans[512][4*4]; //[256][4]; /* To store UNIHANs/UNIHANGROUPs complied with input pinyin, in UFT8-encoding. 4unihans*4bytes */
 EGI_UNICODE unicodes[512]; /* To store UNICODE of unihans[512] MAX for typing 'ji' totally 298 UNIHANs */
 unsigned int unindex;
 char phan[4]; 		/* temp. */
@@ -227,6 +228,7 @@ static void draw_msgbox( FBDEV *fb_dev, int x0, int y0, int width, const char *m
 static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg, int pv, int pev);
 static void RCMenu_execute(enum RCMenu_Command Command_ID);
 static void WBTMenu_execute(enum WBTMenu_Command Command_ID);
+static void save_pinyin_data(void);
 
 
 /* ============================
@@ -321,26 +323,29 @@ int main(int argc, char **argv)
 	if( UniHan_quickSort_set(uniset, UNIORDER_TYPING_FREQ, 10) !=0 ) exit(2);
 
   	/* Load UniHanGroup Set Set for PINYIN Input, it also include nch==1 UniHans! */
-  	uniGroupSet=UniHanGroup_load_set(UNIHANGROUPS_DATA_PATH);
-  	if( uniGroupSet==NULL ) exit(1);
+	/* Load from text first, if it fails, then try data file */
+	group_set=UniHanGroup_load_CizuTxt("/tmp/group_set.txt");
+	if( group_set==NULL)
+	  	group_set=UniHanGroup_load_set(UNIHANGROUPS_DATA_PATH);
+	if( group_set==NULL)
+		exit(1);
 
-	/* Readin new words and merge into uniGroupSet */
+	/* Readin new words and merge into group_set */
         EGI_UNIHANGROUP_SET*  expend_set=UniHanGroup_load_CizuTxt(PINYIN_NEW_WORDS_FPATH);
         if(expend_set != NULL) {
-		if( UniHanGroup_merge_set(expend_set, uniGroupSet)!=0 )
+		if( UniHanGroup_merge_set(expend_set, group_set)!=0 )
 			printf("Fail to merge expend_set!\n");
-		if( UniHanGroup_purify_set(uniGroupSet)!=0 )
-			printf("Fail to purify uniGroupSet!\n");
-		if( UniHanGroup_assemble_typings(uniGroupSet, uniset) != 0) {
+		if( UniHanGroup_purify_set(group_set)<0 )
+			printf("Fail to purify group_set!\n");
+		if( UniHanGroup_assemble_typings(group_set, uniset) != 0) {
                         printf("Fail to assmeble typings!\n");
                         exit(1);
                 }
 	}
 
 	/* quckSort typing for PINYIN input */
-	if( UniHanGroup_quickSort_typings(uniGroupSet, 0, uniGroupSet->ugroups_size-1, 10) !=0 )
+	if( UniHanGroup_quickSort_typings(group_set, 0, group_set->ugroups_size-1, 10) !=0 )
 		exit(2);
-
 
 
 MAIN_START:
@@ -360,7 +365,8 @@ MAIN_START:
 	printf("Blank lines tlns=%d\n", tlns);
 
 	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,		/* txtsize,  x0, y0  */
-		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
+//		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
+		  		tlns*lndis, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
 				CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis);   /* mapsize, lines, pixpl, lndis */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 
@@ -502,7 +508,7 @@ MAIN_START:
 							if(HanGroupIndex > 0)
 								HanGroupIndex--;
 						}
-						#else /* PINYIN Input for UNIHANGROUPs (include UNIHANs) */
+						#else /* MULTIPLE_PINYIN_INPUT for UNIHANGROUPs (include UNIHANs) */
 						if( enable_pinyin && strPinyin[0]!='\0' ) {
 							for( i=7; i>0; i--) {
 								if(GroupStartIndex-i < 0)
@@ -531,7 +537,7 @@ MAIN_START:
 							if(HanGroupIndex < HanGroups-1)
 								HanGroupIndex++;
 						}
-						#else /* PINYIN Input for UNIHANGROUPs (include UNIHANs) */
+						#else /* MULTIPLE_PINYIN_INPUT for UNIHANGROUPs (include UNIHANs) */
 						if( enable_pinyin && strPinyin[0]!='\0' ) {
                                                         if( GroupStartIndex+GroupItems < unicount )
                                                                 GroupStartIndex += GroupItems;
@@ -577,8 +583,10 @@ MAIN_START:
 				enable_pinyin=!enable_pinyin;  /* Toggle input method to PINYIN */
 				if(enable_pinyin) {
 					/* Shrink maplines, maplinePos[] mem space Ok, increase maplines NOT ok! */
-					if(chmap->maplines>2)
+					if(chmap->maplines>2) {
 						chmap->maplines -= 2;
+						chmap->height=chmap->maplines*lndis; /* Reset chmap.height, to limit chmap.fb_render() */
+					}
 					/* Clear input pinyin buffer */
 					bzero(strPinyin,sizeof(strPinyin));
 					bzero(display_pinyin,sizeof(display_pinyin));
@@ -586,6 +594,7 @@ MAIN_START:
 				else {
 					/* Recover maplines */
 					chmap->maplines+=2;
+					chmap->height=chmap->maplines*lndis;  /* restor chmap.height */
 					unicount=0; HanGroupIndex=0;	/* clear previous unihans */
 				}
 				ch=0;
@@ -609,13 +618,17 @@ MAIN_START:
 				ch=0;
 				break;
 			case CTRL_F:
+				/* Save PINYIN data first */
+				save_pinyin_data();
+				/* Save txtbuff to file */
 				printf("Saving chmap->txtbuff to a file...");
 				if(FTcharmap_save_file(fpath, chmap)==0)
 	                                draw_msgbox( &gv_fb_dev, 50, 50, 240, "文件已经保存！" );
 				else
 	                                draw_msgbox( &gv_fb_dev, 50, 50, 240, "文件保存失败！" );
                                 fb_render(&gv_fb_dev);
-				tm_delayms(300);
+				tm_delayms(500);
+
 				ch=0;
 				break;
 		}
@@ -641,7 +654,7 @@ MAIN_START:
 					}
 					HanGroups=(unicount+GroupMaxItems-1)/GroupMaxItems;
         			}
-			        #else /* PINYIN Input for UNIHANGROUPs (include UNIHANs) */
+			        #else /* MULTIPLE_PINYIN_INPUT for UNIHANGROUPs (include UNIHANs) */
 			        UniHan_divide_pinyin(strPinyin, group_pinyin, UHGROUP_WCODES_MAXSIZE);
 			        bzero(display_pinyin,sizeof(display_pinyin));
 				for(i=0; i<UHGROUP_WCODES_MAXSIZE; i++) {
@@ -649,12 +662,12 @@ MAIN_START:
 					strcat(display_pinyin, " ");
 				}
 				unicount=0;
-				if( UniHanGroup_locate_typings(uniGroupSet, group_pinyin)==0 ) {
+				if( UniHanGroup_locate_typings(group_set, group_pinyin)==0 ) {
 					//unicount=0;
-					k=0; //uniGroupSet->results_size;
-					while( k < uniGroupSet->results_size ) {
-						pos_uchar=uniGroupSet->ugroups[uniGroupSet->results[k]].pos_uchar;
-						strcpy(unihans[unicount], (char *)uniGroupSet->uchars+pos_uchar);
+					k=0; //group_set->results_size;
+					while( k < group_set->results_size ) {
+						pos_uchar=group_set->ugroups[group_set->results[k]].pos_uchar;
+						strcpy(unihans[unicount], (char *)group_set->uchars+pos_uchar);
 						unicount++;
 						if(unicount > sizeof(unihans)/sizeof(unihans[0]) )
                                                                break;
@@ -682,8 +695,8 @@ MAIN_START:
 					} else {
 						#if SINGLE_PINYIN_INPUT /* PINYIN Input for single UNIHANs */
 						FTcharmap_insert_char( chmap, &unihans[HanGroupIndex*GroupMaxItems][0]);
-						#else /* PINYIN Input for UNIHANGROUPs (include UNIHANs) */
-                                                FTcharmap_insert_string( chmap, (UFT8_PCHAR)unihans[0], strlen(unihans[0]) );
+						#else /* MULTIPLE_PINYIN_INPUT for UNIHANGROUPs (include UNIHANs) */
+                                                FTcharmap_insert_string( chmap, (UFT8_PCHAR)unihans[GroupStartIndex], strlen(unihans[0]) );
 						#endif
 						/* Clear strPinyin and unihans[]  */
 						bzero(strPinyin,sizeof(strPinyin));
@@ -710,10 +723,19 @@ MAIN_START:
 						unicount=0;
 						//bzero(&unihans[0][0], sizeof(unihans));
 					}
-					#else   /* PINYIN Input for UNIHANGROUPs (include UNIHANs) */
+					#else   /* MULTIPLE_PINYIN_INPUT for UNIHANGROUPs (include UNIHANs) */
                                         if(strPinyin[0]!='\0' && (ch-48>0 && ch-48 <= GroupItems) ) {   /* unihans[] NOT cleared */
-                                                unindex=GroupStartIndex+ch-48-1;  /* for UNIHANGROUPs GroupMaxItems is displayed items */
+                                                unindex=GroupStartIndex+ch-48-1;  /* for UNIHANGROUPs GroupMaxItems is number of displayed items */
                                                 FTcharmap_insert_string( chmap, (UFT8_PCHAR)&unihans[unindex][0], strlen(&unihans[unindex][0]) );
+
+						/* Increase freq weigh value */
+						bzero(group_wcodes, sizeof(group_wcodes));
+						printf(">> %s\n",(UFT8_PCHAR)&unihans[unindex][0]);
+						int nch=0;
+						nch=cstr_uft8_to_unicode((UFT8_PCHAR)&unihans[unindex][0], group_wcodes);
+						printf("nch=%d\n",nch);
+						if(nch>0)
+							UniHanGroup_increase_freq(group_set, group_pinyin, group_wcodes, 2);
 
                                                 /* Clear strPinyin and unihans[] */
                                                 bzero(strPinyin,sizeof(strPinyin));
@@ -755,20 +777,20 @@ MAIN_START:
 						}
 						HanGroups=(unicount+GroupMaxItems-1)/GroupMaxItems;
 					    }
-					    #else /* PINYIN Input for UNIHANGROUPs (include UNIHANs) */
+					    #else /* MULTIPLE_PINYIN_INPUT for UNIHANGROUPs (include UNIHANs) */
 					    UniHan_divide_pinyin(strPinyin, group_pinyin, UHGROUP_WCODES_MAXSIZE);
 					    bzero(display_pinyin,sizeof(display_pinyin));
 					    for(i=0; i<UHGROUP_WCODES_MAXSIZE; i++) {
 						strcat(display_pinyin, group_pinyin+i*UNIHAN_TYPING_MAXLEN);
 						strcat(display_pinyin, " ");
 					    }
-					    unicount=0;
-					    if( UniHanGroup_locate_typings(uniGroupSet, group_pinyin)==0 ) {
+					    unicount=0; /* counter for unihan_groups  */
+					    if( UniHanGroup_locate_typings(group_set, group_pinyin)==0 ) {
 						//unicount=0;
-						k=0; //uniGroupSet->results_size;
-						while( k < uniGroupSet->results_size ) {
-							pos_uchar=uniGroupSet->ugroups[uniGroupSet->results[k]].pos_uchar;
-							strcpy(unihans[unicount], (char *)uniGroupSet->uchars+pos_uchar);
+						k=0; //group_set->results_size;
+						while( k < group_set->results_size ) {
+							pos_uchar=group_set->ugroups[group_set->results[k]].pos_uchar;
+							strcpy(unihans[unicount], (char *)group_set->uchars+pos_uchar);
 							unicount++;
 							if(unicount > sizeof(unihans)/sizeof(unihans[0]) )
                                                                 break;
@@ -791,6 +813,7 @@ MAIN_START:
 						FTcharmap_insert_char(chmap, phan);
 					}
 				}
+				ch=0;
 				//continue;
 			}
 
@@ -820,14 +843,19 @@ MAIN_START:
 
 		/* EDIT:  Need to refresh EGI_FTCHAR_MAP after editing !!! .... */
 
-		/* CHARMAP & DISPLAY: Display txt */
-        	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
+		/* Image DivisionS: 1. File top bar  2. Charmap  3. PINYIN IME  4. Sub Menus */
+	/* --- 1. File top bar */
+		draw_filled_rect2(&gv_fb_dev,WEGI_COLOR_GRAY4, 0, 0, gv_fb_dev.pos_xres-1, gv_fb_dev.pos_yres-1); //txtbox.endxy.x, txtbox.startxy.y-1);
+		FTsymbol_writeFB("File  Help",20,5,WEGI_COLOR_WHITE, NULL, NULL);
+		FTsymbol_writeFB("EGI笔记本",140,5,WEGI_COLOR_LTBLUE, NULL, NULL);
+	/* --- 2. Charmap Display txt */
+        	//fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 		FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL, NULL);
-
-		/* PINYING Input Display */
+	/* --- 3. PINYING IME */
 		if(enable_pinyin) {
 			/* Back pad */
-			draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYB, 0, txtbox.endxy.y-60, txtbox.endxy.x, txtbox.endxy.y );
+			//draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYB, 0, txtbox.endxy.y-60, txtbox.endxy.x, txtbox.endxy.y );
+			draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYB, 0, txtbox.startxy.y+ chmap->height, txtbox.endxy.x, txtbox.endxy.y );
 
 			/* Decoration for PINYIN bar */
 			FTsymbol_writeFB("EGI全拼输入", 320-120, txtbox.endxy.y-60+3, WEGI_COLOR_ORANGE, NULL, NULL);
@@ -849,7 +877,7 @@ MAIN_START:
 				}
 				FTsymbol_writeFB(strHanlist, 15, txtbox.endxy.y-60+3+30, WEGI_COLOR_BLACK, NULL, NULL);
 			}
-			#else /* PINYIN Input for UNIHANGROUPs (include UNIHANs) */
+			#else /* MULTIPLE_PINYIN_INPUT for UNIHANGROUPs (include UNIHANs) */
 			/* Display PINYIN */
 			FTsymbol_writeFB(display_pinyin, 15, txtbox.endxy.y-60+3, WEGI_COLOR_FIREBRICK, NULL, NULL);
 			/* Display unihan(group)s for selecting */
@@ -877,7 +905,7 @@ MAIN_START:
 			printf("WARNING: chmap->errbits=%#x \n",chmap->errbits);
 		}
 
-	   /* --- Handle Active Menu: active_menu_handle --- */
+	   /* --- 4. Sub Menus : Handle Active Menu, active_menu_handle */
 	   switch( ActiveComp )
 	   {
 		/* Righ_click menu */
@@ -897,6 +925,7 @@ MAIN_START:
 			RCMenu_execute(RCMenu_Command_ID);
 
 			/* Exit Menu handler */
+			start_pch=false;
 			ActiveComp=CompTXTBox;
 			break;
 
@@ -921,6 +950,7 @@ MAIN_START:
 			WBTMenu_execute(WBTMenu_Command_ID);
 
 			/* Exit Menu handler */
+			start_pch=false;
 			ActiveComp=CompTXTBox;
 			break;
 		default:
@@ -992,7 +1022,7 @@ goto MAIN_START;
 
 	/* Free UNIHAN data */
 	UniHan_free_set(&uniset);
-	UniHanGroup_free_set(&uniGroupSet);
+	UniHanGroup_free_set(&group_set);
 
 
  /* <<<<<  EGI general release   >>>>>> */
@@ -1601,6 +1631,7 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 			break;
 		case WBTMENU_COMMAND_SAVE:
 			printf("WBTMENU_COMMAND_SAVE\n");
+			save_pinyin_data();
 			FTcharmap_save_file(fpath, chmap);
 
 			start_pch=false;
@@ -1610,6 +1641,7 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
                                 draw_mcursor(mouseMidX, mouseMidY);
                                 fb_render(&gv_fb_dev);
                         }
+
 
 			break;
 		case WBTMENU_COMMAND_EXIT:
@@ -1634,6 +1666,44 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 			printf("WBTMENU_COMMAND_NONE\n");
 			break;
 	}
-	printf("WBTMENU_COMMAND_NONE\n");
+
+}
+
+/*------------------------------------------------------------
+1. Save uniset/group_set, as freq weigh values updated!
+2. Save group_set to a text file.
+3. Save group_set to a text file first, if it fails/corrupts,
+   we still have data file as backup, VICEVERSA
+-------------------------------------------------------------*/
+void save_pinyin_data(void)
+{
+
+/* Save uniset/group_set, as freq weigh values updated! */
+#if SINGLE_PINYIN_INPUT
+	draw_msgbox( &gv_fb_dev, 50, 50, 240, "保存uniset..." );
+	fb_render(&gv_fb_dev);
+	if(UniHan_save_set(uniset, UNIHANS_DATA_PATH)==0)
+		draw_msgbox( &gv_fb_dev, 50, 50, 240, "uniset成功保存！" );
+	else
+		draw_msgbox( &gv_fb_dev, 50, 50, 240, "uniset保存失败！" );
+	fb_render(&gv_fb_dev); tm_delayms(500);
+#else /* MULTI_PINYIN_INPUT */
+	/* Save group_set to txt first, if it fails/corrupts, we still have data file as backup, VICEVERSA */
+	draw_msgbox( &gv_fb_dev, 50, 50, 240, "保存group_set.txt..." );
+	fb_render(&gv_fb_dev);
+	if(UniHanGroup_saveto_CizuTxt(group_set, "/tmp/group_set.txt")==0)
+		draw_msgbox( &gv_fb_dev, 50, 50, 240, "group_txt成功保存！" );
+	else
+		draw_msgbox( &gv_fb_dev, 50, 50, 240, "group_txt保存失败！" );
+	fb_render(&gv_fb_dev); tm_delayms(500);
+	/* Save group_set to data file */
+	draw_msgbox( &gv_fb_dev, 50, 50, 240, "保存group_set..." );
+	fb_render(&gv_fb_dev);
+	if(UniHanGroup_save_set(group_set, UNIHANGROUPS_DATA_PATH)==0)
+		draw_msgbox( &gv_fb_dev, 50, 50, 240, "group_set成功保存！" );
+	else
+		draw_msgbox( &gv_fb_dev, 50, 50, 240, "group_set保存失败！" );
+	fb_render(&gv_fb_dev); tm_delayms(500);
+#endif
 
 }

@@ -1083,8 +1083,11 @@ CHARMAP_END:
 			chmap->pref=chmap->pref+chmap->charPos[chmap->chcount-1]+charlen;
 		}
 
-		/* Before repeating, render charmapped image */
-		fb_render(fb_dev);
+		/*  Before repeating, render charmapped image: CharmapBKG+Grids+Chars (see codes near START_CHARMAP )
+		 *  TODO: This MAY disrupt/affect final page image if other function also try to draw in the same area. IME etc.
+		 *  Enable it only if you want to see scrolling effect during charmapping.
+		 */
+		// fb_render(fb_dev);
 
 		goto  START_CHARMAP;
 	}
@@ -2846,7 +2849,7 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
                 return -1;
         }
 
-	/* 1. Check txtbuff space, and auto mem_grow if necessary. */
+	/* 1. Check txtbuff space, and auto mem_grow if necessary. NOT deduct selected chars which are supposed to be replaced! */
 	if( chmap->txtlen +strsize > chmap->txtsize-1 ) {  /* ?-1 */
 
                 EGI_PDEBUG(DBG_CHARMAP,"chmap->txtbuff is full! txtlen=%d + strsize=%d > txtsize-1=%d, mem_grow chmap->txtbuff...\n",
@@ -2881,16 +2884,20 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
 		chmap->pchoff=startPos;
 		chmap->pchoff2=startPos;
 
+	   if( chmap->txtbuff+startPos < chmap->pref)
+	   {
 		/* We MUST reset chmap->txtdlncount here, in case current chmap->txtdlncount will be INVALID after deletion,
 		 * as previous txtdlinePos[txtdlncount] pointed data may be also deleted!
 		 */
 		if(startPos==0) {
 			/* PRE_: */
+			EGI_PDEBUG(DBG_CHARMAP,"startPos==0, reset txtdlncount and pref!\n");
 			chmap->txtdlncount=0;
-			chmap->pref=0;
+			chmap->pref=chmap->txtbuff;
 		}
 		else {
 			dln=FTcharmap_get_txtdlIndex(chmap, startPos-1);
+			EGI_PDEBUG(DBG_CHARMAP,"dln=FTcharmap_get_txtdlIndex=%d\n",dln);
                         if(dln<0) {
                                 printf("%s: Fail to find index of chmap->txtdlinePos[] for pchoff!\n", __func__);
                                 /* --- Do nothing! --- */
@@ -2903,6 +2910,7 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
                                 /* In charmapping, chmap->pch will be updated according to chmap->pchoff */
                         }
 		}
+	    }
 	}
 	/* ELSE pchoff==pchoff2 */
 

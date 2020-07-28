@@ -229,7 +229,7 @@ int main(void)
 		printf("Finish merging addon_set for new words!\n");
 		getchar();
 
-		#if 1 /* Test --- loate wcodes[] */
+		#if 0 /* Test --- loate wcodes[] */
 		char strUFT8[4*4+1];
 		UniHanGroup_quickSort_set(group_set, UNIORDER_NCH_WCODES, 10);
 		while(1) {

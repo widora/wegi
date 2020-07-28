@@ -31,7 +31,7 @@ int 	char_unicode_to_uft8(const wchar_t *src, char *dest);
 wchar_t char_unicode_DBC2SBC(wchar_t dbc);
 int 	char_DBC2SBC_to_uft8(char dbc, char *dest);
 int 	cstr_unicode_to_uft8(const wchar_t *src, char *dest);
-
+int 	cstr_uft8_to_unicode(const unsigned char *src, wchar_t *dest);
 int 	egi_count_file_lines(const char *fpath);
 
 #define EGI_CONFIG_LMAX         256     /* Max. length of one line in a config file */

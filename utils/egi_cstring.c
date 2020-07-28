@@ -511,6 +511,7 @@ Convert a character from UFT-8 to UNICODE.
 
 Return:
 	>0 	OK, bytes of src consumed and converted into unicode.
+                MAY be interrupted by invalid encoding in src.
 	<=0	Fails, or unrecognizable uft-8 .
 -----------------------------------------------------------------------*/
 inline int char_uft8_to_unicode(const unsigned char *src, wchar_t *dest)
@@ -588,8 +589,8 @@ inline int char_uft8_to_unicode(const unsigned char *src, wchar_t *dest)
 			*dest= (*(sp+3)&0x3F) + ((*(sp+2)&0x3F)<<6) +((*(sp+2)&0x3F)<<12) + ((*sp&0x7)<<18);
 			break;
 
-		default: /* if size<=0 or size>5 */
-			printf("%s: Unrecognizable uft-8 character! \n",__func__);
+		default: /* if size<=0 or size>4 */
+			printf("%s: size=%d, Unrecognizable uft-8 character! \n",__func__,size);
 			break;
 	}
 
@@ -790,7 +791,7 @@ int cstr_unicode_to_uft8(const wchar_t *src, char *dest)
 	int size=0;	/* in bytes, size of the returned dest in UFT-8 encoding*/
 
 	if(src==NULL || dest==NULL )
-		return 0;
+		return -1;
 
 	while( *ps !=L'\0' ) {  /* wchar t end token */
 		ret = char_unicode_to_uft8(ps, dest+size);
@@ -804,6 +805,37 @@ int cstr_unicode_to_uft8(const wchar_t *src, char *dest)
 	return size;
 }
 
+
+/*---------------------------------------------------------------------
+Convert a string in UFT-8 encoding to UNICODEs by calling char_uft8_to unicode()
+
+@src:	Input string in UFT-8 encoding.
+@dest:  Output UNICODE array
+	The caller shall allocate enough space for dest.
+
+Return:
+	>0 	OK, total number of UNICODE returned.
+		MAY be interrupted by invalid encoding in src.
+	<=0	Fails
+---------------------------------------------------------------------*/
+int cstr_uft8_to_unicode(const unsigned char *src, wchar_t *dest)
+{
+	unsigned int off;
+	int chsize;
+	int count;	/* Counter for UNICODEs */
+
+	if( src==NULL || dest==NULL)
+		return -1;
+
+	off=0;
+	count=0;
+	while( (chsize=char_uft8_to_unicode(src+off, dest+count)) >0 ) {
+		off += chsize;
+		count ++;
+	}
+
+	return count;
+}
 
 /*---------------------------------------------------------------------------
 Count lines in an text file. 	To check it with 'wc' command.

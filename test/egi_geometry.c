@@ -88,7 +88,6 @@ int main(int argc, char **argv)
    fbset_color(WEGI_COLOR_GREEN);
    draw_filled_triangle(&gv_fb_dev, tripoints);
 
-//   fbset_speed(8);
    /* 2.6 绘制圆形 */
    /* 2.6.1 圆形 */
    fbset_color(WEGI_COLOR_CYAN);
@@ -122,6 +121,13 @@ int main(int argc, char **argv)
    draw_filled_circle(&gv_fb_dev, 295, 180, 5);
    draw_filled_circle(&gv_fb_dev, 265, 180, 5);
    draw_warc(&gv_fb_dev, 280, 190, 20, MATH_PI/6, MATH_PI*5/6, 3);
+
+   /* 2.10 绘制一个按钮 */
+   fbset_speed(0);
+   draw_filled_rect2(&gv_fb_dev, COLOR_24TO16BITS(0x66cc99), 45, 135, 45+110, 135+50);
+   draw_button_frame( &gv_fb_dev, 1, COLOR_24TO16BITS(0x66cc99), 45, 135, 110, 50, 4); /* 按下 */
+   usleep(500000);
+   draw_button_frame( &gv_fb_dev, 0, COLOR_24TO16BITS(0x66cc99), 45, 135, 110, 50, 4); /* 松开 */
 
   /* <<<<<  3. EGI general release EGI释放流程	 >>>>>> */
   /* 根据初始化流程做对应的释放　*/

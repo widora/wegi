@@ -45,7 +45,7 @@ Note:
 4. Procedure for generating UniHanGroup data file for EGI_PINYIN IME:
    4.1  Load UinHan data.
 	han_set=UniHan_load_set(UNIHANS_DATA_PATH);
-   4.2	Load UniHanGroup data from text. ( <----- OR text fed back from 4.7 ---)
+   4.2	Load UniHanGroup data from text. (  <----- OR text fed back from 4.7 -----
 	Text line format: Cizu+PINYIN.
 		Example:  词语　ci yu  (PINYIN may be omitted, and leave it to UniHanGroup_assemble_typings() ).
    	group_set=UniHanGroup_load_CizuTxt(CIZU_TXT_PATH);
@@ -57,12 +57,11 @@ Note:
    	UniHanGroup_quickSort_typings(group_set ...);
    4.6  Save to UniHanGroup data. It also contains all UniHans(as nch=1 unihan_groups)!
 	UniHanGroup_save_set(group_set, UNIHANGROUPS_DATA_PATH).
-   4.7  Save UniHanGroup to a text. (for further manual PINYIN modification, then -------> Feed back to 4.2
+   4.7  Save UniHanGroup to a text. 	( --------> for further manual PINYIN modification, then -------> Feed back to 4.2
 	UniHanGroup_saveto_CizuTxt(group_set, "/tmp/cizu+pinyin.txt"), ONLY Cizu(nch>1 groups) are saved to text!
-
 	Note: Since some assembled PINYINs are incorrect, we may modify them manually in the text, then reload
         to group_set by calling UniHanGroup_load_CizuTxt().
-
+	!!! This text file will be improved iteratively !!!
 
    x.x  TODO: poll freq.
 
@@ -1747,6 +1746,7 @@ NOTE:
 
 @uniset:	A pointer to an EGI_UNIHAN_SET.
 @typing:	Typing of the target unihan.
+		At least UNIHAN_TYPING_MAXLEN bytes of space with EOF!
 @wcode:		UNICODE of the target unihan.
 @delt:		Variation to the freq value.
 
@@ -1785,16 +1785,17 @@ int UniHan_increase_freq(EGI_UNIHAN_SET *uniset, const char* typing, EGI_UNICODE
 		if( uniset->unihans[i].wcode == wcode ) {
 			/* Freq overflow check: check type of unihan.freq! */
 			#if 0
-			if( uniset->unihans[i].freq > UINT_MAX-delt )
+			if( uniset->unihans[i].freq > (unsigned)(UINT_MAX-delt) )
 				return -4;
 			#endif
 
 			/* Increase freq */
 			uniset->unihans[i].freq += delt;
-			uniset->sorder=UNIORDER_NONE;
 
-			/* Need to resort TYPING_FREQ for the given typing */
-			if( UniHan_quickSort_typing(uniset->unihans, start, i, 5) !=0 ) {
+			/* Need to resort TYPING_FREQ for the given typing. */
+			/* TODO: Test, responding time,... seems OK */
+			uniset->sorder=UNIORDER_NONE;
+			if( UniHan_quickSort_typing(uniset->unihans, start, end, 5) !=0 ) {
 				printf("%s: Fail to resort TYPING_FREQ after frequency incremental!\n",__func__);
 				return -5;
 			}
@@ -2490,7 +2491,7 @@ be located.
 @uniset		The target EGI_UNIHAN_SET.
 @typing		The wanted typing. it will be trimmed to be UNIHAN_TYPING_MAXLEN
 		bytes including '\0'.
-
+		At least UNIHAN_TYPING_MAXLEN bytes of space with EOF!
 Return:
 	=0		OK, set uniset->puh accordingly.
 	<0		Fails, or no result.
@@ -2887,9 +2888,10 @@ Note:
 text file, such as:
 ...
 笑　	xiao
-joke	xiao hua   ( 2.1 Non_UNIHAN: Ignored! )
-普通    	   ( 2.2 No typings: It still will reserve 2*UNIHAN_TYPING_MAXLEN bytes!)
-武则天	　wu ze	   ( 2.3 Incomplete typings: Leave typings as blank.)
+joke	xiao hua    ( 2.1 Non_UNIHAN: Ignored! )
+笑话	xiao hua  9 ( 9 --- freq value of the group )
+普通    	    ( 2.2 No typings: It still will reserve 2*UNIHAN_TYPING_MAXLEN bytes!)
+武则天	　wu ze	    ( 2.3 Incomplete typings: Leave typings as blank.)
 日新月异  ri xin yue yi
 ...
 
@@ -2911,7 +2913,7 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 	FILE *fil;
 	char linebuff[256];
 	unsigned int  Word_Max_Len=32;		/* Max. length of column words in each line,  including '\0'. */
-	unsigned int  Max_Split_Words=5;  	/* Max number of words in linebuff[] as splitted by delimters, 1group+4typings=5 */
+	unsigned int  Max_Split_Words=6;  	/* Max number of words in linebuff[] as splitted by delimters, 1group+4typings+1freq=6 */
 	char str_words[Max_Split_Words][Word_Max_Len]; /* See above */
 	char *delim=" 	\r\n"; 			/* delimiters: TAB,SPACE.\r\n  for splitting linebuff[] into 5 words. see above. */
 	int  m;
@@ -2967,7 +2969,7 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 			snprintf( str_words[m], Word_Max_Len-1, "%s", pt); /* pad EOF */
 			pt=strtok(NULL, delim);
 		}
-		/* Check m */
+		/* Check m, if NO word at all */
 		if(m<1)continue;
 
 		/* Check first byte to see if UFT8 encoding for an UNIHAN */
@@ -2996,7 +2998,7 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 		    	if( m-1 > 0 )
 				printf("%s: Incomplete typings for '%s' ( ntypings=%d < nch=%d ). \n", __func__, str_words[0], m-1, nch);
 
-			/* Clear imcomplete typings */
+			/* Clear incomplete typings */
 			bzero(&str_words[1][0], sizeof(str_words[0])*(Max_Split_Words-1));
 		}
 
@@ -3033,6 +3035,10 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 			}
 			len+=chsize;
 		}
+
+		/* 1.3 Assign freq */
+		if( m > nch+1 )
+			group_set->ugroups[k].freq=atoi(str_words[nch+1]);
 
 		/* NOW: len==strlen(str_words[0]) */
 
@@ -3156,7 +3162,7 @@ int  UniHanGroup_saveto_CizuTxt(const EGI_UNIHANGROUP_SET *group_set, const char
 	        nch=UHGROUP_WCODES_MAXSIZE;
        		while( nch>0 && group_set->ugroups[i].wcodes[nch-1] == 0 ) { nch--; };
 
-		/* Rule out single UNIHAN */
+		/* Rule out single UNIHANs, which are treated separately. */
 		if(nch<2)
 			continue;
 
@@ -3176,6 +3182,12 @@ int  UniHanGroup_saveto_CizuTxt(const EGI_UNIHANGROUP_SET *group_set, const char
 				printf("%s: WARNING! fprintf writes typings %d of total %d bytes!\n", __func__, nwrite, len);
 		}
 
+		/* write freq: field width=10 */
+		nwrite=fprintf(fil,"%10d", group_set->ugroups[i].freq); /* typings leaves a SPACE */
+		if(nwrite!=10)
+			printf("%s: WARNING! fprintf writes %d of total %d bytes!\n", __func__, nwrite, 10);
+
+		/* Feed line */
 		fprintf(fil,"\n");
 	}
 
@@ -3995,7 +4007,7 @@ int UniHanGroup_quickSort_typings(EGI_UNIHANGROUP_SET* group_set, unsigned int s
 		UniHanGroup_insertSort_typings(group_set, start, end-start+1);
 
         /* Reset sort order */
-        group_set->sorder=UNIORDER_NCH_TYPING_FREQ;
+        group_set->sorder=UNIORDER_NCH_TYPINGS_FREQ;
 
 	return 0;
 }
@@ -4462,7 +4474,7 @@ This criteria is ONLY based on PINYIN. Other types of typing may NOT comply.
 
 Note:
 1. The group_set MUST be prearranged in dictionary ascending order of nch+typing+freq.
-   (UNIORDER_NCH_TYPING_FREQ)
+   (UNIORDER_NCH_TYPINGS_FREQ)
 2. And all uniset->unhihans[0-size-1] are assumed to be valid/normal, with
    wcode >0 AND typing[0]!='\0'.
 3. Pronunciation tones of PINYIN are neglected.
@@ -4517,8 +4529,8 @@ int  UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typi
 		return -1;
 
 	/* Check sort order */
-	if( group_set->sorder!=UNIORDER_NCH_TYPING_FREQ ) {
-                printf("%s: group_set sort order is NOT UNIORDER_NCH_TYPING_FREQ!\n", __func__);
+	if( group_set->sorder!=UNIORDER_NCH_TYPINGS_FREQ ) {
+                printf("%s: group_set sort order is NOT UNIORDER_NCH_TYPINGS_FREQ!\n", __func__);
                 return -1;
 	}
 
@@ -4624,7 +4636,7 @@ START_SEARCH:
 			if( group_set->results_size < group_set->results_capacity ) /* TODO memgrow group_set->results */
 				group_set->results[group_set->results_size++]=k-1;
 			else
-				printf(" --- results_size LIMIT!---\n");
+                		printf("%s: group_set->results_size LIMIT!\n", __func__);
 		}
 		k--;
 	};
@@ -4639,7 +4651,7 @@ START_SEARCH:
 			if( group_set->results_size < group_set->results_capacity )  /* TODO memgrow group_set->results */
 				group_set->results[group_set->results_size++]=k;
 			else
-				printf(" --- results_size LIMIT!---\n");
+                		printf("%s: group_set->results_size LIMIT!\n", __func__);
 		}
 		k++;
 	};
@@ -4669,7 +4681,7 @@ START_SEARCH:
 	        	if( group_set->results_size < group_set->results_capacity )  /* TODO memgrow group_set->results */
         	        	group_set->results[group_set->results_size++]=k;
                 	else {
-                		printf(" --- results_size LIMIT!---\n");
+                		printf("%s: group_set->results_size LIMIT!\n", __func__);
 				break;
 			}
 		}
@@ -4751,6 +4763,7 @@ inline int UniHanGroup_compare_LTRIndex(EGI_UNIHANGROUP_SET* group_set, unsigned
 		return CMPORDER_IS_AHEAD;
 	#endif /////////////////////////////////////////////////
 
+#if 0 /* Compare lenght of typings first */
 	/* 4. Compare length of typings */
 	if( len1 > len2 )
 		return CMPORDER_IS_AFTER;
@@ -4770,6 +4783,27 @@ inline int UniHanGroup_compare_LTRIndex(EGI_UNIHANGROUP_SET* group_set, unsigned
 		return CMPORDER_IS_AHEAD;
 	if( group_set->ugroups[n1].freq < group_set->ugroups[n2].freq )
 		return CMPORDER_IS_AFTER;
+#else /* Compare frequency first */
+	/* 4. Compare frequency */
+	if( group_set->ugroups[n1].freq > group_set->ugroups[n2].freq )
+		return CMPORDER_IS_AHEAD;
+	if( group_set->ugroups[n1].freq < group_set->ugroups[n2].freq )
+		return CMPORDER_IS_AFTER;
+
+	/* 5. Compare length of typings */
+	if( len1 > len2 )
+		return CMPORDER_IS_AFTER;
+	else if( len1 < len2 )
+		return CMPORDER_IS_AHEAD;
+	/* ELSE: Compare length of each typing */
+	for(i=0; i<nch; i++) {
+		if( chlen1[i]>chlen2[i] )
+			return CMPORDER_IS_AFTER;
+		else if( chlen1[i]<chlen2[i] )
+			return CMPORDER_IS_AHEAD;
+	}
+#endif
+
 
 	return CMPORDER_IS_SAME;
 }
@@ -4957,7 +4991,7 @@ Quick sort an UNIHANGROUP SET according to the required sort order.
 Be cautious about sorting range of groups! Since there MAY
 be empty groups(with wcode[all]==0) in the unihan groups.
 
-For UNIORDER_NCH_TYPING_FREQ, it's assumed that all empty groups
+For UNIORDER_NCH_TYPINGS_FREQ, it's assumed that all empty groups
 are located at end of the ugroups[] BEFORE quickSort!
 and sorting range is [0, size-1].
 
@@ -4989,7 +5023,7 @@ int UniHanGroup_quickSort_set(EGI_UNIHANGROUP_SET* group_set, UNIHAN_SORTORDER s
 		case	UNIORDER_NCH_WCODES:		/* Range[0, capacity-1] */
 			ret=UniHanGroup_quickSort_wcodes(group_set, 0, group_set->ugroups_capacity-1, cutoff);
 			break;
-		case	UNIORDER_NCH_TYPING_FREQ:	/* Range[0, size-1] */
+		case	UNIORDER_NCH_TYPINGS_FREQ:	/* Range[0, size-1] */
 			ret=UniHanGroup_quickSort_typings(group_set, 0, group_set->ugroups_size-1, cutoff);
 			break;
 		default:
@@ -5429,7 +5463,7 @@ int UniHanGroup_merge_set(const EGI_UNIHANGROUP_SET* group_set1, EGI_UNIHANGROUP
 			group_set2->ugroups_capacity += UHGROUP_UGROUPS_GROW_SIZE;
 		}
 
-		/* 1.2 Copy ugroups[] */
+		/* 1.2 Copy ugroups[]: wcodes and freq */
 		group_set2->ugroups[index]=group_set1->ugroups[i];
 
 	/* 2. --- uchars --- */
@@ -5516,6 +5550,8 @@ Note:
 
 TODO:
 1. Useless bytes exist as mem hole in group_set->typings[]/uchars[] after purification.
+   Call UniHanGroup_save_set() and UniHanGroup_load_set() to eliminate negative effects
+   of those mem holes.
 
 Return:
 	>=0	Ok, total number of repeated unihans removed.
@@ -5625,4 +5661,126 @@ int UniHanGroup_purify_set(EGI_UNIHANGROUP_SET* group_set)
 	}
 
 	return k;
+}
+
+
+/*----------------------------------------------------------------------------
+Increase/decrease weigh value of freqency to an UNIHANGROUP.
+
+NOTE:
+1. The group_set MUST be sorted in ascending order of UNIORDER_NCH_TYPINGS_FREQ.
+   ( Call UniHan_quickSort_typing() to achieve. )
+
+2. After increasing freq for the unihan_group, you MAY see position of the group
+   in gourp_set->resutls[] sorted by UniHanGroup_quickSort_LTRIndex() NOT changed,
+   this is because UniHanGroup_compare_LTRIndex() compares length of PINYIN first.
+   see codes in UniHanGroup_compare_LTRIndex().
+
+@group_set:	Pointer to an EGI_UNIHANGROUP_SET.
+@typings:	Typing of the target UNIHANGROUP.
+		At least nch*UNIHAN_TYPING_MAXLEN bytes of space with EOF!
+@wcodes:	Pointer to UNICODEs of the target unihan_group.
+@delt:		Variation to the freq value.
+
+Return:
+        0       OK
+        <0      Fails
+------------------------------------------------------------------------------*/
+int UniHanGroup_increase_freq(EGI_UNIHANGROUP_SET *group_set, const char* typings, EGI_UNICODE* wcodes, int delt)
+{
+	unsigned int i,j,k;
+	unsigned int start, end;
+	unsigned int index;
+	int nch;
+
+	if( typings==NULL || wcodes==NULL )
+		return -1;
+	if( group_set==NULL || group_set->ugroups==NULL || group_set->ugroups_size==0) /* If empty */
+		return -1;
+
+	/* Check sort order */
+	if( group_set->sorder != UNIORDER_NCH_TYPINGS_FREQ ) {
+		printf("%s: Group_set sort order is NOT UNIORDER_NCH_TYPINGS_FREQ!\n", __func__);
+		return -2;
+	}
+
+        /* Get total number of unihans in the tmp_group */
+        nch=UHGROUP_WCODES_MAXSIZE;
+        while( nch>0 && wcodes[nch-1] == 0 ) { nch--; };
+	if(nch<1)
+		return -2;
+
+	/* Check consistency for typings[] and wcodes[] */
+	for(i=0; i<nch; i++) {
+	   if( typings[(nch-1)*UNIHAN_TYPING_MAXLEN]=='\0' )
+		return -2;
+	}
+
+	/* Locate typings, results index stored in group_set->resutls[] after locating. */
+	if( UniHanGroup_locate_typings(group_set, typings) !=0 ) {
+		printf("%s: Fail to locate typing!\n",__func__);
+		return -3;
+	}
+
+	/* If NO results */
+	if( group_set->results_size<1 )
+		return -4;
+
+	/* Locate the wcodes */
+	for(i=0; i< group_set->results_size; i++) {
+		/* Get group_set->ugours[] index */
+		index=group_set->results[i];
+		if( index > group_set->ugroups_size-1 )
+			return -5;
+
+		/* Check all wcodes[], continue loop if NOT find. */
+                for(j=0; j<nch; j++) {
+                        if( (uint32_t)wcodes[j] != (uint32_t)(group_set->ugroups[index].wcodes[j]) )
+                            break;
+                }
+		if(j<nch)continue;
+		printf("nch=%d,j=%d\n",nch, j);
+		/* NOW: Find the wcodes! */
+
+		/* Freq overflow check  */
+		#if 0
+		if( group_set->ugroups[index].freq > (unsigned int)(UINT_MAX-delt) )
+			return -6;
+		#endif
+
+		/* Increase freq */
+		group_set->ugroups[index].freq += delt;
+		printf("%s: UNIGHANROUP '%s' freq updated to %d\n",
+					__func__, group_set->uchars+group_set->ugroups[index].pos_uchar, group_set->ugroups[index].freq);
+
+	        /* Remind that group_set->results[] has been resorted by UniHanGroup_quickSort_LTRIndex() to order of TypingLen+Freq
+	         * at end of UniHanGroup_locate_typings(), so need to restore start/end as of index of group_set->ugroups[].
+		 * As we need [start end] to redo quickSort_typings, to narrow sorting range.
+	         */
+		start=group_set->results[0];
+		end=group_set->results[0];
+		for(k=0; k < group_set->results_size; k++) {
+			if(group_set->results[k]<start)		/* Min. of resutls[] */
+				start=group_set->results[k];
+			else if(group_set->results[k]>end)	/* Max. of results[] */
+				end=group_set->results[k];
+		}
+
+		/* Need to resort TYPING_FREQ for the given typing */
+		/* TODO: Test, responding time, seems OK.. */
+		group_set->sorder=UNIORDER_NONE;
+		if( UniHanGroup_quickSort_typings(group_set, start, end, 5) !=0 ) {
+		//if( UniHanGroup_quickSort_typings(group_set, 0, group_set->ugroups_size-1, 9) !=0 ) { /* Sort all range, Slow */
+			printf("%s: Fail to resort NCH_TYPINGS_FREQ after frequency incremental!\n",__func__);
+			return -5;
+		}
+		else
+			group_set->sorder=UNIORDER_NCH_TYPINGS_FREQ;
+
+		return 0;  /* OK */
+
+        }
+	/* END for() NO results! */
+
+       return -6;
 }

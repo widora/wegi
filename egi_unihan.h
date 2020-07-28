@@ -35,7 +35,7 @@ typedef wchar_t 	EGI_UNICODE;
 #define CIZU_TXT_PATH		"/mmc/chinese_cizu.txt"		/* Cizu TXT file path */
 #define UNIHANGROUPS_DATA_PATH  "/mmc/unihangroups_pinyin.dat"	/* Saved UNIHANGROUP set */
 
-#define PINYIN_NEW_WORDS_FPATH          "/mmc/pinyin_new_words" /* For collecting new words */
+#define PINYIN_NEW_WORDS_FPATH	"/mmc/pinyin_new_words" 	/* For collecting new words */
 
 /* File data magic words */
 #define UNIHANS_MAGIC_WORDS		"UNIHANS0"		/* 8bytes, unihans data file magic words */
@@ -48,7 +48,7 @@ typedef enum UniHanSortOrder
 	UNIORDER_FREQ			=1,	/* For unihans */
 	UNIORDER_TYPING_FREQ		=2,	/* For unihans */
 	UNIORDER_WCODE_TYPING_FREQ	=3,	/* For unihans */
-	UNIORDER_NCH_TYPING_FREQ	=4,	/* For unihan_groups. NCH: number of unihans in a group. */
+	UNIORDER_NCH_TYPINGS_FREQ	=4,	/* For unihan_groups. NCH: number of unihans in a group. */
 	UNIORDER_NCH_WCODES		=5,	/* For unihan_groups */
 } UNIHAN_SORTORDER;
 
@@ -215,11 +215,11 @@ int 		UniHan_locate_wcode(EGI_UNIHAN_SET* uniset, EGI_UNICODE wcode);
 int 		UniHan_locate_typing(EGI_UNIHAN_SET* uniset, const char* typing);
 int 		UniHan_poll_freq(EGI_UNIHAN_SET *uniset, const char *fpath);
 int 		UniHan_increase_freq(EGI_UNIHAN_SET *uniset, const char* typing, EGI_UNICODE wcode, int delt);
-/* Merge and purify */
+/* UNIHAN SET: Merge and purify */
 int 		UniHan_merge_set(const EGI_UNIHAN_SET* uniset1, EGI_UNIHAN_SET* uniset2);
 int 		UniHan_purify_set(EGI_UNIHAN_SET* uniset );
 
-/* Read formated txt into uniset */
+/* UNIHAN SET: Read formated txt into uniset */
 EGI_UNIHAN_SET* UniHan_load_HanyuPinyinTxt(const char *fpath);
 EGI_UNIHAN_SET* UniHan_load_MandarinTxt(const char *fpath);
 
@@ -258,6 +258,7 @@ int 	strstr_group_typings(const char *hold_typings, const char* try_typings, int
 int 	strcmp_group_typings(const char *hold_typings, const char* try_typings, int nch);
 void 	print_group_typings(const char* typings, unsigned int nw);
 int  	UniHanGroup_locate_typings(EGI_UNIHANGROUP_SET* group_set, const char* typings);
+int 	UniHanGroup_increase_freq(EGI_UNIHANGROUP_SET *group_set, const char* typings, EGI_UNICODE* wcodes, int delt);
 
 	/* Sort order: nch + wcodes */
 int 	UniHanGroup_compare_wcodes( const EGI_UNIHANGROUP *group1, const EGI_UNIHANGROUP *group2 );
@@ -265,7 +266,7 @@ int     UniHanGroup_insertSort_wcodes(EGI_UNIHANGROUP_SET *group_set, int start,
 int 	UniHanGroup_quickSort_wcodes(EGI_UNIHANGROUP_SET* group_set, unsigned int start, unsigned int end, int cutoff);
 int  	UniHanGroup_locate_wcodes(EGI_UNIHANGROUP_SET* group_set,  const UFT8_PCHAR uchars);
 
-/* UNIHANGROUP_SET Sort Function */
+/* UNIHANGROUP_SET: Sort Function */
 int 	UniHanGroup_quickSort_set(EGI_UNIHANGROUP_SET* group_set, UNIHAN_SORTORDER sorder, int cutoff);
 
 	/* For UniHanGroup_locate_typings() results */
@@ -273,13 +274,13 @@ int 	UniHanGroup_compare_LTRIndex(EGI_UNIHANGROUP_SET* group_set, unsigned int n
 void 	UniHanGroup_insertSort_LTRIndex(EGI_UNIHANGROUP_SET *group_set, int start, int n);
 int 	UniHanGroup_quickSort_LTRIndex(EGI_UNIHANGROUP_SET* group_set, int start, int end, int cutoff);
 
-/* Merge and purify */
+/* UNIHANGROUP_SET: Merge and purify */
         /* UniHanGroup_add_uniset(): to merge an EGI_UNIHAN SET to an UNIHANGROUP SET */
 int     UniHanGroup_merge_set(const EGI_UNIHANGROUP_SET* group_set1, EGI_UNIHANGROUP_SET* group_set2);
 int 	UniHanGroup_purify_set(EGI_UNIHANGROUP_SET* group_set);
 
+/* UNIHANGROUP_SET: Save and load */
 int 			UniHanGroup_save_set(const EGI_UNIHANGROUP_SET *group_set, const char *fpath);
 EGI_UNIHANGROUP_SET* 	UniHanGroup_load_set(const char *fpath);
-
 
 #endif
