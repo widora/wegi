@@ -30,7 +30,12 @@ Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
 #include "egi_matrix.h"
-#include "float.h"
+#include <stdint.h>
+#include <sys/time.h>
+#include <malloc.h>
+#include <string.h>
+#include <math.h>
+#include <float.h>
 
 /*----------------------------------------------
 Calculate and return time difference in us
@@ -338,9 +343,10 @@ struct float_Matrix* Matrix_Sub( const struct float_Matrix *matA,
 }
 
 
-/*----------------     MATRIX Get a Column  ---------------------
-Copy a column of a matrix to another matrix.
+/*-------------------------------------------------------------------
+Copy a column of a matrix (matA) to another matrix (matB).
 matA and matB may be the same!
+Their number of rows MUST be the same!
 
 @matA:   Pointer to matrix A
 @nclmA:  The source column
@@ -369,12 +375,19 @@ struct float_Matrix* Matrix_CopyColumn(struct float_Matrix *matA, int nclmA, str
 	   return NULL;
    }
 
+   /* Check nr */
+   if(matA->nr != matB->nr)
+   {
+	   fprintf(stderr,"%s: matA->nr and matB->nr are different!\n",__func__);
+	   return NULL;
+   }
+
     ncA=matA->nc;
     nrA=matA->nr;
     ncB=matB->nc;
 
    /* check column number */
-   if( nclmA > ncA || nclmB > ncB)
+   if(nclmA<0 || nclmB<0 || nclmA > ncA || nclmB > ncB)
    {
 	   fprintf(stderr,"Matrix_CopyColumn():column number out of range!\n");
 	   return NULL;
@@ -969,8 +982,6 @@ float  MatrixGT3X3_Determ(int nrc, float *pmat)
 
 }
 
-
-
 /*-------------------------------------------------------------------------------------
 Solve the equation matrix : A*X=B
 
@@ -1009,7 +1020,7 @@ struct float_Matrix*  Matrix_SolveEquations( const struct float_Matrix *matAB, s
 	   	return NULL;
         }
 
-	n=matAB->nr; /* nxn dimensions */
+	n=matAB->nr; /* n*(n+1) dimensions */
 
 	/* Allocate matrix A/B as of equation: A*X=B  */
 	matA=init_float_Matrix(n, n);
@@ -1054,3 +1065,121 @@ struct float_Matrix*  Matrix_SolveEquations( const struct float_Matrix *matAB, s
 	return matX;
 }
 
+
+/*-------------------------------------------------------------------------
+Solve equation by Guass-Jordan Elimination Method
+	 A*X=B  -> combine A and B to AB
+
+@matAB: Input matrix in n*(n+1) dimensions as AB.  n --- unkown X dimensions.
+@matX: sovled result X.
+
+return:
+	fails       NULL
+	succeed     pointer to the result matX
+-------------------------------------------------------------------------*/
+struct float_Matrix* Matrix_GuassSolve( const struct float_Matrix *matAB )
+{
+        int n;
+        int i,j;
+	int kc, kr;
+	EGI_MATRIX *matX;
+	EGI_MATRIX *pmatAB; /* A copy of matAB */
+	int max_index;	  /* Row index of current Max. value element.  */
+	float tmp;
+
+        /* Check pointer */
+        if(matAB==NULL) {
+                fprintf(stderr,"%s: matAB is a NULL!\n",__func__);
+                return NULL;
+        }
+        /* Check data */
+        if(matAB->pmat==NULL) {
+                fprintf(stderr,"%s: matAB->pmat is NULL!\n",__func__);
+                return NULL;
+        }
+
+        /* Check dimension */
+        if( matAB->nr+1 != matAB->nc ) {
+                fprintf(stderr,"%s: Input matAB with wrong dimensions,  nr+1 != nc !\n",__func__);
+                return NULL;
+        }
+
+	/* Create a copy of matAB */
+        pmatAB=init_float_Matrix(matAB->nr, matAB->nc);
+	if(pmatAB==NULL) {
+                fprintf(stderr,"%s: Fail to init. pmatAB!\n",__func__);
+                return NULL;
+	}
+	/* Make a copy of matAB */
+	for(i=0; i < matAB->nr*matAB->nc; i++)
+		pmatAB->pmat[i]=matAB->pmat[i];
+
+
+
+	/* Get number of X */
+        n=pmatAB->nr; /* n*(n+1) dimensions */
+
+        /* Allocate matX */
+        matX=init_float_Matrix(n, 1);
+	if(matX==NULL) {
+                fprintf(stderr,"%s: Fail to init. matX!\n",__func__);
+		release_float_Matrix(pmatAB);
+                return NULL;
+	}
+
+	/* Transfer matAB to a triangular shape, by eliminating coefficients of lower left part of the matrix */
+	for(i=0; i<n; i++) /* Tranverse row==column, current row/column number i */
+	{
+		/* Find the Row index of the element with Max. value in current column */
+		max_index=i;
+		for(j=i+1; j<n; j++) { /* transverse row */
+			if( fabsf(pmatAB->pmat[j*(n+1)+i]) > fabsf(pmatAB->pmat[max_index*(n+1)+i]) )
+				max_index=j;
+		}
+
+		/* Check current coefficient */
+		if( fabsf(pmatAB->pmat[max_index*(n+1)+i]) < 1.0e-6 ) {
+			fprintf(stderr,"%s: Too small coefficient!\n",__func__);
+			release_float_Matrix(matX);
+			release_float_Matrix(pmatAB);
+			return NULL;
+		}
+
+		/* Swap [max_index] row with current row [i] */
+		for(kc=i; kc<n+1; kc++) {  /* Tranverse columns */
+			tmp=pmatAB->pmat[max_index*(n+1)+kc];
+			pmatAB->pmat[max_index*(n+1)+kc]=pmatAB->pmat[i*(n+1)+kc];
+			pmatAB->pmat[i*(n+1)+kc]=tmp;
+		}
+
+		/* Normalize [i,i] coefficients to 1. */
+		tmp=pmatAB->pmat[i*(n+1)+i];
+		for(kc=i; kc<n+1; kc++) {  /* Tranverse columns */
+			pmatAB->pmat[i*(n+1)+kc] /= tmp;
+		}
+
+		/* Eliminate column [i+1,i]..[n-1,i] coefficients for followed rows */
+		for(kr=i+1; kr<n; kr++) { 		/* Transvers following rows */
+			tmp=pmatAB->pmat[kr*(n+1)+i];	/* First nonzero element */
+			for(kc=i; kc<n+1; kc++) {	/* Transverse columns */
+				pmatAB->pmat[kr*(n+1)+kc] -= tmp*pmatAB->pmat[i*(n+1)+kc]; /* Row[kr] -= Row[i]*tmp */
+			}
+		}
+	}
+	/* Test --- */
+	Matrix_Print(pmatAB);
+
+	/* Resolve matrix */
+	for(kr=n-1; kr>=0; kr--) {	/* Tranverse rows from bottom to up */
+		/* Get kc==n */
+		matX->pmat[kr]=pmatAB->pmat[kr*(n+1)+n];  /* For matX, nc=1 */
+		for(kc=n-1; kc>kr; kc--)	/* Tranverse column from right to left  */
+			matX->pmat[kr] -= pmatAB->pmat[kr*(n+1)+kc]*matX->pmat[kc];
+
+	}
+
+	/* Release copy */
+	release_float_Matrix(pmatAB);
+
+	return matX;
+}

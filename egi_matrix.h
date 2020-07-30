@@ -12,9 +12,6 @@ midaszhou@yahoo.com
 
 #include <stdint.h>
 #include <sys/time.h>
-#include <malloc.h>
-#include <string.h>
-
 
 typedef struct float_Matrix EGI_MATRIX;
 
@@ -65,5 +62,6 @@ struct float_Matrix* Matrix_Transpose(const struct float_Matrix *matA, struct fl
 float* Matrix_Determ( const struct float_Matrix *matA,  float *determ );
 struct float_Matrix* Matrix_Inverse( const struct float_Matrix *matA, struct float_Matrix *matAdj );
 struct float_Matrix* Matrix_SolveEquations( const struct float_Matrix *matAB, struct float_Matrix *matX);
+struct float_Matrix* Matrix_GuassSolve( const struct float_Matrix *matAB );
 
 #endif
