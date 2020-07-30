@@ -87,7 +87,7 @@ midaszhou@yahoo.com
 #include "egi_FTsymbol.h"
 #include "egi_cstring.h"
 #include "egi_utils.h"
-
+#include "egi_procman.h"
 
 #ifdef LETS_NOTE
 	#define DEFAULT_FILE_PATH	"/home/midas-zhou/egi/hlm_all.txt"
@@ -228,8 +228,8 @@ static void draw_msgbox( FBDEV *fb_dev, int x0, int y0, int width, const char *m
 static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg, int pv, int pev);
 static void RCMenu_execute(enum RCMenu_Command Command_ID);
 static void WBTMenu_execute(enum WBTMenu_Command Command_ID);
-static void save_pinyin_data(void);
-
+static void save_all_data(void);
+void signal_handler(int signal);
 
 /* ============================
 	    MAIN()
@@ -242,6 +242,12 @@ int main(int argc, char **argv)
   /* Start sys tick */
   printf("tm_start_egitick()...\n");
   tm_start_egitick();
+
+  /* Set signal action */
+  if(egi_common_sigAction(SIGINT, signal_handler)!=0) {
+	printf("Fail to set sigaction!\n");
+	return -1;
+  }
 
   #if 0
   /* Start egi log */
@@ -322,11 +328,19 @@ int main(int argc, char **argv)
   	if( uniset==NULL ) exit(1);
 	if( UniHan_quickSort_set(uniset, UNIORDER_TYPING_FREQ, 10) !=0 ) exit(2);
 
-  	/* Load UniHanGroup Set Set for PINYIN Input, it also include nch==1 UniHans! */
-	/* Load from text first, if it fails, then try data file */
-	group_set=UniHanGroup_load_CizuTxt("/tmp/group_set.txt");
+	/* Load from text first, if it fails, then try data file. TODO: group_set MAY be incompelet if it failed during saving! */
+	group_set=UniHanGroup_load_CizuTxt(UNIHANGROUPS_EXPORT_TXT_PATH);
 	if( group_set==NULL)
+	  	/* Load UniHanGroup Set Set for PINYIN Input, it's assumed already merged with nch==1 UniHans! */
 	  	group_set=UniHanGroup_load_set(UNIHANGROUPS_DATA_PATH);
+	else {
+		/* Add uniset to grou_set, as a text group_set has NO UniHans inside. */
+        	if( UniHanGroup_add_uniset(group_set, uniset) !=0 ) {
+	                printf("Fail to add uniset to  group_set!\n");
+                	exit(1);
+        	}
+	}
+
 	if( group_set==NULL)
 		exit(1);
 
@@ -342,6 +356,11 @@ int main(int argc, char **argv)
                         exit(1);
                 }
 	}
+
+	/* Modify typings */
+	EGI_UNIHANGROUP_SET *update_set=UniHanGroup_load_CizuTxt("/tmp/update_words.txt");
+	UniHanGroup_update_typings(group_set, update_set);
+	//exit(1);
 
 	/* quckSort typing for PINYIN input */
 	if( UniHanGroup_quickSort_typings(group_set, 0, group_set->ugroups_size-1, 10) !=0 )
@@ -619,7 +638,7 @@ MAIN_START:
 				break;
 			case CTRL_F:
 				/* Save PINYIN data first */
-				save_pinyin_data();
+				save_all_data();
 				/* Save txtbuff to file */
 				printf("Saving chmap->txtbuff to a file...");
 				if(FTcharmap_save_file(fpath, chmap)==0)
@@ -1631,8 +1650,7 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 			break;
 		case WBTMENU_COMMAND_SAVE:
 			printf("WBTMENU_COMMAND_SAVE\n");
-			save_pinyin_data();
-			FTcharmap_save_file(fpath, chmap);
+			save_all_data();
 
 			start_pch=false;
                         while( !start_pch ) {  /* Wait for click */
@@ -1646,6 +1664,8 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 			break;
 		case WBTMENU_COMMAND_EXIT:
 			printf("WBTMENU_COMMAND_EXIT\n");
+			save_all_data();
+			exit(0);
 			break;
 		case WBTMENU_COMMAND_HELP:
 			printf("WBTMENU_COMMAND_HELP\n");
@@ -1674,8 +1694,9 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 2. Save group_set to a text file.
 3. Save group_set to a text file first, if it fails/corrupts,
    we still have data file as backup, VICEVERSA
+4. Save txtbuff to a text file.
 -------------------------------------------------------------*/
-void save_pinyin_data(void)
+void save_all_data(void)
 {
 
 /* Save uniset/group_set, as freq weigh values updated! */
@@ -1691,7 +1712,7 @@ void save_pinyin_data(void)
 	/* Save group_set to txt first, if it fails/corrupts, we still have data file as backup, VICEVERSA */
 	draw_msgbox( &gv_fb_dev, 50, 50, 240, "保存group_set.txt..." );
 	fb_render(&gv_fb_dev);
-	if(UniHanGroup_saveto_CizuTxt(group_set, "/tmp/group_set.txt")==0)
+	if(UniHanGroup_saveto_CizuTxt(group_set, UNIHANGROUPS_EXPORT_TXT_PATH)==0)
 		draw_msgbox( &gv_fb_dev, 50, 50, 240, "group_txt成功保存！" );
 	else
 		draw_msgbox( &gv_fb_dev, 50, 50, 240, "group_txt保存失败！" );
@@ -1706,4 +1727,27 @@ void save_pinyin_data(void)
 	fb_render(&gv_fb_dev); tm_delayms(500);
 #endif
 
+	/* Save txtbuff to file */
+	printf("Saving chmap->txtbuff to a file...");
+	if(FTcharmap_save_file(fpath, chmap)==0)
+        	draw_msgbox( &gv_fb_dev, 50, 50, 240, "文件已经保存！" );
+	else
+        	draw_msgbox( &gv_fb_dev, 50, 50, 240, "文件保存失败！" );
+        fb_render(&gv_fb_dev);
+	tm_delayms(500);
+}
+
+/*-----------------------------------
+Warning: race condition with main()
+FT_Load_Char()...
+------------------------------------*/
+void signal_handler(int signal)
+{
+	printf("signal=%d\n",signal);
+	if(signal==SIGINT) {
+		printf("--- SIGINT ----\n");
+
+//		save_all_data();
+//		exit(0);
+	}
 }

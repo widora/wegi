@@ -157,7 +157,7 @@ int main(void)
   exit(1);
 #endif
 
-#if 1 /*-------------  test UniHanGroup Functions  ------------------*/
+#if 0 /*-------------  test UniHanGroup Functions  ------------------*/
 		EGI_UNIHAN_SET *han_set=NULL;
 		EGI_UNIHANGROUP_SET *group_set=NULL;
 
@@ -216,7 +216,7 @@ int main(void)
 			printf("Fail to load han_set!\n");
 			exit(1);
 		}
-		printf("Finish loading han_set.\n");
+		printf("Finish add han_set into group_set.\n");
 		getchar();
 
 	#if 1 /* ---TEST:  UniHanGroup merge and purify functions */
@@ -229,25 +229,34 @@ int main(void)
 		printf("Finish merging addon_set for new words!\n");
 		getchar();
 
-		#if 0 /* Test --- loate wcodes[] */
+	  #if 1 /* Test --- UniHanGroup_loate_wcodes[] */
 		char strUFT8[4*4+1];
+		EGI_UNICODE wcodes[UHGROUP_WCODES_MAXSIZE];
 		UniHanGroup_quickSort_set(group_set, UNIORDER_NCH_WCODES, 10);
 		while(1) {
 			bzero(strUFT8,sizeof(strUFT8));
+			bzero(wcodes,sizeof(EGI_UNICODE)*UHGROUP_WCODES_MAXSIZE);
 			printf("Input uchars:");
 			scanf("%s",strUFT8);
 			printf("Start to locate wcodes[] ...\n");
+		  #if 0 /* Use uchars */
 			gettimeofday(&tm_start,NULL);
-			if( UniHanGroup_locate_wcodes(group_set, (UFT8_PCHAR)strUFT8 )==0 ) {
+			if( UniHanGroup_locate_wcodes(group_set, (UFT8_PCHAR)strUFT8, NULL )==0 ) {
+		  #else /* Use wcodes */
+			cstr_uft8_to_unicode((UFT8_PCHAR)strUFT8, wcodes);
+			gettimeofday(&tm_start,NULL);
+			if( UniHanGroup_locate_wcodes(group_set, NULL, wcodes)==0 ) {
+		  #endif
 				gettimeofday(&tm_end,NULL);
 				UniHanGroup_print_group(group_set, group_set->pgrp, true);
 			} else {
+				gettimeofday(&tm_end,NULL);
 				printf("Fail to locate wcodes[]:%s\n", strUFT8);
 			}
 			printf("Finish locate wcodes. cost time: %ldms\n", tm_diffus(tm_start, tm_end)/1000);
 			getchar();
 		}
-		#endif
+	  #endif
 
 		printf("Start to purify group set and clear redundant ones ...\n");
 		UniHanGroup_purify_set(group_set);

@@ -8,7 +8,11 @@ Midas Zhou
 #ifndef __EGI_PROCMAN_H__
 #define __EGI_PROCMAN_H__
 
+#include <signal.h>
+
 extern const char *app_name;
+
+int egi_common_sigAction(int signum, void(*handler)(int) );
 
 void __attribute__((constructor)) app_common_constructor(void);
 void __attribute__((destructor)) app_common_destructor(void);

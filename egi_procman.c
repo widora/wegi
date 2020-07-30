@@ -24,6 +24,10 @@ static struct sigaction osigact_cont;  /* Old one */
 static struct sigaction sigact_usr;
 static struct sigaction osigact_usr;   /* Old one */
 
+/* For common use */
+static struct sigaction sigact_common;
+static struct sigaction osigact_common;  /* Old one */
+
 
 #if 0  ////////////////////////////////////////////////////////////////////////
 siginfo_t {
@@ -58,6 +62,31 @@ siginfo_t {
                                          (since Linux 3.5) */
            }
 #endif////////////////////////////////////////////////////////////////////////////
+
+
+/*--------------------------------------------------
+Set a signal acition for a common process.
+
+@signum:	Signal number.
+@handler:	Handler for the sigal
+
+Return:
+	0	Ok
+	<0	Fail
+---------------------------------------------------*/
+int egi_common_sigAction(int signum, void(*handler)(int))
+{
+	sigemptyset(&sigact_common.sa_mask);
+	//sigact_common.sa_flags|=SA_NODEFER;
+	sigact_common.sa_handler=handler;
+        if(sigaction(signum, &sigact_common, &osigact_common) <0 ){
+                printf("%s: Fail to call sigaction().\n",  __func__);
+                return -1;
+        }
+
+	return 0;
+}
+
 
 
 #if 0
@@ -122,7 +151,7 @@ void __attribute__((destructor)) app_common_destructor(void)
 	/* ... */
 }
 
-#endif 
+#endif
 
 
 /*----------------  For APP  -------------------------
@@ -146,7 +175,6 @@ static void app_sigcont_handler( int signum, siginfo_t *info, void *ucont )
 
   }
 }
-
 
 
 /*--------------------  For APP  ------------------------------
@@ -196,7 +224,6 @@ int egi_assign_AppSigActions(void)
 
         return 0;
 }
-
 
 
 /*-----------------------------------------------------------

@@ -32,8 +32,11 @@ typedef wchar_t 	EGI_UNICODE;
 #define PINYIN3500_TXT_PATH	"/mmc/pinyin3500.txt"		/* 3500 frequently used Haizi TXT */
 #define PINYIN3500_DATA_PATH    "/mmc/unihan3500.dat"		/* Saved UNIHAN SET containing above unihans */
 
-#define CIZU_TXT_PATH		"/mmc/chinese_cizu.txt"		/* Cizu TXT file path */
-#define UNIHANGROUPS_DATA_PATH  "/mmc/unihangroups_pinyin.dat"	/* Saved UNIHANGROUP set */
+#define CIZU_TXT_PATH			"/mmc/chinese_cizu.txt"		/* Cizu TXT file path */
+#define UNIHANGROUPS_DATA_PATH   	"/mmc/unihangroups_pinyin.dat"	/* Saved UNIHANGROUP set
+									 * In practice, it's usually merged with UNIHANs set fir PINYIN IME */
+#define UNIHANGROUPS_EXPORT_TXT_PATH	"/mmc/group_test.txt"		/* Text file exported from an UNIHANGROUP set
+									 * In practice, it's without UNIHNAs exported.*/
 
 #define PINYIN_NEW_WORDS_FPATH	"/mmc/pinyin_new_words" 	/* For collecting new words */
 
@@ -158,6 +161,7 @@ struct egi_uniHanGroup_set
 	size_t			typings_capacity;	/* Total mem space allocated for typings[], in bytes(sizeof(char)) */
 	uint32_t		typings_size;		/* Current used mem space, in bytes, including all '\0' as dilimiters, keep UINT32_T */
 	char			*typings;		/* A buffer to hold all typings, with '\0' as dilimiters */
+							/* Pitfall: Mem space unit is UNIHAN_TYPING_MAXLEN for each wcode! each typing is separated! */
 				/* !pitfall : After sorting, the last ugroups[] usually does NOT correspond to the last typings[]/uchars[]! */
 	#define 		UHGROUP_TYPINGS_GROW_SIZE   512
 
@@ -264,7 +268,7 @@ int 	UniHanGroup_increase_freq(EGI_UNIHANGROUP_SET *group_set, const char* typin
 int 	UniHanGroup_compare_wcodes( const EGI_UNIHANGROUP *group1, const EGI_UNIHANGROUP *group2 );
 int     UniHanGroup_insertSort_wcodes(EGI_UNIHANGROUP_SET *group_set, int start, int n);
 int 	UniHanGroup_quickSort_wcodes(EGI_UNIHANGROUP_SET* group_set, unsigned int start, unsigned int end, int cutoff);
-int  	UniHanGroup_locate_wcodes(EGI_UNIHANGROUP_SET* group_set,  const UFT8_PCHAR uchars);
+int  	UniHanGroup_locate_wcodes(EGI_UNIHANGROUP_SET* group_set,  const UFT8_PCHAR uchars, const EGI_UNICODE *wcodes);
 
 /* UNIHANGROUP_SET: Sort Function */
 int 	UniHanGroup_quickSort_set(EGI_UNIHANGROUP_SET* group_set, UNIHAN_SORTORDER sorder, int cutoff);
@@ -278,6 +282,8 @@ int 	UniHanGroup_quickSort_LTRIndex(EGI_UNIHANGROUP_SET* group_set, int start, i
         /* UniHanGroup_add_uniset(): to merge an EGI_UNIHAN SET to an UNIHANGROUP SET */
 int     UniHanGroup_merge_set(const EGI_UNIHANGROUP_SET* group_set1, EGI_UNIHANGROUP_SET* group_set2);
 int 	UniHanGroup_purify_set(EGI_UNIHANGROUP_SET* group_set);
+
+int	UniHanGroup_update_typings(EGI_UNIHANGROUP_SET *group_set, const EGI_UNIHANGROUP_SET *update_set);
 
 /* UNIHANGROUP_SET: Save and load */
 int 			UniHanGroup_save_set(const EGI_UNIHANGROUP_SET *group_set, const char *fpath);

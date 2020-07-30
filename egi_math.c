@@ -801,13 +801,13 @@ SQMat_XRYR: 	after rotation
 /*------------------------------- Method 1 --------------------------------------------*/
 
 #if 0
-void mat_pointrotate_SQMap(int n, double angle, struct egi_point_coord centxy,
-                       					 struct egi_point_coord *SQMat_XRYR)
+void mat_pointrotate_SQMap(int n, double angle, EGI_POINT centxy,
+                       					 EGI_POINT *SQMat_XRYR)
 {
 	int i,j;
 	double sinang,cosang;
 	double xr,yr;
-	struct egi_point_coord  x0y0; /* the left top point of the square */
+	EGI_POINT  x0y0; /* the left top point of the square */
 	double pi=3.1415926535897932;
 
 
@@ -884,8 +884,7 @@ void mat_pointrotate_SQMap(int n, double angle, struct egi_point_coord centxy,
 
 #if 1
 /*----------------------- Method 2: revert rotation (float point)  -------------------------*/
-void mat_pointrotate_SQMap(int n, double angle, struct egi_point_coord centxy,
-                       					 struct egi_point_coord *SQMat_XRYR)
+void mat_pointrotate_SQMap(int n, double angle, EGI_POINT centxy, EGI_POINT *SQMat_XRYR)
 {
 	int i,j;
 	double sinang,cosang;
@@ -895,7 +894,7 @@ void mat_pointrotate_SQMap(int n, double angle, struct egi_point_coord centxy,
 	cosang=cos(1.0*angle/180.0*MATH_PI);
 
 	/* clear the result matrix  */
-	memset(SQMat_XRYR,0,n*n*sizeof(struct egi_point_coord));
+	memset(SQMat_XRYR,0,n*n*sizeof(EGI_POINT));
 
 	/* check if n can be resolved in form of 2*m+1 */
 	if( (n&0x1) == 0 )
@@ -1025,8 +1024,8 @@ ANMat_XRYR:     after rotation
                 square matrix after rotation mapping, coordinate origin is same as LCD(fb) origin.
 
 -------------------------------------------------------------------------------------------*/
-void mat_pointrotate_fpAnnulusMap(int n, int ni, int angle, struct egi_point_coord centxy,
-                       					 struct egi_point_coord *ANMat_XRYR)
+void mat_pointrotate_fpAnnulusMap(int n, int ni, int angle, EGI_POINT centxy,
+                       					 EGI_POINT *ANMat_XRYR)
 {
 	int i,j,m,k;
 //	int sinang,cosang;
@@ -1038,7 +1037,7 @@ void mat_pointrotate_fpAnnulusMap(int n, int ni, int angle, struct egi_point_coo
 	ang=(ang>=0 ? ang:-ang) ;
 
 	/* clear the result maxtrix */
-	memset(ANMat_XRYR,0,n*n*sizeof(struct egi_point_coord));
+	memset(ANMat_XRYR,0,n*n*sizeof(EGI_POINT));
 
 	/* check if n can be resolved in form of 2*m+1 */
 	if( (n-1)%2 != 0)

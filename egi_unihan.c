@@ -42,6 +42,10 @@ Note:
    3.7 	Save to UniHan data.
 	UniHan_save_set(uniset, UNIHANS_DATA_PATH)
 
+   	PINYIN3500_TXT_PATH ----> uniset   ------merge to --->  uniset
+					     |
+   MANDARIN_TXT_PATH ----> unisetMandarin ---|
+
 4. Procedure for generating UniHanGroup data file for EGI_PINYIN IME:
    4.1  Load UinHan data.
 	han_set=UniHan_load_set(UNIHANS_DATA_PATH);
@@ -65,10 +69,12 @@ Note:
 
    x.x  TODO: poll freq.
 
-5. Expend UniHanGroup data by merging.
+5. Expend UniHanGroup data by merging. 
    5.1  Collect new Words/Cizu/Phrases and put them into a text file.
 	Text line fromat: Cizu+PINYIN.
 		Example:  词语　ci yu  (PINYIN may be omitted)
+       ( TODO: Also you may add new polyphonic UniHan in the text file and merged into group set,
+               but it needs to export to unihan set later.)
    5.2  Read above text into a UniHanGroup_Set:
 	group_expend=UniHanGroup_load_CizuTxt(PINYIN_NEW_WORDS_FPATH);
    5.3  Merge group_expend into group_set and purify to clear redundancy:
@@ -76,10 +82,15 @@ Note:
 	UniHanGroup_purify_set(group_set);  Mem holes exists in uchar/typings after purification.
    5.4  Follow 4.5, 4.6 and 4.7 to save to UniHanGroup data for EGI_PINYIN IME.
 
-
-   	PINYIN3500_TXT_PATH ----> uniset   ------merge to --->  uniset
-					     |
-   MANDARIN_TXT_PATH ----> unisetMandarin ---|
+6. Call UniHanGroup_update_typings() to modify typings.
+	Example to correct Cizus containing '行':
+	1.  Export group_test to a text file:
+	    UniHanGroup_saveto_CizuTxt(group_set,"/mmc/group_test.txt").
+	2.  Extract all Cizus/Phrases containing the same polyphoinc UNIHAN '行':
+    	    cat /mmc/group_test.txt | grep 行 > /mmc/update_words.txt
+	3.  Modify all typings in update_words.txt manually.
+	4.  Then reload update_words.txt into update_set by calling UniHanGroup_load_CizuTxt().
+	5.  Replace typings in group_set by calling UniHanGroup_update_typings(group_set, update_set);
 
 
 Midas Zhou
@@ -159,6 +170,7 @@ TODO:
 2. Some Shengmu and Yunmu are NOT compitable:
    Example: xa＃,xo＃,xe＃,xv＃
 	    be bia biu....
+	    zhi zhing chin ching shin shing ---- OK.
 
 @strp:		An unbroken string of alphabet chars in lowercases,
 		terminated with a '\0'.
@@ -184,7 +196,8 @@ int  UniHan_divide_pinyin(char *strp, char *pinyin, int n)
 	int np;			/* count total number of PINYIN typings */
 	const char *ps=NULL;		/* Start of a complete PINYIN typing (Shengmu+Yunmu OR Yunmu) */
 	const char *pc=strp;
-	bool	zero_shengmu; /* True if has NO Shengmu */
+	bool	zero_shengmu; 		/* True if has NO Shengmu */
+	bool Shengmu_Is_ZCS=false; 	/* z,zh,c,ch,s,sh */
 
 	if( strp==NULL || pinyin ==NULL || n<1 )
 		return -1;
@@ -204,6 +217,8 @@ int  UniHan_divide_pinyin(char *strp, char *pinyin, int n)
 
 			zero_shengmu=false; /* Assume it has shengmu */
 
+			Shengmu_Is_ZCS=false; /* z,zh,c,ch,s,sh */
+
 			/* 1. Get Shengmu(initial consonant) */
 			switch(*pc)
 			{
@@ -216,6 +231,7 @@ int  UniHan_divide_pinyin(char *strp, char *pinyin, int n)
 				case 'z':
 				case 'c':
 				case 's':
+					Shengmu_Is_ZCS=true;
 					switch( *(pc+1) ) {
 						case 'h':		/* zh, ch, sh */
 							pc +=2;
@@ -312,6 +328,14 @@ int  UniHan_divide_pinyin(char *strp, char *pinyin, int n)
 							pc+=2;
 							break;
 						case 'n':
+							/* To avoid incompitable combinations:
+							 *   cin,cing,sin,sing,zin,zing; chin,ching,shin,shing,zhin,zhing
+							 */
+							if(Shengmu_Is_ZCS) {
+								pc +=1;
+								break;
+							}
+
 							if(*(pc+2)=='g')	/* ing */
 								pc+=3;
 							else			/* in */
@@ -3099,7 +3123,7 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 		/* Update ugroups_size */
 		group_set->ugroups_size +=1;
 	}
-	printf("%s: Finish reading %d unihan groups into group_set!\n",__func__, k);
+	printf("%s: Finish reading %d unihan groups into an unihan_group set!\n",__func__, k);
 
 END_FUNC:
         /* Close fil */
@@ -3182,10 +3206,12 @@ int  UniHanGroup_saveto_CizuTxt(const EGI_UNIHANGROUP_SET *group_set, const char
 				printf("%s: WARNING! fprintf writes typings %d of total %d bytes!\n", __func__, nwrite, len);
 		}
 
-		/* write freq: field width=10 */
-		nwrite=fprintf(fil,"%10d", group_set->ugroups[i].freq); /* typings leaves a SPACE */
-		if(nwrite!=10)
-			printf("%s: WARNING! fprintf writes %d of total %d bytes!\n", __func__, nwrite, 10);
+		/* write freq if NOT 0, with field width=10 */
+		if(group_set->ugroups[i].freq !=0 ) {
+			nwrite=fprintf(fil,"%10d", group_set->ugroups[i].freq); /* typings leaves a SPACE */
+			if(nwrite!=10)
+				printf("%s: WARNING! fprintf writes %d of total %d bytes!\n", __func__, nwrite, 10);
+		}
 
 		/* Feed line */
 		fprintf(fil,"\n");
@@ -4272,8 +4298,8 @@ int UniHanGroup_quickSort_wcodes(EGI_UNIHANGROUP_SET* group_set, unsigned int st
 
 
 /*-------------------------------------------------------------------------------
-To locate the index of first group_set->ugroups[] bearing the given wcodes[],
-and set group_set->pgrp as the index.
+To locate the index of first group_set->ugroups[] bearing the given wcodes[]( and
+same nch), and set group_set->pgrp as the index.
 
 Note:
 1. The group_set MUST be prearranged in ascending order of wcodes. If NOT, it then
@@ -4281,15 +4307,19 @@ Note:
 2. There MAY be more than one ugroups[] that have the save wcodes[], and indexse
    of those unihans should be consecutive (see 1). Finally the first index will
    be located.
+3. If nch==1, then an UNIHAN to be located.
 
 @group_set		The target EGI_UNIHAN_SET.
 @uchars			UFT8 string as of wcodes[].
-
+			if NULL, read wcodes instead.
+@wcodes			Pointer to wcodes[UHGROUP_WCODES_MAXSIZE]
+			The caller MUST ensure at least UHGROUP_WCODES_MAXSIZE.
+			Effective ONLY if uchars==NULL.
 Return:
 	=0		OK, set uniset->puh accordingly.
 	<0		Fails, or no result.
 --------------------------------------------------------------------------------*/
-int  UniHanGroup_locate_wcodes(EGI_UNIHANGROUP_SET* group_set,  const UFT8_PCHAR uchars)
+int  UniHanGroup_locate_wcodes(EGI_UNIHANGROUP_SET* group_set,  const UFT8_PCHAR uchars, const EGI_UNICODE *wcodes)
 {
 	int i;
 	unsigned int start,end,mid;
@@ -4299,7 +4329,7 @@ int  UniHanGroup_locate_wcodes(EGI_UNIHANGROUP_SET* group_set,  const UFT8_PCHAR
 	int len;
 	int nch;
 
-	if(group_set==NULL || group_set->ugroups_size==0 || uchars==NULL )
+	if(group_set==NULL || group_set->ugroups_size==0 || (uchars==NULL && wcodes==NULL) )
 		return -1;
 
 	/* Check sort order */
@@ -4314,21 +4344,29 @@ int  UniHanGroup_locate_wcodes(EGI_UNIHANGROUP_SET* group_set,  const UFT8_PCHAR
 	/* Get pointer to ugroups */
 	ugroups=group_set->ugroups;
 
-	/* Convert uchars to tmp_group.wcodes[] */
+	/* Fake a tmp_group */
 	memset(tmp_group.wcodes,0,UHGROUP_WCODES_MAXSIZE*sizeof(EGI_UNICODE));
-	for( len=0, nch=0, i=0; i<UHGROUP_WCODES_MAXSIZE; i++ ) {
-	 	chsize=char_uft8_to_unicode(uchars+len, tmp_group.wcodes+i);
-		if(chsize<1)
-			break;
-		else {
-			nch++;
-			len+=chsize;
+	if(uchars) {
+		/* Convert uchars to tmp_group.wcodes[] */
+		for( len=0, nch=0, i=0; i<UHGROUP_WCODES_MAXSIZE; i++ ) {
+		 	chsize=char_uft8_to_unicode(uchars+len, tmp_group.wcodes+i);
+			if(chsize<1)
+				break;
+			else {
+				nch++;
+				len+=chsize;
+			}
 		}
 	}
+	else {  /* Take wcodes */
+		memcpy(tmp_group.wcodes, wcodes,UHGROUP_WCODES_MAXSIZE*sizeof(EGI_UNICODE));
+	}
 
-	/* Check nch */
+
+#if 0	/* Check nch */
 	if(nch<1)
 		return -3;
+#endif
 
 	/* Mark start/end/mid of ugroups[] index */
 	start=0;
@@ -4488,9 +4526,9 @@ Note:
    The bigger nch has more chance to locate a result!
 
 5. This algorithm depends on typing type PINYIN, others MAY NOT work.
-6. TODO: Some polyphonic UNIHANs will fail to locate, as UniHanGroup_assemble_typings()
+6. Some polyphonic UNIHANs will fail to locate, as UniHanGroup_assemble_typings()
    does NOT know how to pick the right typings for an unihan group!
-   ( UniHanGroup_modify_group() to correct it )
+   Call UniHanGroup_update_typings() to correct it, see dscription in the function!
 	 ...
 	 地球: de qiu
 	 出差: chu cha
@@ -4763,7 +4801,8 @@ inline int UniHanGroup_compare_LTRIndex(EGI_UNIHANGROUP_SET* group_set, unsigned
 		return CMPORDER_IS_AHEAD;
 	#endif /////////////////////////////////////////////////
 
-#if 0 /* Compare lenght of typings first */
+// #if 0 /* Compare lenght of typings first */
+if(nch==1) {  /* For UNIHAN, compare length first */
 	/* 4. Compare length of typings */
 	if( len1 > len2 )
 		return CMPORDER_IS_AFTER;
@@ -4783,7 +4822,12 @@ inline int UniHanGroup_compare_LTRIndex(EGI_UNIHANGROUP_SET* group_set, unsigned
 		return CMPORDER_IS_AHEAD;
 	if( group_set->ugroups[n1].freq < group_set->ugroups[n2].freq )
 		return CMPORDER_IS_AFTER;
-#else /* Compare frequency first */
+
+}
+// #else /* Compare frequency first, How ever this MAY put unwant word first: Example: yu -- 1.曰 2.与 3.玉 4.于 5.云 6.原 */
+else {   /* For UNIHANGROUPs, compare freq first:
+		1. As the results are vague if pinyin_inputs are Shengmus only.
+	  */
 	/* 4. Compare frequency */
 	if( group_set->ugroups[n1].freq > group_set->ugroups[n2].freq )
 		return CMPORDER_IS_AHEAD;
@@ -4802,7 +4846,8 @@ inline int UniHanGroup_compare_LTRIndex(EGI_UNIHANGROUP_SET* group_set, unsigned
 		else if( chlen1[i]<chlen2[i] )
 			return CMPORDER_IS_AHEAD;
 	}
-#endif
+}
+//#endif
 
 
 	return CMPORDER_IS_SAME;
@@ -5612,7 +5657,6 @@ int UniHanGroup_purify_set(EGI_UNIHANGROUP_SET* group_set)
                 }
                 /* Redundant groups/wcodes found: tmp_group and ugroups[i] ... */
                 if( j==UHGROUP_WCODES_MAXSIZE ) {
-
 			/* Backup typings if NOT zero */
 			off=group_set->ugroups[i].pos_typing;
 			if( group_set->typings[off] != '\0' )  {
@@ -5665,7 +5709,7 @@ int UniHanGroup_purify_set(EGI_UNIHANGROUP_SET* group_set)
 
 
 /*----------------------------------------------------------------------------
-Increase/decrease weigh value of freqency to an UNIHANGROUP.
+Increase/decrease weigh value of frequency to an UNIHANGROUP.
 
 NOTE:
 1. The group_set MUST be sorted in ascending order of UNIORDER_NCH_TYPINGS_FREQ.
@@ -5783,4 +5827,73 @@ int UniHanGroup_increase_freq(EGI_UNIHANGROUP_SET *group_set, const char* typing
 	/* END for() NO results! */
 
        return -6;
+}
+
+/*-------------------------------------------------------------------------------------
+Replace typings of some unihan_groups in the group_set by that of the same unihan_groups
+in the update_set.
+This is a way to modify incorrect typings of some unihan_groups, particularly for
+polyphonic unihans.
+
+Example to correct Cizus of '行':
+1.  Export group_test to a text file by calling UniHanGroup_saveto_CizuTxt(group_set,"/mmc/group_test.txt").
+2.  Extract all Cizus/Phrases containing the same polyphoinc UNIHAN '行':
+    cat /mmc/group_test.txt | grep 行 > /mmc/update_words.txt
+3.  Modify all typings in update_words.txt manually.
+4.  Then reload update_words.txt into update_set by calling UniHanGroup_load_CizuTxt().
+5.  Call this function to replace all typings.
+
+@group_set	Pointer to an EGI_UNIHANGROUP_SET that need modification.
+@update_set	Pointer to an EGI_UNIHANGROUP_SET holding the correct typings.
+
+Return:
+	>=0	Numbers of unihan_groups updated.
+	<0	Fails
+-------------------------------------------------------------------------------------*/
+int UniHanGroup_update_typings(EGI_UNIHANGROUP_SET *group_set, const EGI_UNIHANGROUP_SET *update_set)
+{
+	int k;
+	int nch;
+	unsigned int off;
+	unsigned int off2;
+	int count=0;
+
+	/* check input */
+	if(group_set==NULL || update_set==NULL)
+		return -1;
+
+	for(k=0; k < update_set->ugroups_size; k++)
+	{
+		/* Locate wcodes, with same nch+wcodes */
+		if( UniHanGroup_locate_wcodes(group_set, NULL, update_set->ugroups[k].wcodes) ==0 )
+		{
+			/* Get total number of unihans of the group */
+		        nch=UHGROUP_WCODES_MAXSIZE;
+		        while( nch>0 &&  update_set->ugroups[k].wcodes[nch-1] == 0 ) { nch--; };
+
+			/* group_set->pgrp, only for the first result group. */
+			off=group_set->ugroups[group_set->pgrp].pos_typing;
+			off2=update_set->ugroups[k].pos_typing;
+
+			/* Replace typings */
+			memcpy(group_set->typings+off,update_set->typings+off2, nch*UNIHAN_TYPING_MAXLEN);
+
+			/* TEST ---- */
+			#if 1
+			printf("%s: typings updated as \n", __func__);
+			UniHanGroup_print_group(update_set, k, true);
+			UniHanGroup_print_group(group_set, group_set->pgrp, true);
+			#endif
+
+			count++;
+		}
+		/* Not found in group_set */
+		else {
+			off2=update_set->ugroups[k].pos_uchar;
+			printf("%s: Fail to locate '%s'. \n",__func__, update_set->uchars+off2);
+		}
+	}
+
+	printf("%s: Totally %d typings updated!\n",__func__,count);
+	return count;
 }

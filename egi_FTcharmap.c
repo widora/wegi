@@ -890,7 +890,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
         	                	xleft -= advance>>16;
 		  	}
 		}
-		else /* fb_dev is NOT NULL */
+		else /* fb_dev is NOT NULL, TODO: fake fb_dev to NULL */
 		{	/* Use marskchar to replace/cover original chars, such as asterisk. */
 			if( chmap->maskchar !=0 ) {
 				FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, chmap->maskchar, &xleft,
