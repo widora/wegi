@@ -35,7 +35,7 @@ NOTE:
 	2. All indexes starts from 0 !!!
 ------------------------------------------------------------------*/
 struct float_Matrix * init_float_Matrix(int nr, int nc);
-void 	release_float_Matrix(struct float_Matrix * pMat);
+void 	release_float_Matrix(struct float_Matrix ** pMat);
 
 void   Matrix_Print(struct float_Matrix *matA);
 struct float_Matrix*  Matrix_FillArray(struct float_Matrix * pMat, const float * array); //fill pMat->pmat with data from array

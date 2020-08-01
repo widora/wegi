@@ -2624,3 +2624,179 @@ void draw_filled_circle2(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR color)
 	fbset_color(color);
 	draw_filled_circle(dev, x, y,r);
 }
+
+
+/*-----------------------------------------------------------------------------
+Draw a cubic spline passing through given points.
+Reference: https://zhuanlan.zhihu.com/p/62860859
+
+Note:
+1.  A*M=B: Combinate A and B into  matrix MatAB[np*(np+1)], call GaussSolve to
+    resolve it.
+2. i_th segment of cubic spline expression:
+    	y(x)=a[i]+b[i]*(x-x[i])+c[i]*(x-x[i])^2+d[i]*(x-x[i])^3
+	where:
+		i=[0, N-1]:  segment curve index number
+		      x[i]:  start point.x of the segment curve.
+
+
+@np:		Number of input points.
+@pxy:		Input points
+@endtype:	Boundary type:
+		1 --- clampled	2 --- Not_A_Knot    Others --- Natural
+@w:		Width of line.
+
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------------------------------------*/
+#include <egi_matrix.h>
+int draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int w)
+{
+	int ret=0;
+	int k;
+	int n=np-1;		 /* segments of curves */
+	EGI_MATRIX *MatAB=NULL;	 /* Dimension [np*(np+1)] */
+	EGI_MATRIX *MatM=NULL;	 /* m[i]=2c[i] */
+	float *a=NULL;	 	/* Cubic spline coefficients: y=a+b*(x-xi)+c*(x-xi)^2+d*(x-xi)^3*/
+	float *b=NULL,*c=NULL,*d=NULL;  /* To calloc with a */
+	float *h=NULL;	/* Step: h[i]=x[i+1]-x[i] */
+	int ptx;
+	float xs=0,ys=0,xe=0,ye=0;	/* start,end x,y */
+	float dx;
+	int step;
+
+	/* check np */
+	if(np<2)
+		return -1;
+
+	/* Init matrix AB [6*7] */
+   	MatAB=init_float_Matrix(np,np+1);
+   	if(MatAB==NULL) {
+                fprintf(stderr,"%s: Fail to init. MatAB!\n",__func__);
+                return -1;
+        }
+
+	/* Init x step h[] */
+	h=calloc(n, sizeof(float));
+	if(h==NULL) {
+                fprintf(stderr,"%s: Fail to calloc step h!\n",__func__);
+                ret=-2;
+		goto END_FUNC;
+	}
+
+	/* Init a,b,c,d */
+	a=calloc(4*n, sizeof(float));
+	if(a==NULL) {
+                fprintf(stderr,"%s: Fail to calloc a,b,c,d!\n",__func__);
+                ret=-3;
+		goto END_FUNC;
+	}
+	b=a+n;
+	c=b+n;
+	d=c+n;
+
+	/* Cal. step h[] */
+	for(k=0; k<n; k++)
+		h[k]=pxy[k+1].x-pxy[k].x;
+
+	/* Fill A to  matrixAB */
+
+	/* MatAB[]: Row 0 and np as for boundary conditions */
+	switch( endtype )
+	{
+		/* 1. Clamped Spline */
+		case 1:
+			MatAB->pmat[0]=2*h[0];
+			MatAB->pmat[1]=h[0];
+			MatAB->pmat[np*(np+1)-3]=h[n-1];
+			MatAB->pmat[np*(np+1)-2]=2*h[n-1];
+			break;
+
+		/* 2. Not_A_Kont Spline */
+		case 2:
+			MatAB->pmat[0]=-h[1];
+			MatAB->pmat[1]=h[0]+h[1];
+			MatAB->pmat[2]=-h[0];
+			MatAB->pmat[np*(np+1)-4]=-h[n-1];
+			MatAB->pmat[np*(np+1)-3]=h[n-1]+h[n-2];
+			MatAB->pmat[np*(np+1)-2]=-h[n-2];
+			break;
+
+		/* 3. Natrual Spline */
+		default:
+			MatAB->pmat[0]=1;
+			MatAB->pmat[np*(np+1)-2]=1;
+			break;
+	}
+
+	/* MatAB[]: From Row (1) to Row (np-2), As k+1=(1 -> np-2), so k=(0 -> np-3) */
+	for(k=0; k<np-2; k++) {
+		/* Mat A [np*np] */
+		MatAB->pmat[(1+k)*(np+1)+k]=h[k];			/* MatAB [np*(np+1)] */
+		MatAB->pmat[(1+k)*(np+1)+k+1]=2.0*(h[k]+h[k+1]);
+		MatAB->pmat[(1+k)*(np+1)+k+2]=h[k+1];
+		/* Mat B [np*1]:  B[0] and B[np-1] all zeros */
+		MatAB->pmat[(1+k)*(np+1)+np]=6.0*( (pxy[k+2].y-pxy[k+1].y)/h[k+1]-(pxy[k+1].y-pxy[k].y)/h[k] );
+	}
+	/* TEST---- */
+	Matrix_Print(MatAB);
+
+	/* Solve matrix */
+	MatM=Matrix_GuassSolve(MatAB);
+	if(MatM==NULL) {
+                fprintf(stderr,"%s: Fail to solve the matrix equation!\n",__func__);
+		ret=-4;
+		goto END_FUNC;
+	}
+	/* TEST---- */
+	Matrix_Print(MatM);
+
+	/* Calculate coefficients for each cubic curve */
+	for(k=0; k<n; k++) {
+		a[k]=pxy[k].y;
+		//b[k]=(pxy[k+1].y-pxy[k].y)/h[k] -h[k]*MatM->pmat[k]/2.0 -h[k]*(MatM->pmat[k+1]-MatM->pmat[k])/6.0;
+		b[k]=(pxy[k+1].y-pxy[k].y)/h[k] -h[k]*MatM->pmat[k]/3.0 -h[k]*MatM->pmat[k+1]/6.0;
+		c[k]=MatM->pmat[k]/2.0;
+		d[k]=(MatM->pmat[k+1]-MatM->pmat[k])/6.0/h[k];
+	}
+
+	/* Draw n segements of curves: Notice pxy[] is INT type! */
+	for(k=0; k<n; k++) {
+		printf("k=%d\n",k); //getchar();
+		/* Step */
+		if(pxy[k].x <  pxy[k+1].x) step=1;
+		else step=-1;
+
+		/* Draw a curve with many short lines: pxy[k]->pxy[k+1], step +/-1 */
+		for( ptx=pxy[k].x; 	ptx != pxy[k+1].x; 	ptx +=step) {   /* All integer type! */
+			/* Two ends of a short line */
+			if(xs==0 && xe==0) { /* Token as first line */
+				xs=ptx; 	dx=xs-pxy[k].x;
+				ys=a[k]+b[k]*dx+c[k]*pow(dx,2)+d[k]*pow(dx,3);
+
+				xe=xs+step;	dx+=step;
+				ye=a[k]+b[k]*dx+c[k]*pow(dx,2)+d[k]*pow(dx,3);
+			} else {	    /* Not first line */
+				xs=xe; ys=ye;
+				xe=xs+step;	dx+=step;
+				ye=a[k]+b[k]*dx+c[k]*pow(dx,2)+d[k]*pow(dx,3);
+			}
+
+			/* draw line */
+			draw_wline(fbdev, xs, ys, xe, ye, w);
+		}
+
+		/* reste xs,xe as for token */
+		xs=0; xe=0;
+	}
+
+END_FUNC:
+	/* free */
+	free(h);
+	free(a);
+	release_float_Matrix(&MatM);
+	release_float_Matrix(&MatAB);
+
+	return ret;
+}

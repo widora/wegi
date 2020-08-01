@@ -189,14 +189,17 @@ struct float_Matrix * init_float_Matrix(int nr, int nc)
 /*----------------    Release Matirx    -------------------
 Release a float_Matrix pointer, and its pmat of nr*nc array
 ----------------------------------------------------------*/
-void release_float_Matrix(struct float_Matrix * pMat)
+void release_float_Matrix(struct float_Matrix ** pMat)
 {
-   if(pMat != NULL)
-   {
-	if(pMat->pmat != NULL)
-		free(pMat->pmat);
-	free(pMat);
-   }
+	if(pMat==NULL)
+		return;
+
+	if( *pMat != NULL ) {
+		if( (*pMat)->pmat != NULL )
+			free( (*pMat)->pmat);
+		free(*pMat);
+		*pMat=NULL;
+	}
 }
 
 
@@ -1058,9 +1061,9 @@ struct float_Matrix*  Matrix_SolveEquations( const struct float_Matrix *matAB, s
 
 
  FUNC_END:
-	release_float_Matrix(matA);
-	release_float_Matrix(matINVA);
-	release_float_Matrix(matB);
+	release_float_Matrix(&matA);
+	release_float_Matrix(&matINVA);
+	release_float_Matrix(&matB);
 
 	return matX;
 }
@@ -1084,8 +1087,9 @@ struct float_Matrix* Matrix_GuassSolve( const struct float_Matrix *matAB )
 	int kc, kr;
 	EGI_MATRIX *matX;
 	EGI_MATRIX *pmatAB; /* A copy of matAB */
-	int max_index;	  /* Row index of current Max. value element.  */
+	int max_index;	  /* Row index of the element with Max. coefficient value in current column.  */
 	float tmp;
+	float val;
 
         /* Check pointer */
         if(matAB==NULL) {
@@ -1115,7 +1119,6 @@ struct float_Matrix* Matrix_GuassSolve( const struct float_Matrix *matAB )
 		pmatAB->pmat[i]=matAB->pmat[i];
 
 
-
 	/* Get number of X */
         n=pmatAB->nr; /* n*(n+1) dimensions */
 
@@ -1123,7 +1126,7 @@ struct float_Matrix* Matrix_GuassSolve( const struct float_Matrix *matAB )
         matX=init_float_Matrix(n, 1);
 	if(matX==NULL) {
                 fprintf(stderr,"%s: Fail to init. matX!\n",__func__);
-		release_float_Matrix(pmatAB);
+		release_float_Matrix(&pmatAB);
                 return NULL;
 	}
 
@@ -1137,12 +1140,14 @@ struct float_Matrix* Matrix_GuassSolve( const struct float_Matrix *matAB )
 				max_index=j;
 		}
 
-		/* Check current coefficient */
-		if( fabsf(pmatAB->pmat[max_index*(n+1)+i]) < 1.0e-6 ) {
-			fprintf(stderr,"%s: Too small coefficient!\n",__func__);
-			release_float_Matrix(matX);
-			release_float_Matrix(pmatAB);
+		/* Check current coefficient: Unique solution, No solution, Infinite solutions. */
+		if( fabsf(pmatAB->pmat[max_index*(n+1)+i]) < 1.0e-8 ) {
+			fprintf(stderr,"%s: WARNING! Too small coefficients! the matrix has NO unique solution.\n",__func__);
+		    #if 0
+			release_float_Matrix(&matX);
+			release_float_Matrix(&pmatAB);
 			return NULL;
+		    #endif
 		}
 
 		/* Swap [max_index] row with current row [i] */
@@ -1154,8 +1159,17 @@ struct float_Matrix* Matrix_GuassSolve( const struct float_Matrix *matAB )
 
 		/* Normalize [i,i] coefficients to 1. */
 		tmp=pmatAB->pmat[i*(n+1)+i];
+		if(tmp==0) {
+			fprintf(stderr,"%s: Dividor is zero!\n",__func__);
+		}
 		for(kc=i; kc<n+1; kc++) {  /* Tranverse columns */
+		    #if 1 /* Skip zero elements */
+			if( (val=pmatAB->pmat[i*(n+1)+kc])==0.0 )
+				continue;
+			pmatAB->pmat[i*(n+1)+kc] = val/tmp;
+		    #else
 			pmatAB->pmat[i*(n+1)+kc] /= tmp;
+		    #endif
 		}
 
 		/* Eliminate column [i+1,i]..[n-1,i] coefficients for followed rows */
@@ -1166,8 +1180,9 @@ struct float_Matrix* Matrix_GuassSolve( const struct float_Matrix *matAB )
 			}
 		}
 	}
+	/* NOW: pmatAB is a triangular matrix, with lower left part of the matrix all zeros.  */
 	/* Test --- */
-	Matrix_Print(pmatAB);
+	//Matrix_Print(pmatAB);
 
 	/* Resolve matrix */
 	for(kr=n-1; kr>=0; kr--) {	/* Tranverse rows from bottom to up */
@@ -1179,7 +1194,7 @@ struct float_Matrix* Matrix_GuassSolve( const struct float_Matrix *matAB )
 	}
 
 	/* Release copy */
-	release_float_Matrix(pmatAB);
+	release_float_Matrix(&pmatAB);
 
 	return matX;
 }

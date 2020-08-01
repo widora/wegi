@@ -25,6 +25,7 @@ typedef wchar_t 	EGI_UNICODE;
 #define UNICODE_PRC_START     0x4E00
 #define UNICODE_PRC_END       0x9FA5
 
+/* TXT and DATA files */
 #define MANDARIN_TXT_PATH    	"/mmc/kMandarin.txt"		/* kMandarin.txt from Unihan_Readings.txt, see UniHan_load_MandarinTxt() */
 #define HANYUPINYIN_TXT_PATH    "/mmc/kHanyuPinyin.txt"		/* kHanyuPinyin.txt from Unihan_Readings.txt, see UniHan_load_HanyuPinyinTxt() */
 #define UNIHANS_DATA_PATH       "/mmc/unihans_pinyin.dat"	/* Saved UNIHAN SET containing above unihans */
@@ -38,7 +39,8 @@ typedef wchar_t 	EGI_UNICODE;
 #define UNIHANGROUPS_EXPORT_TXT_PATH	"/mmc/group_test.txt"		/* Text file exported from an UNIHANGROUP set
 									 * In practice, it's without UNIHNAs exported.*/
 
-#define PINYIN_NEW_WORDS_FPATH	"/mmc/pinyin_new_words" 	/* For collecting new words */
+#define PINYIN_NEW_WORDS_FPATH	"/mmc/pinyin_new_words" 	/* For collecting new Cizus/Phrases */
+#define PINYIN_UPDATE_FPATH	"/tmp/update_words.txt"		/* For updating typings of some Cizus/Phrases */
 
 /* File data magic words */
 #define UNIHANS_MAGIC_WORDS		"UNIHANS0"		/* 8bytes, unihans data file magic words */
