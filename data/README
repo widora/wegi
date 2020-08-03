@@ -1,11 +1,13 @@
 	--- Symbol Page Image File ---
 
-buttons.img		Home_page buttons
-icons.img		Home_page head_bar icons 
-icons_2.img		Other icons
-numbfont.img		Number symbols
-sbuttons.img		Some small buttons for APPs
-testfont.img		Ascii symbols
+buttons.img			Home_page buttons
+icons.img			Home_page head_bar icons 
+icons_2.img			Other icons
+numbfont.img			Number symbols
+sbuttons.img			Some small buttons for APPs
+testfont.img			Ascii symbols
+unihangroups_pinyin.dat		UNIHANGROUPS/Cizu
+unihans_pinyin.dat		UNIHAN/Hanzi
 
 	---  Others ---
 

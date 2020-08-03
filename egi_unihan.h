@@ -42,6 +42,67 @@ typedef wchar_t 	EGI_UNICODE;
 #define PINYIN_NEW_WORDS_FPATH	"/mmc/pinyin_new_words" 	/* For collecting new Cizus/Phrases */
 #define PINYIN_UPDATE_FPATH	"/tmp/update_words.txt"		/* For updating typings of some Cizus/Phrases */
 
+
+/* -----------  TXT and DATA files in EGI editor: test_editor.c  ----------------
+
+		  --- 1. PINYIN DATA LOAD PROCEDURE ---
+
+1.A. For SINGLE_PINYIN_INPUT  (单个汉字输入)
+1A.1. Load uniset from data UNIHANS_DATA_PATH.
+1A.2. UniHanGroup_quickSort_typings(uniset) for PINYIN IME.
+
+1.B. For MULTI_PINYIN_INPUT   (连词输入，也包括了单个汉字输入)
+1B.1. Load uniset from data UNIHANS_DATA_PATH.
+1B.2. Try to load group_set from text UNIHANGROUPS_EXPORT_TXT_PATH.
+1B.3. If 1 fails, then try to load from data UNIHANGROUPS_DATA_PATH.
+1B.4. Add/merge uniset to group_set.
+1B.5. Readin new words expend_set from text PINYIN_NEW_WORDS_FPATH.
+1B.6. Merge expend_set into group_set and purify it, then assemble
+      typings for some groups.
+1B.7. Load update_set from text file PINYIN_UPDATE_FPATH.
+1B.8. Replace and modify typings in group_set by calling UniHanGroup_update_typings(update_set).
+1B.9. UniHanGroup_quickSort_typings(group_set) for PINYIN IME.
+
+		  --- 2. PINYIN DATA SAVE PROCEDURE ---
+
+2.A. For SINGLE_PINYIN_INPUT
+2A.1. Save uniset to UNIHANS_DATA_PATH as freq values updated during input.
+
+2.B. For MULTI_PINYIN_INPUT
+2B.1. Freq values are updated automatically during PINYIN input.
+2B.2. First save group_set to text file UNIHANGROUPS_EXPORT_TXT_PATH.
+2B.3. Then save group_set to data file UNIHANGROUPS_DATA_PATH.
+      (Note: If system crashes, we hope at lease one file will keep safe.)
+
+3. Note:
+3.0. Original UNIHANGROUPS_DATA and UNIHANS_DATA are generated as described
+     in "egi_unihan.c".
+3.1. PINYIN_NEW_WORDS are merged into UNIHANGROUPS_DATA and typings are replaced
+    /updated according to PINYIN_UPDATE_FPATH, so all those new words and
+    corrected typings will be saved to both data file and text file.
+
+3.2.  !!! ----- IMPORTANT ----- !!!
+  UNIHANGROUPS_EXPORT_TXT_PATH and UNIHANGROUPS_DATA_PATH are as backups
+  for each other, if one corrupted, the other can restore/create it.
+  see procedure 1B.2 and 1B.3.
+
+3.3. !!! ----- IMPORTANT ----- !!!
+  Manually backup following data/text files from time to time, for worst scenario.
+  group_test.txtBK  unihangroups_pinyin.datBK  unihans_pinyin.datBK
+
+3.4. Collect new words by selecting and right click menu 'Words' in egi editor,
+  ( !!! You'd better select both Cizu and its PINYIN. UniHanGroup_assemble_typings()
+    will probably give wrong PINYINs for polyphonic unihans. !!! )
+  It will be saved into PINYIN_NEW_WORDS_FPATH, which will be merged into group_set
+  next time you load PINYIN data.  See procedure 1B.5.
+
+3.5. If wrong typings are found, then manually create text file PINYIN_UPDATE_FPATH
+  and put Cizu and right typings in it. Next time when you start test_editor, it
+  will be loaded and used to correct wrong typings in group_set. See procedure 1B.7 and 1B.8.
+
+------------------------------------------------------------------------------*/
+
+
 /* File data magic words */
 #define UNIHANS_MAGIC_WORDS		"UNIHANS0"		/* 8bytes, unihans data file magic words */
 #define UNIHANGROUPS_MAGIC_WORDS	"UNIHANGROUPS0000"	/* 12+4(Ver)=16bytes, unihan_groups data file magic words */
