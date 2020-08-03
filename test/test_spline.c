@@ -13,7 +13,6 @@ https://github.com/widora/wegi
 #include <egi_utils.h>
 #include <egi_matrix.h>
 
-
 int main(int argc, char **argv)
 {
   int i;
@@ -21,7 +20,10 @@ int main(int argc, char **argv)
   /* <<<<<<  1. EGI general init  EGI初始化流程 >>>>>> */
   /* 对不必要的一些步骤可以忽略 */
 
-  /* 1.1 Start sys tick 	开启系统计数 (忽略) */
+  /* 1.1 Start sys tick 	开启系统计数 */
+  printf("tm_start_egitick()...\n");
+  tm_start_egitick();
+
   /* 1.2 Start egi log 		开启日志记录 (忽略) */
   /* 1.3 Load symbol pages 	加载图形/符号映像 (忽略) */
   /* 1.4 Load freetype fonts 	加载FreeType字体 (忽略) */
@@ -31,10 +33,13 @@ int main(int argc, char **argv)
   if(init_fbdev(&gv_fb_dev))
         return -1;
 
-  /* 1.6 Start touch read thread 启动触摸屏线程 (忽略) */
+  /* 1.6 Start touch read thread 启动触摸屏线程 */
+  printf("Start touchread thread...\n");
+  if(egi_start_touchread() !=0)
+        return -1;
 
   /* 1.7 Set sys FB mode 	设置显示模式: 是否直接操作FB映像数据， 设置横竖屏 */
-  fb_set_directFB(&gv_fb_dev,true);   /* 直接操作FB映像数据,不通过FBbuffer. 播放动画时可能出现撕裂线。 */
+  fb_set_directFB(&gv_fb_dev,false);//true);   /* 直接操作FB映像数据,不通过FBbuffer. 播放动画时可能出现撕裂线。 */
   fb_position_rotate(&gv_fb_dev,0);   /* 横屏模式 */
 
   /* <<<<<  End of EGI general init EGI初始化流程结束  >>>>>> */
@@ -65,8 +70,6 @@ int main(int argc, char **argv)
 
 
    /* Spline */
-//   getchar();
-
    fbset_speed(0);
    fbset_color(WEGI_COLOR_GREEN);
    draw_spline(&gv_fb_dev, 6, mpoints, 0, 5);
@@ -74,27 +77,72 @@ int main(int argc, char **argv)
    draw_spline(&gv_fb_dev, 6, mpoints, 1, 5);
    fbset_color(WEGI_COLOR_PINK);
    draw_spline(&gv_fb_dev, 6, mpoints, 2, 5);
-   usleep(300000);
+
+   fb_render(&gv_fb_dev);
    getchar();
 
-//   EGI_POINT	pts[9]={ {0,80}, {80,0}, {160, 80}, {240,160}, {320,80}, {40,0}, {160,80},{80,160},{0,80} };
-   int np=5;
-   int mx,my;
-//   EGI_POINT	pts[5]={ {0,80}, {80,160}, {160,80}, {240,160}, {320,80} }; //, {240,0}, {320,80},{240,160},{160,240} };
 
-//   EGI_POINT	pts[5]={ {160,240}, {320-20,80}, {240-1,0}, {160,80}, {80,0} };
-   EGI_POINT	pts[5]={ {80,0},{160,80},{240-1,0},{320-20,80},{160,240} };
+   EGI_TOUCH_DATA touch_data;
+   EGI_POINT	  pts[5]={{40,80},{120,200},{160,80},{200,200},{280,80}};
+   EGI_POINT	  tchpt;	/* Touch point */
+   int		  npt=-1;
 
-   for(i=0; i<320; i+=5)
-   {
-	   pts[1].y = 80+i;
-	   clear_screen( &gv_fb_dev, WEGI_COLOR_GRAY5);
-	   fbset_color(WEGI_COLOR_ORANGE);
-	   draw_pline(&gv_fb_dev, pts, np, 5);
-	   fbset_color(WEGI_COLOR_GREEN);
-	   draw_spline(&gv_fb_dev, np, pts, 0, 5);
-	   getchar();
+   fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY5);
+
+   /* Turn on FB filo and set map pointer */
+   fb_filo_on(&gv_fb_dev);
+
+
+   /* Drawin init spline */
+   for(i=0; i<5; i++)
+	draw_circle(&gv_fb_dev, pts[i].x, pts[i].y, 15);
+   draw_spline2(&gv_fb_dev, 5, pts, 0, 5);
+   fb_render(&gv_fb_dev);
+   exit(1);
+
+#if 1
+   /* Realtime modifying spline */
+   while(1) {
+        if( egi_touch_getdata(&touch_data) ) {
+                while( touch_data.status == pressing || touch_data.status == pressed_hold ) {
+                        /* Adjust touch data coord. system to the same as FB pos_rotate.*/
+                        //egi_touch_fbpos_data(&gv_fb_dev, &touch_data); /* Default FB and TOUCH coord NOT same! */
+			/* Coord transfer */
+			tchpt.x=320-1-touch_data.coord.y;
+			tchpt.y=touch_data.coord.x;
+//			printf("touch X=%d, Y=%d, dx=%d, dy=%d \n", tchpt.x, tchpt.y, touch_data.dx, touch_data.dy);
+
+			/* See if touch a knob */
+			if(touch_data.status == pressing) {
+				for(i=0;i<5;i++) {
+					if(point_incircle(&tchpt, pts+i, 15)) {
+						npt=i; break;
+					}
+				}
+				if(i==5) /* no knob touched */
+					npt=-1;
+			}
+
+			/* If selected a knob, update coord.  */
+			if( npt>=0 ) {
+				pts[npt].x=tchpt.x;
+				pts[npt].y=tchpt.y;
+			}
+
+			/* Redraw spline */
+   			fb_filo_flush(&gv_fb_dev); /* flush and restore old FB pixel data */
+		   	for(i=0; i<5; i++)
+				draw_circle(&gv_fb_dev, pts[i].x, pts[i].y, 15);
+			draw_spline(&gv_fb_dev, 5, pts, 0, 5);
+			fb_render(&gv_fb_dev);
+			//tm_delayms(40);
+
+			/* Read touch data */
+			while(egi_touch_getdata(&touch_data)==false);
+		}
+	}
    }
+#endif
 
 
   /* <<<<<  3. EGI general release EGI释放流程	 >>>>>> */

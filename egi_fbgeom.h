@@ -97,6 +97,7 @@ void 	draw_blend_filled_annulus( FBDEV *dev, int x0, int y0, int r, unsigned int
                                 				EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha );
 
 int 	draw_spline(FBDEV* dev, int np, EGI_POINT *pxy, int endtype, unsigned int w);
+int 	draw_spline2(FBDEV* dev, int np, EGI_POINT *pxy, int endtype, unsigned int w);
 
 int 	fb_cpyto_buf(FBDEV *fb_dev, int x1, int y1, int x2, int y2, uint16_t *buf);
 int 	fb_cpyfrom_buf(FBDEV *fb_dev, int x1, int y1, int x2, int y2, const uint16_t *buf);

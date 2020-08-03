@@ -37,7 +37,7 @@ SPACE:		Select the first Haizi/Cizu in the displaying panel
 Note:
   	1. Use '(0x27) as delimiter to separate PINYIN entry. Example: xian --> xi'an.
   	2. Press ESCAP to clear PINYIN input buffer.
-
+	3. See PINYIN DATA LOAD/SAVE PROCEDURE in "egi_unihan.h".
 
                ( --- 3. Definition and glossary --- )
 

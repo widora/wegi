@@ -2628,7 +2628,7 @@ void draw_filled_circle2(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR color)
 
 /*-----------------------------------------------------------------------------
 Draw a cubic spline passing through given points.
-Reference: https://zhuanlan.zhihu.com/p/62860859
+Reference: https://www.cnblogs.com/xpvincent/archive/2013/01/26/2878092.html
 
 Note:
 1.  A*M=B: Combinate A and B into  matrix MatAB[np*(np+1)], call GaussSolve to
@@ -2639,16 +2639,19 @@ Note:
 		i=[0, N-1]:  segment curve index number
 		      x[i]:  start point.x of the segment curve.
 
+3. Pxy[] all points MUST meets:  x[0]... x[i-1] < x[i] < x[i+1] ...x[np-1]
+
 
 @np:		Number of input points.
 @pxy:		Input points
 @endtype:	Boundary type:
-		1 --- clampled	2 --- Not_A_Knot    Others --- Natural
+		1 --- Clampled	2 --- Not_A_Knot    Others --- Natural
 @w:		Width of line.
 
 Return:
 	0	OK
 	<0	Fails
+Mias Zhou
 -----------------------------------------------------------------------------*/
 #include <egi_matrix.h>
 int draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int w)
@@ -2657,13 +2660,13 @@ int draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int 
 	int k;
 	int n=np-1;		 /* segments of curves */
 	EGI_MATRIX *MatAB=NULL;	 /* Dimension [np*(np+1)] */
-	EGI_MATRIX *MatM=NULL;	 /* m[i]=2c[i] */
+	EGI_MATRIX *MatM=NULL;	 /* m[i]=2*c[i] */
 	float *a=NULL;	 	/* Cubic spline coefficients: y=a+b*(x-xi)+c*(x-xi)^2+d*(x-xi)^3*/
-	float *b=NULL,*c=NULL,*d=NULL;  /* To calloc with a */
-	float *h=NULL;	/* Step: h[i]=x[i+1]-x[i] */
+	float *b=NULL,*c=NULL,*d=NULL;  /* To calloc together with a */
+	float *h=NULL;		/* Step: h[i]=x[i+1]-x[i] */
 	int ptx;
 	float xs=0,ys=0,xe=0,ye=0;	/* start,end x,y */
-	float dx;
+	float dx,ddx;		/* dx=(x-xi) */
 	int step;
 
 	/* check np */
@@ -2740,7 +2743,7 @@ int draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int 
 		MatAB->pmat[(1+k)*(np+1)+np]=6.0*( (pxy[k+2].y-pxy[k+1].y)/h[k+1]-(pxy[k+1].y-pxy[k].y)/h[k] );
 	}
 	/* TEST---- */
-	Matrix_Print(MatAB);
+//	Matrix_Print(MatAB);
 
 	/* Solve matrix */
 	MatM=Matrix_GuassSolve(MatAB);
@@ -2750,12 +2753,11 @@ int draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int 
 		goto END_FUNC;
 	}
 	/* TEST---- */
-	Matrix_Print(MatM);
+//	Matrix_Print(MatM);
 
 	/* Calculate coefficients for each cubic curve */
 	for(k=0; k<n; k++) {
 		a[k]=pxy[k].y;
-		//b[k]=(pxy[k+1].y-pxy[k].y)/h[k] -h[k]*MatM->pmat[k]/2.0 -h[k]*(MatM->pmat[k+1]-MatM->pmat[k])/6.0;
 		b[k]=(pxy[k+1].y-pxy[k].y)/h[k] -h[k]*MatM->pmat[k]/3.0 -h[k]*MatM->pmat[k+1]/6.0;
 		c[k]=MatM->pmat[k]/2.0;
 		d[k]=(MatM->pmat[k+1]-MatM->pmat[k])/6.0/h[k];
@@ -2763,16 +2765,16 @@ int draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int 
 
 	/* Draw n segements of curves: Notice pxy[] is INT type! */
 	for(k=0; k<n; k++) {
-		printf("k=%d\n",k); //getchar();
+//		printf("k=%d\n",k); //getchar();
 		/* Step */
 		if(pxy[k].x <  pxy[k+1].x) step=1;
 		else step=-1;
 
-		/* Draw a curve with many short lines: pxy[k]->pxy[k+1], step +/-1 */
-		for( ptx=pxy[k].x; 	ptx != pxy[k+1].x; 	ptx +=step) {   /* All integer type! */
-			/* Two ends of a short line */
-			if(xs==0 && xe==0) { /* Token as first line */
-				xs=ptx; 	dx=xs-pxy[k].x;
+		/* Draw a curve/segment with many short lines: pxy[k]->pxy[k+1], step +/-1 */
+		for( ptx=pxy[k].x; 	ptx != pxy[k+1].x; 	ptx +=step) {   /* NOTICE: All integer type! */
+			/* Get two ends of a short line */
+			if(xs==0 && xe==0) { /* Token as the first line of the [k]th segment */
+				xs=ptx; 	dx=0;	/* dx = (x-xi) */
 				ys=a[k]+b[k]*dx+c[k]*pow(dx,2)+d[k]*pow(dx,3);
 
 				xe=xs+step;	dx+=step;
@@ -2783,7 +2785,7 @@ int draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int 
 				ye=a[k]+b[k]*dx+c[k]*pow(dx,2)+d[k]*pow(dx,3);
 			}
 
-			/* draw line */
+			/* Draw short line */
 			draw_wline(fbdev, xs, ys, xe, ye, w);
 		}
 
@@ -2797,6 +2799,244 @@ END_FUNC:
 	free(a);
 	release_float_Matrix(&MatM);
 	release_float_Matrix(&MatAB);
+
+	return ret;
+}
+
+/*--------------------------------------------------------------------
+Draw a parametric spline passing through given points.
+Reference: https://blog.csdn.net/qq_35685675/article/details/105852749
+
+Parametric equation:
+   P(x/y)= s(t)=A*t^3+B*t^2+Ct+D
+   Where:
+   	  A=2*(P(i)-P(i+1))/t(i)^3 + (P(i+1)'+P(i)')/t(i)^2
+	  B=3*(P(i+1)-P(i))/t(i)^2 - (2*P(i)'+P(i+1)')/t(i)
+	  C=P(i)'
+	  D=P(i)	i=0,1,2...np-2 ( OR 0,1,...n-1)
+
+   So the target is to calculate P(i)' and solve s(t).
+
+@np:		Number of input points.
+@pxy:		Input points
+@endtype:	Boundary type:
+		1--- Clamped,   (0)Else--- Free.
+@w:		Width of line.
+
+Return:
+	0	OK
+	<0	Fails
+Midas Zhou
+--------------------------------------------------------------------*/
+int draw_spline2(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int w)
+{
+	int ret=0;
+	int i,k;
+      	int n=np-1;              /* segments of curves */
+	int *P;			/* P, point.x[] or point.y[] value */
+
+	float *t=NULL;		/* chord lengths */
+	float *u=NULL;		/* param u, as accumulated chord length */
+
+	/* Middle var m(): m(i,i+1)=t(i-1), m(i,i)=2(t(i)+t(i-1)), m(i,i-1)=t(i)  i=1,...np-2 	*/
+
+	/* ---For: matrix equation */
+        float *a=NULL;          /* a(i)=m(i,i-1)=t(i)  i=1,..np-1 */
+	float *c=NULL;		/* c(i)=t(i-1)*t(i)*( 3*(P(i+1)-P(i))/t(i)^2 + 3*(P(i)-P(i-1))/t(i-1)^2 ) i=1,..,np-2      */
+        float *v=NULL;		/* v(i)=c(i)/l(i), i=0, np-2  */
+        float *l=NULL;		/* l(0)=m11; l(i+1)=m(i+1,i+1)-v(i)*a(i+1) i=1,..np-2 */
+	float *y=NULL;		/* Matrix middle solutions */
+	float *x=NULL;		/* Matrix final solution, as derivative P(i)' */
+
+	/* Boundary params */
+	float m[4]={0};		/* m[0]-m[3] as for: m(0,0), m(0,1), m(np-1,np-2), m(np-1,np-1) respectively */
+
+	/* ---For: s(t)=A*t^3+B*t^2+C*t+D   A_D[0]-->x(t)  A_D[1]-->y(t) */
+	float (*A)[2]=NULL;
+	float (*B)[2]=NULL,(*C)[2]=NULL,(*D)[2]=NULL;		/* To allocate together with A */
+	int size_A=2*sizeof(float);
+
+	/* ---For: draw short lines   */
+	float s;			/* to substitue t */
+	float st=0;			/* st=s+step */
+	float step;
+	float xs=0,ys=0,xe=0,ye=0;      /* start,end x,y */
+
+
+	/* check np */
+	if(np<2)
+		return -1;
+
+        /* Calloc P */
+        P=calloc(np, sizeof(float));
+        if(P==NULL) {
+                fprintf(stderr,"%s: Fail to calloc P!\n",__func__);
+                ret=-2;
+                goto END_FUNC;
+        }
+
+        /* Calloc t */
+        t=calloc(n, sizeof(float));
+        if(t==NULL) {
+                fprintf(stderr,"%s: Fail to calloc t!\n",__func__);
+                ret=-2;
+                goto END_FUNC;
+        }
+
+	/* Calloc u */
+        u=calloc(np, sizeof(float));
+        if(u==NULL) {
+                fprintf(stderr,"%s: Fail to calloc u!\n",__func__);
+                ret=-2;
+                goto END_FUNC;
+        }
+
+        /* Calloc a,c,v,l,y,x */
+        a=calloc(6*np, sizeof(float));
+        if(a==NULL) {
+                fprintf(stderr,"%s: Fail to calloc a,c,v,l,y,x!\n",__func__);
+                ret=-2;
+                goto END_FUNC;
+        }
+	c=a+np;
+	v=c+np;
+	l=v+np;
+	y=l+np;
+	x=y+np;
+
+        /* Calloc A,B,C,D */
+        A=calloc(4*n, size_A);
+        if(A==NULL) {
+                fprintf(stderr,"%s: Fail to calloc A,B,C,D!\n",__func__);
+                ret=-2;
+                goto END_FUNC;
+        }
+	B=A+n;
+	C=B+n;
+	D=C+n;
+
+	/* Calculate each chord length */
+	for(i=0; i<n; i++) {
+		t[i]=sqrt( (pxy[i+1].x-pxy[i].x)*(pxy[i+1].x-pxy[1].x) + (pxy[i+1].y-pxy[i].y)*(pxy[i+1].y-pxy[i].y) );
+		printf("t[%d]=%f\n",i,t[i]);
+	}
+
+	/* Parameter u, as accumulated chord length */
+	u[0]=0.0;
+	for(i=1; i<np; i++)
+		u[i]=u[i-1]+t[i-1];
+
+   /* To calculate A,B,C,D for: X(t)/Y(t)=A*t^3+B*t^2+Ct+D : 0-X(t), 1-Y(t) */
+   for(k=0; k<2; k++)
+   {
+	/* P[] */
+	for(i=0; i<np; i++) {
+		if(k==0)
+			P[i]=pxy[i].x;
+		else
+			P[i]=pxy[i].y;
+	}
+
+	/* Boundary condition */
+	if(endtype==1) {
+		/* Clamped, to input derivatinve value of start/end points */
+		/* m(0,0)=m(np-1,np-1)=1 AND m(0,1)=m(np-1,np-2)=0 */
+		m[0]=1.0; m[3]=1.0;  m[1]=0; m[2]=0;
+		/* c[0]=P(0)' AND c[np-1]=P(np-1)' */
+		c[0]=t[0]/(P[1]-P[0]); //1.0;
+		c[np-1]=t[np-2]/(P[np-1]-P[np-2]); // 1.0;
+	}
+	else {
+	   	/* Free type */
+		/* m(0,0)=1, m(np-1,np-1)=0.5, AND m(0,1)=2, m(np-1,np-2)=4 */
+		m[0]=1.0; m[3]=0.5;  m[1]=2.0;  m[2]=4.0;
+		c[0]=1.5*(P[1]-P[0])/t[0];
+		c[np-1]=6*(P[np-1]-P[np-2])/t[np-2];
+	}
+
+	/* Matrix param: c,a,v */
+	for(i=1; i<np-1; i++)
+	{
+	   /* Matrix param: c */
+	  	 //for(i=1; i<np-1; i++)
+		c[i]=t[i-1]*t[i]*( 3*(P[i+1]-P[i])/t[i]/t[i] + 3*(P[i]-P[i-1])/t[i-1]/t[i-1] );
+		/* c[0], c[np-1] --boundary  condition */
+
+	   /* Matrix param a: a(i)=m(i,i-1)=t(i) */
+	   	//for(i=1;i<np-1; i++)
+		a[i]=t[i];
+
+		printf("c[%d]=%f, a[%d]=%f \n", i,c[i], i,a[i]);
+	}
+
+	/* Matrix param l: l(0)=m(0,0); l(i+1)=m(i+1,i+1)-v(i)*a(i+1)=2(t(i+1)+t(i))-v(i)*a(i+1);  i=1,..np-2 */
+	l[0]=m[0]; /* boundary condition: l[0]=m(0,0), m(0,0)=m[0] */
+	for(i=0;i<np-2; i++) {
+		v[i]=c[i]/l[i];
+		l[i+1]=2*(t[i+1]+t[i])-v[i]*a[i+1];
+
+		printf("v[%d]=%f, l[%d]=%f \n", i,v[i], i,l[i]);
+	}
+	/* boundary condition  m(np-1,np-2)=m[2], m(np-1,np-1)==m[3] */
+	l[np-1]=m[3];
+
+	/* ----  Solve Matrix  ----*/
+	/* Solution for middle Matrix */
+	y[0]=c[0]/l[0];
+	for(i=1; i<np; i++)
+		y[i]=(c[i]-a[i]*y[i-1])/l[i];
+	/* Final solution */
+	x[np-1]=y[np-1];
+	for(i=np-2; i>=0; i--)
+		x[i]=y[i]-v[i]*x[i+1];
+
+	/* Calculate A,B,C,D for: X(t)/Y(t)=A*t^3+B*t^2+Ct+D */
+	for(i=0; i<n; i++) {  /* n segement of curves */
+		A[i][k]=2*(P[i]-P[i+1])/t[i]/t[i]/t[i]+(x[i+1]+x[i])/t[i]/t[i];
+		B[i][k]=3*(P[i+1]-P[i])/t[i]/t[i]-(2*x[i]+x[i+1])/t[i];
+		C[i][k]=x[i];  /* x[i]=P'[i] */
+		D[i][k]=P[i];
+
+		printf("A[%d][%d]=%f, B[%d][%d]=%f, C[%d][%d]=%f, D[%d][%d]=%f\n",
+						i,k,A[i][k], i,k,B[i][k], i,k,C[i][k], i,k,D[i][k]);
+	}
+
+    } /* for(k) */
+
+
+	/* ----- Draw N segments of curve ---------
+	 * X(t)=A[0]*s^3+B[0]*s^2+C[0]*s+D[0]
+	 * Y(t)=A[1]*s^3+B[1]*s^2+C[1]*s+D[1]
+	 -----------------------------------------*/
+	step=1.0; /* step of t: [0 t(i)].  MAX. 1 pixel */
+	for(i=0; i<n; i++) {
+		for(s=0; s<t[i]; s += step ) { /* t step=1.0 */
+			if(s==0) {
+				xs=D[i][0];
+				ys=D[i][1];
+				st=s+step;
+				xe=A[i][0]*st*st*st+B[i][0]*st*st+C[i][0]*st+D[i][0];
+				ye=A[i][1]*st*st*st+B[i][1]*st*st+C[i][1]*st+D[i][1];
+			} else {
+				xs=xe; ys=ye;
+				st += step;
+				xe=A[i][0]*st*st*st+B[i][0]*st*st+C[i][0]*st+D[i][0];
+				ye=A[i][1]*st*st*st+B[i][1]*st*st+C[i][1]*st+D[i][1];
+			}
+			//printf("xs,ys: (%f,%f)  xe,ye: (%f,%f)\n",xs,ys,xe,ye);
+
+                        /* Draw short line */
+                        draw_wline(&gv_fb_dev, xs, ys, xe, ye, 5);
+			fb_render(&gv_fb_dev);
+		}
+	}
+
+
+END_FUNC:
+	/* Free */
+	free(P); free(t); free(u);
+	free(a);
+	free(A);
 
 	return ret;
 }

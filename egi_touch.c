@@ -413,7 +413,6 @@ FBDEV's pos_rotate set.
 Note: We suppose that default/HW_set coord sys of FB and TOUCH PAD
       were set as the same!
 
-
 (screen's)
 
 return:
