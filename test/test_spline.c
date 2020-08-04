@@ -3,7 +3,7 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-A program to draw basic geometries of EGI.
+A program to test EGI draw_spline functions.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -55,6 +55,7 @@ int main(int argc, char **argv)
 
    fbset_speed(10); /* 设置画点速度 */
 
+#if 1
    /* 在屏幕上绘制几何图形  */
    /* 2.1 清屏 */
    clear_screen( &gv_fb_dev, WEGI_COLOR_GRAY5);
@@ -81,10 +82,14 @@ int main(int argc, char **argv)
    fb_render(&gv_fb_dev);
    getchar();
 
+#endif
+
+   /* A little pterosaur */
+   EGI_POINT	  pts[9]={{89, 78}, {48, 63}, {98, 33}, {133, 117}, {218, 100}, {177, 172}, {265, 182}, {116, 198}, {92, 78} };
 
    EGI_TOUCH_DATA touch_data;
-   EGI_POINT	  pts[5]={{40,80},{120,200},{160,80},{200,200},{280,80}};
    EGI_POINT	  tchpt;	/* Touch point */
+   int np=9;
    int		  npt=-1;
 
    fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY5);
@@ -92,13 +97,11 @@ int main(int argc, char **argv)
    /* Turn on FB filo and set map pointer */
    fb_filo_on(&gv_fb_dev);
 
-
    /* Drawin init spline */
-   for(i=0; i<5; i++)
-	draw_circle(&gv_fb_dev, pts[i].x, pts[i].y, 15);
-   draw_spline2(&gv_fb_dev, 5, pts, 0, 5);
+   for(i=0; i<np; i++)
+	draw_circle(&gv_fb_dev, pts[i].x, pts[i].y, 5);
+   draw_spline2(&gv_fb_dev, np, pts, 0, 5);
    fb_render(&gv_fb_dev);
-   exit(1);
 
 #if 1
    /* Realtime modifying spline */
@@ -114,12 +117,12 @@ int main(int argc, char **argv)
 
 			/* See if touch a knob */
 			if(touch_data.status == pressing) {
-				for(i=0;i<5;i++) {
+				for(i=0;i<np;i++) {
 					if(point_incircle(&tchpt, pts+i, 15)) {
 						npt=i; break;
 					}
 				}
-				if(i==5) /* no knob touched */
+				if(i==np) /* no knob touched */
 					npt=-1;
 			}
 
@@ -129,13 +132,23 @@ int main(int argc, char **argv)
 				pts[npt].y=tchpt.y;
 			}
 
+			/* TEST ---- */
+			EGI_POINT mypt={30,30};
+			if(point_incircle(&tchpt, &mypt, 15)) {
+				for( i=0; i<np; i++)
+					printf("{%d, %d}, ",pts[i].x, pts[i].y);
+				printf("\n");
+			}
+
 			/* Redraw spline */
    			fb_filo_flush(&gv_fb_dev); /* flush and restore old FB pixel data */
-		   	for(i=0; i<5; i++)
-				draw_circle(&gv_fb_dev, pts[i].x, pts[i].y, 15);
-			draw_spline(&gv_fb_dev, 5, pts, 0, 5);
+		   	fbset_color(WEGI_COLOR_LTBLUE);
+		   	for(i=0; i<np; i++)
+				draw_circle(&gv_fb_dev, pts[i].x, pts[i].y, 5);
+		   	fbset_color(WEGI_COLOR_PINK);
+			draw_spline2(&gv_fb_dev, np, pts, 1, 5);
+
 			fb_render(&gv_fb_dev);
-			//tm_delayms(40);
 
 			/* Read touch data */
 			while(egi_touch_getdata(&touch_data)==false);
@@ -159,5 +172,6 @@ int main(int argc, char **argv)
 
 return 0;
 }
+
 
 
