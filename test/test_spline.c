@@ -70,7 +70,7 @@ int main(int argc, char **argv)
    draw_pline(&gv_fb_dev, mpoints, 6, 5);
 
 
-   /* Spline */
+   /* Non_parametric Spline */
    fbset_speed(0);
    fbset_color(WEGI_COLOR_GREEN);
    draw_spline(&gv_fb_dev, 6, mpoints, 0, 5);
@@ -84,23 +84,60 @@ int main(int argc, char **argv)
 
 #endif
 
-   /* A little pterosaur */
+   /* =======  Test: draw_spline2() or draw_spline() ======== */
+   #define TEST_SPLINE2
+
+#ifdef TEST_SPLINE2
+   /* For draw_spline2():  A little pterosaur */
    EGI_POINT	  pts[9]={{89, 78}, {48, 63}, {98, 33}, {133, 117}, {218, 100}, {177, 172}, {265, 182}, {116, 198}, {92, 78} };
+#else
+   /* For draw_spline():  Up Going Waves */
+   EGI_POINT	 pts[9]={ {10,230}, {50,100}, {90, 190}, {130, 150}, {170,180}, {210,50}, {250,120}, {280,50}, {310,10} };
+#endif
 
    EGI_TOUCH_DATA touch_data;
    EGI_POINT	  tchpt;	/* Touch point */
-   int np=9;
-   int		  npt=-1;
+   int 		np=9;
+   int		npt=-1;
+   int		step;
 
    fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY5);
 
    /* Turn on FB filo and set map pointer */
    fb_filo_on(&gv_fb_dev);
 
-   /* Drawin init spline */
+#if 0  /* Draw step_changing spline */
+   step=20;
+while(1) {
+   fb_filo_flush(&gv_fb_dev); /* flush and restore old FB pixel data */
+
+   /* change point */
+   pts[4].y +=step;
+   if(pts[4].y > 240) step=-20;
+   else if(pts[4].y <0 ) step=20;
+
+   /* Draw spline */
+   fbset_color(WEGI_COLOR_LTBLUE);
    for(i=0; i<np; i++)
 	draw_circle(&gv_fb_dev, pts[i].x, pts[i].y, 5);
-   draw_spline2(&gv_fb_dev, np, pts, 0, 5);
+   fbset_color(WEGI_COLOR_PINK);
+   //draw_spline2(&gv_fb_dev, np, pts, 0, 5);
+   draw_spline2(&gv_fb_dev, np, pts, 1, 5);
+   fb_render(&gv_fb_dev);
+}
+#endif
+
+   /* Draw spline */
+   fbset_color(WEGI_COLOR_LTBLUE);
+   for(i=0; i<np; i++)
+	draw_circle(&gv_fb_dev, pts[i].x, pts[i].y, 5);
+   fbset_color(WEGI_COLOR_PINK);
+ #ifdef TEST_SPLINE2
+   //draw_spline2(&gv_fb_dev, np, pts, 0, 5);
+   draw_spline2(&gv_fb_dev, np, pts, 1, 5);
+ #else
+   draw_spline(&gv_fb_dev, np, pts, 1, 5);
+ #endif
    fb_render(&gv_fb_dev);
 
 #if 1
@@ -146,8 +183,11 @@ int main(int argc, char **argv)
 		   	for(i=0; i<np; i++)
 				draw_circle(&gv_fb_dev, pts[i].x, pts[i].y, 5);
 		   	fbset_color(WEGI_COLOR_PINK);
+		   #ifdef TEST_SPLINE2
 			draw_spline2(&gv_fb_dev, np, pts, 1, 5);
-
+		   #else
+			draw_spline(&gv_fb_dev, np, pts, 1, 5);
+		   #endif
 			fb_render(&gv_fb_dev);
 
 			/* Read touch data */

@@ -36,6 +36,7 @@ midaszhou@yahoo.com
 #include <string.h>
 #include <math.h>
 #include <float.h>
+#include <stdbool.h>
 
 /*----------------------------------------------
 Calculate and return time difference in us
@@ -1070,7 +1071,7 @@ struct float_Matrix*  Matrix_SolveEquations( const struct float_Matrix *matAB, s
 
 
 /*-------------------------------------------------------------------------
-Solve equation by Guass-Jordan Elimination Method
+Solve matrix equation by Guass-Jordan Elimination Method
 	 A*X=B  -> combine A and B to AB
 
 @matAB: Input matrix in n*(n+1) dimensions as AB.  n --- unkown X dimensions.
@@ -1080,7 +1081,7 @@ return:
 	fails       NULL
 	succeed     pointer to the result matX
 -------------------------------------------------------------------------*/
-struct float_Matrix* Matrix_GuassSolve( const struct float_Matrix *matAB )
+struct float_Matrix* Matrix_GuassSolve( const EGI_MATRIX *matAB )
 {
         int n;
         int i,j;
@@ -1140,10 +1141,10 @@ struct float_Matrix* Matrix_GuassSolve( const struct float_Matrix *matAB )
 				max_index=j;
 		}
 
-		/* Check current coefficient: Unique solution, No solution, Infinite solutions. */
-		if( fabsf(pmatAB->pmat[max_index*(n+1)+i]) < 1.0e-8 ) {
-			fprintf(stderr,"%s: WARNING! Too small coefficients! the matrix has NO unique solution.\n",__func__);
-		    #if 0
+		/* TODO: Check current coefficient: Unique solution, No solution, Infinite solutions. */
+		if( fabsf(pmatAB->pmat[max_index*(n+1)+i]) < 1.0e-20 ) {
+			fprintf(stderr,"%s: WARNING! Too small coefficients! the matrix may has NO unique solution.\n",__func__);
+		    #if 0 /* OR ignore it */
 			release_float_Matrix(&matX);
 			release_float_Matrix(&pmatAB);
 			return NULL;
@@ -1195,6 +1196,171 @@ struct float_Matrix* Matrix_GuassSolve( const struct float_Matrix *matAB )
 
 	/* Release copy */
 	release_float_Matrix(&pmatAB);
+
+	return matX;
+}
+
+
+/*----------------------------------------------------------------------------------
+Solve matrix equation by Thomas Algorithm (or The Tridiagonal Matrix Algorithom(TDMA))
+For tridiagonal matrix:
+
+			A*X=D  --> L*U*X=D  --> L*Y=D, where Y=U*X
+      _				 _       _		        _   _			 _
+     |	a1 c1			  |     |  l1		         | | 1 u1		  |
+     |	b2 a2 c2		  |     |  m1 l2		 | |   1  u2		  |
+     |	   b3 a3 c3		  |     |     m2 l3	         | |      1  u3	   	  |
+A=   |	      .. .. ..		  | --> |      ..  ...	         |*|         .. ..        |
+     |        .. .. ..            |     |       ..  ...          | |          .. ...      |
+     |		 .. a(N-1) c(N-1) |     |	     l(N-1)      | |             1 u(N-1) |
+     |_		    b(N)   a(N)  _|     |_	     m(N)  l(N) _| |_		      1  _|
+
+Note:
+1. Matrix A MUST be strictly diagonally dominat? |a(i)|>|b(i)|+|c(i)|
+   NOP! weakly diagonally dominat also OK.
+	at lease one |a(k)|>|b(k)|+|c(k)|   others |a(k)|=|b(k)|+|c(k)|.
+
+@abcd:  An EGI_MATRIX with row nr=4, just to store a,b,c,d.in form of:
+       		{ a1,a2,a3,...a(N), b1,b2...b(N), c1,c2,....c(N), d1,d2,d3,...d(N) }
+	So as to save memory space!
+	Note: If abcd is invalid, the matAB will aply.
+
+			--- WARNING ----
+        1. Notice their position in the original matrix A.
+	2. For input range a[0]:a[n-1]:  a[0]=0 AND c[n-1]=0
+
+@matAD: Input matrix in n*(n+1) dimensions as AD.  n --- unkown X dimensions.
+        Note: if abcd is valid then matAD will be ignored.
+
+@matX: sovled result X.
+
+return:
+	fails       NULL
+	succeed     pointer to the result matX
+------------------------------------------------------------------------------------*/
+EGI_MATRIX* Matrix_ThomasSolve( const EGI_MATRIX *abcd, const EGI_MATRIX *matAD)
+{
+        int n;	/* Matrix X dimension */
+        int i;
+	EGI_MATRIX *matX=NULL;
+	bool abcd_valid=false;
+
+	/* Pointer to a,b,c,d. calloc together. */
+	float *a=NULL,*b=NULL,*c=NULL,*d=NULL;
+	/* Pointer to l,m,u. calloc together. */
+	float *l=NULL,*m=NULL,*u=NULL, *y=NULL;  /* y as middle var: A*X=D  --> L*U*X=D  --> L*Y=D, Y=U*X */
+
+	/* Use abcd */
+	if( abcd != NULL && abcd->nr==4 && abcd->pmat != NULL)
+	{
+		/* Get dimension */
+		n=abcd->nc;
+
+		/* Assign pinters */
+		a=abcd->pmat;
+		b=a+n;
+		c=b+n;
+		d=c+n;
+
+		/* To apply matrix abcd */
+		abcd_valid=true;
+
+	}
+	/* Use matAD instead */
+	else {
+	        /* Check matAB */
+        	if(matAD==NULL || matAD->pmat==NULL || matAD->nr+1 != matAD->nc  ) {
+                	fprintf(stderr,"%s: abcd AND matAD are both invalid!\n",__func__);
+	                return NULL;
+        	}
+
+		/* Get dimension */
+		n=matAD->nr;
+
+		/* Calloc a,b,c,d */
+	        a=calloc(4*n, sizeof(float));
+        	if(a==NULL) {
+                	fprintf(stderr,"%s: Fail to calloc a,b,c,d!\n",__func__);
+			return NULL;
+	        }
+		b=a+n;
+		c=b+n;
+		d=c+n;
+
+		/* Copy to a,b,c,d */
+		for(i=0; i<n; i++) {    /* n */
+			a[i]=matAD->pmat[i*(n+1+1)];  /* nr=n+1 */
+			d[i]=matAD->pmat[(i+1)*(n+1)-1];  /* nr=n+1 */
+		}
+
+		for(i=1; i<n; i++)    /* n-1 */
+			b[i]=matAD->pmat[i*(n+1+1)-1];
+
+		for(i=0; i<n-1; i++)  /* n-1 */
+			c[i]=matAD->pmat[i*(n+1+1)+1];
+
+	}
+	/* TEST */
+	#if 0
+	for(i=0; i<n; i++)
+		printf("a[%d]=%f, b[%d]=%f, c[%d]=%f, d[%d]=%f\n", i,a[i],i,b[i],i,c[i],i,d[i]);
+	#endif
+
+        /* TODO: Check Matrix solution condtion: MUST be diagonally dominat. |a(i)|>|b(i)|+|c(i)| */
+	#if 0  /* Ignore , weakly diagonlly dominant also OK */
+	for(i=0; i<n; i++) {
+		if( !(fabsf(a[i]) > fabsf(b[i])+fabsf(c[i])) ) {
+			printf("%s: Matrix is NOT strictly diagonlly dominant!\n",__func__);
+			goto END_FUNC;
+		}
+	}
+	#endif
+
+	/* Calloc l,m,u,y */
+        l=calloc(4*n, sizeof(float));
+       	if(l==NULL) {
+               	fprintf(stderr,"%s: Fail to calloc l,m,u!\n",__func__);
+		goto END_FUNC;
+        }
+	m=l+n;
+	u=m+n;
+	y=u+n;
+
+        /* Allocate matX */
+        matX=init_float_Matrix(n, 1);
+	if(matX==NULL) {
+                fprintf(stderr,"%s: Fail to init. matX!\n",__func__);
+		goto END_FUNC;
+	}
+
+	/* Calculate l,m,u */
+	l[0]=a[0];
+	u[0]=c[0]/l[0];
+	l[1]=a[1]-b[1]*u[0];
+	for(i=1; i<n-1; i++) {  /* to n-2 */
+		m[i]=b[i];
+		u[i]=c[i]/l[i];
+		l[i+1]=a[i+1]-b[i+1]*u[i];
+	}
+	/* m[0],u[n-1] is NO use */
+	m[n-1]=b[n-1];
+
+	/* Calculate middle var. y[] */
+	y[0]=d[0]/l[0];
+	for(i=1; i<n; i++)
+		y[i]=(d[i]-m[i]*y[i-1])/l[i];
+
+	/* Calculate final X[n*1] */
+	matX->pmat[n-1]=y[n-1];
+	for(i=n-2; i>=0; i--)
+		matX->pmat[i]=y[i]-u[i]*matX->pmat[i+1];
+
+END_FUNC:
+	/* free */
+	if(abcd_valid==false)
+		free(a); /* a,b,c,d */
+	free(l); /* l,m,u,y */
+
 
 	return matX;
 }

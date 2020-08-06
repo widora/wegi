@@ -62,6 +62,9 @@ struct float_Matrix* Matrix_Transpose(const struct float_Matrix *matA, struct fl
 float* Matrix_Determ( const struct float_Matrix *matA,  float *determ );
 struct float_Matrix* Matrix_Inverse( const struct float_Matrix *matA, struct float_Matrix *matAdj );
 struct float_Matrix* Matrix_SolveEquations( const struct float_Matrix *matAB, struct float_Matrix *matX);
-struct float_Matrix* Matrix_GuassSolve( const struct float_Matrix *matAB );
+
+/* Special Matrix Equation Algrithom */
+EGI_MATRIX* 	Matrix_GuassSolve( const struct float_Matrix *matAB );
+EGI_MATRIX*	Matrix_ThomasSolve( const EGI_MATRIX *abcd, const EGI_MATRIX *matAD);
 
 #endif

@@ -129,6 +129,17 @@ int main(int argc, char **argv)
    usleep(500000);
    draw_button_frame( &gv_fb_dev, 0, COLOR_24TO16BITS(0x66cc99), 45, 135, 110, 50, 4); /* 松开 */
 
+   /* 2.11 绘制spline曲线 */
+   EGI_POINT   pts[9]={{48, 126}, {192, 128}, {195, 22}, {259, 39}, {215, 52}, {227, 139}, {201, 202}, {63, 187}, {42, 126} };
+   clear_screen( &gv_fb_dev, WEGI_COLOR_GRAY5);
+   fbset_color(WEGI_COLOR_LTBLUE);
+   /* 标注型值点 */
+   for(i=0; i<9; i++)
+	draw_circle(&gv_fb_dev, pts[i].x, pts[i].y, 15);
+   /* 绘制3次spline参数曲线 */
+   fbset_color(WEGI_COLOR_PINK);
+   draw_spline2(&gv_fb_dev, 9, pts, 1, 5);
+
   /* <<<<<  3. EGI general release EGI释放流程	 >>>>>> */
   /* 根据初始化流程做对应的释放　*/
   /* 3.1 Release sysfonts and appfonts 释放所有FreeTpype字体 (忽略) */

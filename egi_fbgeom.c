@@ -470,12 +470,12 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 	}
 
 	/* Check FB.pos_xres, pos_yres */
-	if(fb_dev->pos_rotate) {
+	//if(fb_dev->pos_rotate) {
 		if( x<0 || x>fb_dev->pos_xres-1)
 			return -1;
 		if( y<0 || y>fb_dev->pos_yres-1)
 			return -1;
-	}
+	//}
 
 	/* Check FB.pos_rotate
 	 * IF 90 Deg rotated: Y maps to (xres-1)-FB.X,  X maps to FB.Y
@@ -2658,15 +2658,15 @@ int draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int 
 {
 	int ret=0;
 	int k;
-	int n=np-1;		 /* segments of curves */
-	EGI_MATRIX *MatAB=NULL;	 /* Dimension [np*(np+1)] */
-	EGI_MATRIX *MatM=NULL;	 /* m[i]=2*c[i] */
-	float *a=NULL;	 	/* Cubic spline coefficients: y=a+b*(x-xi)+c*(x-xi)^2+d*(x-xi)^3*/
+	int n=np-1;		 	/* segments of curves */
+	EGI_MATRIX *MatAB=NULL;	 	/* Dimension [np*(np+1)] */
+	EGI_MATRIX *MatM=NULL;	 	/* m[i]=2*c[i] */
+	float *a=NULL;	 		/* Cubic spline coefficients: y=a+b*(x-xi)+c*(x-xi)^2+d*(x-xi)^3*/
 	float *b=NULL,*c=NULL,*d=NULL;  /* To calloc together with a */
-	float *h=NULL;		/* Step: h[i]=x[i+1]-x[i] */
+	float *h=NULL;			/* Step: h[i]=x[i+1]-x[i] */
 	int ptx;
 	float xs=0,ys=0,xe=0,ye=0;	/* start,end x,y */
-	float dx,ddx;		/* dx=(x-xi) */
+	float dx,ddx;			/* dx=(x-xi) */
 	int step;
 
 	/* check np */
@@ -2745,13 +2745,19 @@ int draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int 
 	/* TEST---- */
 //	Matrix_Print(MatAB);
 
-	/* Solve matrix */
+	/* --- Solve matrix --- */
+#if 0  /* OPTION 1: Guass Elimination */
 	MatM=Matrix_GuassSolve(MatAB);
+#else  /* OPTION 2: Thomas Algorithm (The Tridiagonal Matrix Algorithom) */
+	MatM=Matrix_ThomasSolve(NULL,MatAB);
+#endif
 	if(MatM==NULL) {
                 fprintf(stderr,"%s: Fail to solve the matrix equation!\n",__func__);
 		ret=-4;
 		goto END_FUNC;
 	}
+
+
 	/* TEST---- */
 //	Matrix_Print(MatM);
 
@@ -2786,7 +2792,7 @@ int draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int 
 			}
 
 			/* Draw short line */
-			draw_wline(fbdev, xs, ys, xe, ye, w);
+			draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w);
 		}
 
 		/* reste xs,xe as for token */
@@ -2836,12 +2842,11 @@ int draw_spline2(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int
 	int *P;			/* P, point.x[] or point.y[] value */
 
 	float *t=NULL;		/* chord lengths */
-	float *u=NULL;		/* param u, as accumulated chord length */
-
+	//float *u=NULL;	/* param u, as accumulated chord length. NO USE! */
 
 	/* ---For: matrix equation */
         float *a=NULL;          /* a(i)=m(i,i-1)=t(i)  i=1,..np-1 */
-	float *c=NULL;		/* c(i)=t(i-1)*t(i)*( 3*(P(i+1)-P(i))/t(i)^2 + 3*(P(i)-P(i-1))/t(i-1)^2 ) i=1,..,np-2      */
+	float *c=NULL;		/* c(i)=t(i-1)*t(i)*( 3*(P(i+1)-P(i))/t(i)^2 + 3*(P(i)-P(i-1))/t(i-1)^2 ) i=1,..,np-2  */
         float *v=NULL;		/* v(i)=c(i)/l(i), i=0, np-2  */
         float *l=NULL;		/* l(0)=m11; l(i+1)=m(i+1,i+1)-v(i)*a(i+1) i=1,..np-2 */
 	float *y=NULL;		/* Matrix middle solutions */
@@ -2863,6 +2868,8 @@ int draw_spline2(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int
 	float step;
 	float xs=0,ys=0,xe=0,ye=0;      /* start,end x,y */
 
+	float tmp3, tmp2;
+
 	/* check np */
 	if(np<2)
 		return -1;
@@ -2883,13 +2890,14 @@ int draw_spline2(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int
                 goto END_FUNC;
         }
 
-	/* Calloc u */
+	#if 0 /* Calloc u */
         u=calloc(np, sizeof(float));
         if(u==NULL) {
                 fprintf(stderr,"%s: Fail to calloc u!\n",__func__);
                 ret=-2;
                 goto END_FUNC;
         }
+	#endif
 
         /* Calloc a,c,v,l,y,x */
         a=calloc(6*np, sizeof(float));
@@ -2921,10 +2929,11 @@ int draw_spline2(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int
 		//printf("t[%d]=%f\n",i,t[i]);
 	}
 
-	/* Parameter u, as accumulated chord length */
+	#if 0 /* Parameter u, as accumulated chord length */
 	u[0]=0.0;
 	for(i=1; i<np; i++)
 		u[i]=u[i-1]+t[i-1];
+	#endif
 
    /* To calculate A,B,C,D for: X(t)/Y(t)=A*t^3+B*t^2+Ct+D : 0-X(t), 1-Y(t) */
    for(k=0; k<2; k++)
@@ -2955,7 +2964,7 @@ int draw_spline2(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int
 		c[np-1]=6*(P[np-1]-P[np-2])/t[np-2];
 	}
 
-	/* Check Matrix solution condtion */
+	/* Check Matrix solution condtion,  MUST be diagonally dominat.  */
 	if( !(fabsf(m[0]) > fabsf(m[1])) || !(fabsf(m[3]) > fabsf(m[2])) ) {
 		printf("%s: Matrix has NO unique solution!\n",__func__);
 		ret=-3;
@@ -3003,8 +3012,11 @@ int draw_spline2(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int
 
 	/* Calculate A,B,C,D for: X(t)/Y(t)=A*t^3+B*t^2+Ct+D */
 	for(i=0; i<n; i++) {  /* n segement of curves */
-		A[i][k]=2*(P[i]-P[i+1])/t[i]/t[i]/t[i]+(x[i+1]+x[i])/t[i]/t[i];
-		B[i][k]=3*(P[i+1]-P[i])/t[i]/t[i]-(2*x[i]+x[i+1])/t[i];
+		//A[i][k]=2*(P[i]-P[i+1])/t[i]/t[i]/t[i]+(x[i+1]+x[i])/t[i]/t[i];
+		//B[i][k]=3*(P[i+1]-P[i])/t[i]/t[i]-(2*x[i]+x[i+1])/t[i];
+		tmp2=t[i]*t[i]; tmp3=tmp2*t[i];
+		A[i][k]=2*(P[i]-P[i+1])/tmp3+(x[i+1]+x[i])/tmp2;
+		B[i][k]=3*(P[i+1]-P[i])/tmp2-(2*x[i]+x[i+1])/t[i];
 		C[i][k]=x[i];  /* x[i]=P'[i] */
 		D[i][k]=P[i];
 
@@ -3025,25 +3037,32 @@ int draw_spline2(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int
 				xs=D[i][0];
 				ys=D[i][1];
 				st=s+step;
-				xe=A[i][0]*st*st*st+B[i][0]*st*st+C[i][0]*st+D[i][0];
-				ye=A[i][1]*st*st*st+B[i][1]*st*st+C[i][1]*st+D[i][1];
+				//xe=A[i][0]*st*st*st+B[i][0]*st*st+C[i][0]*st+D[i][0];
+				//ye=A[i][1]*st*st*st+B[i][1]*st*st+C[i][1]*st+D[i][1];
+				tmp2=st*st; tmp3=tmp2*st;
+				xe=A[i][0]*tmp3+B[i][0]*tmp2+C[i][0]*st+D[i][0];
+				ye=A[i][1]*tmp3+B[i][1]*tmp2+C[i][1]*st+D[i][1];
 			} else {
 				xs=xe; ys=ye;
 				st += step;
-				xe=A[i][0]*st*st*st+B[i][0]*st*st+C[i][0]*st+D[i][0];
-				ye=A[i][1]*st*st*st+B[i][1]*st*st+C[i][1]*st+D[i][1];
+				//xe=A[i][0]*st*st*st+B[i][0]*st*st+C[i][0]*st+D[i][0];
+				//ye=A[i][1]*st*st*st+B[i][1]*st*st+C[i][1]*st+D[i][1];
+				tmp2=st*st; tmp3=tmp2*st;
+				xe=A[i][0]*tmp3+B[i][0]*tmp2+C[i][0]*st+D[i][0];
+				ye=A[i][1]*tmp3+B[i][1]*tmp2+C[i][1]*st+D[i][1];
 			}
 			//printf("xs,ys: (%f,%f)  xe,ye: (%f,%f)\n",xs,ys,xe,ye);
 
                         /* Draw short line */
-                        draw_wline(fbdev, xs, ys, xe, ye, w);
+                        draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w);
 		}
 	}
 
 
 END_FUNC:
 	/* Free */
-	free(P); free(t); free(u);
+	free(P); free(t);
+	//free(u);
 	free(a); /*  a,c,v,l,y,x */
 	free(A); /* A,B,C,D */
 

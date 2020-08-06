@@ -17,15 +17,16 @@ midaszhou@yahoo.com
 #define CADBOARD_BKGCOLOR	WEGI_COLOR_BLACK	/* CAD drawing board back ground color */
 
 /* --- Define Buttons --- */
-#define MAX_BTNS		4
+#define MAX_BTNS		5
 #define BTNID_LINE		0
 #define BTNID_CIRCLE		1
 #define BTNID_SKETCH		2
-#define BTNID_CLEAR		3
+#define BTNID_SPLINE		3
+#define BTNID_CLEAR		4
 EGI_RECTBTN 			btns[MAX_BTNS];
 
 /* Button tags */
-char *btn_tags[MAX_BTNS]={ "Line","Circle","Sketch","Clear" };
+char *btn_tags[MAX_BTNS]={ "Line","Circle","Sketch","Spline","Clear" };
 
 /* Button React Functions */
 static void btn_react(EGI_RECTBTN *btn);
@@ -34,10 +35,24 @@ static void btn_react(EGI_RECTBTN *btn);
 static void cad_line(EGI_TOUCH_DATA* touch_data);
 static void cad_circle(EGI_TOUCH_DATA* touch_data);
 static void cad_sketch(EGI_TOUCH_DATA* touch_data);
+static void cad_spline(EGI_TOUCH_DATA* touch_data);
 
 typedef void (* CAD_DRAW_FUNCTION)(EGI_TOUCH_DATA *);
-CAD_DRAW_FUNCTION cad_draw_functions[MAX_BTNS]={ cad_line, cad_circle, cad_sketch };
+CAD_DRAW_FUNCTION cad_draw_functions[MAX_BTNS]={ cad_line, cad_circle, cad_sketch, cad_spline };
 CAD_DRAW_FUNCTION cad_draw_function;	/* --- Current selected CAD draw function ---- */
+
+
+/*-------------------------------------------
+Convert touch X,Y to under FB coord.
+--------------------------------------------*/
+void convert_touchxy(EGI_TOUCH_DATA *touch_data)
+{
+	//egi_touch_fbpos_data(&gv_fb_dev, &touch_data); /* Default FB and TOUCH coord NOT same! */
+
+        int px=320-1-touch_data->coord.y;
+	touch_data->coord.y = touch_data->coord.x;
+	touch_data->coord.x = px;
+}
 
 
 /*------------------
@@ -97,7 +112,7 @@ int main(int argc, char **argv)
 
   /* Set sys FB mode */
   fb_set_directFB(&gv_fb_dev,false);
-  fb_position_rotate(&gv_fb_dev,3);
+  fb_position_rotate(&gv_fb_dev, 0); //3);
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
@@ -108,6 +123,7 @@ int main(int argc, char **argv)
 
 	int i,j;
 	char strtmp[128];
+	EGI_POINT tchpt;
 	EGI_TOUCH_DATA	touch_data;
 	EGI_IMGBUF 	*padimg=egi_imgbuf_create( 60, 240, 80, WEGI_COLOR_BLACK );
 
@@ -121,12 +137,21 @@ int main(int argc, char **argv)
 	btns[BTNID_SKETCH]=(EGI_RECTBTN) { .id=BTNID_SKETCH, .color=WEGI_COLOR_GRAY, .fw=18, .fh=18,
 					 .x0=320-80, .y0=80, .offy=-2, .width=80-1, .height=40, .sw=4,
 	    				 .pressed=false, .reaction=btn_react };
+	btns[BTNID_SPLINE]=(EGI_RECTBTN) { .id=BTNID_SPLINE, .color=WEGI_COLOR_GRAY, .fw=18, .fh=18,
+					 .x0=320-80, .y0=120, .offy=-2, .width=80-1, .height=40, .sw=4,
+	    				 .pressed=false, .reaction=btn_react };
 	btns[BTNID_CLEAR]=(EGI_RECTBTN) { .id=BTNID_CLEAR, .color=WEGI_COLOR_GRAY, .fw=18, .fh=18,
 					 .x0=320-80, .y0=240-40, .offy=-2, .width=80-1, .height=40, .sw=4,
 	    				 .pressed=false, .reaction=btn_react };
 
 	/* Clear FB backbuff */
 	fb_clear_backBuff(&gv_fb_dev, CADBOARD_BKGCOLOR);
+
+	/* Draw limit box */
+	//draw_rect(&gv_fb_dev, 0,0, gv_fb_dev.pos_xres-1, gv_fb_dev.pos_yres-1);
+	//fb_render(&gv_fb_dev);
+
+	/* Draw btn area */
 	draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAY1, 320-80-1, 0, 320-1, 240-1);
 
 
@@ -142,19 +167,19 @@ int main(int argc, char **argv)
 	egi_sbtn_refresh(&btns[BTNID_LINE], btn_tags[BTNID_LINE]);
 	egi_sbtn_refresh(&btns[BTNID_CIRCLE], btn_tags[BTNID_CIRCLE]);
 	egi_sbtn_refresh(&btns[BTNID_SKETCH], btn_tags[BTNID_SKETCH]);
+	egi_sbtn_refresh(&btns[BTNID_SPLINE], btn_tags[BTNID_SPLINE]);
 	egi_sbtn_refresh(&btns[BTNID_CLEAR], btn_tags[BTNID_CLEAR]);
 
 	/* Mark */
 	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
-                                      	20, 20,(const unsigned char *)" E_CAD\n    v1.0",    /* fw,fh, pstr */
+                                      	16, 16,(const unsigned char *)" E_CAD\n   v1.0",    /* fw,fh, pstr */
                                        	320, 4, 4,                                  /* pixpl, lines, gap */
-                                       	240, 130,                                    /* x0,y0, */
-                                       	WEGI_COLOR_WHITE, -1, 255,       /* fontcolor, transcolor,opaque */
+                                       	240, 160,                                    /* x0,y0, */
+                                       	WEGI_COLOR_DARKBLUE, -1, 255,       /* fontcolor, transcolor,opaque */
                                        	NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
 
 	/* Render */
 	fb_render(&gv_fb_dev);
-
 
 	/* ----- Loop Wait for button touch ----- */
   	while(1) {
@@ -162,9 +187,12 @@ int main(int argc, char **argv)
 	                continue;
 
       		/* Touch_data converted to the same coord as of FB */
-        	egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+        	//egi_touch_fbpos_data(&gv_fb_dev, &touch_data); /* Default FB and TOUCH coord NOT same! */
+		convert_touchxy(&touch_data);
 
 	        /* 1, Check if touched any of the buttons */
+		printf("Check touch point (%d,%d) \n", touch_data.coord.x, touch_data.coord.y);
+
         	for(j=0; j<MAX_BTNS; j++) {
                 	if( egi_touch_on_rectBTN(&touch_data, &btns[j]) ) { //&& touch_data.status==pressing ) {  /* Re_check event! */
                         	printf("Button_%d touched!\n",j);
@@ -233,7 +261,7 @@ For all buttons
 ------------------------------*/
 static void btn_react(EGI_RECTBTN *btn)
 {
-	int i;
+	int i,j;
         EGI_TOUCH_DATA touch;
 
 	/* --- 1. For Clear button --- */
@@ -244,6 +272,15 @@ static void btn_react(EGI_RECTBTN *btn)
 		/* Clear drawing arae */
 		fbset_color(CADBOARD_BKGCOLOR);
 		draw_filled_rect(&gv_fb_dev, 0,0, 240-1,240-1);
+
+		/* Draw grids */
+		fbset_color(WEGI_COLOR_WHITE);
+		for(i=0; i<6; i++) {
+			for(j=0; j<7; j++) {
+				draw_dot(&gv_fb_dev, 20+i*40, 20+j*40);
+			}
+		}
+
 		fb_render(&gv_fb_dev);
 
 	        #if 0  /* OPTION_1: Wait for Touch releasing */
@@ -312,7 +349,8 @@ static void cad_line(EGI_TOUCH_DATA* touch_data)
 	while(1) {
 
         	while(!egi_touch_getdata(&touch));
-            	egi_touch_fbpos_data(&gv_fb_dev, &touch);
+            	//egi_touch_fbpos_data(&gv_fb_dev, &touch);
+		convert_touchxy(&touch);
 
 		/* Releasing: confirm the end point */
 		if(touch.status==releasing || touch.status==released_hold) {
@@ -376,7 +414,8 @@ static void cad_circle(EGI_TOUCH_DATA* touch_data)
 	while(1) {
 
         	while(!egi_touch_getdata(&touch));
-            	egi_touch_fbpos_data(&gv_fb_dev, &touch);
+            	//egi_touch_fbpos_data(&gv_fb_dev, &touch);
+		convert_touchxy(&touch);
 
 		/* Releasing: confirm the end point */
 		if(touch.status==releasing || touch.status==released_hold) {
@@ -445,7 +484,8 @@ static void cad_sketch(EGI_TOUCH_DATA* touch_data)
 	while(1) {
 
         	while(!egi_touch_getdata(&touch));
-            	egi_touch_fbpos_data(&gv_fb_dev, &touch);
+            	//egi_touch_fbpos_data(&gv_fb_dev, &touch);
+		convert_touchxy(&touch);
 
 		/* Releasing: confirm the end point */
 		if(touch.status==releasing || touch.status==released_hold) {
@@ -475,4 +515,87 @@ static void cad_sketch(EGI_TOUCH_DATA* touch_data)
 		draw_wline(&gv_fb_dev, startxy.x, startxy.y, endxy.x, endxy.y, penw);
 //	        tm_delayms(60);
 	}
+}
+
+
+/*-------------------------------------------------
+		   Draw Sketch
+Current touched point as start point of spline,
+continously trace touch point and draw splines, until
+gets 5 points.
+-------------------------------------------------*/
+static void cad_spline(EGI_TOUCH_DATA* touch_data)
+{
+	int i,k;
+	EGI_TOUCH_DATA touch;
+
+	static int np=128;
+	EGI_POINT  pts[np];
+	int 	   penw=3;
+	int	   mr=1;	/* Radius of point mark */
+	bool	   stop_spline=false;
+
+	/* Dump filo */
+	fb_filo_dump(&gv_fb_dev);
+
+	/* Set as direct FB */
+	fb_set_directFB(&gv_fb_dev, true);
+	fb_filo_on(&gv_fb_dev);
+
+	/* Set screen size to 240x240 */
+	gv_fb_dev.pos_xres=240;
+
+	/* Get start point */
+	pts[0]=touch_data->coord;
+	fbset_color(WEGI_COLOR_LTBLUE);
+	draw_circle(&gv_fb_dev, pts[0].x, pts[0].y, mr);
+
+	/* np_point spline */
+	for(i=1; i<np; i++) {
+                while( egi_touch_timeWait_press(-1, 0, &touch)!=0 );
+		convert_touchxy(&touch);
+
+		/* get pxy */
+		pts[i]=touch.coord;
+
+        	fb_filo_flush(&gv_fb_dev); /* flush and restore old FB pixel data */
+
+		if(egi_touch_on_rectBTN(&touch, &btns[BTNID_SPLINE])) {
+			stop_spline=true;
+			i--;
+		}
+
+		/* Draw to working buff if MAX np, OR touch btn_spline to stop */
+		if( i==np-1 || stop_spline )
+		        fb_set_directFB(&gv_fb_dev, false);
+
+		/* Draw spline */
+		fbset_color(WEGI_COLOR_LTBLUE);
+		for(k=0; k<i+1; k++) {
+			draw_circle(&gv_fb_dev, pts[k].x, pts[k].y, mr);
+		}
+		fbset_color(WEGI_COLOR_GREEN);
+		draw_spline2(&gv_fb_dev, i+1, pts, 1, penw);
+		printf("%d point spline\n",i+1);
+
+		/* Refresh btn */
+		if(stop_spline) {
+			printf("refresh btn spline!\n");
+			btns[BTNID_SPLINE].pressed=false;
+			gv_fb_dev.pos_xres=320;
+			egi_sbtn_refresh(btns+BTNID_SPLINE, btn_tags[BTNID_SPLINE]);
+			cad_draw_function=NULL;
+
+			break;
+		}
+
+	}
+
+        /* Turn off FB filo and reset map pointer */
+        fb_filo_off(&gv_fb_dev);
+
+	fb_render(&gv_fb_dev);
+
+	/* Reset screen size back to 240x320 */
+	gv_fb_dev.pos_xres=320;
 }
