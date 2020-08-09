@@ -15,6 +15,18 @@ int main(void)
 	printf(" 1/(2^(FLT_MANT_DIG-1)) = %0.12f\n",1.0/pow(2,FLT_MANT_DIG-1));
 	printf("	============================================\n\n");
 
+        printf("\n      ===============  Double Limits  =============\n");
+        printf("Number of bits in the mantissa of a double: %d\n", DBL_MANT_DIG);
+        printf("Min. number of significant decimal digits for a double: %d\n", DBL_DIG);
+        printf("Min. base-10 negative exponent for a double with a full set of significant figures: %d\n",DBL_MIN_10_EXP);
+        printf("Max. base-10 positive exponent for a double: %d\n",DBL_MAX_10_EXP);
+        printf("Min. value for a positive double retaining full precision: %.20f =%e\n", DBL_MIN, DBL_MIN);
+        printf("Max. value for a positive double: %.20f  =%e\n", DBL_MAX,DBL_MAX);
+        printf("Diff. between 1.00 and the leaset double value greater than 1.00: %.20f=%e\n",DBL_EPSILON,DBL_EPSILON);
+        printf(" 1/(2^(DBL_MANT_DIG-1)) = %0.20f\n",1.0/pow(2,DBL_MANT_DIG-1));
+        printf("        ============================================\n\n");
+
+
 	//int a=0b0 10000010 10010000000000000000000;
 	int a=0b01000001010010000000000000000000;
 	float b=*(float *)&a;

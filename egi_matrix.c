@@ -8,8 +8,9 @@ Note:
 1. Beware of the case that two input matrix pionters are the same!
 2. Too big the determinant value indicates that the matrix equations
    may NOT be rational!
-3. A float type represents accurately at least the first six digits.
-   and a range at lease 10^-37 to 10^37.
+3. A float type represents accurately at least the first six decimal digits.
+   and a range at lease 10^-37 to 10^37,   while a double has min. 15
+   significant decimal digits and a range at lease 10^-307 - 10^308
 
 		-----  Float Limits (see float.h)  -----
 
@@ -21,6 +22,16 @@ FLT_MIN: 	Min. value for a positive float retaining full precision: 0.000000 =1.
 FLT_MAX: 	Max. value for a positive float: 340282346638528880000000000000000000000.000000  =3.402823e+38
 FLT_EPSILON: 	Diff. between 1.00 and the leaset float value greater than 1.00: 0.000000=1.192093e-07
  1/(2^(FLT_MANT_DIG-1)) = 0.000000119209
+
+		-----  Double Limits (see float.h)  -----
+DBL_MANT_DIG:   Number of bits in the mantissa of a double: 53
+DBL_DIG:	Min. number of significant decimal digits for a double: 15
+DBL_MIN_10_EXP:	Min. base-10 negative exponent for a double with a full set of significant figures: -307
+DBL_MAX_10EXP:	Max. base-10 positive exponent for a double: 308
+DBL_MIN:	Min. value for a positive double retaining full precision: 0.00000000000000000000 =2.225074e-308
+DBL_MAX:	Max. value for a positive double: 17976931348623153000000.......00000000000.00000000000000000000  =1.797693e+308
+DBL_EPSILON:	Diff. between 1.00 and the leaset double value greater than 1.00: 0.00000000000000022204=2.220446e-16
+ 1/(2^(DBL_MANT_DIG-1)) = 0.00000000000000022204
 
 
 TODO:

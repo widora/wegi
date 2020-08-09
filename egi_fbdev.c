@@ -381,6 +381,27 @@ void fb_set_directFB(FBDEV *fb_dev, bool directFB)
 }
 
 
+/*-------------------------------------------------
+Get current FB mode.
+
+Return:
+	-1:	Invalid FB mode.
+	 1:	Direct FB mode.
+		1 to coincide with fb_set_directFB(,ture)
+	 0:	Buffered FB mode
+---------------------------------------------------*/
+int fb_get_FBmode(FBDEV *fb_dev)
+{
+        if( fb_dev==NULL || fb_dev->map_bk==NULL || fb_dev->map_buff==NULL )
+                return -1;
+
+        if( fb_dev->map_bk==fb_dev->map_fb )   		/* DirectFB mode */
+		return 0;
+        else  /* fb_dev->map_bk==fb_dev->map_buff */    /* Non_DirectFB mode */
+		return 1;
+}
+
+
 /*-------------------------------------------
 Prepare FB background and working buffer.
 Init buffers with current FB mmap data.

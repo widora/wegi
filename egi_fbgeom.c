@@ -903,7 +903,10 @@ x1,x1: starting point
 x2,y2: ending point
 w: width of the line ( W=2*N+1 )
 
-NOTE: if you input w=0, it's same as w=1.
+NOTE:
+1. If you input w=0, it's same as w=1.
+2. As fixed point calculation will lose certain accuracy, some w value
+   will fail to get desired effect. Example: w=3 has same effect of w=1.
 
 Midas Zhou
 ----------------------------------------------------------------------*/
@@ -958,7 +961,13 @@ void draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 @w: 		width of the line ( W=2*N+1 )
 @roundEnd:	Add round ends if True.
 
-NOTE: if you input w=0, it's same as w=1.
+NOTE:
+1. if you input w=0, it's same as w=1.
+
+2. TODO. When draw many short wlines to form a spline.
+   With changing of curvatures at certain slope, it will appear
+   ugly coarse shape. for little short wlines connected NOT
+   smoothly.  too big u step??
 
 Midas Zhou
 ---------------------------------------------------------------------*/
@@ -983,20 +992,21 @@ void float_draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w, bo
 	for(i=0;i<=r;i++)
 	{
 		/* draw UP_HALF multiple lines  */
-		xr1=x1-round(i*sina);
-		yr1=y1+round(i*cosa);
-		xr2=x2-round(i*sina);
-		yr2=y2+round(i*cosa);
+		xr1=x1-i*sina;
+		yr1=y1+i*cosa;
+		xr2=x2-i*sina;
+		yr2=y2+i*cosa;
 
-		draw_line(dev,xr1,yr1,xr2,yr2);
+		draw_line(dev,round(xr1),round(yr1),round(xr2),round(yr2));
 
 		/* draw LOW_HALF multiple lines  */
-		xr1=x1+round(i*sina);
-		yr1=y1-round(i*cosa);
-		xr2=x2+round(i*sina);
-		yr2=y2-round(i*cosa);
+		xr1=x1+i*sina;
+		yr1=y1-i*cosa;
+		xr2=x2+i*sina;
+		yr2=y2-i*cosa;
 
-		draw_line(dev,xr1,yr1,xr2,yr2);
+		draw_line(dev,round(xr1),round(yr1),round(xr2),round(yr2));
+		//draw_line(dev,xr1,yr1,xr2,yr2);
 	}
    } /* end of len !=0, if len=0, the two points are the same position */
 
@@ -1008,6 +1018,56 @@ void float_draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w, bo
 	}
 }
 
+
+/*--------------------------------------------------------------------
+Draw a dash line.
+
+NOTE:
+1. If you input w=0, it's same as w=1.
+2. As fixed point calculation will lose certain accuracy, some w value
+   will fail to get desired effect. Example: w=3 has same effect of w=1.
+   Call float_draw_wline() instead to improve it.
+
+@dev:		FBDEV
+@x1,y1: 	Start point
+@x2,y2: 	End point
+@sl:		Length of each solid part
+@sv:		Length of each void part
+@w: 		width of the line ( W=2*N+1 )
+
+Midas Zhou
+----------------------------------------------------------------------*/
+void draw_dash_wline(FBDEV *dev,int x1,int y1, int x2,int y2, unsigned int w, int sl, int vl)
+{
+	float len;
+	int i,k;
+	int xs,ys,xe,ye;
+	float s;	/* as ratio to whole length */
+
+	if( sl<1 || vl<1 )
+		draw_wline(dev,x1,y1,x2,y2,w);
+
+	/* Get number of total shots */
+	len=sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
+	k=len/(sl+vl);      /* Total number of full shots */
+
+	/* Draw each shot */
+	for(i=0; i<k+1; i++) {
+		s=(i*(sl+vl))/len;
+		xs=x1+round(s*(x2-x1));
+		ys=y1+round(s*(y2-y1));
+
+		s=(i*(sl+vl)+sl)/len;
+		if(i==k) {  /* For the last incomplete shot */
+			if(s>1.0)s=1.0;
+		}
+		xe=x1+round(s*(x2-x1));
+		ye=y1+round(s*(y2-y1));
+
+		//draw_wline(dev,xs,ys,xe,ye,w);
+		float_draw_wline(dev,xs,ys,xe,ye,w,false);
+	}
+}
 
 
 /*---------------------------------------------------------------------
@@ -2666,7 +2726,7 @@ int draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int 
 	float *h=NULL;			/* Step: h[i]=x[i+1]-x[i] */
 	int ptx;
 	float xs=0,ys=0,xe=0,ye=0;	/* start,end x,y */
-	float dx,ddx;			/* dx=(x-xi) */
+	float dx=0.0;			/* dx=(x-xi) */
 	int step;
 
 	/* check np */
@@ -3039,6 +3099,7 @@ int draw_spline2(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int
 				st=s+step;
 				//xe=A[i][0]*st*st*st+B[i][0]*st*st+C[i][0]*st+D[i][0];
 				//ye=A[i][1]*st*st*st+B[i][1]*st*st+C[i][1]*st+D[i][1];
+				/* TODO: Horner's Mothed to evaluate polynomials */
 				tmp2=st*st; tmp3=tmp2*st;
 				xe=A[i][0]*tmp3+B[i][0]*tmp2+C[i][0]*st+D[i][0];
 				ye=A[i][1]*tmp3+B[i][1]*tmp2+C[i][1]*st+D[i][1];
@@ -3067,4 +3128,87 @@ END_FUNC:
 	free(A); /* A,B,C,D */
 
 	return ret;
+}
+
+
+/*---------------------------------------------------------------------
+Draw a Bezier curve.
+
+Parametric equation:
+   VP(u)= SUM{ Bern[i,n](u)*Pi }   ( i=[0 n], u=[0 1], n+1 points )
+   VP --- X/Y points on the curve
+   Pi --- X/Y control points
+   n+1  --- Number of control points
+
+1. TODO: To callocate berns only ONCE!??
+2. With changing of curvatures at certain slope, it will appear ugly
+   coarse shape, change ustep to a little value to improve it.
+
+
+@np:            Number of input pxy[].
+@pxy:           Control points
+@w:             Width of line.
+
+Return:
+        0       OK
+        <0      Fails
+
+Midas Zhou
+------------------------------------------------------------------------*/
+int draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, unsigned int w)
+{
+	double *berns=NULL;  	/* For bernstein polynomials  */
+	int i;
+	float chlen;
+	float u;		/* Independent variable [0 1] */
+	float ustep;
+	int n=np-1;
+	float xs=0,ys=0,xe=0,ye=0;      /* start,end x,y */
+
+	/* Check np */
+	if(np<2)
+		return -1;
+
+        /* Calloc berns */
+        berns=calloc(np, sizeof(double));
+      	if(berns==NULL) {
+        	fprintf(stderr,"%s: Fail to calloc berns!\n",__func__);
+                return -2;
+        }
+
+        /* Calculate each chord length */
+	chlen=0.0;
+        for(i=0; i<n; i++)
+                chlen += sqrt( (pxy[i+1].x-pxy[i].x)*(pxy[i+1].x-pxy[i].x) + (pxy[i+1].y-pxy[i].y)*(pxy[i+1].y-pxy[i].y) );
+
+	/* Estimate u step */
+	ustep=1.0/chlen;  /* 0.5  more smooth*/
+
+	xs=pxy[0].x;  ys=pxy[0].y;
+	for(u=0.0+ustep; u<1.0; u += ustep)
+	{
+		/* Calculate bernstein polynomials */
+		if( mat_bernstein_polynomials(np, u, berns)==NULL ) {
+                        fprintf(stderr,"%s: Fail to calculate Bernstein polynomials!\n",__func__);
+			free(berns);
+			return -3;
+		}
+
+		/* Calculate corresponding (x,y) as per the current u value  */
+		xe=0; ye=0;
+		for(i=0; i<np; i++) {
+			xe += berns[i]*pxy[i].x;
+			ye += berns[i]*pxy[i].y;
+		}
+
+		/* Draw short line */
+                draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w);
+                //float_draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w, false);
+		xs=xe; ys=ye;
+	}
+
+	/* Free */
+	free(berns);
+
+	return 0;
 }

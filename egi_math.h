@@ -110,4 +110,8 @@ int  	mat_pseudo_curvature(const EGI_POINT *pt);
 float 	mat_normal_distribute(float x, float u, float dev);
 float 	mat_rayleigh_distribute(float x, float dev);
 
+unsigned int 	mat_factorial(int n);
+double 	mat_double_factorial(int n);
+double 	mat_bernstein_polynomial(int n, int i, double u);
+double *mat_bernstein_polynomials(int n, double u, double *berns);
 #endif

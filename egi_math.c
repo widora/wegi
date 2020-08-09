@@ -4,7 +4,33 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 NOTE:
-   !!! Suppose that Left/Right bit_shifting are both arithmetic here !!!.
+1.!!! Suppose that Left/Right bit_shifting are both arithmetic here !!!.
+
+2. A float type represents accurately at least the first six decimal digits.
+   and a range at lease 10^-37 to 10^37,   while a double has min. 15
+   significant decimal digits and a range at lease 10^-307 - 10^308
+
+                -----  Float Limits (see float.h)  -----
+
+FLT_MANT_DIG:   Number of bits in the mantissa of a float:  24
+FLT_DIG:        Min. number of significant decimal digits for a float:  6
+FLT_MIN_10_EXP: Min. base-10 negative exponent for a float with a full set of significant figures: -37
+FLT_MAX_10_EXP: Max. base-10 positive exponent for a float: 38
+FLT_MIN:        Min. value for a positive float retaining full precision: 0.000000 =1.175494e-38
+FLT_MAX:        Max. value for a positive float: 340282346638528880000000000000000000000.000000  =3.402823e+38
+FLT_EPSILON:    Diff. between 1.00 and the leaset float value greater than 1.00: 0.000000=1.192093e-07
+ 1/(2^(FLT_MANT_DIG-1)) = 0.000000119209
+
+                -----  Double Limits (see float.h)  -----
+DBL_MANT_DIG:   Number of bits in the mantissa of a double: 53
+DBL_DIG:        Min. number of significant decimal digits for a double: 15
+DBL_MIN_10_EXP: Min. base-10 negative exponent for a double with a full set of significant figures: -307
+DBL_MAX_10EXP:  Max. base-10 positive exponent for a double: 308
+DBL_MIN:        Min. value for a positive double retaining full precision: 0.00000000000000000000 =2.225074e-308
+DBL_MAX:        Max. value for a positive double: 17976931348623153000000.......00000000000.00000000000000000000  =1.797693e+308
+DBL_EPSILON:    Diff. between 1.00 and the leaset double value greater than 1.00: 0.00000000000000022204=2.220446e-16
+ 1/(2^(DBL_MANT_DIG-1)) = 0.00000000000000022204
+
 
 Midas-Zhou
 --------------------------------------------------------------------*/
@@ -1361,4 +1387,151 @@ float mat_rayleigh_distribute(float x, float dev)
 	if(x<0)x=0;
 
 	return x/pow(dev,2)*pow(MATH_E, -0.5*x*x/dev/dev);
+}
+
+/*--------------------------------------
+Calculate factorial of n.
+MAX. n=12!
+----------------------------------------*/
+inline unsigned int mat_factorial(int n)
+{
+	int i;
+	unsigned int fn=1;
+
+	if(n<1)
+		return 1;
+
+	for(i=n; i>1; i--)
+		fn *= i;
+
+	return fn;
+}
+
+
+/*------------------------------------------
+Calculate factorial of n. return double type.
+MAX.n=170
+
+!168=2.5260757449731982e+302
+!169=4.2690680090047050e+304
+!170=7.2574156153080034e+306
+!171=inf
+!172=inf
+!173=inf
+
+------------------------------------------*/
+inline double mat_double_factorial(int n)
+{
+        int i;
+        double fn=1.0;
+
+        if(n<1)
+                return 1.0;
+
+        for(i=n; i>1; i--)
+                fn *= (double)i;
+
+        return fn;
+}
+
+/*------------------------------------------
+Return n-th Bernstein polynomial value.
+
+@n:	Degree number
+@i:	Polynomial index number
+@u:	Independent variable [0 1]
+-------------------------------------------*/
+double mat_bernstein_polynomial(int n, int i, double u)
+{
+	int 	k,lead;
+	double  ti,tni, tn;  /* i!, (n-i)!, n! */
+
+	if( n<1 || i>n || i<0 )
+		return 0.0;
+
+	/* IF: i > n-i, n>=i */
+	if( i > n-i ) {
+		lead=n-i;
+		tni=mat_double_factorial(lead);
+
+		ti=tni;
+		for(k=lead+1; k<=i; k++)
+			ti *= k;
+
+		tn=ti;
+		for(k=i+1; k<=n; k++)
+			tn *= k;
+
+	}
+	/* ELSE: i<=n-i, n>=n-1 */
+	else {
+		lead=i;
+		ti=mat_double_factorial(lead);
+
+		tni=ti;
+		for(k=lead+1; k<=n-i; k++)
+			tni *= k;
+
+		tn=tni;
+		for(k=n-i+1; k<=n; k++)
+			tn *=k;
+	}
+
+
+	return tn/ti/tni*pow(u,i)*pow(1-u,n-i);
+}
+
+
+/*-------------------------------------------------------------
+Return all n-th Bernstein polynomial value.
+
+Refrence: <<The NURBS book>> by Les Piegl & Wayne Tiller
+
+Recursive definition:
+	B[i,n](u)=(1-u)*B[i,n-1](u) + u*B[i-1,n-1](u)
+	B[i,n](u)==0 when i<0 OR i>n
+	start with B[0,0]=B[0,1]=B[1,1]=1.0
+
+
+@n:	Degree number
+@u:	Independent variable [0 1]
+@berns:  Out put array with Bernstein polynomial values
+        If NULL, the function will calloc it first.
+
+Return:
+	A pointer to a double array with n elemetns, as of berns.
+---------------------------------------------------------------*/
+double *mat_bernstein_polynomials(int n, double u, double *berns)
+{
+	int i,j;
+	double tmp1;    /* for (1-u)*B[i,n-1](u) */
+	double tmp2;    /* for u*B[i-1,n-1](u) */
+
+	if(n<1)
+		return NULL;
+
+        /* Calloc berns */
+	if(berns==NULL) {
+	        berns=calloc(n, sizeof(double));
+        	if(berns==NULL) {
+                	fprintf(stderr,"%s: Fail to calloc berns!\n",__func__);
+			return NULL;
+        	}
+	}
+
+	berns[0]=1.0;
+
+	/* Calculate from B[:,1] --> B[:,2] --> B[:,3] --> ...  --> B[:,n] */
+	for(i=1; i<n; i++) {
+		tmp1=0.0;
+		/* Cal form B[0,i]-->B[1,i]-->B[2,i]--> ... -->B[i,i] */
+		for( j=0; j<i; j++) {
+			tmp2=berns[j];
+			berns[j]=tmp1 + (1.0-u)*tmp2;
+			tmp1 = u*tmp2;  /* for next */
+		}
+		berns[i]=tmp1;
+	}
+
+	return berns;
 }

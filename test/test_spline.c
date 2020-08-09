@@ -79,13 +79,20 @@ int main(int argc, char **argv)
    fbset_color(WEGI_COLOR_PINK);
    draw_spline(&gv_fb_dev, 6, mpoints, 2, 5);
 
+   fbset_color(WEGI_COLOR_WHITE);
+   draw_bezier_curve(&gv_fb_dev, 6, mpoints, 1);
+
    fb_render(&gv_fb_dev);
    getchar();
 
 #endif
 
-   /* =======  Test: draw_spline2() or draw_spline() ======== */
-   #define TEST_SPLINE2
+
+   /* =======  Test: draw_bezier / draw_spline2 / draw_spline  ======== */
+   #define TEST_SPLINE2		0
+   #define TEST_BEZIER 		1
+
+
 
 #ifdef TEST_SPLINE2
    /* For draw_spline2():  A little pterosaur */
@@ -132,13 +139,17 @@ while(1) {
    for(i=0; i<np; i++)
 	draw_circle(&gv_fb_dev, pts[i].x, pts[i].y, 5);
    fbset_color(WEGI_COLOR_PINK);
- #ifdef TEST_SPLINE2
+ #if TEST_SPLINE2
    //draw_spline2(&gv_fb_dev, np, pts, 0, 5);
    draw_spline2(&gv_fb_dev, np, pts, 1, 5);
+ #elif TEST_BEZIER
+   draw_bezier_curve(&gv_fb_dev, np, pts, 5);
  #else
    draw_spline(&gv_fb_dev, np, pts, 1, 5);
  #endif
    fb_render(&gv_fb_dev);
+
+   getchar();
 
 #if 1
    /* Realtime modifying spline */
@@ -183,8 +194,17 @@ while(1) {
 		   	for(i=0; i<np; i++)
 				draw_circle(&gv_fb_dev, pts[i].x, pts[i].y, 5);
 		   	fbset_color(WEGI_COLOR_PINK);
-		   #ifdef TEST_SPLINE2
+		   #if TEST_SPLINE2
 			draw_spline2(&gv_fb_dev, np, pts, 1, 5);
+		   #elif  TEST_BEZIER
+			fbset_color(WEGI_COLOR_GRAY2);
+			for(i=0; i<np-1; i++) {
+				//draw_wline(&gv_fb_dev,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y,3);
+				draw_dash_wline(&gv_fb_dev,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y, 1, 10, 10);
+				//float_draw_wline(&gv_fb_dev,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y ,7,false);
+			}
+			fbset_color(WEGI_COLOR_PINK);
+			draw_bezier_curve(&gv_fb_dev, np, pts, 5);
 		   #else
 			draw_spline(&gv_fb_dev, np, pts, 1, 5);
 		   #endif

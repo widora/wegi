@@ -156,6 +156,7 @@ int 	init_virt_fbdev(FBDEV *fr_dev, EGI_IMGBUF *eimg);
 void	release_virt_fbdev(FBDEV *dev);
 void 	fb_shift_buffPage(FBDEV *fb_dev, unsigned int numpg);
 void 	fb_set_directFB(FBDEV *fb_dev, bool directFB);
+int 	fb_get_FBmode(FBDEV *fb_dev);
 void 	fb_init_FBbuffers(FBDEV *fb_dev);
 void 	fb_copy_FBbuffer(FBDEV *fb_dev,unsigned int from_numpg, unsigned int to_numpg);
 void 	fb_clear_backBuff(FBDEV *dev, uint32_t color);

@@ -18,10 +18,34 @@ Midas Zhou
 int main(int argc, char **argv)
 {
 
+
+#if 1 /* ---- TEST: factorial and mat_bernstein_polynomial() ---- */
+   int i;
+   int nn;
+
+   for( i=5; i<175; i++) {
+	//printf("!%d=%u\n", i, mat_factorial(i));
+	printf("!%d=%.16e\n", i, mat_double_factorial(i));
+   }
+
+   #if 1
+   nn=170; //MAX.170   // atoi(argv[1]);
+
+   double *berns=mat_bernstein_polynomials(nn, 0.95);
+
+   for( i=0; i<nn; i++ ) {
+    	printf("i=%d  b=%.15f  berns=%.15f\n", i,mat_bernstein_polynomial(nn, i, 0.95), berns[i]);
+   }
+   #endif
+
+
+   exit(1);
+#endif
+
 #if 1 /* ---- TEST: quick sort ---- */
 
-//   int array[]={ 0,1000000,1,1,1,3,4,2,7,45,2,67,39,23,464,52,12,23 };
-//   int n=sizeof(array)/sizeof(array[0]);
+  //int array[]={ 0,1000000,1,1,1,3,4,2,7,45,2,67,39,23,464,52,12,23 };
+  //int n=sizeof(array)/sizeof(array[0]);
    int *array;
    int n=0;
    int w;
@@ -197,7 +221,7 @@ printf("\n\n");
 
 getchar();
 
-/*----------------------- test fix point FFT --------------------------
+#if 0   /*----------------------- test fix point FFT --------------------------
 8_points FFT test example is from:
 	<< Understanding Digital Signal Processing, Second Edition >>
 			    by Richard G.Lyons
@@ -418,6 +442,7 @@ for(i=0; i<NN; i++) {
 printf("--------- K=%d -------- \n",k);
 } while(1);   //////////////////////////   END LOOP TEST /////////////////////////////////
 
+#endif   /* ----- END: test fix point FFT ----- */
 
 
 return 0;

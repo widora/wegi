@@ -66,6 +66,7 @@ void 	draw_button_frame( FBDEV *dev, unsigned int type, EGI_16BIT_COLOR color,
 void 	draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w);
 void 	draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w);
 void 	float_draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w, bool roundEnd);
+void 	draw_dash_wline(FBDEV *dev,int x1,int y1, int x2,int y2, unsigned int w, int sl, int vl);
 void 	draw_pline_nc(FBDEV *dev, EGI_POINT *points,int pnum, unsigned int w);
 void 	draw_pline(FBDEV *dev, EGI_POINT *points,int pnum, unsigned int w);
 void 	draw_oval(FBDEV *dev,int x,int y);
@@ -96,9 +97,10 @@ void 	draw_blend_filled_circle(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR 
 void 	draw_blend_filled_annulus( FBDEV *dev, int x0, int y0, int r, unsigned int w,
                                 				EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha );
 
+/////////////// Draw curves //////////////
 int 	draw_spline(FBDEV* dev, int np, EGI_POINT *pxy, int endtype, unsigned int w);
 int 	draw_spline2(FBDEV* dev, int np, EGI_POINT *pxy, int endtype, unsigned int w);
-
+int 	draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, unsigned int w);
 int 	fb_cpyto_buf(FBDEV *fb_dev, int x1, int y1, int x2, int y2, uint16_t *buf);
 int 	fb_cpyfrom_buf(FBDEV *fb_dev, int x1, int y1, int x2, int y2, const uint16_t *buf);
 int 	fb_buffer_FBimg(FBDEV *fb_dev, int nb);
