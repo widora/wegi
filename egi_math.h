@@ -5,8 +5,6 @@ published by the Free Software Foundation.
 
 Midas Zhou
 -------------------------------------------------------------------*/
-
-
 #ifndef __EGI_MATH_H__
 #define __EGI_MATH_H__
 
@@ -114,4 +112,6 @@ unsigned int 	mat_factorial(int n);
 double 	mat_double_factorial(int n);
 double 	mat_bernstein_polynomial(int n, int i, double u);
 double *mat_bernstein_polynomials(int n, double u, double *berns);
+int 	mat_bspline_basis(int i, int deg, float u, const float *vu, float *LN);
+
 #endif

@@ -3135,18 +3135,25 @@ END_FUNC:
 Draw a Bezier curve.
 
 Parametric equation:
-   VP(u)= SUM{ Bern[i,n](u)*Pi }   ( i=[0 n], u=[0 1], n+1 points )
-   VP --- X/Y points on the curve
-   Pi --- X/Y control points
-   n+1  --- Number of control points
+   VP(u)= SUM{ Bern[i,n](u)*ws[i]*P[i] } / { Bern[i,n](u)*ws[i] }
+	   ( i: [0 n], u: [0 1], n+1 points )
+   where:
+	   Bern[i,n] --- Bernstein polynomial
+   	   VP 	     --- X/Y points on the curve
+	   P[i]      --- X/Y control points
+	   ws[i]     --- Weight value of control points
+	   n+1       --- Number of control points
 
-1. TODO: To callocate berns only ONCE!??
+Note:
+1. TODO: To callocate berns only ONCE!?? For real time editing.
 2. With changing of curvatures at certain slope, it will appear ugly
    coarse shape, change ustep to a little value to improve it.
-
+3. TODO: Instead of calling  draw_wline(), To draw the solid width with
+   curve data will be more efficient.
 
 @np:            Number of input pxy[].
 @pxy:           Control points
+@ws		Weights of control points
 @w:             Width of line.
 
 Return:
@@ -3155,18 +3162,19 @@ Return:
 
 Midas Zhou
 ------------------------------------------------------------------------*/
-int draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, unsigned int w)
+int draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, unsigned int w)
 {
 	double *berns=NULL;  	/* For bernstein polynomials  */
 	int i;
-	float chlen;
-	float u;		/* Independent variable [0 1] */
-	float ustep;
-	int n=np-1;
-	float xs=0,ys=0,xe=0,ye=0;      /* start,end x,y */
+	float 	chlen;
+	float 	u;		/* Independent variable [0 1] */
+	float 	ustep;
+	int 	n=np-1;
+	float 	xs=0,ys=0,xe=0,ye=0;	/* start,end x,y */
+	float 	sumw=0.0;		/* sumw=SUM{ Bern[i,n](u)*ws[i] } */
 
 	/* Check np */
-	if(np<2)
+	if( np<2 || pxy==NULL)
 		return -1;
 
         /* Calloc berns */
@@ -3182,11 +3190,15 @@ int draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, unsigned int w)
                 chlen += sqrt( (pxy[i+1].x-pxy[i].x)*(pxy[i+1].x-pxy[i].x) + (pxy[i+1].y-pxy[i].y)*(pxy[i+1].y-pxy[i].y) );
 
 	/* Estimate u step */
-	ustep=1.0/chlen;  /* 0.5  more smooth*/
+	ustep=1.0/chlen;  /* 0.5  more smooth */
 
+	/* Cal. VPs and draw lines */
 	xs=pxy[0].x;  ys=pxy[0].y;
 	for(u=0.0+ustep; u<1.0; u += ustep)
 	{
+		/* u limit */
+		if(u>1.0)u=1.0;
+
 		/* Calculate bernstein polynomials */
 		if( mat_bernstein_polynomials(np, u, berns)==NULL ) {
                         fprintf(stderr,"%s: Fail to calculate Bernstein polynomials!\n",__func__);
@@ -3194,11 +3206,33 @@ int draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, unsigned int w)
 			return -3;
 		}
 
-		/* Calculate corresponding (x,y) as per the current u value  */
-		xe=0; ye=0;
-		for(i=0; i<np; i++) {
-			xe += berns[i]*pxy[i].x;
-			ye += berns[i]*pxy[i].y;
+		/* IF: input weight values */
+		if( ws != NULL )
+	   	{
+			/* Cal.  sumw=SUM{ Bern[i,n](u)*ws[i] } */
+			sumw=0.0;
+			for(i=0; i<np; i++) {
+				sumw += berns[i]*ws[i];
+			}
+
+			/* Calculate corresponding (x,y) as per the current u value  */
+			xe=0; ye=0;
+			for(i=0; i<np; i++) {
+				xe += berns[i]*ws[i]*pxy[i].x;
+				ye += berns[i]*ws[i]*pxy[i].y;
+			}
+			/* common denominator */
+			xe /= sumw;
+			ye /= sumw;
+		}
+		/* Else: no weight values */
+		else {
+			/* Calculate corresponding (x,y) as per the current u value  */
+			xe=0; ye=0;
+			for(i=0; i<np; i++) {
+				xe += berns[i]*pxy[i].x;
+				ye += berns[i]*pxy[i].y;
+			}
 		}
 
 		/* Draw short line */
@@ -3211,4 +3245,136 @@ int draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, unsigned int w)
 	free(berns);
 
 	return 0;
+}
+
+
+/*--------------------------------------------------------------------------
+Draw a B-spline curve.
+
+Parametric equation:
+   VP(u)= SUM{ N[i,p](u)*ws[i]*P[i] }
+	   ( Range: i [0 n], u [0 1], n+1 points )
+   where:
+	   U		--- knot vector {u0,u1,...um}, where u0<=u1<=...<=um.
+	   N[i,p] 	--- B-spline basis function of degree p
+   	   VP(u) 	--- parametric X/Y points on the curve
+	   P[i]  	--- X/Y control points
+	   ws[i] 	--- Weight value of control points
+	   n+1   	--- Number of control points
+
+Note:
+1. TODO: Instead of calling  draw_wline(), To draw the solid width with
+   curve data will be more efficient.
+
+@np:            Number of input pxy[].
+@pxy:           Control points
+@ws:		Weights of control points
+@deg:		Degreen number
+@uv:		Knot vector in form of {0,0,0, u1,u2,...uk, 1,1,1}  as u limits to [0 1]
+		dimension: np+2*deg
+		TODO: if u==NULL,use uniform knot sequence.
+@w:             Width of line.
+
+Return:
+        0       OK
+        <0      Fails
+
+Midas Zhou
+-------------------------------------------------------------------------------*/
+int draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsigned int w)
+{
+	int i,j;
+	int k;
+	float	*chord=NULL;		/* each chord length */
+	float 	chlen;			/* Total length of all chord */
+	float   *vu=NULL;		/* knot vector, dimension: np+2*deg */
+	float	*LN=NULL;		/* Dimension: deg+1 */
+	float 	u;			/* Interpolation vu */
+	float   tmp;
+	float 	ustep;
+	int 	n=np-1;
+	float 	xs=0,ys=0,xe=0,ye=0;	/* start,end x,y */
+	float 	sumw=0.0;		/* sumw=SUM{ Bern[i,n](u)*ws[i] } */
+
+	/* Check input  */
+	if( np<2 || pxy==NULL )
+		return -1;
+
+        /* Calloc chord */
+        chord=calloc(np-1, sizeof(typeof(*chord)));
+      	if(chord==NULL) {
+        	fprintf(stderr,"%s: Fail to calloc chord!\n",__func__);
+                return -2;
+        }
+
+        /* Calloc vu */
+        vu=calloc(np+2*deg, sizeof(typeof(*vu)));
+      	if(vu==NULL) {
+        	fprintf(stderr,"%s: Fail to calloc vu!\n",__func__);
+		free(chord);
+                return -3;
+        }
+
+        /* Calloc vu */
+        LN=calloc(deg+1, sizeof(typeof(*LN)));
+      	if(LN==NULL) {
+        	fprintf(stderr,"%s: Fail to calloc LN!\n",__func__);
+		free(chord);
+		free(vu);
+                return -3;
+        }
+
+        /* Calculate each chord length */
+	chlen=0.0;
+        for(i=0; i<n; i++) {
+                chord[i] = sqrt( (pxy[i+1].x-pxy[i].x)*(pxy[i+1].x-pxy[i].x) + (pxy[i+1].y-pxy[i].y)*(pxy[i+1].y-pxy[i].y) );
+		chlen += chord[i];
+	}
+
+	/* Estimate u step */
+	ustep=1.0/chlen;  /* 0.5  more smooth */
+
+	/* Create knot vector vu[] */
+	for(i=1; i<np; i++) {
+		vu[i+deg] += chord[i]/chlen;  /* init vu[]={0} */
+	}
+	/* Check: vu[np+deg-1] == 1.0 */
+
+	/* Head: vu[0] -> uv[deg]  all 0 */
+	/* Tail: */
+	for(i=deg+np; i<2*deg+np; i++) {
+		vu[i]=1.0;
+	}
+
+        xs=pxy[0].x;  ys=pxy[0].y;
+        for(u=0.0+ustep; u<1.0; u += ustep)
+        {
+		/* Limit u */
+		if(u>1.0)u=1.0;
+
+		/* To get the knot span index number, Notice u MUST >0, so ensure k-deg>=0 ! */
+		for(k=0; k<2*deg+np; k++) {
+			if( u >= vu[k] )
+			break; /* k == index number */
+		}
+
+		/* Cal xe,ye, ONLY deg+1 nonzero basis LN */
+		xe=0.0; ye=0.0;
+		mat_bspline_basis(k, deg, u, vu, LN);
+		for(j=0; j<=deg; j++) {
+			xe += LN[j]*pxy[k-deg+j].x;
+			ye += LN[j]*pxy[k-deg+j].y;
+		}
+
+		/* Draw short line */
+                draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w);
+                //float_draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w, false);
+
+		xs=xe; ys=ye;
+	}
+
+	/* Free */
+	free(chord);
+	free(vu);
+	free(LN);
 }

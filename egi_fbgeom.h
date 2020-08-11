@@ -95,12 +95,13 @@ void 	draw_filled_circle2(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR color
 
 void 	draw_blend_filled_circle(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha);
 void 	draw_blend_filled_annulus( FBDEV *dev, int x0, int y0, int r, unsigned int w,
-                                				EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha );
-
+                                                               EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha );
 /////////////// Draw curves //////////////
 int 	draw_spline(FBDEV* dev, int np, EGI_POINT *pxy, int endtype, unsigned int w);
 int 	draw_spline2(FBDEV* dev, int np, EGI_POINT *pxy, int endtype, unsigned int w);
-int 	draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, unsigned int w);
+int 	draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, unsigned int w);
+int 	draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsigned int w);
+
 int 	fb_cpyto_buf(FBDEV *fb_dev, int x1, int y1, int x2, int y2, uint16_t *buf);
 int 	fb_cpyfrom_buf(FBDEV *fb_dev, int x1, int y1, int x2, int y2, const uint16_t *buf);
 int 	fb_buffer_FBimg(FBDEV *fb_dev, int nb);

@@ -22,6 +22,7 @@ FLT_EPSILON:    Diff. between 1.00 and the leaset float value greater than 1.00:
  1/(2^(FLT_MANT_DIG-1)) = 0.000000119209
 
                 -----  Double Limits (see float.h)  -----
+
 DBL_MANT_DIG:   Number of bits in the mantissa of a double: 53
 DBL_DIG:        Min. number of significant decimal digits for a double: 15
 DBL_MIN_10_EXP: Min. base-10 negative exponent for a double with a full set of significant figures: -307
@@ -1534,4 +1535,61 @@ double *mat_bernstein_polynomials(int n, double u, double *berns)
 	}
 
 	return berns;
+}
+
+
+/*-------------------------------------------------------------------
+Calcualte nonzero B_spline basis functions for degree deg, and put
+results in N[].
+Refrence: <<The NURBS book>> by Les Piegl & Wayne Tiller
+
+Recursive definition:
+  N[i,p](u)= (u-u[i])/(u[i+p]-u[i])*N[i,p-1](u)
+			+ (u[i+p+1]-u)/(u[i+p+1]-u[i+1])*N[i+1,p-1](u)
+
+@i:	The i-th knot span
+@deg:	Degree of the function
+@u:	u for interpolation, u:[0 1]
+@vu:	All knot vectors
+@LN:	Array for basis function values, with [deg+1] elements!
+	as of N[i-p,p] to N[i,p] for all N[]s.
+
+TODO:  left[deg+1];
+
+Return:
+	0	OK
+	<0	Fails
+----------------------------------------------------------------------*/
+int mat_bspline_basis(int i, int deg, float u, const float *vu, float *LN)
+{
+	int k,j;
+	float *left=NULL;  /* as for u-u[i+1-j] */
+	float *right=NULL;  /* as for u[i+j]-u */
+	float tmp;
+	float saved;
+
+	/* Neglet input check */
+
+	/* Calloc tmp1/tmp2 */
+        left=calloc(2*(deg+1), sizeof(float));
+        if(left==NULL) {
+                fprintf(stderr,"%s: Fail to calloc left/right!\n",__func__);
+                return -1;
+        }
+	right=left+(deg+1);
+
+	LN[0]=1.0;
+	for( j=1; j<=deg; j++) {
+		left[j]=u-vu[i+1-j];
+		right[j]=vu[i+j]-u;
+		saved=0.0;
+		for(k=0; k<j; k++) {
+			tmp=LN[k]/(right[k+1]+left[j-k]);
+			LN[k]=saved+right[k+1]*tmp;
+			saved=left[j-k]*tmp;
+		}
+		LN[j]=saved;
+	}
+
+	return 0;
 }
