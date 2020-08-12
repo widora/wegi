@@ -11,8 +11,9 @@ Referring to: http://blog.chinaunix.net/uid-22666248-id-285417.html
 
 Note:
 1. Not thread safe.
+2. TODO: For all lines drawing functions: if distance between two input points
+   is too big, it MAY takes long time! To avoid such case.
 
-TODO:
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -3249,7 +3250,8 @@ int draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, unsigned 
 
 
 /*--------------------------------------------------------------------------
-Draw a B-spline curve.
+Draw a clamped B-spline curve.
+Reference: https://pages.mtu.edu/~shene/COURSES/cs3621/NOTES
 
 Parametric equation:
    VP(u)= SUM{ N[i,p](u)*ws[i]*P[i] }
@@ -3257,22 +3259,28 @@ Parametric equation:
    where:
 	   U		--- knot vector {u0,u1,...um}, where u0<=u1<=...<=um.
 	   N[i,p] 	--- B-spline basis function of degree p
-   	   VP(u) 	--- parametric X/Y points on the curve
+   	   VP(u) 	--- parametric X/Y points on the curve.
 	   P[i]  	--- X/Y control points
 	   ws[i] 	--- Weight value of control points
 	   n+1   	--- Number of control points
 
 Note:
-1. TODO: Instead of calling  draw_wline(), To draw the solid width with
+1. B-spline curve is a picewise curve with each component a curve of degree p.
+2. Knot vector are clamped type:
+   2.1 The first and last knots have multiplicity of deg+1 of 0/1,
+       as vu[]= {0,..,0,0, u1,u2,...uk, 1,...,1,1}.
+   2.2 AND knot vector dimension is np+deg+1.
+   2.3 For all open curves, include clamped type, the domain is [ u[deg], u[m-deg] ]
+3. Changing a control point P[i] only affect VP(u) on interval { vu[i]..vu[i+deg+1] }.
+4. TODO: Instead of calling  draw_wline(), To draw the solid width with
    curve data will be more efficient.
 
 @np:            Number of input pxy[].
 @pxy:           Control points
 @ws:		Weights of control points
-@deg:		Degreen number
-@uv:		Knot vector in form of {0,0,0, u1,u2,...uk, 1,1,1}  as u limits to [0 1]
-		dimension: np+2*deg
-		TODO: if u==NULL,use uniform knot sequence.
+@deg:		Degreen number, also as continuity.
+		1 --C0 continuity, 2--C1 continuity, 3--C2 continuity, ....
+//		uv[] dimension: np+deg+1
 @w:             Width of line.
 
 Return:
@@ -3280,14 +3288,20 @@ Return:
         <0      Fails
 
 Midas Zhou
--------------------------------------------------------------------------------*/
+-----------------------------------------------------------------------------------*/
+#define BSPLINE_CLAMPED_TYPE 	0   /* 0 -- clamped typ, 1 -- open type */
 int draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsigned int w)
 {
 	int i,j;
 	int k;
 	float	*chord=NULL;		/* each chord length */
 	float 	chlen;			/* Total length of all chord */
-	float   *vu=NULL;		/* knot vector, dimension: np+2*deg */
+	float   *vu=NULL;		/* knot vector */
+	int	mp;			/* Dimension of vu, for a clamped Bspline:
+					 * Dimension is np+deg+1. the first and last knots have multiplicity of deg+1
+					 * Knot vector in form of {0,..,0,0, u1,u2,...uk, 1,...,1,1}, u limits to [0 1]
+					 */
+	int	m;			/* m=mp-1 */
 	float	*LN=NULL;		/* Dimension: deg+1 */
 	float 	u;			/* Interpolation vu */
 	float   tmp;
@@ -3295,10 +3309,16 @@ int draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsig
 	int 	n=np-1;
 	float 	xs=0,ys=0,xe=0,ye=0;	/* start,end x,y */
 	float 	sumw=0.0;		/* sumw=SUM{ Bern[i,n](u)*ws[i] } */
+	bool	first_point;
 
 	/* Check input  */
 	if( np<2 || pxy==NULL )
 		return -1;
+	if( np < deg+1 )  /* At lease np=deg+1 */
+		return -1;
+
+	/* Get mp,m */
+	mp=np+deg+1; m=mp-1;
 
         /* Calloc chord */
         chord=calloc(np-1, sizeof(typeof(*chord)));
@@ -3307,15 +3327,15 @@ int draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsig
                 return -2;
         }
 
-        /* Calloc vu */
-        vu=calloc(np+2*deg, sizeof(typeof(*vu)));
+        /* Calloc vu: number of knots: np+deg+1 */
+        vu=calloc(np+deg+1, sizeof(typeof(*vu)));
       	if(vu==NULL) {
         	fprintf(stderr,"%s: Fail to calloc vu!\n",__func__);
 		free(chord);
                 return -3;
         }
 
-        /* Calloc vu */
+        /* Calloc LN, as for nonzero basis N polynomial */
         LN=calloc(deg+1, sizeof(typeof(*LN)));
       	if(LN==NULL) {
         	fprintf(stderr,"%s: Fail to calloc LN!\n",__func__);
@@ -3332,45 +3352,70 @@ int draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsig
 	}
 
 	/* Estimate u step */
-	ustep=1.0/chlen;  /* 0.5  more smooth */
+	ustep=0.5/chlen;  /* 0.5  more smooth */
 
-	/* Create knot vector vu[] */
-	for(i=1; i<np; i++) {
-		vu[i+deg] += chord[i]/chlen;  /* init vu[]={0} */
+	/* Create clamped knot vector vu[]: The first and last knots have multiplicity of deg+1 */
+#if BSPLINE_CLAMPED_TYPE /* Clamped type */
+	/* 1. Head: vu[0] -> uv[deg]  all 0, totally deg+1 elements */
+	for(i=0; i<deg+1; i++) {
+		vu[i]=0.75*ustep;
 	}
-	/* Check: vu[np+deg-1] == 1.0 */
-
-	/* Head: vu[0] -> uv[deg]  all 0 */
-	/* Tail: */
-	for(i=deg+np; i<2*deg+np; i++) {
+	/* 2. Mid: uv[deg]=0.0 -> uv[np]=1.0 uniformly distributed, totally np-deg+1 elements, uv[np] is redundant as in 3.  */
+	for(i=deg; i<=np; i++) {
+		vu[i] = 1.0/(np-deg)*(i-deg);
+	}
+	/* 3. Tail: vu[np] -> uv[np+deg] all 1.0, totally deg+1 elements */
+	for(i=np; i<np+deg+1; i++) {
 		vu[i]=1.0;
 	}
 
+#else /* Open type (NOT clamped) type */
+	for(i=0; i<mp; i++) {
+		vu[i] = 1.0/mp*i;
+	}
+#endif
+
+/* TEST --- */
+        #if 0
+	for(i=0; i<mp; i++)
+		printf("vu[%d]=%f\n",vu[i]);
+	#endif
+
         xs=pxy[0].x;  ys=pxy[0].y;
-        for(u=0.0+ustep; u<1.0; u += ustep)
+	k=0;  /* init knot span index */
+	first_point=true;
+	/* Note: for open curve(include clamped type(, the domain is [ u[deg], u[m-deg] ], so u start from 0.0+ustep  */
+        for(u=vu[deg]+ustep; u < vu[m-deg+1]; u += ustep)
         {
 		/* Limit u */
-		if(u>1.0)u=1.0;
+		//if(u>1.0)u=1.0;
+		if(u>vu[m-deg]) break;
 
 		/* To get the knot span index number, Notice u MUST >0, so ensure k-deg>=0 ! */
-		for(k=0; k<2*deg+np; k++) {
-			if( u >= vu[k] )
-			break; /* k == index number */
+		for(; k<np+deg+1; k++) {  /* start from previous k! */
+			if( u==vu[k+1] )  /* last multiplities */
+				break;
+			if( u >= vu[k] &&  u< vu[k+1] )
+				break; /* k == index number */
 		}
+		//printf("k=%d\n",k);
 
-		/* Cal xe,ye, ONLY deg+1 nonzero basis LN */
+		/* Cal xe,ye, ONLY deg+1 nonzero basis values in LN */
 		xe=0.0; ye=0.0;
-		mat_bspline_basis(k, deg, u, vu, LN);
+		mat_bspline_basis(k, deg, u, vu, LN); /* For clamped type, all LN[] will be affected. NOT necessary to clear */
 		for(j=0; j<=deg; j++) {
 			xe += LN[j]*pxy[k-deg+j].x;
 			ye += LN[j]*pxy[k-deg+j].y;
 		}
 
 		/* Draw short line */
-                draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w);
+		if(!first_point)
+                    draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w);
                 //float_draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w, false);
 
+		/* Make end_point as next start_point */
 		xs=xe; ys=ye;
+		first_point=false;
 	}
 
 	/* Free */

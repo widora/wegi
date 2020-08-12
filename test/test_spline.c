@@ -80,7 +80,7 @@ int main(int argc, char **argv)
    draw_spline(&gv_fb_dev, 6, mpoints, 2, 5);
 
    fbset_color(WEGI_COLOR_WHITE);
-   draw_bezier_curve(&gv_fb_dev, 6, mpoints, 1);
+   draw_bezier_curve(&gv_fb_dev, 6, mpoints, NULL, 1);
 
    fb_render(&gv_fb_dev);
    getchar();
@@ -90,23 +90,26 @@ int main(int argc, char **argv)
 
    /* =======  Test: draw_bezier / draw_spline2 / draw_spline  ======== */
    #define TEST_SPLINE2		0
-   #define TEST_BEZIER 		1
-
-
-
-#ifdef TEST_SPLINE2
-   /* For draw_spline2():  A little pterosaur */
-   EGI_POINT	  pts[9]={{89, 78}, {48, 63}, {98, 33}, {133, 117}, {218, 100}, {177, 172}, {265, 182}, {116, 198}, {92, 78} };
-#else
-   /* For draw_spline():  Up Going Waves */
-   EGI_POINT	 pts[9]={ {10,230}, {50,100}, {90, 190}, {130, 150}, {170,180}, {210,50}, {250,120}, {280,50}, {310,10} };
-#endif
+   #define TEST_BEZIER 		0
+   #define TEST_BSPLINE		1
 
    EGI_TOUCH_DATA touch_data;
    EGI_POINT	  tchpt;	/* Touch point */
    int 		np=9;
    int		npt=-1;
    int		step;
+
+#if 1
+   /* A little pterosaur for draw_spline2() */
+   EGI_POINT	  pts[9]={{89, 78}, {48, 63}, {98, 33}, {133, 117}, {218, 100}, {177, 172}, {265, 182}, {116, 198}, {92, 78} };
+#else
+   /* Up Going Waves */
+   EGI_POINT	 pts[9]={ {10,230}, {50,100}, {90, 190}, {130, 150}, {170,180}, {210,50}, {250,120}, {280,50}, {310,10} };
+#endif
+   /* Weight values */
+   float	  ws[9]={ 10, 10, 20, 10, 50, 0, 0, 10, 10 };  /* Put 0 to invalidate the control point */
+   //float	  ws[9]={ 1, 1, 1, 1, 1, 1, 1, 1, 1 };
+   //float	  ws[9]={ 2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500 };
 
    fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY5);
 
@@ -143,7 +146,9 @@ while(1) {
    //draw_spline2(&gv_fb_dev, np, pts, 0, 5);
    draw_spline2(&gv_fb_dev, np, pts, 1, 5);
  #elif TEST_BEZIER
-   draw_bezier_curve(&gv_fb_dev, np, pts, 5);
+   draw_bezier_curve(&gv_fb_dev, np, pts, NULL, 5);
+ #elif TEST_BSPLINE
+   draw_Bspline(&gv_fb_dev, np, pts, NULL, 3, 5);
  #else
    draw_spline(&gv_fb_dev, np, pts, 1, 5);
  #endif
@@ -178,6 +183,15 @@ while(1) {
 			if( npt>=0 ) {
 				pts[npt].x=tchpt.x;
 				pts[npt].y=tchpt.y;
+
+				/* If coincide with other knobs */
+				for(i=0; i<np; i++) {
+					if(i==npt)continue;
+					if(point_incircle(&tchpt, pts+i, 15)) {
+						pts[npt].x=pts[i].x;
+						pts[npt].y=pts[i].y;
+					}
+				}
 			}
 
 			/* TEST ---- */
@@ -194,6 +208,8 @@ while(1) {
 		   	for(i=0; i<np; i++)
 				draw_circle(&gv_fb_dev, pts[i].x, pts[i].y, 5);
 		   	fbset_color(WEGI_COLOR_PINK);
+
+
 		   #if TEST_SPLINE2
 			draw_spline2(&gv_fb_dev, np, pts, 1, 5);
 		   #elif  TEST_BEZIER
@@ -204,7 +220,16 @@ while(1) {
 				//float_draw_wline(&gv_fb_dev,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y ,7,false);
 			}
 			fbset_color(WEGI_COLOR_PINK);
-			draw_bezier_curve(&gv_fb_dev, np, pts, 5);
+			draw_bezier_curve(&gv_fb_dev, np, pts, ws, 5);
+		   #elif TEST_BSPLINE
+			fbset_color(WEGI_COLOR_GRAY2);
+			for(i=0; i<np-1; i++) {
+				//draw_wline(&gv_fb_dev,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y,3);
+				draw_dash_wline(&gv_fb_dev,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y, 1, 10, 10);
+				//float_draw_wline(&gv_fb_dev,pts[i].x,pts[i].y,pts[i+1].x,pts[i+1].y ,7,false);
+			}
+			fbset_color(WEGI_COLOR_PINK);
+			draw_Bspline(&gv_fb_dev, np, pts, NULL, 3, 5);
 		   #else
 			draw_spline(&gv_fb_dev, np, pts, 1, 5);
 		   #endif
@@ -214,6 +239,9 @@ while(1) {
 			while(egi_touch_getdata(&touch_data)==false);
 		}
 	}
+	else
+	 	tm_delayms(5);
+
    }
 #endif
 
