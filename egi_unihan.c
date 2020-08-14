@@ -3023,7 +3023,7 @@ EGI_UNIHANGROUP_SET*    UniHanGroup_load_CizuTxt(const char *fpath)
 			continue;
 		}
 
-		/* Check number of typings */
+		/* Check number of typings: str_words 1: groups, m-1: typings */
 		if( m-1 < nch ) {
 		    	if( m-1 > 0 )
 				printf("%s: Incomplete typings for '%s' ( ntypings=%d < nch=%d ). \n", __func__, str_words[0], m-1, nch);

@@ -100,9 +100,7 @@ typedef wchar_t 	EGI_UNICODE;
   and put Cizu and right typings in it. Next time when you start test_editor, it
   will be loaded and used to correct wrong typings in group_set. See procedure 1B.7 and 1B.8.
 
-------------------------------------------------------------------------------*/
-
-
+-------------------------------------------------------------------------------*/
 /* File data magic words */
 #define UNIHANS_MAGIC_WORDS		"UNIHANS0"		/* 8bytes, unihans data file magic words */
 #define UNIHANGROUPS_MAGIC_WORDS	"UNIHANGROUPS0000"	/* 12+4(Ver)=16bytes, unihan_groups data file magic words */

@@ -3,7 +3,7 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-mouseXAn example of a simple editor, read input from termios and put it on to
+An example of a simple editor, read input from termios and put it on to
 the screen.
 
 		( --- 1. The Editor: Keys and functions --- )
@@ -211,8 +211,10 @@ enum WBTMenu_Command {
 	WBTMENU_COMMAND_OPEN 	=0,
 	WBTMENU_COMMAND_SAVE 	=1,
 	WBTMENU_COMMAND_EXIT 	=2,
-	WBTMENU_COMMAND_HELP 	=3,
-	WBTMENU_COMMAND_ABOUT 	=4,
+	WBTMENU_COMMAND_ABORT 	=3,
+	WBTMENU_COMMAND_HELP 	=4,
+	WBTMENU_COMMAND_RENEW 	=5,
+	WBTMENU_COMMAND_ABOUT 	=6,
 };
 static int WBTMenu_Command_ID=WBTMENU_COMMAND_NONE;
 
@@ -228,6 +230,7 @@ static void draw_msgbox( FBDEV *fb_dev, int x0, int y0, int width, const char *m
 static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg, int pv, int pev);
 static void RCMenu_execute(enum RCMenu_Command Command_ID);
 static void WBTMenu_execute(enum WBTMenu_Command Command_ID);
+static int  load_pinyin_data(void);
 static void save_all_data(void);
 void signal_handler(int signal);
 
@@ -323,48 +326,9 @@ int main(int argc, char **argv)
 	if( argc > 1 )
 		fpath=argv[1];
 
-  	/* Load UniHan Set for PINYIN Assembly and Input */
-  	uniset=UniHan_load_set(UNIHANS_DATA_PATH);
-  	if( uniset==NULL ) exit(1);
-	if( UniHan_quickSort_set(uniset, UNIORDER_TYPING_FREQ, 10) !=0 ) exit(2);
-
-	/* Load from text first, if it fails, then try data file. TODO: group_set MAY be incompelet if it failed during saving! */
-	group_set=UniHanGroup_load_CizuTxt(UNIHANGROUPS_EXPORT_TXT_PATH);
-	if( group_set==NULL)
-	  	/* Load UniHanGroup Set Set for PINYIN Input, it's assumed already merged with nch==1 UniHans! */
-	  	group_set=UniHanGroup_load_set(UNIHANGROUPS_DATA_PATH);
-	else {
-		/* Add uniset to grou_set, as a text group_set has NO UniHans inside. */
-        	if( UniHanGroup_add_uniset(group_set, uniset) !=0 ) {
-	                printf("Fail to add uniset to  group_set!\n");
-                	exit(1);
-        	}
-	}
-
-	if( group_set==NULL)
+	/* Load necessary PINYIN data, and do some prep. */
+	if( load_pinyin_data()!=0 )
 		exit(1);
-
-	/* Readin new words and merge into group_set */
-        EGI_UNIHANGROUP_SET*  expend_set=UniHanGroup_load_CizuTxt(PINYIN_NEW_WORDS_FPATH);
-        if(expend_set != NULL) {
-		if( UniHanGroup_merge_set(expend_set, group_set)!=0 )
-			printf("Fail to merge expend_set!\n");
-		if( UniHanGroup_purify_set(group_set)<0 )
-			printf("Fail to purify group_set!\n");
-		if( UniHanGroup_assemble_typings(group_set, uniset) != 0) {
-                        printf("Fail to assmeble typings!\n");
-                        exit(1);
-                }
-	}
-
-	/* Modify typings */
-	EGI_UNIHANGROUP_SET *update_set=UniHanGroup_load_CizuTxt("/tmp/update_words.txt");
-	UniHanGroup_update_typings(group_set, update_set);
-	//exit(1);
-
-	/* quckSort typing for PINYIN input */
-	if( UniHanGroup_quickSort_typings(group_set, 0, group_set->ugroups_size-1, 10) !=0 )
-		exit(2);
 
 
 MAIN_START:
@@ -1148,11 +1112,12 @@ static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, i
 }
 
 
-/*--------------------------------------------
-        Callback for mouse input
+/*-----------------------------------------------------------
+		Callback for mouse input
 1. Just update mouseXYZ
 2. Check and set ACTIVE token for menus.
----------------------------------------------*/
+3. If click in TXTBOX, set typing cursor or marks.
+------------------------------------------------------------*/
 static void mouse_callback(unsigned char *mouse_data, int size)
 {
 //	int i;
@@ -1167,7 +1132,7 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 			start_pch=true;
 
 			/* Activate window top bar menu */
-			if( mouseY < txtbox.startxy.y && mouseX <90 )
+			if( mouseY < txtbox.startxy.y && mouseX <112) //90 )
 				ActiveComp=CompWTBMenu;
 
 			/* reset pch2 = pch */
@@ -1261,6 +1226,7 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 ----------------------------------*/
 static void draw_mcursor(int x, int y)
 {
+	int mode;
         static EGI_IMGBUF *mcimg=NULL;
         static EGI_IMGBUF *tcimg=NULL;
 	EGI_POINT pt;
@@ -1282,6 +1248,11 @@ static void draw_mcursor(int x, int y)
 
 	pt.x=mouseX;	pt.y=mouseY;  /* Mid */
 
+	/* Always draw mouse in directFB mode */
+	/* directFB and Non_directFB mixed mode will disrupt FB synch, and make the screen flash?? */
+	//mode=fb_get_FBmode(&gv_fb_dev);
+	//fb_set_directFB(&gv_fb_dev,true);
+
         /* OPTION 1: Use EGI_IMGBUF */
 
 	/* If txtbox is NOT active */
@@ -1298,6 +1269,8 @@ static void draw_mcursor(int x, int y)
 
         /* OPTION 2: Draw geometry */
 
+	/* Restore FBmode */
+	//fb_set_directFB(&gv_fb_dev, mode);
 }
 
 
@@ -1351,30 +1324,35 @@ static void draw_RCMenu(int x0, int y0)
 	/* Draw rim */
 	fbset_color(WEGI_COLOR_BLACK);
 	draw_rect(&gv_fb_dev, x0, y0, x0+mw, y0+mh);
-
 }
 
-/*-------------------------------------
-Draw window top bar menu.
+
+/*-----------------------------------------
+1. Cal. WBTMenu_Command_ID
+2. Draw sub_items of window top bar menu.
 @x0,y0:	Left top origin of the menu.
---------------------------------------*/
+-----------------------------------------*/
 static void draw_WTBMenu(int x0, int y0)
 {
-	static int  mtag=-1;	/* 0-File,  1-Help */
+	static int  mtag=-1;	/* [0]-File,  [1]-Help */
 
-	char *MFileItems[3]={"Open", "Save", "Exit"};
-	char *MHelpItems[2]={"Help", "About" };
+        const int MFileNum=4; /* Number of items under tag File */
+        const int MHelpNum=3; /* Number of items under tag Help */
+
+	const char *MFileItems[4]={"Open", "Save", "Exit", "Abort"};
+	const char *MHelpItems[3]={"Help", "Renew", "About" };
 
 	int mw=70;   /* menu width */
 	int smh=33;  /* menu item height */
-	int mh=smh*3;  /* menu box height */
+	int mh=smh*MFileNum;  /* menu box height for MFile */
 
 	int i;
 	int mp;	/* 0,1,2 OR <0 Non,  Mouse pointed menu item */
 
 	/* On 'File' or 'Help': Only to select it. NOT deselect! */
-	if( mouseX<90 && mouseY<txtbox.startxy.y ) {
-		mtag=mouseX/45;
+	//if( mouseX<90 && mouseY<txtbox.startxy.y ) {
+	if( mouseX<112 && mouseY<txtbox.startxy.y ) {
+		mtag=mouseX/(112/2);
 	}
 	//else
 	//	mtag=-1; /* No tag selected */
@@ -1393,7 +1371,7 @@ static void draw_WTBMenu(int x0, int y0)
 	WBTMenu_Command_ID=mp;
 
 	/* Draw itmes of tag 'File' */
-	for(i=0; i<3; i++)
+	for(i=0; i<MFileNum; i++)
 	{
 		/* Menu pad */
 		if(mp==i)
@@ -1419,19 +1397,19 @@ static void draw_WTBMenu(int x0, int y0)
    else if(mtag==1)
    {
 	/* Check mouse position on the menu */
-	if( mouseX>x0+45 && mouseX<x0+45+mw && mouseY>y0 && mouseY<y0+mh )
+	if( mouseX>x0+45 && mouseX<x0+45+mw && mouseY>y0 && mouseY<y0+smh*MHelpNum )
 		mp=(mouseY-y0)/smh;
 	else
 		mp=-1;  /* Not on the menu */
 
 	/* Assig WBTMenu_Command_ID */
 	if( mp > -1 )
-		WBTMenu_Command_ID=3+mp;
+		WBTMenu_Command_ID=MFileNum+mp;
 	else
 		WBTMenu_Command_ID=-1;
 
 	/* Draw itmes of tag 'Help' */
-	for(i=0; i<2; i++) /* 2 itmes */
+	for(i=0; i<MHelpNum; i++)
 	{
 		/* Menu pad */
 		if(mp==i)
@@ -1450,9 +1428,8 @@ static void draw_WTBMenu(int x0, int y0)
 	}
 	/* Draw rim */
 	fbset_color(WEGI_COLOR_BLACK);
-	draw_rect(&gv_fb_dev, x0+45, y0, x0+45+mw, y0+2*smh);
+	draw_rect(&gv_fb_dev, x0+45, y0, x0+45+mw, y0+MHelpNum*smh);
     }
-
 }
 
 
@@ -1542,15 +1519,15 @@ static void draw_msgbox( FBDEV *fb_dev, int x0, int y0, int width, const char *m
 	int fh=18;	/* Font height and width */
 	int fw=18;
 	int fgap;
-	int tmargin=30; /* Top maring, including dot marks */
+	int tmargin=35; /* Top maring, including dot marks */
 	int bmargin=15; /* Bottom maring */
 	int smargin=15;	/* Side margin */
 	int lndis;	/* Distance between lines */
 	int peny;
 
-        EGI_16BIT_COLOR boxcolor=WEGI_COLOR_GRAY4; 	/* Color of the msgbox. */
+        EGI_16BIT_COLOR boxcolor=WEGI_COLOR_GRAY2; 	/* Color of the msgbox. */
 	EGI_8BIT_ALPHA  boxalpha=255;			/* Alpha value of the msgbox. */
-        EGI_16BIT_COLOR fontcolor=WEGI_COLOR_WHITE; 	/* Font color. */
+        EGI_16BIT_COLOR fontcolor=WEGI_COLOR_BLACK; 	/* Font color. */
 
 	/* Check input */
 	if(fb_dev==NULL)
@@ -1577,7 +1554,7 @@ static void draw_msgbox( FBDEV *fb_dev, int x0, int y0, int width, const char *m
 
 
 	/* Draw msgbox pad */
-        draw_blend_filled_roundcorner_rect( fb_dev, x0,y0, x0+width-1, y0+height-1, 9,    /* fbdev, x1, y1, x2, y2, r */
+        draw_blend_filled_roundcorner_rect( fb_dev, x0,y0, x0+width-1, y0+height-1, 5,//9,    /* fbdev, x1, y1, x2, y2, r */
                                             boxcolor, boxalpha);                           /* color, alpha */
 
 	/* Draw top mark */
@@ -1588,6 +1565,9 @@ static void draw_msgbox( FBDEV *fb_dev, int x0, int y0, int width, const char *m
 	//fbset_color2(fb_dev, WEGI_COLOR_LTBLUE);
 	//draw_filled_circle( fb_dev, x0+width-15-25-25, y0+15, 10 );
 
+	/* Draw msgbox txt area */
+        draw_blend_filled_roundcorner_rect( fb_dev, x0+5, y0+30, x0+width-5-1, y0+height-5-1, 3,//5,    /* fbdev, x1, y1, x2, y2, r */
+                                            WEGI_COLOR_GRAYB, boxalpha);                           /* color, alpha */
 
 	/* Put message */
        	FTsymbol_uft8strings_writeFB( fb_dev, egi_sysfonts.regular,         /* FBdev, fontface */
@@ -1660,15 +1640,46 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
                                 fb_render(&gv_fb_dev);
                         }
 
-
 			break;
 		case WBTMENU_COMMAND_EXIT:
 			printf("WBTMENU_COMMAND_EXIT\n");
 			save_all_data();
 			exit(0);
 			break;
+		case WBTMENU_COMMAND_ABORT:
+			printf("WBTMENU_COMMAND_ABORT\n");
+			char ch;
+	                while(1) {
+				draw_msgbox( &gv_fb_dev, 30, 50, 260, "放弃后修改的数据都将不会被保存！\n　　[N]取消　[Y]确认！" );
+                                draw_mcursor(mouseMidX, mouseMidY);
+				fb_render(&gv_fb_dev);
+
+				read(STDIN_FILENO, &ch, 1);
+				printf(" abort confirm ch='%c'\n", ch);
+				if( ch=='y' || ch== 'Y' )
+					exit(10);
+				else if( ch=='n' || ch== 'N' )
+					break;
+			}
+			break;
 		case WBTMENU_COMMAND_HELP:
 			printf("WBTMENU_COMMAND_HELP\n");
+			break;
+		case WBTMENU_COMMAND_RENEW:
+			printf("WBTMENU_COMMAND_RENEW\n");
+
+			save_all_data();
+			draw_msgbox( &gv_fb_dev, 50, 50, 240, "开始重新加载拼音数据..." );
+			fb_render(&gv_fb_dev);
+			if( load_pinyin_data()==0 ) {
+				draw_msgbox( &gv_fb_dev, 50, 50, 240, "拼音数据成功加载！" );
+				fb_render(&gv_fb_dev); tm_delayms(200);
+			}
+			else {
+				draw_msgbox( &gv_fb_dev, 50, 50, 240, "拼音数据加载失败！" );
+				fb_render(&gv_fb_dev); tm_delayms(500);
+				exit(1);
+			}
 			break;
 		case WBTMENU_COMMAND_ABOUT:
 			printf("WBTMENU_COMMAND_ABOUT\n");
@@ -1750,4 +1761,106 @@ void signal_handler(int signal)
 //		save_all_data();
 //		exit(0);
 	}
+}
+
+
+/*-----------------------------------------------------------------
+1. Free old data of uniset and group_set.
+2. Load PINYIN data of uniset and group_set.
+3. Load new_words to expend group_set.
+4. Load update_words to fix some pingyings. Prepare pinyin sorting.
+
+Return:
+	0	OK
+	<0	Fails
+------------------------------------------------------------------*/
+int load_pinyin_data(void)
+{
+	int ret=0;
+
+	/* 0. Free old data */
+	UniHan_free_set(&uniset);
+	UniHanGroup_free_set(&group_set);
+
+  	/* 1. Load UniHan Set for PINYIN Assembly and Input */
+  	uniset=UniHan_load_set(UNIHANS_DATA_PATH);
+  	if( uniset==NULL ) {
+		printf("Fail to load uniset from %s!\n",UNIHANS_DATA_PATH);
+		return -1;
+	}
+	if( UniHan_quickSort_set(uniset, UNIORDER_TYPING_FREQ, 10) !=0 ) {
+		printf("Fail to quickSort uniset!\n");
+		ret=-2; goto FUNC_END;
+	}
+
+	/* 2. Load from text first, if it fails, then try data file. TODO: group_set MAY be incompelet if it failed during saving! */
+	group_set=UniHanGroup_load_CizuTxt(UNIHANGROUPS_EXPORT_TXT_PATH);
+	if( group_set==NULL) {
+                printf("Fail to load group_set from %s, try to load from %s...\n", UNIHANGROUPS_EXPORT_TXT_PATH,UNIHANGROUPS_DATA_PATH);
+	  	/* Load UniHanGroup Set Set for PINYIN Input, it's assumed already merged with nch==1 UniHans! */
+	  	group_set=UniHanGroup_load_set(UNIHANGROUPS_DATA_PATH);
+		if(group_set==NULL) {
+	                printf("Fail to load group_set from %s!\n",UNIHANGROUPS_DATA_PATH);
+                	ret=-3; goto FUNC_END;
+		}
+	}
+	else {
+		/* Need to add uniset to grou_set, as a text group_set has NO UniHans inside. */
+        	if( UniHanGroup_add_uniset(group_set, uniset) !=0 ) {
+	                printf("Fail to add uniset to  group_set!\n");
+                	ret=-3; goto FUNC_END;
+        	}
+	}
+
+	/* 3. Readin new words and merge into group_set */
+        EGI_UNIHANGROUP_SET*  expend_set=UniHanGroup_load_CizuTxt(PINYIN_NEW_WORDS_FPATH);
+        if(expend_set != NULL) {
+		if( UniHanGroup_merge_set(expend_set, group_set)!=0 ) {
+			printf("Fail to merge expend_set into group_set !\n");
+			ret=-5; goto FUNC_END;
+		}
+		if( UniHanGroup_purify_set(group_set)<0 ) {
+			printf("Fail to purify group_set!\n");
+			ret=-5; goto FUNC_END;
+		}
+		if( UniHanGroup_assemble_typings(group_set, uniset) != 0) {
+                        printf("Fail to assmeble typings for group_set by uniset!\n");
+			ret=-5; goto FUNC_END;
+                }
+	} else {
+		printf("Fail to load %s into group_set!\n", PINYIN_NEW_WORDS_FPATH);
+		ret=-6;
+		goto FUNC_END;
+	}
+
+	/* 4. Modify typings */
+	EGI_UNIHANGROUP_SET *update_set=UniHanGroup_load_CizuTxt(PINYIN_UPDATE_FPATH);
+	if( update_set==NULL) {
+		printf("Fail to load %s!\n",PINYIN_UPDATE_FPATH);
+		ret=-7;	goto FUNC_END;
+	}
+	if( UniHanGroup_update_typings(group_set, update_set) < 0 ) {
+		printf("Fail to update typings for group_set!\n");
+		ret=-7;	goto FUNC_END;
+	}
+
+	/* 5. quckSort typing for PINYIN input */
+	if( UniHanGroup_quickSort_typings(group_set, 0, group_set->ugroups_size-1, 10) !=0 ) {
+		printf("Fail to quickSort typings for group_set!\n");
+		ret=-8;
+		goto FUNC_END;
+	}
+
+FUNC_END:
+	/* Free temp. expend_set AND update_set */
+	UniHanGroup_free_set(&expend_set);
+	UniHanGroup_free_set(&update_set);
+
+	/* If fails, free uniset AND group_set */
+	if(ret!=0) {
+		UniHan_free_set(&uniset);
+		UniHanGroup_free_set(&group_set);
+	}
+
+	return ret;
 }

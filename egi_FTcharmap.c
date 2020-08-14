@@ -115,6 +115,7 @@ midaszhou@yahoo.com
 #include "egi_cstring.h"
 #include "egi_utils.h"
 #include "egi_timer.h"
+#include "egi_unihan.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
@@ -3577,8 +3578,8 @@ int FTcharmap_cut_to_syspad( EGI_FTCHAR_MAP *chmap )
 /*--------------------------------------------------------------
 Copy selected content(words/prases) in charmap to a file.
 If the file dose NOT exist, then create it first. New content are
-writen/appended to the end the file.
-If words/phrases alread exists in the file, then ignores.
+writen/appended to the end of the file.
+If words/phrases already exists in the file, then ignores.
 
 No mutex_lock applied!
 
@@ -3589,7 +3590,7 @@ Return:
 int FTcharmap_save_words( EGI_FTCHAR_MAP *chmap, const char *fpath )
 {
 	int startPos, endPos;
-	char words[4*4+1]; /* Max. 4 UNIHANs */
+	char words[4*4+4*UNIHAN_TYPING_MAXLEN]; /* Max. 4 UNIHANs whith typings  */
 	int  wsize;	   /* words size, MUST < sizeof(words) */
 
 	if( chmap==NULL || chmap->txtbuff==NULL )
