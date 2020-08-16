@@ -872,6 +872,12 @@ void draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 
         int32_t fp16_len = mat_fp16_sqrtu32(ydif*ydif+xdif*xdif);
 
+	/* if x1,y1 x2,y2 the same point */
+	if(fp16_len==0) {
+		draw_dot(dev,x1,y1);
+		return;
+	}
+
    if(fp16_len !=0 )
    {
 	/* draw multiple lines  */
@@ -925,6 +931,12 @@ void draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 
         int32_t fp16_len = mat_fp16_sqrtu32(ydif*ydif+xdif*xdif);
 
+	/* if x1,y1 x2,y2 the same point */
+	if(fp16_len==0) {
+		draw_filled_circle(dev, x1, y1, r);
+		return;
+	}
+
    if(fp16_len !=0 )
    {
 	/* draw multiple lines  */
@@ -977,7 +989,8 @@ void float_draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w, bo
 	/* half width, also as circle rad */
 	int r=w>>1; /* so w=0 and w=1 is the same */
 
-	int i;
+	//int i;
+	float i;
 	int xr1,yr1,xr2,yr2;
 
 	/* x,y, difference */
@@ -987,10 +1000,17 @@ void float_draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w, bo
 	float sina=ydif/len;
 	float cosa=xdif/len;
 
+	/* if x1,y1 x2,y2 the same point */
+	if(x1==x2 && y1==y2) {
+		draw_filled_circle(dev, x1, y1, r);
+		return;
+	}
+
    if(len !=0 )
    {
 	/* draw multiple lines  */
-	for(i=0;i<=r;i++)
+	//for(i=0;i<=r;i++)
+	for(i=00.0; i<=r;i+=0.5)
 	{
 		/* draw UP_HALF multiple lines  */
 		xr1=x1-i*sina;
@@ -1047,6 +1067,12 @@ void draw_dash_wline(FBDEV *dev,int x1,int y1, int x2,int y2, unsigned int w, in
 
 	if( sl<1 || vl<1 )
 		draw_wline(dev,x1,y1,x2,y2,w);
+
+	/* if x1,y1 x2,y2 the same point */
+	if(x1==x2 && y1==y2) {
+		draw_dot(dev,x1,y1);
+		return;
+	}
 
 	/* Get number of total shots */
 	len=sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
@@ -1567,12 +1593,11 @@ Midas Zhou
 -----------------------------------------------*/
 void draw_circle(FBDEV *dev, int x, int y, int r)
 {
-	float i=r;
+	float i;
 	int s;
 
 	for(i=0;i<r;i+=0.5)  /* or o.25, there maybe 1 pixel deviation */
 	{
-//		s=sqrt(r*r*1.0-i*i*1.0);
 //		s=round(sqrt(1.0*r*r-1.0*i*i));
 		s=round(sqrt(r*r-i*i));
 //		if(i==0)s-=1; /* erase four tips */
@@ -1586,6 +1611,7 @@ void draw_circle(FBDEV *dev, int x, int y, int r)
 		draw_dot(dev,x-i,y-s);
 		draw_dot(dev,x+i,y-s);
 	}
+
 }
 
 
@@ -1723,7 +1749,6 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 	}
 
 }
-
 
 
 /*-----------------------------------------------------------------------
@@ -2700,8 +2725,9 @@ Note:
 		i=[0, N-1]:  segment curve index number
 		      x[i]:  start point.x of the segment curve.
 
+                        --- !!! IMPORTANT !!! ---
 3. Pxy[] all points MUST meets:  x[0]... x[i-1] < x[i] < x[i+1] ...x[np-1]
-
+4. Changing a control point will affect the whole curve.
 
 @np:		Number of input points.
 @pxy:		Input points
@@ -2883,6 +2909,10 @@ Parametric equation:
 	  D=P(i)	i=0,1,2...np-2 ( OR 0,1,...n-1)
 
    So the target is to calculate P(i)' and solve s(t).
+
+Note:
+                        --- !!! IMPORTANT !!! ---
+1. Changing a control point will affect the whole curve.
 
 @np:		Number of input points.
 @pxy:		Input points
@@ -3146,10 +3176,12 @@ Parametric equation:
 	   n+1       --- Number of control points
 
 Note:
-1. TODO: To callocate berns only ONCE!?? For real time editing.
-2. With changing of curvatures at certain slope, it will appear ugly
+                        --- !!! IMPORTANT !!! ---
+1. Changing a control point will affect the whole curve.
+2. TODO: To callocate berns only ONCE!?? For real time editing.
+3. With changing of curvatures at certain slope, it will appear ugly
    coarse shape, change ustep to a little value to improve it.
-3. TODO: Instead of calling  draw_wline(), To draw the solid width with
+4. TODO: Instead of calling  draw_wline(), To draw the solid width with
    curve data will be more efficient.
 
 @np:            Number of input pxy[].
@@ -3249,7 +3281,7 @@ int draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, unsigned 
 }
 
 
-/*--------------------------------------------------------------------------
+/*-------------------------------------------------------------------------------------
 Draw a clamped B-spline curve.
 Reference: https://pages.mtu.edu/~shene/COURSES/cs3621/NOTES
 
@@ -3265,19 +3297,24 @@ Parametric equation:
 	   n+1   	--- Number of control points
 
 Note:
-1. B-spline curve is a picewise curve with each component a curve of degree p.
+1. B-spline curve is a picewise curve with each component a curve of degree deg.
 2. Knot vector are clamped type:
    2.1 The first and last knots have multiplicity of deg+1 of 0/1,
        as vu[]= {0,..,0,0, u1,u2,...uk, 1,...,1,1}.
    2.2 AND knot vector dimension is np+deg+1.
    2.3 For all open curves, include clamped type, the domain is [ u[deg], u[m-deg] ]
+
+			--- !!! IMPORTANT !!! ---
 3. Changing a control point P[i] only affect VP(u) on interval { vu[i]..vu[i+deg+1] }.
+
 4. TODO: Instead of calling  draw_wline(), To draw the solid width with
    curve data will be more efficient.
 
 @np:            Number of input pxy[].
 @pxy:           Control points
 @ws:		Weights of control points
+		If NULL, ignore as all equal 1.
+		Esle as NURBS.
 @deg:		Degreen number, also as continuity.
 		1 --C0 continuity, 2--C1 continuity, 3--C2 continuity, ....
 //		uv[] dimension: np+deg+1
@@ -3288,8 +3325,8 @@ Return:
         <0      Fails
 
 Midas Zhou
------------------------------------------------------------------------------------*/
-#define BSPLINE_CLAMPED_TYPE 	0   /* 0 -- clamped typ, 1 -- open type */
+-------------------------------------------------------------------------------------*/
+#define BSPLINE_CLAMPED_TYPE 	1   /* 1 -- clamped typ, 0 -- open type */
 int draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsigned int w)
 {
 	int i,j;
@@ -3308,7 +3345,7 @@ int draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsig
 	float 	ustep;
 	int 	n=np-1;
 	float 	xs=0,ys=0,xe=0,ye=0;	/* start,end x,y */
-	float 	sumw=0.0;		/* sumw=SUM{ Bern[i,n](u)*ws[i] } */
+	float 	sumw=0.0;		/* sumw=SUM{ LN[i,n](u)*ws[i] } */
 	bool	first_point;
 
 	/* Check input  */
@@ -3352,7 +3389,7 @@ int draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsig
 	}
 
 	/* Estimate u step */
-	ustep=0.5/chlen;  /* 0.5  more smooth */
+	ustep=1.0/chlen;  /* 0.25  more smooth */
 
 	/* Create clamped knot vector vu[]: The first and last knots have multiplicity of deg+1 */
 #if BSPLINE_CLAMPED_TYPE /* Clamped type */
@@ -3400,18 +3437,43 @@ int draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsig
 		}
 		//printf("k=%d\n",k);
 
-		/* Cal xe,ye, ONLY deg+1 nonzero basis values in LN */
-		xe=0.0; ye=0.0;
-		mat_bspline_basis(k, deg, u, vu, LN); /* For clamped type, all LN[] will be affected. NOT necessary to clear */
-		for(j=0; j<=deg; j++) {
-			xe += LN[j]*pxy[k-deg+j].x;
-			ye += LN[j]*pxy[k-deg+j].y;
+		/* IF: input weight values */
+		if( ws != NULL )
+	   	{
+			/* Cal basis functions */
+			mat_bspline_basis(k, deg, u, vu, LN); /* For clamped type, all LN[] will be affected. NOT necessary to clear */
+
+			/* Cal. sumw=SUM{ LN[i,n](u)*ws[i] }  */
+			sumw=0.0;
+			for(j=0; j<=deg; j++) {
+				sumw += LN[j]*ws[k-deg+j];
+			}
+
+			/* Cal xe,ye, ONLY deg+1 nonzero basis values in LN */
+			xe=0.0; ye=0.0;
+			for(j=0; j<=deg; j++) {
+				xe += LN[j]*ws[k-deg+j]*pxy[k-deg+j].x;
+				ye += LN[j]*ws[k-deg+j]*pxy[k-deg+j].y;
+			}
+			xe /= sumw;
+			ye /= sumw;
+
+		}
+		/* ws == NULL */
+		else {
+			/* Cal xe,ye, ONLY deg+1 nonzero basis values in LN */
+			mat_bspline_basis(k, deg, u, vu, LN); /* For clamped type, all LN[] will be affected. NOT necessary to clear */
+			xe=0.0; ye=0.0;
+			for(j=0; j<=deg; j++) {
+				xe += LN[j]*pxy[k-deg+j].x;
+				ye += LN[j]*pxy[k-deg+j].y;
+			}
 		}
 
 		/* Draw short line */
 		if(!first_point)
                     draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w);
-                //float_draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w, false);
+                    //float_draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w, false);
 
 		/* Make end_point as next start_point */
 		xs=xe; ys=ye;

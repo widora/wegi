@@ -1228,13 +1228,13 @@ A=   |	      .. .. ..		  | --> |      ..  ...	         |*|         .. ..        
 
 Note:
 1. Matrix A MUST be strictly diagonally dominat? |a(i)|>|b(i)|+|c(i)|
-   NOP! weakly diagonally dominat also OK.
-	at lease one |a(k)|>|b(k)|+|c(k)|   others |a(k)|=|b(k)|+|c(k)|.
+   NOPE! weakly diagonally dominat also OK.
+	at leaset one |a(k)|>|b(k)|+|c(k)|   others |a(k)|=|b(k)|+|c(k)|.
 
 @abcd:  An EGI_MATRIX with row nr=4, just to store a,b,c,d.in form of:
        		{ a1,a2,a3,...a(N), b1,b2...b(N), c1,c2,....c(N), d1,d2,d3,...d(N) }
 	So as to save memory space!
-	Note: If abcd is invalid, the matAB will aply.
+	Note: If abcd is invalid, the matAB will apply.
 
 			--- WARNING ----
         1. Notice their position in the original matrix A.

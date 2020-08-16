@@ -54,7 +54,10 @@ NOTE:
 7. For Arithmetic_Right/Left_Shifting only.	---NOW
 
 			-----   2. TODO List   -----
-
+TODO:
+0. To distinguish some key words:
+   Draw,Display: Render image and display on screen 
+   WriteFB:      Wrtie data to FB buffer only.
 1. Spport for multilayer frame buffer.
 
 2. A module using UBUS as a mechanism to manage and communicate with external processes, 

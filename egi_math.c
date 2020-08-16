@@ -1591,5 +1591,8 @@ int mat_bspline_basis(int i, int deg, float u, const float *vu, float *LN)
 		LN[j]=saved;
 	}
 
+	/* Free */
+	free(left); /* together with right */
+
 	return 0;
 }
