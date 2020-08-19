@@ -90,6 +90,7 @@ midaszhou@yahoo.com
 --------------------------------------------------------------------------------------*/
 #include "egi_input.h"
 #include "egi_timer.h"
+#include "egi_fbdev.h"
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>   /* open */
@@ -104,7 +105,7 @@ static struct input_event  inevent;
 static EGI_INEVENT_CALLBACK  inevent_callback; 	/* To be assigned */
 /* ??? mutex lock for inevent_callback */
 
-static bool tok_loopread_event_running;         	/* token for loopread is running if true */
+static bool tok_loopread_event_running;         /* token for loopread is running if true */
 static bool cmd_end_loopread_event;            	/* command to end loopread if true */
 static pthread_t thread_loopread_event;
 static void *egi_input_loopread(void *arg);
@@ -126,6 +127,9 @@ static bool tok_loopread_mouse_running;		/* token for loopread is running if tru
 static bool cmd_end_loopread_mouse;           	/* command to end loopread if true */
 static pthread_t thread_loopread_mouse;
 static void *egi_mouse_loopread(void *arg);
+
+/* Mouse status and data */
+static EGI_MOUSE_STATUS mostatus={ .LeftKeyUpHold=true, .RightKeyUpHold=true, .MidKeyUpHold=true };
 
 
 /*---------------------------------------------------
@@ -216,7 +220,7 @@ void egi_mouse_setCallback(EGI_MOUSE_CALLBACK callback)
 Run loopread mice/mouseX data in a thread.
 
 @dev_name:	Mouse dev name
-		NULL, defautl "/dev/input/mice"
+		NULL, default "/dev/input/mice"
 
 Return:
 	0	OK
@@ -283,14 +287,19 @@ int egi_end_mouseread(void)
 }
 
 
-/*------------------------------------------------------
+/*---------------------------------------------------------------------
 		A thread fucntion
 Read input device in a loop, handle callback if
 event reaches.
 
+NOTE:
+1. A mouse KeyHoldDown event will NOT be polled independently, it's only
+   updated together with other events, such as mouse moving/rolling
+   etc.
+
 @devname:	Name of the input device
 
-----------------------------------------------------*/
+----------------------------------------------------------------------*/
 static void *egi_input_loopread( void* arg )
 {
 	fd_set rfds;
@@ -400,7 +409,7 @@ static void *egi_input_loopread( void* arg )
 
 
 /*------------------------------------------------------
-		A thread fucntion
+		A thread function
 Read mouse input data in loop.
 
 @arg:	devname for the mouse device.
@@ -411,6 +420,14 @@ static void *egi_mouse_loopread( void* arg )
 	fd_set rfds;
 	struct timeval tmval;
 	int retval;
+
+        unsigned char old_mouse_data[4]={0};
+        int status=0;/* 0b00(0): Released_hold
+                        0b01(1): Key Down / Raising edge
+                        0b10(2): Key Up / Falling edge
+                        0b11(3): Pressed_hold
+                     */
+
 
 	const char *dev_name="/dev/input/mice";
 	if(arg!=NULL)
@@ -484,10 +501,121 @@ static void *egi_mouse_loopread( void* arg )
 				continue;
 			}
 
+
+			/* ------ Cal. mouse status/data --------- */
+
+		        /* 1. Renew status for Left Key */
+        		status=((old_mouse_data[0]&0x1)<<1) + (mouse_data[0]&0x1);
+	        	switch( status ) {
+        	        	case 0b01:
+	        	                mostatus.LeftKeyDown=true;
+        	        	        mostatus.LeftKeyUpHold=false;
+                	        	printf("-Leftkey Down!\n");
+                        		break;
+		                case 0b10:
+	        	                mostatus.LeftKeyUp=true;
+					mostatus.LeftKeyDown=false; /* MAY transfer from 0b01 ! */
+        	        	        mostatus.LeftKeyDownHold=false;
+                	        	printf("-Leftkey Up!\n");
+	                	        break;
+	        	        case 0b11:
+        	        	        mostatus.LeftKeyDownHold=true;
+		                        mostatus.LeftKeyDown=false;
+		                        printf("-Leftkey DownHold!\n");
+                		        break;
+		                default:  /* 0b00: Leftkey UpHold */
+					/* TODO: Necesssary? May miss status transitions sometimes, restore KeyUp status  */
+					if(mostatus.LeftKeyDown || mostatus.LeftKeyDownHold ) {
+			                        mostatus.LeftKeyUp=true;
+                	  		      	printf("--Leftkey Up!\n");
+					}
+					else
+			                        mostatus.LeftKeyUp=false;
+                		        mostatus.LeftKeyUpHold=true;
+                		        mostatus.LeftKeyDown=false;     /* May miss some status???  */
+					mostatus.LeftKeyDownHold=false;
+		                        break;
+        		}
+		        /* 2. Renew status for Right Key */
+       			status=(old_mouse_data[0]&0x2) + ((mouse_data[0]&0x2)>>1);
+	        	switch( status ) {
+        	        	case 0b01:
+	        	                mostatus.RightKeyDown=true;
+        	        	        mostatus.RightKeyUpHold=false;
+                	        //	printf("-Rightkey Down!\n");
+                        		break;
+		                case 0b10:
+	        	                mostatus.RightKeyUp=true;
+        	        	        mostatus.RightKeyDownHold=false;
+                	        //	printf("-Rightkey Up!\n");
+	                	        break;
+	        	        case 0b11:
+        	        	        mostatus.RightKeyDownHold=true;
+		                        mostatus.RightKeyDown=false;
+		                        //printf(" ---Rightkey DownHold!\n");
+                		        break;
+		                default:  /* 0b00: UpHold */
+                		        mostatus.RightKeyUpHold=true;
+					mostatus.RightKeyUp=false;
+                		        mostatus.RightKeyDown=false;
+		                        break;
+        		}
+		        /* 3. Renew status for Mid Key */
+        		status=((old_mouse_data[0]&0x4)>>1) + ((mouse_data[0]&0x4)>>2);
+	        	switch( status ) {
+        	        	case 0b01:
+	        	                mostatus.MidKeyDown=true;
+        	        	        mostatus.MidKeyUpHold=false;
+                	        //	printf("-Midkey Down!\n");
+                        		break;
+		                case 0b10:
+	        	                mostatus.MidKeyUp=true;
+        	        	        mostatus.MidKeyDownHold=false;
+                	        //	printf("-Midkey Up!\n");
+	                	        break;
+	        	        case 0b11:
+        	        	        mostatus.MidKeyDownHold=true;
+		                        mostatus.MidKeyDown=false;
+		                        //printf(" ---Midkey DownHold!\n");
+                		        break;
+		                default:  /* 0b00: UpHold */
+                		        mostatus.MidKeyUpHold=true;
+		                        mostatus.MidKeyUp=false;
+                		        mostatus.MidKeyDown=false;     /* May miss some status???  */
+		                        break;
+        		}
+
+	        	/*  4. Get mouse X */
+	        	mostatus.mouseX += (mouse_data[0]&0x10) ? mouse_data[1]-256 : mouse_data[1];
+        		if( mostatus.mouseX > gv_fb_dev.pos_xres -5)
+		                mostatus.mouseX=gv_fb_dev.pos_xres -5;
+		        else if( mostatus.mouseX<0)
+		                mostatus.mouseX=0;
+
+		        /* 5. Get mouse Y: Notice LCD Y direction!  Minus for down movement, Plus for up movement!
+		         * !!! For eventX: Minus for up movement, Plus for down movement!
+		         */
+		        mostatus.mouseY -= ( (mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2] );
+		        if( mostatus.mouseY > gv_fb_dev.pos_yres -5)
+                		mostatus.mouseY=gv_fb_dev.pos_yres -5;
+		        else if(mostatus.mouseY<0)
+                		mostatus.mouseY=0;
+
+		        /* 6. Get mouse Z */
+			mostatus.mouseDZ = (mouse_data[3]&0x80) ? mouse_data[3]-256 : mouse_data[3] ;
+		        mostatus.mouseZ += mostatus.mouseDZ;
+
+		        /* 7. Renew old mouse data */
+		        memcpy(old_mouse_data, mouse_data, sizeof(old_mouse_data));
+
+			/* ------ END: Cal. mouse status/data --------- */
+
+
 			/* Call back */
 			if(mouse_callback!=NULL) {
-				mouse_callback(mouse_data, sizeof(mouse_data));
+				mouse_callback(mouse_data, sizeof(mouse_data), &mostatus);
 			}
+
 
 			#if 0 /* --- TEST ----  */
 			/* Parse mouse data */
