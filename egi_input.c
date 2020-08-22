@@ -546,7 +546,8 @@ static void *egi_mouse_loopread( void* arg )
                         		break;
 		                case 0b10:
 	        	                mostatus.RightKeyUp=true;
-        	        	        mostatus.RightKeyDownHold=false;
+        	        	        mostatus.RightKeyDown=false;
+        	        	        mostatus.LeftKeyDownHold=false;
                 	        //	printf("-Rightkey Up!\n");
 	                	        break;
 	        	        case 0b11:
@@ -586,7 +587,8 @@ static void *egi_mouse_loopread( void* arg )
         		}
 
 	        	/*  4. Get mouse X */
-	        	mostatus.mouseX += (mouse_data[0]&0x10) ? mouse_data[1]-256 : mouse_data[1];
+			mostatus.mouseDX = (mouse_data[0]&0x10) ? mouse_data[1]-256 : mouse_data[1];
+	        	mostatus.mouseX += mostatus.mouseDX;
         		if( mostatus.mouseX > gv_fb_dev.pos_xres -5)
 		                mostatus.mouseX=gv_fb_dev.pos_xres -5;
 		        else if( mostatus.mouseX<0)
@@ -595,7 +597,8 @@ static void *egi_mouse_loopread( void* arg )
 		        /* 5. Get mouse Y: Notice LCD Y direction!  Minus for down movement, Plus for up movement!
 		         * !!! For eventX: Minus for up movement, Plus for down movement!
 		         */
-		        mostatus.mouseY -= ( (mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2] );
+			mostatus.mouseDY = -( (mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2] );
+		        mostatus.mouseY +=mostatus.mouseDY;
 		        if( mostatus.mouseY > gv_fb_dev.pos_yres -5)
                 		mostatus.mouseY=gv_fb_dev.pos_yres -5;
 		        else if(mostatus.mouseY<0)

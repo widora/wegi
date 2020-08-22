@@ -32,7 +32,11 @@ typedef struct egi_mouse_status {
         int  mouseX;
         int  mouseY;
         int  mouseZ;
+	int  mouseDX;
+	int  mouseDY;
 	int  mouseDZ;
+
+	bool request;
 } EGI_MOUSE_STATUS;
 
 

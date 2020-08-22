@@ -1097,9 +1097,9 @@ Note:
 	    !!!NOTE!!!: Even if alpha_on if False, ineimg->alpha will be copied to
 	   	         outeimg->alpha if it exists.
 
-@holdon:    True: To continue to use ineimg->pcolors(palphas) as intermediate results,
+@hold_on:    True: To continue to use ineimg->pcolors(palphas) as intermediate results,
 		  DO NOT re_memcpy from ineimg->imgbuf(palphas).
-	    False: Re_memcpy from ineimg->imgbuf(palphas).
+	     False: Re_memcpy from ineimg->imgbuf(palphas).
 
 Return:
 	A pointer to a new EGI_IMGBUF with blured image  	OK
@@ -1636,9 +1636,16 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 	else if(height<1)
 		height=width*oldheight/oldwidth;
 
-	/* adjust width and height to 2, ==1 will cause Devide_By_Zero exception. */
+	/* Keep image ratio */
+	if( height/width > oldheight/oldwidth )
+		width=height*oldwidth/oldheight;
+	else
+		height=width*oldheight/oldwidth;
+
+	/* Limit width and height to 2, ==1 will cause Devide_By_Zero exception. */
 	if(width<2) width=2;
 	if(height<2) height=2;
+
 
 #if 0 /* ----- FOR TEST ONLY ----- */
 	/* create temp imgbuf */
@@ -1655,6 +1662,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 	/* create output imgbuf */
 	outeimg= egi_imgbuf_create( height, width, 0, 0); /* (h,w,alpha,color) alpha/color will be replaced later */
 	if(outeimg==NULL) {
+		printf("%s: fail to create outeimg!\n",__func__);
 		return NULL;
 	}
 	if(!alpha_on) {
@@ -1662,7 +1670,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 		outeimg->alpha=NULL;
 	}
 
-	/* if same size, just memcpy data */
+	/* If same size, just memcpy data */
 	if( height==ineimg->height && width==ineimg->width ) {
 		memcpy( outeimg->imgbuf, ineimg->imgbuf, sizeof(EGI_16BIT_COLOR)*height*width);
 		if(alpha_on) {
@@ -1674,7 +1682,9 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 
 	/* TODO: if height or width is the same size, to speed up */
 
+
 	/* Allocate mem to hold oldheight x width image for intermediate processing */
+	printf("Malloc icolors...\n");
 	icolors=(EGI_16BIT_COLOR **)egi_malloc_buff2D(oldheight,width*sizeof(EGI_16BIT_COLOR));
 	if(icolors==NULL) {
 		printf("%s: Fail to malloc icolors.\n",__func__);
@@ -1692,6 +1702,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 	}
 
 	/* Allocate mem to hold final image size height x width  */
+	printf("Malloc fcolors...\n");
 	fcolors=(EGI_16BIT_COLOR **)egi_malloc_buff2D(height,width*sizeof(EGI_16BIT_COLOR));
 	if(fcolors==NULL) {
 		printf("%s: Fail to malloc fcolors.\n",__func__);
@@ -1721,6 +1732,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 	alpha_rowsize=width*sizeof(unsigned char);
 
 	/* ----- STEP 1 -----  scale image from [oldheight_X_oldwidth] to [oldheight_X_width] */
+	printf("STEP 1 scale image to [oldheight_X_width]...\n");
 	for(i=0; i<oldheight; i++)
 	{
 //		printf(" \n STEP 1: ----- row %d ----- \n",i);
@@ -1774,6 +1786,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 	/* NOTE: rowsize keep same here! Just need to scale height. */
 
 	/* ----- STEP 2 -----  scale image from [oldheight_X_width] to [height_X_width] */
+	printf("STEP 2: scale image to [height_X_width]...\n");
 	for(i=0; i<width; i++)
 	{
 //		printf(" \n STEP 2: ----- column %d ----- \n",i);
@@ -1823,7 +1836,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 	}
 
 	/* Copy row data to outeimg when all finish. */
-//	printf(" STEP 2: copy row data to outeimg...\n");
+	printf("Copy row data to outeimg...\n");
 	for( i=0; i<height; i++) {
 		memcpy( outeimg->imgbuf+i*width, fcolors[i], color_rowsize );
 		if(alpha_on)

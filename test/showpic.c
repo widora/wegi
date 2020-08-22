@@ -12,7 +12,8 @@ Exampe:
 	./showpic /tmp/bird.png
 	./showpic /tmp/*
 
-Control key:
+Note:
+1. Keyboard Control:
 	'w' or UP_ARROW	 	pan up
 	's' or DOWN_ARROW	pan down
 	'a' or LEFT_ARROW	pan left
@@ -25,6 +26,10 @@ Control key:
 	'i' --- General image recognization
 	'O' --- OCR detect
 	'P' --- Face detect
+2. Mouse Control:
+	LeftKeyDownHold and move	Grab and pan
+	MidKey rolling			zoom up/down.
+	RightKey Click			Shift to next/prev picture
 
 TODO: To move image totally out of screen, forth and back, ...then
       the bug appears.
@@ -35,19 +40,28 @@ midaszhou@yahoo.com
 #include <termios.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include "egi_common.h"
+#include <egi_common.h>
+#include <egi_input.h>
 
-char imd_getchar(void);
+static EGI_MOUSE_STATUS mostat;
+static struct termios old_settings;
+static struct termios new_settings;
+static void set_termios(void);
+static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
+static void draw_mcursor(int x, int y);
 
-
+/*----------------------------
+            MAIN
+----------------------------*/
 int main(int argc, char** argv)
 {
-	int i,j,k;
+	int i,j;
 	int xres;
 	int yres;
 	int xp,yp;
 	int step=50;
 	int Sh,Sw;	/* Show_height, Show_width */
+
 	/* percentage step  1/4 */
 	EGI_IMGBUF* eimg=NULL;
 	EGI_IMGBUF* tmpimg=NULL;
@@ -57,8 +71,9 @@ int main(int argc, char** argv)
 	bool	TranspMode=false;
 	bool	DirectFB_ON=false;
 
-	char	cmdchar=0;		/* A char as for command */
+	char	cmdchar=-1; /* Init -1, not 0; A char as for command */
 	int	byte_deep=0;
+
 
 
         /* parse input option */
@@ -98,6 +113,12 @@ int main(int argc, char** argv)
 		exit(1);
 	}
 
+	/* Set terminal IO attributes */
+	set_termios();
+
+  	/* Start sys tick */
+  	tm_start_egitick();
+
         /* Init sys FBDEV  */
         if( init_fbdev(&gv_fb_dev) )
                 return -1;
@@ -107,21 +128,44 @@ int main(int argc, char** argv)
                 fb_position_rotate(&gv_fb_dev,0);
         else
                 fb_position_rotate(&gv_fb_dev,3);
+
         xres=gv_fb_dev.pos_xres;
         yres=gv_fb_dev.pos_yres;
 
         /* set FB buffer mode: Direct(no buffer) or Buffer */
         if(DirectFB_ON) {
-            gv_fb_dev.map_bk=gv_fb_dev.map_fb; /* Direct map_bk to map_fb */
-
+            //gv_fb_dev.map_bk=gv_fb_dev.map_fb; /* Direct map_bk to map_fb */
+	    fb_set_directFB(&gv_fb_dev, true);
         } else {
-            /* init FB back ground buffer page */
-            memcpy(gv_fb_dev.map_buff+gv_fb_dev.screensize, gv_fb_dev.map_fb, gv_fb_dev.screensize);
 
-            /*  init FB working buffer page */
+	    /* Prepare backgroup image for transparent image */
+	    for(i=0; i<6; i++) {
+		for(j=0; j<8; j++) {
+			if( (i*8+j+i)%2 )
+				fbset_color(WEGI_COLOR_GRAY);
+			else
+				fbset_color(WEGI_COLOR_DARKGRAY);
+			draw_filled_rect(&gv_fb_dev, j*40, i*40, (j+1)*40-1, (i+1)*40-1);
+		}
+	    }
+	    fb_render(&gv_fb_dev);
+
+	    /* Copy FB mmap data to WORKING_BUFF and BKG_BUFF */
+	    fb_init_FBbuffers(&gv_fb_dev);
+	    #if 0
+            /* Init FB back ground buffer page */
+            //memcpy(gv_fb_dev.map_buff+gv_fb_dev.screensize, gv_fb_dev.map_fb, gv_fb_dev.screensize);
+
+            /*  Init FB working buffer page */
             //fbclear_bkBuff(&gv_fb_dev, WEGI_COLOR_BLUE);
             memcpy(gv_fb_dev.map_bk, gv_fb_dev.map_fb, gv_fb_dev.screensize);
+	   #endif
         }
+
+	/* Start mouse read thread */
+	if(egi_start_mouseread(NULL, mouse_callback)<0)
+		return -2;
+
 
 	/* ---------- Load image files ----------------- */
 for( i=optind; i<argc; i++) {
@@ -145,9 +189,9 @@ for( i=optind; i<argc; i++) {
         // egi_imgbuf_avgLuma(eimg, 255/3);
 
 	/* 4. 	------------- Displaying  image ------------ */
-
 	xp=yp=0;
   do {
+	/* B1. Keyboard control event */
 	switch(cmdchar)
 	{
 		/* ---------------- Parse 'q' ------------------- */
@@ -156,18 +200,48 @@ for( i=optind; i<argc; i++) {
 
 		/* ---------------- Parse 'z' and 'n' ------------------- */
 		case 'z':	/* zoom up */
-			xp = (xp+xres/2)*5/4 - xres/2;	/* keep focus on center of LCD */
-			yp = (yp+yres/2)*5/4 - yres/2;
- 			Sh = Sh*5/4;
-			Sw = Sw*5/4;
+			/* Limit size to limit memory */
+			if( Sh*Sw < 4800000 ) {
+				xp = (xp+xres/2)*5/4 - xres/2;	/* zoom focus at center of LCD */
+				yp = (yp+yres/2)*5/4 - yres/2;
+
+	 			Sh = Sh*5/4;
+				Sw = Sw*5/4;
+				printf("Zoom up: Sh=%d, Sw=%d\n",Sh, Sw);
+			}
+
+			/* Resize image */
+			egi_imgbuf_free2(&tmpimg);
 			tmpimg=egi_imgbuf_resize(eimg, Sw, Sh);
+			if(tmpimg==NULL) {
+				printf("tmpimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
+			}
+			else {  /* Adjust Sh/Sw as the resized image */
+				Sh=tmpimg->height;
+				Sw=tmpimg->width;
+			}
 			break;
 		case 'n':	/* zoom down */
-			xp = (xp+xres/2)*3/4 - xres/2;	/* keep focus on center of LCD */
+			xp = (xp+xres/2)*3/4 - xres/2;	/* zoom focus at center of LCD */
 			yp = (yp+yres/2)*3/4 - yres/2;
-			Sh = Sh*3/4;
-			Sw = Sw*3/4;
+
+			/* Limit size to avoid a NULL tmpimg */
+			if(Sh>2 && Sw>2) {
+				Sh = Sh*3/4;
+				Sw = Sw*3/4;
+			}
+			printf("Zoom down: Sh=%d, Sw=%d\n",Sh, Sw);
+
+			/* Resize image */
+			egi_imgbuf_free2(&tmpimg);
 			tmpimg=egi_imgbuf_resize(eimg, Sw, Sh);
+			if(tmpimg==NULL) {
+				printf("tmpimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
+			}
+			else {  /* Adjust Sh/Sw as the resized image */
+				Sh=tmpimg->height;
+				Sw=tmpimg->width;
+			}
 			break;
 		/* ---------------- Parse arrow keys -------------------- */
 		case '\033':
@@ -255,16 +329,97 @@ for( i=optind; i<argc; i++) {
 			break;
 	}
 
-	 if(!TranspMode)
-	 	fbclear_bkBuff(&gv_fb_dev, WEGI_COLOR_GRAY); /* for transparent picture */
-       	 egi_imgbuf_windisplay( tmpimg, &gv_fb_dev, -1,
-         	                xp, yp, 0, 0,
-               		        xres, yres ); //tmpimg->width, tmpimg->height);
+	/* B2. Mouse control event */
+   	if(mostat.request) {
+		if(mostat.RightKeyDown) {
+			/* Forward OR Back */
+			if(mostat.mouseX > xres/2) {
+				printf("Forward\n");
+				//do nothing
+			}
+			else {
+				printf("Backward\n");
+			  	i -=2 ;
+				if(i < optind-1 ) i=optind-1;
+			}
 
-        /* 4.1 Refresh FB by memcpying back buffer to FB */
-        fb_page_refresh(&gv_fb_dev,0);
+			mostat.request=false;
+			cmdchar=' '; /* to triger display */
+			break;
+		}
+		if(mostat.LeftKeyDownHold) {
+			xp -= mostat.mouseDX;  /* Reverse direction */
+			yp -= mostat.mouseDY;
+			//printf("DX,DY: %d,%d\n",mostat.mouseDX,mostat.mouseDY);
+		}
 
-  } while( (cmdchar=imd_getchar()) != ' ' ); /* input SPACE to end displaying current image */
+		if( mostat.mouseDZ!=0 ) {; //&& mostat.request ) {
+			if( mostat.mouseDZ <0 ) {	/* zoom up */
+				/* Limit size to limit memory */
+				if( Sh*Sw < 4800000 ) {
+					xp = (xp+mostat.mouseX)*5/4 - mostat.mouseX;	/* Zoom center at mouse tip */
+					yp = (yp+mostat.mouseY)*5/4 - mostat.mouseY;
+
+	 				Sh = Sh*5/4;
+					Sw = Sw*5/4;
+					printf("Zoom Up: Sh=%d, Sw=%d\n",Sh, Sw);
+				}
+			}
+			else {	/* zoom down */
+				xp = (xp+mostat.mouseX)*3/4 - mostat.mouseX;	/* Zoom center at mouse tip */
+				yp = (yp+mostat.mouseY)*3/4 - mostat.mouseY;
+
+				/* Limit size to avoid a NULL tmpimg */
+				if(Sh>2 && Sw>2) {
+					Sh = Sh*3/4;
+					Sw = Sw*3/4;
+				}
+				printf("Zoom Down: Sh=%d, Sw=%d\n",Sh, Sw);
+			}
+			/* Resize image */
+			egi_imgbuf_free2(&tmpimg);
+			tmpimg=egi_imgbuf_resize(eimg, Sw, Sh);
+			if(tmpimg==NULL) {
+				printf("tmpimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
+			}
+			else {  /* Adjust Sh/Sw as the resized image */
+				Sh=tmpimg->height;
+				Sw=tmpimg->width;
+			}
+		}
+   	}
+
+	/* B3. FB write image */
+	if( cmdchar!=0 || mostat.LeftKeyDownHold || mostat.mouseDZ!=0 ) {
+		 if(!TranspMode)
+			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
+		 	//fbclear_bkBuff(&gv_fb_dev, WEGI_COLOR_GRAY); /* for transparent picture */
+
+       	 	egi_imgbuf_windisplay( tmpimg, &gv_fb_dev, -1,
+         	        	        xp, yp, 0, 0,
+               			        xres, yres ); //tmpimg->width, tmpimg->height);
+	}
+
+        /* B4.1 Refresh FB by memcpying back buffer to FB */
+        //fb_page_refresh(&gv_fb_dev,0);
+	fb_render(&gv_fb_dev);
+
+	/* B4.2 Mouse direct to FB */
+	draw_mcursor(mostat.mouseX, mostat.mouseY);
+	tm_delayms(25);
+
+	/* B5. Reset request */
+	mostat.request=false;
+
+	/* B6. Wait for mouse/keybaord events */
+        do {
+		cmdchar=0;
+		read(STDIN_FILENO, &cmdchar, 1);
+		if(cmdchar!=0)
+			printf("cmdchar: %d '%c'\n", cmdchar, cmdchar);
+	} while ( cmdchar==0 && !mostat.request);
+
+  } while( cmdchar != ' ' ); /* input SPACE to end displaying current image */
 
          fbclear_bkBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
 
@@ -279,68 +434,93 @@ for( i=optind; i<argc; i++) {
 
 END_DISPLAY:
         /* <<<<<  EGI general release >>>>> */
+
+	printf("egi_end_mouseread()...\n");
+	egi_end_mouseread();
 	printf("release_fbdev()...\n");
         fb_filo_flush(&gv_fb_dev);
         release_fbdev(&gv_fb_dev);
 
+	/* Reset terminal attr */
+	tcsetattr(0, TCSANOW, &old_settings);
+
 return 0;
+
 }
 
 
-/*----------------------------------------------------------------------------------------
-Immediatly get a char from terminal input without delay.
-
-1. struct termios main members:
-           tcflag_t c_iflag;       input modes
-           tcflag_t c_oflag;       output modes
-           tcflag_t c_cflag;       control modes
-           tcflag_t c_lflag;       local modes
-           cc_t     c_cc[NCCS];    special characters
-
-2. tcflag_t c_lflag values:
-       ... ...
-       ICANON Enable canonical mode
-       ECHO   Echo input characters.
-       ECHOE  If ICANON is also set, the ERASE character erases the preceding input character, and WERASE erases the preceding word.
-       ECHOK  If ICANON is also set, the KILL character erases the current line.
-       ECHONL If ICANON is also set, echo the NL character even if ECHO is not set.
-
-       ... ...
-
-3. " In noncanonical mode input is available immediately (without the user having to type a
-     line-delimiter character), no input processing is performed, and line editing is disabled.
-     The settings of MIN (c_cc[VMIN]) and TIME (c_cc[VTIME]) determine the circumstances in which
-     which a read(2) completes; there are four distinct cases:
-     		VTIME  Timeout in deciseconds for noncanonical read (TIME).
-		VMIN   Minimum number of characters for noncanonical read (MIN).
-		There are four cases:
-	  	MIN == 0, TIME == 0 (polling read)
-		MIN > 0, TIME == 0  (blocking read)
-		MIN == 0, TIME > 0  (read with timeout)
-        	      TIME  specifies  the  limit for a timer in tenths of a second.
-		MIN > 0, TIME > 0  (read with interbyte timeout)
-        	      TIME specifies the limit for a timer in tenths of a second.  Once an initial byte
-		      of input becomes available, the timer is restarted after each further byte is received.
-   " --- man tcgetattr / Linux Programmer's Manual
-
-----------------------------------------------------------------------------------------------*/
-char imd_getchar(void)
+/*-----------------------------------
+    Set terminal IO attributes
+----------------------------------*/
+static void set_termios(void)
 {
-	struct termios old_settings;
-	struct termios new_settings;
-
 	tcgetattr(0, &old_settings);
 	new_settings=old_settings;
 	new_settings.c_lflag &= (~ICANON);      /* disable canonical mode, no buffer */
 	new_settings.c_lflag &= (~ECHO);   	/* disable echo */
-	new_settings.c_cc[VMIN]=1;
-	new_settings.c_cc[VTIME]=0;
+	new_settings.c_cc[VMIN]=0; //1;
+	new_settings.c_cc[VTIME]=0; //0
 	tcsetattr(0, TCSANOW, &new_settings);
-
-	char c=getchar();
-	//printf("input c=%c\n",c);
-
-	tcsetattr(0, TCSANOW,&old_settings);
-
-	return c;
 }
+
+
+/*-----------------------------------------------------------
+		Callback for mouse event
+------------------------------------------------------------*/
+static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus)
+{
+ 	/* Wait until main thread finish last mouse_request */
+	 while( mostat.request ) { usleep(1000); };
+
+	/* Pass out mouse data */
+	mostat=*mostatus;
+
+	/* Request for respond */
+	mostat.request = true;
+}
+
+
+/*------------------------------------
+	   Draw mouse
+-------------------------------------*/
+static void draw_mcursor(int x, int y)
+{
+        static EGI_IMGBUF *mcimg=NULL; /* cursor */
+        static EGI_IMGBUF *mgimg=NULL; /* grab */
+
+#ifdef LETS_NOTE
+	#define MCURSOR_ICON_PATH 	"/home/midas-zhou/egi/mcursor.png"
+	#define MGRAB_ICON_PATH 	"/home/midas-zhou/egi/mgrab.png"
+	#define TXTCURSOR_ICON_PATH 	"/home/midas-zhou/egi/txtcursor.png"
+#else
+	#define MCURSOR_ICON_PATH 	"/mmc/mcursor.png"
+	#define MGRAB_ICON_PATH 	"/mmc/mgrab.png"
+	#define TXTCURSOR_ICON_PATH 	"/mmc/txtcursor.png"
+#endif
+
+        if(mcimg==NULL)
+                mcimg=egi_imgbuf_readfile(MCURSOR_ICON_PATH);
+        if(mgimg==NULL)
+                mgimg=egi_imgbuf_readfile(MGRAB_ICON_PATH);
+
+	/* Always draw mouse in directFB mode */
+	/* directFB and Non_directFB mixed mode will disrupt FB synch, and make the screen flash?? */
+   //fb_filo_off(&gv_fb_dev);
+	//mode=fb_get_FBmode(&gv_fb_dev);
+	fb_set_directFB(&gv_fb_dev,true);
+
+        /* OPTION 1: Use EGI_IMGBUF */
+	if(mostat.LeftKeyDown || mostat.LeftKeyDownHold )
+	        egi_subimg_writeFB(mgimg, &gv_fb_dev, 0, -1, x, y); /* subnum,subcolor,x0,y0 */
+	else
+	        egi_subimg_writeFB(mcimg, &gv_fb_dev, 0, -1, x, y); /* subnum,subcolor,x0,y0 */
+
+        /* OPTION 2: Draw geometry */
+
+	/* Restore FBmode */
+	fb_set_directFB(&gv_fb_dev,false);
+	//fb_set_directFB(&gv_fb_dev, mode);
+   //fb_filo_on(&gv_fb_dev);
+
+}
+
