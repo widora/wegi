@@ -36,7 +36,7 @@ SPACE:		Select the first Haizi/Cizu in the displaying panel
 
 Note:
   	1. Use '(0x27) as delimiter to separate PINYIN entry. Example: xian --> xi'an.
-  	2. Press ESCAP to clear PINYIN input buffer.
+  	2. Press ESCAPE to clear PINYIN input buffer.
 	3. See PINYIN DATA LOAD/SAVE PROCEDURE in "egi_unihan.h".
 
                ( --- 3. Definition and glossary --- )
@@ -172,6 +172,7 @@ static EGI_FTCHAR_MAP *chmap;	/* FTchar map to hold char position data */
 static unsigned int chns;	/* total number of chars in a string */
 
 static bool mouseLeftKeyDown;
+static bool mouseLeftKeyUp;
 static bool start_pch=false;	/* True if mouseLeftKeyDown switch from false to true */
 static int  mouseX, mouseY, mouseZ; /* Mouse point position */
 static int  mouseMidX, mouseMidY;   /* Mouse cursor mid position */
@@ -222,7 +223,7 @@ static int WBTMenu_Command_ID=WBTMENU_COMMAND_NONE;
 static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void FTcharmap_goto_end(void);
 static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
-static void mouse_callback(unsigned char *mouse_data, int size);
+static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
 static void draw_mcursor(int x, int y);
 static void draw_RCMenu(int x0, int y0);  /* Draw right_click menu */
 static void draw_WTBMenu(int x0, int y0); /* Draw window_top_bar menu */
@@ -233,6 +234,7 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID);
 static int  load_pinyin_data(void);
 static void save_all_data(void);
 void signal_handler(int signal);
+
 
 /* ============================
 	    MAIN()
@@ -305,8 +307,7 @@ int main(int argc, char **argv)
   fb_position_rotate(&gv_fb_dev,0);
 
   /* Set mouse callback function and start mouse readloop */
-  //egi_mouse_setCallback(mouse_callback);
-  egi_start_mouseread("/dev/input/mice", mouse_callback);
+  egi_start_mouseread(NULL, mouse_callback);
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
@@ -921,13 +922,14 @@ MAIN_START:
 			/* Backup desktop bkg */
 	        	fb_copy_FBbuffer(&gv_fb_dev,FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 
-			while( !start_pch || mouseLeftKeyDown==false ) {  /* Wait for next click */
+			/* Wait for next click ... */
+			while( !start_pch || mouseLeftKeyDown==false ) {
         			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 				draw_WTBMenu( txtbox.startxy.x, txtbox.startxy.y );
-
        				draw_mcursor(mouseMidX, mouseMidY);
 				fb_render(&gv_fb_dev);
 			}
+
 			printf("WTBmenu Close\n");
 			/* Execute Menu Command */
 			WBTMenu_execute(WBTMenu_Command_ID);
@@ -1117,47 +1119,39 @@ static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, i
 1. Just update mouseXYZ
 2. Check and set ACTIVE token for menus.
 3. If click in TXTBOX, set typing cursor or marks.
+4. The function will be pending until there is a mouse event.
 ------------------------------------------------------------*/
-static void mouse_callback(unsigned char *mouse_data, int size)
+static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus)
 {
-//	int i;
-	int mdZ;
 	EGI_POINT  pxy={0,0};
 
-        /* 1. Check pressed key */
-        if(mouse_data[0]&0x1) {
-		/* Start selecting */
-		if( mouseLeftKeyDown==false ) {  /* check old status */
-                	printf("Leftkey press!\n");
+        /* 1. Check mouse Left Key status */
+	mouseLeftKeyDown=mostatus->LeftKeyDown; // || mostatus->LeftKeyDownHold;
+	mouseLeftKeyUp=mostatus->LeftKeyUp;
+
+	if( mostatus->LeftKeyDown ) {
+		/* Set start_pch */
+		if( mouseY > txtbox.startxy.y )
 			start_pch=true;
 
-			/* Activate window top bar menu */
-			if( mouseY < txtbox.startxy.y && mouseX <112) //90 )
-				ActiveComp=CompWTBMenu;
+                /* Activate window top bar menu */
+                if( mouseY < txtbox.startxy.y && mouseX <112) //90 )
+                        ActiveComp=CompWTBMenu;
 
-			/* reset pch2 = pch */
-			if( ActiveComp==CompTXTBox )
-				FTcharmap_reset_charPos2(chmap);
-		}
-		else {
-			/* Leftkey press hold */
-			start_pch=false;
-		}
-		/* ! Set at last */
-		mouseLeftKeyDown=true;
+                /* Reset pch2 = pch */
+                if( ActiveComp==CompTXTBox )
+                       FTcharmap_reset_charPos2(chmap);
 	}
-	else {
-		/* End selecting */
-		if(mouseLeftKeyDown==true) {
-			printf("LeftKey release!\n");
-		}
-		start_pch=false;
-		/* ! Set at last */
-		mouseLeftKeyDown=false;
+	else if( mostatus->LeftKeyDownHold ) {
+		start_pch=false; /* disable pch mark */
+	}
+	else if( mostatus->LeftKeyUp ) {
+                start_pch=false;
 	}
 
 	/* Right click down */
-        if(mouse_data[0]&0x2) {
+       //if(mouse_data[0]&0x2) {
+	if(mostatus->RightKeyDown ) {
                 printf("Right key down!\n");
 		pxy.x=mouseX; pxy.y=mouseY;
 		if( point_inbox(&pxy, &txtbox ) ) {
@@ -1167,54 +1161,40 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 		}
 	}
 
-        if(mouse_data[0]&0x4)
+	/* Midkey down */
+       //if(mouse_data[0]&0x4)
+	if(mostatus->MidKeyDown)
                 printf("Mid key down!\n");
 
-        /*  2. Get mouse X */
-        mouseX += ( (mouse_data[0]&0x10) ? mouse_data[1]-256 : mouse_data[1] );
-        if(mouseX > gv_fb_dev.pos_xres -5)
-                mouseX=gv_fb_dev.pos_xres -5;
-        else if(mouseX<0)
-                mouseX=0;
+        /*  2. Get mouse X,Y,DZ,Z */
+	mouseX = mostatus->mouseX;
+	mouseY = mostatus->mouseY;
 
-        /* 3. Get mouse Y: Notice LCD Y direction!  Minus for down movement, Plus for up movement!
-         * !!! For eventX: Minus for up movement, Plus for down movement!
-         */
-        mouseY -= ( (mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2] );
-        if(mouseY > gv_fb_dev.pos_yres -5)
-                mouseY=gv_fb_dev.pos_yres -5;
-        else if(mouseY<0)
-                mouseY=0;
-
-      	mouseMidY=mouseY+fh/2;
-       	mouseMidX=mouseX+fw/2;
-//       	printf("mouseMidX,Y=%d,%d \n",mouseMidX, mouseMidY);
-
-        /* 4. Get mouse Z */
-	mdZ= (mouse_data[3]&0x80) ? mouse_data[3]-256 : mouse_data[3] ;
-        mouseZ += mdZ;
-        //printf("get X=%d, Y=%d, Z=%d, dz=%d\n", mouseX, mouseY, mouseZ, mdZ);
-	if( mdZ > 0 ) {
+	/* Scroll down/up */
+	if( mostatus->mouseDZ > 0 ) {
 		 FTcharmap_scroll_oneline_down(chmap);
 	}
-	else if ( mdZ < 0 ) {
+	else if ( mostatus->mouseDZ < 0 ) {
 		 FTcharmap_scroll_oneline_up(chmap);
 	}
 
-	/* 5. To get current cursor/pchoff position  */
-	if(mouseLeftKeyDown && ActiveComp==CompTXTBox ) {
-		/* Cursor position/Start of selection */
+      	mouseMidY=mostatus->mouseY+fh/2;
+       	mouseMidX=mostatus->mouseX+fw/2;
+//    	printf("mouseMidX,Y=%d,%d \n",mouseMidX, mouseMidY);
+
+	/* 3. To get current cursor/pchoff position  */
+	if( (mostatus->LeftKeyDownHold || mostatus->LeftKeyDown) && ActiveComp==CompTXTBox ) {
+		/* Set cursor position/Start of selection, LeftKeyDown */
 		if(start_pch) {
 		        /* continue checking request! */
            		while( FTcharmap_locate_charPos( chmap, mouseMidX, mouseMidY )!=0 ){ tm_delayms(5);};
            		/* set random mark color */
            		FTcharmap_set_markcolor( chmap, egi_color_random(color_medium), 80);
 		}
-		/* End of selection */
+		/* Set end of selection, LeftKeyDownHold */
 		else {
 		   	/* Continue checking request! */
-		   	while( FTcharmap_locate_charPos2( chmap, mouseMidX, mouseMidY )!=0){ tm_delayms(5); } ;
-
+		   	while( FTcharmap_locate_charPos2( chmap, mouseMidX, mouseMidY )!=0 ){ tm_delayms(5); } ;
 		}
 	}
 }
@@ -1226,7 +1206,7 @@ static void mouse_callback(unsigned char *mouse_data, int size)
 ----------------------------------*/
 static void draw_mcursor(int x, int y)
 {
-	int mode;
+//	int mode;
         static EGI_IMGBUF *mcimg=NULL;
         static EGI_IMGBUF *tcimg=NULL;
 	EGI_POINT pt;
@@ -1683,9 +1663,8 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 			break;
 		case WBTMENU_COMMAND_ABOUT:
 			printf("WBTMENU_COMMAND_ABOUT\n");
-
-			start_pch=false;
-                        while( !start_pch ) {  /* Wait for click */
+			mouseLeftKeyDown=false; /* reset it first */
+                        while( !mouseLeftKeyDown ) {  /* Wait for click */
                                 fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 				draw_msgbox( &gv_fb_dev, 50, 50, 240, "　　这是用EGI编制的一个简单的记事本. Widora和他的小伙伴们" );
                                 draw_mcursor(mouseMidX, mouseMidY);
