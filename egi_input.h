@@ -14,6 +14,9 @@ midaszhou@yahoo.com
 #include <linux/input.h>
 
 typedef struct egi_mouse_status {
+        pthread_mutex_t mutex;      /* mutex lock for imgbuf */
+
+	/* OR use bitwise to store status */
         bool LeftKeyDown;
         bool LeftKeyUp;
         bool LeftKeyDownHold;
@@ -32,11 +35,20 @@ typedef struct egi_mouse_status {
         int  mouseX;
         int  mouseY;
         int  mouseZ;
+
+	/* Note: DX,DY,DZ is current increment value, which already added in above mouseX,mouseY,mouseZ
+	 * If we use mouseDX/DY to guide the cursor, the cursor will slip away at four sides of LCD, as Limit Value
+         * applys for mouseX/Y, while mouseDX/DY do NOT has limits!!!
+	 */
 	int  mouseDX;
 	int  mouseDY;
 	int  mouseDZ;
 
-	bool request;
+	bool cmd_end_loopread_mouse;   /* Request to end mouse loopread, espacially for mouse_callback function,
+					*  which may be trapped in deadlock withou a signal.
+					*/
+
+	bool request;  /* 0 -- No request, 1-- Mouse event request respond */
 } EGI_MOUSE_STATUS;
 
 
@@ -55,5 +67,12 @@ int 	egi_end_inputread(void);
 void 	egi_mouse_setCallback(EGI_MOUSE_CALLBACK callback);
 int 	egi_start_mouseread(const char *dev_name, EGI_MOUSE_CALLBACK callback);
 int 	egi_end_mouseread(void);
+bool egi_mouse_checkRequest(EGI_MOUSE_STATUS *mostat);
+bool egi_mouse_getRequest(EGI_MOUSE_STATUS *mostat);
+int  egi_mouse_putRequest(EGI_MOUSE_STATUS *mostat);
+
+/* Terminal IO settings */
+void egi_set_termios(void);
+void egi_reset_termios(void);
 
 #endif

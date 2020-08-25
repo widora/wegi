@@ -42,13 +42,13 @@ midaszhou@yahoo.com
 #include <stdio.h>
 #include <egi_common.h>
 #include <egi_input.h>
+#include <egi_gif.h>
 
 static EGI_MOUSE_STATUS mostat;
-static struct termios old_settings;
-static struct termios new_settings;
-static void set_termios(void);
+static EGI_MOUSE_STATUS *pmostat;
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
 static void draw_mcursor(int x, int y);
+
 
 /*----------------------------
             MAIN
@@ -60,11 +60,16 @@ int main(int argc, char** argv)
 	int yres;
 	int xp,yp;
 	int step=50;
-	int Sh,Sw;	/* Show_height, Show_width */
+	int Sh=0,Sw=0;	/* Show_height, Show_width */
+	int lastX=0,lastY=0;
+	struct timeval tm_start, tm_end;
 
 	/* percentage step  1/4 */
 	EGI_IMGBUF* eimg=NULL;
 	EGI_IMGBUF* tmpimg=NULL;
+
+	EGI_GIF*    egif=NULL;
+	EGI_GIF_CONTEXT gif_ctxt;
 
 	int 	opt;
 	bool 	PortraitMode=false;
@@ -73,7 +78,6 @@ int main(int argc, char** argv)
 
 	char	cmdchar=-1; /* Init -1, not 0; A char as for command */
 	int	byte_deep=0;
-
 
 
         /* parse input option */
@@ -114,7 +118,7 @@ int main(int argc, char** argv)
 	}
 
 	/* Set terminal IO attributes */
-	set_termios();
+	egi_set_termios();
 
   	/* Start sys tick */
   	tm_start_egitick();
@@ -138,7 +142,7 @@ int main(int argc, char** argv)
 	    fb_set_directFB(&gv_fb_dev, true);
         } else {
 
-	    /* Prepare backgroup image for transparent image */
+	    /* Prepare backgroup grids image for transparent image */
 	    for(i=0; i<6; i++) {
 		for(j=0; j<8; j++) {
 			if( (i*8+j+i)%2 )
@@ -173,13 +177,51 @@ for( i=optind; i<argc; i++) {
         /* 1. Load pic to imgbuf */
 	eimg=egi_imgbuf_readfile(argv[i]);
 	if(eimg==NULL) {
-        	printf("Fail to read and load file '%s'!", argv[i]);
-		continue;
+        	//printf("Fail to read and load file '%s'!", argv[i]);
+		//continue;
+	} else {
+		Sh=eimg->height;
+		Sw=eimg->width;
+		tmpimg=egi_imgbuf_resize(eimg, Sw, Sh); /* Same size */
 	}
 
-	Sh=eimg->height;
-	Sw=eimg->width;
-	tmpimg=egi_imgbuf_resize(eimg, Sw, Sh);
+        /* Read GIF data into an EGI_GIF */
+	if(eimg==NULL) {
+        	egif= egi_gif_slurpFile(argv[i], TranspMode); /* fpath, bool ImgTransp_ON */
+	        if(egif==NULL) {
+        	        printf("Unrecognizable file '%s'!\n", argv[i]);
+			continue;
+		}
+
+		/* Assign RWidth and RHeight */
+		egif->RWidth=egif->SWidth;
+		egif->RHeight=egif->SHeight;
+
+		/* Set ctxt */
+        	gif_ctxt = (EGI_GIF_CONTEXT) {
+                        .fbdev=NULL, //&gv_fb_dev,
+                        .egif=egif,
+                        .nloop=-1,
+			.delayms=45,
+                        .DirectFB_ON=false,
+                        .User_DisposalMode=-1,
+                        .User_TransColor=-1,
+                        .User_BkgColor=-1,
+                        .xp=egif->RWidth>xres ? (egif->RWidth-xres)/2:0,
+                        .yp=egif->RHeight>yres ? (egif->RHeight-yres)/2:0,
+		        .xw=egif->RWidth>xres ? 0:(xres-egif->RWidth)/2,
+                	.yw=egif->RHeight>yres ? 0:(yres-egif->RHeight)/2,
+                        .winw=egif->RWidth>xres ? xres:egif->RWidth,
+                        .winh=egif->RHeight>yres ? yres:egif->RHeight
+        	};
+
+		/* gif_runDisplayThread */
+		if( egi_gif_runDisplayThread(&gif_ctxt) !=0 ) {
+			printf("Fail to run gif DisplayThread!\n");
+			egi_gif_free(&egif);
+			continue;
+		}
+	}
 
 	/* rotate the imgbuf */
 
@@ -330,35 +372,52 @@ for( i=optind; i<argc; i++) {
 	}
 
 	/* B2. Mouse control event */
-   	if(mostat.request) {
-		if(mostat.RightKeyDown) {
+   	//if(mostat.request) {
+	if( egi_mouse_getRequest(pmostat) )
+	{
+		if(pmostat->RightKeyDown) {
 			/* Forward OR Back */
-			if(mostat.mouseX > xres/2) {
-				printf("Forward\n");
+			if(pmostat->mouseX > xres/2) {
+				printf("Forward---------\n");
 				//do nothing
 			}
 			else {
-				printf("Backward\n");
+				printf("Backward---------\n");
 			  	i -=2 ;
 				if(i < optind-1 ) i=optind-1;
 			}
+			pmostat->request=false;
+			// cmdchar=' '; 		/* To trigger display */
 
-			mostat.request=false;
-			cmdchar=' '; /* to triger display */
+			egi_mouse_putRequest(pmostat);
 			break;
 		}
-		if(mostat.LeftKeyDownHold) {
-			xp -= mostat.mouseDX;  /* Reverse direction */
-			yp -= mostat.mouseDY;
-			//printf("DX,DY: %d,%d\n",mostat.mouseDX,mostat.mouseDY);
+		if(pmostat->LeftKeyDown) {
+			lastX=pmostat->mouseX;
+			lastY=pmostat->mouseY;
 		}
+		if(pmostat->LeftKeyDownHold) {
+			//xp -= mostat.mouseDX;  /* Reverse direction */
+			//yp -= mostat.mouseDY;
 
-		if( mostat.mouseDZ!=0 ) {; //&& mostat.request ) {
-			if( mostat.mouseDZ <0 ) {	/* zoom up */
+			/* Note: As mouseDX/DY already added into mouseX/Y, and mouseX/Y have Limit Value also.
+			 * If use mouseDX/DY, the cursor will slip away at four sides of LCD, as Limit Value applys for mouseX/Y,
+			 * while mouseDX/DY do NOT has limits!!!
+			 * We need to retrive DX/DY from previous mouseX/Y.
+			 */
+			xp -= (pmostat->mouseX-lastX);
+			yp -= (pmostat->mouseY-lastY);
+			//printf("DX,DY: %d,%d\n",mostat.mouseDX,mostat.mouseDY);
+
+			/* update lastX,Y */
+			lastX=pmostat->mouseX; lastY=pmostat->mouseY;
+		}
+		if( pmostat->mouseDZ!=0 ) {; //&& mostat.request ) {
+			if( pmostat->mouseDZ <0 ) {	/* zoom up */
 				/* Limit size to limit memory */
 				if( Sh*Sw < 4800000 ) {
-					xp = (xp+mostat.mouseX)*5/4 - mostat.mouseX;	/* Zoom center at mouse tip */
-					yp = (yp+mostat.mouseY)*5/4 - mostat.mouseY;
+					xp = (xp+pmostat->mouseX)*5/4 - pmostat->mouseX;	/* Zoom center at mouse tip */
+					yp = (yp+pmostat->mouseY)*5/4 - pmostat->mouseY;
 
 	 				Sh = Sh*5/4;
 					Sw = Sw*5/4;
@@ -366,8 +425,8 @@ for( i=optind; i<argc; i++) {
 				}
 			}
 			else {	/* zoom down */
-				xp = (xp+mostat.mouseX)*3/4 - mostat.mouseX;	/* Zoom center at mouse tip */
-				yp = (yp+mostat.mouseY)*3/4 - mostat.mouseY;
+				xp = (xp+pmostat->mouseX)*3/4 - pmostat->mouseX;	/* Zoom center at mouse tip */
+				yp = (yp+pmostat->mouseY)*3/4 - pmostat->mouseY;
 
 				/* Limit size to avoid a NULL tmpimg */
 				if(Sh>2 && Sw>2) {
@@ -387,47 +446,79 @@ for( i=optind; i<argc; i++) {
 				Sw=tmpimg->width;
 			}
 		}
+
+		/* Put request */
+		egi_mouse_putRequest(pmostat);
    	}
+
 
 	/* B3. FB write image */
 	if( cmdchar!=0 || mostat.LeftKeyDownHold || mostat.mouseDZ!=0 ) {
-		 if(!TranspMode)
-			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
-		 	//fbclear_bkBuff(&gv_fb_dev, WEGI_COLOR_GRAY); /* for transparent picture */
 
-       	 	egi_imgbuf_windisplay( tmpimg, &gv_fb_dev, -1,
+	    /* Display PNG/JPG */
+	    if( eimg ) {
+		//if(!TranspMode)
+			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
+			 //fbclear_bkBuff(&gv_fb_dev, WEGI_COLOR_GRAY); /* for transparent picture */
+
+		gettimeofday(&tm_start, NULL);
+       	 	egi_imgbuf_windisplay2( tmpimg, &gv_fb_dev, //-1,
          	        	        xp, yp, 0, 0,
                			        xres, yres ); //tmpimg->width, tmpimg->height);
+		gettimeofday(&tm_end, NULL);
+		printf("writeFB time: %ldms \n",(tm_diffus(tm_start, tm_end)+400)/1000);
+	   }
+
+	   /* Display gif */
+	   else if( egif ) {
+		fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
+	        egi_imgbuf_windisplay2( gif_ctxt.egif->Simgbuf, &gv_fb_dev, //-1,    /* img, fb, subcolor */
+        	                       gif_ctxt.xp, gif_ctxt.yp,            /* xp, yp */
+                	               gif_ctxt.xw, gif_ctxt.yw,            /* xw, yw */
+                        	       gif_ctxt.winw, gif_ctxt.winh /* winw, winh */
+                             );
+	   }
+
 	}
 
+	  draw_mcursor(mostat.mouseX, mostat.mouseY);
+
         /* B4.1 Refresh FB by memcpying back buffer to FB */
+	//gettimeofday(&tm_start, NULL);
         //fb_page_refresh(&gv_fb_dev,0);
 	fb_render(&gv_fb_dev);
+	//gettimeofday(&tm_end, NULL);
+	//printf("Render time: %ldms \n",(tm_diffus(tm_start, tm_end)+400)/1000);
 
 	/* B4.2 Mouse direct to FB */
-	draw_mcursor(mostat.mouseX, mostat.mouseY);
-	tm_delayms(25);
+//	draw_mcursor(mostat.mouseX, mostat.mouseY);
+	tm_delayms(30);
 
 	/* B5. Reset request */
 	mostat.request=false;
 
-	/* B6. Wait for mouse/keybaord events */
+#if 0	/* B6. Wait for mouse/keybaord events */
         do {
 		cmdchar=0;
 		read(STDIN_FILENO, &cmdchar, 1);
 		if(cmdchar!=0)
 			printf("cmdchar: %d '%c'\n", cmdchar, cmdchar);
-	} while ( cmdchar==0 && !mostat.request);
+	} while ( cmdchar==0 && !mostat.request );
+#endif
 
   } while( cmdchar != ' ' ); /* input SPACE to end displaying current image */
 
          fbclear_bkBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
 
-	/* 5. Free tmpimg */
-	egi_imgbuf_free(eimg);
-	eimg=NULL;
-	egi_imgbuf_free(tmpimg);
-	tmpimg=NULL;
+	/* 5. Free imgbuf and gif */
+	egi_imgbuf_free2(&eimg);
+	egi_imgbuf_free2(&tmpimg);
+
+	/* 6. Stop gif */
+	if(egif) {
+		egi_gif_stopDisplayThread(egif);
+		egi_gif_free(&egif);
+	}
 
 } /* End displaying all image files */
 
@@ -442,25 +533,10 @@ END_DISPLAY:
         release_fbdev(&gv_fb_dev);
 
 	/* Reset terminal attr */
-	tcsetattr(0, TCSANOW, &old_settings);
+	egi_reset_termios();
 
 return 0;
 
-}
-
-
-/*-----------------------------------
-    Set terminal IO attributes
-----------------------------------*/
-static void set_termios(void)
-{
-	tcgetattr(0, &old_settings);
-	new_settings=old_settings;
-	new_settings.c_lflag &= (~ICANON);      /* disable canonical mode, no buffer */
-	new_settings.c_lflag &= (~ECHO);   	/* disable echo */
-	new_settings.c_cc[VMIN]=0; //1;
-	new_settings.c_cc[VTIME]=0; //0
-	tcsetattr(0, TCSANOW, &new_settings);
 }
 
 
@@ -469,16 +545,30 @@ static void set_termios(void)
 ------------------------------------------------------------*/
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus)
 {
- 	/* Wait until main thread finish last mouse_request */
-	 while( mostat.request ) { usleep(1000); };
+ 	/* Wait until main thread finish last mouse_request respond */
+//	while( mostat.request && !mostatus->cmd_end_loopread_mouse ) { usleep(1000); };
+	while( egi_mouse_checkRequest(mostatus) && !mostatus->cmd_end_loopread_mouse ) { };
+
+	/* If request to quit mouse thread */
+	if( mostatus->cmd_end_loopread_mouse )
+		return;
+
+        /* Get mostatus mutex lock */
+        if( pthread_mutex_lock(&mostatus->mutex) !=0 ) {
+                printf("%s: Fail to mutex lock mostatus.mutex!\n",__func__);
+        }
 
 	/* Pass out mouse data */
 	mostat=*mostatus;
+	pmostat=mostatus;
 
 	/* Request for respond */
 	mostat.request = true;
-}
+	pmostat->request = true;
 
+        /* Put mutex lock */
+        pthread_mutex_unlock(&mostatus->mutex);
+}
 
 /*------------------------------------
 	   Draw mouse
@@ -507,7 +597,7 @@ static void draw_mcursor(int x, int y)
 	/* directFB and Non_directFB mixed mode will disrupt FB synch, and make the screen flash?? */
    //fb_filo_off(&gv_fb_dev);
 	//mode=fb_get_FBmode(&gv_fb_dev);
-	fb_set_directFB(&gv_fb_dev,true);
+//	fb_set_directFB(&gv_fb_dev,true);
 
         /* OPTION 1: Use EGI_IMGBUF */
 	if(mostat.LeftKeyDown || mostat.LeftKeyDownHold )
@@ -518,7 +608,7 @@ static void draw_mcursor(int x, int y)
         /* OPTION 2: Draw geometry */
 
 	/* Restore FBmode */
-	fb_set_directFB(&gv_fb_dev,false);
+//	fb_set_directFB(&gv_fb_dev,false);
 	//fb_set_directFB(&gv_fb_dev, mode);
    //fb_filo_on(&gv_fb_dev);
 

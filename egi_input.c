@@ -93,6 +93,7 @@ midaszhou@yahoo.com
 #include "egi_fbdev.h"
 #include <stdio.h>
 #include <string.h>
+#include <termio.h>
 #include <fcntl.h>   /* open */
 #include <unistd.h>  /* read */
 #include <errno.h>
@@ -233,12 +234,20 @@ int egi_start_mouseread(const char *dev_name, EGI_MOUSE_CALLBACK callback )
 		return -1;
 	}
 
-	cmd_end_loopread_mouse=false;
+	//cmd_end_loopread_mouse=false;
+	mostatus.cmd_end_loopread_mouse=false;
 
 	/* Set callback */
 	mouse_callback=callback;
 
-        /* start loopread_mouse thread */
+        /* Init mostatus mutex */
+        if(pthread_mutex_init(&mostatus.mutex,NULL) != 0)
+        {
+                printf("%s: Fail to initiate mostatus.mutex.\n",__func__);
+                return -2;
+        }
+
+        /* Start loopread_mouse thread */
         if( pthread_create(&thread_loopread_mouse, NULL, (void *)egi_mouse_loopread, (void *)dev_name) !=0 )
         {
                 printf("%s: Fail to create mouse loopread thread!\n", __func__);
@@ -267,16 +276,23 @@ int egi_end_mouseread(void)
 	}
 
         /* Set indicator to end loopread */
-        cmd_end_loopread_mouse=true;
+        //cmd_end_loopread_mouse=true;
+	/* Set mostatus, otherwise it may be trapped in mouse_callback. */
+	mostatus.cmd_end_loopread_mouse=true;
 
         /* Wait to join touch_loopread thread */
         if( pthread_join(thread_loopread_mouse, NULL ) !=0 ) {
-                printf("%s:Fail to join thread_loopread_event.\n", __func__);
+                printf("%s: Fail to join thread_loopread_event.\n", __func__);
                 return -1;
         }
 
+        /* Destroy mostatus mutex */
+        if(pthread_mutex_destroy(&mostatus.mutex) !=0 )
+                printf("%s: Fail to destroy mostatus.mutex!\n",__func__);
+
 	/* reset cmd and token */
-	cmd_end_loopread_mouse=false;
+	//cmd_end_loopread_mouse=false;
+	mostatus.cmd_end_loopread_mouse=false;
 	tok_loopread_mouse_running=false;
 
 	/* close fd */
@@ -420,14 +436,14 @@ static void *egi_mouse_loopread( void* arg )
 	fd_set rfds;
 	struct timeval tmval;
 	int retval;
-
+	int tmp;
         unsigned char old_mouse_data[4]={0};
+
         int status=0;/* 0b00(0): Released_hold
                         0b01(1): Key Down / Raising edge
                         0b10(2): Key Up / Falling edge
                         0b11(3): Pressed_hold
                      */
-
 
 	const char *dev_name="/dev/input/mice";
 	if(arg!=NULL)
@@ -436,7 +452,8 @@ static void *egi_mouse_loopread( void* arg )
 	/* Loop input select read */
 	while(1) {
 		/* Check end_loopread command */
-		if(cmd_end_loopread_mouse)
+		//if(cmd_end_loopread_mouse)
+		if(mostatus.cmd_end_loopread_mouse)
 			break;
 
 		/* Check fd, and try to re_open if necessary. */
@@ -501,6 +518,10 @@ static void *egi_mouse_loopread( void* arg )
 				continue;
 			}
 
+			/* Get mostatus mutex lock */
+		        if( pthread_mutex_lock(&mostatus.mutex) !=0 )
+				printf("%s: Fail to mutex lock mostatus.mutex!\n",__func__);
+/*  --- >>>  Critical Zone  */
 
 			/* ------ Cal. mouse status/data --------- */
 
@@ -571,6 +592,7 @@ static void *egi_mouse_loopread( void* arg )
                         		break;
 		                case 0b10:
 	        	                mostatus.MidKeyUp=true;
+					mostatus.MidKeyDown=false;
         	        	        mostatus.MidKeyDownHold=false;
                 	        //	printf("-Midkey Up!\n");
 	                	        break;
@@ -613,12 +635,15 @@ static void *egi_mouse_loopread( void* arg )
 
 			/* ------ END: Cal. mouse status/data --------- */
 
+/*  --- <<<  Critical Zone  */
+		  	/* Put mutex lock */
+			pthread_mutex_unlock(&mostatus.mutex);
 
 			/* Call back */
 			if(mouse_callback!=NULL) {
+				/* If callback trapped here, then cmd_end_loopread_mouse signal will NOT be responded! */
 				mouse_callback(mouse_data, sizeof(mouse_data), &mostatus);
 			}
-
 
 			#if 0 /* --- TEST ----  */
 			/* Parse mouse data */
@@ -637,5 +662,149 @@ static void *egi_mouse_loopread( void* arg )
 	return (void *)0;
 }
 
+
+/*-------------------------------------------------
+Return TURE if mostat.request==TRUE
+Return FALSE if it fails or mostat.request==FALSE
+Unlock moutex.
+--------------------------------------------------*/
+bool egi_mouse_checkRequest(EGI_MOUSE_STATUS *mostat)
+{
+	bool request;
+
+	if(mostat==NULL)
+		return false;
+
+	/* Get mostatus mutex lock */
+        if( pthread_mutex_lock(&mostat->mutex) !=0 ) {
+		printf("%s: Fail to mutex lock mostatus.mutex!\n",__func__);
+		return false;
+	}
+
+	request=mostat->request;
+
+  	/* Put mutex lock */
+	pthread_mutex_unlock(&mostat->mutex);
+
+	return request;
+}
+
+
+/*---------------------------------------------------------
+Return TURE if mostat.request==TRUE and keep mutex locked!
+Return FALSE if  mostat.request==FALSE or it fails.
+--------------------------------------------------------*/
+bool egi_mouse_getRequest(EGI_MOUSE_STATUS *mostat)
+{
+	if(mostat==NULL)
+		return false;
+
+	/* Get mostatus mutex lock */
+        if( pthread_mutex_lock(&mostat->mutex) !=0 ) {
+		printf("%s: Fail to mutex lock mostatus.mutex!\n",__func__);
+		return false;
+	}
+
+	if(mostat->request) {
+		return true;
+		/* --- Keep mostatus mutex locked! --- */
+	}
+	else   /* Put mutex lock */
+		pthread_mutex_unlock(&mostat->mutex);
+
+}
+
+
+/*-----------------------------------------------
+Reset mostat.request to FALSE, and unlock mutex.
+
+Return:
+	0	OK
+	<0	Fails
+------------------------------------------------*/
+int egi_mouse_putRequest(EGI_MOUSE_STATUS *mostat)
+{
+	if(mostat==NULL)
+		return -1;
+
+	/* Reset request */
+	mostat->request=false;
+
+  	/* Put mutex lock */
+	pthread_mutex_unlock(&mostat->mutex);
+
+	return 0;
+}
+
+
+/* ===================	Terminal IO setttings =============== */
+
+static struct termios old_termioset;
+static speed_t	      old_termispeed;
+static speed_t	      old_termospeed;
+
+/*------------------------------------
+Set terminal IO attributes, and try to
+set io speed as expected.
+-------------------------------------*/
+void egi_set_termios(void)
+{
+	 struct termios new_termioset;
+
+#if 0   /* TEST: Call cfmakeraw() */
+        tcgetattr(0, &old_termioset);
+        new_termioset=old_termioset;
+
+        cfsetispeed(&new_termioset,B57600);  /* 4097k */
+        cfsetospeed(&new_termioset,B57600);
+
+        /* cfmakeraw(): Input is available character by character, echoing is disabled,
+         * and all special processing of terminal input and output characters is disabled.
+         * Mouse event is disabled!???
+         */
+        cfmakeraw(&new_termioset);
+        tcsetattr(0, TCSANOW, &new_termioset);
+	return;
+#else
+
+	/* Save old settings */
+        tcgetattr(0, &old_termioset);
+	old_termispeed=cfgetispeed(&old_termioset);
+	old_termospeed=cfgetospeed(&old_termioset);
+
+	/* Setup with new settings */
+        new_termioset=old_termioset;
+        new_termioset.c_lflag &= (~ICANON);      /* disable canonical mode, no buffer */
+        new_termioset.c_lflag &= (~ECHO);        /* disable echo */
+        new_termioset.c_cc[VMIN]=0; //1;
+        new_termioset.c_cc[VTIME]=0; //0
+
+	/* TEST: set IO speed with tentative values. */
+        cfsetispeed(&new_termioset,B57600);  /* 4k */
+        cfsetospeed(&new_termioset,B57600);
+
+	/* Set parameters to the terminal. TCSANOW -- the change occurs immediately.*/
+        tcsetattr(0, TCSANOW, &new_termioset);
+
+        printf("NEW input speed:%d, output speed:%d\n",cfgetispeed(&new_termioset), cfgetospeed(&new_termioset) );
+
+#endif
+}
+
+
+/*------------------------------------------
+Reset terminal IO attributes to old_termioset
+-------------------------------------------*/
+void egi_reset_termios(void)
+{
+	/* Restore IO speed */
+        cfsetispeed(&old_termioset,old_termispeed);  /* 4k */
+        cfsetospeed(&old_termioset,old_termospeed);
+
+        /* Restore old terminal settings */
+        tcsetattr(0, TCSANOW, &old_termioset);
+
+        printf("OLD input speed:%d, output speed:%d\n",cfgetispeed(&old_termioset), cfgetospeed(&old_termioset) );
+}
 
 

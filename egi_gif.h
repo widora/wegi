@@ -53,7 +53,7 @@ typedef struct egi_gif {
     int 	SHeight;
 
     int		RWidth;			/* Size for RSimgbuf, Unapplicable if both <=0, */
-    int		RHeight;		/* At lease either RWidth or RHeigth to be >0 */
+    int		RHeight;		/* At least either RWidth or RHeigth to be >0 */
 
     int 	BWidth;			/* Size of current block image */
     int 	BHeight;
@@ -101,13 +101,13 @@ typedef struct egi_gif {
 //    ExtensionBlock 	*ExtensionBlocks;     /* Extensions past last image */
 
     EGI_IMGBUF		*Simgbuf;	      /* to hold GIF screen/canvas */
-    bool		 Simgbuf_ready;	      /* To indicate that Simgbuf is data ready!
+    bool		 Simgbuf_ready;	      /* To indicate that Simgbuf data is ready!
 					       * In some case Simgbuf may be emptied before it is updated, so all alpha values may be
-					       * reset to 0 at that moment, if a thread read and display just at the point, it will
+					       * reset to 0 at that moment, if a thread read and display just at that point, it will
 					       * leave a blank on the screen and cause flickering.
 					       */
 
-    /* To be applied when at lease either RWidth or RHeigth to be >0 */
+    /* To be applied when at least either RWidth or RHeigth to be >0 */
     EGI_IMGBUF		*RSimgbuf;	      /* resized to RWidthxRHeight, NOT applied yet. */
 
     /*  Following for one producer and one consumer scenario only! */
@@ -127,7 +127,9 @@ typedef struct egi_gif_context
 {
         FBDEV   *fbdev;
         EGI_GIF *egif;
+	unsigned int delayms;		/* User defined delayms */
         int     nloop;
+	bool	nodelay;
         bool    DirectFB_ON;
         int     User_DisposalMode;	/* <0 disable */
         int     User_TransColor;	/* <0 disable */
@@ -169,9 +171,7 @@ void	  egi_gif_free(EGI_GIF **egif);
 //                                             int xp, int yp, int xw, int yw, int winw, int winh );
 
 void 	  egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt );
-
 int 	  egi_gif_runDisplayThread(EGI_GIF_CONTEXT *gif_ctxt);
-
 int 	  egi_gif_stopDisplayThread(EGI_GIF *egif);
 
 #endif

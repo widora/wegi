@@ -1131,6 +1131,12 @@ void egi_gif_free(EGI_GIF **egif)
 	(*egif)->Simgbuf=NULL;
     }
 
+    /* free imgbuf */
+    if ((*egif)->RSimgbuf != NULL ) {
+	egi_imgbuf_free((*egif)->RSimgbuf);
+	(*egif)->RSimgbuf=NULL;
+    }
+
    /* free itself */
    free(*egif);
    *egif=NULL;
@@ -1320,6 +1326,21 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
           }
     }
 
+    /* If RSimgbuf applys, as RWidth/RHeigh >0 */
+    if( egif->RWidth > 0 ) {
+    	egi_imgbuf_free2(&egif->RSimgbuf);
+	egif->RSimgbuf=egi_imgbuf_resize(egif->Simgbuf, egif->RWidth, egif->RHeight);
+
+    #if 0 /* --- Avgsoft the image --- */
+	EGI_IMGBUF *imgsoft=NULL;
+	imgsoft=egi_imgbuf_avgsoft(egif->RSimgbuf, 2, true, false);
+    	egi_imgbuf_free2(&egif->RSimgbuf);
+	egif->RSimgbuf=imgsoft;
+	imgsoft=NULL;
+    #endif
+
+    }
+
     /* set Simgbuf_read */
     egif->Simgbuf_ready=true;
 
@@ -1336,11 +1357,19 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
     }
 
     /* display Simgbuf as a frame */
-    egi_imgbuf_windisplay( Simgbuf, fbdev, -1,              /* img, fb, subcolor */
-			   xp, yp,				/* xp, yp */
-			   xw, yw,				/* xw, yw */
-                     	   winw, winh   /* winw, winh */
-			);
+    if( egif->RSimgbuf )
+	egi_imgbuf_windisplay( egif->RSimgbuf, fbdev, -1,	/* img, fb, subcolor */
+			       xp, yp,			/* xp, yp */
+			       xw, yw,			/* xw, yw */
+                     	       winw, winh   		/* winw, winh */
+			    );
+
+    else
+	egi_imgbuf_windisplay( Simgbuf, fbdev, -1,	/* img, fb, subcolor */
+			       xp, yp,			/* xp, yp */
+			       xw, yw,			/* xw, yw */
+                     	       winw, winh   		/* winw, winh */
+			    );
 
 }
 
@@ -1562,6 +1591,7 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
 			if(DelayMs==0)		/* For some GIF it's 0! */
 				DelayMs=50;
 
+
 			break;
 		case CONTINUE_EXT_FUNC_CODE:
 			//printf(" --- CONTINUE_EXT_FUNC_CODE ---\n");
@@ -1600,7 +1630,7 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
      }
 
      /* ---- Write GIF block image to FB  ---- */
-      egi_gif_rasterWriteFB( fbdev, egif, DirectFB_ON, Disposal_Mode,     /* FBDEV, egif, DirectFB_ON, Disposal_Mode */
+     egi_gif_rasterWriteFB( fbdev, egif, DirectFB_ON, Disposal_Mode,     /* FBDEV, egif, DirectFB_ON, Disposal_Mode */
 		  	     gif_ctxt->xp, gif_ctxt->yp,	 /* xp, yp */
 			     gif_ctxt->xw, gif_ctxt->yw,   	 /* xw, yw  */
 	  	             gif_ctxt->winw, gif_ctxt->winh,	 /* winw, winh */
@@ -1608,12 +1638,20 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
                trans_color, gif_ctxt->User_TransColor,   //bkg_color,   /* trans_color, user_trans_color, bkg_color */
 			     egif->ImgTransp_ON ); 	/* DirectFB_ON, Img_Transp_ON, BkgTransp_ON */
 
+    /* Set delayms in imgbuf. JUST after calling egi_gif_rasterWriteFB() to create RSimgbuf. */
+    egif->Simgbuf->delayms=DelayMs;
+    if(egif->RSimgbuf)
+	egif->RSimgbuf->delayms=DelayMs;
+
     /* Refresh FB page if NOT DirectFB_ON */
     if(!DirectFB_ON && fbdev != NULL )
     	fb_page_refresh(fbdev,0);
 
     /* Delay */
-    tm_delayms(DelayMs); /* Need to hold on here, even fddev==NULL */
+    if( gif_ctxt->delayms )
+	    tm_delayms(gif_ctxt->delayms);
+    else
+	    tm_delayms(DelayMs); /* Need to hold on here, even fddev==NULL */
 
 
     /* ----- Parse Disposal_Mode: Actions after GIF displaying  ----- */
