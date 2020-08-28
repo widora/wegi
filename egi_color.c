@@ -26,7 +26,7 @@ Midas ZHou
 #include <sys/time.h> /*gettimeofday*/
 
 
-/*----------------------------------------------------------------------
+/*------------------------------------------------------------------------------------
 Get a 16bit color value/alpha between two given colors/alphas by interpolation.
 
 @color1, color2:	The first and second input color value.
@@ -37,14 +37,14 @@ Get a 16bit color value/alpha between two given colors/alphas by interpolation.
 @colro, alpha		Pointer to pass output color and alpha.
 			Ignore if NULL.
 
------------------------------------------------------------------------*/
+-------------------------------------------------------------------------------------*/
 inline void egi_16bitColor_interplt( EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2,
 				     unsigned char alpha1,  unsigned char alpha2,
 				     int f15_ratio, EGI_16BIT_COLOR* color, unsigned char *alpha)
 {
 	unsigned int R,G,B,A;
 
-	/* interpolate color value */
+	/* Interpolate color value */
 	if(color) {
 	 	R  =((color1&0xF800)>>8)*((1U<<15)-f15_ratio);	/* R */
 		R +=((color2&0xF800)>>8)*f15_ratio;
@@ -60,7 +60,7 @@ inline void egi_16bitColor_interplt( EGI_16BIT_COLOR color1, EGI_16BIT_COLOR col
 
         	*color=COLOR_RGB_TO16BITS(R, G, B);
 	}
-	/* interpolate alpha value */
+	/* Interpolate alpha value */
 	if(alpha) {
 	        A  = alpha1*((1U<<15)-f15_ratio);  /* R */
 	        A += alpha2*f15_ratio;

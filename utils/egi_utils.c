@@ -101,7 +101,13 @@ int egi_search_str_in_file(const char *fpath, size_t off, const char *pstr)
                 ret=-3;
                 goto END_FUNC;
         }
+
+	/* Check size */
         fsize=sb.st_size;
+	if(fsize==0) {
+		return -3;
+		goto END_FUNC;
+	}
 
 	/* Check off */
 	if( off > fsize-1 ) {

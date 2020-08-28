@@ -28,7 +28,7 @@ Note:
 	fil=fopen(PINYIN3500_TXT_PATH,"r");
 	read line to uniset....
    	UniHan_save_set(uniset, PINYIN3500_DATA_PATH)
-   3.2 	Load unisetMandarin from text MANDARIN_TXT_PATH.
+   3.2 	Load unisetMandarin from text MANDARIN_TXT_PATH. (test_pinyin.c)
 	unisetMandarin=UniHan_load_MandarinTxt(MANDARIN_TXT_PATH)
    3.3 	Merge unisetMandarin into uniset.
 	UniHan_merge_set(unisetMandarin, uniset)

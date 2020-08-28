@@ -75,7 +75,7 @@ EGI_IMGBUF  *egi_imgbuf_avgsoft( EGI_IMGBUF *ineimg, int size, bool alpha_on, bo
 EGI_IMGBUF  *egi_imgbuf_avgsoft2(const EGI_IMGBUF *ineimg, int size, bool alpha_on); /* use 1D array data */
 
 //EGI_IMGBUF  *egi_imgbuf_resize(const EGI_IMGBUF *ineimg, unsigned int width, unsigned int height);
-EGI_IMGBUF  *egi_imgbuf_resize(const EGI_IMGBUF *ineimg, int width, int height);
+EGI_IMGBUF  *egi_imgbuf_resize(EGI_IMGBUF *ineimg, int width, int height);     /* mutex_lock */
 int 	egi_imgbuf_resize_update(EGI_IMGBUF **pimg, unsigned int width, unsigned int height);
 
 int 	egi_imgbuf_blur_update(EGI_IMGBUF **pimg, int size, bool alpha_on);

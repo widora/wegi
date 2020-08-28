@@ -1,3 +1,11 @@
+/*------------------------------------------------------------------
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License version 2 as
+published by the Free Software Foundation.
+
+Midas Zhou
+midaszhou@yahoo.com
+-------------------------------------------------------------------*/
 #ifndef __EGI_IMGBUF_H__
 #define __EGI_IMGBUF_H__
 
@@ -5,7 +13,6 @@
 #include <freetype2/ft2build.h>
 #include FT_FREETYPE_H
 //#include <freetype2/ftglyph.h>
-
 
 typedef	struct {
 		int x0;		/* subimage left top starting point coordinates relative to image origin */
@@ -44,6 +51,9 @@ typedef struct
                                                * leave a blank on the screen and cause flickering.
                                                */
 #endif
+
+	/* DelayMs */
+	unsigned int delayms;		/* Apply for serial imgbufs */
 
 	/* For image data processing
 	 * Note:For image processing, it will be better to define

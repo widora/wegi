@@ -3,7 +3,7 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-		Usage:  %s [-h] [-t] [-d] [-p] fpath
+		Usage:  %s [-h] [-t] [-d] [-p] [-s :] fpath
 
 Test gif file:
 1. muyu.gif
@@ -32,13 +32,16 @@ Midas Zhou
 int main(int argc, char **argv)
 {
 	int opt;	/* imput option */
+	float scale=1.0; /* Option scale for gif */
+	int dms=0;	/*  Option delay in ms for each frame */
 	char *fpath=NULL;
 	int i;
     	int xres;
     	int yres;
-	EGI_GIF_DATA*  gif_data=NULL;
-	EGI_GIF *egif=NULL;
+	EGI_GIF_DATA  	*gif_data=NULL;
+	EGI_GIF		*egif=NULL;
 	EGI_GIF_CONTEXT gif_ctxt;
+	EGI_IMGBUF	**mvpic;
 
 	bool PortraitMode=false; /* LCD display mode: Portrait or Landscape */
 	bool ImgTransp_ON=false; /* Suggest: TURE */
@@ -50,18 +53,22 @@ int main(int argc, char **argv)
 	int xp,yp;
 	int xw,yw;
 
+	struct timeval tm_start, tm_end;
+	int tms;
 
 	/* parse input option */
-	while( (opt=getopt(argc,argv,"htdp"))!=-1)
+	while( (opt=getopt(argc,argv,"htdps:m:"))!=-1)
 	{
     		switch(opt)
     		{
 		       case 'h':
-		           printf("usage:  %s [-h] [-t] [-d] [-p] fpath \n", argv[0]);
+		           printf("usage:  %s [-h] [-t] [-d] [-p] [-s:] [-m:] fpath \n", argv[0]);
 		           printf("         -h   help \n");
 		           printf("         -t   Image_transparency ON. ( default is OFF ) \n");
 		           printf("         -d   Wirte to FB mem directly, without buffer. ( default use FB working buffer ) \n");
 		           printf("         -p   Portrait mode. ( default is Landscape mode ) \n");
+		           printf("         -s scale    scale for gif image \n");
+		           printf("         -m delayms  delay in ms for each frame \n");
 			   printf("fpath   Gif file path \n");
 		           return 0;
 		       case 't':
@@ -76,6 +83,14 @@ int main(int argc, char **argv)
 			   printf(" Set PortraitMode=true.\n");
 			   PortraitMode=true;
 			   break;
+		       case 's':
+			   scale=atof(optarg);
+			   printf(" Set Scale=%f.2\n", scale);
+			   break;
+		       case 'm':
+			   dms=atoi(optarg);
+			   printf(" Set dms=%d\n", dms);
+			   break;
 		       default:
 		           break;
 	    	}
@@ -84,7 +99,7 @@ int main(int argc, char **argv)
 	printf(" optind=%d, argv[%d]=%s\n", optind, optind, argv[optind] );
 	fpath=argv[optind];
 	if(fpath==NULL) {
-	           printf("usage:  %s [-h] [-t] [-d] [-p] fpath\n", argv[0]);
+	           printf("usage:  %s [-htdps:] fpath\n", argv[0]);
 	           exit(-1);
 	}
 
@@ -188,16 +203,36 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
 
    #endif
 
+	/* Calloc movpic */
+	mvpic=calloc(egif->ImageTotal, sizeof(EGI_IMGBUF *));
+	if(mvpic==NULL) {
+		printf("Fail to calloc mvpic!\n");
+		exit(1);
+	}
+
+	/* Set RWidth/RHeight */
+	egif->RWidth=scale*egif->SWidth;
+	egif->RHeight=scale*egif->SHeight;
+
 	/* Cal xp,yp xw,yw, to position it to the center of LCD  */
-	xp=egif->SWidth>xres ? (egif->SWidth-xres)/2:0;
-	yp=egif->SHeight>yres ? (egif->SHeight-yres)/2:0;
-	xw=egif->SWidth>xres ? 0:(xres-egif->SWidth)/2;
-	yw=egif->SHeight>yres ? 0:(yres-egif->SHeight)/2;
+ 	if(egif->RWidth > 0 && egif->RWidth!=egif->SWidth ) {
+		xp=egif->RWidth>xres ? (egif->RWidth-xres)/2:0;
+		yp=egif->RHeight>yres ? (egif->RHeight-yres)/2:0;
+		xw=egif->RWidth>xres ? 0:(xres-egif->RWidth)/2;
+		yw=egif->RHeight>yres ? 0:(yres-egif->RHeight)/2;
+	}
+	else {
+		xp=egif->SWidth>xres ? (egif->SWidth-xres)/2:0;
+		yp=egif->SHeight>yres ? (egif->SHeight-yres)/2:0;
+		xw=egif->SWidth>xres ? 0:(xres-egif->SWidth)/2;
+		yw=egif->SHeight>yres ? 0:(yres-egif->SHeight)/2;
+	}
 
         /* Lump context data */
-        gif_ctxt.fbdev=&gv_fb_dev;
+        gif_ctxt.fbdev=NULL; //&gv_fb_dev;
         gif_ctxt.egif=egif;
         gif_ctxt.nloop=-1;
+	gif_ctxt.nodelay=true;  /* Run */
         gif_ctxt.DirectFB_ON=DirectFB_ON;
         gif_ctxt.User_DisposalMode=User_DispMode;
         gif_ctxt.User_TransColor=User_TransColor;
@@ -206,8 +241,14 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
         gif_ctxt.yp=yp;
         gif_ctxt.xw=xw;
         gif_ctxt.yw=yw;
-        gif_ctxt.winw=egif->SWidth>xres ? xres:egif->SWidth; /* put window at center of LCD */
-        gif_ctxt.winh=egif->SHeight>yres ? yres:egif->SHeight;
+
+	if(egif->RWidth > 0) {
+            gif_ctxt.winw=egif->RWidth>xres ? xres : egif->RWidth; /* put window at center of LCD */
+            gif_ctxt.winh=egif->RHeight>yres ? yres : egif->RHeight;
+	} else {
+            gif_ctxt.winw=egif->SWidth>xres ? xres:egif->SWidth; /* put window at center of LCD */
+            gif_ctxt.winh=egif->SHeight>yres ? yres:egif->SHeight;
+	}
 
 
 #if 0  /* ----------------------  TEST:  egi_gif_runDisplayThread( )  ----------------------- */
@@ -239,12 +280,17 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
 
 	/* Loop displaying */
 	printf("Call egi_gif_displayGifCtxt()...\n");
-        while(1) {
+        //while(1) {
+	for(i=0; i < egif->ImageTotal; i++) {
 	   	/* Display one frame/block each time, then refresh FB page.  */
 	    	egi_gif_displayGifCtxt( &gif_ctxt );
 
-		getchar();
-		printf("Step %d\n", gif_ctxt.egif->ImageCount);
+		//getchar();
+		printf("-Step %d/%d\n", gif_ctxt.egif->ImageCount, egif->ImageTotal);
+
+		/* Transfer ownership of imgbuf to mvpic[] */
+		mvpic[i]=gif_ctxt.egif->RSimgbuf;
+		gif_ctxt.egif->RSimgbuf=NULL;
 
 		#if 0 /* ---  To  apply when .nloop = 0 --- */
         	//gif_ctxt.xw -=1;
@@ -257,6 +303,46 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
 		#endif
 	}
 #endif
+
+	/* Play mvpic[] */
+        /* Copy FB mmap data to WORKING_BUFF and BKG_BUFF */
+        fb_init_FBbuffers(&gv_fb_dev);
+	//fb_clear_bkgBuff(&gv_fb_dev, WEGI_COLOR_GRAY2);
+	while(1) {
+		for(i=0; i < gif_ctxt.egif->ImageTotal; i++) {
+			//printf("I%d\n",i);
+			gettimeofday(&tm_start,NULL);
+			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
+
+			//gettimeofday(&tm_start,NULL);
+			egi_imgbuf_windisplay2( mvpic[i], &gv_fb_dev, // -1,
+		                                          xp, yp, xw, yw, gif_ctxt.winw, gif_ctxt.winh);
+			//gettimeofday(&tm_end,NULL);
+			//printf("writeFB time: %dms \n", tms=tm_diffus(tm_start, tm_end)/1000);
+
+			//gettimeofday(&tm_start,NULL);
+			fb_render(&gv_fb_dev);
+			//gettimeofday(&tm_end,NULL);
+			//printf("render time: %ldms \n",tm_diffus(tm_start, tm_end)/1000);
+
+			gettimeofday(&tm_end,NULL);
+			tms = (tm_diffus(tm_start, tm_end)+500)/1000;
+			printf("tms:%d\n", tms);
+
+			if( dms > 0)
+				tm_delayms(dms);
+			else if(tms < mvpic[i]->delayms)
+				tm_delayms(mvpic[i]->delayms-tms);
+			//printf("delayms:%d\n", mvpic[i]->delayms);
+		}
+	}
+
+	/* Free vars */
+	if(mvpic!=NULL) {
+	    for(i=0; i< egif->ImageTotal; i++)
+			egi_imgbuf_free(mvpic[i]);
+	    free(mvpic);
+	}
 
     	egi_gif_free(&egif);
 	egi_gifdata_free(&gif_data);

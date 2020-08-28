@@ -31,8 +31,16 @@ Note:
 	MidKey rolling			zoom up/down.
 	RightKey Click			Shift to next/prev picture
 
-TODO: To move image totally out of screen, forth and back, ...then
-      the bug appears.
+3. For GIF imgbuf updating:
+   OPTION_1:  Continue decoding/updating in a thread.
+	      Call egi_gif_runDisplayThread(&gif_ctxt), and it runs
+	      in an independent thread.
+	      Set gif_ctxt with TimeSynchOn=false AND nloop=-1.
+   OPTION_2:  Carry out synchronized decoding/updating.
+	      Call egi_gif_displayGifCtxt(&gif_ctxt) before each FB
+	      rendering, It runs in the main loop.
+	      Set gif_ctxt with TimeSynchOn=ture AND nloop=0.
+
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -43,11 +51,19 @@ midaszhou@yahoo.com
 #include <egi_common.h>
 #include <egi_input.h>
 #include <egi_gif.h>
+#include <egi_FTsymbol.h>
+
+
+#define GIF_RUN_THREAD	1   /***
+			     * 1: Call egi_gif_runDisplayThread() to decode gif in a private thread.
+			     * 0: Run egi_gif_displayGifCtxt() in main loop.
+			     */
 
 static EGI_MOUSE_STATUS mostat;
 static EGI_MOUSE_STATUS *pmostat;
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
 static void draw_mcursor(int x, int y);
+static void FTsymbol_writeFB(char *txt, int fw, int fh, EGI_16BIT_COLOR color, int px, int py);
 
 
 /*----------------------------
@@ -59,6 +75,7 @@ int main(int argc, char** argv)
 	int xres;
 	int yres;
 	int xp,yp;
+	int xw=0,yw=0;
 	int step=50;
 	int Sh=0,Sw=0;	/* Show_height, Show_width */
 	int lastX=0,lastY=0;
@@ -67,9 +84,11 @@ int main(int argc, char** argv)
 	/* percentage step  1/4 */
 	EGI_IMGBUF* eimg=NULL;
 	EGI_IMGBUF* tmpimg=NULL;
+	EGI_IMGBUF* showimg=NULL;
 
 	EGI_GIF*    egif=NULL;
 	EGI_GIF_CONTEXT gif_ctxt;
+	int	OLDindex=-1;
 
 	int 	opt;
 	bool 	PortraitMode=false;
@@ -123,6 +142,12 @@ int main(int argc, char** argv)
   	/* Start sys tick */
   	tm_start_egitick();
 
+	/* Load sysfonts */
+  	if(FTsymbol_load_sysfonts() !=0) {
+        	printf("Fail to load FT sysfonts, quit.\n");
+        	return -1;
+  	}
+
         /* Init sys FBDEV  */
         if( init_fbdev(&gv_fb_dev) )
                 return -1;
@@ -140,30 +165,36 @@ int main(int argc, char** argv)
         if(DirectFB_ON) {
             //gv_fb_dev.map_bk=gv_fb_dev.map_fb; /* Direct map_bk to map_fb */
 	    fb_set_directFB(&gv_fb_dev, true);
-        } else {
+        }
+	else {  /* FB BUFFER */
 
-	    /* Prepare backgroup grids image for transparent image */
-	    for(i=0; i<6; i++) {
-		for(j=0; j<8; j++) {
-			if( (i*8+j+i)%2 )
-				fbset_color(WEGI_COLOR_GRAY);
-			else
-				fbset_color(WEGI_COLOR_DARKGRAY);
-			draw_filled_rect(&gv_fb_dev, j*40, i*40, (j+1)*40-1, (i+1)*40-1);
+		/* Prepare backgroup grids image for transparent image */
+		for(i=0; i<6; i++) {
+			for(j=0; j<8; j++) {
+				if( (i*8+j+i)%2 )
+					fbset_color(WEGI_COLOR_GRAY);
+				else
+					fbset_color(WEGI_COLOR_DARKGRAY);
+				draw_filled_rect(&gv_fb_dev, j*40, i*40, (j+1)*40-1, (i+1)*40-1);
+			}
 		}
-	    }
-	    fb_render(&gv_fb_dev);
+		/* Put mark */
+	        //draw_filled_circle2(&gv_fb_dev, 320/2, 240-45, 10, WEGI_COLOR_DARKGREEN);
+        	FTsymbol_writeFB("EGI", 30,30, WEGI_COLOR_DARKGREEN, 320/2-30, (240/2+80)-30-3);
+	        FTsymbol_writeFB("SHOWPIC", 26,26, WEGI_COLOR_DARKGREEN, 320/2-70, (240/2+80)-3);
 
-	    /* Copy FB mmap data to WORKING_BUFF and BKG_BUFF */
-	    fb_init_FBbuffers(&gv_fb_dev);
-	    #if 0
-            /* Init FB back ground buffer page */
-            //memcpy(gv_fb_dev.map_buff+gv_fb_dev.screensize, gv_fb_dev.map_fb, gv_fb_dev.screensize);
+	    	fb_render(&gv_fb_dev);
+		/* Copy FB mmap data to WORKING_BUFF and BKG_BUFF */
+		fb_init_FBbuffers(&gv_fb_dev);
 
-            /*  Init FB working buffer page */
-            //fbclear_bkBuff(&gv_fb_dev, WEGI_COLOR_BLUE);
-            memcpy(gv_fb_dev.map_bk, gv_fb_dev.map_fb, gv_fb_dev.screensize);
-	   #endif
+	    	#if 0
+	            /* Init FB back ground buffer page */
+        	    //memcpy(gv_fb_dev.map_buff+gv_fb_dev.screensize, gv_fb_dev.map_fb, gv_fb_dev.screensize);
+
+	            /*  Init FB working buffer page */
+        	    //fbclear_bkBuff(&gv_fb_dev, WEGI_COLOR_BLUE);
+	            memcpy(gv_fb_dev.map_bk, gv_fb_dev.map_fb, gv_fb_dev.screensize);
+	   	#endif
         }
 
 	/* Start mouse read thread */
@@ -182,7 +213,10 @@ for( i=optind; i<argc; i++) {
 	} else {
 		Sh=eimg->height;
 		Sw=eimg->width;
-		tmpimg=egi_imgbuf_resize(eimg, Sw, Sh); /* Same size */
+		showimg=egi_imgbuf_resize(eimg, Sw, Sh); /* Same size */
+
+		/* xp,yp for display */
+		xp=yp=0;
 	}
 
         /* Read GIF data into an EGI_GIF */
@@ -194,44 +228,57 @@ for( i=optind; i<argc; i++) {
 		}
 
 		/* Assign RWidth and RHeight */
-		egif->RWidth=egif->SWidth;
-		egif->RHeight=egif->SHeight;
+		Sh=egif->SHeight;
+		Sw=egif->SWidth;
 
 		/* Set ctxt */
         	gif_ctxt = (EGI_GIF_CONTEXT) {
-                        .fbdev=NULL, //&gv_fb_dev,
+                        .fbdev=NULL,
                         .egif=egif,
-                        .nloop=-1,
-			.delayms=45,
+			#if GIF_RUN_THREAD
+                         .nloop=-1, /* O for TimeSyncOn, -1 forever */
+			 .TimeSyncOn=false,
+			#else
+                         .nloop=0, /* O for TimeSyncOn, -1 forever */
+			 .TimeSyncOn=true,
+			#endif
+			.delayms=15, /* valid only for TimeSyncOFF, */
                         .DirectFB_ON=false,
                         .User_DisposalMode=-1,
                         .User_TransColor=-1,
                         .User_BkgColor=-1,
-                        .xp=egif->RWidth>xres ? (egif->RWidth-xres)/2:0,
-                        .yp=egif->RHeight>yres ? (egif->RHeight-yres)/2:0,
-		        .xw=egif->RWidth>xres ? 0:(xres-egif->RWidth)/2,
-                	.yw=egif->RHeight>yres ? 0:(yres-egif->RHeight)/2,
-                        .winw=egif->RWidth>xres ? xres:egif->RWidth,
-                        .winh=egif->RHeight>yres ? yres:egif->RHeight
+                        .xp=egif->SWidth>xres ? (egif->SWidth-xres)/2:0,
+                        .yp=egif->SHeight>yres ? (egif->SHeight-yres)/2:0,
+		        .xw=egif->SWidth>xres ? 0:(xres-egif->SWidth)/2,
+                	.yw=egif->SHeight>yres ? 0:(yres-egif->SHeight)/2,
+                        .winw=egif->SWidth>xres ? xres:egif->SWidth,
+                        .winh=egif->SHeight>yres ? yres:egif->SHeight
         	};
 
+		/* Set xw,yw xp,yp for display */
+		xw=gif_ctxt.xw;  yw=gif_ctxt.yw;
+		//xp=gif_ctxt.xp;  yp=gif_ctxt.yp;
+		xp=0; yp=0;
+
+		OLDindex=-1;
+
 		/* gif_runDisplayThread */
-		if( egi_gif_runDisplayThread(&gif_ctxt) !=0 ) {
+	       	#if GIF_RUN_THREAD
+		 if( egi_gif_runDisplayThread(&gif_ctxt) !=0 ) {
 			printf("Fail to run gif DisplayThread!\n");
 			egi_gif_free(&egif);
 			continue;
-		}
+		 }
+	       	#else
+		 egi_gif_displayGifCtxt(&gif_ctxt);
+	       	#endif
 	}
 
-	/* rotate the imgbuf */
-
-        /* 2. resize the imgbuf  */
-
-        /* 3. Adjust Luminance */
+	/* Rotate the imgbuf */
+        /* Adjust Luminance */
         // egi_imgbuf_avgLuma(eimg, 255/3);
 
 	/* 4. 	------------- Displaying  image ------------ */
-	xp=yp=0;
   do {
 	/* B1. Keyboard control event */
 	switch(cmdchar)
@@ -253,21 +300,21 @@ for( i=optind; i<argc; i++) {
 			}
 
 			/* Resize image */
-			egi_imgbuf_free2(&tmpimg);
-			tmpimg=egi_imgbuf_resize(eimg, Sw, Sh);
-			if(tmpimg==NULL) {
-				printf("tmpimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
+			egi_imgbuf_free2(&showimg);
+			showimg=egi_imgbuf_resize(eimg, Sw, Sh);
+			if(showimg==NULL) {
+				printf("showimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
 			}
 			else {  /* Adjust Sh/Sw as the resized image */
-				Sh=tmpimg->height;
-				Sw=tmpimg->width;
+				Sh=showimg->height;
+				Sw=showimg->width;
 			}
 			break;
 		case 'n':	/* zoom down */
 			xp = (xp+xres/2)*3/4 - xres/2;	/* zoom focus at center of LCD */
 			yp = (yp+yres/2)*3/4 - yres/2;
 
-			/* Limit size to avoid a NULL tmpimg */
+			/* Limit size to avoid a NULL showimg */
 			if(Sh>2 && Sw>2) {
 				Sh = Sh*3/4;
 				Sw = Sw*3/4;
@@ -275,14 +322,14 @@ for( i=optind; i<argc; i++) {
 			printf("Zoom down: Sh=%d, Sw=%d\n",Sh, Sw);
 
 			/* Resize image */
-			egi_imgbuf_free2(&tmpimg);
-			tmpimg=egi_imgbuf_resize(eimg, Sw, Sh);
-			if(tmpimg==NULL) {
-				printf("tmpimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
+			egi_imgbuf_free2(&showimg);
+			showimg=egi_imgbuf_resize(eimg, Sw, Sh);
+			if(showimg==NULL) {
+				printf("showimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
 			}
 			else {  /* Adjust Sh/Sw as the resized image */
-				Sh=tmpimg->height;
-				Sw=tmpimg->width;
+				Sh=showimg->height;
+				Sw=showimg->width;
 			}
 			break;
 		/* ---------------- Parse arrow keys -------------------- */
@@ -312,8 +359,8 @@ for( i=optind; i<argc; i++) {
 				break;
 			}
 			xp+=step;
-//			if(xp > tmpimg->width-xres )
-//				xp=tmpimg->width-xres>0 ? tmpimg->width-xres:0;
+//			if(xp > showimg->width-xres )
+//				xp=showimg->width-xres>0 ? showimg->width-xres:0;
 
 			byte_deep=0;
                         break;
@@ -331,8 +378,8 @@ for( i=optind; i<argc; i++) {
 			if(byte_deep!=2)
 				break;
 			yp+=step;
-//			if(yp > tmpimg->height-yres )
-//				yp=tmpimg->height-yres>0 ? tmpimg->height-yres:0;
+//			if(yp > showimg->height-yres )
+//				yp=showimg->height-yres>0 ? showimg->height-yres:0;
 
 			byte_deep=0;
 			break;
@@ -343,8 +390,8 @@ for( i=optind; i<argc; i++) {
 			break;
 		case 'd':
 			xp+=step;
-			if(xp > tmpimg->width-xres )
-				xp=tmpimg->width-xres>0 ? tmpimg->width-xres:0;
+			if(xp > showimg->width-xres )
+				xp=showimg->width-xres>0 ? showimg->width-xres:0;
 			break;
 		case 'w':
 			yp-=step;
@@ -352,8 +399,8 @@ for( i=optind; i<argc; i++) {
 			break;
 		case 's':
 			yp+=step;
-			if(yp > tmpimg->height-yres )
-				yp=tmpimg->height-yres>0 ? tmpimg->height-yres:0;
+			if(yp > showimg->height-yres )
+				yp=showimg->height-yres>0 ? showimg->height-yres:0;
 			break;
 
 		/* ---------------- Parse Key 'i' 'o' 'p' -------------------- */
@@ -375,6 +422,7 @@ for( i=optind; i<argc; i++) {
    	//if(mostat.request) {
 	if( egi_mouse_getRequest(pmostat) )
 	{
+		/* B2.1  To load next/prev image */
 		if(pmostat->RightKeyDown) {
 			/* Forward OR Back */
 			if(pmostat->mouseX > xres/2) {
@@ -389,30 +437,46 @@ for( i=optind; i<argc; i++) {
 			pmostat->request=false;
 			// cmdchar=' '; 		/* To trigger display */
 
+			/* Put mouse request before break */
 			egi_mouse_putRequest(pmostat);
 			break;
 		}
+		/* B2.2 To reload image */
+		if(pmostat->MidKeyDown) {
+			i-=1;
+
+                        /* Put mouse request before break */
+                        egi_mouse_putRequest(pmostat);
+                        break;
+		}
+		/* B2.3 To save current mouseXY */
 		if(pmostat->LeftKeyDown) {
 			lastX=pmostat->mouseX;
 			lastY=pmostat->mouseY;
 		}
+		/* B2.4 To pan image */
 		if(pmostat->LeftKeyDownHold) {
-			//xp -= mostat.mouseDX;  /* Reverse direction */
-			//yp -= mostat.mouseDY;
-
 			/* Note: As mouseDX/DY already added into mouseX/Y, and mouseX/Y have Limit Value also.
 			 * If use mouseDX/DY, the cursor will slip away at four sides of LCD, as Limit Value applys for mouseX/Y,
 			 * while mouseDX/DY do NOT has limits!!!
 			 * We need to retrive DX/DY from previous mouseX/Y.
 			 */
-			xp -= (pmostat->mouseX-lastX);
-			yp -= (pmostat->mouseY-lastY);
-			//printf("DX,DY: %d,%d\n",mostat.mouseDX,mostat.mouseDY);
+			if(egif) {
+				xw  += (pmostat->mouseX-lastX);
+				yw  += (pmostat->mouseY-lastY);
+			}
+			else if(eimg) {
+				xp -= (pmostat->mouseX-lastX);
+				yp -= (pmostat->mouseY-lastY);
+			}
 
 			/* update lastX,Y */
 			lastX=pmostat->mouseX; lastY=pmostat->mouseY;
 		}
+		/* B2.5 To zoom up/down image */
 		if( pmostat->mouseDZ!=0 ) {; //&& mostat.request ) {
+		   /* For JPG/PNG Image */
+		   if(eimg) {
 			if( pmostat->mouseDZ <0 ) {	/* zoom up */
 				/* Limit size to limit memory */
 				if( Sh*Sw < 4800000 ) {
@@ -428,7 +492,7 @@ for( i=optind; i<argc; i++) {
 				xp = (xp+pmostat->mouseX)*3/4 - pmostat->mouseX;	/* Zoom center at mouse tip */
 				yp = (yp+pmostat->mouseY)*3/4 - pmostat->mouseY;
 
-				/* Limit size to avoid a NULL tmpimg */
+				/* Limit size to avoid a NULL showimg */
 				if(Sh>2 && Sw>2) {
 					Sh = Sh*3/4;
 					Sw = Sw*3/4;
@@ -436,21 +500,46 @@ for( i=optind; i<argc; i++) {
 				printf("Zoom Down: Sh=%d, Sw=%d\n",Sh, Sw);
 			}
 			/* Resize image */
-			egi_imgbuf_free2(&tmpimg);
-			tmpimg=egi_imgbuf_resize(eimg, Sw, Sh);
-			if(tmpimg==NULL) {
-				printf("tmpimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
+			egi_imgbuf_free2(&showimg);
+			showimg=egi_imgbuf_resize(eimg, Sw, Sh);
+			if(showimg==NULL) {
+				printf("EIMG showimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
 			}
 			else {  /* Adjust Sh/Sw as the resized image */
-				Sh=tmpimg->height;
-				Sw=tmpimg->width;
+				Sh=showimg->height;
+				Sw=showimg->width;
 			}
+		    }
+		    /* For GIF image */
+		    else if( egif ) {
+			if( pmostat->mouseDZ <0 ) {	/* zoom up */
+				/* Limit size to limit memory */
+				if( Sh*Sw < 4800000 ) {
+					xw = pmostat->mouseX-(pmostat->mouseX-xw)*9/8;  /* Zoom center at mouse tip */
+					yw = pmostat->mouseY-(pmostat->mouseY-yw)*9/8;
+
+	 				Sh = Sh*9/8;
+					Sw = Sw*9/8;
+					printf("Zoom Up: Sh=%d, Sw=%d\n",Sh, Sw);
+				}
+			}
+			else {	/* zoom down */
+				xw = pmostat->mouseX-(pmostat->mouseX-xw)*7/8;  /* Zoom center at mouse tip */
+				yw = pmostat->mouseY-(pmostat->mouseY-yw)*7/8;
+
+				/* Limit size to avoid a NULL showimg */
+				if(Sh>2 && Sw>2) {
+					Sh = Sh*7/8;
+					Sw = Sw*7/8;
+				}
+				printf("Zoom Down: Sh=%d, Sw=%d\n",Sh, Sw);
+			}
+		    }
 		}
 
 		/* Put request */
 		egi_mouse_putRequest(pmostat);
    	}
-
 
 	/* B3. FB write image */
 	if( cmdchar!=0 || mostat.LeftKeyDownHold || mostat.mouseDZ!=0 ) {
@@ -458,30 +547,62 @@ for( i=optind; i<argc; i++) {
 	    /* Display PNG/JPG */
 	    if( eimg ) {
 		//if(!TranspMode)
-			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
-			 //fbclear_bkBuff(&gv_fb_dev, WEGI_COLOR_GRAY); /* for transparent picture */
+		fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
+	 	//fbclear_bkBuff(&gv_fb_dev, WEGI_COLOR_GRAY); /* for transparent picture */
 
 		gettimeofday(&tm_start, NULL);
-       	 	egi_imgbuf_windisplay2( tmpimg, &gv_fb_dev, //-1,
+       	 	egi_imgbuf_windisplay2( showimg, &gv_fb_dev, //-1,
          	        	        xp, yp, 0, 0,
-               			        xres, yres ); //tmpimg->width, tmpimg->height);
+               			        xres, yres ); //showimg->width, showimg->height);
 		gettimeofday(&tm_end, NULL);
 		printf("writeFB time: %ldms \n",(tm_diffus(tm_start, tm_end)+400)/1000);
 	   }
 
-	   /* Display gif */
+	   /* Display GIF */
 	   else if( egif ) {
+#if 0
+		if(OLDindex<0)
+			OLDindex=egif->ImageCount;
+		else if ( OLDindex==egif->ImageCount ) {
+			Sh=showimg->height;
+			Sw=showimg->width;
+			goto START_GIF_DISPLAY;
+		}
+#endif
+
+		#if !GIF_RUN_THREAD
+		 /* Update gif imgbuf */
+		 egi_gif_displayGifCtxt(&gif_ctxt);
+		#endif
+
+	     	/* Resize each frame of GIF image to get required size! */
+		tmpimg=showimg; /* back it up, in case showimg is NULL. */
+		showimg=egi_imgbuf_resize(gif_ctxt.egif->Simgbuf, Sw, Sh);
+		if(showimg==NULL) {
+			printf("GIF showimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
+			showimg=tmpimg;  /* Revive */
+		}
+		else {  /* Adjust Sh/Sw as the resized image */
+			Sh=showimg->height;
+			Sw=showimg->width;
+			/* free tmpimg now */
+			egi_imgbuf_free2(&tmpimg);
+		}
+
+	START_GIF_DISPLAY:
 		fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
-	        egi_imgbuf_windisplay2( gif_ctxt.egif->Simgbuf, &gv_fb_dev, //-1,    /* img, fb, subcolor */
-        	                       gif_ctxt.xp, gif_ctxt.yp,            /* xp, yp */
-                	               gif_ctxt.xw, gif_ctxt.yw,            /* xw, yw */
-                        	       gif_ctxt.winw, gif_ctxt.winh /* winw, winh */
+	        egi_imgbuf_windisplay2( showimg, &gv_fb_dev, //-1,    /* img, fb, subcolor */
+        	                        xp, yp,            /* xp, yp */
+                	                xw, yw,            /* xw, yw */
+                        	        showimg->width, showimg->height //Sw, Sh /* winw, winh */
                              );
+		OLDindex=egif->ImageCount;
+
 	   }
 
 	}
 
-	  draw_mcursor(mostat.mouseX, mostat.mouseY);
+	draw_mcursor(mostat.mouseX, mostat.mouseY);
 
         /* B4.1 Refresh FB by memcpying back buffer to FB */
 	//gettimeofday(&tm_start, NULL);
@@ -492,7 +613,7 @@ for( i=optind; i<argc; i++) {
 
 	/* B4.2 Mouse direct to FB */
 //	draw_mcursor(mostat.mouseX, mostat.mouseY);
-	tm_delayms(30);
+	tm_delayms(20);
 
 	/* B5. Reset request */
 	mostat.request=false;
@@ -508,15 +629,19 @@ for( i=optind; i<argc; i++) {
 
   } while( cmdchar != ' ' ); /* input SPACE to end displaying current image */
 
-         fbclear_bkBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
+        //fbclear_bkBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
+	//fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
+	//fb_render(&gv_fb_dev);
 
 	/* 5. Free imgbuf and gif */
 	egi_imgbuf_free2(&eimg);
-	egi_imgbuf_free2(&tmpimg);
+	egi_imgbuf_free2(&showimg);
 
 	/* 6. Stop gif */
 	if(egif) {
-		egi_gif_stopDisplayThread(egif);
+		#if GIF_RUN_THREAD
+		 egi_gif_stopDisplayThread(egif);
+		#endif
 		egi_gif_free(&egif);
 	}
 
@@ -547,7 +672,7 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
 {
  	/* Wait until main thread finish last mouse_request respond */
 //	while( mostat.request && !mostatus->cmd_end_loopread_mouse ) { usleep(1000); };
-	while( egi_mouse_checkRequest(mostatus) && !mostatus->cmd_end_loopread_mouse ) { };
+	while( egi_mouse_checkRequest(mostatus) && !mostatus->cmd_end_loopread_mouse ) { usleep(2000); };
 
 	/* If request to quit mouse thread */
 	if( mostatus->cmd_end_loopread_mouse )
@@ -557,6 +682,7 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
         if( pthread_mutex_lock(&mostatus->mutex) !=0 ) {
                 printf("%s: Fail to mutex lock mostatus.mutex!\n",__func__);
         }
+ /*  --- >>>  Critical Zone  */
 
 	/* Pass out mouse data */
 	mostat=*mostatus;
@@ -566,6 +692,7 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
 	mostat.request = true;
 	pmostat->request = true;
 
+/*  --- <<<  Critical Zone  */
         /* Put mutex lock */
         pthread_mutex_unlock(&mostatus->mutex);
 }
@@ -612,5 +739,20 @@ static void draw_mcursor(int x, int y)
 	//fb_set_directFB(&gv_fb_dev, mode);
    //fb_filo_on(&gv_fb_dev);
 
+}
+
+/*-------------------------------------
+        FTsymbol WriteFB TXT
+@txt:           Input text
+@px,py:         LCD X/Y for start point.
+--------------------------------------*/
+static void FTsymbol_writeFB(char *txt, int fw, int fh, EGI_16BIT_COLOR color, int px, int py)
+{
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,//regular,       /* FBdev, fontface */
+                                        fw, fh,(const unsigned char *)txt,      /* fw,fh, pstr */
+                                        320, 1, 0,                      /* pixpl, lines, fgap */
+                                        px, py,                         /* x0,y0, */
+                                        color, -1, 255,                 /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);        /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
 }
 

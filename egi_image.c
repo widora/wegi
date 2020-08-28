@@ -1098,7 +1098,7 @@ Note:
 	   	         outeimg->alpha if it exists.
 
 @hold_on:    True: To continue to use ineimg->pcolors(palphas) as intermediate results,
-		  DO NOT re_memcpy from ineimg->imgbuf(palphas).
+		   DO NOT re_memcpy from ineimg->imgbuf(palphas).
 	     False: Re_memcpy from ineimg->imgbuf(palphas).
 
 Return:
@@ -1598,7 +1598,7 @@ Return:
 	A pointer to EGI_IMGBUF with new image 		OK
 	NULL						Fails
 ------------------------------------------------------------------------*/
-EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
+EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg,
 				//unsigned int width, unsigned int height )
 				int width, int height )
 {
@@ -1617,9 +1617,15 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 	EGI_16BIT_COLOR **fcolors=NULL;
 	unsigned char 	**falphas=NULL;
 
-
-	if( ineimg==NULL || ineimg->imgbuf==NULL ) //|| width<=0 || height<=0 ) adjust to 2
+	if( ineimg==NULL || ineimg->imgbuf==NULL) //|| width<=0 || height<=0 ) adjust to 2
 		return NULL;
+
+	/* Get mutex lock */
+	if(pthread_mutex_lock(&ineimg->img_mutex) !=0 ){
+		EGI_PLOG(LOGLV_ERROR,"%s: Fail to lock image mutex!", __func__);
+		return NULL;
+	}
+ /* ------ >>>  Critical Zone  */
 
 	unsigned int oldwidth=ineimg->width;
 	unsigned int oldheight=ineimg->height;
@@ -1629,8 +1635,10 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 			alpha_on=true;
 
 	/* If W or H is <=0: Adjust width/height proportional to oldwidth/oldheight */
-	if(width<1 && height<1)
+	if(width<1 && height<1) {
+		pthread_mutex_unlock(&ineimg->img_mutex);
 		return NULL;
+	}
 	else if(width<1)
 		width=height*oldwidth/oldheight;
 	else if(height<1)
@@ -1651,6 +1659,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 	/* create temp imgbuf */
 	tmpeimg= egi_imgbuf_create(oldheight, width, 0, 0); /* (h,w,alpha,color) alpha/color will be replaced later */
 	if(tmpeimg==NULL) {
+		pthread_mutex_unlock(&ineimg->img_mutex);
 		return NULL;
 	}
 	if(!alpha_on) {
@@ -1663,10 +1672,12 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 	outeimg= egi_imgbuf_create( height, width, 0, 0); /* (h,w,alpha,color) alpha/color will be replaced later */
 	if(outeimg==NULL) {
 		printf("%s: fail to create outeimg!\n",__func__);
+		pthread_mutex_unlock(&ineimg->img_mutex);
 		return NULL;
 	}
 	if(!alpha_on) {
 		free(outeimg->alpha);
+		pthread_mutex_unlock(&ineimg->img_mutex);
 		outeimg->alpha=NULL;
 	}
 
@@ -1677,18 +1688,21 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 			memcpy( outeimg->alpha, ineimg->alpha, sizeof(unsigned char)*height*width);
 		}
 
+		pthread_mutex_unlock(&ineimg->img_mutex);
 		return outeimg;
 	}
 
-	/* TODO: if height or width is the same size, to speed up */
+	/* TODO: NOT keep ratio, if height or width is the same size, to speed up */
 
 
 	/* Allocate mem to hold oldheight x width image for intermediate processing */
-	printf("Malloc icolors...\n");
+	//printf("Malloc icolors...\n");
 	icolors=(EGI_16BIT_COLOR **)egi_malloc_buff2D(oldheight,width*sizeof(EGI_16BIT_COLOR));
 	if(icolors==NULL) {
 		printf("%s: Fail to malloc icolors.\n",__func__);
 		egi_imgbuf_free(outeimg);
+
+		pthread_mutex_unlock(&ineimg->img_mutex);
 		return NULL;
 	}
 	if(alpha_on) {
@@ -1697,12 +1711,14 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 		printf("%s: Fail to malloc ipalphas.\n",__func__);
 		egi_imgbuf_free(outeimg);
 		egi_free_buff2D((unsigned char **)icolors, oldheight);
+
+		pthread_mutex_unlock(&ineimg->img_mutex);
 		return NULL;
 	   }
 	}
 
 	/* Allocate mem to hold final image size height x width  */
-	printf("Malloc fcolors...\n");
+	//printf("Malloc fcolors...\n");
 	fcolors=(EGI_16BIT_COLOR **)egi_malloc_buff2D(height,width*sizeof(EGI_16BIT_COLOR));
 	if(fcolors==NULL) {
 		printf("%s: Fail to malloc fcolors.\n",__func__);
@@ -1710,6 +1726,8 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 		egi_free_buff2D((unsigned char **)icolors, oldheight);
 		if(alpha_on)
 			egi_free_buff2D(ialphas, oldheight);
+
+		pthread_mutex_unlock(&ineimg->img_mutex);
 		return NULL;
 	}
 	if(alpha_on) {
@@ -1720,6 +1738,8 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 		egi_free_buff2D((unsigned char **)icolors, oldheight);
 		egi_free_buff2D(ialphas, oldheight);
 		egi_free_buff2D((unsigned char **)fcolors, height);
+
+		pthread_mutex_unlock(&ineimg->img_mutex);
 		return NULL;
 	    }
 	}
@@ -1732,7 +1752,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 	alpha_rowsize=width*sizeof(unsigned char);
 
 	/* ----- STEP 1 -----  scale image from [oldheight_X_oldwidth] to [oldheight_X_width] */
-	printf("STEP 1 scale image to [oldheight_X_width]...\n");
+	//printf("STEP 1 scale image to [oldheight_X_width]...\n");
 	for(i=0; i<oldheight; i++)
 	{
 //		printf(" \n STEP 1: ----- row %d ----- \n",i);
@@ -1785,8 +1805,12 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 
 	/* NOTE: rowsize keep same here! Just need to scale height. */
 
+/* ------- <<<  Critical Zone  */
+	/* put mutex lock for ineimg */
+  	pthread_mutex_unlock(&ineimg->img_mutex);
+
 	/* ----- STEP 2 -----  scale image from [oldheight_X_width] to [height_X_width] */
-	printf("STEP 2: scale image to [height_X_width]...\n");
+	//printf("STEP 2: scale image to [height_X_width]...\n");
 	for(i=0; i<width; i++)
 	{
 //		printf(" \n STEP 2: ----- column %d ----- \n",i);
@@ -1836,7 +1860,6 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 	}
 
 	/* Copy row data to outeimg when all finish. */
-	printf("Copy row data to outeimg...\n");
 	for( i=0; i<height; i++) {
 		memcpy( outeimg->imgbuf+i*width, fcolors[i], color_rowsize );
 		if(alpha_on)
@@ -1844,7 +1867,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( const EGI_IMGBUF *ineimg,
 	}
 
 	/* free buffers */
-	printf("%s: Free buffers...\n", __func__);
+	//printf("%s: Free buffers...\n", __func__);
 	egi_free_buff2D((unsigned char **)icolors, oldheight);
 	egi_free_buff2D(ialphas, oldheight);   /* no matter alpha off */
 	egi_free_buff2D((unsigned char **)fcolors, height);
@@ -2695,7 +2718,7 @@ For 16bits color only!!!!
 
 WARING:
 1. Writing directly to FB without calling draw_dot()!!!
-   FB_FILO, Virt_FB disabled!!!
+   FB_FILO, Virt_FB, Pos_rotate all disabled!!!
 2. Take care of image boudary check and locfb check to avoid outrange points skipping
    to next line !!!!
 3. No range limit check, which may cause segmentation fault!!!
@@ -2788,7 +2811,7 @@ int egi_imgbuf_windisplay2(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
 				#ifdef LETS_NOTE /*--- 4 bytes per pixel ---*/
 				*(uint32_t *)(fbp+(locfb<<2))=0;
 				#else		/*--- 2 bytes per pixel ---*/
-			        *(uint16_t *)(fbp+(locfb<<1))=0; /* black for outside */
+			        // *(uint16_t *)(fbp+(locfb<<1))=0; /* black for outside */
 				#endif
                         }
                         else {
@@ -2821,7 +2844,7 @@ int egi_imgbuf_windisplay2(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
 				#ifdef LETS_NOTE /*--- 4 bytes per pixel ---*/
 				*(uint32_t *)(fbp+(locfb<<2))=0;
 				#else		/*--- 2 bytes per pixel ---*/
-       				*(uint16_t *)(fbp+(locfb<<1))=0;   /* black */
+       				// *(uint16_t *)(fbp+(locfb<<1))=0;   /* black */
 				#endif
                         }
                         else {

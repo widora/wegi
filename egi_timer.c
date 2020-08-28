@@ -223,7 +223,7 @@ void tm_delayms(unsigned long ms)
 
 	while(tm_tick_count-tm_now < nticks)
 	{
-		usleep(1000);
+		usleep(500); //usleep(1000) ?usleep disrupted by the timer signal? */
 	}
 
 #else
@@ -299,7 +299,7 @@ return time difference in ms, as a signed value.
 tm_start:	start time
 tm_end:		end time
 ------------------------------------------------------------------*/
-int tm_signed_diffms(struct timeval tm_start, struct timeval tm_end)
+inline int tm_signed_diffms(struct timeval tm_start, struct timeval tm_end)
 {
         int time_cost;
         time_cost=(tm_end.tv_sec-tm_start.tv_sec)*1000	\

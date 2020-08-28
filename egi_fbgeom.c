@@ -3349,7 +3349,7 @@ int draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsig
 	bool	first_point;
 
 	/* Check input  */
-	if( np<2 || pxy==NULL )
+	if( np<2 || pxy==NULL || deg<0 )
 		return -1;
 	if( np < deg+1 )  /* At lease np=deg+1 */
 		return -1;

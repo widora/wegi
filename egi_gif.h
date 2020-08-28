@@ -88,7 +88,8 @@ typedef struct egi_gif {
 					 * if(!Is_DataOwner): A refrence poiner to  EGI_GIF_DATA.SavedImages, to be freed by egi_gifdata_free()
 					 */
 
-
+    struct timeval 	prevtm;		/* Time stamp for the previous frame playing */
+    unsigned int	Delayms;	/* GIF Delay for current frame, in ms. */
 
     int			ImageCount;     /* Index of current image (both APIs), starts from 0
 					 * Index ready for display!!
@@ -127,9 +128,14 @@ typedef struct egi_gif_context
 {
         FBDEV   *fbdev;
         EGI_GIF *egif;
-	unsigned int delayms;		/* User defined delayms */
+	bool	TimeSyncOn;		/* Use time stamp to synchronize, Only for nloop==0 */
+	unsigned int delayms;		/* User defined delayms, valid only when TimeSynchOn is false.
+					 * For big size GIF: It takes more time for decoding, and the original
+					 * GIF DelayMs will be too big to catch up its normal speed, a self_defined
+				 	 * smaller delayms will work around then.
+					 */
         int     nloop;
-	bool	nodelay;
+//	bool	nodelay;
         bool    DirectFB_ON;
         int     User_DisposalMode;	/* <0 disable */
         int     User_TransColor;	/* <0 disable */
@@ -140,7 +146,6 @@ typedef struct egi_gif_context
         int     yw;
         int     winw, winh;
 } EGI_GIF_CONTEXT;
-
 
 
 /*** 	----- static functions -----

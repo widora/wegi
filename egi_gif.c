@@ -1268,12 +1268,11 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
        */
 	if( !DirectFB_ON && egif->last_Disposal_Mode==2)
 	{
-
     	    for(i=0; i< egif->last_BHeight; i++) {
        	 	 /* update block of Simgbuf */
 	         for(j=0; j< egif->last_BWidth; j++ ) {
         	        spos=( egif->last_offy+i)*SWidth+(egif->last_offx+j);
-	      	 	if(egif->ImgTransp_ON )	/* Make curretn block area transparent! */
+	      	 	if(egif->ImgTransp_ON )	/* Make current block area transparent! */
 	      	   		egif->Simgbuf->alpha[spos]=0;
 	      	 	else {   /* bkcolor is NOT applicable for local colorMap*/
 		  		egif->Simgbuf->imgbuf[spos]=egif->bkcolor; /* bkcolor: WEGI_16BIT_COLOR */
@@ -1326,6 +1325,7 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
           }
     }
 
+#if 0 /* WARNING! egi_imgbuf_resize() dead lock */
     /* If RSimgbuf applys, as RWidth/RHeigh >0 */
     if( egif->RWidth > 0 ) {
     	egi_imgbuf_free2(&egif->RSimgbuf);
@@ -1338,10 +1338,10 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
 	egif->RSimgbuf=imgsoft;
 	imgsoft=NULL;
     #endif
-
     }
+#endif
 
-    /* set Simgbuf_read */
+    /* Set Simgbuf_read */
     egif->Simgbuf_ready=true;
 
     /* --- FOR TEST : add boundary box for the imgbuf, NO mutexlock in this func. */
@@ -1371,6 +1371,7 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
                      	       winw, winh   		/* winw, winh */
 			    );
 
+     /* FB_render() to be called by egi_gif_displayGifCtxt() */
 }
 
 
@@ -1427,12 +1428,12 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
     int offx, offy;		/* image block offset relative to gif canvas */
     int DelayMs=0;            	/* delay time in ms */
 
-    EGI_GIF *egif=NULL;
-    FBDEV *fbdev=NULL;
-    SavedImage *ImageData;      /*  savedimages EGI_GIF */
-    ExtensionBlock  *ExtBlock;  /*  extension block in savedimage */
-    ColorMapObject *ColorMap;   /*  Color map */
-    GraphicsControlBlock gcb;   /* extension control block */
+    EGI_GIF 	*egif=NULL;
+    FBDEV 	*fbdev=NULL;
+    SavedImage 	*ImageData;      	/*  savedimages EGI_GIF */
+    ExtensionBlock  	*ExtBlock;  	/*  extension block in savedimage */
+    ColorMapObject 	*ColorMap;   	/*  Color map */
+    GraphicsControlBlock gcb;   	/* extension control block */
 
     bool DirectFB_ON=false;
 //    bool Is_LocalColorMap;	/* Local colormap or global colormap */
@@ -1452,8 +1453,9 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
 				 */
     int trans_color=NO_TRANSPARENT_COLOR;  /* color index */
     //int spos;
+    struct timeval tmnow;
 
-    /* sanity check */
+    /* Sanity check */
     if( gif_ctxt==NULL || gif_ctxt->egif==NULL || gif_ctxt->egif->SavedImages==NULL ) {
 	printf("%s: input gif_ctxt or EGI_GIF(data) is NULL.\n", __func__);
 	return;
@@ -1464,7 +1466,18 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
     fbdev=gif_ctxt->fbdev;
     DirectFB_ON=gif_ctxt->DirectFB_ON;
 
-    /* check ImageCount */
+     /* TimeSyncOn: Check time stamp for Delayms */
+     if( gif_ctxt->nloop==0 && gif_ctxt->TimeSyncOn ) {
+	gettimeofday(&tmnow, NULL);
+	if( gif_ctxt->delayms >0 ) { /* User defined delay */
+		if( tm_signed_diffms(egif->prevtm, tmnow) < gif_ctxt->delayms )
+			return;
+	}			     /* GIF delay */
+	else if( tm_signed_diffms(egif->prevtm, tmnow) < egif->Delayms )
+		return;
+     }
+
+    /* Check ImageCount */
     if( egif->ImageCount > egif->ImageTotal-1 || egif->ImageCount < 0 ) {
 	        egif->ImageCount=0;
 		/* update statu params */
@@ -1485,6 +1498,16 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
  /* Do nloop times, or just one frame if nloop==0 */
  k=0;
  do {
+
+#if 0   //////////* Check time stamp for Delayms *///////////
+     if( gif_ctxt->TimeSyncOn ) {
+	gettimeofday(&tmnow, NULL);
+	while ( tm_signed_diffms(egif->prevtm, tmnow) < egif->Delayms ) {
+		tm_delayms(5);
+		gettimeofday(&tmnow, NULL);
+	}
+     }
+#endif   //////////////////////////////////////////////////
 
      /* Get saved image data sequence */
      ImageData=&egif->SavedImages[egif->ImageCount];
@@ -1647,12 +1670,17 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
     if(!DirectFB_ON && fbdev != NULL )
     	fb_page_refresh(fbdev,0);
 
-    /* Delay */
-    if( gif_ctxt->delayms )
-	    tm_delayms(gif_ctxt->delayms);
-    else
-	    tm_delayms(DelayMs); /* Need to hold on here, even fddev==NULL */
+    /* Record time stamp and current frame delay */
+    gettimeofday(&egif->prevtm, NULL);
+    egif->Delayms=DelayMs;
 
+    /* Delay, Only when NOT use time stamp to synchronize.  */
+    if( !gif_ctxt->TimeSyncOn || gif_ctxt->nloop!=0 ) {
+	    if( gif_ctxt->delayms >0 )
+		    tm_delayms(gif_ctxt->delayms);
+	    else
+		    tm_delayms(DelayMs); /* Need to hold on here, even fddev==NULL */
+    }
 
     /* ----- Parse Disposal_Mode: Actions after GIF displaying  ----- */
     switch(Disposal_Mode)
