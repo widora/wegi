@@ -88,6 +88,8 @@ Note:
 2. The passed ImageCount starts from 1, and ends with the total number of images.
 3. For a GIF with transparent area, you shall initialize FB back groud buffer before calling
    the function. One way is to run fb_copy_FBbuffer(&gv_fb_dev, 0, 1) first.
+4. Some broken gif file may have invalid offxy and block size, when any of the block is found to
+   be out of the canvas, the function will return.
 
 @fpath: 	 File path
 @Silent_Mode:	 TRUE: Do NOT display or delay, just read frame by frame and pass
@@ -146,7 +148,7 @@ int  egi_gif_playFile(const char *fpath, bool Silent_Mode, bool ImgTransp_ON, in
     int k;
 
     int SWidth=0, SHeight=0;   /* screen(gif canvas) width and height, defined in gif file */
-    int pos=0;
+    //int pos=0;
     int spos=0;
     int offx=0, offy=0;	/* gif block image width and height, defined in gif file */
     int BWidth=0, BHeight=0;  /* image block size */
@@ -207,33 +209,41 @@ int  egi_gif_playFile(const char *fpath, bool Silent_Mode, bool ImgTransp_ON, in
     printf("	GIF Verion: %s\n", DGifGetGifVersion(GifFile));
 
     /* Get global color map */
-#if 1
     if(GifFile->Image.ColorMap) {
+	printf("Has LocalColorMap!\n");
 //	Is_LocalColorMap=true;
 	ColorMap=GifFile->Image.ColorMap;
-	printf("	Use local ColorMap, ColorCount=%d\n", GifFile->Image.ColorMap->ColorCount);
+	//printf("	Use local ColorMap, ColorCount=%d\n", GifFile->Image.ColorMap->ColorCount);
     }
-    else {
+    else if(GifFile->SColorMap) {
+	printf("Has NO LocalColorMap!\n");
 //	Is_LocalColorMap=false;
 	ColorMap=GifFile->SColorMap;
-	printf("	Use global ColorMap Colorcount=%d\n", GifFile->SColorMap->ColorCount);
+	//printf("	Use global ColorMap Colorcount=%d\n", GifFile->SColorMap->ColorCount);
     }
-    printf("	GIF ColorMap.BitsPerPixel=%d\n", ColorMap->BitsPerPixel);
+    else
+	printf(" GIF has NO ColorMap predefined!\n");
 
-    /* check that the background color isn't garbage (SF bug #87) */
-    if (GifFile->SBackGroundColor < 0 || GifFile->SBackGroundColor >= ColorMap->ColorCount) {
-        sprintf("%s: Background color out of range for colorMap.\n",__func__);
-	Error=-3;
-	goto END_FUNC;
+    if(ColorMap) {
+        printf("	GIF ColorMap.BitsPerPixel=%d\n", ColorMap->BitsPerPixel);
+
+ 	/* check that the background color isn't garbage (SF bug #87) */
+	if (GifFile->SBackGroundColor < 0 || GifFile->SBackGroundColor >= ColorMap->ColorCount) {
+        	sprintf("%s: Background color out of range for colorMap.\n",__func__);
+		Error=-3;
+		goto END_FUNC;
+    	}
+
+        /* Get back ground color */
+	bkg_color=GifFile->SBackGroundColor;
+	ColorMapEntry = &ColorMap->Colors[bkg_color];
+	img_bkcolor=COLOR_RGB_TO16BITS( ColorMapEntry->Red,
+        	                 	ColorMapEntry->Green,
+                	                ColorMapEntry->Blue );
     }
-#endif
-
-    /* Get back ground color */
-    bkg_color=GifFile->SBackGroundColor;
-    ColorMapEntry = &ColorMap->Colors[bkg_color];
-    img_bkcolor=COLOR_RGB_TO16BITS( ColorMapEntry->Red,
-                         	ColorMapEntry->Green,
-                                ColorMapEntry->Blue );
+    else {   /* ColorMap==NULL */
+	 img_bkcolor=0;
+    }
 
     /* get SWidth and SHeight */
     SWidth=GifFile->SWidth;
@@ -419,7 +429,7 @@ if(!Silent_Mode) {
             	GifRow = ScreenBuffer[offy+i];
 		 /* update block of Simgbuf */
 	 	for(j=0; j<BWidth; j++ ) {
-	      		pos=i*BWidth+j;
+	      		//pos=i*BWidth+j;
               		spos=(offy+i)*SWidth+(offx+j);
 	      		/* Nontransparent color: set color and set alpha to 255 */
 	      		if( trans_color < 0 || trans_color != GifRow[offx+j]  )
@@ -763,6 +773,12 @@ EGI_GIF_DATA*  egi_gifdata_readFile(const char *fpath)
     printf("   		ImageTotal:       	%d\n", gif_data->ImageTotal);
     #endif
 
+    /* Check SColorMap */
+    if(gif_data->SColorMap==NULL) {
+	printf("%s: SColorMap is NULL! gif_data NOT accept it!\n", __func__);
+	free(gif_data);
+	return NULL;
+    }
 
     /* Decouple gif file handle, with respect to DGifCloseFile().
      * Ownership transfered from GifFile to EGI_GIF!
@@ -832,6 +848,12 @@ EGI_GIF*  egi_gif_create(const EGI_GIF_DATA *gif_data, bool ImgTransp_ON)
 	return NULL;
     }
 
+    /* Check SColorMap! */
+    if(gif_data->SColorMap==NULL) {
+	printf("%s: SColorMap is NULL! EGI_GIF NOT accept it!\n",__func__);
+	return NULL;
+    }
+
     /* calloc EGI_GIF */
     egif=calloc(1, sizeof(EGI_GIF));
     if(egif==NULL) {
@@ -852,6 +874,7 @@ EGI_GIF*  egi_gif_create(const EGI_GIF_DATA *gif_data, bool ImgTransp_ON)
     egif->ImageTotal =   gif_data->ImageTotal;
     egif->SavedImages=   gif_data->SavedImages;		/* refrence, to be freed by egi_gifdata_free() */
     egif->Is_DataOwner=  false;		       		/* SColorMap and SavedImages to freed by egi_gifdata_free(), NOT egi_gif_free() */
+
 
     /* get GIF's back ground color */
     ColorMapEntry = &(egif->SColorMap->Colors[egif->SBackGroundColor]);
@@ -945,13 +968,6 @@ EGI_GIF*  egi_gif_slurpFile(const char *fpath, bool ImgTransp_ON)
 	return NULL;
     }
 
-    /* calloc EGI_GIF */
-    egif=calloc(1, sizeof(EGI_GIF));
-    if(egif==NULL) {
-	    printf("%s: Fail to calloc EGI_GIF.\n", __func__);
-	    return NULL;
-    }
-
 
     /* Slurp reads an entire GIF into core, hanging all its state info off
      *  the GifFileType pointer, it may take a short of time...
@@ -963,6 +979,29 @@ EGI_GIF*  egi_gif_slurpFile(const char *fpath, bool ImgTransp_ON)
         	PrintGifError(Error);
 	free(egif);
 	return NULL;
+    }
+
+    /* Check ColorMap */
+    if(GifFile->SColorMap !=NULL) {
+	printf("%s: --- Apply GifFile->SColorMap ---\n",__func__);
+    }
+    else if (GifFile->Image.ColorMap !=NULL) {
+	printf("%s: --- Apply GifFile->Image.ColorMap ---\n",__func__);
+    }
+    else if (GifFile->SavedImages[0].ImageDesc.ColorMap !=NULL) {
+	printf("%s: --- Apply GifFile->SavedImages[].ImageDesc.ColorMap ---\n",__func__);
+    }
+    else {
+	printf("%s: SColorMap is NULL!\n",__func__);
+	free(egif);
+	return NULL;
+    }
+
+    /* calloc EGI_GIF */
+    egif=calloc(1, sizeof(EGI_GIF));
+    if(egif==NULL) {
+	    printf("%s: Fail to calloc EGI_GIF.\n", __func__);
+	    return NULL;
     }
 
     /* check sanity */
@@ -983,17 +1022,25 @@ EGI_GIF*  egi_gif_slurpFile(const char *fpath, bool ImgTransp_ON)
     egif->ImgTransp_ON=ImgTransp_ON;
 
     /* Assign EGI_GIF members. Ownership to be transfered later...*/
-    egif->SWidth =       GifFile->SWidth;
-    egif->SHeight =      GifFile->SHeight;
-    egif->SColorResolution =     GifFile->SColorResolution;
-    egif->SBackGroundColor =     GifFile->SBackGroundColor;
-    egif->AspectByte =   GifFile->AspectByte;
-    egif->SColorMap  =   GifFile->SColorMap;
-    egif->ImageCount =   0;
-    egif->ImageTotal =  GifFile->ImageCount; 	/* after slurp, GifFile->ImageCount is total number */
-    egif->SavedImages=   GifFile->SavedImages;
- //   egif->ExtensionBlockCount = GifFile->ExtensionBlockCount;
-    egif->Is_DataOwner=  true;		       /* SColorMap and SavedImages to freed by egi_gif_free(), NOT egi_gifdata_free() */
+    if(GifFile->SColorMap) {
+    	egif->SColorMap  	=GifFile->SColorMap;
+    	GifFile->SColorMap      =NULL;	/* Ownership transfered */
+    }
+    else if (GifFile->Image.ColorMap !=NULL) {
+    	egif->SColorMap  	=GifFile->Image.ColorMap;
+	GifFile->Image.ColorMap =NULL;	/* Ownership transfered */
+    }
+    egif->SWidth       		=GifFile->SWidth;
+    egif->SHeight      		=GifFile->SHeight;
+    egif->SColorResolution 	=GifFile->SColorResolution;
+    egif->SBackGroundColor 	=GifFile->SBackGroundColor;
+    egif->AspectByte   		=GifFile->AspectByte;
+    egif->ImageCount   		=0;
+    egif->ImageTotal   		=GifFile->ImageCount; 	/* after slurp, GifFile->ImageCount is total number */
+    egif->SavedImages   	=GifFile->SavedImages;
+    GifFile->SavedImages    	=NULL;	/* Ownership transfered */
+ // egif->ExtensionBlockCount = GifFile->ExtensionBlockCount;
+    egif->Is_DataOwner  	=true;	/* SColorMap and SavedImages to freed by egi_gif_free(), NOT egi_gifdata_free() */
 
     #if 1
     printf("%s --- GIF Params---\n",__func__);
@@ -1008,7 +1055,7 @@ EGI_GIF*  egi_gif_slurpFile(const char *fpath, bool ImgTransp_ON)
 
     /* --- initiate Simgbuf --- */
 
-    /* get bkg color */
+    /* Get bkg color */
     ColorMapEntry = &(egif->SColorMap->Colors[egif->SBackGroundColor]);
     img_bkcolor=COLOR_RGB_TO16BITS( ColorMapEntry->Red,
                                     ColorMapEntry->Green,
@@ -1029,12 +1076,10 @@ EGI_GIF*  egi_gif_slurpFile(const char *fpath, bool ImgTransp_ON)
         return NULL;
     }
 
-    /* Decouple gif file handle, with respect to DGifCloseFile().
+    /*** 	--- NOTE ---
+     * 1. Decouple gif file handle, with respect to DGifCloseFile().
      * Ownership transfered from GifFile to EGI_GIF!
-     */
-    GifFile->SColorMap      =NULL;
-    GifFile->SavedImages    =NULL;
-    /* Note: Ownership of GifFile->ExtensionBlocks and GifFile->Image NOT transfered!
+     * 2. Ownership of GifFile->ExtensionBlocks and GifFile->Image NOT transfered!
      * it will be freed by DGifCloseFile().
      */
 
@@ -1242,7 +1287,7 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
     GifColorType *ColorMapEntry;
     EGI_IMGBUF *Simgbuf=egif->Simgbuf;
     int SWidth=Simgbuf->width;		/* Screen/canvas size */
-    //int SHeight=Simgbuf->height;
+    int SHeight=Simgbuf->height;
     int BWidth=egif->BWidth;
     int BHeight=egif->BHeight;
     /* @offx, offy:	 offset of current image block relative to GIF virtual canvas left top point. */
@@ -1261,6 +1306,11 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
                 return;
     }
 
+    /* Reset canvas */
+    //if(egif->Simgbuf_ready==false
+    if(egif->ImageCount==0 )
+          egi_imgbuf_resetColorAlpha(egif->Simgbuf, egif->bkcolor, egif->ImgTransp_ON ? 0:255 );
+
 #if 1
     /*** 				----- NOTE -----
        *      Move last disposal_mode handling codes from egi_gif_displayGifCtxt() and put here, just before updating Simgbuf,
@@ -1268,9 +1318,13 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
        */
 	if( !DirectFB_ON && egif->last_Disposal_Mode==2)
 	{
+       	    /* Update block of Simgbuf */
     	    for(i=0; i< egif->last_BHeight; i++) {
-       	 	 /* update block of Simgbuf */
+	    	 if( egif->last_offy+i > SHeight-1 )continue;  /* Check for some broken gif file! */
+
 	         for(j=0; j< egif->last_BWidth; j++ ) {
+		        if( egif->last_offx+j > SWidth-1 )continue; /* Check for some broken gif file! */
+
         	        spos=( egif->last_offy+i)*SWidth+(egif->last_offx+j);
 	      	 	if(egif->ImgTransp_ON )	/* Make current block area transparent! */
 	      	   		egif->Simgbuf->alpha[spos]=0;
@@ -1286,12 +1340,14 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
     /*---- Codes for last_Disposal_Mode==2 END ------- */
 #endif
 
-
-    /* update Simgbuf */
+    /* Update block of Simgbuf */
     for(i=0; i<BHeight; i++)
     {
-	 /* update block of Simgbuf */
+    	 if( offy+i > SHeight-1 )continue; /* Check for some broken gif file! */
+
 	 for(j=0; j<BWidth; j++ ) {
+	      if( offx+j > SWidth-1 )continue; /* Check for some broken gif file! */
+
 	      pos=i*BWidth+j;
               spos=(offy+i)*SWidth+(offx+j);
 	      /* Nontransparent color: set color and set alpha to 255 */
@@ -1325,24 +1381,29 @@ inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_GIF *egif,
           }
     }
 
+    /* Assign Delayms for imgbuf */
+    egif->Simgbuf->delayms=egif->Delayms;
+    if(egif->RSimgbuf)
+        egif->RSimgbuf->delayms=egif->Delayms;
+
 #if 0 /* WARNING! egi_imgbuf_resize() dead lock */
     /* If RSimgbuf applys, as RWidth/RHeigh >0 */
     if( egif->RWidth > 0 ) {
     	egi_imgbuf_free2(&egif->RSimgbuf);
 	egif->RSimgbuf=egi_imgbuf_resize(egif->Simgbuf, egif->RWidth, egif->RHeight);
 
-    #if 0 /* --- Avgsoft the image --- */
+      #if 0 /* --- Avgsoft the image --- */
 	EGI_IMGBUF *imgsoft=NULL;
 	imgsoft=egi_imgbuf_avgsoft(egif->RSimgbuf, 2, true, false);
     	egi_imgbuf_free2(&egif->RSimgbuf);
 	egif->RSimgbuf=imgsoft;
 	imgsoft=NULL;
-    #endif
+      #endif
     }
 #endif
 
-    /* Set Simgbuf_read */
-    egif->Simgbuf_ready=true;
+    /* No use, Set Simgbuf_read */
+    // egif->Simgbuf_ready=true;
 
     /* --- FOR TEST : add boundary box for the imgbuf, NO mutexlock in this func. */
     //egi_imgbuf_addBoundaryBox(Simgbuf, WEGI_COLOR_BLACK, 2);
@@ -1491,24 +1552,13 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
 		bkg_color=gif_ctxt->User_BkgColor;
 		printf("User_BkgColor=%d\n",bkg_color);
      }
-     else
+     else {
 		bkg_color=egif->SBackGroundColor;
-
+     }
 
  /* Do nloop times, or just one frame if nloop==0 */
  k=0;
  do {
-
-#if 0   //////////* Check time stamp for Delayms *///////////
-     if( gif_ctxt->TimeSyncOn ) {
-	gettimeofday(&tmnow, NULL);
-	while ( tm_signed_diffms(egif->prevtm, tmnow) < egif->Delayms ) {
-		tm_delayms(5);
-		gettimeofday(&tmnow, NULL);
-	}
-     }
-#endif   //////////////////////////////////////////////////
-
      /* Get saved image data sequence */
      ImageData=&egif->SavedImages[egif->ImageCount];
 
@@ -1518,29 +1568,40 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
         ColorMap=ImageData->ImageDesc.ColorMap;
 //	printf("  --->  Local colormap: Colorcount=%d   <--\n", ColorMap->ColorCount);
      }
-     else {  /* Apply global colormap */
+     else if(egif->SColorMap) {  /* Apply global colormap */
 //	Is_LocalColorMap=false;
 	ColorMap=egif->SColorMap;
 //	printf("  --->  Global colormap: Colorcount=%d   <--\n", ColorMap->ColorCount);
      }
+     else {
+	printf("%s: GIF has NO ColorMap predefined!\n", __func__);
+	return;
+     }
 
      /* Reset Simgbuf and working FB buffer, for the first block image */
      if( egif->ImageCount==0 ) { //&& fbdev != NULL ) {
-	  ColorMapEntry = &ColorMap->Colors[bkg_color];
-	  bkcolor=COLOR_RGB_TO16BITS( ColorMapEntry->Red,
-                                      ColorMapEntry->Green,
-               	                      ColorMapEntry->Blue );
+   	  if(ColorMap) {
+	  	ColorMapEntry = &ColorMap->Colors[bkg_color];
+		bkcolor=COLOR_RGB_TO16BITS( ColorMapEntry->Red,
+        	                              ColorMapEntry->Green,
+               		                      ColorMapEntry->Blue );
+	  	egif->bkcolor=bkcolor;
+	  }
+	  else  /* No ColorMap predefined! */
+		egif->bkcolor=0;
 
 	  /* Reset Simgbuf_read to false just before reset coloralpha,
 	   * it'will be set to True in egi_gif_rasterWriteFB() after imgbuf data updated */
-    	  egif->Simgbuf_ready=false;
+    	  // No use:  egif->Simgbuf_ready=false;
 
-	  egi_imgbuf_resetColorAlpha(egif->Simgbuf, bkcolor, egif->ImgTransp_ON ? 0:255 );
+	  /*** NOTE:  At this point, a reading thread will get an imgbuf with all ZERO alphas!
+	   *  So move it to egi_gif_rasterWriteFB() with mutex_lock! */
+	  //egi_imgbuf_resetColorAlpha(egif->Simgbuf, bkcolor, egif->ImgTransp_ON ? 0:255 );	/* mutex lock */
+
 
 	  /* --- NOTE: TODO, pick out this?? for it's the caller's job???  ---  */
 	  if( fbdev != NULL )  /* FB back buffer must be enabled */
      		  memcpy(fbdev->map_bk, fbdev->map_buff+fbdev->screensize, fbdev->screensize);
-
      }
 
      /* get Block image offset and size */
@@ -1661,10 +1722,12 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
                trans_color, gif_ctxt->User_TransColor,   //bkg_color,   /* trans_color, user_trans_color, bkg_color */
 			     egif->ImgTransp_ON ); 	/* DirectFB_ON, Img_Transp_ON, BkgTransp_ON */
 
+#if 0 /////// move to raster /////
     /* Set delayms in imgbuf. JUST after calling egi_gif_rasterWriteFB() to create RSimgbuf. */
-    egif->Simgbuf->delayms=DelayMs;
+    egif->Simgbuf->delayms=DelayMs;   /* TODO: mutex lock */
     if(egif->RSimgbuf)
 	egif->RSimgbuf->delayms=DelayMs;
+#endif
 
     /* Refresh FB page if NOT DirectFB_ON */
     if(!DirectFB_ON && fbdev != NULL )

@@ -40,8 +40,9 @@ int main(int argc, char **argv)
     	int yres;
 	EGI_GIF_DATA  	*gif_data=NULL;
 	EGI_GIF		*egif=NULL;
-	EGI_GIF_CONTEXT gif_ctxt;
+	EGI_GIF_CONTEXT gif_ctxt={ 0 };
 	EGI_IMGBUF	**mvpic;
+	EGI_IMGBUF	*logo;
 
 	bool PortraitMode=false; /* LCD display mode: Portrait or Landscape */
 	bool ImgTransp_ON=false; /* Suggest: TURE */
@@ -55,9 +56,10 @@ int main(int argc, char **argv)
 
 	struct timeval tm_start, tm_end;
 	int tms;
+	int luma=0;
 
 	/* parse input option */
-	while( (opt=getopt(argc,argv,"htdps:m:"))!=-1)
+	while( (opt=getopt(argc,argv,"htdps:m:u:"))!=-1)
 	{
     		switch(opt)
     		{
@@ -69,6 +71,7 @@ int main(int argc, char **argv)
 		           printf("         -p   Portrait mode. ( default is Landscape mode ) \n");
 		           printf("         -s scale    scale for gif image \n");
 		           printf("         -m delayms  delay in ms for each frame \n");
+		           printf("         -u	average luma \n");
 			   printf("fpath   Gif file path \n");
 		           return 0;
 		       case 't':
@@ -91,6 +94,10 @@ int main(int argc, char **argv)
 			   dms=atoi(optarg);
 			   printf(" Set dms=%d\n", dms);
 			   break;
+		       case 'u':
+			   luma=atoi(optarg);
+			   printf(" Set luma=%d\n",luma);
+			   break;
 		       default:
 		           break;
 	    	}
@@ -107,13 +114,13 @@ int main(int argc, char **argv)
         printf("tm_start_egitick()...\n");
         tm_start_egitick();                     /* start sys tick */
 
+#if 0
         printf("egi_init_log()...\n");
         if(egi_init_log("/mmc/log_gif") != 0) {        /* start logger */
                 printf("Fail to init logger,quit.\n");
                 return -1;
 	}
 
-#if 0
         printf("symbol_load_allpages()...\n");
         if(symbol_load_allpages() !=0 ) {       /* load sys fonts */
                 printf("Fail to load sym pages,quit.\n");
@@ -135,6 +142,9 @@ int main(int argc, char **argv)
 #endif
 
         /* <<<<------------------  End EGI Init  ----------------->>>> */
+
+	/* Read in logo */
+	logo=egi_imgbuf_readfile("/mmc/logo.png");
 
         /* refresh working buffer */
         //clear_screen(&gv_fb_dev, WEGI_COLOR_GRAY);
@@ -164,13 +174,14 @@ int main(int argc, char **argv)
         /* <<<<------------------  End FB Setup ----------------->>>> */
 
 
-#if 0	/* ------------------  TEST:  egi_gif_playFile()  ------------------ */
+#if 1	/* ------------------  TEST:  egi_gif_playFile()  ------------------ */
 
          // egi_gif_playFile(const char *fpath, bool Silent_Mode, bool ImgTransp_ON, int *ImageCount)
 	while(1) {
 	 	memcpy(gv_fb_dev.map_bk, gv_fb_dev.map_buff+gv_fb_dev.screensize, gv_fb_dev.screensize);
 		/* fpath, bool Silent_Mode, bool ImgTransp_ON, int *ImageCount, int nloop, bool *sigstop */
 		 egi_gif_playFile(fpath, false, true, NULL, -1, NULL);
+		exit(1);
 	}
 #endif
 
@@ -232,7 +243,7 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
         gif_ctxt.fbdev=NULL; //&gv_fb_dev;
         gif_ctxt.egif=egif;
         gif_ctxt.nloop=-1;
-	gif_ctxt.nodelay=true;  /* Run */
+	gif_ctxt.delayms=0;
         gif_ctxt.DirectFB_ON=DirectFB_ON;
         gif_ctxt.User_DisposalMode=User_DispMode;
         gif_ctxt.User_TransColor=User_TransColor;
@@ -289,8 +300,16 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
 		printf("-Step %d/%d\n", gif_ctxt.egif->ImageCount, egif->ImageTotal);
 
 		/* Transfer ownership of imgbuf to mvpic[] */
+		#if 0  /* !!! RSimgbuf NOT applied now! */
 		mvpic[i]=gif_ctxt.egif->RSimgbuf;
 		gif_ctxt.egif->RSimgbuf=NULL;
+		#else
+		mvpic[i]=egi_imgbuf_resize(gif_ctxt.egif->Simgbuf, egif->RWidth,  egif->RHeight);
+		mvpic[i]->delayms=gif_ctxt.egif->Simgbuf->delayms;
+		#endif
+
+		if(luma>0)
+			egi_imgbuf_avgLuma( mvpic[i], luma );
 
 		#if 0 /* ---  To  apply when .nloop = 0 --- */
         	//gif_ctxt.xw -=1;
@@ -317,6 +336,9 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
 			//gettimeofday(&tm_start,NULL);
 			egi_imgbuf_windisplay2( mvpic[i], &gv_fb_dev, // -1,
 		                                          xp, yp, xw, yw, gif_ctxt.winw, gif_ctxt.winh);
+
+			egi_imgbuf_windisplay2( logo, &gv_fb_dev, 0, 0, gv_fb_dev.vinfo.xres-100, gv_fb_dev.vinfo.yres-50,
+										logo->width, logo->height);
 			//gettimeofday(&tm_end,NULL);
 			//printf("writeFB time: %dms \n", tms=tm_diffus(tm_start, tm_end)/1000);
 
@@ -326,8 +348,8 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
 			//printf("render time: %ldms \n",tm_diffus(tm_start, tm_end)/1000);
 
 			gettimeofday(&tm_end,NULL);
-			tms = (tm_diffus(tm_start, tm_end)+500)/1000;
-			printf("tms:%d\n", tms);
+			tms = tm_signed_diffms(tm_start, tm_end);
+			printf("---tms:%d\n", tms);
 
 			if( dms > 0)
 				tm_delayms(dms);
