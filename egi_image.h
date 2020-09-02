@@ -98,7 +98,7 @@ int egi_subimg_writeFB(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subnum,		/* mu
                                                         int subcolor, int x0,   int y0);
 
 /* For whole imgbuf: rest color and alpha */
-int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha );		/* mutex_lock */
+int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha );		/* NOPE! mutex_lock */
 
 /* For subimgbuf: reset color and alpha for all pixels */
 int egi_imgbuf_reset(EGI_IMGBUF *egi_imgbuf, int subnum, int color, int alpha);		/* mutex_lock */

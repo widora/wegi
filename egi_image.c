@@ -1570,7 +1570,9 @@ Resize an image and create a new EGI_IMGBUF to hold the new image data.
 Only size/color/alpha of ineimg will be transfered to outeimg, others
 such as subimg will be ignored. )
 
-TODO: Before scale down an image, merge and shrink it to a certain size first!!!
+TODO:
+1. Before scale down an image, merge and shrink it to a certain size first!!!
+2. Block resize (zoom), oresize a block of the original image to a givn size.
 
 NOTE:
 1. Linear interpolation is carried out with fix point calculation.
@@ -2032,7 +2034,8 @@ int egi_imgbuf_blend_imgbuf(EGI_IMGBUF *eimg, int xb, int yb, const EGI_IMGBUF *
 /*-------------------------------------------------------------------------------
 Create an EGI_IMGBUF by rotating the input eimg.
 
-1. The new imgbuf size(H&W) are made odd, so it has a symmetrical center point.
+1. The new imgbuf size(H&W) are made odd, so it has a symmetrical center point as
+   the rotating center.
 2. Only imgbuf and alpha data are created in new EGI_IMGBUF, other memebers such
    as subimgs are ignored hence.
 
@@ -2062,6 +2065,12 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 	int xb,yb;	/* bottom tip pint */
 	int map_method;
 
+	/* Check input */
+        if(eimg==NULL || eimg->imgbuf==NULL || eimg->height<=0 || eimg->width<=0 ) {
+                printf("%s: input holding eimg is NULL or uninitiliazed!\n", __func__);
+                return NULL;
+        }
+
         /* Normalize angle to be within [0-360] */
 #if 1
         ang=angle%360;      /* !!! WARING !!!  The modulo result is depended on the Compiler
@@ -2082,12 +2091,6 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 	//printf("%s: angle=%d, ang=%d \n", __func__, asign*angle, ang);
 #endif
 
-	/* Check input */
-        if(eimg==NULL || eimg->imgbuf==NULL || eimg->height<=0 || eimg->width<=0 ) {
-                printf("%s: input holding eimg is NULL or uninitiliazed!\n", __func__);
-                return NULL;
-        }
-
         /* Check whether lookup table fp16_cos[] and fp16_sin[] is generated */
         if( fp16_sin[30] == 0) {
 		printf("%s: Start to create fixed point trigonometric table...\n",__func__);
@@ -2100,6 +2103,20 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
                 EGI_PLOG(LOGLV_ERROR,"%s: Fail to lock image mutex!", __func__);
                 return NULL;
         }
+
+	/* If angle is 0, just copy the original imgbuf */
+	if(ang==0) {
+		outimg=egi_imgbuf_blockCopy( eimg, 0, 0, eimg->height, eimg->width);
+		if(outimg==NULL) {
+			printf("%s: Fail to create outimg by blockCopy!\n",__func__);
+			pthread_mutex_unlock(&eimg->img_mutex);
+			return NULL;
+		}
+
+		/* unlock eimg */
+		pthread_mutex_unlock(&eimg->img_mutex);
+		return outimg;
+	}
 
 	/* Get size for rotated imgbuf, which shall cover original eimg at least */
 	#if 0	/* Float point method */
@@ -2552,15 +2569,12 @@ int egi_imgbuf_windisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subcolor,
         int i,j;
         int xres;
         int yres;
-        long int screen_pixels;
+//        long int screen_pixels;
 
-        unsigned char *fbp=fb_dev->map_fb;
+//        unsigned char *fbp=fb_dev->map_fb;
         uint16_t *imgbuf=egi_imgbuf->imgbuf;
         unsigned char *alpha=egi_imgbuf->alpha;
-
-//        long int locfb=0; /* location of FB mmap, in pxiel, xxxxxbyte */
         long int locimg=0; /* location of image buf, in pixel, xxxxin byte */
-//      int bytpp=2; /* bytes per pixel */
 
   /* If FB position rotate 90deg or 270deg, swap xres and yres */
   if(fb_dev->pos_rotate & 0x1) {	/* Landscape mode */
@@ -2573,7 +2587,7 @@ int egi_imgbuf_windisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subcolor,
   }
 
    /* pixel total number */
-   screen_pixels=xres*yres;
+//   screen_pixels=xres*yres;
 
   /* reset winh and winw */
 //  if( winh > yres) winh=yres;
@@ -2710,15 +2724,14 @@ int egi_imgbuf_windisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subcolor,
 }
 
 
-
 #if 1 ////////////////////////// TODO: range limit check ///////////////////////////
 /*---------------------------------------------------------------------------------------
 Display image in a defined window.
-For 16bits color only!!!!
+For 16bits color only!!!! and NO pos_rotate remap!
 
 WARING:
 1. Writing directly to FB without calling draw_dot()!!!
-   FB_FILO, Virt_FB, Pos_rotate all disabled!!!
+   FB_FILO, Virt_FB, Pos_rotate Remap all disabled!!!
 2. Take care of image boudary check and locfb check to avoid outrange points skipping
    to next line !!!!
 3. No range limit check, which may cause segmentation fault!!!
@@ -2748,7 +2761,7 @@ Return:
 int egi_imgbuf_windisplay2(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
 			   		int xp, int yp, int xw, int yw, int winw, int winh)
 {
-        /* check data */
+        /* Check data */
 	if(fb_dev == NULL)
 		return -1;
         if(egi_imgbuf == NULL || egi_imgbuf->imgbuf == NULL )
@@ -2757,13 +2770,11 @@ int egi_imgbuf_windisplay2(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
                 return -1;
         }
 
-
-	/* get mutex lock */
+	/* Get mutex lock */
 	if( pthread_mutex_lock(&egi_imgbuf->img_mutex)!=0 ){
 		printf("%s: Fail to lock image mutex!\n",__func__);
 		return -2;
 	}
-
 
         int imgw=egi_imgbuf->width;     /* image Width and Height */
         int imgh=egi_imgbuf->height;
@@ -2777,7 +2788,6 @@ int egi_imgbuf_windisplay2(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
         int i,j;
         int xres=fb_dev->vinfo.xres;
         int yres=fb_dev->vinfo.yres;
-        long int screen_pixels=xres*yres;
 
 	#ifdef ENABLE_BACK_BUFFER
         unsigned char *fbp =fb_dev->map_bk;
@@ -2787,12 +2797,12 @@ int egi_imgbuf_windisplay2(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
 
         uint16_t *imgbuf = egi_imgbuf->imgbuf;
         unsigned char *alpha=egi_imgbuf->alpha;
-        long int locfb=0; /* location of FB mmap, in pxiel, xxxxxbyte */
+	long unsigned int location=0;
         long int locimg=0; /* location of image buf, in pixel, xxxxin byte */
-//      int bytpp=2; /* bytes per pixel */
+	uint32_t rgb;  /* LETS_NOTE */
 
 
-  /* if no alpha channle*/
+  /* If no alpha channle*/
   if( egi_imgbuf->alpha==NULL )
   {
         for(i=0;i<winh;i++) {  /* row of the displaying window */
@@ -2803,27 +2813,28 @@ int egi_imgbuf_windisplay2(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
 				continue;
 
                         /* FB data location */
-                        locfb = (i+yw)*xres+(j+xw);
+        		location=(j+xw+fb_dev->vinfo.xoffset)*(fb_dev->vinfo.bits_per_pixel>>3)+
+                     		 (i+yw+fb_dev->vinfo.yoffset)*fb_dev->finfo.line_length;
 
-                        /* check if exceed image boundary */
+                        /* Check if exceeds image boundary */
                         if( ( xp+j > imgw-1 || xp+j <0 ) || ( yp+i > imgh-1 || yp+i <0 ) )
                         {
 				#ifdef LETS_NOTE /*--- 4 bytes per pixel ---*/
-				*(uint32_t *)(fbp+(locfb<<2))=0;
+				// *(uint32_t *)(fbp+location)=0;  /* back for outside */
 				#else		/*--- 2 bytes per pixel ---*/
-			        // *(uint16_t *)(fbp+(locfb<<1))=0; /* black for outside */
+			        // *(uint16_t *)(fbp+location)=0; /* black for outside */
 				#endif
                         }
                         else {
                                 /* image data location */
                                 locimg= (i+yp)*imgw+(j+xp);
 				#ifdef LETS_NOTE /*--- 4 bytes per pixel ---*/
-	         		*(uint32_t *)(fbp+(locfb<<2))=COLOR_16TO24BITS(*(imgbuf+locimg))+(255<<24);
+				 *(uint32_t *)(fbp+location)=COLOR_16TO24BITS(imgbuf[locimg])+(255<<24);
 				#else		/*--- 2 bytes per pixel ---*/
-			         *(uint16_t *)(fbp+(locfb<<1))=*(uint16_t *)(imgbuf+locimg);
+			         *(uint16_t *)(fbp+location)=*(uint16_t *)(imgbuf+locimg);
 				#endif
 
-                            }
+                       }
                 }
         }
   }
@@ -2837,46 +2848,52 @@ int egi_imgbuf_windisplay2(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
 				continue;
 
                         /* FB data location, in pixel */
-                        locfb = (i+yw)*xres+(j+xw); /*in pixel,  2 bytes per pixel */
+        		location=(j+xw+fb_dev->vinfo.xoffset)*(fb_dev->vinfo.bits_per_pixel>>3)+
+                     		 (i+yw+fb_dev->vinfo.yoffset)*fb_dev->finfo.line_length;
 
+                        /* Check if exceeds image boundary */
                         if( ( xp+j > imgw-1 || xp+j <0 ) || ( yp+i > imgh-1 || yp+i <0 ) )
                         {
 				#ifdef LETS_NOTE /*--- 4 bytes per pixel ---*/
-				*(uint32_t *)(fbp+(locfb<<2))=0;
+				// *(uint32_t *)(fbp+location)=0;   /* black for outside */
 				#else		/*--- 2 bytes per pixel ---*/
-       				// *(uint16_t *)(fbp+(locfb<<1))=0;   /* black */
+       				// *(uint16_t *)(fbp+location)=0;   /* black for outside */
 				#endif
                         }
                         else {
-                            /* image data location, 2 bytes per pixel */
+                            /* Image data location, 2 bytes per pixel */
                             locimg= (i+yp)*imgw+(j+xp);
 
-                            /*  ---- draw only within screen  ---- */
-                            if( locfb>=0 && locfb <= (screen_pixels-1) ) {
-
+                            /*  ---- Draw only within screen  ---- */
+			    if( location < fb_dev->screensize ) {
                                 if(alpha[locimg]==0) {           /* use backgroud color */
                                         /* Transparent for background, do nothing */
-                                        //fbset_color2(fb_dev,*(uint16_t *)(fbp+(locfb<<1)));
                                 }
 
 			     #ifdef LETS_NOTE   /* ------- 4 bytes per pixel ------ */
                                 else if(alpha[locimg]==255) {    /* use front color */
-	         		       *(uint32_t *)(fbp+(locfb<<2))=COLOR_16TO24BITS(*(imgbuf+locimg)) \
+	         		       *(uint32_t *)(fbp+location)=COLOR_16TO24BITS(imgbuf[locimg]) \
 												+(255<<24);
 				}
-                                else {                           /* blend */
-				       *(uint32_t *)(fbp+(locfb<<2))=COLOR_16TO24BITS(*(imgbuf+locimg))	\
-										     +(alpha[locimg]<<24);
+                                else {                           /* Blend front,back color */
+				     #if 1
+                        		rgb=(*((uint32_t *)(fbp+location)))&0xFFFFFF; /* Get back color */
+		                        /* BLEND:  front, back, alpha */
+                		        rgb=COLOR_24BITS_BLEND(COLOR_16TO24BITS(imgbuf[locimg]), rgb, alpha[locimg]);
+                        		*((uint32_t *)(fbp+location))=rgb+(255<<24);
+				     #else /* NOT effective */
+			    	        *(uint32_t *)(fbp+location)=COLOR_16TO24BITS(imgbuf[locimg]) +(alpha[locimg]<<24);
+				     #endif
 				}
 
 			     #else 		/* ------ 2 bytes per pixel ------- */
                                 else if(alpha[locimg]==255) {    /* use front color */
-			               *(uint16_t *)(fbp+(locfb<<1))=*(uint16_t *)(imgbuf+locimg);
+			               *(uint16_t *)(fbp+location)=*(uint16_t *)(imgbuf+locimg);
 				}
                                 else {                           /* blend */
-                                            *(uint16_t *)(fbp+(locfb<<1))= COLOR_16BITS_BLEND(
+                                             *(uint16_t *)(fbp+location)= COLOR_16BITS_BLEND(
 							*(uint16_t *)(imgbuf+locimg),   /* front pixel */
-                                                        *(uint16_t *)(fbp+(locfb<<1)),  /* background */
+                                                        *(uint16_t *)(fbp+location),  /* background */
                                                         alpha[locimg]  );               /* alpha value */
 				}
 
@@ -2887,13 +2904,12 @@ int egi_imgbuf_windisplay2(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev,
         }/* for()  */
   }/* end alpha case */
 
-  /* put mutex lock */
+  /* Put mutex lock */
   pthread_mutex_unlock(&egi_imgbuf->img_mutex);
 
   return 0;
 }
 #endif ///////////////////////////////////////////////////////////////////////
-
 
 
 /*---------------------------------------------------------------------------------------
@@ -2923,7 +2939,7 @@ int egi_image_rotdisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int angle,
 	int xnri,ynri;	  /* rotate image center under rotated image coord. */
 	int ret;
 
-	#if 0 /* Ok, egi_imgbuf_roate() will check input imgbuf */
+	#if 0 /* Ok, egi_imgbuf_rotate() will check input imgbuf */
         if(egi_imgbuf == NULL || egi_imgbuf->imgbuf == NULL )
         {
                 printf("%s: egi_imgbuf is NULL. fail to display.\n",__func__);
@@ -3068,11 +3084,12 @@ int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha )
 	if( egi_imgbuf==NULL || egi_imgbuf->alpha==NULL )
 		return -1;
 
-	/* get mutex lock */
+#if 0 	/* get mutex lock */
 	if( pthread_mutex_lock(&egi_imgbuf->img_mutex)!=0 ){
 		printf("%s: Fail to lock image mutex!\n",__func__);
 		return -2;
 	}
+#endif
 
 	/* limit */
 	if(color>0xFFFF) color=0xFFFF;
@@ -3093,9 +3110,9 @@ int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha )
 			egi_imgbuf->imgbuf[i]=color;
 	}
 
-  	/* put mutex lock  */
+#if 0  	/* put mutex lock  */
   	pthread_mutex_unlock(&egi_imgbuf->img_mutex);
-
+#endif
 	return 0;
 }
 
