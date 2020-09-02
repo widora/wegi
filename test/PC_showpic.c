@@ -266,7 +266,7 @@ for( i=optind; i<argc; i++) {
 	 else
 		fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 
-       	 egi_imgbuf_windisplay( tmpimg, &gv_fb_dev, -1,
+       	 egi_imgbuf_windisplay2( tmpimg, &gv_fb_dev, -1,
          	                xp, yp, 0, 0,
                		        xres, yres ); //tmpimg->width, tmpimg->height);
 

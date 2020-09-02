@@ -33,6 +33,7 @@ Return:
 int init_fbdev(FBDEV *fb_dev)
 {
 //	int i;
+	int bytes_per_pixel;
 
         if(fb_dev->fbfd > 0) {
             fprintf(stderr,"%s: Input FBDEV already open!\n",__func__);
@@ -55,7 +56,9 @@ int init_fbdev(FBDEV *fb_dev)
         ioctl(fb_dev->fbfd,FBIOGET_FSCREENINFO,&(fb_dev->finfo));
         ioctl(fb_dev->fbfd,FBIOGET_VSCREENINFO,&(fb_dev->vinfo));
 
-        fb_dev->screensize=fb_dev->vinfo.xres*fb_dev->vinfo.yres*(fb_dev->vinfo.bits_per_pixel>>3); /* >>3 /8 */
+	//bytes_per_pixel=fb_dev->vinfo.bits_per_pixel>>3;
+        //fb_dev->screensize=fb_dev->vinfo.xres*fb_dev->vinfo.yres*(fb_dev->vinfo.bits_per_pixel>>3); /* >>3 /8 */
+        fb_dev->screensize=fb_dev->finfo.line_length*fb_dev->vinfo.yres; /* >>3 /8 */
 
         /* mmap FB */
         fb_dev->map_fb=(unsigned char *)mmap(NULL,fb_dev->screensize,PROT_READ|PROT_WRITE, MAP_SHARED,
@@ -211,7 +214,8 @@ int fb_set_screenVinfo(FBDEV *fb_dev, struct fb_var_screeninfo *old_vinfo,  cons
 	printf("%s: New vinfo set as: xres=%d, yres=%d\n",__func__, fb_dev->vinfo.xres, fb_dev->vinfo.yres);
 #endif
 	/* Reset fb_dev parmas */
-        fb_dev->screensize=fb_dev->vinfo.xres*fb_dev->vinfo.yres*(fb_dev->vinfo.bits_per_pixel>>3); /* >>3 /8 */
+        //fb_dev->screensize=fb_dev->vinfo.xres*fb_dev->vinfo.yres*(fb_dev->vinfo.bits_per_pixel>>3); /* >>3 /8 */
+        fb_dev->screensize=fb_dev->vinfo.yres*fb_dev->finfo.line_length;
 
 	/* Note: pos_xres, pos_yres NOT updated! */
 
@@ -453,13 +457,18 @@ Also see: fb_clear_workBuff() for WEGI_16BIT_COLOR.
 ------------------------------------------------------------*/
 void fb_clear_backBuff(FBDEV *fb_dev, uint32_t color)
 {
-	int i;
+	int i,j;
+	int bytes_per_pixel;
+	unsigned int pos;
         unsigned int pixels; /* Total pixels in the buffer */
 
         if( fb_dev==NULL || fb_dev->map_bk==NULL)
                 return;
 
+	bytes_per_pixel=fb_dev->vinfo.bits_per_pixel>>3;
+
         pixels=fb_dev->vinfo.xres*fb_dev->vinfo.yres;
+
 	/* For 16bits RGB color pixel */
         if(fb_dev->vinfo.bits_per_pixel==2*8) {
 		for(i=0; i<pixels; i++)
@@ -467,8 +476,17 @@ void fb_clear_backBuff(FBDEV *fb_dev, uint32_t color)
 	}
 	/* For 32bits ARGB color pixel */
         else if(fb_dev->vinfo.bits_per_pixel==4*8) {
+		#if 0
 		for(i=0; i<pixels; i++)
 			*(uint32_t *)(fb_dev->map_bk+(i<<2))=color;
+		#else
+		for(i=0; i < fb_dev->vinfo.yres; i++) {
+			for(j=0; j< fb_dev->vinfo.xres; j++) {
+				pos=i*fb_dev->finfo.line_length+j*bytes_per_pixel;
+				*(uint32_t *)(fb_dev->map_bk+pos)=color;
+			}
+		}
+		#endif
 	}
 	else
 		printf("%s: bits_per_pixel is neither 16 nor 32!\n",__func__);
@@ -882,7 +900,6 @@ Portrait displaying: pos=0 or 2
 ---------------------------------------------------*/
 void fb_position_rotate(FBDEV *dev, unsigned char pos)
 {
-
         if(dev==NULL || dev->fbfd<0 ) {
 		printf("%s: Input FBDEV is invalid!\n",__func__);
 		return;

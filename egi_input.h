@@ -32,6 +32,8 @@ typedef struct egi_mouse_status {
         bool MidKeyDownHold;
         bool MidKeyUpHold;
 
+	bool KeysIdle;	/* All keys are uphold */
+
         int  mouseX;
         int  mouseY;
         int  mouseZ;
@@ -65,7 +67,7 @@ int 	egi_end_inputread(void);
 
 /* For mice device */
 void 	egi_mouse_setCallback(EGI_MOUSE_CALLBACK callback);
-int 	egi_start_mouseread(const char *dev_name, EGI_MOUSE_CALLBACK callback);
+EGI_MOUSE_STATUS*  egi_start_mouseread(const char *dev_name, EGI_MOUSE_CALLBACK callback);
 int 	egi_end_mouseread(void);
 bool egi_mouse_checkRequest(EGI_MOUSE_STATUS *mostat);
 bool egi_mouse_getRequest(EGI_MOUSE_STATUS *mostat);

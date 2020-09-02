@@ -3181,7 +3181,11 @@ Note:
 2. TODO: To callocate berns only ONCE!?? For real time editing.
 3. With changing of curvatures at certain slope, it will appear ugly
    coarse shape, change ustep to a little value to improve it.
-4. TODO: Instead of calling  draw_wline(), To draw the solid width with
+
+
+TODO:
+1. How to deciding ustep, and different ustep for different segments.
+2. Instead of calling  draw_wline(), To draw the solid width with
    curve data will be more efficient.
 
 @np:            Number of input pxy[].
@@ -3282,7 +3286,7 @@ int draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, unsigned 
 
 
 /*-------------------------------------------------------------------------------------
-Draw a clamped B-spline curve.
+Draw a B-spline curve.
 Reference: https://pages.mtu.edu/~shene/COURSES/cs3621/NOTES
 
 Parametric equation:
@@ -3307,14 +3311,16 @@ Note:
 			--- !!! IMPORTANT !!! ---
 3. Changing a control point P[i] only affect VP(u) on interval { vu[i]..vu[i+deg+1] }.
 
-4. TODO: Instead of calling  draw_wline(), To draw the solid width with
+TODO:
+1. How to deciding ustep, and different ustep for different segments.
+2. Instead of calling  draw_wline(), To draw the solid width with
    curve data will be more efficient.
 
 @np:            Number of input pxy[].
 @pxy:           Control points
 @ws:		Weights of control points
 		If NULL, ignore as all equal 1.
-		Esle as NURBS.
+		Else as NURBS.
 @deg:		Degreen number, also as continuity.
 		1 --C0 continuity, 2--C1 continuity, 3--C2 continuity, ....
 //		uv[] dimension: np+deg+1
@@ -3389,8 +3395,11 @@ int draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsig
 	}
 
 	/* Estimate u step */
+#ifdef LETS_NOTE
+	ustep=0.2/chlen;
+#else
 	ustep=1.0/chlen;  /* 0.25  more smooth */
-
+#endif
 	/* Create clamped knot vector vu[]: The first and last knots have multiplicity of deg+1 */
 #if BSPLINE_CLAMPED_TYPE /* Clamped type */
 	/* 1. Head: vu[0] -> uv[deg]  all 0, totally deg+1 elements */

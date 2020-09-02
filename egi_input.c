@@ -130,7 +130,7 @@ static pthread_t thread_loopread_mouse;
 static void *egi_mouse_loopread(void *arg);
 
 /* Mouse status and data */
-static EGI_MOUSE_STATUS mostatus={ .LeftKeyUpHold=true, .RightKeyUpHold=true, .MidKeyUpHold=true };
+static EGI_MOUSE_STATUS mostatus={ .LeftKeyUpHold=true, .RightKeyUpHold=true, .MidKeyUpHold=true, .KeysIdle=true, };
 
 
 /*---------------------------------------------------
@@ -227,11 +227,11 @@ Return:
 	0	OK
 	<0	Fails
 -----------------------------------------------*/
-int egi_start_mouseread(const char *dev_name, EGI_MOUSE_CALLBACK callback )
+EGI_MOUSE_STATUS* egi_start_mouseread(const char *dev_name, EGI_MOUSE_CALLBACK callback )
 {
 	if(tok_loopread_mouse_running==true) {
 		printf("%s: inevent loopread has been running already!\n",__func__);
-		return -1;
+		return NULL;
 	}
 
 	//cmd_end_loopread_mouse=false;
@@ -244,20 +244,24 @@ int egi_start_mouseread(const char *dev_name, EGI_MOUSE_CALLBACK callback )
         if(pthread_mutex_init(&mostatus.mutex,NULL) != 0)
         {
                 printf("%s: Fail to initiate mostatus.mutex.\n",__func__);
-                return -2;
+                return NULL;
         }
 
         /* Start loopread_mouse thread */
         if( pthread_create(&thread_loopread_mouse, NULL, (void *)egi_mouse_loopread, (void *)dev_name) !=0 )
         {
                 printf("%s: Fail to create mouse loopread thread!\n", __func__);
-                return -1;
+	        if(pthread_mutex_destroy(&mostatus.mutex) !=0 )
+	                printf("%s: Fail to destroy mostatus.mutex!\n",__func__);
+                return NULL;
         }
 
         /* reset token */
         tok_loopread_mouse_running=true;
 
-	return 0;
+
+	return &mostatus;
+	//return 0;
 }
 
 
@@ -428,9 +432,15 @@ static void *egi_input_loopread( void* arg )
 		A thread function
 Read mouse input data in loop.
 
+
+TODO:
+1. There is chance that the mice dev MAY miss/omit events!?
+   Example: LeftKeyDownHold transfers to LeftKeyDown directly,
+	    and omit LeftKeyUp status.
+
 @arg:	devname for the mouse device.
 	if NULL, "/dev/input/mice"
-----------------------------------------------------*/
+---------------------------------------------------------*/
 static void *egi_mouse_loopread( void* arg )
 {
 	fd_set rfds;
@@ -608,7 +618,10 @@ static void *egi_mouse_loopread( void* arg )
 		                        break;
         		}
 
-	        	/*  4. Get mouse X */
+		        /* 4. Renew status for KeysIdle */
+			mostatus.KeysIdle=(mostatus.LeftKeyUpHold) && (mostatus.RightKeyUpHold) && (mostatus.MidKeyUpHold);
+
+	        	/* 5. Get mouse X */
 			mostatus.mouseDX = (mouse_data[0]&0x10) ? mouse_data[1]-256 : mouse_data[1];
 	        	mostatus.mouseX += mostatus.mouseDX;
         		if( mostatus.mouseX > gv_fb_dev.pos_xres -5)
@@ -616,7 +629,7 @@ static void *egi_mouse_loopread( void* arg )
 		        else if( mostatus.mouseX<0)
 		                mostatus.mouseX=0;
 
-		        /* 5. Get mouse Y: Notice LCD Y direction!  Minus for down movement, Plus for up movement!
+		        /* 6. Get mouse Y: Notice LCD Y direction!  Minus for down movement, Plus for up movement!
 		         * !!! For eventX: Minus for up movement, Plus for down movement!
 		         */
 			mostatus.mouseDY = -( (mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2] );
@@ -626,11 +639,11 @@ static void *egi_mouse_loopread( void* arg )
 		        else if(mostatus.mouseY<0)
                 		mostatus.mouseY=0;
 
-		        /* 6. Get mouse Z */
+		        /* 7. Get mouse Z */
 			mostatus.mouseDZ = (mouse_data[3]&0x80) ? mouse_data[3]-256 : mouse_data[3] ;
 		        mostatus.mouseZ += mostatus.mouseDZ;
 
-		        /* 7. Renew old mouse data */
+		        /* 8. Renew old mouse data */
 		        memcpy(old_mouse_data, mouse_data, sizeof(old_mouse_data));
 
 			/* ------ END: Cal. mouse status/data --------- */

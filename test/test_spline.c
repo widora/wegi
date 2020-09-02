@@ -45,6 +45,7 @@ int main(int argc, char **argv)
   printf("Start touchread thread...\n");
   if(egi_start_touchread() !=0)
         return -1;
+
   /* 1.7 Start mouse event thread 启动鼠标响应线程 (忽略) */
   /* 1.8 Set sys FB mode 设置显示模式: 是否直接操作FB映像数据， 设置横竖屏 */
   fb_set_directFB(&gv_fb_dev,false);//true);   /* 直接操作FB映像数据,不通过FBbuffer. 播放动画时可能出现撕裂线。 */

@@ -2216,7 +2216,7 @@ EGI_UNIHAN_SET *UniHan_load_HanyuPinyinTxt(const char *fpath)
 					goto END_FUNC;
 				}
 				capacity += growsize;
-				printf("%s: uniset->unihans mem grow from %d to %d.\n", __func__, capacity-growsize, capacity);
+				printf("%s: uniset->unihans mem grow from %zu to %zu.\n", __func__, capacity-growsize, capacity);
 			}
 
 			/* Get next split pointer */
@@ -2397,7 +2397,7 @@ EGI_UNIHAN_SET *UniHan_load_MandarinTxt(const char *fpath)
 					goto END_FUNC;
 				}
 				capacity += growsize;
-				printf("%s: uniset->unihans mem grow from %d to %d.\n", __func__, capacity-growsize, capacity);
+				printf("%s: uniset->unihans mem grow from %zu to %zu.\n", __func__, capacity-growsize, capacity);
 			}
 
 			/* Get next split pointer */
@@ -2681,7 +2681,7 @@ int UniHan_merge_set(const EGI_UNIHAN_SET* uniset1, EGI_UNIHAN_SET* uniset2)
 				return -3;
 			}
 			uniset2->capacity += UNIHANS_GROW_SIZE;
-			printf("%s: Mem grow capacity of uniset2->unihans from %d to %d units.\n",
+			printf("%s: Mem grow capacity of uniset2->unihans from %zu to %zu units.\n",
 							__func__, uniset2->capacity-UNIHANS_GROW_SIZE, uniset2->capacity);
 		}
 
@@ -2739,7 +2739,7 @@ int UniHan_purify_set(EGI_UNIHAN_SET* uniset )
 		return -1;
 
 	/* Print informatin */
-	printf("%s: UNISET '%s' size=%d, capacity=%d.\n", __func__,uniset->name, uniset->size, uniset->capacity);
+	printf("%s: UNISET '%s' size=%u, capacity=%zu.\n", __func__,uniset->name, uniset->size, uniset->capacity);
 
 	/* quickSort for UNIORDER_WCODE_TYPING_FREQ */
 	if( uniset->sorder != UNIORDER_WCODE_TYPING_FREQ )
@@ -3551,7 +3551,7 @@ void UniHanGroup_print_results(	const EGI_UNIHANGROUP_SET *group_set )
 	for(i=0; i < group_set->results_size; i++)
 		UniHanGroup_print_group(group_set, group_set->results[i], true);
 
-	printf("Group set results size=%d\n",group_set->results_size);
+	printf("Group set results size=%zu\n",group_set->results_size);
 }
 
 
@@ -5622,7 +5622,7 @@ int UniHanGroup_purify_set(EGI_UNIHANGROUP_SET* group_set)
 		return -1;
 
 	/* Print informatin */
-	printf("%s: UNIHANGROUP '%s' size=%d, capacity=%d.\n", __func__, group_set->name, group_set->ugroups_size, group_set->ugroups_capacity);
+	printf("%s: UNIHANGROUP '%s' size=%u, capacity=%zu.\n", __func__, group_set->name, group_set->ugroups_size, group_set->ugroups_capacity);
 
 	/* quickSort for UNIORDER_NCH_WCODES */
 	if( group_set->sorder != UNIORDER_NCH_WCODES )

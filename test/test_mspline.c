@@ -5,6 +5,10 @@ published by the Free Software Foundation.
 
 A program to test EGI draw curve functions. --- Use mouse!
 
+Note:
+1. Applying FILO to speed up mouse rendering ONLY suitable for low
+   speed hardware! For hight speed this may lead to overlapped image.
+
 Midas Zhou
 midaszhou@yahoo.com
 https://github.com/widora/wegi
@@ -15,30 +19,11 @@ https://github.com/widora/wegi
 #include <egi_matrix.h>
 #include <egi_input.h>
 
+static EGI_MOUSE_STATUS *pmostat;
+
 /* Signals/Acts, Flags/Status */
-static bool MLeftKeyDown;
-static bool MLeftKeyUp;
-static bool MLeftKeyDownHold;
-static bool MLeftKeyUpHold;
-
-static bool MRightKeyDown;
-static bool MRightKeyUp;
-static bool MRightKeyDownHold;
-static bool MRightKeyUpHold;
-
-static bool MMidKeyDown;
-static bool MMidKeyUp;
-static bool MMidKeyDownHold;
-static bool MMidKeyUpHold;
-
-static bool MKeysIdle=true;	    /* No key pressed */
-
-static bool MMouseMove;
-static bool MMouseRoll;
-static bool MMouseIdle;
-
 static bool mouse_request;	    /* Set to true after each mouse_callback */
-static bool flagPickPoints;
+//static bool flagPickPoints;
 static bool actRectSelect;	    /* activate rectanguler selection */
 EGI_BOX   selectBox;
 
@@ -83,7 +68,11 @@ int main(int argc, char **argv)
   /* 1.6 Start touch read thread 启动触摸屏线程 (忽略) */
   /* 1.7 Start mouse event thread 启动鼠标响应线程 */
   printf("Start mouse_read thread...\n");
-  egi_start_mouseread(NULL, mouse_callback);
+  pmostat=egi_start_mouseread(NULL, mouse_callback);
+  if(pmostat==NULL) {
+	printf("Fail to start mouseread thread!\n");
+	return -1;
+  }
   /* 1.8 Set sys FB mode 	设置显示模式: 是否直接操作FB映像数据， 设置横竖屏 */
   fb_set_directFB(&gv_fb_dev,false);//true);   /* 直接操作FB映像数据,不通过FBbuffer. 播放动画时可能出现撕裂线。 */
   fb_position_rotate(&gv_fb_dev,0);   /* 横屏模式 */
@@ -138,8 +127,13 @@ int main(int argc, char **argv)
    #define TEST_BEZIER 		0
    #define TEST_BSPLINE		1
 
-   EGI_TOUCH_DATA touch_data;
+
+#ifdef LETS_NOTE
+   int		np=24;
+#else
    int 		np=6;//9;
+#endif
+
    int		deg;
    if(np>3)deg=3;
    else deg=np-1;
@@ -152,8 +146,20 @@ int main(int argc, char **argv)
    int		wscale=8;	/* Weight value scale pixels/ws[] */
    int		whv;		/* Half of weight value pixels */
    int 		bias=4/wscale;  /* [-bias +bias] ws[] is 0 */
-   bool		adjust_ws=false;
+   bool	adjust_ws=false;
 
+#ifdef LETS_NOTE
+   EGI_POINT    pts[np];
+   float	ws[np];
+
+   for(i=0; i<np; i++) {
+	 pts[i].x= 100+50*i;
+	 pts[i].y= 350+300*sin(pts[i].x*2*MATH_PI/300);
+	 ws[i]=10.0;
+   }
+
+   EGI_POINT	 rpts[np];
+#else
 
    /* A little pterosaur for draw_spline2() */
    // EGI_POINT	  pts[9]={{89, 78}, {48, 63}, {98, 33}, {133, 117}, {218, 100}, {177, 172}, {265, 182}, {116, 198}, {92, 78} };
@@ -171,6 +177,7 @@ int main(int argc, char **argv)
    EGI_POINT    pts[9]= {{252, 127}, {247, 157}, {127, 189}, {72, 59}, {45, 233}, {0, 13}, {80, 169}, {140, 0}, {252, 127}, };
    float	ws[9]={10.0, 10.0, 10.0, 6.8, 11.9, 10.6, 10.6, 8.1, 10.0 };
 
+
    /* Up Going Waves for draw_spline() */
    //EGI_POINT	 pts[9]={ {10,230}, {50,100}, {90, 190}, {130, 150}, {170,180}, {210,50}, {250,120}, {280,50}, {310,10} };
    //float	  ws[9]={ 10, 10, 10, 10, 10, 10, 10, 10, 10 };
@@ -179,9 +186,11 @@ int main(int argc, char **argv)
    //float	  ws[9]={ 10, 5.5, 20, 10, 55.5, 20, 20, 10, 10 };  /* Put 0 to invalidate the control point */
 
    EGI_POINT	 rpts[9];
+#endif
+
 
    /* FB background */
-   fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY5);
+   fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_DARKGRAY); //GRAY5);
    draw_filled_circle2(&gv_fb_dev, 320-45, 25, 25, WEGI_COLOR_DARKGREEN);
    FTsymbol_writeFB("EGI", 18,18, WEGI_COLOR_BLACK, 260, 2);
    FTsymbol_writeFB("CURVE", 20,20, WEGI_COLOR_BLACK, 242, 20);
@@ -237,24 +246,24 @@ while(1) {
 
    /* Realtime modifying spline */
    while(1) {
-	while( !mouse_request ) { tm_delayms(5);}; //{ usleep(1000); };
+	while( !mouse_request ) { tm_delayms(10);}; //{ usleep(1000); };
 
 	/* If NO mouse_request, then it ONLY need to redraw mouse with new position */
-	if( MKeysIdle ) {
+	if( pmostat->KeysIdle ) {
 		printf("Mouse Idle\n"); /* NOTE: There usually (at lease) 1 No_request after a request! for the mouse_callback NOT ready yet!! */
 
 		fb_render(&gv_fb_dev);
-		draw_mcursor(mouseX, mouseY);
-		//tm_delayms(5);
+		draw_mcursor(pmostat->mouseX, pmostat->mouseY);
+		tm_delayms(30);
 
 		mouse_request=false;
 		continue;
 	}
 
    	/* Status pressing: See if touch a knot */
-   	if( MLeftKeyDown ) {
-		printf(" MLeftKeyDown  %d,%d \n", mouseX, mouseY);
-		tchpt.x=mouseX; tchpt.y=mouseY;
+   	if( pmostat->LeftKeyDown ) {
+		printf(" LeftKeyDown  %d,%d \n", pmostat->mouseX, pmostat->mouseY);
+		tchpt.x=pmostat->mouseX; tchpt.y=pmostat->mouseY;
 
 		/* 1. First, Check if a control piont is active already and the mouse touchs adjusting dumbbells */
 		if(npt>=0) {
@@ -303,20 +312,20 @@ while(1) {
 
 	}
 	/*  Else Status pressed_hold */
-   	else if( MLeftKeyDownHold )
+   	else if( pmostat->LeftKeyDownHold )
 	{
 		printf("MLeftKeyDownHold\n");
-		tchpt.x=mouseX; tchpt.y=mouseY;
+		tchpt.x=pmostat->mouseX; tchpt.y=pmostat->mouseY;
 
 		/* 1. If adjust ws on dumbbell */
 		if(adjust_ws) {
-			if( mouseX > cptM.x+bias )
-				//ws[npt]=2*(mouseX-cptM.x-bias)/wscale;
-				ws[npt]= 2.0*((mouseX-cptM.x-bias)*(mouseX-cptM.x-bias)/100.0)/wscale;
+			if( pmostat->mouseX > cptM.x+bias )
+				//ws[npt]=2*(pmostat->mouseX-cptM.x-bias)/wscale;
+				ws[npt]= 2.0*((pmostat->mouseX-cptM.x-bias)*(pmostat->mouseX-cptM.x-bias)/100.0)/wscale;
 			#if 0 /* Disable left dumbbell */
-			else if( mouseX < cptM.x-bias )
-				//ws[npt]=2*(cptM.x-bias-mouseX)/wscale;
-				ws[npt]= 2.0*((cptM.x-bias-mouseX)*(mouseX-cptM.x-bias)/100.0)/wscale;
+			else if( pmostat->mouseX < cptM.x-bias )
+				//ws[npt]=2*(cptM.x-bias-pmostat->mouseX)/wscale;
+				ws[npt]= 2.0*((cptM.x-bias-pmostat->mouseX)*(pmostat->mouseX-cptM.x-bias)/100.0)/wscale;
 			#endif
 			else  /*  Zero zone: [cptM.x-5, cptM.x+5] */
 				ws[npt]=0;
@@ -327,10 +336,10 @@ while(1) {
 			/* Update control points coord */
 			/* Note: first touch should avoid moving the points within threshold. */
 			if(check_threshold) {
-//				if( (pts[npt].x-mouseX)*(pts[npt].x-mouseX)+(pts[npt].y-mouseY)*(pts[npt].y-mouseY) >25 )
+//				if( (pts[npt].x-pmostat->mouseX)*(pts[npt].x-pmostat->mouseX)+(pts[npt].y-pmostat->mouseY)*(pts[npt].y-pmostat->mouseY) >25 )
 			} else {
-				pts[npt].x=mouseX;
-				pts[npt].y=mouseY;
+				pts[npt].x=pmostat->mouseX;
+				pts[npt].y=pmostat->mouseY;
 			}
 			check_threshold=false;
 
@@ -350,7 +359,7 @@ while(1) {
 		}
 	}
 	/* Else: Left key is releasing. */
-	else if(MLeftKeyUp) {
+	else if(pmostat->LeftKeyUp) {
 		actRectSelect=false;
 	}
 
@@ -454,13 +463,13 @@ while(1) {
 	}
 
 	/* 4. Draw mouse cursor */
-//	draw_mcursor(mouseX, mouseY);
+	//draw_mcursor(pmostat->mouseX, pmostat->mouseY);
 
 FB_RENDER:
 	/* Render to display */
 	fb_render(&gv_fb_dev);
-	draw_mcursor(mouseX, mouseY);
-	//tm_delayms(10);
+	draw_mcursor(pmostat->mouseX, pmostat->mouseY);
+	tm_delayms(10);
 
 	/* Reset mouse_request at last !!! */
 	mouse_request=false;
@@ -516,33 +525,14 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
  	/* Wait until main thread finish last mouse_request */
 	 while( mouse_request ) { usleep(1000); };
 
-	MLeftKeyDown=mostatus->LeftKeyDown;
-	MLeftKeyUp=mostatus->LeftKeyUp;
-	MLeftKeyDownHold=mostatus->LeftKeyDownHold;
-
-	mouseX=mostatus->mouseX;
-	mouseY=mostatus->mouseY;
-	mouseZ=mostatus->mouseZ;
-
-
-	/* If All keys are idle. */
-       #if 0
-	if(mouse_data[0]==0x80 && !MLeftKeyUp && !MRightKeyUp )
-		MKeysIdle=true;
-	else
-		MKeysIdle=false;
-      #else
-//	if( MLeftKeyUpHold && MRightKeyUpHold && MMidKeyUpHold )
-	if( mostatus->LeftKeyUpHold && mostatus->RightKeyUpHold && mostatus->MidKeyUpHold )
-		MKeysIdle=true;
-	else
-		MKeysIdle=false;
-      #endif
+	/* NOPE! */
+//	mouseX=mostatus->mouseX;
+//	mouseY=mostatus->mouseY;
+//	mouseZ=mostatus->mouseZ;
 
 	/* Request for respond */
 	mouse_request = true;
-
-        //printf("Mouse coord: X=%d, Y=%d, Z=%d, dz=%d\n", mouseX, mouseY, mouseZ, mdZ);
+        //printf("Mouse coord: X=%d, Y=%d, Z=%d, dz=%d\n", pmostat->mouseX, pmostat->mouseY, mouseZ, mdZ);
 }
 
 
@@ -571,7 +561,7 @@ static void draw_mcursor(int x, int y)
 	fb_set_directFB(&gv_fb_dev,true);
 
         /* OPTION 1: Use EGI_IMGBUF */
-        egi_subimg_writeFB(mcimg, &gv_fb_dev, 0, -1, mouseX, mouseY ); /* subnum,subcolor,x0,y0 */
+        egi_subimg_writeFB(mcimg, &gv_fb_dev, 0, -1, pmostat->mouseX, pmostat->mouseY ); /* subnum,subcolor,x0,y0 */
 
         /* OPTION 2: Draw geometry */
 
@@ -581,5 +571,6 @@ static void draw_mcursor(int x, int y)
    fb_filo_on(&gv_fb_dev);
 
 }
+
 
 
