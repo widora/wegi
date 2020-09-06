@@ -381,3 +381,100 @@ unsigned char egi_color_getY(EGI_16BIT_COLOR color)
         /* convert to Y */
         return (307*R+604*G+113*B)>>10;
 }
+
+
+/*--------------------------------------------------------------
+Convert HSV to RGB
+H--Hue 		[0 360]  or X%360
+S--Saturation	[0 100%]*100
+V--Value 	[0 255]
+
+---------------------------------------------------------------*/
+EGI_16BIT_COLOR egi_color_HSV2RGB(EGI_HSV_COLOR *hsv)
+{
+	unsigned int hi,p,q,t,v;
+	float f;
+	EGI_16BIT_COLOR color;
+
+	if(hsv==NULL)
+		return WEGI_COLOR_BLACK;
+
+	v=hsv->v;
+	hi=(hsv->h/60)%6;
+	f=hsv->h/60.0-hi;
+	p=v*(100-hsv->s)/100;
+	q=round(v*(100-f*hsv->s)/100);
+	t=round(v*(100-(1-f)*hsv->s)/100);
+
+	switch(hi) {
+		case 0:
+			color=COLOR_RGB_TO16BITS(v,t,p); break;
+		case 1:
+			color=COLOR_RGB_TO16BITS(q,v,p); break;
+		case 2:
+			color=COLOR_RGB_TO16BITS(p,v,t); break;
+		case 3:
+			color=COLOR_RGB_TO16BITS(p,q,v); break;
+		case 4:
+			color=COLOR_RGB_TO16BITS(t,p,v); break;
+		case 5:
+			color=COLOR_RGB_TO16BITS(v,p,q); break;
+	}
+
+	return color;
+}
+
+/*--------------------------------------------------------------
+Convert RGB to HSV
+H--Hue 		[0 360]  or X%360
+S--Saturation	[0 100%]*100
+V--Value 	[0 255]
+
+
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------------------------*/
+int egi_color_RGB2HSV(EGI_16BIT_COLOR color, EGI_HSV_COLOR *hsv)
+{
+	uint8_t R,G,B;
+	uint8_t max,min;
+
+	if(hsv==NULL) return -1;
+
+	/* Get 3*8bit R/G/B */
+	R = (color>>11)<<3;
+	G = (((color>>5)&(0b111111)))<<2;
+	B = (color&0b11111)<<3;
+
+	/* Get max and min */
+	max=R;
+	if( max < G ) max=G;
+	if( max < B ) max=B;
+	min=R;
+	if( min > G ) min=G;
+	if( min > B ) min=B;
+
+	/* Cal. hue */
+	if( max==min )
+		hsv->h=0;
+	else if(max==R && G>=B)
+		hsv->h=60*(G-B)/(max-min)+0;
+	else if(max==R && G<B)
+		hsv->h=60*(G-B)/(max-min)+360;
+	else if(max==G)
+		hsv->h=60*(B-R)/(max-min)+120;
+	else if(max==B)
+		hsv->h=60*(R-G)/(max-min)+240;
+
+	/* Cal. satuarion */
+	if(max==0)
+		hsv->s=0;
+	else
+		hsv->s=100*(max-min)/max;
+
+	/* Cal. value */
+	hsv->v=max;
+
+	return 0;
+}

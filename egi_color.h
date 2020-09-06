@@ -21,6 +21,12 @@ Midas Zhou
 typedef uint16_t			 EGI_16BIT_COLOR;
 typedef uint32_t			 EGI_24BIT_COLOR;
 typedef unsigned char			 EGI_8BIT_ALPHA;
+typedef struct egi_hsv_color		 EGI_HSV_COLOR;
+struct egi_hsv_color {
+	unsigned int h; 	/* H--Hue	 [0 360]  or X%360 */
+	unsigned int s; 	/* S--Saturation [0 100%]*100  */
+	uint8_t v; 		/* V--Value      [0 255] */
+};
 
 /* convert 24bit rgb(3*8bits) to 16bit LCD rgb */
 #if 1  /* Just truncate other bits to get 565 RBG bits */
@@ -171,7 +177,7 @@ EGI_16BIT_COLOR 	egi_color_random2(enum egi_color_range range, unsigned char lum
 EGI_16BIT_COLOR 	egi_colorGray_random(enum egi_color_range range);
 EGI_16BIT_COLOR 	egi_colorLuma_adjust(EGI_16BIT_COLOR color, int k);
 unsigned char		egi_color_getY(EGI_16BIT_COLOR color);
-
-
+EGI_16BIT_COLOR 	egi_color_HSV2RGB(EGI_HSV_COLOR *hsv);
+int 			egi_color_RGB2HSV(EGI_16BIT_COLOR color, EGI_HSV_COLOR *hsv);
 
 #endif
