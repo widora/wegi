@@ -336,7 +336,7 @@ int  iw_http_request(char *host, char *request, char *reply)
 }
 
 /*----------------------------------------------------------------------------------
-Get net traffic by reading /proc/net/dev.
+Get net traffic info. by reading /proc/net/dev.
 
 # cat /proc/net/dev
 Inter-|   Receive                                                |  Transmit
@@ -395,7 +395,7 @@ int iw_read_traffic(const char* strifname, unsigned long long *recv, unsigned lo
 	/* Get pointer to the buff line with given strifname */
 	pline=strstr(buff,strifname);
 	if(pline==NULL) {
-		printf("%s: Fail to find given ifname!\n", __func__ );
+		printf("%s: Fail to find net interface '%s'!\n", __func__, strifname);
 		close(fd);
 		return -3;
 	}
@@ -468,4 +468,37 @@ int iw_read_cpuload( float *loadavg )
 
 	close(fd);
 	return 0;
+}
+
+
+/*----------------------------------------------------------------
+Read /tmp/dhcp.leases to get connected clients.
+
+# cat /tmp/dhcp.leases
+1599600031 10:e7:cf:f8:af:e1 192.168.8.177 Intel *
+1599583300 4c:79:55:31:e8:b6 192.168.8.188 Redmi 01:11:11:e3:61:78:88
+
+Return:
+	>=0  	Number of connected clients
+	<0	Fails
+-----------------------------------------------------------------*/
+int iw_get_clients(void)
+{
+	FILE *fil;
+	char buff[256];
+	int nclts=0;
+
+	fil=fopen("/tmp/dhcp.leases","re");
+        if(fil==NULL) {
+		printf("%s: Fail to open '/tmp/dhcp.leases': %s\n", __func__, strerror(errno));
+		return -1;
+        }
+
+	while(!feof(fil)) {
+		if( fgets(buff, sizeof(buff), fil) )
+			nclts++;
+	}
+
+	fclose(fil);
+	return nclts;
 }

@@ -26,10 +26,10 @@ int main(int argc, char **argv)
 	float scale=1.0; /* Option scale for gif */
 	int dms=0;	/*  Option delay in ms for each frame */
 	char *fpath=NULL;
-	int i,k;
+	int i,k,j;
     	int xres;
     	int yres;
-	EGI_GIF_DATA  	*gif_data=NULL;
+
 	EGI_GIF		*egif=NULL;
 	EGI_GIF_CONTEXT gif_ctxt={ 0 };
 	EGI_IMGBUF	**mvpic=NULL;
@@ -44,10 +44,11 @@ int main(int argc, char **argv)
 	int xp=0,yp=0;
 	int xw=0,yw=0;
 	struct timeval tm_start, tm_end;
-	int tms=0;
+	//int tms=0;
 	int luma=0;
 
-	int gh=160;			/* Graph height */
+	int gh=160;			/* Graph area height */
+	int gw=300;			/* Graph area width */
 	int margin=10;			/* gh+2*margin=pad height*/
 	int ph=gh+2*margin;		/* pad height */
 	int tgap=(240-gh)/2;
@@ -57,12 +58,12 @@ int main(int argc, char **argv)
 	unsigned long long Brecv[2]={0};   	/* Total bytes received */
 	unsigned long long Btrans[2]={0};   	/* Total bytes transmitted */
 	int RXBps=0,TXBps=0; 	/* Traffic speed bytes per second */
-	int st=150;		/* Sample buff total */
+	int st=300;		/* Sample total in buffer */
 	int step=320/st;	/* Graph unit,sample gap */
-	int sn=0;		/* Sample buff index */
-	int strans[st];	/* Speed of transmitting, buffer */
-	int srecv[st];	/* Speed of receiving, buffer */
-	int srecvmax=1;		/* NOT 0 */
+	//int sn=0;		/* Sample buff index */
+	int strans[st];		/* Speed of transmitting, buffer */
+	int srecv[st];		/* Speed of receiving, buffer */
+	//int srecvmax=1;		/* NOT 0 */
 	int smax=1;		/* Max speed in buff */
 	int smax_is_tx=false;
 	int xs;			/* X coordinate */
@@ -71,9 +72,11 @@ int main(int argc, char **argv)
 	int vx[st];
 	char strtmp[128]={0};
 
+	int scount=0;		/* Sampling counter */
+
 	/* Init vars */
 	for( i=0; i<st; i++) {
-		vx[i]=i*step+20;  /* +20 for color band */
+		vx[i]=i*step+320-gw;  /* 320-gw=20 for color band */
 		strans[i]=0;
 		srecv[i]=0;
 		vload[i]=0;
@@ -299,11 +302,12 @@ int main(int argc, char **argv)
 		gettimeofday(&tm_end,NULL);
 		if( tm_diffus(tm_start, tm_end) >= 1000000 )
 		{
+			scount++;
 			gettimeofday(&tm_start,NULL);
 
 			/* A. Get net traffic/speed and display to the graph */
 			//if( iw_get_speed(&Bps, "apcli0") !=0 )
-			if( iw_read_traffic("apcli0", Brecv+1, Btrans+1) !=0 ) {
+			if( iw_read_traffic(ifname, Brecv+1, Btrans+1) !=0 ) {
 				printf("Fail to read net traffic!\n");
 			}
 			else {
@@ -383,18 +387,30 @@ int main(int argc, char **argv)
 			draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAY2, 0,0, 320-1, (240-egif->SHeight)/2);
 			draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAY2, 0,240-(240-egif->SHeight)/2 , 320-1, 240-1);
 		}
+
 		/* Draw color mark for CPU LOAD */
 		EGI_HSV_COLOR hsv; 	/* R 0, G 120, B 240 */
 		for(k=0; k<gh; k++){
-			hsv=(EGI_HSV_COLOR){ k*(120-0)/gh, 100, 255};
+			hsv=(EGI_HSV_COLOR){ round(1.0*k*(120-0)/gh), 10000, 255}; /* hue 0-120 Deg */
 			fbset_color(egi_color_HSV2RGB(&hsv));
 			draw_line(&gv_fb_dev, 5, (240-gh)/2+k, 15-1, (240-gh)/2+k);
+		}
+
+		/* Draw scale mark 5 */
+		fbset_color(WEGI_COLOR_GRAYA);
+		for(k=0; k<6; k++) {
+			/* Vertical dot lines */
+			for( j=0; j<gh; j+=4)
+				draw_dot(&gv_fb_dev, (320-gw)+( k!=5 ? k*gw/5 : gw-1 ), (240-gh)/2+j);
+			/* Horizontal dot lines */
+			for( j=0; j<gw; j+=4)
+				draw_dot(&gv_fb_dev, (320-gw)+j, (240-gh)/2+k*gh/5);
 		}
 
 		/* Draw logo */
 		if(logo) {
 			egi_imgbuf_windisplay2( logo, &gv_fb_dev,
-						  0, 0, gv_fb_dev.vinfo.xres-100, gv_fb_dev.vinfo.yres-50,
+						  0, 0, gv_fb_dev.vinfo.xres-100, gv_fb_dev.vinfo.yres-45,
 								logo->width, logo->height);
 		}
 
@@ -405,42 +421,51 @@ int main(int argc, char **argv)
 		fbset_color(WEGI_COLOR_GREEN);
 		for(k=0; k<st-1; k++)
 			draw_wline_nc(&gv_fb_dev, vx[k], gh-srecv[k]*gh/smax+tgap, vx[k+1], gh-srecv[k+1]*gh/smax+tgap, 1);
-		sprintf(strtmp,"RX:%.1fk", RXBps/1024.0);
-	        FTsymbol_writeFB(strtmp, 18, 18, WEGI_COLOR_LTGREEN, 5, 5);
+		sprintf(strtmp,"RX: %.1fk", RXBps/1024.0);
+	        FTsymbol_writeFB(strtmp, 18, 18, WEGI_COLOR_LTGREEN, 5, 3);
 
 		/* 3. Draw TX traffic diagram on the graph pad */
 		fbset_color(WEGI_COLOR_LTBLUE);
 		for(k=0; k<st-1; k++)
 			draw_wline_nc(&gv_fb_dev, vx[k], gh-strans[k]*gh/smax+tgap, vx[k+1], gh-strans[k+1]*gh/smax+tgap, 1);
-		sprintf(strtmp,"TX:%.1fk", TXBps/1024.0);
-	        FTsymbol_writeFB(strtmp, 18, 18, WEGI_COLOR_LTBLUE, 120, 5);
-
-		/* Draw MAX mark on */
-		fbset_color(WEGI_COLOR_ORANGE);
-		draw_filled_circle(&gv_fb_dev, xs, tgap, 5);
+		sprintf(strtmp,"TX: %.1fk", TXBps/1024.0);
+	        FTsymbol_writeFB(strtmp, 18, 18, WEGI_COLOR_LTBLUE, 120, 3);
 
 		/* 4. Print MAX speed */
 		sprintf(strtmp,"Max %s: %.1fk (Bps)", smax_is_tx?"TX":"RX", smax/1024.0);
-	        FTsymbol_writeFB(strtmp, 18, 18, WEGI_COLOR_ORANGE, 5, 240-25);
+	        FTsymbol_writeFB(strtmp, 18, 18, WEGI_COLOR_ORANGE, 5, 240-27);
+		/* Draw MAX mark on */
+		fbset_color(WEGI_COLOR_ORANGE);
+		draw_filled_circle(&gv_fb_dev, xs, tgap, 5);
 
 		/* 5. Display avgload */
 		fbset_color(WEGI_COLOR_RED);
 		for(k=0; k<st-1; k++)
 			draw_wline_nc(&gv_fb_dev, vx[k], gh-vload[k]+tgap, vx[k+1], gh-vload[k+1]+tgap, 1);
-		sprintf(strtmp,"Load %.2f", avgload[0]);
 
-		if(avgload[0]>4.0) 	color=WEGI_COLOR_RED;
-		else if(avgload[0]>3.0) color=WEGI_COLOR_YELLOW;
-		else if(avgload[0]>2.0) color=WEGI_COLOR_YELLOWGREEN;
-		else			color=WEGI_COLOR_GREEN;
-	        FTsymbol_writeFB(strtmp, 18, 18, color, 320-90, 5);
+		/* 6. Write AVGLoad */
+		if( scount&1 ) {
+			sprintf(strtmp,"Load: %.2f", avgload[0]);
+			if(avgload[0]>4.0) 	color=WEGI_COLOR_RED;
+			else if(avgload[0]>3.0) color=WEGI_COLOR_YELLOW;
+			else if(avgload[0]>2.0) color=WEGI_COLOR_YELLOWGREEN;
+			else			color=WEGI_COLOR_GREEN;
+	        	FTsymbol_writeFB(strtmp, 18, 18, color, 320-95, 3);
+		}
+		/* 6. Write Cliets number */
+		else {
+			sprintf(strtmp,"Clients: %d", iw_get_clients());
+		        FTsymbol_writeFB(strtmp, 18, 18, WEGI_COLOR_WHITE, 320-95, 3);
+		}
 
 		/* Draw warter mark */
+		#if 0
 		fbset_color(WEGI_COLOR_WHITE);
 		for(k=0; k<6; k++) {
 			//draw_line(&gv_fb_dev, 0, (240-gh)/2+k*gh/5, (k%5==0)?20:5, (240-gh)/2+k*gh/5);
 			draw_line(&gv_fb_dev, (k%5==0)?320-10:320-5, (240-gh)/2+k*gh/5, 320-1, (240-gh)/2+k*gh/5);
 		}
+		#endif
 
 		/* Render */
 		fb_render(&gv_fb_dev);

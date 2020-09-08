@@ -17,4 +17,5 @@ int iw_get_speed(int *ws, const char* strifname);
 int iw_http_request(char *host, char *request, char *reply);
 int iw_read_traffic(const char* strifname, unsigned long long *recv, unsigned long long *trans);
 int iw_read_cpuload(float *loadavg);
+int iw_get_clients(void);
 #endif

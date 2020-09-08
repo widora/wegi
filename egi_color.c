@@ -386,25 +386,32 @@ unsigned char egi_color_getY(EGI_16BIT_COLOR color)
 /*--------------------------------------------------------------
 Convert HSV to RGB
 H--Hue 		[0 360]  or X%360
-S--Saturation	[0 100%]*100
+S--Saturation	[0 100%]*10000
 V--Value 	[0 255]
 
+Note: All vars to be float type will be more accurate!
 ---------------------------------------------------------------*/
-EGI_16BIT_COLOR egi_color_HSV2RGB(EGI_HSV_COLOR *hsv)
+EGI_16BIT_COLOR egi_color_HSV2RGB(const EGI_HSV_COLOR *hsv)
 {
-	unsigned int hi,p,q,t,v;
+	unsigned int h, hi,p,q,t,v;  /* float type will be more accurate! */
 	float f;
 	EGI_16BIT_COLOR color;
 
 	if(hsv==NULL)
 		return WEGI_COLOR_BLACK;
 
+	/* Convert hsv->h to [0 360] */
+	if( hsv->h < 0)
+		h=360+(hsv->h%360);
+	else
+		h=hsv->h%360;
+
 	v=hsv->v;
-	hi=(hsv->h/60)%6;
-	f=hsv->h/60.0-hi;
-	p=v*(100-hsv->s)/100;
-	q=round(v*(100-f*hsv->s)/100);
-	t=round(v*(100-(1-f)*hsv->s)/100);
+	hi=(h/60)%6;
+	f=h/60.0-hi;
+	p=v*(10000-hsv->s)/10000;
+	q=round(v*(10000-f*hsv->s)/10000);
+	t=round(v*(10000-(1-f)*hsv->s)/10000);
 
 	switch(hi) {
 		case 0:
@@ -427,9 +434,10 @@ EGI_16BIT_COLOR egi_color_HSV2RGB(EGI_HSV_COLOR *hsv)
 /*--------------------------------------------------------------
 Convert RGB to HSV
 H--Hue 		[0 360]  or X%360
-S--Saturation	[0 100%]*100
+S--Saturation	[0 100%]*10000
 V--Value 	[0 255]
 
+Note: All vars to be float type will be more accurate!
 
 Return:
 	0	OK
@@ -471,7 +479,7 @@ int egi_color_RGB2HSV(EGI_16BIT_COLOR color, EGI_HSV_COLOR *hsv)
 	if(max==0)
 		hsv->s=0;
 	else
-		hsv->s=100*(max-min)/max;
+		hsv->s=10000*(max-min)/max;
 
 	/* Cal. value */
 	hsv->v=max;
