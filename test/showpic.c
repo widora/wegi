@@ -641,7 +641,7 @@ for( i=optind; i<argc; i++) {
 	//printf("Render time: %ldms \n",(tm_diffus(tm_start, tm_end)+400)/1000);
 
 	/* B4.2 Mouse direct to FB */
-	draw_mcursor(mostat.mouseX, mostat.mouseY);
+	//draw_mcursor(mostat.mouseX, mostat.mouseY);
 	tm_delayms(20);
 
 	/* B5. Reset request */

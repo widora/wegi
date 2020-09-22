@@ -84,12 +84,16 @@ Note:
    For small size GIF file, just call egi_gif_slurpFile() to load to EGI_GIF first,
    then call egi_gif_display().  OR first call egi_gifdata_readFile() to read out
    EGI_GIF_DATA.
-
 2. The passed ImageCount starts from 1, and ends with the total number of images.
 3. For a GIF with transparent area, you shall initialize FB back groud buffer before calling
    the function. One way is to run fb_copy_FBbuffer(&gv_fb_dev, 0, 1) first.
 4. Some broken gif file may have invalid offxy and block size, when any of the block is found to
    be out of the canvas, the function will return.
+
+TODO:
+  1. If the GIF file includes invalid block image, whose range is out of canvas, then it fail and return.
+     If want to display it anyway, call egi_gif_slurpFile() and egi_gif_displayGifCtxt().
+
 
 @fpath: 	 File path
 @Silent_Mode:	 TRUE: Do NOT display or delay, just read frame by frame and pass
@@ -143,7 +147,7 @@ Return:
 -------------------------------------------------------------------------------------------*/
 int  egi_gif_playFile(const char *fpath, bool Silent_Mode, bool ImgTransp_ON, int *ImageCount, int nloop , bool *sigstop)
 {
-    int Error=0;
+    int Error=0, Error2=0;
     int	i, j, Size;
     int k;
 
@@ -333,27 +337,56 @@ int  egi_gif_playFile(const char *fpath, bool Silent_Mode, bool ImgTransp_ON, in
 		Col = GifFile->Image.Left;
 
 		/* Get offx, offy, Original Row AND Col will increment later!!!  */
-		offx = Col;
-		offy = Row;
 		BWidth = GifFile->Image.Width;
 		BHeight = GifFile->Image.Height;
 
+		/* Assign offx/offy as Col/Row */
+		offx = Col;
+		offy = Row;
+
 		++ImageNum;
-#if 1  /* For TEST: */
-		/* check block image size and position */
+
+#if 0  /* For TEST: */
     		printf("GIF ImageCount=%d\n", GifFile->ImageCount);
 
 		//GifQprintf("GIF Image %d at (%d, %d) [%dx%d]:     ",
 		printf("GIF Image %d at (%d, %d) [%dx%d]\n",
 		    	     			ImageNum, Col, Row, BWidth, BHeight);
 #endif
+
+		/* Check block image size and position */
 		if (GifFile->Image.Left + GifFile->Image.Width > GifFile->SWidth ||
-		   GifFile->Image.Top + GifFile->Image.Height > GifFile->SHeight) {
+		    GifFile->Image.Top + GifFile->Image.Height > GifFile->SHeight) {
 		    printf("%s: Image %d is not confined to screen dimension, aborted.\n",__func__, ImageNum);
 		    Error=-8;
 		    goto END_FUNC;
 		}
 
+	       /* Get color map, colormap may be updated/changed here! */
+	       if(GifFile->Image.ColorMap) {
+			ColorMap=GifFile->Image.ColorMap;
+			//printf("GIF Image ColorCount=%d\n", GifFile->Image.ColorMap->ColorCount);
+    	       }
+	       else {
+			ColorMap=GifFile->SColorMap;
+			//printf("GIF Global Colorcount=%d\n", GifFile->SColorMap->ColorCount);
+	       }
+	       //printf("GIF ColorMap.BitsPerPixel=%d\n", ColorMap->BitsPerPixel);
+
+		/* Need to flush out all image data */
+if(Silent_Mode) {
+	    GifByteType *Dummy;
+            /* need to flush out all the rest of image until an empty block (size 0)
+             * detected. We use GetCodeNext.
+             */
+            do
+                if (DGifGetCodeNext(GifFile, &Dummy) == GIF_ERROR)
+                    return GIF_ERROR;
+            while (Dummy != NULL) ;
+}
+
+
+if(!Silent_Mode) {
 		/* Get color (index) data */
 		if (GifFile->Image.Interlace) {
 		    //printf(" Interlaced image data ...\n");
@@ -388,23 +421,10 @@ int  egi_gif_playFile(const char *fpath, bool Silent_Mode, bool ImgTransp_ON, in
 		}
 //		printf("\n");
 
-	       /* Get color map, colormap may be updated/changed here! */
-	       if(GifFile->Image.ColorMap) {
-//			Is_LocalColorMap=true;
-			ColorMap=GifFile->Image.ColorMap;
-			//printf("GIF Image ColorCount=%d\n", GifFile->Image.ColorMap->ColorCount);
-    	       }
-	       else {
-//			Is_LocalColorMap=false;
-			ColorMap=GifFile->SColorMap;
-//			printf("GIF Global Colorcount=%d\n", GifFile->SColorMap->ColorCount);
-	       }
-//	       printf("GIF ColorMap.BitsPerPixel=%d\n", ColorMap->BitsPerPixel);
 
 #if 1 /* ----------------------->   Display   <------------------------- */
 
-if(!Silent_Mode) {
-
+//if(!Silent_Mode) {
         /* Reset Simgbuf and working FB buffer, for the first block image only */
      	if(  GifFile->ImageCount ==0 && fbdev != NULL ) {
           	egi_imgbuf_resetColorAlpha( Simgbuf, img_bkcolor, ImgTransp_ON ? 0:255 );
@@ -426,9 +446,13 @@ if(!Silent_Mode) {
     	/* update Simgbuf */
     	for(i=0; i<BHeight; i++)
     	{
+    	 	if( offy+i > SHeight-1 )continue; /* Check for some broken gif file! */
+
             	GifRow = ScreenBuffer[offy+i];
 		 /* update block of Simgbuf */
 	 	for(j=0; j<BWidth; j++ ) {
+			if( offx+j > SWidth-1 )continue; /* Check for some broken gif file! */
+
 	      		//pos=i*BWidth+j;
               		spos=(offy+i)*SWidth+(offx+j);
 	      		/* Nontransparent color: set color and set alpha to 255 */
@@ -487,8 +511,12 @@ if(!Silent_Mode) {
      			{
 		    	    /* update Simgbuf Block*, make current block area transparent! */
 		    	    for(i=0; i<BHeight; i++) {
+				 if( offy+i > SHeight-1 )continue; /* Check for some broken gif file! */
+
         		 	 /* update block of Simgbuf */
 		        	 for(j=0; j<BWidth; j++ ) {
+					if( offx+j > SWidth-1 )continue; /* Check for some broken gif file! */
+
 	        	        	spos=(offy+i)*SWidth+(offx+j);
 		      	 		if(ImgTransp_ON )	/* Make curretn block area transparent! */
 		      	   			Simgbuf->alpha[spos]=0;
@@ -519,6 +547,7 @@ if(!Silent_Mode) {
 
     	} /* --- End switch() Disposal_Mode --- */
        #endif ///////////////////////////////////////////////////////////////
+
  }
         //printf(" --- Finish displaying ImageNum=%d (>=1) --- \n", ImageNum );
 	//getchar();
@@ -638,14 +667,15 @@ if(!Silent_Mode) {
 
 	if(RecordType == TERMINATE_RECORD_TYPE) {
 		//printf(" --------------- TERMINATE_RECORD_TYPE  --------------\n");
-		//sleep(3);
 		k++; /* loop count */
 		if( k<nloop || nloop<=0 ) {
+		        printf("%s: nloop k=%d, Total ImageCount=%d\n", __func__, k, ImageNum);
 		    	/* Close file and reOpen */
     			if (DGifCloseFile(GifFile, &Error) == GIF_ERROR) {
 				PrintGifError(Error);
 				return Error;
     			}
+			printf("%s: Reopen GIF file...\n",__func__);
     			if((GifFile = DGifOpenFileName(fpath, &Error)) == NULL) {
 	    			PrintGifError(Error);
 		    		return Error;
@@ -655,6 +685,7 @@ if(!Silent_Mode) {
 
     } while (RecordType != TERMINATE_RECORD_TYPE || GifFile->ImageCount==0);
 
+    printf("%s: Total ImageCount=%d\n", __func__, ImageNum);
 
 END_FUNC:
     /* Free Simgbuf */
@@ -669,9 +700,8 @@ END_FUNC:
     }
 
     /* Close file */
-    if (DGifCloseFile(GifFile, &Error) == GIF_ERROR) {
-	PrintGifError(Error);
-	return Error;
+    if (DGifCloseFile(GifFile, &Error2) == GIF_ERROR) {
+	PrintGifError(Error2);
     }
 
     return Error;
@@ -944,7 +974,7 @@ EGI_GIF*  egi_gif_slurpFile(const char *fpath, bool ImgTransp_ON)
     EGI_16BIT_COLOR img_bkcolor;
 
     /* Try to get total number of images, for size check */
-    if( egi_gif_playFile(fpath, true, true, &ImageTotal,1, NULL) !=0 ) /* fpath, Silent, ImgTransp_ON, *ImageCount */
+    if( egi_gif_playFile(fpath, true, true, &ImageTotal, 1, NULL) !=0 ) /* fpath, Silent, ImgTransp_ON, nloop, *ImageCount */
     {
 	printf("%s: Fail to egi_gif_readFile() '%s'\n",__func__,fpath);
 	return NULL;
@@ -1830,8 +1860,8 @@ void egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt )
     /* ImageCount incremental */
     egif->ImageCount++;
 
-    if( egif->ImageCount > egif->ImageTotal-1) {
-	/* End of one round loop */
+    /* End of one round loop */
+    if( egif->ImageCount > egif->ImageTotal-1 ) {
 	egif->ImageCount=0;
 
 	/* update statu params */

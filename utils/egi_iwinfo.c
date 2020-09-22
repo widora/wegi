@@ -80,7 +80,7 @@ int iw_get_rssi(int *rssi)
 A rough method to get current wifi speed
 
 @ws:		Pointer to pass speed in (bytes/s)
-@strifname:	Net interface name
+@ifname:	Net interface name
 
 Note:
 1. If there is no actual income stream, recvfrom()
@@ -92,7 +92,7 @@ Return
 	0	OK
 	<0	Fails
 ------------------------------------------------------------*/
-int  iw_get_speed(int *ws, const char* strifname )
+int  iw_get_speed(int *ws, const char* ifname )
 {
 	int 			sock;
 	struct ifreq 		ifstruct;
@@ -121,8 +121,8 @@ int  iw_get_speed(int *ws, const char* strifname )
 	sll.sll_family=PF_PACKET;
 	sll.sll_protocol=htons(ETH_P_ALL);
 	//strcpy(ifstruct.ifr_name,"apcli0");
-	strcpy(ifstruct.ifr_name, strifname);
-	//sprintf(ifstruct.ifr_name,strifname);
+	strcpy(ifstruct.ifr_name, ifname);
+	//sprintf(ifstruct.ifr_name,ifname);
 	if(ioctl(sock, SIOCGIFINDEX, &ifstruct)==-1)
 	{
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to call ioctl(sock, SIOCGIFINDEX, ifname): %s\n",
@@ -355,8 +355,12 @@ apcli0: 338892970  258623    0    3    0     0          0        60 10221554  25
 br-lan: 7089637   17926    0    0    0     0          0         0  5836735   24938    0    0    0     0       0          0
   wds2:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
 
+Note:
+1. When network is restarted, all old data will be cleared first.
+2. Data in the listed interface MAY be counted repeatedly, Example: eth0 and br-lan.
 
-@strifname:	Net interface name.
+@ifname:	Net interface name.
+		If ifname==NULL, count all interfaces. ( Maybe repeatedly)
 @recv:		Pointer to pass total received data, in Bytes.
 @trans:		Pointer to pass total stransmitted data, in Bytes.
 
@@ -364,58 +368,67 @@ Return:
 	0	OK
 	<0	Fails
 ----------------------------------------------------------------------------------*/
-int iw_read_traffic(const char* strifname, unsigned long long *recv, unsigned long long *trans)
+int iw_read_traffic(const char* ifname, unsigned long long *recv, unsigned long long *trans)
 {
-	int fd;
+	FILE *fil;
 	int i;
-	char buff[2048];
-	int nread;
-	char *delim=" 	:\r\n"; /* Delimiters: Space, Tab, : , return */
-	char *pline=NULL;
 	char *pt=NULL;
+	char *pline=NULL;
+	char buff[256];
+	char *delim=" 	:\r\n"; /* Delimiters: Space, Tab, : , return */
 
-	if(strifname==NULL)
-		return -1;
-
-	/* Open Net Device */
-	fd=open("/proc/net/dev", O_RDONLY | O_CLOEXEC);
-	if(fd<0) {
+	fil=fopen("/proc/net/dev","re");
+        if(fil==NULL) {
 		printf("%s: Fail to open '/proc/net/dev': %s\n", __func__, strerror(errno));
 		return -1;
-	}
-
-	/* Read Net Device */
-	nread=read(fd, buff, sizeof(buff));
-	if(nread<0) {
-		printf("%s: Fail to read '/proc/net/dev': %s\n", __func__, strerror(errno));
-		close(fd);
-		return -2;
-	}
-
-	/* Get pointer to the buff line with given strifname */
-	pline=strstr(buff,strifname);
-	if(pline==NULL) {
-		printf("%s: Fail to find net interface '%s'!\n", __func__, strifname);
-		close(fd);
-		return -3;
-	}
-
-	/* To extract recv/tran bytes */
-        pt=strtok(pline, delim); 	/* Delimiters: Space, Tab, : , return */
-	/* Now: pt points to ifname */
-	for(i=0; pt!=NULL && i<16; i++) {     /* 16 is number of data columns */
-           pt=strtok(NULL, delim);
-
-	   if(i==0 && recv!=NULL)  	/* data column 0: recevie bytes */
-		*recv=strtoull(pt,NULL,10);
-	   else if(i==8 && trans!=NULL) /* data column 8: transmit bytes */
-		*trans=strtoull(pt,NULL,10);
-
         }
 
+	/* Clear recv/trans */
+	if(recv) *recv=0;
+	if(trans) *trans=0;
 
-	close(fd);
-	return 0;
+	/* Drop two title lines */
+	fgets(buff, sizeof(buff), fil);
+	fgets(buff, sizeof(buff), fil);
+
+	while(!feof(fil)) {
+		if( fgets(buff, sizeof(buff), fil) ) {
+
+		   	/* Only count interface with specified name */
+			if(ifname!=NULL) {
+				/* Get pointer to the buff line with given ifname */
+				pline=strstr(buff,ifname);
+				if(pline==NULL)
+					continue;
+			}
+		   	/* Count all interfaces */
+		   	else
+				pline=buff;
+
+			/* To extract recv/tran bytes */
+        		pt=strtok(pline, delim); 	/* Delimiters: Space, Tab, : , return */
+			/* Now: pt points to ifname */
+			if(pt)printf("Ifname: %s\n", pt);
+			for(i=0; pt!=NULL && i<16; i++) {     /* 16 is number of data columns */
+		           	pt=strtok(NULL, delim);
+
+				/* For specified ifname, count once only, otherwise count all */
+				if(i==0 && recv!=NULL)  	/* data column 0: recevie bytes */
+					*recv += strtoull(pt,NULL,10);
+		   		else if(i==8 && trans!=NULL) /* data column 8: transmit bytes */
+					*trans += strtoull(pt,NULL,10);
+			}
+
+			/* Break if ifname is specified */
+			if(ifname!=NULL) break;
+		}
+	}
+
+	fclose(fil);
+	if( ifname!=NULL && pline==NULL )
+		return -3;
+	else
+		return 0;
 }
 
 
@@ -478,6 +491,12 @@ Read /tmp/dhcp.leases to get connected clients.
 1599600031 10:e7:cf:f8:af:e1 192.168.8.177 Intel *
 1599583300 4c:79:55:31:e8:b6 192.168.8.188 Redmi 01:11:11:e3:61:78:88
 
+Widora:/tmp# cat /proc/net/arp
+IP address     HW type     Flags       HW address            Mask     Device
+192.168.4.1    0x1         0x2         aa:77:99:b3:23:aa     *        apcli0
+192.168.4.4    0x1         0x0         4d:4e:ed:35:28:b6     *        br-lan
+192.168.4.5    0x1         0x2         10:77:66:66:ee:ee     *        br-lan
+
 Return:
 	>=0  	Number of connected clients
 	<0	Fails
@@ -485,9 +504,13 @@ Return:
 int iw_get_clients(void)
 {
 	FILE *fil;
+	int m;
 	char buff[256];
+	char *delim=" 	"; /* Delimiters: Space,TAB */
 	int nclts=0;
+	char *pt;
 
+#if 0
 	fil=fopen("/tmp/dhcp.leases","re");
         if(fil==NULL) {
 		printf("%s: Fail to open '/tmp/dhcp.leases': %s\n", __func__, strerror(errno));
@@ -498,6 +521,28 @@ int iw_get_clients(void)
 		if( fgets(buff, sizeof(buff), fil) )
 			nclts++;
 	}
+#else
+	fil=fopen("/proc/net/arp","re");
+        if(fil==NULL) {
+		printf("%s: Fail to open '/proc/net/arp': %s\n", __func__, strerror(errno));
+		return -1;
+        }
+
+	/* Drop title line */
+	fgets(buff, sizeof(buff), fil);
+
+	while(!feof(fil)) {
+		if( fgets(buff, sizeof(buff), fil) ) {
+			pt=strtok(buff,delim);
+	                for(m=0; pt!=NULL && m<6; m++) {  /* Separate linebuff into 6 words by SPACE */
+				if( m==2 && strtol(pt,NULL,16)!=0 )
+					nclts++;
+                        	pt=strtok(NULL, delim);
+			}
+		}
+	}
+
+#endif
 
 	fclose(fil);
 	return nclts;

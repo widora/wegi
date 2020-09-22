@@ -73,14 +73,17 @@ static int penx;	/* Pen position */
 static int peny;
 
 static int  FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
-static void mouse_callback(unsigned char *mouse_data, int size);
+static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
 static void draw_mcursor(int x, int y);
 
 
 static void login_layout()
 {
 	EGI_IMGBUF *wallimg=egi_imgbuf_readfile("/mmc/login.jpg");
-	if(wallimg==NULL) exit(1);
+	if(wallimg==NULL)
+		wallimg=egi_imgbuf_readfile("/mmc/login.png");
+	if(wallimg==NULL)
+		exit(1);
 
         /* Wallpaper */
         egi_subimg_writeFB(wallimg, &gv_fb_dev, 0, -1, 0, 0); /* subnum,subcolor,x0,y0 */
@@ -88,8 +91,12 @@ static void login_layout()
 	/* Outer pad */
    	draw_blend_filled_roundcorner_rect( &gv_fb_dev, txtbox.startxy.x-10, txtbox.startxy.y-40,   /* fbdev, x1, y1, x2, y2, r */
 							txtbox.endxy.x+smargin+10, txtbox.endxy.y+35, 10,
-							WEGI_COLOR_GRAY5, 140);  		    /* color, alpha */
+							//WEGI_COLOR_GRAY5, 140);  		    /* color, alpha */
+							WEGI_COLOR_LTBLUE, 140);  		    /* color, alpha */
 							//WEGI_COLOR_GRAY3, 240);  		    /* color, alpha */
+	fbset_color(WEGI_COLOR_BLACK);
+	draw_roundcorner_wrect(&gv_fb_dev,txtbox.startxy.x-10, txtbox.startxy.y-40, txtbox.endxy.x+smargin+10, txtbox.endxy.y+35,10,1);
+
 	/* Txtbox pad */
 	draw_blend_filled_roundcorner_rect(&gv_fb_dev, txtbox.startxy.x, txtbox.startxy.y-5, /*  fbdev, x1, y1, x2, y2, r, color, alpha */
 						txtbox.endxy.x+smargin, txtbox.endxy.y+5,5,
@@ -516,7 +523,7 @@ static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int
         Callback for mouse input
 Just update mouseXYZ
 ---------------------------------------------*/
-static void mouse_callback(unsigned char *mouse_data, int size)
+static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus)
 {
 	int mdZ;
 	bool	start_pch=false;	/* True if mouseLeftKeyDown switch from false to true */

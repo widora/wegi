@@ -34,7 +34,7 @@ DEP_FILES = $(patsubst %.c,%.dep,$(SRC_FILES))
 CFLAGS  = -I./ -I./page -I./iot -I./ffmpeg -I./utils -I$(COMMON_USRDIR)/include
 CFLAGS += -I$(COMMON_USRDIR)/include/json-c
 CFLAGS += -I$(COMMON_USRDIR)/include/freetype2
-CFLAGS += -Wall -fPIC -O2 	#-Wno-unused-but-set-variable  # -Wno-unused-variable
+CFLAGS += -Wall -fPIC -O2 -Wno-maybe-uninitialized #-Wno-unused-but-set-variable  # -Wno-unused-variable
 CFLAGS += -D_GNU_SOURCE 	## for O_CLOEXEC flag ##
 CFLAGS += -DENABLE_BACK_BUFFER
 

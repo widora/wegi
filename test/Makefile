@@ -18,6 +18,7 @@ CFLAGS += -I$(COMMON_USRDIR)/include/json-c
 CFLAGS  += -Wall -O2
 CFLAGS  += -D_GNU_SOURCE
 CFLAGS  += -DENABLE_BACK_BUFFER
+CFLAGS  += -Wno-maybe-uninitialized
 
 LDFLAGS += -L$(SRC_PATH)/lib -L$(COMMON_USRDIR)/lib
 ##LDFLAGS += -L/home/midas-zhou/giflib-5.2.1/finish/lib
@@ -32,9 +33,9 @@ LIBS	+= -lsqlite3
 LIBS 	+= -lgif
 LIBS	+= -lrt
 
-APPS =  test_fb test_sym tmp_app show_pic  test_bigiot test_math test_fft test_sndfft test_tonefft
-APPS += test_txt test_img test_img2 test_img3 test_resizeimg test_zoomimg test_etouch  test_geom
-APPS += test_bjp test_fbbuff
+#APPS =  test_fb test_sym tmp_app show_pic  test_bigiot test_math test_fft test_sndfft test_tonefft
+#APPS += test_txt test_img test_img2 test_img3 test_resizeimg test_zoomimg test_etouch  test_geom
+#APPS += test_bjp test_fbbuff
 
 #--- use static or dynamic libs -----
 EGILIB=dynamic

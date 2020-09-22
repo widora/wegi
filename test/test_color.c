@@ -20,24 +20,37 @@ Midas Zhou
 
 int main(void)
 {
-	int i;
+	int i,j,k;
 	int value[3]={0}; /* control param for brightness adjustment */
 	int step[3]={18,12,18};  /* increase/decrease step for value */
 	int delt[3]={18,12,18};
 
 	EGI_16BIT_COLOR color[3],subcolor[3];
+ 	EGI_HSV_COLOR hsv;
 
-	/* --- init logger --- */
-  	if(egi_init_log("/mmc/log_color") != 0)
-	{
-		printf("Fail to init logger,quit.\n");
-		return -1;
-	}
-        /* --- start egi tick --- */
-//        tm_start_egitick();
+        /* <<<<<  EGI general init  >>>>>> */
+        printf("tm_start_egitick()...\n");
+        tm_start_egitick();                     /* start sys tick */
+
         /* --- prepare fb device --- */
-        gv_fb_dev.fdfd=-1;
-        init_dev(&gv_fb_dev);
+        printf("init_fbdev()...\n");
+        if( init_fbdev(&gv_fb_dev) )            /* init sys FB */
+                return -1;
+
+#if 1	/* -------- TEST: EGI HSV COLOR -------- */
+	int xres=gv_fb_dev.vinfo.xres;
+	int yres=gv_fb_dev.vinfo.yres;
+	for(j=0; j<xres; j++) {
+        	for(k=0; k<yres; k++) {
+                	        hsv=(EGI_HSV_COLOR){ round(1.0*360*k/yres-60), 10000, round(1.0*255*j/xres)}; /* hue -60-300 Deg */
+                        	fbset_color(egi_color_HSV2RGB(&hsv));
+	                        draw_dot(&gv_fb_dev, j, k);
+        	}
+	}
+	fb_render(&gv_fb_dev);
+	exit(1);
+#endif
+
 
 	/* <<<<<<<<<<<<<<<<<<<<<<<<<<<<  test draw_wline <<<<<<<<<<<<<<<<<<<<<<*/
 
@@ -53,7 +66,7 @@ int main(void)
   {
 	egi_randp_inbox(&p1, &box);
 	egi_randp_inbox(&p2, &box);
-	fbset_color(egi_color_random(medium));
+	fbset_color(egi_color_random(color_medium));
 	draw_wline(&gv_fb_dev,p1.x,p1.y,p2.x,p2.y,egi_random_max(11));
 /*
 	draw_pline(&gv_fb_dev,
@@ -69,7 +82,7 @@ int main(void)
 
 	/* get a random color */
 	for(i=0;i<3;i++) {
-		color[i]= egi_color_random(deep);
+		color[i]= egi_color_random(color_deep);
 	}
 	color[0]=WEGI_COLOR_RED;
 	color[1]=WEGI_COLOR_GREEN;
@@ -79,7 +92,7 @@ while(1)
 {
         for(i=0;i<3;i++)
 	{
-		subcolor[i]=egi_colorbrt_adjust(color[i],value[i]);
+		subcolor[i]=egi_colorLuma_adjust(color[i],value[i]);
 		//printf("---k=%d,  subcolor: 0x%02X  ||||  color: 0x%02X ---\n",k,subcolor,color);
 		fbset_color(subcolor[i]);
 		draw_filled_rect(&gv_fb_dev, 15+(60+15)*i, 150, (15+60)*(i+1), 150+60);
@@ -97,13 +110,13 @@ while(1)
 	usleep(55000);
 }
 
-  	/* quit logger */
-  	egi_quit_log();
-
-        /* close fb dev */
-        munmap(gv_fb_dev.map_fb,gv_fb_dev.screensize);
-        close(gv_fb_dev.fdfd);
-
+        /* <<<<<-----  EGI general release  ---->>>>> */
+        printf("release_fbdev()...\n");
+        fb_filo_flush(&gv_fb_dev); /* Flush FB filo if necessary */
+        release_fbdev(&gv_fb_dev);
+        printf("egi_quit_log()...\n");
+        egi_quit_log();
+        printf("<-------  END  ------>\n");
 
 	return 0;
 }

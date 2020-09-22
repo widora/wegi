@@ -3,10 +3,9 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-		Usage:  %s [-h] [-t] [-d] [-p] [-s :] fpath
-
 TODO:
-1. Timer interrupt MAY crash net recvfrom() ...???
+1. Autogrow data buffer.
+2. Way to review old data.
 
 Midas Zhou
 --------------------------------------------------------------------*/
@@ -54,7 +53,7 @@ int main(int argc, char **argv)
 	int tgap=(240-gh)/2;
 
 	EGI_16BIT_COLOR color;
-	char *ifname="apcli0";
+	char *ifname=NULL; //"apcli0";
 	unsigned long long Brecv[2]={0};   	/* Total bytes received */
 	unsigned long long Btrans[2]={0};   	/* Total bytes transmitted */
 	int RXBps=0,TXBps=0; 	/* Traffic speed bytes per second */

@@ -329,16 +329,19 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
 	//fb_clear_bkgBuff(&gv_fb_dev, WEGI_COLOR_GRAY2);
 	while(1) {
 		for(i=0; i < gif_ctxt.egif->ImageTotal; i++) {
-			//printf("I%d\n",i);
+			printf("I%d\n",i);
 			gettimeofday(&tm_start,NULL);
 			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
 
 			//gettimeofday(&tm_start,NULL);
+			printf("windisplay2 mvpic\n");
 			egi_imgbuf_windisplay2( mvpic[i], &gv_fb_dev, // -1,
 		                                          xp, yp, xw, yw, gif_ctxt.winw, gif_ctxt.winh);
-
-			egi_imgbuf_windisplay2( logo, &gv_fb_dev, 0, 0, gv_fb_dev.vinfo.xres-100, gv_fb_dev.vinfo.yres-50,
-										logo->width, logo->height);
+			if(logo) {
+				egi_imgbuf_windisplay2( logo, &gv_fb_dev,
+							  0, 0, gv_fb_dev.vinfo.xres-100, gv_fb_dev.vinfo.yres-50,
+									logo->width, logo->height);
+			}
 			//gettimeofday(&tm_end,NULL);
 			//printf("writeFB time: %dms \n", tms=tm_diffus(tm_start, tm_end)/1000);
 
