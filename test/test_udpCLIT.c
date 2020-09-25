@@ -15,9 +15,35 @@ https://github.com/widora/wegi
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
+#include <egi_inet.h>
+
+
+int main(void)
+{
+        /* Create UDP server */
+        EGI_UDP_CLIT *uclit=inet_create_udpClient("192.168.8.1", 8765, 4);
+        if(uclit==NULL)
+                exit(1);
+
+        /* Set callback */
+        uclit->callback=inet_udpClient_TESTcallback;
+
+        /* Process UDP server routine */
+        inet_udpClient_routine(uclit);
+
+        /* Free and destroy */
+        inet_destroy_udpClient(&uclit);
+
+        return 0;
+}
+
+
+
+
+#if 0 ///////////////////////////////////////////////////////////////////////
 
 int static UDP_CLIENT_process(int sockfd, struct sockaddr *addrSERV);
-
 
 int main(void)
 {
@@ -97,6 +123,7 @@ END_FUNC:
 	return ret;
 }
 
+
 /*-----------------------------------------------------------------
 
 @sockfd:        client sockfd
@@ -110,7 +137,8 @@ int static UDP_CLIENT_process(int sockfd, struct sockaddr *addrSERV)
 	int nrecv, nsend;
 	socklen_t slen;
 	socklen_t rlen;
-	char buff[1024];
+	char buff[EGI_MAX_UDP_PDATA_SIZE];
+	int  psize=EGI_MAX_UDP_PDATA_SIZE;	/* EGI_MAX_UDP_PDATA_SIZE=1024 Bytes, UDP packet payload size */
 	struct sockaddr_in addrRECV; /* Received addr */
 	unsigned int count=0;
 
@@ -127,18 +155,19 @@ int static UDP_CLIENT_process(int sockfd, struct sockaddr *addrSERV)
 	while(1) {
 
 		/* Prepare data */
-		sprintf(buff,"Hello from client, count=%d", count);
+		memset(buff,0,psize);
+		sprintf(buff,"Hello from client, count=%d", ++count); /* start from 1 */
 		printf("Send count=%d ...\n", count);
-		count++;
 
 		/* Send data to server */
-		nsend=sendto(sockfd, buff, strlen(buff), 0, addrSERV, slen); /* flags: MSG_CONFIRM, MSG_DONTWAI */
+		//nsend=sendto(sockfd, buff, strlen(buff), 0, addrSERV, slen); /* flags: MSG_CONFIRM, MSG_DONTWAI */
+		nsend=sendto(sockfd, buff, psize, 0, addrSERV, slen); /* flags: MSG_CONFIRM, MSG_DONTWAI */
 		if(nsend<0){
 			printf("%s: Fail to sendto() data to the server, Err'%s'\n", __func__, strerror(errno));
 			return -2;
 		}
-		else if(nsend!=strlen(buff)) {
-			printf("%s: WARNING! Send %d of total %d bytes!\n", __func__, nsend, strlen(buff) );
+		else if(nsend!=psize) {
+			printf("%s: WARNING! Send %d of total %d bytes!\n", __func__, nsend, psize);
 		}
 		/*  MSG_DONTWAIT (since Linux 2.2)
                  *  Enables  nonblocking  operation; if the operation would block, EAGAIN or EWOULDBLOCK is returned.
@@ -168,9 +197,9 @@ int static UDP_CLIENT_process(int sockfd, struct sockaddr *addrSERV)
 			continue;
 		}
 		else if(nrecv>0) {
-			buff[nrecv]=0; /* EOF for string */
-                        printf("Receive from server '%s:%d' with data: '%s'\n",
-                                inet_ntoa(((struct sockaddr_in)addrRECV).sin_addr), ntohs(((struct sockaddr_in)addrRECV).sin_port), buff);
+			buff[sizeof(buff)-1]=0; //buff[nrecv]=0; /* set EOF for string */
+                        printf("%d bytes from server '%s:%d' with data: '%s'\n",
+                                nrecv, inet_ntoa(((struct sockaddr_in)addrRECV).sin_addr), ntohs(((struct sockaddr_in)addrRECV).sin_port), buff);
 		}
 
 		/* Loop Session gap */
@@ -179,3 +208,6 @@ int static UDP_CLIENT_process(int sockfd, struct sockaddr *addrSERV)
 
 	return 0;
 }
+
+
+#endif ///////////////////////////////////////////////////////////////////////////////
