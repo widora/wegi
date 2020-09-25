@@ -1596,3 +1596,30 @@ int mat_bspline_basis(int i, int deg, float u, const float *vu, float *LN)
 
 	return 0;
 }
+
+/*-------------------------------------------------------------
+A fast way to calculate inverse square root, this legendary
+algorithm is from source code Quake III Arena. and later Chris
+Lomont worked out a slightly better constant 0x5f375a86.
+It trades some accuracy(~1%) for faster speed( 2~4 times).
+
+Math. principle:
+	y=f(x)=1/sqrt(x)=a0+a1*x+a2*x^2+a3*a^3+....
+	y ~= a0+a1*x;  where: a0=0x5f375a86, a1=-0.5;
+	Here same as: i=0x5f375a86 - (i>>1);
+	Next, Newton's iteration to improve accuracy:
+	x=x*(1.5-y*x*x)
+-------------------------------------------------------------*/
+float mat_FastInvSqrt( float x )
+{
+	int i;
+	float y=0.5f*x;
+
+	i=*(int *)&x;
+	i=0x5f375a86 - (i>>1); /* 0x5f3759df, Evil floating point bit level hacking! */
+	x=*(float *)&i;
+
+	x=x*(1.5f-y*x*x);
+
+	return x;
+}

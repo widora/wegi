@@ -17,9 +17,51 @@ Midas Zhou
 
 int main(int argc, char **argv)
 {
+   struct timeval tm_start;
+   struct timeval tm_end;
 
+#if 1 /* ---- TEST: mat_FastInvSqrt() ---- */
+	int i;
+	int nf=1000;
+	float fv[nf];
+	float fs1[nf], fs2[nf];
+	long costms1,costms2;
+	long costus1,costus2;
 
-#if 1 /* ---- TEST: factorial and mat_bernstein_polynomial() ---- */
+	/* fv[]={ 1.0, 2.0, 3.0, .... } */
+	for( i=0; i<nf; i++)
+		fv[i]=1.0+i;
+
+	/* By FastInvSqrt() */
+	gettimeofday(&tm_start,NULL);
+	for(i=0; i<nf; i++) {
+		fs1[i]=mat_FastInvSqrt(fv[i]);
+	}
+	gettimeofday(&tm_end,NULL);
+	costus1=tm_diffus(tm_start, tm_end);
+	costms1=costus1/1000;
+
+	/* By 1.0f/sqrt() */
+	gettimeofday(&tm_start,NULL);
+	for(i=0; i<nf; i++) {
+		fs2[i]=1.0f/sqrt(fv[i]);
+	}
+	gettimeofday(&tm_end,NULL);
+	costus2=tm_diffus(tm_start, tm_end);
+	costms2=costus2/1000;
+
+	/* Compare resutls */
+	printf("---FastInvSqrt(x)---	---1.0f/sqrt(x)---\n");
+	for(i=0; i<nf; i+=10)
+		printf("fs1[%d]=%.8f        fs2[%d]=%.8f\n", i, fs1[i], i,fs2[i]);
+
+        printf("FastInvSqrt(x) %d floats, cost time=%ldus.\n", nf, costus1 );
+        printf("1.0f/sqrt(x) %d floats, cost time=%ldus.\n", nf, costus2 );
+
+	exit(1);
+#endif
+
+#if 0 /* ---- TEST: factorial and mat_bernstein_polynomial() ---- */
    int i;
    int nn;
 
@@ -49,8 +91,8 @@ int main(int argc, char **argv)
    int *array;
    int n=0;
    int w;
-   struct timeval tm_start;
-   struct timeval tm_end;
+   //struct timeval tm_start;
+   //struct timeval tm_end;
 
    /* set n */
    if(argc>1)
