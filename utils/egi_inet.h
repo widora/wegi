@@ -12,21 +12,22 @@ midaszhou@yahoo.com
 #include <netinet/in.h>
 
 /* EtherNet packet payload MAX. 46-MTU(1500) bytes,  UPD packet payload MAX. 2^16-1-8-20=65507 */
-#define EGI_MAX_UDP_PDATA_SIZE	1024   /* Max. UDP packet payload size(exclude 8bytes UDP packet header), limited for MTU.  */
+//#define EGI_MAX_UDP_PDATA_SIZE	1024   /* Max. UDP packet payload size(exclude 8bytes UDP packet header), limited for MTU.  */
+#define EGI_MAX_UDP_PDATA_SIZE	(1024*60)
 
 /*---------------------------------------------------------------
-           UDP SERVER PROCESS callback function
+          EGI UDP Server/Client Process Callback Functions
 Tasks in callback function should be simple and short, normally
 just to pass out received data to the Caller, and take in data to
-the UDP server.
+the UDP server/client.
 
-@rcvCLIT:	Client address, from which rcvData was sent.
+@rcvAddr:	Counter part address, from which rcvData was received.
 @rcvData:	Data received from rcvCLIT
-@rcvSize:	Data size of rcvData.
+@rcvSize:	Data size of rcvData. if<=0, ignore rcvData!
 
-@sndCLIT:	Client address, to which sndBuff will be sent.
+@sndAddr:	Counter part address, to which sndBuff will be sent.
 @sndBuff:	Data to send to sndCLIT
-@sndSize:	Data size of sndBuff
+@sndSize:	Data size of sndBuff, if<=0, ignore sndBuff.
 ---------------------------------------------------------------*/
 typedef int (* EGI_UDPSERV_CALLBACK)( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
 				            struct sockaddr_in *sndAddr,       char *sndBuff, int *sndSize);

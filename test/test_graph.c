@@ -420,14 +420,20 @@ int main(int argc, char **argv)
 		fbset_color(WEGI_COLOR_GREEN);
 		for(k=0; k<st-1; k++)
 			draw_wline_nc(&gv_fb_dev, vx[k], gh-srecv[k]*gh/smax+tgap, vx[k+1], gh-srecv[k+1]*gh/smax+tgap, 1);
-		sprintf(strtmp,"RX: %.1fk", RXBps/1024.0);
+		if(RXBps>1024.0*1024.0)
+			sprintf(strtmp,"RX: %.2fM", RXBps/1024.0/1024.0);
+		else
+			sprintf(strtmp,"RX: %.1fk", RXBps/1024.0);
 	        FTsymbol_writeFB(strtmp, 18, 18, WEGI_COLOR_LTGREEN, 5, 3);
 
 		/* 3. Draw TX traffic diagram on the graph pad */
 		fbset_color(WEGI_COLOR_LTBLUE);
 		for(k=0; k<st-1; k++)
 			draw_wline_nc(&gv_fb_dev, vx[k], gh-strans[k]*gh/smax+tgap, vx[k+1], gh-strans[k+1]*gh/smax+tgap, 1);
-		sprintf(strtmp,"TX: %.1fk", TXBps/1024.0);
+		if(TXBps>1024.0*1024.0)
+			sprintf(strtmp,"TX: %.2fM", TXBps/1024.0/1024.0);
+		else
+			sprintf(strtmp,"TX: %.1fk", TXBps/1024.0);
 	        FTsymbol_writeFB(strtmp, 18, 18, WEGI_COLOR_LTBLUE, 120, 3);
 
 		/* 4. Print MAX speed */

@@ -1,4 +1,4 @@
-/*------------------------------------------------------------------
+/*---------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
@@ -38,10 +38,22 @@ struct in_addr {
                int           msg_flags;      // flags (unused)
    };
 
+3. A UDP Server is calling Non_blocking recvfrom(), while A UDP Client is calling
+   blocking recvfrom(). For UDP Server needs to transmitte data as quickly as
+   possible, while UDP Client only receive data at most time, respond to the
+   server only occasionaly. You can also ajust TimeOut for the blocking type
+   recvfrom().
+
+4. UDP Tx/Rx speeds depends on many facts and situations.
+   It's difficult to always gear up with the server with right timing:
+   packet size, numbers of clients, backcall() strategy, request conflicts,
+   system task schedule, ....
+
+   1 UDP server, 2 Clients --- Seems Good and stable!  Tx/Rx=4.5Mbps
 
 Midas Zhou
 midaszhou@yahoo.com
-------------------------------------------------------------------*/
+--------------------------------------------------------------------------*/
 #include <sys/types.h> /* this header file is not required on Linux */
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -58,9 +70,9 @@ midaszhou@yahoo.com
 Create an UDP server.
 
 @strIP:	UDP IP address.
-	If NULL, auto select by htonl(INADDR_ANY).
+	If NULL, auto selected by htonl(INADDR_ANY).
 @Port:  Port Number.
-	If NULL, auto select by system.
+	If NULL, auto selected by system.
 @domain:  If ==6, IPv6, otherwise IPv4.
 	TODO: IPv6 connection.
 Return:
@@ -171,9 +183,8 @@ NOTE:
 1. For a UDP server, the routine process always start with
    recvfrom().
 
-!!!TODO.
-1. NOW: one server <--> one client
-2. IPv6 connection.
+TODO.
+1. IPv6 connection.
 
 @userv: Pointer to an EGI_UDP_SERV.
 
@@ -199,75 +210,81 @@ int inet_udpServer_routine(EGI_UDP_SERV *userv)
 		return -2;
 	}
 
-	/* Loop service processing: TODO poll method  */
+	/*** Loop service processing: ***/
 	printf("%s: Start UDP service loop processing...\n", __func__);
 	while(1) {
-		/* Block recv */
+		/* ---- UDP Server: NON_Blocking recvfrom() ---- */
                 /*  MSG_DONTWAIT (since Linux 2.2)
                  *  Enables  nonblocking  operation; if the operation would block, EAGAIN or EWOULDBLOCK is returned.
                  */
 		clen=sizeof(rcvCLIT); /*  Before the call, it should be initialized to adddrSENDR */
-		nrcv=recvfrom(userv->sockfd, rcvbuff, sizeof(rcvbuff), MSG_CMSG_CLOEXEC, &rcvCLIT, &clen); /* MSG_DONTWAIT, MSG_ERRQUEUE */
+		nrcv=recvfrom(userv->sockfd, rcvbuff, sizeof(rcvbuff), MSG_CMSG_CLOEXEC|MSG_DONTWAIT, &rcvCLIT, &clen); /* MSG_DONTWAIT, MSG_ERRQUEUE */
 		/* TODO: What if clen > sizeof( struct sockaddr_in ) ! */
 		if( clen > sizeof(rcvCLIT) )
 			printf("%s: clen > sizeof(rcvCLIT)!\n",__func__);
 		/* Datagram sockets in various domains permit zero-length datagrams */
 		if(nrcv<0) {
-			printf("%s: Fail to call recvfrom(), Err'%s'\n", __func__, strerror(errno));
-			if( errno!=EAGAIN && errno!=EWOULDBLOCK )
+			//printf("%s: Fail to call recvfrom(), Err'%s'\n", __func__, strerror(errno));
+
+			if( errno != EAGAIN && errno != EWOULDBLOCK )
 				return -2;
+
+			#if 0 /* --- TEST --- */
 			/* EAGAIN||EWOULDBLOCK:  go on... */
                         /* EAGAIN||EWOULDBLOCK:  go on... */
                         else if(errno==EAGAIN)          printf("%s: errno==EAGAIN.\n",__func__);
                         else if(errno==EWOULDBLOCK)     printf("%s: errno==EWOULDBLOCK.\n",__func__);
-                        /***
+
+            		/***
                          * 1. The socket is marked nonblocking and the receive operation would block,
                          * 2. or a receive timeout had been set and the timeout expired before data was received.
                          */
-
-			/* NOTE: too fast calling recvfrom() will interfere other UDP sessions...? */
-			usleep(5000);
-			continue;
+			#endif
 		}
+		/*---------------------------
                 else if(nrcv==0) {
                         usleep(10000);
                         continue;
                 }
 		else if(nrcv>0) {
-		        #if 0
-			printf("Receive from client '%s:%d' with data: '%s'\n",
-				inet_ntoa(rcvCLIT.sin_addr), ntohs(rcvCLIT.sin_port), rcvbuff);
-			#endif
-
-		    	/* Process callback: Pass received data and get next send data */
-			if(userv->callback) {
-
-				/***  CALLBACK ( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
-                                 *                     struct sockaddr_in *sndAddr,       char *sndBuff, int *sndSize);
-				 *   Pass out: rcvCLIT, rcvbuff, rcvsize
-				 *   Take in:  sndCLIT, sndbuff, sndsize
-				 */
-				sndsize=0; /* reset first */
-				userv->callback(&rcvCLIT, rcvbuff, nrcv,  &sndCLIT, sndbuff, &sndsize);
-
-		                /* Send data to server */
-				clen=sizeof(sndCLIT); /* Always SAME here!*/
-				if( sndsize>0 )
-	        		        nsnd=sendto(userv->sockfd, sndbuff, sndsize, 0, &sndCLIT, clen); /* flags: MSG_CONFIRM, MSG_DONTWAI */
-        	        		if(nsnd<0){
-                	        		printf("%s: Fail to sendto() data to client '%s:%d', Err'%s'\n",
-								__func__, inet_ntoa(sndCLIT.sin_addr), ntohs(sndCLIT.sin_port), strerror(errno));
-		                	        //GO ON... return -3;
-        		        	}
-	        	        	else if(nsnd!=sndsize) {
-        	        	        	printf("%s: WARNING! Send %d of total %d bytes to '%s:%d'!\n",
-								__func__, nsnd, sndsize, inet_ntoa(sndCLIT.sin_addr), ntohs(sndCLIT.sin_port) );
-	                	}
-		    	}
-
-		    	/* END one round routine.  Let client control session gap */
-		    	//usleep(500000);
 		}
+		--------------------------*/
+
+		/* ---NOW---: nrcv>0 || nrcv<0 || nrc==0 */
+
+	        #if 0 /* --- TEST --- */
+		printf("Receive from client '%s:%d' with data: '%s'\n",
+			inet_ntoa(rcvCLIT.sin_addr), ntohs(rcvCLIT.sin_port), rcvbuff);
+		#endif
+
+	    	/* Process callback: Pass received data and get next send data */
+
+		/***  CALLBACK ( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
+                 *                     struct sockaddr_in *sndAddr,       char *sndBuff, int *sndSize);
+		 *   Pass out: rcvCLIT, rcvbuff, rcvsize
+		 *   Take in:  sndCLIT, sndbuff, sndsize
+		 */
+		sndsize=0; /* reset first */
+		userv->callback(&rcvCLIT, rcvbuff, nrcv,  &sndCLIT, sndbuff, &sndsize);
+
+                /* Send data to server */
+		clen=sizeof(sndCLIT); /* Always SAME here!*/
+		if( sndsize>0 ) {
+       		        nsnd=sendto(userv->sockfd, sndbuff, sndsize, 0, &sndCLIT, clen); /* flags: MSG_CONFIRM, MSG_DONTWAI */
+        		if(nsnd<0){
+       	        		printf("%s: Fail to sendto() data to client '%s:%d', Err'%s'\n",
+						__func__, inet_ntoa(sndCLIT.sin_addr), ntohs(sndCLIT.sin_port), strerror(errno));
+                	        //GO ON... return -3;
+	        	}
+       	        	else if(nsnd!=sndsize) {
+        	        	printf("%s: WARNING! Send %d of total %d bytes to '%s:%d'!\n",
+						__func__, nsnd, sndsize, inet_ntoa(sndCLIT.sin_addr), ntohs(sndCLIT.sin_port) );
+			}
+               	}
+
+	    	/* END one round routine. sleep if NO DATA received */
+		if(nrcv<0)
+	    		usleep(5000);
 	}
 
 	return 0;
@@ -279,7 +296,10 @@ A TEST callback routine for UPD server.
 1. Tasks in callback function should be simple and short, normally
 just to pass out received data to the Caller, and take in data to
 the UDP server.
-2. The counter is for one client scenario!
+2. In this TESTcallback, the server do the 'count+1' job, and then
+   respond the count result to the client! There may be several
+   clients, but OK, it always send to the sndAddr=rcvAddr!
+
 
 @rcvAddr:       Client address, from which rcvData was received.
 @rcvData:       Data received from rcvAddr
@@ -296,18 +316,18 @@ Return:
 int inet_udpServer_TESTcallback( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
                                        struct sockaddr_in *sndAddr, 	  char *sndBuff, int *sndSize)
 {
-	char buff[EGI_MAX_UDP_PDATA_SIZE];
 	int  psize=EGI_MAX_UDP_PDATA_SIZE; /* EGI_MAX_UDP_PDATA_SIZE=1024;  UDP packet payload size, in bytes. */
+	char buff[psize];
 	char *pt=NULL;
 	unsigned int clitcount;	      /* Counter in Client message */
-	static unsigned int count=0;  /* Counter for received packets, start from 1 */
+	//static unsigned int count=0;  /* Counter for received packets, start from 1 */
 	static struct sockaddr_in tmpAddr={0};
 
-	/* Counts */
-	count++;
-
-	/* Clear data buff */
-	memset(buff,0,psize);
+	/* Only if received data */
+	if( rcvSize < 0) {
+		*sndSize=0;
+		return 0;
+	}
 
 	/* Check whether sender's addres changes! */
 	if(rcvAddr->sin_port != tmpAddr.sin_port || rcvAddr->sin_addr.s_addr != tmpAddr.sin_addr.s_addr ) {
@@ -316,19 +336,28 @@ int inet_udpServer_TESTcallback( const struct sockaddr_in *rcvAddr, const char *
 	}
 
 	/* ---- 1. Take data from UDP server ---- */
+
+	/*  Process/Prepare send data */
 	/* Get data */
 	memcpy(buff, rcvData, rcvSize);
 
-	/*  Process/Prepare send data */
-	buff[sizeof(buff)-1]=0; /* set EOF */
+	/* For test purpose only, to set an EOF for string. so we may NOT need to memset(buff,0,psize)  */
+	if(psize>1024)
+		buff[1024]=0;
+	else
+		buff[psize-1]=0; /* set EOF */
+
+	/* Get count in client message and respond with clitcount+1. */
         pt=strstr(buff,"=");
         if(pt!=NULL) {
                   clitcount=strtoul(pt+1,NULL,10);
-                  //sprintf(buff,"Received count=%u", clitcount);
-		  sprintf(buff,"clitcount=%u, svrcount=%u   --- drops=%d ---", clitcount, count, clitcount-count);
+		  //sprintf(buff,"clitcount=%u, svrcount=%u   --- drops=%d ---", clitcount, count, clitcount-count);
+                  sprintf(buff,"Respond count=%u", clitcount+1);
         }
-        else
-                 sprintf(buff,"Received count=?");
+        else {
+                 //sprintf(buff,"Received count=?");
+                  sprintf(buff,"Respond count=%u", clitcount+1);  /* Old clitcount */
+	}
 
 	/* ---- 2. Pass data to UDP server ---- */
 	/* 1k packet payload */
@@ -343,9 +372,9 @@ int inet_udpServer_TESTcallback( const struct sockaddr_in *rcvAddr, const char *
 Create an UDP client.
 
 @strIP:	UDP IP address.
-	If NULL, auto select by htonl(INADDR_ANY).
+	If NULL, auto selected by htonl(INADDR_ANY).
 @Port:  Port Number.
-	If NULL, auto select by system.
+	If NULL, auto selected by system.
 @domain:  If ==6, IPv6, otherwise IPv4.
 	TODO: IPv6 connection.
 Return:
@@ -482,7 +511,7 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
         /* Get sock addr length */
         svrlen=sizeof(typeof(uclit->addrSERV));
 
-	/* Loop service processing: TODO poll method  */
+	/*** Loop service processing ***/
 	printf("%s: Start UDP client loop processing...\n", __func__);
 	nrcv=0; /* Reset it first */
 	while(1) {
@@ -511,7 +540,7 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
 
 		}
 
-		/* Block recvfrom() */
+		/* ---- UDP Client: Blocking recvfrom() ---- */
                 /*  MSG_DONTWAIT (since Linux 2.2)
                  *  Enables  nonblocking  operation; if the operation would block, EAGAIN or EWOULDBLOCK is returned.
                  */
@@ -554,12 +583,15 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
 }
 
 
-/*-----------------------------------------------------------------
+/*-------------------------------------------------------------------
 A TEST callback routine for UPD client.
 1. Tasks in callback function should be simple and short, normally
-just to pass out received data to the Caller, and take in data to
-the UDP client.
-2. The counter is for one client scenario!
+   just to pass out received data to the Caller, and take in data to
+   the UDP client to send out.
+2. In this TESTcallback, the client just bounce backe received count
+   number, and let the server do 'count++' job. If received count
+   number is NOT as expected svrcount=count+1, then a packet must have
+   been dropped/missed.
 
 @rcvAddr:       Server/Sender address, from which rcvData was received.
 @rcvData:       Data received from rcvAddr
@@ -571,27 +603,55 @@ the UDP client.
 Return:
 	0	OK
 	<0	Fails
-------------------------------------------------------------------*/
+--------------------------------------------------------------------*/
 int inet_udpClient_TESTcallback( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
                                         	  		          char *sndBuff, int *sndSize )
 {
-	char buff[EGI_MAX_UDP_PDATA_SIZE];
 	int  psize=EGI_MAX_UDP_PDATA_SIZE; /* EGI_MAX_UDP_PDATA_SIZE=1024;  UDP packet payload size, in bytes. */
-	static unsigned int count=0;  	   /* Counter for sended packets, start from 1 */
+	char buff[psize];
+	static unsigned int count=0;  	   /* Counter for sended packets, start from 0, the  server do the 'count+1' job! */
+	unsigned int svrcount=0;	   /* count from the server */
+	char *pt=NULL;
+	int miss=0;			   /* number of droped or delayed packets */
+
+	/* Only received data, Init. rcvSize=0  */
+	if( rcvSize<0 ) {
+		return 0;
+	}
 
 	/* ---- 1. Take data from UDP client ---- */
 	/* Get data */
 	if( rcvSize>0 ) {
-		memcpy(buff, rcvData, rcvSize);
-		buff[sizeof(buff)-1]=0; /* set EOF as limit */
+		memcpy(buff, rcvData, rcvSize);  /* Server set EOF */
                 printf("%d bytes from server '%s:%d' with data: '%s'\n",
                              	rcvSize, inet_ntoa(rcvAddr->sin_addr), ntohs(rcvAddr->sin_port), buff);
+
+		/* Extract count from the server, the server do the 'count+1' job! */
+        	pt=strstr(buff,"=");
+        	if(pt!=NULL) {
+                  	svrcount=strtoul(pt+1,NULL,10);
+
+			/* Check drops */
+			if(svrcount != count+1)
+				miss++;
+
+			/* Bounce back to server, who will do the 'count+1' job. */
+			count=svrcount;
+
+			printf("Received svrcount=%d, --- miss:%d ---\n", svrcount,miss);
+		}
+		/* ELSE: re_send count */
 	}
 
 	/* Process/Prepare send data */
-        memset(buff,0,psize);
-        sprintf(buff,"Hello from client, count=%d", ++count); /* start from 1 */
-        printf("Send count=%d ...\n", count);
+        //Set EOF instead, memset(buff,0,psize);
+        /* For test purpose only, to set an EOF for string. so we may NOT need to memset(buff,0,psize). */
+        if(psize>1024)
+                buff[1024]=0;
+        else
+                buff[psize-1]=0; /* set EOF */
+
+        sprintf(buff,"Hello from client, count=%d. --- miss:%d ---", count, miss); /* start from 0 */
 
 	/* ---- 2. Pass data to UDP client ---- */
 	*sndSize=psize;
