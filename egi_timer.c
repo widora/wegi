@@ -8,6 +8,26 @@ NOTE:
    as egi_sleep() and tm_delay() permanently!???
 2. Tick alarm signal may conflic with other app thread!
 
+
+ 		(--- Type of: time_t, suseconds_t ---)
+time_t	=-> long
+suseconds_t =-> long
+
+linux/types.h:69:typedef __kernel_time_t		time_t;
+uapi/asm-generic/posix_types.h:88:typedef __kernel_long_t	__kernel_time_t;
+
+linux/types.h:24:typedef __kernel_suseconds_t	suseconds_t;
+uapi/linux/time.h:17:	__kernel_suseconds_t	tv_usec;
+uapi/asm-generic/posix_types.h:40:typedef  __kernel_long_t	__kernel_suseconds_t;
+
+uapi/asm-generic/posix_types.h:14:typedef long		__kernel_long_t;
+
+
+
+TODO:
+	--- Critical ---
+1. time_t overflow for 2038 YEAR problem.
+
 Midas Zhou
 -----------------------------------------------------------------*/
 #include <signal.h>
@@ -335,4 +355,197 @@ void egi_sleep(unsigned char fd, unsigned int s, unsigned int ms)
 	}while( err < 0 && errno==EINTR ); 	      /* Ingore any signal */
 
 #endif
+}
+
+
+/*-----------------------------------
+Start a clock, record tm_start.
+Return:
+	0	OK
+	<0	Fails
+------------------------------------*/
+int egi_clock_start(EGI_CLOCK *eclock)
+{
+	int ret=0;
+
+	/* Check status */
+	if(eclock==NULL)
+		return -1;
+
+	switch(eclock->status)
+	{
+		case ECLOCK_STATUS_RUNNING:
+	     		printf("%s: ECLOCK is running already!\n",__func__);
+			ret=-2;
+			break;
+		case ECLOCK_STATUS_PAUSE:
+	     		//printf("%s: ECLOCK is paused, start to activate and continue...\n",__func__);
+			/* Record tm_start and set status */
+			if( gettimeofday(&eclock->tm_start,NULL)<0 )
+				return -3;
+			/* Reset status */
+			eclock->status=ECLOCK_STATUS_RUNNING;
+                        break;
+		case ECLOCK_STATUS_IDLE:
+		case ECLOCK_STATUS_STOP:
+			/* Reset tm_cost */
+			eclock->tm_cost.tv_sec=0;
+			eclock->tm_cost.tv_usec=0;
+			/* Record tm_start and set status */
+			if( gettimeofday(&eclock->tm_start,NULL)<0 )
+				return -3;
+			/* Reset status */
+			eclock->status=ECLOCK_STATUS_RUNNING;
+		     	break;
+		default:
+		     	printf("%s: ECLOCK status unrecognizable!\n",__func__);
+			ret=-4;
+			break;
+	}
+
+	return ret;
+}
+
+/*-----------------------------------------------
+Stop a clock, record tm_end and update tm_cost.
+Return:
+	0	OK
+	<0	Fails
+------------------------------------------------*/
+int egi_clock_stop(EGI_CLOCK *eclock)
+{
+	int ret=0;
+	suseconds_t dus;
+
+	/* Check status */
+	if(eclock==NULL)
+		return -1;
+
+	switch(eclock->status)
+	{
+		case ECLOCK_STATUS_IDLE:
+		     	printf("%s: ECLOCK status is IDLE!\n",__func__);
+		     	ret=-2;
+		     	break;
+		case ECLOCK_STATUS_RUNNING:
+			/* Record tm_end and set status */
+			if( gettimeofday(&eclock->tm_end,NULL)<0 )
+				return -3;
+
+			/* Update tm_cost */
+			#if 0  ///////////
+			dus=eclock->tm_end.tv_usec - eclock->tm_start.tv_usec;
+			if(dus>0) {
+				eclock->tm_cost.tv_usec=dus;
+				eclock->tm_cost.tv_sec=eclock->tm_end.tv_sec - eclock->tm_start.tv_sec;
+			}
+			else {
+				eclock->tm_cost.tv_usec=1000000+dus;
+				eclock->tm_cost.tv_sec=eclock->tm_end.tv_sec - eclock->tm_start.tv_sec-1;
+			}
+			#else	/////////////
+		        timersub(&eclock->tm_end, &eclock->tm_start, &eclock->tm_cost);
+			#endif  /////////////
+			/* Reset status */
+			eclock->status=ECLOCK_STATUS_STOP;
+			break;
+		case ECLOCK_STATUS_PAUSE:
+		     	printf("%s: Stop a paused ECLOCK!\n",__func__);
+			/* Reset status */
+                        eclock->status=ECLOCK_STATUS_STOP;
+                        break;
+		case ECLOCK_STATUS_STOP:
+		     	printf("%s: ECLOCK already paused/stoped!\n",__func__);
+		     	break;
+
+		default:
+		     	printf("%s: ECLOCK status unrecognizable!\n",__func__);
+			ret=-3;
+			break;
+	}
+
+	return ret;
+}
+
+
+/*-----------------------------------------------
+Pause a clock, recoder tm_end and update tm_cost.
+Return:
+	0	OK
+	<0	Fails
+------------------------------------------------*/
+int egi_clock_pause(EGI_CLOCK *eclock)
+{
+	int ret=0;
+	suseconds_t dus;
+
+	/* Check status */
+	if(eclock==NULL)
+		return -1;
+
+	switch(eclock->status)
+	{
+		case ECLOCK_STATUS_IDLE:
+		     	printf("%s: ECLOCK status is IDLE!\n",__func__);
+		     	ret=-2;
+		     	break;
+		case ECLOCK_STATUS_RUNNING:
+			/* Record tm_end and set status */
+			if( gettimeofday(&eclock->tm_end,NULL)<0 )
+				return -3;
+			/* Update tm_cost */
+			dus=eclock->tm_end.tv_usec - eclock->tm_start.tv_usec;
+			if(dus>0) {
+				eclock->tm_cost.tv_usec += dus;
+				eclock->tm_cost.tv_sec += eclock->tm_end.tv_sec - eclock->tm_start.tv_sec;
+			}
+			else {
+				eclock->tm_cost.tv_usec += 1000000+dus;
+				eclock->tm_cost.tv_sec += eclock->tm_end.tv_sec - eclock->tm_start.tv_sec-1;
+			}
+			/* Reset status */
+			eclock->status=ECLOCK_STATUS_PAUSE;
+			break;
+		case ECLOCK_STATUS_PAUSE:
+		     	printf("%s: ECLOCK already paused!\n",__func__);
+                        break;
+		case ECLOCK_STATUS_STOP:
+		     	printf("%s: ECLOCK already stopped!\n",__func__);
+		     	ret=-4;
+		     	break;
+
+		default:
+		     	printf("%s: ECLOCK status unrecognizable!\n",__func__);
+			ret=-5;
+			break;
+	}
+
+	return ret;
+}
+
+/*--------------------------------------------------------
+Read tm_end - tm_start, in us.(microsecond)
+
+Note:
+1. TEST Widora_NEO:
+   Under light CPU load condition, average Max. error is 100us.
+   Test usleep() will occasionally interrupted by sys schedule.
+
+Return:
+	>=0	OK, time length in us.
+	<0	Fails
+---------------------------------------------------------*/
+long egi_clock_readCostUsec(EGI_CLOCK *eclock)
+{
+	long  tus_cost;
+
+	/* Check status */
+	if(eclock==NULL) return -1;
+	if( !(eclock->status&(ECLOCK_STATUS_STOP|ECLOCK_STATUS_PAUSE)) ) {
+		printf("%s: ECLOCK status error, you must stop/pause the clock first!\n",__func__);
+		return -2;
+	}
+
+	tus_cost=eclock->tm_cost.tv_sec*1000000+eclock->tm_cost.tv_usec;
+	return tus_cost;
 }

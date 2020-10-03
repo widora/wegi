@@ -17,6 +17,24 @@ Midas Zhou
 #define TM_TICK_INTERVAL	2000 //5000  /* us */
 #define TM_DBCLICK_INTERVAL	400000 /*in us,  Max for double click   */
 
+
+/* An EGI_CLOCK: to record/estimate time pasted(timeout). NOT for measuring time cost for a process!!! */
+typedef struct
+{
+        #define ECLOCK_STATUS_IDLE      0          /* Default, NOT activated */
+        #define ECLOCK_STATUS_RUNNING   1          /* tm_start is set, tm_end NOT yet */
+        #define ECLOCK_STATUS_PAUSE     (1<<1)     /* tm_start, tm_end are both set. tm_cost updated. to be continued.. */
+        #define ECLOCK_STATUS_STOP      (1<<2)     /* tm_start, tm_end are both set. tm_cost updated */
+
+        int  status;
+        struct timeval tm_start; /* Start time */
+        struct timeval tm_end;   /* End time */
+	struct timeval tm_cost; /* Addup of running time, with each duration of tm_end - tm_start. */
+        struct timeval tm_dur;   /* Preset time duration as tm_end - tm_start. */
+
+} EGI_CLOCK;
+
+
 /* shared data */
 extern struct itimerval tm_val, tm_oval;
 extern const char *str_weekday[];
@@ -42,5 +60,12 @@ bool tm_pulseus(long long unsigned int gap, unsigned int t); /* gap(us) */
 unsigned long tm_diffus(struct timeval t_start, struct timeval t_end);
 int tm_signed_diffms(struct timeval tm_start, struct timeval tm_end);
 void egi_sleep(unsigned char fd, unsigned int s, unsigned int ms);
+
+/* EGI CLOCK */
+int egi_clock_start(EGI_CLOCK *eclock);
+int egi_clock_stop(EGI_CLOCK *eclock);
+int egi_clock_pause(EGI_CLOCK *eclock);
+long egi_clock_readCostUsec(EGI_CLOCK *eclock);
+
 
 #endif
