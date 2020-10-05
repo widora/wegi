@@ -56,15 +56,15 @@ int main(int argc, char **argv)
 	char *ifname=NULL; //"apcli0";
 	unsigned long long Brecv[2]={0};   	/* Total bytes received */
 	unsigned long long Btrans[2]={0};   	/* Total bytes transmitted */
-	int RXBps=0,TXBps=0; 	/* Traffic speed bytes per second */
+	long long RXBps=0,TXBps=0; 		/* Traffic speed bytes per second */
 	int st=300;		/* Sample total in buffer */
 	int step=320/st;	/* Graph unit,sample gap */
 	//int sn=0;		/* Sample buff index */
-	int strans[st];		/* Speed of transmitting, buffer */
-	int srecv[st];		/* Speed of receiving, buffer */
+	long long strans[st];		/* Speed of transmitting, buffer */
+	long long srecv[st];		/* Speed of receiving, buffer */
 	//int srecvmax=1;		/* NOT 0 */
-	int smax=1;		/* Max speed in buff */
-	int smax_is_tx=false;
+	long long smax=1;		/* Max speed in buff */
+	bool smax_is_tx=false;
 	int xs;			/* X coordinate */
 	float avgload[3]={0};
 	int vload[st];
@@ -310,19 +310,22 @@ int main(int argc, char **argv)
 				printf("Fail to read net traffic!\n");
 			}
 			else {
-				printf("read_traffic: %llu Bps\n",Brecv[1]);
+				printf("read_traffic Brecv: %llu Bps\n",Brecv[1]);
+				printf("read_traffic Btrans: %llu Bps\n",Btrans[1]);
 
 				/* --- 1. Calculate receiving speed --- */
-				if(Brecv[0]!=0)
+				if(Brecv[0]!=0) {
 					RXBps=Brecv[1]-Brecv[0];
+					if(RXBps<0) printf("!!! RXBps<0!\n");
+				}
 				if(RXBps==0)  /* Also for Brecv[0]==0 */
-					RXBps=1;  /*  NOT 0 */
+					RXBps=1;  /*  NOT 0, div  */
 
 				/* Update Brecv[0] */
 				Brecv[0]=Brecv[1];
 
 				/* Shift srecv data */
-				memmove(srecv+1, srecv, (st-1)*sizeof(typeof(srecv[0])));
+				memmove(srecv+1, srecv, (st-1)*sizeof(srecv[0])); //typeof(srecv[0])));
 
 				/* Push new data */
 				srecv[0]=RXBps;
@@ -420,8 +423,8 @@ int main(int argc, char **argv)
 		fbset_color(WEGI_COLOR_GREEN);
 		for(k=0; k<st-1; k++)
 			draw_wline_nc(&gv_fb_dev, vx[k], gh-srecv[k]*gh/smax+tgap, vx[k+1], gh-srecv[k+1]*gh/smax+tgap, 1);
-		if(RXBps>1024.0*1024.0)
-			sprintf(strtmp,"RX: %.2fM", RXBps/1024.0/1024.0);
+		if(1.0*RXBps > 1024.0*1024.0)
+			sprintf(strtmp,"RX: %.2fM", 1.0*RXBps/1024.0/1024.0);
 		else
 			sprintf(strtmp,"RX: %.1fk", RXBps/1024.0);
 	        FTsymbol_writeFB(strtmp, 18, 18, WEGI_COLOR_LTGREEN, 5, 3);

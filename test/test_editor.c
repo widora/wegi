@@ -57,17 +57,11 @@ Note:
    happen simutaneously!  TODO: To avoid?
 
 TODO:
-x1. If any control code other than '\n' put in txtbuff[], strange things
-   may happen...  \034	due to UFT-8 encoding.   ---Avoid it. OK
-x2. Check whether txtbuff[] overflows.  ---OK
-x3. English words combination.
-x4. Mutex lock for chmap data. Race condition between FTcharmap_writeFB and
-   FTcharmap_locate_charPos(). OR put mouse actions in editing loop. ---OK
-x5. Remove (lines) in charmap_writeFB(), use chmap->maxlines instead. ---Ok
-x6. The typing cursor can NOT escape out of the displaying window. it always
-   remains and blink in visible area.	---OK
-7. IO buffer/continuous key press/ slow writeFB response.
-
+1. English words combination.
+2. IO buffer/continuous key press/ slow writeFB response.
+3. If two UniGroups have same wcodes[] and differen typings,  Only one will
+   be saved in group_test.txt/unihangroups_pinyin.dat!
+   Example:  重重 chong chong   重重 zhong zhong
 
 Midas Zhou
 midaszhou@yahoo.com

@@ -13,6 +13,12 @@ Example:
 
 	( Use test_garph.c to show wifi interface speed )
 
+Note:
+1. This test MAY hamper other wifi devices!
+2. When a Server to Client one_way UDP transmission is established,
+   you can quit the client end, the Server will NOT stop transmitting!
+   for it has got Client address!
+
 Midas Zhou
 midaszhou@yahoo.com
 https://github.com/widora/wegi
@@ -28,6 +34,7 @@ https://github.com/widora/wegi
 #include <stdlib.h>
 #include <stdbool.h>
 #include <egi_inet.h>
+#include <egi_timer.h>
 
 enum transmit_mode {
 	mode_2Way	=0,  /* Server and Client PingPong mode */
@@ -35,13 +42,15 @@ enum transmit_mode {
 	mode_C2S	=2,  /* Client to server only */
 };
 static enum transmit_mode trans_mode;
+static bool verbose_on;
 
 void show_help(const char* cmd)
 {
-	printf("Usage: %s [-hsca:p:m:] \n", cmd);
+	printf("Usage: %s [-hscva:p:m:] \n", cmd);
        	printf("        -h   help \n");
    	printf("        -s   work as UDP Server\n");
    	printf("        -c   work as UDP Client (default)\n");
+	printf("	-v   verbose to print rcvSize\n");
 	printf("	-a:  IP address\n");
 	printf("	-p:  Port number\n");
 	printf("	-m:  Transmit mode, 0-Twoway(default), 1-S2C, 2-C2S \n");
@@ -61,23 +70,25 @@ int main(int argc, char **argv)
 	unsigned short int port=0; 	/* Default 0, to be selected by system */
 
 	/* Parse input option */
-	while( (opt=getopt(argc,argv,"hsca:p:m:"))!=-1 ) {
+	while( (opt=getopt(argc,argv,"hscva:p:m:"))!=-1 ) {
 		switch(opt) {
 			case 'h':
 				show_help(argv[0]);
 				exit(0);
 				break;
 			case 's':
-				printf("Set as UDP Server.\n");
 				SetUDPServer=true;
 				break;
 			case 'c':
-				printf("Set as UDP Client.\n");
 				SetUDPServer=false;
+				break;
+			case 'v':
+				printf("Set verbose ON.\n");
+				verbose_on=true;
 				break;
 			case 'a':
 				strAddr=strdup(optarg);
-				printf("Set addres='%s'\n",strAddr);
+				printf("Set address='%s'\n",strAddr);
 				break;
 			case 'p':
 				port=atoi(optarg);
@@ -94,6 +105,7 @@ int main(int argc, char **argv)
 
   /* A. --- Work as a UDP Server */
   if( SetUDPServer ) {
+	printf("Set as UDP Server.\n");
 
         /* Create UDP server */
         EGI_UDP_SERV *userv=inet_create_udpServer(strAddr, port, 4); //8765, 4);
@@ -108,9 +120,11 @@ int main(int argc, char **argv)
 
         /* Free and destroy */
         inet_destroy_udpServer(&userv);
-
+  }
   /* B. --- Work as a UDP Client */
-  } else {
+  else {
+	printf("Set as UDP Client.\n");
+
 	if( strAddr==NULL || port==0 ) {
 		printf("Please provide Server IP address and port number!\n");
 		show_help(argv[0]);
@@ -157,8 +171,24 @@ Return:
 int Server_Callback( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
                            struct sockaddr_in *sndAddr,       char *sndBuff, int *sndSize)
 {
-	if(rcvSize>0)
-		printf("Received %d bytes data.\n", rcvSize);
+
+	#if 0	/* NOT necessary NOW!  	 If a new client */
+	static int toksize=0;
+	if( toksize==0 && rcvSize>0 ) {
+		printf("New client from: '%s:%d'.\n", inet_ntoa(rcvAddr->sin_addr), ntohs(rcvAddr->sin_port));
+		toksize=1;
+	}
+	#endif
+
+	/* Check rcvSize */
+	if(rcvSize>0) {
+		if(verbose_on)
+			printf("Received %d bytes data.\n", rcvSize);
+	}
+	else if(rcvSize==0) {
+		/* A Client probe from EGI_UDP_CLIT means a client is created! */
+		printf("Client Probe from: '%s:%d'.\n", inet_ntoa(rcvAddr->sin_addr), ntohs(rcvAddr->sin_port));
+	}
 
 	/* If Client_to_Server only, reply a small packet to keep alive. */
 	if(trans_mode==mode_C2S) {
@@ -169,9 +199,10 @@ int Server_Callback( const struct sockaddr_in *rcvAddr, const char *rcvData, int
 
 	/* TEST FOR SPEED: whatever, just request to send back ... */
 	*sndSize=EGI_MAX_UDP_PDATA_SIZE;
-	/* Use default rcvAddr data in the UDP Server's buffer */
+	/* Use default rcvAddr data in EGI UDP SERV buffer */
 	*sndAddr=*rcvAddr;
-	/* If rcvSize<0, then rcvAddr would be meaningless, whaterver, use default value in the UDP Server's. */
+	/* If rcvSize<0, then rcvAddr would be meaningless, whaterver, use default value in EGI UDP SERV.
+	 * However, if *rcvAddr is meaningless, EGI_UDP_SERV will NOT send! */
 
 	return 0;
 }
@@ -192,8 +223,11 @@ Return:
 int Client_Callback( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
                                                               char *sndBuff, int *sndSize )
 {
-	if(rcvSize>0)
-		printf("Received %d bytes data.\n", rcvSize);
+	/* Check rcvSize */
+	if(rcvSize>0) {
+		if(verbose_on)
+			printf("Received %d bytes data.\n", rcvSize);
+	}
 
 	/* If Server_to_Client only. Reply a small packet to keep alive. */
 	if(trans_mode==mode_S2C) {
@@ -203,7 +237,7 @@ int Client_Callback( const struct sockaddr_in *rcvAddr, const char *rcvData, int
 
 	/* TEST FOR SPEED: whatever, just request to send back ... */
 	*sndSize=EGI_MAX_UDP_PDATA_SIZE;
-	/* Use default data in the UDP Server's buffer */
+	/* Use default data in EGI UDP CLIT buffer */
 
 	return 0;
 }
