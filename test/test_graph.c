@@ -411,8 +411,8 @@ int main(int argc, char **argv)
 
 		/* Draw logo */
 		if(logo) {
-			egi_imgbuf_windisplay2( logo, &gv_fb_dev,
-						  0, 0, gv_fb_dev.vinfo.xres-100, gv_fb_dev.vinfo.yres-45,
+			egi_imgbuf_windisplay( logo, &gv_fb_dev, -1,
+						  0, 0, gv_fb_dev.pos_xres-100, gv_fb_dev.pos_yres-45,
 								logo->width, logo->height);
 		}
 
@@ -462,7 +462,7 @@ int main(int argc, char **argv)
 		}
 		/* 6. Write Cliets number */
 		else {
-			sprintf(strtmp,"Clients: %d", iw_get_clients());
+			sprintf(strtmp,"Clients: %d", iw_get_clients(ifname));
 		        FTsymbol_writeFB(strtmp, 18, 18, WEGI_COLOR_WHITE, 320-95, 3);
 		}
 

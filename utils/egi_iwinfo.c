@@ -360,7 +360,7 @@ Note:
 2. Data in the listed interface MAY be counted repeatedly, Example: eth0 and br-lan.
 
 @ifname:	Net interface name.
-		If ifname==NULL, count all interfaces. ( Maybe repeatedly)
+		If ifname==NULL, count all interfaces. ( !!!WARNING!!! Some interfaces may count same traffic stream! )
 @recv:		Pointer to pass total received data, in Bytes.
 @trans:		Pointer to pass total stransmitted data, in Bytes.
 
@@ -485,7 +485,7 @@ int iw_read_cpuload( float *loadavg )
 
 
 /*----------------------------------------------------------------
-Read /tmp/dhcp.leases to get connected clients.
+To get connected clients/guests.
 
 # cat /tmp/dhcp.leases
 1599600031 10:e7:cf:f8:af:e1 192.168.8.177 Intel *
@@ -497,20 +497,34 @@ IP address     HW type     Flags       HW address            Mask     Device
 192.168.4.4    0x1         0x0         4d:4e:ed:35:28:b6     *        br-lan
 192.168.4.5    0x1         0x2         10:77:66:66:ee:ee     *        br-lan
 
+ARP Flag values ( include/linux/if_arp.h )
+#define ATF_COM         0x02            // completed entry (ha valid)
+#define ATF_PERM        0x04            // permanent entry
+#define ATF_PUBL        0x08            // publish entry
+#define ATF_USETRAILERS 0x10            // has requested trailers
+#define ATF_NETMASK     0x20            // want to use a netmask (only for proxy entries)
+#define ATF_DONTPUB     0x40            // don't answer this addresses
+
+
+@ifname:	Net interface name.
+		if NULL, include all.
+
 Return:
 	>=0  	Number of connected clients
 	<0	Fails
 -----------------------------------------------------------------*/
-int iw_get_clients(void)
+int iw_get_clients(const char *ifname)
 {
 	FILE *fil;
 	int m;
 	char buff[256];
-	char *delim=" 	"; /* Delimiters: Space,TAB */
+	char *delim=" 	\n\r"; /* Delimiters: Space,TAB, and to get rid of '\n\r' for the last word! */
 	int nclts=0;
 	char *pt;
 
-#if 0
+#if 0  /*** OPTION_1: Read DHCP lease list
+        * Note: A client in the list MAY already be off-line, just before its lease time expires!
+	*/
 	fil=fopen("/tmp/dhcp.leases","re");
         if(fil==NULL) {
 		printf("%s: Fail to open '/tmp/dhcp.leases': %s\n", __func__, strerror(errno));
@@ -521,7 +535,9 @@ int iw_get_clients(void)
 		if( fgets(buff, sizeof(buff), fil) )
 			nclts++;
 	}
-#else
+#else   /*** OPTION_2: Read ARP list
+	 * Note: A device in the ARP list MAY not be your target client, check column 'Device' in the list!
+	 */
 	fil=fopen("/proc/net/arp","re");
         if(fil==NULL) {
 		printf("%s: Fail to open '/proc/net/arp': %s\n", __func__, strerror(errno));
@@ -532,11 +548,23 @@ int iw_get_clients(void)
 	fgets(buff, sizeof(buff), fil);
 
 	while(!feof(fil)) {
-		if( fgets(buff, sizeof(buff), fil) ) {
+		if( fgets(buff, sizeof(buff), fil) ) {   /* parse each entry line. */
 			pt=strtok(buff,delim);
 	                for(m=0; pt!=NULL && m<6; m++) {  /* Separate linebuff into 6 words by SPACE */
-				if( m==2 && strtol(pt,NULL,16)!=0 )
-					nclts++;
+				/* 1. Check column 'Flags' first */
+				if( m==2 ) {
+					if( strtol(pt,NULL,16)==0 )
+						break;  /* Skip to check next entry ... */
+				}
+				/* 2. Check column 'Device', to confirm with ifname */
+				else if( m==5 ) {
+					if( ifname==NULL )
+						nclts++;
+					else if( strcmp(pt,ifname)==0 ) {
+						nclts++;
+					}
+				}
+				/* 3. Fetch next word */
                         	pt=strtok(NULL, delim);
 			}
 		}
