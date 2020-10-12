@@ -42,7 +42,7 @@ Midas Zhou
 #include "egi_fbgeom.h"
 #include "dict.h"
 
-#define EGI_ENABLE_TICK  1	/* Tick alarm signal may conflic with other app thread! */
+#define EGI_ENABLE_TICK  0	/* Tick alarm signal may conflic with other app thread! */
 
 struct itimerval tm_val, tm_oval;
 
@@ -358,12 +358,16 @@ void egi_sleep(unsigned char fd, unsigned int s, unsigned int ms)
 }
 
 
-/*-----------------------------------
+/*---------------------------------------------
 Start a clock, record tm_start.
+Note:
+1. tm_cost will be cleared if prevous status
+   is ECLOCK_STATUS_STOP.
+
 Return:
 	0	OK
 	<0	Fails
-------------------------------------*/
+---------------------------------------------*/
 int egi_clock_start(EGI_CLOCK *eclock)
 {
 	int ret=0;
@@ -389,11 +393,19 @@ int egi_clock_start(EGI_CLOCK *eclock)
 		case ECLOCK_STATUS_IDLE:
 		case ECLOCK_STATUS_STOP:
 			/* Reset tm_cost */
+			#if 0
 			eclock->tm_cost.tv_sec=0;
 			eclock->tm_cost.tv_usec=0;
+			#else
+			timerclear(&eclock->tm_cost);
+			#endif
+
 			/* Record tm_start and set status */
-			if( gettimeofday(&eclock->tm_start,NULL)<0 )
-				return -3;
+			if( gettimeofday(&eclock->tm_start,NULL)<0 ) {
+				ret=-3;
+				break;
+			}
+
 			/* Reset status */
 			eclock->status=ECLOCK_STATUS_RUNNING;
 		     	break;
@@ -415,7 +427,6 @@ Return:
 int egi_clock_stop(EGI_CLOCK *eclock)
 {
 	int ret=0;
-	suseconds_t dus;
 
 	/* Check status */
 	if(eclock==NULL)
@@ -433,19 +444,8 @@ int egi_clock_stop(EGI_CLOCK *eclock)
 				return -3;
 
 			/* Update tm_cost */
-			#if 0  ///////////
-			dus=eclock->tm_end.tv_usec - eclock->tm_start.tv_usec;
-			if(dus>0) {
-				eclock->tm_cost.tv_usec=dus;
-				eclock->tm_cost.tv_sec=eclock->tm_end.tv_sec - eclock->tm_start.tv_sec;
-			}
-			else {
-				eclock->tm_cost.tv_usec=1000000+dus;
-				eclock->tm_cost.tv_sec=eclock->tm_end.tv_sec - eclock->tm_start.tv_sec-1;
-			}
-			#else	/////////////
 		        timersub(&eclock->tm_end, &eclock->tm_start, &eclock->tm_cost);
-			#endif  /////////////
+
 			/* Reset status */
 			eclock->status=ECLOCK_STATUS_STOP;
 			break;
@@ -491,18 +491,31 @@ int egi_clock_pause(EGI_CLOCK *eclock)
 		     	break;
 		case ECLOCK_STATUS_RUNNING:
 			/* Record tm_end and set status */
-			if( gettimeofday(&eclock->tm_end,NULL)<0 )
-				return -3;
+			if( gettimeofday(&eclock->tm_end,NULL)<0 ) {
+				ret=-3;
+				break;
+			}
+			#if 0
 			/* Update tm_cost */
 			dus=eclock->tm_end.tv_usec - eclock->tm_start.tv_usec;
-			if(dus>0) {
+			if(dus>=0) {
 				eclock->tm_cost.tv_usec += dus;
+				if( eclock->tm_cost.tv_usec > 999999 ) {
+					eclock->tm_cost.tv_sec += eclock->tm_cost.tv_usec/1000000;
+					eclock->tm_cost.tv_usec = eclock->tm_cost.tv_usec%1000000;
+				}
 				eclock->tm_cost.tv_sec += eclock->tm_end.tv_sec - eclock->tm_start.tv_sec;
 			}
-			else {
+			else {  /* dus<0 */
 				eclock->tm_cost.tv_usec += 1000000+dus;
 				eclock->tm_cost.tv_sec += eclock->tm_end.tv_sec - eclock->tm_start.tv_sec-1;
 			}
+			#else
+			struct timeval tm_tmp;
+		        timersub(&eclock->tm_end, &eclock->tm_start, &tm_tmp);
+		        timeradd(&eclock->tm_cost, &tm_tmp, &eclock->tm_cost);
+			#endif
+
 			/* Reset status */
 			eclock->status=ECLOCK_STATUS_PAUSE;
 			break;
@@ -525,6 +538,11 @@ int egi_clock_pause(EGI_CLOCK *eclock)
 
 /*--------------------------------------------------------
 Read tm_end - tm_start, in us.(microsecond)
+
+		!!! --- WARNING --- !!!
+A big value of tm_cost will make tus_cost overflow!
+Use this function only when you are sure that tm_cost in eclock
+is fairly small!
 
 Note:
 1. TEST Widora_NEO:

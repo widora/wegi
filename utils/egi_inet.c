@@ -68,8 +68,13 @@ struct in_addr {
    It may NOT finish sending/receiving compelete data by only one call! You have
    to check returned number of bytes with expected size of data.
 
-9. A big packet needs more/extra time/load for transmitting and coordinating!? and will be more
-   possible to interfere other WIFI devices. Select a suitable packet size!
+9. A big packet needs more/extra time/load for transmitting and coordinating!?
+   A big packet is fragmented to fit for link MTU first.
+   and will be more possible to interfere other WIFI devices. Select a suitable packet size!
+    
+
+TODO:
+1. Auto. reconnect.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -86,8 +91,8 @@ midaszhou@yahoo.com
 #include <string.h>
 #include <signal.h>
 #include <egi_inet.h>
-
-
+#include <egi_timer.h>
+#include <egi_log.h>
 
 /* ========================  INET MSGDATA Functions  ========================== */
 
@@ -269,7 +274,80 @@ int inet_msgdata_copyData(const EGI_INET_MSGDATA *msgdata, char *data)
 }
 
 
-/* ========================  Signal Handling Functions  ========================== */
+
+
+/*----------------------------------------------------------
+Receive MSGDATA from a socket, size of the MSGDATA is already
+known.
+
+@fd:		A socket descriptor.
+		Timeout and block mode set as expected.
+@msgdata:	A pointer to an EGI_INET_MSGDATA, into which
+		received data will be filled.
+
+Note:
+1. For TCP connection mode, sockfd expected to be BLOCK type.
+   For UPD mode, sockfd expected to be NON_BLOCK type ?
+
+Return (see inet_tcp_recv()):
+	>0	Socket closed.
+	0	OK, a complete MSGDATA received.
+	<0	Fails
+-----------------------------------------------------------*/
+int inet_msgdata_recv(int sockfd, EGI_INET_MSGDATA *msgdata)
+{
+	int packsize;   /* msg+data size */
+
+	if(msgdata==NULL)
+		return -1;
+
+	/* Get msgdata size */
+	packsize=inet_msgdata_getTotalSize(msgdata);
+	if( packsize < 1 )
+		return -2;
+
+	return  inet_tcp_recv(sockfd, (void *)msgdata, packsize);
+}
+
+
+/*---------------------------------------------------------
+Send a MSGDATA through a socket.
+
+@fd:		A socket descriptor.
+		Timeout and block mode set as expected.
+
+@msgdata:	A pointer to an EGI_INET_MSGDATA which will
+		be sent out.
+
+Note:
+1. For TCP connection mode, sockfd expected to be BLOCK type.
+   For UPD mode, sockfd expected to be NON_BLOCK type ?
+2. If packsize > Single TCP/UDP Max Payload, it then will be
+   fregmented by kerenl to fit for linker MTU.
+
+Return:
+	>0	Peer socket closed.
+	0	OK, a complete MSGDATA send out (to kenerl).
+	<0	Fails
+-----------------------------------------------------------*/
+int inet_msgdata_send(int sockfd, const EGI_INET_MSGDATA *msgdata)
+{
+	int packsize;   /* msg+data size */
+
+	if(msgdata==NULL)
+		return -1;
+
+	/* Get msgdata size */
+	packsize=inet_msgdata_getTotalSize(msgdata);
+	if( packsize < 1 )
+		return -2;
+
+	return  inet_tcp_send(sockfd, (void *)msgdata, packsize);
+}
+
+
+	/* ========================  Signal Handling Functions  ========================== */
+
 
 /*--------------------------------------
 	Signal handlers
@@ -341,7 +419,159 @@ int inet_default_sigAction(void)
 }
 
 
-/* ======================== TCP/UDP S/C Functions  ========================== */
+/* ======================== TCP/UDP C/S Functions  ========================== */
+
+/*----------------------------------------------------------
+Receive data from sockfd with specified size.
+
+@fd:		A socket descriptor.
+		Timeout and block mode set as expected.
+@data:		Pointer to data[]
+@packsize:	Size expected to receive.
+
+Note:
+1. For TCP connection mode, sockfd expected to be BLOCK type.
+   For UPD mode, sockfd expected to be NON_BLOCK type ?
+2. The function MAY stuck in dead loop?
+
+Return:
+	>0	Socket closed.
+	0	OK, packisze data received.
+	<0	Fails
+-----------------------------------------------------------*/
+inline int inet_tcp_recv(int sockfd, void *data, size_t packsize)
+{
+	int nrcv;	/* Number of bytes receied in one round */
+	int rcvsize;	/* accumulated size */
+
+	if(data==NULL)
+		return -1;
+	if(packsize<1)
+		return -2;
+
+#if 1 /* --------------- Loop recv(BLOCK) Method --------------- */
+	/* Big msgdata MAY need serveral rounds of recv()...*/
+	rcvsize=0;
+	while( rcvsize < packsize ) {
+		/* Expect to be BLOCK type socket for TCP link. */
+		nrcv=recv(sockfd, data+rcvsize, packsize-rcvsize, MSG_WAITALL); /* Wait all data, but still MAY fail! see man */
+		if(nrcv>0) {
+			/* count rcvsize  */
+			rcvsize += nrcv;
+
+			if( rcvsize==packsize) {
+				break; /* OK */
+			}
+			else if( rcvsize < packsize ) {
+				continue; /* -----> continue to recv remaining data */
+			}
+			else { /* rcvsize > packsize, '>' seems impossible! */
+				printf("%s: rcvsize > packsize, impossible!\n",__func__);
+				return -3;
+			}
+	        }
+        	else if(nrcv==0) {
+               		printf("%s: Peer socket closed!\n",__func__);
+			return 1;
+        	}
+	        else if(nrcv<0) {
+                	switch(errno) {
+                        	#if(EWOULDBLOCK!=EAGAIN)
+                                case EWOULDBLOCK:
+                                #endif
+                                case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
+					usleep(50000);
+					continue;  /* ---> continue to recv while() */
+					break;
+				default:
+		        	  	printf("%s: Err'%s'\n", __func__, strerror(errno));
+					return -4;
+			}
+		}
+   	}
+
+#else /* ------------- Select/Poll/Epoll Method ---------------*/
+#endif
+	return 0;
+}
+
+
+/*---------------------------------------------------------
+Send out data through a socket.
+
+@fd:		A socket descriptor.
+		Timeout and block mode set as expected.
+@data:		Pointer to data[]
+@packsize:	Size expected to send out.
+
+Note:
+1. For TCP connection mode, sockfd expected to be BLOCK type.
+   For UPD mode, sockfd expected to be NON_BLOCK type ?
+2. If packsize > Single TCP/UDP Max Payload, it then will be
+   fregmented by kerenl to fit for linker MTU.
+3. The function MAY stuck in dead loop?
+
+Return:
+	>0	Peer socket closed.
+	0	OK, data sent out (to kenerl).
+	<0	Fails
+-----------------------------------------------------------*/
+inline int inet_tcp_send(int sockfd, const void *data, size_t packsize)
+{
+	int nsnd;	/* Number of bytes sent out in one round */
+	int sndsize;	/* accumulated size */
+
+	if(data==NULL)
+		return -1;
+	if(packsize<1)
+		return -2;
+
+#if 1 /* --------------- Loop send(BLOCK) Method --------------- */
+	/* Big msgdata MAY need serveral rounds of recv()...*/
+	sndsize=0;
+	while( sndsize < packsize ) {
+		/* Expect to be BLOCK type socket for TCP link. */
+		nsnd=send(sockfd, data+sndsize, packsize-sndsize, 0); /* In connectiong_mode, flags: MSG_CONFIRM, MSG_DONTWAIT */
+		if(nsnd>0) {
+			/* count rcvsize  */
+			sndsize += nsnd;
+
+			if( sndsize==packsize) {
+				break; /* OK */
+			}
+			else if( sndsize < packsize ) {
+				continue; /* -----> continue to send remaining data */
+			}
+			else { /* sndsize > packsize, '>' seems impossible! */
+				printf("%s: sndsize > packsize, impossible!\n", __func__);
+				return -3;
+			}
+	        }
+        	else if(nsnd==0) {
+               		printf("%s: Peer socket closed!\n",__func__);
+			return 1;
+        	}
+	        else if(nsnd<0) {
+                	switch(errno) {
+                        	#if(EWOULDBLOCK!=EAGAIN)
+                                case EWOULDBLOCK:
+                                #endif
+                                case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
+					usleep(50000);
+					continue;  /* ---> continue to recv while() */
+					break;
+				default:
+		        	       	printf("%s: Err'%s'\n", __func__, strerror(errno));
+					return -4;
+			}
+		}
+   	}
+
+#else /* ------------- Select/Poll/Epoll Method ---------------*/
+#endif
+	return 0;
+}
+
 
 /*-----------------------------------------------------
 Create an UDP server.
@@ -519,30 +749,18 @@ int inet_udpServer_routine(EGI_UDP_SERV *userv)
 		/* Datagram sockets in various domains permit zero-length datagrams */
 		if(nrcv<0) {
 			//printf("%s: Fail to call recvfrom(), Err'%s'\n", __func__, strerror(errno));
+			switch( errno ) {
+                                #if(EWOULDBLOCK!=EAGAIN)
+                                case EWOULDBLOCK:
+                                #endif
+				case EAGAIN:
+					printf("%s: errno==EAGAIN/EWOULDBLOCK.\n",__func__);
+					break;
+				default:
+					return -2;
 
-			if( errno != EAGAIN && errno != EWOULDBLOCK )
-				return -2;
-
-			#if 0 /* --- TEST --- */
-			/* EAGAIN||EWOULDBLOCK:  go on... */
-                        /* EAGAIN||EWOULDBLOCK:  go on... */
-                        else if(errno==EAGAIN)          printf("%s: errno==EAGAIN.\n",__func__);
-                        else if(errno==EWOULDBLOCK)     printf("%s: errno==EWOULDBLOCK.\n",__func__);
-
-            		/***
-                         * 1. The socket is marked nonblocking and the receive operation would block,
-                         * 2. or a receive timeout had been set and the timeout expired before data was received.
-                         */
-			#endif
+			}
 		}
-		/*---------------------------
-                else if(nrcv==0) {
-                        usleep(10000);
-                        continue;
-                }
-		else if(nrcv>0) {
-		}
-		--------------------------*/
 
 		/* ---NOW---: nrcv>0 || nrcv<0 || nrc==0 */
 
@@ -1006,7 +1224,7 @@ int inet_udpClient_TESTcallback( const struct sockaddr_in *rcvAddr, const char *
 
 
 /*-----------------------------------------------------
-Create a TCP server.
+Create a TCP server, socket default in BLOCK mode.
 
 @strIP:	TCP IP address.
 	If NULL, auto selected by htonl(INADDR_ANY).
@@ -1021,7 +1239,7 @@ Return:
 EGI_TCP_SERV* inet_create_tcpServer(const char *strIP, unsigned short port, int domain)
 {
 	struct timeval snd_timeout={5,0}; /* Default time out for send */
-	struct timeval rcv_timeout={2,0}; /* Default time out for receive and accept() */
+	struct timeval rcv_timeout={5,0}; /* Default time out for receive and accept() */
 	EGI_TCP_SERV *userv=NULL;
 
 	/* Calloc EGI_TCP_SERV */
@@ -1132,12 +1350,12 @@ int inet_destroy_tcpServer(EGI_TCP_SERV **userv)
 }
 
 
-/*--------------------------------------------------------------
+/*-----------------------------------------------------------------
 TCP service routines:
 1. Accept new clients and put to session list, then start a thread
    to precess its C/S session.
-2. Check and recount session list, sort alive sessions.
-
+2. Check and recount session list, //sort active/living sessions.
+   
 
 TODO.
 1. IPv6 connection.
@@ -1151,7 +1369,7 @@ TODO.
 Return:
 	0	OK
 	<0	Fails
---------------------------------------------------------------*/
+-----------------------------------------------------------------*/
 int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 {
 	int i;
@@ -1174,29 +1392,30 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 		return -3;
 	}
 
-	/* TODO & TBD: Or A Select/Poll session process at beginning. */
+	/* TODO & TBD: Or launch a Select/Poll session process at very beginning. */
 
 	/*** Loop service processing: ***/
-	printf("%s: Start TCP service loop processing...\n", __func__);
+	printf("%s: Start TCP server routine, loop processing...\n", __func__);
 	index=0; /* init. index */
-	while(1) {
 
+	userv->active=true; /* Set flag on */
+	while( userv->cmd !=1 ) {
 		/* Re_count clients, and get an available userv->sessions[] for next new client. */
 		userv->ccnt=0;
 		for(i=0; i<EGI_MAX_TCP_CLIENTS; i++) {
 			if( index<0 && userv->sessions[i].alive==false )
-				index=i;
+				index=i;  /* availble index for next session */
 			if( userv->sessions[i].alive==true )
 				userv->ccnt++;
 		}
-		printf("%s: Recount alive sessions userv->ccnt=%d\n", __func__, userv->ccnt);
+		printf("%s: Recount active sessions userv->ccnt=%d\n", __func__, userv->ccnt);
 
-	#if 0	////////////////* Re_count clients and Re_arrange userv->sessions[], some sessions might end. */
+ #if 0	////////////////* Re_count clients and Re_arrange userv->sessions[], some sessions might end. */
 		int j;
 		userv->ccnt=0; j=0;
 		for(i=0; i<EGI_MAX_TCP_CLIENTS; i++) {
 			if( userv->sessions[i].alive==false ) {
-				/* Find next alive session and swap */
+				/* Find next active session and swap */
 				if(j<i+1)j=i+1;
 				for(; j<EGI_MAX_TCP_CLIENTS; j++) {
 					if( userv->sessions[j].alive==true ) {
@@ -1215,13 +1434,13 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 			}
 		}
 		printf("%s: Recount and sort sessions, userv->ccnt=%d\n", __func__, userv->ccnt);
-	#endif ///////////////////////////////////
+ #endif ///////////////////////////////////
 
 		/* Max. clients */
 		//if(userv->ccnt==EGI_MAX_TCP_CLIENTS) {
 		if(index<0) {
 			printf("%s: Clients number hits Max. limit of %d!\n",__func__, EGI_MAX_TCP_CLIENTS);
-			usleep(500000);
+			tm_delayms(500);
 			continue;
 		}
 
@@ -1232,19 +1451,30 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 		csfd=accept(userv->sockfd, (struct sockaddr *)&addrCLIT, &addrLen); /* timeout same as rcv_timeout set in socket() ! */
 		if(csfd<0) {
 			switch(errno) {
-				case EAGAIN: //EWOULDBLOCK
+                                #if(EWOULDBLOCK!=EAGAIN)
+                                case EWOULDBLOCK:
+                                #endif
+				case EAGAIN:
+					/* The socket is marked nonblocking and no connections are present to be accepted. */
+					tm_delayms(10); /* NONBLOCKING */
+					continue;  /* ---> continue to while() */
 					break;
 				default:
 					printf("%s: Fail to accept a new client, errno=%d Err'%s'.  continue...\n",
 												__func__, errno, strerror(errno));
-					break;
+					tm_delayms(20);
+					/* TODO: End routine if it's a deadly failure!  */
+					continue;  /* ---> whatever, continue to while() */
 			}
-
-			usleep(500000); /* For NONBLOCKING */
-			continue;  /* ----------> continue */
 		}
 
-		/* For new client ...  */
+		/****** NOTE:
+		 * 1. man "On  Linux, the new socket returned by accept() does not inherit file status flags such as O_NONBLOCK and
+		 *    O_ASYNC from the listening socket."
+		 * 2. However, TEST shows the new socket inherits SO_RCVTIMEO TimeOut values!
+                 ***/
+
+		/* Proceed for a new client ...  */
 		userv->sessions[index].sessionID=index;
 		userv->sessions[index].csFD=csfd;
 		userv->sessions[index].addrCLIT=addrCLIT;
@@ -1253,37 +1483,44 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 		if( pthread_create( &userv->sessions[index].csthread, NULL, userv->session_handler,
 									(void *)(userv->sessions+index)) <0 ) {
 			printf("%s: Fail to start C/S session thread!\n", __func__);
+			close(csfd);
 		}
 		else {
 			userv->sessions[index].alive=true;
+
+			/* Note: At this point some sessions might end! */
+			userv->ccnt++;
+
+			printf("%s: Accept a new TCP client from %s:%d, totally %d clients now.\n",
+					__func__, inet_ntoa(addrCLIT.sin_addr), ntohs(addrCLIT.sin_port), userv->ccnt );
+
+			/* Reset index to -1, as it was used. */
+			index=-1;
 		}
-
-		/* Note: At this point some sessions might end! */
-		userv->ccnt++;
-
-		printf("%s: Accept a new TCP client from %s:%d, totally %d clients now.\n",
-				__func__, inet_ntoa(addrCLIT.sin_addr), ntohs(addrCLIT.sin_port), userv->ccnt );
-
-		/* Reset index to -1 */
-		index=-1;
 	}
 
+	userv->active=false; /* Set flag off */
 	return 0;
 }
 
 
-/*-------------  A thread function   ------------------
-A default TCP server session handler for TEST.
-One thread for one client mode.
+/* (TEST) ---------------  A thread function   ---------------
+A TEST TCP server session handler runs as a detached thread,
+in One_Thread_For_One_Client mode.
 
-Wait MSG from client, then replay back.
+Note:
+1. This TEST session handler works with a TCP client that runs
+    TEST_inet_tcpClient_routine().
+2. It works in a Ping-Pong mode:
+   It Waits a request MSG from a client, then reply back with
+   Err/repeats msg, timestamp and other data.
 
-@arg: Pointer to pass a EGI_TCP_SESSION.
------------------------------------------------------*/
+@arg: Pointer to pass a EGI_TCP_SERV_SESSION.
+--------------------------------------------------------------*/
 void* TEST_tcpServer_session_handler(void *arg)
 {
 	int i;
-	EGI_TCP_SESSION *session=(EGI_TCP_SESSION *)arg;
+	EGI_TCP_SERV_SESSION *session=(EGI_TCP_SERV_SESSION *)arg;
 	if(session==NULL)
 		return (void *)-1;
 
@@ -1295,12 +1532,12 @@ void* TEST_tcpServer_session_handler(void *arg)
 	EGI_INET_MSGDATA *rcvMsgDat=NULL;   /* Request Msg from client, without data[] */
 	EGI_INET_MSGDATA *sndMsgDat=NULL;   /* MsgData to client, with data[] */
 
-	int nsnd,nrcv;		/* returned bytes for each call  */
+	int nsnd,nrcv;		/* returned bytes of each call  */
 	int sndsize;		/* accumulated size */
 	int rcvsize;
 
-	int msgsize=sizeof(EGI_INET_MSGDATA);  /* MSGDATA without data */
-	int datasize=2*1024;
+	int msgsize=sizeof(EGI_INET_MSGDATA);   /* MSGDATA without data */
+	int datasize=2*1024;			/* size of MSGDATA.data[] */
         int packsize=msgsize+datasize;          /* packsize=msgsize+datasize */
 
         /* Err and Repeats counter */
@@ -1339,14 +1576,15 @@ void* TEST_tcpServer_session_handler(void *arg)
 
    /* Session loop process */
    printf("Session_%d: Enter C/S session processing loop ...\n", session->sessionID);
-   while(1) {
+   while( session->cmd !=1 ) {
 
 	/* 1. Wait for a request MSG from client */
 	/*** Note:
 	 * A. Test shows that recv() without MSG_WAITALL may needs several calls to finish receiving a complete packet.
 	 *    1.1 It also depends on timeout, a big timeout value results in less call to complete.
 	 *    1.2 Size of the data packet also applys, small size is much easier to be accomplished in one time.
-         * B. Test shows that recv( ) with MSG_WAITALL always returns complete data in one time.
+         * B. Test packsize<32KB shows that recv( ) with MSG_WAITALL in most case finishs in one round, rarely in 3-4 rounds when
+         *    network is jammed and/or CPU load too high.
 	 */
    	rcvsize=0;
     	while( rcvsize < msgsize ) {
@@ -1401,8 +1639,8 @@ void* TEST_tcpServer_session_handler(void *arg)
 	/* 3. Send Msg+Data out */
    	sndsize=0;
    	while( sndsize < packsize ) {
-		//nsnd=write(sfd, buff, datasize);  //nsnd=sendto(sfd, buff, datasize, 0, addrCLIT, sizeof(struct sockaddr));
-        	nsnd=send(sfd, (void *)sndMsgDat+sndsize, packsize-sndsize, 0 ); /* flags: MSG_CONFIRM, MSG_DONTWAIT */
+		//nsnd=write(sfd, buff, datasize);
+        	nsnd=send(sfd, (void *)sndMsgDat+sndsize, packsize-sndsize, 0 ); /* In connectiong_mode, flags: MSG_CONFIRM, MSG_DONTWAIT */
 		if(nsnd>0) {
 			/* Count sndsize */
 			sndsize += nsnd;
@@ -1422,6 +1660,9 @@ void* TEST_tcpServer_session_handler(void *arg)
 		}
 		else if(nsnd<0) {
 			switch(errno) {
+				#if(EWOULDBLOCK!=EAGAIN)
+				case EWOULDBLOCK:
+				#endif
 				case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
 					sndEagains ++;
 					printf("Session_%d: Fail to send data to client '%s:%d', Err'%s'\n",
@@ -1453,10 +1694,15 @@ void* TEST_tcpServer_session_handler(void *arg)
 
 	} /* End of while() send() */
 
-	/* For test */
+	/* Time delay */
+	/* BY CLIENT */
 	//usleep(50000);
-	//sleep(1);
-   }
+
+   }  /* End of session while() */
+
+	session->cmd=0;
+	session->alive=false;
+	close(sfd);
 
 	return (void *)0;
 }
@@ -1567,6 +1813,198 @@ int inet_destroy_tcpClient(EGI_TCP_CLIT **uclit)
 	/* Free mem */
 	free(*uclit);
 	*uclit=NULL;
+
+	return 0;
+}
+
+
+/*( TEST ) ---------------------------------------------
+A TCP client rountine for TEST purpose.
+
+Note:
+1. This TCP client routine works with a TCP server
+   that runs TEST_tcpServer_session_handler().
+2. Routine works in a Ping-Pong mode:
+   Send a request MSG to server, and wait for reply.
+   Receive reply from the server and parse it.
+3. Log errors and repeats.
+
+@uclit:		Pointer to an EGI_TCP_CLIT
+@gms:		Interval sleep in ms.
+
+Return:
+	>0	Peer closed socket.
+	0	OK
+	<0	Fails
+---------------------------------------------------------*/
+int TEST_tcpClient_routine(EGI_TCP_CLIT *uclit, int gms)
+{
+        EGI_CLOCK eclock={0};           /* For TR/TX speed test */
+        EGI_CLOCK eclock2={0};          /* For LOG write */
+	int tmms;
+
+	EGI_INET_MSGDATA *msgdata=NULL; /* MSG+DATA, use same MSGDATA for send and recv  */
+//	char buff[EGI_MAX_TCP_PDATA_SIZE];
+
+        int nsnd,nrcv;          /* returned bytes for each call  */
+        int sndsize;            /* accumulated size */
+        int rcvsize;
+
+        int msgsize=sizeof(EGI_INET_MSGDATA);      /* MSGDATA withou data[] */
+	int datasize=2*1024;  	/* Expected data size */
+	int packsize=msgsize+datasize;		/* packsize=msgsize+datasize, from server */
+
+	/* Err and Repeats counter */
+	int sndErrs=0;
+	int sndRepeats=0;
+	int sndZeros=0;
+	int sndEagains=0;
+	int rcvErrs=0;
+	int rcvRepeats=0;
+
+	if(uclit==NULL)
+		return -1;
+
+	/* Create a MSGDATA */
+	msgdata=inet_msgdata_create(datasize);
+	if(msgdata==NULL)
+		return -2;
+
+	/* Start eclock2 for logging data */
+	egi_clock_start(&eclock2);
+
+	/* Routine loop ... */
+	while(1) {
+
+		/* Start eclock for speed test */
+		egi_clock_start(&eclock);
+
+		/* DELAY: control speed */
+		tm_delayms(gms);
+
+	        /* 1. Prepare request Msg  */
+	        sprintf(msgdata->msg.cmsg, "TCP client %d request for data.", getpid());
+		inet_msgdata_updateTimeStamp(msgdata);  /* Put timestamp */
+
+		/* 2. Send a MSG to server to request data reply, adjust msgsize to ingore msgdata.data[] */
+		sndsize=0;
+        	while( sndsize < msgsize) {
+			/* In connection_mode, flags: MSG_CONFIRM, MSG_DONTWAIT */
+	        	nsnd=send(uclit->sockfd, (void *)msgdata+sndsize, msgsize-sndsize, 0);
+			if(nsnd>0) {
+				/* Count sndsize */
+				sndsize += nsnd;
+
+				if(sndsize==msgsize) {
+					break; /* OK */
+				}
+				else if( sndsize < msgsize ) {
+					sndRepeats ++;
+					EGI_PLOG(LOGLV_TEST," sndsize < msgsize! continue to sendto() \n" );
+					continue; /* ------> continue sendto() */
+				}
+				else { /* sndsize > msgsize, impossible! */
+					sndErrs ++;
+					EGI_PLOG(LOGLV_TEST,"sndsize > msgsize, send data error!");
+				}
+			}
+	        	else if(nsnd<0) {
+        	        	switch(errno) {
+	                                #if(EWOULDBLOCK!=EAGAIN)
+        	                        case EWOULDBLOCK:
+                	                #endif
+                	        	case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
+						sndEagains ++;
+                        	             	EGI_PLOG(LOGLV_TEST,"Fail to send MSG to the server, Err'%s'.", strerror(errno));
+						continue; /* ------> continue sendto() */
+	                                	break;
+		                        case EPIPE:
+        		                     	EGI_PLOG(LOGLV_TEST,"An EPIPE signals that the server quits the session! quit now!\n");
+						return 1;
+	                                	break;
+	        	                default: {
+						sndErrs ++;
+                        	             	EGI_PLOG(LOGLV_TEST,"Fail to send MSG to the server, Err'%s'.", strerror(errno));
+						continue; /* --------> continue to sendto() */
+					}
+                		}
+         		}
+	        	else if(nsnd==0) {
+				sndZeros ++;
+        	        	EGI_PLOG(LOGLV_TEST," ----- nsnd==0! -----");
+         		}
+	   	}
+
+		/* 3. Receive data from server */
+		rcvsize=0;
+		while( rcvsize < packsize ) {
+			//nrcv=read(uclit->sockfd, buff, sizeof(buff));
+			/*** set MSG_WAITALL to wait for all data. however, "the call may still return less data, if a signal is caught,
+        	         *   an error or disconnect occurs, or the next data to be received is of a different type than that returned."(man)
+			 *   stream socket:  all data is deamed as a stream, while as you can adjust datasize each time for recv()...
+			 *   you may select datasize same as the sending end, but NOT necessary.
+			 */
+			nrcv=recv(uclit->sockfd, (void *)msgdata+rcvsize, packsize-rcvsize, MSG_WAITALL); /* self_defined datasize! */
+			if(nrcv>0) {
+				/* counter rcvsize */
+				rcvsize += nrcv;
+
+				if( rcvsize == packsize ) {
+					/* OK */
+				}
+				else if( rcvsize < packsize ) {
+					rcvRepeats ++;
+					EGI_PLOG(LOGLV_TEST,"nrcv=%d < packsize=%d bytes", nrcv, packsize);
+
+				}
+				else  {  /* rcvsize > packsize, impossible! */
+					rcvErrs ++;
+					EGI_PLOG(LOGLV_TEST," --- rcvsize > packsize, impossible! --- ");
+				}
+			}
+			else if(nrcv==0) {
+				EGI_PLOG(LOGLV_TEST, "The server end session! quit now...");
+				return 2;
+			}
+			else {
+				EGI_PLOG(LOGLV_TEST, "recv(): Err'%s'.", strerror(errno));
+				rcvErrs ++;
+			}
+		} /* End while() recv() */
+
+		/* 4. Parse received MSGDATA */
+		if( nrcv >= MSGDATA_CMSG_SIZE ) {
+			printf("Client_%d: %s\n", getpid(), msgdata->msg.cmsg);
+			#if 0 /* TEST---- */
+			printf("nl_datasize=%d, Datasize=%d\n", msgdata->msg.nl_datasize, inet_msgdata_getDataSize(msgdata));
+			printf("Server time stamp: %ld.%06ld\n", msgdata->msg.tmstamp.tv_sec, msgdata->msg.tmstamp.tv_usec);
+        		for(i=0;i<100;i++)
+		                printf("%d ", msgdata->data[i]);
+			printf("\n");
+			#endif
+		}
+                printf("sndErrs=%d, sndRepeats=%d, sndEagains=%d, sndZeros=%d, rcvErrs=%d, rcvRepeats=%d\n",
+	                                                sndErrs, sndRepeats, sndEagains, sndZeros, rcvErrs, rcvRepeats);
+
+		/* Stop ECLOCK for Rx/Tx */
+		egi_clock_stop(&eclock);
+		tmms=egi_clock_readCostUsec(&eclock)/1000;
+
+		/* Pause/Stop ECLOCK2 for LOG */
+		if(egi_clock_pause(&eclock2)<0)printf("CLOCK2 fails!\n");
+		if(eclock2.tm_cost.tv_sec > 60-1 ) {  /* Log every 60s */
+			EGI_PLOG(LOGLV_TEST, "Client %d: %s",getpid(), msgdata->msg.cmsg);  /* Server MSG with errs */
+			EGI_PLOG(LOGLV_TEST, "Client %d: sndErrs=%d, sndRepeats=%d, sndEagains=%d, sndZeros=%d, rcvErrs=%d, rcvRepeats=%d",
+								getpid(), sndErrs, sndRepeats, sndEagains, sndZeros, rcvErrs, rcvRepeats);
+			/* Stop timing, for next round */
+			egi_clock_stop(&eclock2);
+		}
+		egi_clock_start(&eclock2); /* Restart/start again  */
+
+		/* This is instant speed, most time much bigger.., but some tmms is also much bigger.  */
+		printf("Client_%d: Cost:%dms, RX:%dkBps \n\n", getpid(), tmms, packsize*1000/1024/tmms );
+
+	}
 
 	return 0;
 }

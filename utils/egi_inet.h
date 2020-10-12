@@ -20,7 +20,11 @@ typedef struct egi_inet_msgdata EGI_INET_MSGDATA;
 
 
 			/* ------------ EGI_INET_MSGDATA ----------- */
-
+/***Note:
+ *  1. An appropriate size of MSGDATA can improve effeciency in recv()/send() opertaion???
+ *     Example: take 1448 Bytes, as the Max Single TCP payload for 1500 MTU. then no need to be re_fregemented for each packet.
+ *  2.
+ */
 struct egi_inet_msgdata {
 	struct egi_inet_msg {
 		#define MSGDATA_CMSG_SIZE 	512
@@ -33,7 +37,7 @@ struct egi_inet_msgdata {
 		//char 	datasize[4];			/* size for attached data,  Inet data size limit 2^31 */
 
 		struct timeval  tmstamp;		/* Time stamp in private order */
-		//TODO: encropt stamp/signature
+		//TODO: encrypt stamp/signature
 
 	} msg;
 
@@ -48,6 +52,9 @@ int inet_msgdata_getTotalSize(const EGI_INET_MSGDATA *msgdata);
 int inet_msgdata_updateTimeStamp(EGI_INET_MSGDATA *msgdata);
 int inet_msgdata_loadData(EGI_INET_MSGDATA *msgdata, const char *data); /* load data into msgdata->data[] */
 int inet_msgdata_copyData(const EGI_INET_MSGDATA *msgdata, char *data); /* copy data from msgdata-data[] */
+int inet_msgdata_recv(int sockfd, EGI_INET_MSGDATA *msgdata);
+int inet_msgdata_send(int sockfd, const EGI_INET_MSGDATA *msgdata);
+
 
 			/* ------------ Signal handling ----------- */
 
@@ -58,18 +65,26 @@ int inet_default_sigAction(void);
 
 			/* ------------ UDP C/S ----------- */
 
-/*** TCP/UDP packet payload
-  EtherNet frame packet payload: 46-MTU(1500) bytes. Max.1500.
-  PPPoE frame packet palyload:   46-MTU(1500-8=1492) bytes. Max. 1492?
+/******** MTU and TCP/UDP packet payload ********
 
-  Single IP packet Max. payload:	MTU(1500)-IPhead(20)			=1480 Bytes.
-  Single TCP packet Max. payload:	MTU(1500)-IPhead(20)-TCPhead(20)	=1460 Bytes.
-  Single UDP packet Max.payload:	MTU(1500)-IPhead(20)-UDPhead(8)		=1472 bytes.
-	       when MTU=576: 		MTU(576)-IPhead(20)-UDPhead(8)		=548 bytes.
+  Traditional MTU 1500Bytes
+  Jumboframe MTU 9000Bytes for morden fast Ethernet.
 
-  UPD datagram Max. size: 2^16-1-8-20=65507
-  TCP datagram Max. size: No limit.
-***/
+  EtherNet frame packet payload: 	46-MTU(1500) bytes. Max.1500.
+  PPPoE frame packet palyload:   	46~MTU(1500-8=1492) bytes. Max. 1492?
+
+  Single IP packet Max. payload:	MTU(1500)-IPhead(20)					=1480 Bytes.
+  Single TCP packet Max. payload:	MTU(1500)-IPhead(20)-TCPhead(20)			=1460 Bytes.
+					MTU(1500)-IPhead(20)-TCPhead(20)-TimestampOption(12)	=1448 Bytes.
+  TCP MMS (Max. Segment Size)
+  Single UDP packet Max.payload:	MTU(1500)-IPhead(20)-UDPhead(8)				=1472 bytes.
+	       when MTU=576: 		MTU(576)-IPhead(20)-UDPhead(8)				=548 bytes.
+
+  UPD datagram  Max. size: 2^16-1-8-20=65507
+  TCP datagram  Max. size: Stream, as no limit.
+
+*******************************************/
+
 
 //#define EGI_MAX_UDP_PDATA_SIZE	1024   /* Max. UDP packet payload size(exclude 8bytes UDP packet header), limited for MTU.  */
 #define EGI_MAX_UDP_PDATA_SIZE	(1024*60)
@@ -128,41 +143,47 @@ int 		inet_udpClient_TESTcallback( const struct sockaddr_in *rcvAddr, const char
 
 #define EGI_MAX_TCP_PDATA_SIZE	(1024*64)  /* Actually there is NO limit for TCP stream data size */
 
-/* Callback functions */
-typedef struct egi_tcp_session {
-	int		sessionID;		 /* ID, index of EGI_TCP_SESSION.sessions[]  */
+/* TCP Session for Server */
+typedef struct egi_tcp_server_session {
+	int		sessionID;		 /* ID, index of EGI_TCP_SERV_SESSION.sessions[]  */
 	int    		csFD;                    /* C/S session fd */
         struct 		sockaddr_in addrCLIT;    /* Client address */
+	bool   		alive;			 /* flag on, if active/living */
+
 	pthread_t 	csthread;		 /* C/S session thread */
-	bool   		alive;
-}EGI_TCP_SESSION;
+	int		cmd;			 /* Commad to session handler, NOW: 1 to end routine. */
+}EGI_TCP_SERV_SESSION;  /* At server side */
 
 
 /* EGI_TCP_SERV & EGI_TCP_CLIT */
 struct egi_tcp_server {
-
-	int 			sockfd;
+	int 			sockfd;		/* For accept */
 	struct sockaddr_in 	addrSERV;	/* Self address */
 #define MAX_TCP_BACKLOG		16
 	int 			backlog;	/* BACKLOG for accept(), init. in inet_create_tcpServer() as MAX_TCP_BACKLOG */
+	bool			active;    	/* Server routine IS running! */
+	int			cmd;		/* Commad to routine loop, NOW: 1 to end routine. */
 
-	/* TCP session */
+	/* TCP sessions */
 	int 			ccnt;				/* Clients/Sessions counter */
 #define EGI_MAX_TCP_CLIENTS	8
-	EGI_TCP_SESSION 	sessions[EGI_MAX_TCP_CLIENTS];  /* Sessions */
-        void *          	(*session_handler)(void *);     /* arg of EGI_TCP_SESSION *session */
+	EGI_TCP_SERV_SESSION 	sessions[EGI_MAX_TCP_CLIENTS];  /* Sessions */
+        void *          	(*session_handler)(void *arg);  /* A thread session handler, input arg as EGI_TCP_SERV_SESSION *session */
 
 };
 
+
 struct egi_tcp_client {
-	int sockfd;
+	int 	sockfd;
 	struct sockaddr_in addrSERV;
 	struct sockaddr_in addrME;	/* Self address */
 };
 
 
-
 /* TCP C/S Basic Functions */
+int inet_tcp_recv(int sockfd, void *data, size_t packsize);
+int inet_tcp_send(int sockfd, const void *data, size_t packsize);
+
 EGI_TCP_SERV* 	inet_create_tcpServer(const char *strIP, unsigned short port, int domain);
 int 		inet_destroy_tcpServer(EGI_TCP_SERV **userv);
 int 		inet_tcpServer_routine(EGI_TCP_SERV *userv);
@@ -170,5 +191,5 @@ void* 		TEST_tcpServer_session_handler(void *arg);    /* A thread function */
 
 EGI_TCP_CLIT* 	inet_create_tcpClient(const char *servIP, unsigned short servPort, int domain);
 int 		inet_destroy_tcpClient(EGI_TCP_CLIT **uclit);
-
+int 		TEST_tcpClient_routine(EGI_TCP_CLIT *uclit, int gms);
 #endif

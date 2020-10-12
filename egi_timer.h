@@ -25,8 +25,8 @@ typedef struct
         #define ECLOCK_STATUS_RUNNING   1          /* tm_start is set, tm_end NOT yet */
         #define ECLOCK_STATUS_PAUSE     (1<<1)     /* tm_start, tm_end are both set. tm_cost updated. to be continued.. */
         #define ECLOCK_STATUS_STOP      (1<<2)     /* tm_start, tm_end are both set. tm_cost updated */
-
         int  status;
+
         struct timeval tm_start; /* Start time */
         struct timeval tm_end;   /* End time */
 	struct timeval tm_cost; /* Addup of running time, with each duration of tm_end - tm_start. */
