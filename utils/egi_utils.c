@@ -67,6 +67,99 @@ int egi_mem_grow(void **ptr, size_t old_size, size_t more_size)
 }
 
 
+/*--------------------------------------------
+Mmap a file and return a EGI_FILEMMAP.
+Note:
+1. The file must NOT be empty.
+2. mmap with flags: PROT_READ, MAP_PRIVATE
+
+Return:
+	Pointer to EGI_FILEMMAP		OK
+	NULL				Fails
+--------------------------------------------*/
+EGI_FILEMMAP * egi_fmap_create(const char *fpath)
+{
+        struct stat	sb;
+	EGI_FILEMMAP *fmap=NULL;
+
+	/* Calloc fmap */
+	fmap=calloc(1,sizeof(EGI_FILEMMAP));
+	if(fmap==NULL)
+		return NULL;
+
+        /* Open text file */
+        fmap->fd=open(fpath, O_RDONLY, S_IRUSR);
+        if(fmap->fd<0) {
+                printf("%s: Fail to open input file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+		free(fmap);
+                return NULL;
+        }
+
+        /* Obtain file stat */
+        if( fstat(fmap->fd, &sb)<0 ) {
+                printf("%s: Fail call fstat for file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+                goto END_FUNC;
+        }
+
+	/* Check size */
+        fmap->fsize=sb.st_size;
+	if(fmap->fsize <= 0)
+		goto END_FUNC;
+
+        /* MMAP Text file */
+        fmap->fp=mmap(NULL, fmap->fsize, PROT_READ, MAP_PRIVATE, fmap->fd, 0);
+        if(fmap->fp==MAP_FAILED) {
+                        printf("%s: Fail to mmap file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+                        goto END_FUNC;
+         }
+
+
+END_FUNC:
+        /* Munmap file */
+        if( fmap->fp==NULL || fmap->fp==MAP_FAILED ) {
+	        if( close(fmap->fd) !=0 )
+        	        printf("%s: Fail to close file '%s'. ERR:%s!\n",__func__, fpath, strerror(errno));
+		free(fmap);
+		return NULL;
+	}
+	else
+		return fmap;
+}
+
+
+/*--------------------------------------------
+Release an EGI_FILEMMAP, unmap and close the
+underlying file, free the struct.
+
+Return:
+	0	OK
+	<0	Fail
+--------------------------------------------*/
+int egi_fmap_free(EGI_FILEMMAP** fmap)
+{
+	if(fmap==NULL || *fmap==NULL)
+		return -1;
+
+        /* Munmap file */
+        if( munmap((*fmap)->fp,(*fmap)->fsize) !=0 ) {
+        	printf("%s: Fail to munmap fd=%d. Err'%s'!\n",__func__, (*fmap)->fd, strerror(errno));
+		return -2;
+	}
+
+        /* Close file */
+        if( close((*fmap)->fd) !=0 ) {
+                printf("%s: Fail to close file fd=%d. Err'%s!'\n",__func__, (*fmap)->fd, strerror(errno));
+		return -3;
+	}
+
+	free(*fmap);
+	*fmap=NULL;
+
+	return 0;
+}
+
+
+
 /*----------------------------------------------------------------------------
 Search a string in a file. If find, return offset value from the mmap.
 
@@ -104,8 +197,8 @@ int egi_search_str_in_file(const char *fpath, size_t off, const char *pstr)
 
 	/* Check size */
         fsize=sb.st_size;
-	if(fsize==0) {
-		return -3;
+	if(fsize <=0) {
+		ret=-3;
 		goto END_FUNC;
 	}
 

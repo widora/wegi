@@ -94,7 +94,88 @@ midaszhou@yahoo.com
 #include <egi_timer.h>
 #include <egi_log.h>
 
+/* ========================  EGI_INETPACK Functions  ========================== */
+
+/*--------------------------------------------------------
+Create an EGI_INETPACK with given size.
+
+@headsize:	     Head size of an EGI_INETPACK.
+@privdata_size:      size of privdata in EGI_INETPACK.data[]
+
+Return:
+	Pointer to EGI_INETPACK	OK
+	NULL			Fails
+--------------------------------------------------------*/
+EGI_INETPACK* inet_ipacket_create(int headsize, int privdata_size)
+{
+	EGI_INETPACK* ipack=NULL;
+	int datasize;
+
+	/* Check input */
+	if(headsize<0 || privdata_size<0)
+		return NULL;
+
+	/* Datasize */
+	datasize=headsize+privdata_size;
+
+	/* Calloc ipack */
+	ipack=calloc(1, sizeof(EGI_INETPACK)+datasize);
+	if(ipack==NULL) {
+		printf("%s: Fail to calloc ipack!\n",__func__);
+		return NULL;
+	}
+
+	/* Assign memebers */
+	ipack->packsize=sizeof(EGI_INETPACK)+datasize;
+	ipack->headsize=headsize;
+
+	return ipack;
+}
+
+
+/*---------------------------------------------
+	Free an EGI_INETPACK.
+----------------------------------------------*/
+void inet_ipacket_free(EGI_INETPACK** ipack)
+{
+	if( ipack==NULL || *ipack==NULL)
+		return;
+
+	free(*ipack);
+	*ipack=NULL;
+}
+
+
+/*------------------------------------------
+Get pointer to  header of EGI_INETPACK.data
+-------------------------------------------*/
+void*  IPACK_HEADER(EGI_INETPACK *ipack)
+{
+	if(ipack==NULL)
+        	return NULL;
+        else if(ipack->headsize<1)
+        	return NULL;
+        else
+                return (char *)ipack +sizeof(EGI_INETPACK);
+}
+
+
+/*------------------------------------------
+Get pointer to  privdata of EGI_INETPACK.data
+-------------------------------------------*/
+void*  IPACK_PRIVDATA(EGI_INETPACK *ipack)
+{
+	if(ipack==NULL)
+		return NULL;
+        else if( ipack->packsize <= ipack->headsize+sizeof(EGI_INETPACK) )
+		return NULL;
+        else
+		return (char *)(ipack) +sizeof(EGI_INETPACK) +ipack->headsize;
+}
+
+
 /* ========================  INET MSGDATA Functions  ========================== */
+
 
 /*--------------------------------------------------------
 Create an EGI_INET_MSGDATA with its flexible array data[]
@@ -129,11 +210,7 @@ EGI_INET_MSGDATA* inet_msgdata_create(uint32_t datasize)
 }
 
 /*---------------------------------------------
-Create an EGI_INET_MSGDATA.
-@datasize:  Data size in MSGDATA.
-Return:
-	Pointer to EGI_INET_MSGDATA	OK
-	NULL				Fails
+	Free an EGI_INET_MSGDATA.
 ----------------------------------------------*/
 void inet_msgdata_free(EGI_INET_MSGDATA** msgdata)
 {
@@ -143,6 +220,7 @@ void inet_msgdata_free(EGI_INET_MSGDATA** msgdata)
 	free(*msgdata);
 	*msgdata=NULL;
 }
+
 
 /*---------------------------------------
 Get data size of msgdata->data[]
@@ -167,6 +245,41 @@ inline int inet_msgdata_getDataSize(const EGI_INET_MSGDATA *msgdata)
 
 	return size;
 }
+
+/*---------------------------------------------------------
+Adjust mem space of MSGDATA.data[] by realloc whole MSGDATA,
+nl_datasize will be updated and all data[] cleared.
+
+Note:
+1. Usually datasize>=256k will trigger MEM area movement.
+
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------------------*/
+inline int inet_msgdata_reallocData(EGI_INET_MSGDATA **msgdata, int datasize)
+{
+	void* ptr=NULL;
+
+	if(msgdata==NULL||*msgdata==NULL)
+		return -1;
+	if(datasize<0)
+		return -1;
+
+	ptr=realloc(*msgdata, sizeof(EGI_INET_MSGDATA)+datasize);
+	if(ptr==NULL)
+		return -2;
+
+	/* Reset nl_datasize and clear data */
+	bzero( ptr+sizeof(EGI_INET_MSGDATA), datasize);
+
+	/* Reassign msgdata and nl_datasize */
+	*msgdata=ptr;
+	(*msgdata)->msg.nl_datasize=htonl(datasize);
+
+	return 0;
+}
+
 
 /*---------------------------------------
 Get total size of msgdata:
@@ -758,7 +871,6 @@ int inet_udpServer_routine(EGI_UDP_SERV *userv)
 					break;
 				default:
 					return -2;
-
 			}
 		}
 
@@ -1486,6 +1598,9 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 			close(csfd);
 		}
 		else {
+			/* pthread_create() returns 0 does NOT necessarily means the thread is running!?f
+			 * Let thread to set the flag??!
+			 */
 			userv->sessions[index].alive=true;
 
 			/* Note: At this point some sessions might end! */
@@ -1504,7 +1619,8 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 }
 
 
-/* (TEST) ---------------  A thread function   ---------------
+/* (TEST) -------------  A detached thread function  -------------------
+
 A TEST TCP server session handler runs as a detached thread,
 in One_Thread_For_One_Client mode.
 
@@ -1512,11 +1628,15 @@ Note:
 1. This TEST session handler works with a TCP client that runs
     TEST_inet_tcpClient_routine().
 2. It works in a Ping-Pong mode:
-   It Waits a request MSG from a client, then reply back with
-   Err/repeats msg, timestamp and other data.
+   It Waits a request MSGDATA from a client, then reply back with
+   Err/repeats msg, timestamp and other data. The reply packet are
+   in the same size of the request MSGDATA!
+   For the request MSGDATA, it first recvs MSG part, then DATA part.
+3. Size of request MSGDATA shall be at least sizeof(EGI_INET_MSGDATA)
+4. It means the client CAN adjust the size of MSGDATA packet!
 
 @arg: Pointer to pass a EGI_TCP_SERV_SESSION.
---------------------------------------------------------------*/
+------------------------------------------------------------------------*/
 void* TEST_tcpServer_session_handler(void *arg)
 {
 	int i;
@@ -1527,18 +1647,15 @@ void* TEST_tcpServer_session_handler(void *arg)
 	struct sockaddr_in *addrCLIT=&session->addrCLIT;
 	int sfd=session->csFD;
 	struct timeval tm_stamp;
-//	char buff[EGI_MAX_TCP_PDATA_SIZE]={0};
-
-	EGI_INET_MSGDATA *rcvMsgDat=NULL;   /* Request Msg from client, without data[] */
-	EGI_INET_MSGDATA *sndMsgDat=NULL;   /* MsgData to client, with data[] */
+	EGI_INET_MSGDATA *msgdata=NULL;
 
 	int nsnd,nrcv;		/* returned bytes of each call  */
 	int sndsize;		/* accumulated size */
 	int rcvsize;
 
 	int msgsize=sizeof(EGI_INET_MSGDATA);   /* MSGDATA without data */
-	int datasize=2*1024;			/* size of MSGDATA.data[] */
-        int packsize=msgsize+datasize;          /* packsize=msgsize+datasize */
+	int datasize;			/* size of MSGDATA.data[] */
+        int packsize; //msgsize+datasize;       /* packsize=msgsize+datasize */
 
         /* Err and Repeats counter */
         int sndErrs=0;
@@ -1547,6 +1664,7 @@ void* TEST_tcpServer_session_handler(void *arg)
         int sndEagains=0;
         int rcvErrs=0;
         int rcvRepeats=0;
+	int rcvEagains=0;
 
 	/* Detach thread */
 	if(pthread_detach(pthread_self())!=0) {
@@ -1555,30 +1673,22 @@ void* TEST_tcpServer_session_handler(void *arg)
 		// go on...
 	}
 
-	/* Create a MSGDATA without data, for recv() */
-	rcvMsgDat=inet_msgdata_create(0);
-	if(rcvMsgDat==NULL) {
-		printf("Fail to create a rcvMsgDat!\n");
+	msgdata=inet_msgdata_create(0);  /* Without data[] */
+	if(msgdata==NULL) {
+		printf("Fail to create a MSGDATA!\n");
+
 		session->alive=false;
 		close(sfd);
+		session->csFD=-1;
 		pthread_exit(NULL);
 	}
 
-	/* Create a MSGDATA to pack MSG+DATA for sendto() */
-	sndMsgDat=inet_msgdata_create(datasize);
-	if(sndMsgDat==NULL) {
-		printf("Fail to create a sndMsgDat!\n");
-		inet_msgdata_free(&rcvMsgDat);
-		session->alive=false;
-		close(sfd);
-		pthread_exit(NULL);
-	}
 
    /* Session loop process */
    printf("Session_%d: Enter C/S session processing loop ...\n", session->sessionID);
    while( session->cmd !=1 ) {
 
-	/* 1. Wait for a request MSG from client */
+	/* 1. Wait for a request MSGDATA from client */
 	/*** Note:
 	 * A. Test shows that recv() without MSG_WAITALL may needs several calls to finish receiving a complete packet.
 	 *    1.1 It also depends on timeout, a big timeout value results in less call to complete.
@@ -1587,21 +1697,33 @@ void* TEST_tcpServer_session_handler(void *arg)
          *    network is jammed and/or CPU load too high.
 	 */
    	rcvsize=0;
-    	while( rcvsize < msgsize ) {
-		/* Receive MSG part of MSGDATA */
-		nrcv=recv(sfd, rcvMsgDat->msg.cmsg+rcvsize, msgsize-rcvsize, MSG_WAITALL); /* Wait all data, but still may fail? see man */
+	packsize=msgsize;  /* First set packsize as msgsize */
+    	while( rcvsize < packsize ) {
+		/* Receive MSG, then DATA */
+		nrcv=recv(sfd, (void *)msgdata+rcvsize, packsize-rcvsize, MSG_WAITALL); /* Wait all data, but still may fail? see man */
 		if(nrcv>0) {
 			/* count rcvsize  */
 			rcvsize += nrcv;
 
+			/* (A) Receive MSGDATA Head first */
 			if( rcvsize==msgsize) {
-				/* OK */
+				/* ----- Realloc msgdata.  TODO: If same size? ----- */
+				datasize=inet_msgdata_getDataSize(msgdata);
+				if( inet_msgdata_reallocData(&msgdata, datasize)==0 ) {
+					packsize += datasize;  /* Increase packsize */
+				}
 			}
-			else if( rcvsize < msgsize ) {
+			/* (B) OK! Finishing recv() MSG+DATA */
+			else if( rcvsize==packsize) {
+				break; /* OK */
+			}
+			/* (C) Not finish yet */
+			else if( rcvsize < packsize ) {
 				rcvRepeats ++;
         	        	printf("Session_%d: rcvsize(%d) < msgsize(%d) bytes!\n", session->sessionID, rcvsize, msgsize);
 				continue; /* -----> continue to recv remaining data */
 			}
+			/* (D) Impossible */
 			else { /* rcvsize > msgsize, '>' seems impossible! */
 				rcvErrs ++;
         	        	printf("Session_%d: recv MSG data error! rcvsize(%d) > msgsize(%d) bytes!\n",session->sessionID, rcvsize, msgsize);
@@ -1614,33 +1736,49 @@ void* TEST_tcpServer_session_handler(void *arg)
 			close(sfd);
 			pthread_exit(NULL);
         	}
-	        else if(nrcv<0) {
-			rcvErrs ++;
-        	        printf("Session_%d: recv() Err'%s'\n", session->sessionID, strerror(errno));
-			usleep(50000);
-			continue;  /* -------> continue to recv while() */
+	        else {  /* nrcv<0 */
+       	        	switch(errno) {
+                                #if(EWOULDBLOCK!=EAGAIN)
+       	                        case EWOULDBLOCK:
+               	                #endif
+               	        	case EAGAIN:
+					rcvEagains ++;
+					usleep(5000);
+					continue; /* ---> continue to recv() */
+                                	break;
+        	                default: {
+					rcvErrs ++;
+		        	        printf("Session_%d: recv() Err'%s'\n", session->sessionID, strerror(errno));
+					usleep(10000);
+					continue; /* ---> continue to recv() */
+				}
+			}
 		}
    	}
-	/* Parse MSG */
-	printf("Session_%d: Client Msg: %s\n", session->sessionID, rcvMsgDat->msg.cmsg);
 
-	/* 2.  Prepare reply MSGDATA */
+	/* Parse MSG */
+	// printf("Session_%d: Client Msg: %s\n", session->sessionID, msgdata->msg.cmsg);
+
+	/* 2.  Prepare reply MSGDATA, same size as request MSGDATA! */
 	/* 2.1 Put MSG head */
-	snprintf(sndMsgDat->msg.cmsg, MSGDATA_CMSG_SIZE-1,
-		 "SVR Msg: sndErrs=%d, sndRepeats=%d, sndEagains=%d, sndZeros=%d, rcvErrs=%d, rcvRepeats=%d",
-						sndErrs, sndRepeats, sndEagains, sndZeros, rcvErrs, rcvRepeats);
+	snprintf(msgdata->msg.cmsg, MSGDATA_CMSG_SIZE-1,
+		 "SVR Msg: sndErrs=%d, sndRepeats=%d, sndEagains=%d, sndZeros=%d, rcvErrs=%d, rcvRepeats=%d, rcvEagains=%d",
+						sndErrs, sndRepeats, sndEagains, sndZeros, rcvErrs, rcvRepeats, rcvEagains);
 	/* 2.2 Put timeval at msgdata->data[] */
 	gettimeofday(&tm_stamp, NULL);
-	sndMsgDat->msg.tmstamp=tm_stamp;
-	/* 2.3 Put some data */
-	for(i=0;i<100;i++)
-		sndMsgDat->data[i]=i;
+	msgdata->msg.tmstamp=tm_stamp;
 
-	/* 3. Send Msg+Data out */
+	/* 2.3 Put some data, same datasize as request MSGDATA's */
+	if( datasize > 100-1 ) {
+		for(i=0;i<100;i++)
+			msgdata->data[i]=i;
+	}
+
+	/* 3. Send Msg+Data out, same size as request MSGDATA! */
    	sndsize=0;
    	while( sndsize < packsize ) {
 		//nsnd=write(sfd, buff, datasize);
-        	nsnd=send(sfd, (void *)sndMsgDat+sndsize, packsize-sndsize, 0 ); /* In connectiong_mode, flags: MSG_CONFIRM, MSG_DONTWAIT */
+        	nsnd=send(sfd, (void *)msgdata+sndsize, packsize-sndsize, 0 ); /* In connectiong_mode, flags: MSG_CONFIRM, MSG_DONTWAIT */
 		if(nsnd>0) {
 			/* Count sndsize */
 			sndsize += nsnd;
@@ -1703,6 +1841,7 @@ void* TEST_tcpServer_session_handler(void *arg)
 	session->cmd=0;
 	session->alive=false;
 	close(sfd);
+	session->csFD=-1;
 
 	return (void *)0;
 }
@@ -1818,41 +1957,45 @@ int inet_destroy_tcpClient(EGI_TCP_CLIT **uclit)
 }
 
 
-/*( TEST ) ---------------------------------------------
+/*( TEST ) --------------------------------------------------------
 A TCP client rountine for TEST purpose.
 
 Note:
-1. This TCP client routine works with a TCP server
-   that runs TEST_tcpServer_session_handler().
+1. This TCP client routine works with a TCP server tat runs
+   TEST_tcpServer_session_handler().
 2. Routine works in a Ping-Pong mode:
-   Send a request MSG to server, and wait for reply.
-   Receive reply from the server and parse it.
-3. Log errors and repeats.
+   Send a request MSGDATA to server, and wait for reply. then receive
+   reply from the server and parse it.
+   The server SHALL reply a MSGDATA just in the same size of the
+   request MSGDATA.
+3. Size of request MSGDATA shall be at least sizeof(EGI_INET_MSGDATA)
+4. Log errors and repeats.
 
 @uclit:		Pointer to an EGI_TCP_CLIT
+@packsize:	Each packet size, whole size of a MSGDATA.
+		>=sizeof(EGI_INET_MSGDATA)
 @gms:		Interval sleep in ms.
 
 Return:
 	>0	Peer closed socket.
 	0	OK
 	<0	Fails
----------------------------------------------------------*/
-int TEST_tcpClient_routine(EGI_TCP_CLIT *uclit, int gms)
+-------------------------------------------------------------------*/
+int TEST_tcpClient_routine(EGI_TCP_CLIT *uclit, int packsize, int gms)
 {
         EGI_CLOCK eclock={0};           /* For TR/TX speed test */
         EGI_CLOCK eclock2={0};          /* For LOG write */
 	int tmms;
 
 	EGI_INET_MSGDATA *msgdata=NULL; /* MSG+DATA, use same MSGDATA for send and recv  */
-//	char buff[EGI_MAX_TCP_PDATA_SIZE];
 
         int nsnd,nrcv;          /* returned bytes for each call  */
         int sndsize;            /* accumulated size */
         int rcvsize;
 
+	// packsize=msgsize+datasize
         int msgsize=sizeof(EGI_INET_MSGDATA);      /* MSGDATA withou data[] */
-	int datasize=2*1024;  	/* Expected data size */
-	int packsize=msgsize+datasize;		/* packsize=msgsize+datasize, from server */
+	int datasize;  		/* Expected datasize =packsize-msgsize */
 
 	/* Err and Repeats counter */
 	int sndErrs=0;
@@ -1861,11 +2004,17 @@ int TEST_tcpClient_routine(EGI_TCP_CLIT *uclit, int gms)
 	int sndEagains=0;
 	int rcvErrs=0;
 	int rcvRepeats=0;
+	int rcvEagains=0;
 
 	if(uclit==NULL)
 		return -1;
 
+	/* Packsize limit */
+	if(packsize<msgsize)
+		packsize=msgsize;
+
 	/* Create a MSGDATA */
+	datasize=packsize-msgsize;
 	msgdata=inet_msgdata_create(datasize);
 	if(msgdata==NULL)
 		return -2;
@@ -1886,26 +2035,26 @@ int TEST_tcpClient_routine(EGI_TCP_CLIT *uclit, int gms)
 	        sprintf(msgdata->msg.cmsg, "TCP client %d request for data.", getpid());
 		inet_msgdata_updateTimeStamp(msgdata);  /* Put timestamp */
 
-		/* 2. Send a MSG to server to request data reply, adjust msgsize to ingore msgdata.data[] */
+		/* 2. Send a packet to server to request data reply, the server will reply same size packet! */
 		sndsize=0;
-        	while( sndsize < msgsize) {
+        	while( sndsize < packsize) {
 			/* In connection_mode, flags: MSG_CONFIRM, MSG_DONTWAIT */
-	        	nsnd=send(uclit->sockfd, (void *)msgdata+sndsize, msgsize-sndsize, 0);
+	        	nsnd=send(uclit->sockfd, (void *)msgdata+sndsize, packsize-sndsize, 0);
 			if(nsnd>0) {
 				/* Count sndsize */
 				sndsize += nsnd;
 
-				if(sndsize==msgsize) {
+				if(sndsize==packsize) {
 					break; /* OK */
 				}
-				else if( sndsize < msgsize ) {
+				else if( sndsize < packsize ) {
 					sndRepeats ++;
-					EGI_PLOG(LOGLV_TEST," sndsize < msgsize! continue to sendto() \n" );
+					EGI_PLOG(LOGLV_TEST," sndsize < packsize! continue to sendto() \n" );
 					continue; /* ------> continue sendto() */
 				}
 				else { /* sndsize > msgsize, impossible! */
 					sndErrs ++;
-					EGI_PLOG(LOGLV_TEST,"sndsize > msgsize, send data error!");
+					EGI_PLOG(LOGLV_TEST,"sndsize >packsize, send data error!");
 				}
 			}
 	        	else if(nsnd<0) {
@@ -1915,7 +2064,7 @@ int TEST_tcpClient_routine(EGI_TCP_CLIT *uclit, int gms)
                 	                #endif
                 	        	case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
 						sndEagains ++;
-                        	             	EGI_PLOG(LOGLV_TEST,"Fail to send MSG to the server, Err'%s'.", strerror(errno));
+                        	             	EGI_PLOG(LOGLV_TEST,"Fail to send MSGDATA to the server, Err'%s'.", strerror(errno));
 						continue; /* ------> continue sendto() */
 	                                	break;
 		                        case EPIPE:
@@ -1924,18 +2073,18 @@ int TEST_tcpClient_routine(EGI_TCP_CLIT *uclit, int gms)
 	                                	break;
 	        	                default: {
 						sndErrs ++;
-                        	             	EGI_PLOG(LOGLV_TEST,"Fail to send MSG to the server, Err'%s'.", strerror(errno));
+                        	             	EGI_PLOG(LOGLV_TEST,"Fail to send MSGDATA to the server, Err'%s'.", strerror(errno));
 						continue; /* --------> continue to sendto() */
 					}
                 		}
          		}
-	        	else if(nsnd==0) {
+	        	else  {  /* nsnd==0,  If send(size<=0), it will return 0!  */
 				sndZeros ++;
         	        	EGI_PLOG(LOGLV_TEST," ----- nsnd==0! -----");
          		}
 	   	}
 
-		/* 3. Receive data from server */
+		/* 3. Receive data from server, packsize SHALL be the same! */
 		rcvsize=0;
 		while( rcvsize < packsize ) {
 			//nrcv=read(uclit->sockfd, buff, sizeof(buff));
@@ -1966,15 +2115,32 @@ int TEST_tcpClient_routine(EGI_TCP_CLIT *uclit, int gms)
 				EGI_PLOG(LOGLV_TEST, "The server end session! quit now...");
 				return 2;
 			}
-			else {
-				EGI_PLOG(LOGLV_TEST, "recv(): Err'%s'.", strerror(errno));
+			else {  /* nrcv<0 */
+	       	        	switch(errno) {
+        	                        #if(EWOULDBLOCK!=EAGAIN)
+       	        	                case EWOULDBLOCK:
+               	        	        #endif
+               	        		case EAGAIN:
+						rcvEagains ++;
+						usleep(5000);
+						continue; /* ---> continue recv() */
+                	                	break;
+        	        	        default: {
+						rcvErrs ++;
+						EGI_PLOG(LOGLV_TEST, "recv(): Err'%s'.", strerror(errno));
+						usleep(10000);
+						continue; /* ---> continue to recv() */
+					}
+				}
+
 				rcvErrs ++;
 			}
+
 		} /* End while() recv() */
 
 		/* 4. Parse received MSGDATA */
-		if( nrcv >= MSGDATA_CMSG_SIZE ) {
-			printf("Client_%d: %s\n", getpid(), msgdata->msg.cmsg);
+		printf("Client_%d: %s\n", getpid(), msgdata->msg.cmsg);
+		if( nrcv >= sizeof(EGI_INET_MSGDATA) ) {
 			#if 0 /* TEST---- */
 			printf("nl_datasize=%d, Datasize=%d\n", msgdata->msg.nl_datasize, inet_msgdata_getDataSize(msgdata));
 			printf("Server time stamp: %ld.%06ld\n", msgdata->msg.tmstamp.tv_sec, msgdata->msg.tmstamp.tv_usec);
@@ -1983,8 +2149,8 @@ int TEST_tcpClient_routine(EGI_TCP_CLIT *uclit, int gms)
 			printf("\n");
 			#endif
 		}
-                printf("sndErrs=%d, sndRepeats=%d, sndEagains=%d, sndZeros=%d, rcvErrs=%d, rcvRepeats=%d\n",
-	                                                sndErrs, sndRepeats, sndEagains, sndZeros, rcvErrs, rcvRepeats);
+                //printf("sndErrs=%d, sndRepeats=%d, sndEagains=%d, sndZeros=%d, rcvErrs=%d, rcvRepeats=%d, rcvEagains=%d\n",
+	        //                                        sndErrs, sndRepeats, sndEagains, sndZeros, rcvErrs, rcvRepeats, rcvEagains);
 
 		/* Stop ECLOCK for Rx/Tx */
 		egi_clock_stop(&eclock);
@@ -1993,9 +2159,9 @@ int TEST_tcpClient_routine(EGI_TCP_CLIT *uclit, int gms)
 		/* Pause/Stop ECLOCK2 for LOG */
 		if(egi_clock_pause(&eclock2)<0)printf("CLOCK2 fails!\n");
 		if(eclock2.tm_cost.tv_sec > 60-1 ) {  /* Log every 60s */
-			EGI_PLOG(LOGLV_TEST, "Client %d: %s",getpid(), msgdata->msg.cmsg);  /* Server MSG with errs */
-			EGI_PLOG(LOGLV_TEST, "Client %d: sndErrs=%d, sndRepeats=%d, sndEagains=%d, sndZeros=%d, rcvErrs=%d, rcvRepeats=%d",
-								getpid(), sndErrs, sndRepeats, sndEagains, sndZeros, rcvErrs, rcvRepeats);
+		       EGI_PLOG(LOGLV_TEST, "Client %d: %s",getpid(), msgdata->msg.cmsg);  /* Server MSG with errs */
+		       EGI_PLOG(LOGLV_TEST, "Client %d: sndErrs=%d, sndRepeats=%d, sndEagains=%d, sndZeros=%d, rcvErrs=%d, rcvRepeats=%d, rcvEagains=%d\n",
+							getpid(), sndErrs, sndRepeats, sndEagains, sndZeros, rcvErrs, rcvRepeats, rcvEagains);
 			/* Stop timing, for next round */
 			egi_clock_stop(&eclock2);
 		}

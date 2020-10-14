@@ -1,9 +1,14 @@
-/*--------------------------------------------------------------------------------------------
+/*------------------------------------------------------------------
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License version 2 as
+published by the Free Software Foundation.
+
 Utility functions, mem.
 
 
 Midas Zhou
------------------------------------------------------------------------------------------------*/
+midaszhou@yahoo.com
+-----------------------------------------------------------------*/
 #ifndef __EGI_UTILS_H__
 #define __EGI_UTILS_H__
 
@@ -18,10 +23,18 @@ Midas Zhou
 #define EGI_FEXTNAME_MAX 10 /* !!! exclude '.', length of extension name */
 #define EGI_FEXTBUFF_MAX 16 /* Max items of separated extension names  */
 
+/* EGI File MMAP:  mmap with flags: PROT_READ, MAP_PRIVATE */
+typedef struct {
+	int 		fd;
+	off_t 		fsize;
+	char 		*fp;
+	off_t		off;
+} EGI_FILEMMAP;
+EGI_FILEMMAP *egi_fmap_create(const char *fpath);
+int egi_fmap_free(EGI_FILEMMAP** fmap);
 
 /* A file, functions as the system memo pad, for copy/paste operation */
 #define EGI_SYSPAD_PATH "/tmp/.egi_syspad"
-
 
 /* EGI SYSPAD buffer struct */
 typedef struct {
