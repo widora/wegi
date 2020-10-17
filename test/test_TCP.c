@@ -19,17 +19,25 @@ Note:
 3. TEST: Single TCP packet Max. payload:  MTU(1500)-IPhead(20)-TCPhead(20)-TimestampOption(12)    =1448 Bytes.
    see below.
 4. ----------- ERR LOG -----------------
-[2020-10-10 18:38:26] [LOGLV_TEST] nrcv=1448 < packsize=2572 bytes   (  several times! )
-[2020-10-10 18:38:36] [LOGLV_TEST] recv(): Err'Resource temporarily unavailable'.
-[2020-10-10 18:39:11] [LOGLV_TEST] SVR Msg: sndErrs=0, sndRepeats=0, sndEagains=0, sndZeros=0, rcvErrs=17, rcvRepeats=0
-[2020-10-10 18:39:11] [LOGLV_TEST] Client: sndErrs=0, sndRepeats=0, sndEagains=0, sndZeros=0, rcvErrs=4, rcvRepeats=1
-[2020-10-12 09:58:29] [LOGLV_TEST] Client 9302: SVR Msg: sndErrs=0, sndRepeats=0, sndEagains=0, sndZeros=0, rcvErrs=39, rcvRepeats=0
-[2020-10-12 09:58:29] [LOGLV_TEST] Client 9302: sndErrs=0, sndRepeats=0, sndEagains=0, sndZeros=0, rcvErrs=6, rcvRepeats=1
-[2020-10-12 09:57:17] [LOGLV_TEST] Client 9308: SVR Msg: sndErrs=0, sndRepeats=0, sndEagains=0, sndZeros=0, rcvErrs=45, rcvRepeats=0
-[2020-10-12 09:57:17] [LOGLV_TEST] Client 9308: sndErrs=0, sndRepeats=0, sndEagains=0, sndZeros=0, rcvErrs=8, rcvRepeats=3
- NOTE: TEST shows 2 types of errors/repeats:
-	rcvErr:		EAGAIN, Err'Resource temporarily unavailable'
+[2020-10-10 18:38:26] [LOGLV_TEST] nrcv=1448 < packsize=2572 bytes
+
+	< packsize 4096 >
+[2020-10-14 10:11:55] [LOGLV_TEST] Client 2114: SVR Msg: sndErrs=0, sndRepeats=0, sndEagains=0, sndZeros=0, rcvErrs=0, rcvRepeats=33, rcvEagains=353
+[2020-10-14 10:11:55] [LOGLV_TEST] Client 2114: sndErrs=0, sndRepeats=0, sndEagains=0, sndZeros=0, rcvErrs=0, rcvRepeats=27, rcvEagains=85
+
+	< packsize 1448 >
+[2020-10-14 10:11:55] [LOGLV_TEST] Client 2110: SVR Msg: sndErrs=0, sndRepeats=0, sndEagains=0, sndZeros=0, rcvErrs=0, rcvRepeats=0, rcvEagains=274
+[2020-10-14 10:11:55] [LOGLV_TEST] Client 2110: sndErrs=0, sndRepeats=0, sndEagains=0, sndZeros=0, rcvErrs=0, rcvRepeats=0, rcvEagains=81
+
+	< packsize 16384 >
+[2020-10-14 10:12:15] [LOGLV_TEST] Client 2118: SVR Msg: sndErrs=0, sndRepeats=0, sndEagains=0, sndZeros=0, rcvErrs=0, rcvRepeats=58, rcvEagains=514
+[2020-10-14 10:12:15] [LOGLV_TEST] Client 2118: sndErrs=0, sndRepeats=0, sndEagains=0, sndZeros=0, rcvErrs=0, rcvRepeats=52, rcvEagains=177
+
+NOTE: TEST shows 2 types of errors/repeats:
+	rcvEagains:	EAGAIN, Err'Resource temporarily unavailable'
 	rcvRepeats.	Recv() an incomplete packet, repeat to call recv().
+			For packsize=1448, rcvRepeats always is 0!
+			However it's NOT proportional to packsize!!!
 
 
 Midas Zhou
@@ -70,6 +78,7 @@ void show_help(const char* cmd)
 	printf("	-p:  Port number\n");
 	printf("	-g:  gap sleep in ms, default 10ms\n");
 	printf("	-m:  Transmit mode, 0-Twoway(default), 1-S2C, 2-C2S \n");
+	printf("	-k:  Packet size, default 1448Bytes\n");
 }
 
 
@@ -83,29 +92,11 @@ int main(int argc, char **argv)
 	bool SetTCPServer=false;
 	char *strAddr=NULL;		/* Default NULL, to be decided by system */
 	unsigned short int port=0; 	/* Default 0, to be selected by system */
-
-
-#if 0 /*========== TEST: INET_MSGDATA ===========*/
-
-EGI_INET_MSGDATA *msgdata=NULL;
-
-while(1) {
-  msgdata=inet_msgdata_create(64*1024);
-  printf("MSGDATA: msg[] %d bytes, data[] %d bytes\n", sizeof(*msgdata), inet_msgdata_getDataSize(msgdata));
-
-  sprintf(msgdata->data+1024,"Yes!");
-  printf("%s\n",msgdata->data+1024);
-
-  inet_msgdata_free(&msgdata);
-  usleep(10000);
-}
-
-exit(0);
-#endif  /* ===== END TEST ===== */
+	int packsize;
 
 
 	/* Parse input option */
-	while( (opt=getopt(argc,argv,"hscva:p:g:m:"))!=-1 ) {
+	while( (opt=getopt(argc,argv,"hscva:p:g:m:k:"))!=-1 ) {
 		switch(opt) {
 			case 'h':
 				show_help(argv[0]);
@@ -131,17 +122,26 @@ exit(0);
 				break;
 			case 'g':
 				gms=atoi(optarg);
-				printf("Set gms=%dms\n",gms);
 				break;
 			case 'm':
 				trans_mode=atoi(optarg);
 				break;
+			case 'k':
+				packsize=atoi(optarg);
+				packsize=packsize>sizeof(EGI_INET_MSGDATA) ? packsize : sizeof(EGI_INET_MSGDATA);
+				break;
 			default:
 				SetTCPServer=false;
 				gms=10;
+				packsize=1448;
+
 				break;
 		}
 	}
+
+	printf("Set as TCP %s\n", SetTCPServer ? "Server" : "Client");
+	printf("Set gms=%dms\n",gms);
+	printf("Set test packsize=%d (MSG+DATA)\n",packsize);
 	sleep(2);
 
   /* Default signal handlers for TCP processing */
@@ -191,7 +191,7 @@ exit(0);
                 exit(1);
 
 	/* Run client routine */
-	TEST_tcpClient_routine(uclit, gms);
+	TEST_tcpClient_routine(uclit, packsize, gms);
 
         /* Free and destroy */
         inet_destroy_tcpClient(&uclit);

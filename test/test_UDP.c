@@ -11,7 +11,7 @@ Example:
 	./test_UDP -s -p 8765			( As server )
 	./test_UDP -c -a 192.168.9.9 -p 8765	( As client )
 
-	( Use test_garph.c to show wifi interface speed )
+	( Use test_garph.c to show net interface traffic speed )
 
 Note:
 1. This test MAY hamper other wifi devices!

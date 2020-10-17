@@ -102,6 +102,8 @@ int inet_msgdata_send(int sockfd, const EGI_INET_MSGDATA *msgdata);
 /* Signal handling */
 void inet_signals_handler(int signum);
 int inet_register_sigAction(int signum, void(*handler)(int));
+__attribute__((weak)) void inet_sigpipe_handler(int signum);
+__attribute__((weak)) void inet_sigint_handler(int signum);
 int inet_default_sigAction(void);
 
 			/* ------------ UDP C/S ----------- */
@@ -198,6 +200,9 @@ typedef struct egi_tcp_server_session {
 
 
 /* EGI_TCP_SERV & EGI_TCP_CLIT */
+
+#define TCP_SERV_SNDTIMEO	10
+#define TCP_SERV_RCVTIMEO	10
 struct egi_tcp_server {
 	int 			sockfd;		/* For accept */
 	struct sockaddr_in 	addrSERV;	/* Self address */
@@ -216,6 +221,8 @@ struct egi_tcp_server {
 
 };
 
+#define TCP_CLIT_SNDTIMEO    10
+#define TCP_CLIT_RCVTIMEO    10
 struct egi_tcp_client {
 	int 	sockfd;
 	struct sockaddr_in addrSERV;
@@ -226,13 +233,14 @@ struct egi_tcp_client {
 /* TCP C/S Basic Functions */
 int inet_tcp_recv(int sockfd, void *data, size_t packsize);
 int inet_tcp_send(int sockfd, const void *data, size_t packsize);
+int inet_tcp_getState(int sockfd);
 
 EGI_TCP_SERV* 	inet_create_tcpServer(const char *strIP, unsigned short port, int domain);
-int 		inet_destroy_tcpServer(EGI_TCP_SERV **userv);
+int 		inet_destroy_tcpServer(EGI_TCP_SERV **userv);	/* close and free */
 int 		inet_tcpServer_routine(EGI_TCP_SERV *userv);
 void* 		TEST_tcpServer_session_handler(void *arg);    /* A thread function */
 
 EGI_TCP_CLIT* 	inet_create_tcpClient(const char *servIP, unsigned short servPort, int domain);
-int 		inet_destroy_tcpClient(EGI_TCP_CLIT **uclit);
+int 		inet_destroy_tcpClient(EGI_TCP_CLIT **uclit);	/* close and free */
 int 		TEST_tcpClient_routine(EGI_TCP_CLIT *uclit, int packsize, int gms);
 #endif

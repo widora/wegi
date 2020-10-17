@@ -71,7 +71,25 @@ struct in_addr {
 9. A big packet needs more/extra time/load for transmitting and coordinating!?
    A big packet is fragmented to fit for link MTU first.
    and will be more possible to interfere other WIFI devices. Select a suitable packet size!
-    
+   Pros: To increase packet size in a rarely disturbed network can improve general speed considerablely.
+   Cons: it costs more CPU Load, especially for the client of file receiver, and fluctuation on data stream.
+   Example: Use bigger packet size in Ethernet than in WiFi net.
+
+10. Linux man recv(): About peer stream socket close:
+    "When a stream socket peer has performed an orderly shutdown, the return value will be 0".
+    "The value 0 may also be returned if the requested number of bytes to receive from a stream socket was 0."
+
+11. Linux man send(): About return of EPIPE:
+    "The local end has been shut down on a connection oriented socket."
+
+12. TCP flags FIN/RST, and TCP_CLOSE_WAIT.
+    After first receving FIN from peer end, local sockfd is still OK. If we call send() again, the peer end will reply RST this time!
+    It usually needs a while to receive RST,which RST will trigger SIGPIPE, and info.tcpi_state==TCP_CLOSE_WAIT before that.
+    ( After catching the SIGPIPE, to call getsockopt(sockfd,IPPROTO_TCP, TCP_INFO, &info, ...) will get info.tcpi_state==TCP_CLOSE! )
+    If network is broken before RTS is received, A TCP_CLOSE_WAIT status may last as long as 2 hours!?
+
+13. TCP shutdown(sockfd, ) only shuts down socket receptions and/or transmissions, sockfd is still valid, you can still call getsockopt()
+    to get its status;  while if you close() the sockfd, then it will be invalid.
 
 TODO:
 1. Auto. reconnect.
@@ -83,6 +101,7 @@ midaszhou@yahoo.com
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h> /* inet_ntoa() */
 #include <stdio.h>
 #include <stdlib.h>
@@ -479,12 +498,12 @@ void inet_signals_handler(int signum)
 	}
 
 }
-void inet_sigpipe_handler(int signum)
+__attribute__((weak)) void inet_sigpipe_handler(int signum)
 {
-	printf("Catch a SIGPIPPE!\n");
+	printf("Catch a SIGPIPE!\n");
 }
 
-void inet_sigint_handler(int signum)
+__attribute__((weak)) void inet_sigint_handler(int signum)
 {
 	printf("Catch a SIGINT!\n");
 }
@@ -548,7 +567,7 @@ Note:
 2. The function MAY stuck in dead loop?
 
 Return:
-	>0	Socket closed.
+	>0	(=1)Peer socket closed.
 	0	OK, packisze data received.
 	<0	Fails
 -----------------------------------------------------------*/
@@ -562,7 +581,7 @@ inline int inet_tcp_recv(int sockfd, void *data, size_t packsize)
 	if(packsize<1)
 		return -2;
 
-#if 1 /* --------------- Loop recv(BLOCK) Method --------------- */
+     /* --------------- Loop recv(BLOCK) Method --------------- */
 	/* Big msgdata MAY need serveral rounds of recv()...*/
 	rcvsize=0;
 	while( rcvsize < packsize ) {
@@ -593,6 +612,7 @@ inline int inet_tcp_recv(int sockfd, void *data, size_t packsize)
                                 case EWOULDBLOCK:
                                 #endif
                                 case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
+					printf("%s: Timeout! try again...\n",__func__);
 					usleep(50000);
 					continue;  /* ---> continue to recv while() */
 					break;
@@ -603,8 +623,6 @@ inline int inet_tcp_recv(int sockfd, void *data, size_t packsize)
 		}
    	}
 
-#else /* ------------- Select/Poll/Epoll Method ---------------*/
-#endif
 	return 0;
 }
 
@@ -625,7 +643,7 @@ Note:
 3. The function MAY stuck in dead loop?
 
 Return:
-	>0	Peer socket closed.
+	>0	(=1)Peer socket closed.
 	0	OK, data sent out (to kenerl).
 	<0	Fails
 -----------------------------------------------------------*/
@@ -639,7 +657,7 @@ inline int inet_tcp_send(int sockfd, const void *data, size_t packsize)
 	if(packsize<1)
 		return -2;
 
-#if 1 /* --------------- Loop send(BLOCK) Method --------------- */
+	 /* --------------- Loop send(BLOCK) Method --------------- */
 	/* Big msgdata MAY need serveral rounds of recv()...*/
 	sndsize=0;
 	while( sndsize < packsize ) {
@@ -660,31 +678,79 @@ inline int inet_tcp_send(int sockfd, const void *data, size_t packsize)
 				return -3;
 			}
 	        }
-        	else if(nsnd==0) {
-               		printf("%s: Peer socket closed!\n",__func__);
-			return 1;
-        	}
 	        else if(nsnd<0) {
                 	switch(errno) {
                         	#if(EWOULDBLOCK!=EAGAIN)
                                 case EWOULDBLOCK:
                                 #endif
                                 case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
+					printf("%s: Timeout! try again...\n",__func__);
 					usleep(50000);
 					continue;  /* ---> continue to recv while() */
 					break;
+				case EPIPE:
+		               		printf("%s: Peer socket closed!\n",__func__);
+					return 1;
 				default:
 		        	       	printf("%s: Err'%s'\n", __func__, strerror(errno));
 					return -4;
 			}
 		}
+		else { /* nsnd==0 */
+			printf("%s: snd==0!\n", __func__);
+		}
    	}
 
-#else /* ------------- Select/Poll/Epoll Method ---------------*/
-#endif
 	return 0;
 }
 
+
+/*---------------------------------------------------------
+Get TCP connection state value as defined in netinet/tcp.h
+
+Note:
+1. An illegal sockfd will cause segment fault!
+
+@sockfd: Socket file descriptor.
+
+Return:
+	>0	TCP state value
+	<0	Fails
+-----------------------------------------------------------*/
+inline int inet_tcp_getState(int sockfd)
+{
+	const static char str_states[13][32]={
+  "TCP_states_0",      /* =0 */
+  "TCP_ESTABLISHED",
+  "TCP_SYN_SENT",
+  "TCP_SYN_RECV",
+  "TCP_FIN_WAIT1",
+  "TCP_FIN_WAIT2",
+  "TCP_TIME_WAIT",
+  "TCP_CLOSE",
+  "TCP_CLOSE_WAIT",
+  "TCP_LAST_ACK",
+  "TCP_LISTEN",
+  "TCP_CLOSING",
+  "TCP_state_undefine"  /* =12 */
+  	};
+
+	int state;
+	int index;
+	struct tcp_info info;
+        int len=sizeof(info);
+
+        if( getsockopt(sockfd,IPPROTO_TCP, TCP_INFO, &info, (socklen_t *)&len)==0 ) {
+		state=info.tcpi_state;
+		index= ( state>=0 && state<12) ? state : 12;
+		printf("%s: '%s'\n", __func__, str_states[index]);
+		return state;
+        }
+        else {
+		printf("%s: getsockopt Err'%s'.\n",__func__, strerror(errno));
+		return -1;
+	}
+}
 
 /*-----------------------------------------------------
 Create an UDP server.
@@ -1350,9 +1416,9 @@ Return:
 -------------------------------------------------------*/
 EGI_TCP_SERV* inet_create_tcpServer(const char *strIP, unsigned short port, int domain)
 {
-	struct timeval snd_timeout={5,0}; /* Default time out for send */
-	struct timeval rcv_timeout={5,0}; /* Default time out for receive and accept() */
 	EGI_TCP_SERV *userv=NULL;
+	struct timeval snd_timeout={TCP_SERV_SNDTIMEO,0}; /* Default time out for send */
+	struct timeval rcv_timeout={TCP_SERV_RCVTIMEO,0}; /* Default time out for receive and accept() */
 
 	/* Calloc EGI_TCP_SERV */
 	userv=calloc(1,sizeof(EGI_TCP_SERV));
@@ -1520,7 +1586,7 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 			if( userv->sessions[i].alive==true )
 				userv->ccnt++;
 		}
-		printf("%s: Recount active sessions userv->ccnt=%d\n", __func__, userv->ccnt);
+//		printf("%s: Recount active sessions userv->ccnt=%d\n", __func__, userv->ccnt);
 
  #if 0	////////////////* Re_count clients and Re_arrange userv->sessions[], some sessions might end. */
 		int j;
@@ -1567,7 +1633,7 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
                                 case EWOULDBLOCK:
                                 #endif
 				case EAGAIN:
-					/* The socket is marked nonblocking and no connections are present to be accepted. */
+				case EINTR:
 					tm_delayms(10); /* NONBLOCKING */
 					continue;  /* ---> continue to while() */
 					break;
@@ -1860,8 +1926,9 @@ Return:
 -------------------------------------------------------*/
 EGI_TCP_CLIT* inet_create_tcpClient(const char *servIP, unsigned short servPort, int domain)
 {
-	struct timeval timeout={10,0}; /* Default time out for send/receive */
 	EGI_TCP_CLIT *uclit=NULL;
+        struct timeval snd_timeout={TCP_CLIT_SNDTIMEO,0}; /* Default time out for send */
+        struct timeval rcv_timeout={TCP_CLIT_RCVTIMEO,0}; /* Default time out for receive and accept() */
 
 	/* Check input */
 	if(servIP==NULL)
@@ -1896,12 +1963,12 @@ EGI_TCP_CLIT* inet_create_tcpClient(const char *servIP, unsigned short servPort,
 	uclit->addrSERV.sin_port=htons(servPort);
 
         /* 3. Set default SND/RCV timeout,   recvfrom() and sendto() can set flag MSG_DONTWAIT.  */
-        if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout)) <0 ) {
+        if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&snd_timeout, sizeof(snd_timeout)) <0 ) {
                 printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
 		free(uclit);
 		return NULL;
         }
-        if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) <0 ) {
+        if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&rcv_timeout, sizeof(rcv_timeout)) <0 ) {
                 printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
 		free(uclit);
 		return NULL;
