@@ -5,8 +5,8 @@ published by the Free Software Foundation.
 
 
 Note:
-1. All structs are in private byte-order, without consideration of
-   portability!
+1. All structs/data in ipackets are in private byte-order, without
+   consideration of portability!
 
 
 
@@ -27,32 +27,38 @@ typedef struct egi_udp_client EGI_UDP_CLIT;
 typedef struct egi_tcp_server EGI_TCP_SERV;
 typedef struct egi_tcp_client EGI_TCP_CLIT;
 
-			/* ------------ EGI_INETPACK : An abstract packet model ----------- */
+
+			/* ------------ An EGI_INETPACK : An abstract packet model ----------- */
 
 /*** Note:
  * 1. Create your private MSGDATA, and nest it into data[].
  */
 struct egi_inet_packet {
-	int  packsize;	/* Total size
-			 *   packsize=headsize+privdata_size+sizeof(EGI_INETPACK)
+	int  packsize;	/*  Total size
+			 *   packsize=sizeof(EGI_INETPACK)+headsize+privdata_size
 			 *   headsize>=0; datasize>=0
 			 */
 
-	int  headsize;	/* size of head[] in data[], MAY be 0! */
-
-	//char *head;
-	//char *privdata;
-
+	int  headsize;	/*   private head, size of head[] in data[], MAY be 0! */
 	char data[];  	/*   head[headsize] + privdata[privdata_size]
 			 *   head[]:     MAY be null.
-			 *   privdata[]: data OR nested sub_packets...
+			 *   privdata[]: data OR nested sub_ipackets...
 			 */
 };
 
-EGI_INETPACK* inet_ipacket_create(int headsize, int privdata_size);
-void inet_ipacket_free(EGI_INETPACK** ipack);
 void*  IPACK_HEADER(EGI_INETPACK *ipack);
 void*  IPACK_PRIVDATA(EGI_INETPACK *ipack);
+int    IPACK_DATASIZE(const EGI_INETPACK *ipack);
+
+EGI_INETPACK* 	inet_ipacket_create(int headsize, void *head, int privdata_size, void * privdata);
+void 	inet_ipacket_free(EGI_INETPACK** ipack);
+int 	inet_ipacket_loadData(EGI_INETPACK *ipack, int off, const void *data, int size);
+int 	inet_ipacket_pushData(EGI_INETPACK **ipack, const void *data, int size);
+int 	inet_ipacket_reallocData(EGI_INETPACK **ipack, int datasize);
+int 	inet_ipacket_tcpSend(int sockfd, const EGI_INETPACK *ipack);
+int 	inet_ipacket_tcpRecv(int sockfd, EGI_INETPACK **ipack);       /* Auto. realloc ipack according to leading ipack.packsize */
+
+
 
 			/* ------------ EGI_INET_MSGDATA : An practical packet model ----------- */
 /*** Note:
@@ -106,32 +112,10 @@ __attribute__((weak)) void inet_sigpipe_handler(int signum);
 __attribute__((weak)) void inet_sigint_handler(int signum);
 int inet_default_sigAction(void);
 
+
 			/* ------------ UDP C/S ----------- */
 
-/******** MTU and TCP/UDP packet payload ********
-
-  Traditional MTU 1500Bytes
-  Jumboframe MTU 9000Bytes for morden fast Ethernet.
-
-  EtherNet frame packet payload: 	46-MTU(1500) bytes. Max.1500.
-  PPPoE frame packet palyload:   	46~MTU(1500-8=1492) bytes. Max. 1492?
-
-  Single IP packet Max. payload:	MTU(1500)-IPhead(20)					=1480 Bytes.
-  Single TCP packet Max. payload:	MTU(1500)-IPhead(20)-TCPhead(20)			=1460 Bytes.
-					MTU(1500)-IPhead(20)-TCPhead(20)-TimestampOption(12)	=1448 Bytes.
-  TCP MMS (Max. Segment Size)
-  Single UDP packet Max.payload:	MTU(1500)-IPhead(20)-UDPhead(8)				=1472 bytes.
-	       when MTU=576: 		MTU(576)-IPhead(20)-UDPhead(8)				=548 bytes.
-
-  UPD datagram  Max. size: 2^16-1-8-20=65507
-  TCP datagram  Max. size: Stream, as no limit.
-
-************************************************/
-
-
-//#define EGI_MAX_UDP_PDATA_SIZE	1024   /* Max. UDP packet payload size(exclude 8bytes UDP packet header), limited for MTU.  */
 #define EGI_MAX_UDP_PDATA_SIZE	(1024*60)
-
 
 /*---------------------------------------------------------------
           EGI UDP Server/Client Process Callback Functions
@@ -155,7 +139,13 @@ typedef int (* EGI_UDPCLIT_CALLBACK)( const struct sockaddr_in *rcvAddr, const c
 				                   			       char *sndBuff, int *sndSize);
 
 
-/* EGI_UDP_SERV & EGI_UDP_CLIT */
+/*** EGI_UDP_SERV & EGI_UDP_CLIT
+ *
+ *   			An EGI UDP Server Model
+ * ONLY One routine process for receiving/sending all datagrams, and a backcall
+ * function to pass out/in all datagrams. The caller SHALL take responsiblity
+ * to identify clients and handle sessions respectively.
+ */
 struct egi_udp_server {
 	int sockfd;
 	struct sockaddr_in addrSERV;
@@ -199,11 +189,17 @@ typedef struct egi_tcp_server_session {
 }EGI_TCP_SERV_SESSION;  /* At server side */
 
 
-/* EGI_TCP_SERV & EGI_TCP_CLIT */
+/*** EGI_TCP_SERV & EGI_TCP_CLIT
+ *
+ *                         An EGI TCP Server Model
+ * A main thread for accepting all clients, and one session handling thread
+ * is created for each accepted client. The caller SHALL design its session
+ * handling/processing thread function.
+ */
 
+struct egi_tcp_server {
 #define TCP_SERV_SNDTIMEO	10
 #define TCP_SERV_RCVTIMEO	10
-struct egi_tcp_server {
 	int 			sockfd;		/* For accept */
 	struct sockaddr_in 	addrSERV;	/* Self address */
 #define MAX_TCP_BACKLOG		16
@@ -221,9 +217,9 @@ struct egi_tcp_server {
 
 };
 
+struct egi_tcp_client {
 #define TCP_CLIT_SNDTIMEO    10
 #define TCP_CLIT_RCVTIMEO    10
-struct egi_tcp_client {
 	int 	sockfd;
 	struct sockaddr_in addrSERV;
 	struct sockaddr_in addrME;	/* Self address */

@@ -3,36 +3,54 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-A UPD/TCP communication module.
+A simple UPD/TCP communication module.
 NOW: For IPv4 ONLY!
 
-1. Structs for address:
-struct sockaddr {
-	sa_family_t sa_family;
-	char        sa_data[14];
-}
+			--- An EGI UDP Server model ---
 
-	--- IPv4 ---
-struct sockaddr_in {
-	short int 		sin_family;
-	unsigend short it	sin_port;
-	struct in_addr		sin_addr;
-	unsigned char		sin_zero[8];
-}
-struct in_addr {
-	union {
-		struct { u_char s_b1,s_b2,s_b3,s_b4; } S_un_b;
-		struct { u_short s_w1,s_w2;} S_un_w;
-		u_long S_addr;
-	} S_un;
-	#define s_addr S_un.S_addr
-}
+ONLY One routine process for receiving/sending all datagrams, and a backcall
+function to pass out/in all datagrams. The caller SHALL take responsiblity
+to identify clients and handle sessions respectively.
 
-2. sendmsg() v.s. sendto()
+			--- An EGI TCP Server model ---
+
+A main thread for accpeting all clients, and one session handling thread
+will be created for each accpeted client. The caller SHALL design the
+session processing thread function.
+
+
+NOTE:
+
+1. structs for IP addresses:
+	struct sockaddr {
+		sa_family_t sa_family;
+		char        sa_data[14];
+	}
+
+		--- IPv4 ---
+	struct sockaddr_in {
+		short int 		sin_family;
+		unsigend short it	sin_port;
+		struct in_addr		sin_addr;
+		unsigned char		sin_zero[8];
+	}
+
+	struct in_addr {
+		union {
+			struct { u_char s_b1,s_b2,s_b3,s_b4; } S_un_b;
+			struct { u_short s_w1,s_w2;} S_un_w;
+			u_long S_addr;
+		} S_un;
+		#define s_addr S_un.S_addr
+	}
+
+   		sendto() V.S. sendmsg()/sendmmsg()
    ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
                   const struct sockaddr *dest_addr, socklen_t addrlen);
 
    ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags);
+   int sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
+                    unsigned int flags);
    struct msghdr {
                void         *msg_name;       // optional addrese
                socklen_t     msg_namelen;    // size of address
@@ -43,53 +61,83 @@ struct in_addr {
                int           msg_flags;      // flags (unused)
    };
 
-3. A UDP Server is calling Non_blocking recvfrom(), while a UDP Client is calling
+2. MTU and TCP/UDP packet payload
+
+  Traditional MTU: 	1500Bytes
+  Jumboframe  MTU: 	9000Bytes for morden fast Ethernet.
+
+  EtherNet frame packet payload:        46~MTU(1500) bytes. Max.1500.
+  PPPoE frame packet palyload:          46~MTU(1500-8=1492) bytes. Max. 1492?
+
+  Single IP packet Max. payload:        MTU(1500)-IPhead(20)                                    =1480 Bytes.
+  Single TCP packet Max. payload:       MTU(1500)-IPhead(20)-TCPhead(20)                        =1460 Bytes.
+                                        MTU(1500)-IPhead(20)-TCPhead(20)-TimestampOption(12)    =1448 Bytes.
+  TCP MMS (Max. Segment Size)
+  Single UDP packet Max.payload:        MTU(1500)-IPhead(20)-UDPhead(8)                         =1472 bytes.
+               when MTU=576:            MTU(576)-IPhead(20)-UDPhead(8)                          =548 bytes.
+
+  UPD datagram    Max. size: 	2^16-1-8-20=65507 Bytes
+  TCP stream data Max. size: 	Stream, No limit!
+
+4.UDP v.s. TCP
+   4.1 UDP as user datagram:
+       	(man 7 tcp)"All receive operations return only one packet!  When the packet is smaller than the passed buffer,
+   	only that much data is returned; when it is bigger, the packet is truncated and the MSG_TRUNC flag is set.
+    	MSG_WAITALL is not supported."
+   4.2 TCP as data stream:
+	Data received from each packet will be put together in kernel buffer.
+   	All receive operations return just the required length of data, as long as they are available in kernel buffer;
+   	and when there is not enough data, just return all availble data received in kernel buffer.
+
+5. A UDP Server is calling Non_blocking recvfrom(), while a UDP Client is calling
    blocking recvfrom(). A UDP Server needs to transmit data as quickly as
    possible, while a UDP Client only receives data at most time, responds to the
    server only occasionaly. You can also ajust TimeOut for blocking type func.
    recvfrom().
 
-4. UDP Tx/Rx speeds depends on many facts and situations.
-   It's difficult to always gear up with the Server with a right timing:
+6. UDP Tx/Rx speeds depend on many facts and situations.
+   It's always difficult to gear up with the Server at a right timing:
    packet size, numbers of clients, backcall() strategy, request conflicts,
    system task schedule, ....
 
    1 UDP server, 2 UDP Clients, keep Two_Way transmitting. --- Seems Good and stable!  Server Tx/Rx=4.5Mbps
 
-5. Datagram sockets permit zero-length datagrams, while for stream sockets is usually a shutdown signal.
+7. Datagram sockets permit zero-length datagrams, while for stream sockets it's usually a shutdown signal.
 
-6. High speed TCP stream transmission will invoke high CPU load.
+8. High speed TCP stream transmission will invoke high CPU load?
 
-7. Any INET API functions, like write/read/recv/recvfrom/send/sendto... etc,only deal with kernel buffers!
+9. Any INET API functions, like write/read/recv/recvfrom/send/sendto... etc,only deal with kernel buffers!
    It's the kernel that takes care of all end-to-end TCP/UDP connections,transport and reliablity.
 
-8. When sendto() returns (with timeout), it ONLY finish passing returned bytes of data to the kernel!
+10. When sendto() returns (with timeout), it ONLY finish passing returned bytes of data to the kernel!
    So as recvfrom(), it ONLY returns number of bytes passed from the kernel.
    It may NOT finish sending/receiving compelete data by only one call! You have
    to check returned number of bytes with expected size of data.
 
-9. A big packet needs more/extra time/load for transmitting and coordinating!?
+11. A big packet needs more/extra time/load for transmitting and coordinating!?
    A big packet is fragmented to fit for link MTU first.
    and will be more possible to interfere other WIFI devices. Select a suitable packet size!
    Pros: To increase packet size in a rarely disturbed network can improve general speed considerablely.
-   Cons: it costs more CPU Load, especially for the client of file receiver, and fluctuation on data stream.
+   Cons: It costs more CPU Load, especially for the client of file receiver, and fluctuation on data stream.
    Example: Use bigger packet size in Ethernet than in WiFi net.
 
-10. Linux man recv(): About peer stream socket close:
+12. Linux man recv(): About peer stream socket close:
     "When a stream socket peer has performed an orderly shutdown, the return value will be 0".
     "The value 0 may also be returned if the requested number of bytes to receive from a stream socket was 0."
 
-11. Linux man send(): About return of EPIPE:
+13. Linux man send(): About return of EPIPE:
     "The local end has been shut down on a connection oriented socket."
 
-12. TCP flags FIN/RST, and TCP_CLOSE_WAIT.
-    After first receving FIN from peer end, local sockfd is still OK. If we call send() again, the peer end will reply RST this time!
-    It usually needs a while to receive RST,which RST will trigger SIGPIPE, and info.tcpi_state==TCP_CLOSE_WAIT before that.
-    ( After catching the SIGPIPE, to call getsockopt(sockfd,IPPROTO_TCP, TCP_INFO, &info, ...) will get info.tcpi_state==TCP_CLOSE! )
+14. TCP flags FIN/RST, and TCP_CLOSE_WAIT.
+    After first receving FIN from remote peer end, local sockfd is still OK. If we call send() again,
+    the remote peer end will reply RST this time! It usually needs a while to receive RST, which will trigger SIGPIPE,
+    and info.tcpi_state is TCP_CLOSE_WAIT until then.
+    After catching the SIGPIPE, to call getsockopt(sockfd,IPPROTO_TCP, TCP_INFO, &info, ...) will get info.tcpi_state==TCP_CLOSE!
     If network is broken before RTS is received, A TCP_CLOSE_WAIT status may last as long as 2 hours!?
 
-13. TCP shutdown(sockfd, ) only shuts down socket receptions and/or transmissions, sockfd is still valid, you can still call getsockopt()
-    to get its status;  while if you close() the sockfd, then it will be invalid.
+15. TCP shutdown(sockfd, ) only shuts down socket receptions and/or transmissions, sockfd is still valid, you can still call getsockopt()
+    to get its status; If you close() the sockfd, then it will be invalid.
+
 
 TODO:
 1. Auto. reconnect.
@@ -114,56 +162,6 @@ midaszhou@yahoo.com
 #include <egi_log.h>
 
 /* ========================  EGI_INETPACK Functions  ========================== */
-
-/*--------------------------------------------------------
-Create an EGI_INETPACK with given size.
-
-@headsize:	     Head size of an EGI_INETPACK.
-@privdata_size:      size of privdata in EGI_INETPACK.data[]
-
-Return:
-	Pointer to EGI_INETPACK	OK
-	NULL			Fails
---------------------------------------------------------*/
-EGI_INETPACK* inet_ipacket_create(int headsize, int privdata_size)
-{
-	EGI_INETPACK* ipack=NULL;
-	int datasize;
-
-	/* Check input */
-	if(headsize<0 || privdata_size<0)
-		return NULL;
-
-	/* Datasize */
-	datasize=headsize+privdata_size;
-
-	/* Calloc ipack */
-	ipack=calloc(1, sizeof(EGI_INETPACK)+datasize);
-	if(ipack==NULL) {
-		printf("%s: Fail to calloc ipack!\n",__func__);
-		return NULL;
-	}
-
-	/* Assign memebers */
-	ipack->packsize=sizeof(EGI_INETPACK)+datasize;
-	ipack->headsize=headsize;
-
-	return ipack;
-}
-
-
-/*---------------------------------------------
-	Free an EGI_INETPACK.
-----------------------------------------------*/
-void inet_ipacket_free(EGI_INETPACK** ipack)
-{
-	if( ipack==NULL || *ipack==NULL)
-		return;
-
-	free(*ipack);
-	*ipack=NULL;
-}
-
 
 /*------------------------------------------
 Get pointer to  header of EGI_INETPACK.data
@@ -191,6 +189,248 @@ void*  IPACK_PRIVDATA(EGI_INETPACK *ipack)
         else
 		return (char *)(ipack) +sizeof(EGI_INETPACK) +ipack->headsize;
 }
+
+/*------------------------------------------
+   Get ipack data size, NOT privdata size!!!
+-------------------------------------------*/
+int  IPACK_DATASIZE(const EGI_INETPACK *ipack)
+{
+	if(ipack==NULL)
+		return -1;
+
+	return ipack->packsize-sizeof(EGI_INETPACK);
+}
+
+
+/*--------------------------------------------------------
+Create an EGI_INETPACK with given size and data.
+
+@headsize:	     Head size of EGI_INETPACK.data[]
+@privdata_size:      size of privdata in EGI_INETPACK.data[]
+@head:	     	     Data of private head.
+		     If NULL, ignore.
+@privdata:	     Private data
+		     If NULL, ignore.
+
+
+Return:
+	Pointer to EGI_INETPACK	OK
+	NULL			Fails
+--------------------------------------------------------*/
+EGI_INETPACK* inet_ipacket_create(int headsize, void *head, int privdata_size, void * privdata)
+{
+	EGI_INETPACK* ipack=NULL;
+	int datasize;
+
+	/* Check input */
+	if(headsize<0 || privdata_size<0)
+		return NULL;
+
+	/* Datasize */
+	datasize=headsize+privdata_size;
+
+	/* Calloc ipack */
+	ipack=calloc(1, sizeof(EGI_INETPACK)+datasize);
+	if(ipack==NULL) {
+		printf("%s: Fail to calloc ipack!\n",__func__);
+		return NULL;
+	}
+
+	/* Load data */
+	if(head)
+		memcpy(ipack->data, head, headsize);
+	if(privdata)
+		memcpy(ipack->data+headsize, privdata, privdata_size);
+
+	/* Assign memebers */
+	ipack->packsize=sizeof(EGI_INETPACK)+datasize;
+	ipack->headsize=headsize;
+
+	return ipack;
+}
+
+
+/*---------------------------------------------
+	Free an EGI_INETPACK.
+----------------------------------------------*/
+void inet_ipacket_free(EGI_INETPACK** ipack)
+{
+	if( ipack==NULL || *ipack==NULL)
+		return;
+
+	free(*ipack);
+	*ipack=NULL;
+}
+
+
+/*--------------------------------------------------------
+Load data into specified position in ipack->data.
+
+@ipack:		Pointer to an EGI_INETPACK
+@off:		Offset to ipack->data.
+@data:		Source data
+@size:		Size of input data
+
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------------------*/
+int inet_ipacket_loadData(EGI_INETPACK *ipack, int off, const void *data, int size)
+{
+	/* Check input */
+	if(ipack==NULL || data==NULL )
+		return -1;
+	if( off<0 || size<0 )
+		return -2;
+
+	/* Check packsize */
+	if( ipack->packsize < sizeof(EGI_INETPACK)+off+size ) {
+		printf("%s: Not enough space to hold the data!\n",__func__);
+		return -3;
+	}
+
+	memcpy(ipack->data+off, data, size);
+
+	return 0;
+}
+
+/*-------------------------------------------------------------
+Push data to the end of ipack->data[], and ipack is reallocated
+to fit for the new packsize.
+
+@ipack:		Ppointer to an EGI_INETPACK
+@data:		Source data
+@size:		Size of input data
+
+Return:
+	0	OK
+	<0	Fails
+-------------------------------------------------------------*/
+int inet_ipacket_pushData(EGI_INETPACK **ipack, const void *data, int size)
+{
+	EGI_INETPACK	*ptr;
+
+	/* Check input */
+	if(ipack==NULL || *ipack==NULL || data==NULL )
+		return -1;
+	if( size<0 )
+		return -2;
+
+	/* Reallocate ipack */
+	ptr=realloc(*ipack, (*ipack)->packsize+size);
+	if(ptr==NULL)
+		return -3;
+	else
+		*ipack=ptr;
+
+	/* Copy data */
+	memcpy((char *)(*ipack)+(*ipack)->packsize, data, size);
+
+	/* Update packsize */
+	(*ipack)->packsize += size;
+
+	return 0;
+}
+
+
+/*-----------------------------------------------------------
+Realloc ipacket with new datasize.
+
+Note:
+1. All data[] will be cleared after realloc!
+
+Return:
+	0	OK
+	<0	Fails
+-------------------------------------------------------------*/
+inline int inet_ipacket_reallocData(EGI_INETPACK **ipack, int datasize)
+{
+	void* ptr=NULL;
+
+	if(ipack==NULL||*ipack==NULL)
+		return -1;
+	if(datasize<0)
+		return -1;
+
+	ptr=realloc(*ipack, sizeof(EGI_INETPACK)+datasize);
+	if(ptr==NULL)
+		return -2;
+
+	/* Clear data */
+	bzero( ptr+sizeof(EGI_INETPACK), datasize);
+
+	/* Reassign ipack and datasize */
+	*ipack=ptr;
+	(*ipack)->packsize=sizeof(EGI_INETPACK)+datasize;
+
+	return 0;
+}
+
+
+/*-----------------------------------------------------------
+TCP send out an IPACK.
+
+Return:
+        >0      (=1)Peer socket closed.
+        0       OK, data sent out (to kenerl).
+        <0      Fails
+-------------------------------------------------------------*/
+int inet_ipacket_tcpSend(int sockfd, const EGI_INETPACK *ipack)
+{
+	if(ipack==NULL)
+		return -1;
+
+        return inet_tcp_send(sockfd, (const void*)ipack, ipack->packsize);
+}
+
+
+/*----------------------------------------------------------------
+TCP Receive an ipacket.
+Receive EGI_INETPACK struct body first, then receive data according
+to its datasize. If comming data size NOT the same as the original,
+reallocate IPACK.data[] it first.
+
+@fd:		A socket descriptor.
+		Timeout and block mode set as expected.
+
+@ipack:		Ppointer to an EGI_INETPACK
+		ipack MAY be re_allocated to fit for receiving
+		data size.
+
+Return:
+	>0	(=1)Peer socket closed.
+	0	OK, packisze data received.
+	<0	Fails
+---------------------------------------------------------------*/
+int inet_ipacket_tcpRecv(int sockfd, EGI_INETPACK **ipack)
+{
+	int ret=0;
+	int datasize;
+
+	if(ipack==NULL || *ipack==NULL)
+		return -1;
+
+	/* Save old ipack.datasize */
+	datasize=IPACK_DATASIZE(*ipack);
+
+	/* Receive struct head */
+	ret=inet_tcp_recv(sockfd, *ipack, sizeof(EGI_INETPACK));
+	if(ret!=0) return ret;  /* >0 as peer close */
+
+	/* Check size of comming ipack.data */
+	if(datasize != IPACK_DATASIZE(*ipack)) {
+		datasize=IPACK_DATASIZE(*ipack);
+		if( inet_ipacket_reallocData(ipack,datasize)!=0 ) /* packsize ajusted */
+			return -2;
+	}
+
+	/* Receive ipack.data */
+	ret=inet_tcp_recv(sockfd, (*ipack)->data, (*ipack)->packsize-sizeof(EGI_INETPACK));
+	if(ret!=0) return ret; /* >0  as peer close */
+
+	return 0;
+}
+
 
 
 /* ========================  INET MSGDATA Functions  ========================== */
@@ -568,7 +808,7 @@ Note:
 
 Return:
 	>0	(=1)Peer socket closed.
-	0	OK, packisze data received.
+	0	OK, packsize data received.
 	<0	Fails
 -----------------------------------------------------------*/
 inline int inet_tcp_recv(int sockfd, void *data, size_t packsize)
@@ -751,6 +991,9 @@ inline int inet_tcp_getState(int sockfd)
 		return -1;
 	}
 }
+
+
+
 
 /*-----------------------------------------------------
 Create an UDP server.
