@@ -15,6 +15,28 @@ Midas Zhou
  #define EGI_CONFIG_PATH "/home/egi.conf"
 #endif
 
+
+/* --- EGI_TXTGROUP --- */
+typedef struct egi_txt_group {
+        uint32_t        size;      	/* also as off_size, Total number of txt_groups in txt[]. */
+        size_t          offs_capacity; 	/* Capacity of off[], in bytes */
+	uint32_t      	*offs;		/* Offset array, for each txt group */
+ 	#define         TXTGROUP_OFF_GROW_SIZE   64
+
+        uint32_t        buff_size;       /* Total bytes of buff[] used. */
+        size_t          buff_capacity;   /* Capacity of buff[], in bytes */
+	unsigned char 	*buff;		 /* txt buffer
+					  *  String/txt groups are divided by '\0's between each other in buff!
+					  */
+ 	#define         TXTGROUP_BUFF_GROW_SIZE   1024
+} EGI_TXTGROUP;
+
+EGI_TXTGROUP *cstr_txtgroup_create(size_t offs_capacity, size_t buff_capacity);
+void  	cstr_txtgroup_free(EGI_TXTGROUP **txtgroup);
+int 	cstr_txtgroup_push(EGI_TXTGROUP *txtgroup, const char *txt);
+
+
+/* --- util functions --- */
 int 	cstr_squeeze_string(char *buff, int size, char spot);
 int	cstr_clear_unprintChars(char *buff, int size);
 int	cstr_clear_controlChars(char *buff, int size);

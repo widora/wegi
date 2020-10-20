@@ -19,6 +19,121 @@ Midas Zhou
 #include <time.h>
 #include "egi_cstring.h"
 #include "egi_log.h"
+#include "egi_utils.h"
+
+/*----------------------------------------
+Create an EGI_TXTGROUP.
+
+@offs_capacity:  Initial offs[] array size.
+		 If 0, reset to 8
+@buff_capacity:  Initial buff mem size.
+		 If 0, reset to 1024Bytes
+Return:
+	!NULL	OK
+	NULL	Fails
+-----------------------------------------*/
+EGI_TXTGROUP *cstr_txtgroup_create(size_t offs_capacity, size_t buff_capacity)
+{
+	EGI_TXTGROUP *txtgroup=calloc(1, sizeof(EGI_TXTGROUP));
+	if(txtgroup==NULL) {
+		printf("%s: Fail to calloc offs!\n", __func__);
+		return NULL;
+	}
+
+	if(offs_capacity==0)
+		offs_capacity=8;
+	if(buff_capacity==0)
+		buff_capacity=1024;
+
+	txtgroup->offs=calloc(offs_capacity, sizeof(typeof(*txtgroup->offs)));
+	if(txtgroup->offs==NULL) {
+		printf("%s: Fail to calloc txtgroup->offs!\n", __func__);
+		free(txtgroup);
+		return NULL;
+	}
+
+	txtgroup->buff=calloc(buff_capacity, sizeof(typeof(*txtgroup->buff)));
+	if(txtgroup->offs==NULL) {
+		printf("%s: Fail to calloc txtgroup->buff!\n", __func__);
+		free(txtgroup->offs);
+		free(txtgroup);
+		return NULL;
+	}
+
+	txtgroup->offs_capacity=offs_capacity;
+	txtgroup->buff_capacity=buff_capacity;
+
+	return txtgroup;
+}
+
+
+/*----------------------------------------
+	Free an EGI_TXTGROUP.
+-----------------------------------------*/
+void  cstr_txtgroup_free(EGI_TXTGROUP **txtgroup)
+{
+	if(txtgroup==NULL || *txtgroup==NULL)
+		return;
+
+	free((*txtgroup)->buff);
+	free((*txtgroup)->offs);
+	free((*txtgroup));
+	*txtgroup=NULL;
+}
+
+/*------------------------------------------------
+Push a string into txtgroup. txt MUST be terminated
+with '\0'.
+
+@txtgroup:	Pointer to an EGI_TXTGROUP
+@txt:		A string of chars
+
+Return:
+	0	OK
+	<0	Fails
+--------------------------------------------------*/
+int cstr_txtgroup_push(EGI_TXTGROUP *txtgroup, const char *txt)
+{
+	int txtlen;
+
+	if(txtgroup==NULL || txt==NULL)
+		return -1;
+
+	txtlen=strlen(txt);
+
+	/* Check offs[] space */
+	if( txtgroup->offs_capacity < txtgroup->size+1 ) {
+		 if( egi_mem_grow( (void **)&txtgroup->offs, txtgroup->offs_capacity*sizeof(typeof(*txtgroup->offs)),
+                                                                    TXTGROUP_OFF_GROW_SIZE*sizeof(typeof(*txtgroup->offs))) != 0 )
+                 {
+                                printf("%s: Fail to mem grow txtgroup->offs!\n", __func__);
+				return -2;
+		 }
+		 txtgroup->offs_capacity+=TXTGROUP_OFF_GROW_SIZE;
+		 printf("%s: txtgroup->offs_capacity grows to be %d \n", __func__, txtgroup->offs_capacity);
+	}
+	/* Check buff[] space */
+	while( txtgroup->buff_capacity < txtgroup->buff_size+txtlen+1 )  {   /* +1 '\0' */
+		if( egi_mem_grow( (void **)&txtgroup->buff, txtgroup->buff_capacity*sizeof(typeof(*txtgroup->buff)),
+                                                                    TXTGROUP_BUFF_GROW_SIZE*sizeof(typeof(*txtgroup->buff))) != 0 )
+                {
+                                printf("%s: Fail to mem grow txtgroup->buff!\n", __func__);
+				return -3;
+		}
+		txtgroup->buff_capacity+=TXTGROUP_BUFF_GROW_SIZE;
+		 printf("%s: txtgroup->buff_capacity grows to be %d \n", __func__, txtgroup->buff_capacity);
+	}
+
+	/* Push txt */
+	memcpy(txtgroup->buff+txtgroup->buff_size, txt, txtlen);
+
+	/* Update: buff_size, offs, size */
+	txtgroup->buff_size += txtlen+1;  /* +1 '\0' */
+	txtgroup->offs[txtgroup->size++]=txtgroup->buff_size;
+
+	return 0;
+}
+
 
 
 /*-----------------------------------------------------------
