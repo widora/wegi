@@ -58,6 +58,7 @@ int egi_quit_log(void);
     * Let the caller to put FILE and FUNCTION, we can not ensure that two egi_push_log()
     * will push string to the log buff exactly one after the other,because of concurrency
     * race condition.
+    * A '\n' included in egi_push_log(), so NOT necessary to put it in EGI_PLOG()!
     * egi_push_log(" From file %s, %s(): \n",__FILE__,__FUNCTION__);
     */
 	#define EGI_PLOG(level, fmt, args...)                 \

@@ -5604,6 +5604,11 @@ TODO:
    Call UniHanGroup_save_set() and UniHanGroup_load_set() to eliminate negative effects
    of those mem holes.
 
+2. If two UniGroups have same wcodes[] and differen typings,  Only one will be saved
+   in data.
+   Example:  重重 chong chong   重重 zhong zhong
+
+
 Return:
 	>=0	Ok, total number of repeated unihans removed.
 	<0	Fails

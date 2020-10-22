@@ -159,7 +159,6 @@ int egi_fmap_free(EGI_FILEMMAP** fmap)
 }
 
 
-
 /*----------------------------------------------------------------------------
 Search a string in a file. If find, return offset value from the mmap.
 
@@ -296,7 +295,7 @@ int egi_copy_to_file( const char *fpath, const unsigned char *pstr, size_t size,
 }
 
 
-/*---------------------------------------------------------
+/*------------------------------------------------------------
 Copy pstr pointed content to EGI SYSPAD, which is acutually
 a file. It truncates the file to zero length first,
 so old data will be lost.
@@ -307,7 +306,7 @@ so old data will be lost.
 Return:
 	0	OK
 	<0	Fails
----------------------------------------------------------*/
+-----------------------------------------------------------*/
 int egi_copy_to_syspad( const unsigned char *pstr, size_t size)
 {
 	FILE *fil=NULL;
@@ -808,6 +807,8 @@ char ** egi_alloc_search_files(const char* path, const char* fext,  int *pcount 
 {
         DIR 	*dir;
         struct 	dirent *file;
+	char	fullpath[EGI_PATH_MAX+EGI_NAME_MAX];
+	struct  stat sb;
         int 	num=0; 			/* file numbers */
 	char 	*pt=NULL; 		/* pointer to '.', as for extension name */
 	char 	**fpbuff=NULL; 		/* pointer to final full_path buff */
@@ -884,6 +885,12 @@ char ** egi_alloc_search_files(const char* path, const char* fext,  int *pcount 
         /* 5. get file paths */
         while((file=readdir(dir))!=NULL)
         {
+		/* If NOT a regular file */
+		snprintf(fullpath, sizeof(fullpath)-1,"%s/%s",path ,file->d_name);
+		if( stat(fullpath, &sb)<0 || !S_ISREG(sb.st_mode) ) {
+			continue;
+		}
+
 		/* 5.1 check number of files first, necessary to set limit????  */
                 if(num >= EGI_SEARCH_FILE_MAX)/* break if fpaths buffer is full */
 		{
@@ -914,6 +921,8 @@ char ** egi_alloc_search_files(const char* path, const char* fext,  int *pcount 
 			EGI_PLOG(LOGLV_INFO,"egi_alloc_search_files(): fpbuff[] is reallocated with capacity to buffer totally %d items of full_path.\n",
 													1<<km );
 		}
+
+
 
                 /* 5.2 check name string length */
                 if( strlen(file->d_name) > EGI_NAME_MAX-1 )

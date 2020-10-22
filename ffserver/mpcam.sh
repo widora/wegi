@@ -2,6 +2,7 @@
 
 ## To play rstp CAM stream.
 ## Example: ./mpcam.sh rtsp://192.168.8.1:5456/test.avi
+## Go forward by pressing '->' to minish latency
 
 while [ 1 ]
 do

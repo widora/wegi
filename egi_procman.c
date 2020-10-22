@@ -68,7 +68,7 @@ siginfo_t {
 Set a signal acition for a common process.
 
 @signum:	Signal number.
-@handler:	Handler for the sigal
+@handler:	Handler for the signal
 
 Return:
 	0	Ok
@@ -77,6 +77,7 @@ Return:
 int egi_common_sigAction(int signum, void(*handler)(int))
 {
 	sigemptyset(&sigact_common.sa_mask);
+	// the signal which triggered the handler will be blocked, unless the SA_NODEFER flag is used.
 	//sigact_common.sa_flags|=SA_NODEFER;
 	sigact_common.sa_handler=handler;
         if(sigaction(signum, &sigact_common, &osigact_common) <0 ){
