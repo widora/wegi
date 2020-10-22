@@ -232,6 +232,9 @@ void tm_delayms(unsigned long ms)
 {
 	unsigned int nticks;
 	long long unsigned int tm_now;
+
+	if(ms==0) return;
+
 #if EGI_ENABLE_TICK
 
 	if(ms < TM_TICK_INTERVAL/1000)
@@ -470,6 +473,8 @@ int egi_clock_stop(EGI_CLOCK *eclock)
 
 /*-----------------------------------------------
 Pause a clock, recoder tm_end and update tm_cost.
+Pausing time will NOT be counted into tm_cost.
+
 Return:
 	0	OK
 	<0	Fails
@@ -566,4 +571,37 @@ long egi_clock_readCostUsec(EGI_CLOCK *eclock)
 
 	tus_cost=eclock->tm_cost.tv_sec*1000000+eclock->tm_cost.tv_usec;
 	return tus_cost;
+}
+
+/*--------------------------------------------------------
+Read tm_now - tm_start, in us.(microsecond)
+
+		!!! --- WARNING --- !!!
+A big value of tm_cost will make tus_cost overflow!
+Use this function only when you are sure that tm_cost in eclock
+is fairly small!
+
+Return:
+	>=0	OK, time cost in us.
+	<0	Fails
+---------------------------------------------------------*/
+long egi_clock_peekCostUsec(EGI_CLOCK *eclock)
+{
+	struct timeval tm_now;
+	struct timeval tm_cost;
+
+	/* Check status */
+	if(eclock==NULL)
+		return -1;
+	if( !(eclock->status&(ECLOCK_STATUS_RUNNING)) ) {
+		printf("%s: ECLOCK status error, you can ONLY peek a RUNNING eclock!\n",__func__);
+		return -2;
+	}
+
+	/* Timersub */
+	if( gettimeofday(&tm_now,NULL)<0 )
+		return -3;
+        timersub(&tm_now, &eclock->tm_start, &tm_cost);
+
+	return tm_cost.tv_sec*1000000+tm_cost.tv_usec;
 }

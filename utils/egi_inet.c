@@ -138,6 +138,9 @@ NOTE:
 15. TCP shutdown(sockfd, ) only shuts down socket receptions and/or transmissions, sockfd is still valid, you can still call getsockopt()
     to get its status; If you close() the sockfd, then it will be invalid.
 
+16. Call inet_tcp_getState() to get current TCP connection state.
+
+17. Create your own IPACK keepalive mechanism.
 
 TODO:
 1. Auto. reconnect.
@@ -407,20 +410,26 @@ int inet_ipacket_tcpRecv(int sockfd, EGI_INETPACK **ipack)
 	int ret=0;
 	int datasize;
 
-	if(ipack==NULL || *ipack==NULL)
+	if(ipack==NULL)
 		return -1;
+
+	/* If null, create an IPACK body, without data */
+	if( *ipack==NULL ) {
+		*ipack=inet_ipacket_create(0, NULL, 0, NULL);
+		if(*ipack==NULL) return -2;
+	}
 
 	/* Save old ipack.datasize */
 	datasize=IPACK_DATASIZE(*ipack);
 
-	/* Receive struct head */
+	/* Receive struct body only, without data */
 	ret=inet_tcp_recv(sockfd, *ipack, sizeof(EGI_INETPACK));
 	if(ret!=0) return ret;  /* >0 as peer close */
 
 	/* Check size of comming ipack.data */
 	if(datasize != IPACK_DATASIZE(*ipack)) {
 		datasize=IPACK_DATASIZE(*ipack);
-		if( inet_ipacket_reallocData(ipack,datasize)!=0 ) /* packsize ajusted */
+		if( inet_ipacket_reallocData(ipack,datasize)!=0 ) /* packsize adjusted */
 			return -2;
 	}
 
@@ -808,6 +817,8 @@ Note:
 
 Return:
 	>0	(=1)Peer socket closed.
+		(=2)ETIMEDOUT
+		(=3)EHOSTUNREACH
 	0	OK, packsize data received.
 	<0	Fails
 -----------------------------------------------------------*/
@@ -815,11 +826,13 @@ inline int inet_tcp_recv(int sockfd, void *data, size_t packsize)
 {
 	int nrcv;	/* Number of bytes receied in one round */
 	int rcvsize;	/* accumulated size */
+	unsigned int cnt=0;
+	int state;
 
 	if(data==NULL)
-		return -1;
+		return -EINVAL;
 	if(packsize<1)
-		return -2;
+		return -EINVAL;
 
      /* --------------- Loop recv(BLOCK) Method --------------- */
 	/* Big msgdata MAY need serveral rounds of recv()...*/
@@ -835,15 +848,17 @@ inline int inet_tcp_recv(int sockfd, void *data, size_t packsize)
 				break; /* OK */
 			}
 			else if( rcvsize < packsize ) {
+				usleep(10000);    /* To avoid hight CPU Load while loop calling recv() too frequently. */
 				continue; /* -----> continue to recv remaining data */
 			}
 			else { /* rcvsize > packsize, '>' seems impossible! */
-				printf("%s: rcvsize > packsize, impossible!\n",__func__);
+				EGI_PLOG(LOGLV_TEST, "%s: rcvsize > packsize, impossible!",__func__);
 				return -3;
 			}
 	        }
         	else if(nrcv==0) {
-               		printf("%s: Peer socket closed!\n",__func__);
+               		//printf("%s: Peer socket closed!\n",__func__);
+			EGI_PLOG(LOGLV_TEST, "%s: Peer socket closed!",__func__);
 			return 1;
         	}
 	        else if(nrcv<0) {
@@ -852,12 +867,26 @@ inline int inet_tcp_recv(int sockfd, void *data, size_t packsize)
                                 case EWOULDBLOCK:
                                 #endif
                                 case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
-					printf("%s: Timeout! try again...\n",__func__);
+					//printf("%s: Timeout! try again. cnt=%d\n",__func__, cnt++);
+					EGI_PLOG(LOGLV_TEST,"%s: Timeout! try again. cnt=%d",__func__, cnt++);
+					/* TEST: ----- */
+					if( (state=inet_tcp_getState(sockfd))!=TCP_ESTABLISHED) {
+						//printf("%s: TCP connection lost!\n",__func__);
+						EGI_PLOG(LOGLV_TEST,"%s: TCP state=%d", __func__,state);
+					}
+
 					usleep(50000);
 					continue;  /* ---> continue to recv while() */
 					break;
+				case ETIMEDOUT:  /* For recv(): Usually KEEPALIVE timeout! */
+		               		EGI_PLOG(LOGLV_TEST,"%s: ETIMEDOUT: Connection timed_ out.",__func__);
+					return 2;
+				case EHOSTUNREACH:
+		               		EGI_PLOG(LOGLV_TEST,"%s: EHOSTUNREACH: No route to host.",__func__);
+					return 3;
 				default:
-		        	  	printf("%s: Err'%s'\n", __func__, strerror(errno));
+		        	  	EGI_PLOG(LOGLV_TEST,"%s: TCP state=%d, Err'%s'",
+								__func__, inet_tcp_getState(sockfd), strerror(errno));
 					return -4;
 			}
 		}
@@ -884,18 +913,25 @@ Note:
 
 Return:
 	>0	(=1)Peer socket closed.
+		(=2)ETIMEDOUT
+		(=3)EHOSTUNREACH
+		(=4)ECONNRESET
+		(=5) >TCP_LOSTCONN_TIME
 	0	OK, data sent out (to kenerl).
 	<0	Fails
 -----------------------------------------------------------*/
 inline int inet_tcp_send(int sockfd, const void *data, size_t packsize)
 {
-	int nsnd;	/* Number of bytes sent out in one round */
-	int sndsize;	/* accumulated size */
+	int nsnd;		/* Number of bytes sent out in one round */
+	int sndsize;		/* accumulated size */
+	unsigned int cnt=0;
+	EGI_CLOCK eclock={0};
+	long tmus;
 
 	if(data==NULL)
-		return -1;
+		return -EINVAL;
 	if(packsize<1)
-		return -2;
+		return -EINVAL;
 
 	 /* --------------- Loop send(BLOCK) Method --------------- */
 	/* Big msgdata MAY need serveral rounds of recv()...*/
@@ -911,33 +947,62 @@ inline int inet_tcp_send(int sockfd, const void *data, size_t packsize)
 				break; /* OK */
 			}
 			else if( sndsize < packsize ) {
+				/* It usually needs to call send() just once to send out all packsize,
+				 * anyway, just to avoid high CPU Load while calling send() too frequently.
+				 */
+				usleep(1000);
 				continue; /* -----> continue to send remaining data */
 			}
 			else { /* sndsize > packsize, '>' seems impossible! */
-				printf("%s: sndsize > packsize, impossible!\n", __func__);
-				return -3;
+				EGI_PLOG(LOGLV_TEST, "%s: sndsize > packsize, impossible!", __func__);
+				return -ECOMM;
 			}
 	        }
 	        else if(nsnd<0) {
+			if( eclock.status==ECLOCK_STATUS_IDLE )
+				egi_clock_start(&eclock);
+
                 	switch(errno) {
                         	#if(EWOULDBLOCK!=EAGAIN)
                                 case EWOULDBLOCK:
                                 #endif
                                 case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
-					printf("%s: Timeout! try again...\n",__func__);
+					EGI_PLOG(LOGLV_TEST,"%s: Timeout! try again. cnt=%d",__func__, cnt++);
+					if( (tmus=egi_clock_peekCostUsec(&eclock)) > TCP_LOSTCONN_TIME*1000000) {
+						EGI_PLOG(LOGLV_TEST,"%s: Time_trying_send() %ldus > TCP_LOSTCONN_TIME!", __func__, tmus);
+						return 5;
+					}
 					usleep(50000);
-					continue;  /* ---> continue to recv while() */
+					continue;  /* ---> continue to send while() */
 					break;
 				case EPIPE:
 		               		printf("%s: Peer socket closed!\n",__func__);
+		               		EGI_PLOG(LOGLV_TEST,"%s: Peer socket closed!",__func__);
 					return 1;
+				case ETIMEDOUT:
+					   /* If network is broken during send(), and it keeps trying send()..
+					    * keepalive probe will be ignored, no matter if send() TimeOut is less than KeepAlive_time,
+					    * (The number of seconds a connection needs to be idle before TCP begins sending out keep-alive probes.)
+					    * Instead, EHOSTUNREACH will be set finally, abt. 15min later.
+					    * ( ETIMEDOUT appears rarely only happens in right time!  )
+					    */
+		               		EGI_PLOG(LOGLV_TEST,"%s: ETIMEDOUT: Connection timed_ out.",__func__);
+					return 2;
+				case EHOSTUNREACH: /* After abt. trying send() 15mins.  */
+		               		EGI_PLOG(LOGLV_TEST,"%s: EHOSTUNREACH: No route to host.",__func__);
+					return 3;
+				case ECONNRESET:
+		               		EGI_PLOG(LOGLV_TEST,"%s: ECONNRESET: Connection reset by peer.",__func__);
+					return 4;
 				default:
-		        	       	printf("%s: Err'%s'\n", __func__, strerror(errno));
+		        	  	EGI_PLOG(LOGLV_TEST,"%s: TCP state=%d, Err'%s'",
+								__func__, inet_tcp_getState(sockfd), strerror(errno));
 					return -4;
 			}
 		}
 		else { /* nsnd==0 */
-			printf("%s: snd==0!\n", __func__);
+			//printf("%s: snd==0!\n", __func__);
+			EGI_PLOG(LOGLV_TEST,"%s: snd==0!", __func__);
 		}
    	}
 
@@ -1361,7 +1426,6 @@ EGI_UDP_CLIT* inet_create_udpClient(const char *servIP, unsigned short servPort,
 	if( bind(uclit->sockfd,(struct sockaddr *)&(uclit->addrME), sizeof(uclit->addrME)) < 0)
 		printf("%s: Fail to bind ME to sockfd, Err'%s'\n", __func__, strerror(errno));
 
-
         /* 3. Set default SND/RCV timeout,   recvfrom() and sendto() can set flag MSG_DONTWAIT. */
         if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout)) <0 ) {
                 printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
@@ -1373,6 +1437,11 @@ EGI_UDP_CLIT* inet_create_udpClient(const char *servIP, unsigned short servPort,
 		free(uclit);
 		return NULL;
         }
+
+	/* NOTE: You may connect() CLIENT to a given address, BUT, it only declares the peer address, and does
+	 * NOT connect to the remote peer like TCP does, Besides, you have to use write()/read() instead of
+	 * sendXX()/recvXX() after you execute connect().
+         */
 
 	/* 4. To probe the server */
    //#if 0  /* Send 0 data to probe the Server, Only to trigger to let kernel to assign a port number, ignore errors. */
@@ -1400,7 +1469,7 @@ EGI_UDP_CLIT* inet_create_udpClient(const char *servIP, unsigned short servPort,
 	}
     //#endif
 
-	/*** Try to getsockname for ME. TODO: Returned addrME.sin_addr is NOT correct, it appears to truncated addrSERV !!!
+	/*** Try to getsockname for ME. TODO: Returned addrME.sin_addr is NOT correct, it appears to be truncated addrSERV !!!
          *	NOT for UDP ?
          */
         clen=sizeof(uclit->addrME);
@@ -1449,7 +1518,7 @@ response. then loop routine process: receive data from the
 Server and pass it to the Caller, while get data from the Caller
 and send it to the Server.
 
-	------ One Routine, One caller -------
+	------ One Routine for One Server -------
 
 NOTE:
 1. For a UDP client, the routine process always start with taking
@@ -1531,7 +1600,7 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
 				case EAGAIN:  /* Note: EAGAIN == EWOULDBLOCK */
 					printf("%s: errno==EAGAIN or EWOULDBLOCK.\n",__func__);
 					break;
-				case ECONNREFUSED: /* Usually the counter part is NOT ready */
+				case ECONNREFUSED: /* Connection reset by peer. Usually the counter part is NOT ready */
 					printf("%s: errno==ECONNREFUSED.\n",__func__);
 				     	break;
 				default:
@@ -1715,7 +1784,11 @@ EGI_TCP_SERV* inet_create_tcpServer(const char *strIP, unsigned short port, int 
 		return NULL;
 	}
 
-        /* 4. Set default SND/RCV timeout, recvfrom() and sendto() can set flag MSG_DONTWAIT.  */
+	/* 4. Some useful TCP socket options */
+	// SO_KEEPALIVE, SO_LINGER, SO_RCVBUF, SO_SNDBU, SO_REUSEADDR, SO_BINDTODEVICE
+	// (onlyIF SO_KEEPALIVE)TCP_KEEPALIVE, TCP_MAXRT, TCP_MAXSEG, TCP_NODELAY,
+
+        /* Set default SND/RCV timeout, recvfrom() and sendto() can set flag MSG_DONTWAIT.  */
         if( setsockopt(userv->sockfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&snd_timeout, sizeof(snd_timeout)) <0 ) {
                 printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
 		free(userv);
@@ -1798,6 +1871,8 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 	struct sockaddr_in addrCLIT={0};   /* Client for recvfrom() */
 	socklen_t addrLen;
 	int index=0;			   /* index as of userv->session[index] */
+	struct timeval snd_timeout={TCP_SERV_SNDTIMEO,0}; /* Default time out for send */
+	struct timeval rcv_timeout={TCP_SERV_RCVTIMEO,0}; /* Default time out for receive and accept() */
 
 	/* Check input */
 	if( userv==NULL )
@@ -1892,8 +1967,42 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 		/****** NOTE:
 		 * 1. man "On  Linux, the new socket returned by accept() does not inherit file status flags such as O_NONBLOCK and
 		 *    O_ASYNC from the listening socket."
-		 * 2. However, TEST shows the new socket inherits SO_RCVTIMEO TimeOut values!
+		 * 2. However, TEST shows the new socket inherits SO_SNDTIMEO/SO_RCVTIMEO TimeOut values!
                  ***/
+
+		/* Some useful TCP socket options */
+		// SO_KEEPALIVE, SO_LINGER, SO_RCVBUF, SO_SNDBU, SO_REUSEADDR, SO_BINDTODEVICE
+		// (onlyIF SO_KEEPALIVE)TCP_KEEPALIVE, TCP_MAXRT, TCP_MAXSEG, TCP_NODELAY,
+
+#if 1        	/* Set default SND/RCV timeout, recvfrom() and sendto() can set flag MSG_DONTWAIT.  */
+	        if( setsockopt(csfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&snd_timeout, sizeof(snd_timeout)) <0 ) {
+        	        printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
+			//close(csfd);
+			//continue;
+        	}
+	        if( setsockopt(csfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&rcv_timeout, sizeof(rcv_timeout)) <0 ) {
+        	        printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
+			//close(csfd);
+			//continue;
+        	}
+#endif
+
+#if 1		/* Set keepalive:  OPTION: Keepalive in IPACK!  */
+		int  keepalive=1;		/* Enable KEEPALIVE opt */
+		int  keepalive_time=10;		/* (OP default 120) If no data comes within the seconds, then start to probe */
+		int  keepalive_intvl=3;		/* (OP default 75) probe interval */
+		int  keepalive_probes=3;	/* (OP default 9) probe times */
+
+		if(setsockopt(csfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&keepalive, sizeof(keepalive)) !=0)
+			printf("%s: Fail set SO_KEEPALIVE, Err'%s'.\n", __func__, strerror(errno));
+		if(setsockopt(csfd, SOL_TCP, TCP_KEEPIDLE, (void *)&keepalive_time, sizeof(keepalive_time)) !=0)
+			printf("%s: Fail set TCP_KEEPIDLE, Err'%s'.\n", __func__, strerror(errno));
+		if(setsockopt(csfd, SOL_TCP, TCP_KEEPINTVL, (void *)&keepalive_intvl, sizeof(keepalive_intvl)) !=0)
+			printf("%s: Fail set TCP_KEEPINTVL, Err'%s'.\n", __func__, strerror(errno));
+		if(setsockopt(csfd, SOL_TCP, TCP_KEEPCNT, (void *)&keepalive_probes, sizeof(keepalive_probes)) !=0)
+			printf("%s: Fail set TCP_KEEPCNT, Err'%s'.\n", __func__, strerror(errno));
+
+#endif
 
 		/* Proceed for a new client ...  */
 		userv->sessions[index].sessionID=index;
@@ -2205,7 +2314,27 @@ EGI_TCP_CLIT* inet_create_tcpClient(const char *servIP, unsigned short servPort,
 	uclit->addrSERV.sin_addr.s_addr=inet_addr(servIP);
 	uclit->addrSERV.sin_port=htons(servPort);
 
-        /* 3. Set default SND/RCV timeout,   recvfrom() and sendto() can set flag MSG_DONTWAIT.  */
+	/* 3. Some useful TCP socket options */
+	// SO_KEEPALIVE, SO_LINGER, SO_RCVBUF, SO_SNDBU, SO_REUSEADDR, SO_BINDTODEVICE
+	// (onlyIF SO_KEEPALIVE)TCP_KEEPALIVE, TCP_MAXRT, TCP_MAXSEG, TCP_NODELAY,
+
+#if 1	/* 3.1 Set keepalive:  OPTION: Keepalive in IPACK!  */
+        int  keepalive=1;		/* Enable KEEPALIVE opt */
+        int  keepalive_time=10;         /* (OP default 120) If no data comes within that seconds, then start to probe */
+        int  keepalive_intvl=3;         /* (OP default 75) probe interval */
+        int  keepalive_probes=3;        /* (OP default 9) probe times */
+
+        if(setsockopt(uclit->sockfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&keepalive, sizeof(keepalive)) !=0)
+        	printf("%s: Fail set SO_KEEPALIVE, Err'%s'.\n", __func__, strerror(errno));
+       	if(setsockopt(uclit->sockfd, SOL_TCP, TCP_KEEPIDLE, (void *)&keepalive_time, sizeof(keepalive_time)) !=0)
+                printf("%s: Fail set TCP_KEEPIDLE, Err'%s'.\n", __func__, strerror(errno));
+        if(setsockopt(uclit->sockfd, SOL_TCP, TCP_KEEPINTVL, (void *)&keepalive_intvl, sizeof(keepalive_intvl)) !=0)
+                printf("%s: Fail set TCP_KEEPINTVL, Err'%s'.\n", __func__, strerror(errno));
+        if(setsockopt(uclit->sockfd, SOL_TCP, TCP_KEEPCNT, (void *)&keepalive_probes, sizeof(keepalive_probes)) !=0)
+                printf("%s: Fail set TCP_KEEPCNT, Err'%s'.\n", __func__, strerror(errno));
+#endif
+
+        /* 3.2 Set default SND/RCV timeout,   recvfrom() and sendto() can set flag MSG_DONTWAIT.  */
         if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&snd_timeout, sizeof(snd_timeout)) <0 ) {
                 printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
 		free(uclit);

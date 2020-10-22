@@ -179,7 +179,7 @@ int 		inet_udpClient_TESTcallback( const struct sockaddr_in *rcvAddr, const char
 
 /* TCP Session for Server */
 typedef struct egi_tcp_server_session {
-	int		sessionID;		 /* ID, index of EGI_TCP_SERV_SESSION.sessions[]  */
+	int		sessionID;		 /* ID, ref. index of EGI_TCP_SERV_SESSION.sessions[], NOT as sequence number! */
 	int    		csFD;                    /* C/S session fd */
         struct 		sockaddr_in addrCLIT;    /* Client address */
 	bool   		alive;			 /* flag on, if active/living, ?? race condition possible! check csFD. */
@@ -197,10 +197,12 @@ typedef struct egi_tcp_server_session {
  * handling/processing thread function.
  */
 
+#define TCP_LOSTCONN_TIME	20	/* in seconds, If send() OR recv() fails persistently for a long time, then it's deemed as lost connection. */
+
 struct egi_tcp_server {
-#define TCP_SERV_SNDTIMEO	10
-#define TCP_SERV_RCVTIMEO	10
-	int 			sockfd;		/* For accept */
+#define TCP_SERV_SNDTIMEO	5		/* If TCP_KEEPALIVE applys, consider to be greater than Keepalive_time? seems no effect. */
+#define TCP_SERV_RCVTIMEO	5
+	int 			sockfd;		/* For accept() */
 	struct sockaddr_in 	addrSERV;	/* Self address */
 #define MAX_TCP_BACKLOG		16
 	int 			backlog;	/* BACKLOG for accept(), init. in inet_create_tcpServer() as MAX_TCP_BACKLOG */
@@ -218,8 +220,8 @@ struct egi_tcp_server {
 };
 
 struct egi_tcp_client {
-#define TCP_CLIT_SNDTIMEO    10
-#define TCP_CLIT_RCVTIMEO    10
+#define TCP_CLIT_SNDTIMEO    5			/* If TCP_KEEPALIVE applys, consider to be greater than Keepalive_time? seems no effect. */
+#define TCP_CLIT_RCVTIMEO    5
 	int 	sockfd;
 	struct sockaddr_in addrSERV;
 	struct sockaddr_in addrME;	/* Self address */
