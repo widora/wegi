@@ -135,12 +135,18 @@ NOTE:
     After catching the SIGPIPE, to call getsockopt(sockfd,IPPROTO_TCP, TCP_INFO, &info, ...) will get info.tcpi_state==TCP_CLOSE!
     If network is broken before RTS is received, A TCP_CLOSE_WAIT status may last as long as 2 hours!?
 
-15. TCP shutdown(sockfd, ) only shuts down socket receptions and/or transmissions, sockfd is still valid, you can still call getsockopt()
+15. TCP shutdown(sockfd, ): it only shuts down socket receptions and/or transmissions, sockfd is still valid, you can still call getsockopt()
     to get its status; If you close() the sockfd, then it will be invalid.
 
 16. Call inet_tcp_getState() to get current TCP connection state.
 
-17. Create your own IPACK keepalive mechanism.
+17. Only a send() (OR keepalive probe) can actively probe abnormal disconnection and invoke a ETIMEDOUT error,
+    as it will wait ACK msg after sendout, and can reckon total time passed.
+    A recv() function can NOT detect and return such an error by itself! You have to add a timer for the purpose.
+
+18. Create your own IPACK keepalive mechanism.
+
+
 
 TODO:
 1. Auto. reconnect.
@@ -153,6 +159,8 @@ midaszhou@yahoo.com
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+//#include <linux/tcp.h>  /* Need TCP_USER_TIMEOUT, which is omitted in <netinet/tcp.h>  */
+#define TCP_USER_TIMEOUT        18      /* How long for loss retry before timeout */
 #include <arpa/inet.h> /* inet_ntoa() */
 #include <stdio.h>
 #include <stdlib.h>
@@ -802,8 +810,118 @@ int inet_default_sigAction(void)
 
 /* ======================== TCP/UDP C/S Functions  ========================== */
 
+/*-----------------------------------------------------------------
+Set SNDTIMEO/RECTIMEO for the socket.
+
+@sockfd: Socket descriptor.
+@sndtmo_sec, sndtmo_usec: send_timeout in seconds, and in microseconds.
+@rcvtmo_sec, rcvtmo_ousec: recv_timeout in seconds, and in microseconds.
+
+Return:
+	0	OK
+	<0	Fails
+--------------------------------------------------------------------*/
+int inet_sock_setTimeOut(int sockfd, long sndtmo_sec, long sndtmo_usec, long rcvtmo_sec, long rcvtmo_usec)
+{
+	struct timeval snd_timeout={sndtmo_sec, sndtmo_usec};
+	struct timeval rcv_timeout={rcvtmo_sec, rcvtmo_usec};
+
+        if( setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, (void *)&snd_timeout, sizeof(snd_timeout)) <0 ) {
+                //printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
+		return -1;
+        }
+        if( setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (void *)&rcv_timeout, sizeof(rcv_timeout)) <0 ) {
+                //printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
+		return -2;
+        }
+
+	return 0;
+}
+
+/*---------------------------------------------------------------------------
+Set TCP_USER_TIMEOUT for the socket.
+
+Note:
+1. The TIMEOUT will be triggered ONLY when the socket is trying sending out data
+   while the network(or remote peer system) is broken.
+   If the socket is blocked waiting for (receiving) data, while the network is broken,
+   the TIMEOUT mechanism will never be triggered! the socket will be blocked
+   forever! (If RCVTIMEO is not set for the socket.)
+
+		--- from 'man 7 tcp' ---
+"1. This option can be set during any state of a TCP connection, but is effective
+   only during the synchronized states of a connection (ESTABLISHED, FIN-WAIT-1,
+   FIN-WAIT-2, CLOSE-WAIT, CLOSING, and LAST-ACK).
+2. Moreover, when used with the TCP keepalive (SO_KEEPALIVE) option, TCP_USER_TIMEOUT
+   will override keepalive to determine when to close a connection due to keepalive failure.
+3. The option has no effect on when TCP retransmits a packet, nor when a keepalive probe is sent.
+   ( Should avoid to apply together with SO_SNDTIMEO/SO_RCVTIMEO!!!? )
+4. This option, like many others, will be inherited by the socket returned by accept(2),
+   if it was set on the listening socket. "
+
+@sockfd: 	Socket descriptor.
+@usertmo_ms:	If no transmitted data in that amount milliseconds
+	        it will close connection and return ETIMEDOUT.
+		If it's 0, use system default.
+
+Return:
+	0	OK
+	<0	Fails
+----------------------------------------------------------------------------*/
+int inet_tcpsock_setUserTimeOut(int sockfd, unsigned long usertmo_ms)
+{
+        if( setsockopt(sockfd, IPPROTO_TCP, TCP_USER_TIMEOUT, (void *)&usertmo_ms, sizeof(usertmo_ms)) <0 ) {
+                //printf("%s: Fail to setsockopt for TCP_USER_TIMEOUT, Err'%s'\n", __func__, strerror(errno));
+		return -1;
+        }
+
+	return 0;
+}
+
+
+/*-----------------------------------------------------------------
+Set KEEPALIVE option for the TCP socket.
+
+@sockfd: 	Socket descriptor.
+@idle_sec:	The number of seconds a connection needs to be idle
+		before keepalive probe starts. (sys default 120)
+@intv_sec: 	The number of seconds between TCP keep-alive probes.
+		(sys default 75)
+@probes:	The maximum number of TCP keep-alive probes it will try
+		before abort and return (ETIMEDOUT). (sys default 9)
+
+Return:
+	0	OK
+	<0	Fails
+--------------------------------------------------------------------*/
+int inet_tcpsock_keepalive(int sockfd, int idle_sec, int intvl_sec, int probes)
+{
+        int  keepalive=1;				/* Enable KEEPALIVE opt */
+
+        if(setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&keepalive, sizeof(keepalive)) !=0) {
+        	printf("%s: Fail set SO_KEEPALIVE, Err'%s'.\n", __func__, strerror(errno));
+		return -1;
+	}
+       	if(setsockopt(sockfd, SOL_TCP, TCP_KEEPIDLE, (void *)&idle_sec, sizeof(idle_sec)) !=0) {
+                printf("%s: Fail set TCP_KEEPIDLE, Err'%s'.\n", __func__, strerror(errno));
+		return -2;
+	}
+        if(setsockopt(sockfd, SOL_TCP, TCP_KEEPINTVL, (void *)&intvl_sec, sizeof(intvl_sec)) !=0) {
+                printf("%s: Fail set TCP_KEEPINTVL, Err'%s'.\n", __func__, strerror(errno));
+		return -3;
+	}
+        if(setsockopt(sockfd, SOL_TCP, TCP_KEEPCNT, (void *)&probes, sizeof(probes)) !=0) {
+                printf("%s: Fail set TCP_KEEPCNT, Err'%s'.\n", __func__, strerror(errno));
+		return -4;
+	}
+
+	return 0;
+}
+
+
 /*----------------------------------------------------------
 Receive data from sockfd with specified size.
+A BLOCK TIMEOUT make it return fail!
 
 @fd:		A socket descriptor.
 		Timeout and block mode set as expected.
@@ -816,9 +934,12 @@ Note:
 2. The function MAY stuck in dead loop?
 
 Return:
-	>0	(=1)Peer socket closed.
+	>0	(=1)Peer socket closed. (normally closed)
 		(=2)ETIMEDOUT
 		(=3)EHOSTUNREACH
+		(=4)ECONNRESET		(abnormal)
+		(=5)Socket TIMEOUT	(block timeout, try once only!)
+		TEST: (=5) >TCP_USER_TIMER_SET
 	0	OK, packsize data received.
 	<0	Fails
 -----------------------------------------------------------*/
@@ -828,6 +949,8 @@ inline int inet_tcp_recv(int sockfd, void *data, size_t packsize)
 	int rcvsize;	/* accumulated size */
 	unsigned int cnt=0;
 	int state;
+	EGI_CLOCK eclock={0};
+	long tmus;
 
 	if(data==NULL)
 		return -EINVAL;
@@ -862,28 +985,46 @@ inline int inet_tcp_recv(int sockfd, void *data, size_t packsize)
 			return 1;
         	}
 	        else if(nrcv<0) {
+			/* Start timing. NOTE: one round RCVTIMEOUT missed! */
+			if( eclock.status==ECLOCK_STATUS_IDLE )
+				egi_clock_start(&eclock);
+
                 	switch(errno) {
                         	#if(EWOULDBLOCK!=EAGAIN)
                                 case EWOULDBLOCK:
                                 #endif
                                 case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
+					EGI_PLOG(LOGLV_TEST,"%s: Timeout!", __func__);
+					return 5;
+
+			/* For TEST ONLY: ----- */
 					//printf("%s: Timeout! try again. cnt=%d\n",__func__, cnt++);
 					EGI_PLOG(LOGLV_TEST,"%s: Timeout! try again. cnt=%d",__func__, cnt++);
-					/* TEST: ----- */
 					if( (state=inet_tcp_getState(sockfd))!=TCP_ESTABLISHED) {
 						//printf("%s: TCP connection lost!\n",__func__);
 						EGI_PLOG(LOGLV_TEST,"%s: TCP state=%d", __func__,state);
 					}
-
+					if( (tmus=egi_clock_peekCostUsec(&eclock)) > TCP_USER_TIMER_SET*1000000) {
+						EGI_PLOG(LOGLV_TEST,"%s: Time_trying_send() %ldus > TCP_USER_TIMER_SET!", __func__, tmus);
+						return 5;
+					}
 					usleep(50000);
 					continue;  /* ---> continue to recv while() */
+			/* ---------------*/
+
 					break;
-				case ETIMEDOUT:  /* For recv(): Usually KEEPALIVE timeout! */
+				case ETIMEDOUT:  /* For recv(), ETIMEDOUT is usually triggered by KEEPALIVE timeout!
+						  * Only a keepalive probing can actively probe abnormal disconnection
+						  *  and invoke a ETIMEDOUT error! A recv() can NOT!
+						  */
 		               		EGI_PLOG(LOGLV_TEST,"%s: ETIMEDOUT: Connection timed_ out.",__func__);
 					return 2;
-				case EHOSTUNREACH:
+				case EHOSTUNREACH: /* Seems NOT for recv() */
 		               		EGI_PLOG(LOGLV_TEST,"%s: EHOSTUNREACH: No route to host.",__func__);
 					return 3;
+				case ECONNRESET:
+		               		EGI_PLOG(LOGLV_TEST,"%s: ECONNRESET: Connection reset by peer.",__func__);
+					return 4;
 				default:
 		        	  	EGI_PLOG(LOGLV_TEST,"%s: TCP state=%d, Err'%s'",
 								__func__, inet_tcp_getState(sockfd), strerror(errno));
@@ -898,6 +1039,7 @@ inline int inet_tcp_recv(int sockfd, void *data, size_t packsize)
 
 /*---------------------------------------------------------
 Send out data through a socket.
+A BLOCK TIMEOUT make it return fail!
 
 @fd:		A socket descriptor.
 		Timeout and block mode set as expected.
@@ -916,7 +1058,8 @@ Return:
 		(=2)ETIMEDOUT
 		(=3)EHOSTUNREACH
 		(=4)ECONNRESET
-		(=5) >TCP_LOSTCONN_TIME
+		(=5)Socket TIMEOUT	(block timeout, try once only!)
+		TEST: (=5) >TCP_USER_TIMER_SET
 	0	OK, data sent out (to kenerl).
 	<0	Fails
 -----------------------------------------------------------*/
@@ -959,6 +1102,7 @@ inline int inet_tcp_send(int sockfd, const void *data, size_t packsize)
 			}
 	        }
 	        else if(nsnd<0) {
+			/* Start timing, Note: one round SNDTIMEOUT missed! */
 			if( eclock.status==ECLOCK_STATUS_IDLE )
 				egi_clock_start(&eclock);
 
@@ -967,24 +1111,30 @@ inline int inet_tcp_send(int sockfd, const void *data, size_t packsize)
                                 case EWOULDBLOCK:
                                 #endif
                                 case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
+					EGI_PLOG(LOGLV_TEST,"%s: Timeout!",__func__);
+					return 5;
+
+			/* For TEST ONLY ----------*/
 					EGI_PLOG(LOGLV_TEST,"%s: Timeout! try again. cnt=%d",__func__, cnt++);
-					if( (tmus=egi_clock_peekCostUsec(&eclock)) > TCP_LOSTCONN_TIME*1000000) {
-						EGI_PLOG(LOGLV_TEST,"%s: Time_trying_send() %ldus > TCP_LOSTCONN_TIME!", __func__, tmus);
+					if( (tmus=egi_clock_peekCostUsec(&eclock)) > TCP_USER_TIMER_SET*1000000) {
+						EGI_PLOG(LOGLV_TEST,"%s: Time_trying_send() %ldus > TCP_USER_TIMER_SET!", __func__, tmus);
 						return 5;
 					}
 					usleep(50000);
 					continue;  /* ---> continue to send while() */
+			/* --------------------------*/
+
 					break;
 				case EPIPE:
 		               		printf("%s: Peer socket closed!\n",__func__);
 		               		EGI_PLOG(LOGLV_TEST,"%s: Peer socket closed!",__func__);
 					return 1;
 				case ETIMEDOUT:
-					   /* If network is broken during send(), and it keeps trying send()..
-					    * keepalive probe will be ignored, no matter if send() TimeOut is less than KeepAlive_time,
+					   /* For send(), ETIMEDOUT is usually triggered by TCP USER_TIMEOUT
+					    * If network is broken during send(BLOCK),then keepalive probe will be ignored,
+ 					    * no matter if send() TimeOut is less than keepalive_idle,
 					    * (The number of seconds a connection needs to be idle before TCP begins sending out keep-alive probes.)
 					    * Instead, EHOSTUNREACH will be set finally, abt. 15min later.
-					    * ( ETIMEDOUT appears rarely only happens in right time!  )
 					    */
 		               		EGI_PLOG(LOGLV_TEST,"%s: ETIMEDOUT: Connection timed_ out.",__func__);
 					return 2;
@@ -1722,15 +1872,17 @@ Create a TCP server, socket default in BLOCK mode.
 	If 0, auto selected by system.
 @domain:  If ==6, IPv6, otherwise IPv4.
 	TODO: IPv6 connection.
+@sndtimeo: in seconds. send time out.
+@rcvtimeo: in seconds, receive time out.
+
 Return:
 	Pointer to an EGI_TCP_SERV	OK
 	NULL				Fails
 -------------------------------------------------------*/
-EGI_TCP_SERV* inet_create_tcpServer(const char *strIP, unsigned short port, int domain)
+EGI_TCP_SERV* inet_create_tcpServer(const char *strIP, unsigned short port, int domain,
+							unsigned int sndtimeo, unsigned int rcvtimeo )
 {
 	EGI_TCP_SERV *userv=NULL;
-	struct timeval snd_timeout={TCP_SERV_SNDTIMEO,0}; /* Default time out for send */
-	struct timeval rcv_timeout={TCP_SERV_RCVTIMEO,0}; /* Default time out for receive and accept() */
 
 	/* Calloc EGI_TCP_SERV */
 	userv=calloc(1,sizeof(EGI_TCP_SERV));
@@ -1784,18 +1936,20 @@ EGI_TCP_SERV* inet_create_tcpServer(const char *strIP, unsigned short port, int 
 		return NULL;
 	}
 
-	/* 4. Some useful TCP socket options */
+	/* Some useful TCP socket options. */
 	// SO_KEEPALIVE, SO_LINGER, SO_RCVBUF, SO_SNDBU, SO_REUSEADDR, SO_BINDTODEVICE
 	// (onlyIF SO_KEEPALIVE)TCP_KEEPALIVE, TCP_MAXRT, TCP_MAXSEG, TCP_NODELAY,
 
-        /* Set default SND/RCV timeout, recvfrom() and sendto() can set flag MSG_DONTWAIT.  */
-        if( setsockopt(userv->sockfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&snd_timeout, sizeof(snd_timeout)) <0 ) {
-                printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
+	/* 4. Set Timeout */
+	userv->sndtimeout.tv_sec=sndtimeo;
+	userv->rcvtimeout.tv_sec=rcvtimeo;
+        if( setsockopt(userv->sockfd, SOL_SOCKET, SO_SNDTIMEO, (void *)&(userv->sndtimeout), sizeof(userv->sndtimeout)) <0 ) {
+                //printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
 		free(userv);
 		return NULL;
         }
-        if( setsockopt(userv->sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&rcv_timeout, sizeof(rcv_timeout)) <0 ) {
-                printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
+        if( setsockopt(userv->sockfd, SOL_SOCKET, SO_RCVTIMEO, (void *)&(userv->rcvtimeout), sizeof(userv->rcvtimeout)) <0 ) {
+                //printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
 		free(userv);
 		return NULL;
         }
@@ -1849,7 +2003,6 @@ TCP service routines:
 1. Accept new clients and put to session list, then start a thread
    to precess its C/S session.
 2. Check and recount session list, //sort active/living sessions.
-   
 
 TODO.
 1. IPv6 connection.
@@ -1871,8 +2024,6 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 	struct sockaddr_in addrCLIT={0};   /* Client for recvfrom() */
 	socklen_t addrLen;
 	int index=0;			   /* index as of userv->session[index] */
-	struct timeval snd_timeout={TCP_SERV_SNDTIMEO,0}; /* Default time out for send */
-	struct timeval rcv_timeout={TCP_SERV_RCVTIMEO,0}; /* Default time out for receive and accept() */
 
 	/* Check input */
 	if( userv==NULL )
@@ -1964,45 +2115,54 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 			}
 		}
 
-		/****** NOTE:
+		/*** NOTE:
 		 * 1. man "On  Linux, the new socket returned by accept() does not inherit file status flags such as O_NONBLOCK and
 		 *    O_ASYNC from the listening socket."
-		 * 2. However, TEST shows the new socket inherits SO_SNDTIMEO/SO_RCVTIMEO TimeOut values!
+		 * 2. csfd's SND/RCVTIMEOs are inherited from userv->sockfd's.
+		 * 3. TCP_USER_TIMEOUT "will be inherited by the socket returned by accept(2), if it was set on the listening socket"
+		 *    (see 'man 7 tcp') wTEST shows the new socket inherits SO_SNDTIMEO/SO_RCVTIMEO TimeOut values!
                  ***/
 
-		/* Some useful TCP socket options */
-		// SO_KEEPALIVE, SO_LINGER, SO_RCVBUF, SO_SNDBU, SO_REUSEADDR, SO_BINDTODEVICE
-		// (onlyIF SO_KEEPALIVE)TCP_KEEPALIVE, TCP_MAXRT, TCP_MAXSEG, TCP_NODELAY,
+		/* SND/RCV timeout inherited from usrv->sockfd?! It seems NOT so! */
+	        if( setsockopt(csfd, SOL_SOCKET, SO_SNDTIMEO, (void *)&(userv->sndtimeout), sizeof(userv->sndtimeout)) <0 ) {
+        	        //printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
+			close(csfd);
+			continue;
+        	}
+	        if( setsockopt(csfd, SOL_SOCKET, SO_RCVTIMEO, (void *)&(userv->rcvtimeout), sizeof(userv->rcvtimeout)) <0 ) {
+        	        //printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
+			close(csfd);
+			continue;
+        	}
 
-#if 1        	/* Set default SND/RCV timeout, recvfrom() and sendto() can set flag MSG_DONTWAIT.  */
-	        if( setsockopt(csfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&snd_timeout, sizeof(snd_timeout)) <0 ) {
-        	        printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
+
+/* For TEST ONLY: ---------------------------- */
+#if 0    	/* Set default SND/RCV timeout. it may be herited from accept.. */
+	 	if( inet_sock_setTimeOut(csfd, TCP_SERV_SNDTIMEO, 0, TCP_SERV_RCVTIMEO, 0) !=0) {
+        	        EGI_PLOG(LOGLV_TEST,"%s: Fail to setsockopt for SO_SNDTIMEO and SO_RCVTIMEO, Err'%s'.", __func__, strerror(errno));
 			//close(csfd);
 			//continue;
-        	}
-	        if( setsockopt(csfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&rcv_timeout, sizeof(rcv_timeout)) <0 ) {
-        	        printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
+		}
+#endif
+
+		/* Set KEEPALIVE OR TCP_USER_TIMEOUT, Shall NOT set both, TCP_USER_TIMEOUT will overrie KEEPALIVE! */
+#if 0		/* Set keepalive:  OPTION: Keepalive in IPACK!  */
+		if( inet_tcpsock_keepalive(csfd, TCP_KEEPALIVE_IDLE, TCP_KEEPALIVE_INTVL, TCP_KEEPALIVE_PROBES) !=0) {
+        	        EGI_PLOG(LOGLV_TEST,"%s: Fail to setsockopt for TCP KEEPALIVE, Err'%s'.", __func__, strerror(errno));
 			//close(csfd);
 			//continue;
-        	}
+		}
 #endif
 
-#if 1		/* Set keepalive:  OPTION: Keepalive in IPACK!  */
-		int  keepalive=1;		/* Enable KEEPALIVE opt */
-		int  keepalive_time=10;		/* (OP default 120) If no data comes within the seconds, then start to probe */
-		int  keepalive_intvl=3;		/* (OP default 75) probe interval */
-		int  keepalive_probes=3;	/* (OP default 9) probe times */
-
-		if(setsockopt(csfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&keepalive, sizeof(keepalive)) !=0)
-			printf("%s: Fail set SO_KEEPALIVE, Err'%s'.\n", __func__, strerror(errno));
-		if(setsockopt(csfd, SOL_TCP, TCP_KEEPIDLE, (void *)&keepalive_time, sizeof(keepalive_time)) !=0)
-			printf("%s: Fail set TCP_KEEPIDLE, Err'%s'.\n", __func__, strerror(errno));
-		if(setsockopt(csfd, SOL_TCP, TCP_KEEPINTVL, (void *)&keepalive_intvl, sizeof(keepalive_intvl)) !=0)
-			printf("%s: Fail set TCP_KEEPINTVL, Err'%s'.\n", __func__, strerror(errno));
-		if(setsockopt(csfd, SOL_TCP, TCP_KEEPCNT, (void *)&keepalive_probes, sizeof(keepalive_probes)) !=0)
-			printf("%s: Fail set TCP_KEEPCNT, Err'%s'.\n", __func__, strerror(errno));
-
+#if 0		/* Set TCP_USER_TIMEOUT */
+		if( inet_tcpsock_setUserTimeOut(csfd, TCP_USER_TRNASTIMEO) !=0) {
+        	        EGI_PLOG(LOGLV_TEST,"%s: Fail to setsockopt for TCP_USER_TIMEOUT, Err'%s'.", __func__, strerror(errno));
+			//close(csfd);
+			//continue;
+		}
 #endif
+/* ------------------------------------------------*/
+
 
 		/* Proceed for a new client ...  */
 		userv->sessions[index].sessionID=index;
@@ -2276,11 +2436,10 @@ Return:
 	Pointer to an EGI_TCP_CLIT	OK
 	NULL				Fails
 -------------------------------------------------------*/
-EGI_TCP_CLIT* inet_create_tcpClient(const char *servIP, unsigned short servPort, int domain)
+EGI_TCP_CLIT* inet_create_tcpClient(const char *servIP, unsigned short servPort, int domain,
+							unsigned int sndtimeo, unsigned int rcvtimeo)
 {
 	EGI_TCP_CLIT *uclit=NULL;
-        struct timeval snd_timeout={TCP_CLIT_SNDTIMEO,0}; /* Default time out for send */
-        struct timeval rcv_timeout={TCP_CLIT_RCVTIMEO,0}; /* Default time out for receive and accept() */
 
 	/* Check input */
 	if(servIP==NULL)
@@ -2318,33 +2477,42 @@ EGI_TCP_CLIT* inet_create_tcpClient(const char *servIP, unsigned short servPort,
 	// SO_KEEPALIVE, SO_LINGER, SO_RCVBUF, SO_SNDBU, SO_REUSEADDR, SO_BINDTODEVICE
 	// (onlyIF SO_KEEPALIVE)TCP_KEEPALIVE, TCP_MAXRT, TCP_MAXSEG, TCP_NODELAY,
 
-#if 1	/* 3.1 Set keepalive:  OPTION: Keepalive in IPACK!  */
-        int  keepalive=1;		/* Enable KEEPALIVE opt */
-        int  keepalive_time=10;         /* (OP default 120) If no data comes within that seconds, then start to probe */
-        int  keepalive_intvl=3;         /* (OP default 75) probe interval */
-        int  keepalive_probes=3;        /* (OP default 9) probe times */
+	/* Set timeout */
+	uclit->sndtimeout.tv_sec=sndtimeo;
+	uclit->rcvtimeout.tv_sec=rcvtimeo;
+        if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_SNDTIMEO, (void *)&(uclit->sndtimeout), sizeof(uclit->sndtimeout)) <0 ) {
+                //printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
+		free(uclit);
+		return NULL;
+        }
+        if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_RCVTIMEO, (void *)&(uclit->rcvtimeout), sizeof(uclit->rcvtimeout)) <0 ) {
+                //printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
+		free(uclit);
+		return NULL;
+        }
 
-        if(setsockopt(uclit->sockfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&keepalive, sizeof(keepalive)) !=0)
-        	printf("%s: Fail set SO_KEEPALIVE, Err'%s'.\n", __func__, strerror(errno));
-       	if(setsockopt(uclit->sockfd, SOL_TCP, TCP_KEEPIDLE, (void *)&keepalive_time, sizeof(keepalive_time)) !=0)
-                printf("%s: Fail set TCP_KEEPIDLE, Err'%s'.\n", __func__, strerror(errno));
-        if(setsockopt(uclit->sockfd, SOL_TCP, TCP_KEEPINTVL, (void *)&keepalive_intvl, sizeof(keepalive_intvl)) !=0)
-                printf("%s: Fail set TCP_KEEPINTVL, Err'%s'.\n", __func__, strerror(errno));
-        if(setsockopt(uclit->sockfd, SOL_TCP, TCP_KEEPCNT, (void *)&keepalive_probes, sizeof(keepalive_probes)) !=0)
-                printf("%s: Fail set TCP_KEEPCNT, Err'%s'.\n", __func__, strerror(errno));
+
+/* For TEST ONLY: ---------------------------- */
+#if 0  	/* Set default SND/RCV timeout */
+ 	if( inet_sock_setTimeOut(uclit->sockfd, TCP_CLIT_SNDTIMEO, 0, TCP_CLIT_RCVTIMEO, 0) !=0) {
+       	        EGI_PLOG(LOGLV_TEST,"%s: Fail to setsockopt for SO_SNDTIMEO and SO_RCVTIMEO, Err'%s'", __func__, strerror(errno));
+	}
 #endif
 
-        /* 3.2 Set default SND/RCV timeout,   recvfrom() and sendto() can set flag MSG_DONTWAIT.  */
-        if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&snd_timeout, sizeof(snd_timeout)) <0 ) {
-                printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
-		free(uclit);
-		return NULL;
-        }
-        if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&rcv_timeout, sizeof(rcv_timeout)) <0 ) {
-                printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
-		free(uclit);
-		return NULL;
-        }
+	/* Set KEEPALIVE OR TCP_USER_TIMEOUT, Shall NOT set both, TCP_USER_TIMEOUT will overrie KEEPALIVE! */
+#if 0  	/* Set keepalive:  OPTION: Keepalive in IPACK!  */
+	if( inet_tcpsock_keepalive(uclit->sockfd, TCP_KEEPALIVE_IDLE, TCP_KEEPALIVE_INTVL, TCP_KEEPALIVE_PROBES) !=0) {
+       	        EGI_PLOG(LOGLV_TEST,"%s: Fail to setsockopt for TCP KEEPALIVE, Err'%s'.", __func__, strerror(errno));
+	}
+#endif
+
+#if 0 	/* Set TCP_USER_TIMEOUT */
+	if( inet_tcpsock_setUserTimeOut(uclit->sockfd, TCP_USER_TRNASTIMEO) !=0) {
+       	        EGI_PLOG(LOGLV_TEST,"%s: Fail to setsockopt for TCP_USER_TIMEOUT, Err'%s'.", __func__, strerror(errno));
+	}
+#endif
+/* -------------------------------- */
+
 
 	/* 4. Connect to the server */
 	if( connect(uclit->sockfd, (struct sockaddr *)&uclit->addrSERV, sizeof(struct sockaddr)) <0 ) {

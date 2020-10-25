@@ -18,7 +18,8 @@ Note:
    especillay when the client save files to miniSD card.
 					CPU Load Comparison
    SEVRER_FDIR in miniSD, CLIENT_FDIR in /tmp:		Sever 0.4~1.9   Client: 1.0~2.7
-   SERVER_FDIR in miniSD, CLIENT_FDIR in miniSD:	Sever 0.4~1.9   Client: 3~
+   SERVER_FDIR in miniSD, CLIENT_FDIR in miniSD:	Sever 0.4~1.9   Client: 3~5
+   (Low speed with low CPU Load range.)
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -46,7 +47,7 @@ https://github.com/widora/wegi
 
 #define SERVER_PORT 5678
 #define SERVER_FDIR "/mmc"
-#define CLIENT_FDIR "/mmc"   ///tmp
+#define CLIENT_FDIR "/tmp"
 
 static int packsize=1448; /* packet size */
 static int gms;		  /* interval gap delay */
@@ -208,7 +209,7 @@ exit(0);
 	printf("Set gms=%dms\n",gms);
 	if(SetTCPServer)
 		printf("Set test packsize=%d bytes.\n",packsize);
-	sleep(1);
+	sleep(2);
 
 
   /* Start egi log */
@@ -223,7 +224,7 @@ exit(0);
 	printf("Set as TCP Server.\n");
 
         /* Create TCP server */
-        userv=inet_create_tcpServer(strAddr, port, 4); //8765, 4);
+        userv=inet_create_tcpServer(strAddr, port, 4, 15, 15);
         if(userv==NULL) {
 		printf("Fail to create a TCP server!\n");
                 exit(1);
@@ -251,7 +252,7 @@ exit(0);
 	}
 
         /* Create TCP client */
-        uclit=inet_create_tcpClient(strAddr, port, 4); //"192.168.8.1", 8765, 4);
+        uclit=inet_create_tcpClient(strAddr, port, 4, 15, 15);
         if(uclit==NULL)
                 exit(1);
 
@@ -274,7 +275,7 @@ goto TEST;
 					printf("fname:%s\n",fname);
 TEST:
 	sleep(1);
-	sprintf(fname,"xxx.gif");
+	sprintf(fname,"程序员节大礼包.xxx");
 					if( client_request_file(uclit, fname) >0 ) {
 						/* >0 EPIPE or peer socket closed */
 						if(inet_tcp_getState(uclit->sockfd)==TCP_CLOSE) {
@@ -347,8 +348,7 @@ void inet_sigint_handler(int signum)
 	/* Shut down connection */
 	if(SetTCPServer) {
 
-		printf(" WARNING: To close the server will close all sessions!\n");
-		depth++;
+		printf(" WARNING_%d/%d: To close the server will close all sessions!\n", ++depth, 3);
 		if(depth<3) return;
 
 		if(inet_tcp_getState(userv->sockfd)==TCP_LISTEN ) {
@@ -428,13 +428,6 @@ void* server_session_process(void *arg)
 
 while(1) {  ////////////////////////////     LOOP TEST     ///////////////////////////////
 
-#if 0	/* Create a head ipack. */
-	ipack=inet_ipacket_create(sizeof(FILE_LEAD), NULL, 0, NULL);     /* Only headsize, without privdata */
-	if(ipack==NULL) {
-		ret=-3; goto END_FUNC;
-	}
-#endif  ////////////////////
-
 	printf("Session_%d: Wait for request...\n", sessionID );
 	/* Receive request from client */
 	if( inet_ipacket_tcpRecv(sfd, &ipack) !=0 ) {
@@ -447,7 +440,7 @@ while(1) {  ////////////////////////////     LOOP TEST     /////////////////////
 	/* Switch to requested session */
 	switch( msgtype ) {
 		case IHEAD_REQUEST_LIST:
-			printf("Session_%d: Client requests for file list!\n",sessionID);
+			printf("Session_%d: Client requests file list!\n",sessionID);
 			txtgroup=get_filelist(SERVER_FDIR);
 
 			/* Free old ipack */
@@ -496,7 +489,7 @@ while(1) {  ////////////////////////////     LOOP TEST     /////////////////////
 			/* 1. Check out file name in ipack->privdata */
 			bzero(fpath,sizeof(fpath));
 			snprintf(fpath,EGI_PATH_MAX-1,"%s/%s",SERVER_FDIR, (char *)IPACK_PRIVDATA(ipack));
-			printf("Session_%d: Client '%s:%d' requets for file '%s'.\n",
+			printf("Session_%d: Client '%s:%d' requets '%s'.\n",
 					sessionID, inet_ntoa(addrCLIT->sin_addr), ntohs(addrCLIT->sin_port), fpath);
 			/* Free old ipack */
 			inet_ipacket_free(&ipack);
@@ -506,8 +499,8 @@ while(1) {  ////////////////////////////     LOOP TEST     /////////////////////
 				/* File NOT found */
 				printf("Access Err'%s'\n", strerror(errno));
 				msgtype=IHEAD_FAILS;
+				/* Send an empty ipacket */
 				ipack=inet_ipacket_create(sizeof(msgtype), &msgtype, 0, NULL);
-				if(ipack==NULL) goto END_FUNC;
 				ret=inet_ipacket_tcpSend(sfd, ipack);
 				if(ret!=0) goto END_FUNC;
 				inet_ipacket_free(&ipack);
@@ -522,12 +515,11 @@ while(1) {  ////////////////////////////     LOOP TEST     /////////////////////
 			FileLead.packsize=packsize;
 			FileLead.packnums=fmap->fsize/packsize;
 			FileLead.tailsize=fmap->fsize%packsize;
-
-			/* 4. Send ipack to inform Client to be ready to receive packets. */
 			msgtype=IHEAD_REPLY_FILELEAD;
 			ipack=inet_ipacket_create(sizeof(msgtype), &msgtype, sizeof(FileLead), &FileLead);
-			if(ipack==NULL) goto END_FUNC;
-			//if( inet_tcp_send(sfd, (const void*)ipack, ipack->packsize)!=0 ) {
+			//if(ipack==NULL) goto END_FUNC;
+
+			/* 4. Send ipack to inform Client to be ready to receive packets. */
 			ret=inet_ipacket_tcpSend(sfd, ipack);
 			if(ret!=0) goto END_FUNC;
 
@@ -535,20 +527,16 @@ while(1) {  ////////////////////////////     LOOP TEST     /////////////////////
 			printf("Session_%d: Send packets...\n", sessionID);
 			for(i=0; i < FileLead.packnums; i++) {
 				tm_delayms(gms);
-				if( inet_tcp_send(sfd, (const void*)(fmap->fp +i*packsize ), packsize)!=0 ) {
-					ret=-7;
-					goto END_FUNC;
-				}
+				ret=inet_tcp_send(sfd, (const void*)(fmap->fp +i*packsize ), packsize);
+				if(ret!=0) goto END_FUNC;
 			}
 
 			/* 6. Send file tail packet */
 			printf("Session_%d: Send tail...\n", sessionID);
 			if( FileLead.tailsize>0 ) {
 				tm_delayms(gms);
-				if( inet_tcp_send(sfd, (const void*)(fmap->fp +i*packsize ), FileLead.tailsize)!=0 ) {
-					ret=-7;
-					goto END_FUNC;
-				}
+				ret=inet_tcp_send(sfd, (const void*)(fmap->fp +i*packsize ), FileLead.tailsize);
+				if(ret!=0) goto END_FUNC;
 			}
 
 			/* 7. Free fmap and ipack ---> loop back */
@@ -577,6 +565,7 @@ while(1) {  ////////////////////////////     LOOP TEST     /////////////////////
         close(sfd);
 	session->csFD=-1;
 
+	/* ret>0 for TIMEOUT */
 	printf("Session_%d ends, ret=%d\n",sessionID,ret);
 	return (void *)ret;  /* End whole process? */
 }
@@ -648,7 +637,7 @@ int client_request_file(EGI_TCP_CLIT *uclit, const char* fname)
 	}
 
 	FileLead=*(FILE_LEAD *)IPACK_PRIVDATA(ipack);
-	printf("Ready to receive total %d packets, with each %dbytes, and a tail packet of %dbytes\n",
+	printf("Ready to receive total %d IPACKs, with each %dbytes, and a tail packet of %dbytes\n",
 						FileLead.packnums, FileLead.packsize, FileLead.tailsize);
 
 	/* 4. Prepare buff and open file for write in */
@@ -698,7 +687,7 @@ int client_request_file(EGI_TCP_CLIT *uclit, const char* fname)
 		ret=inet_tcp_recv(uclit->sockfd, (void *)buff, FileLead.tailsize);
 		if( ret!=0 ) {
 			/* >0 Peer socket close */
-			ret=-8;
+			if(ret<0)ret=-8;
 			goto END_FUNC;
 		}
 		/* Write to file */
@@ -752,14 +741,13 @@ int client_request_filelist(EGI_TCP_CLIT *uclit)
 	if(uclit==NULL)
 		return -1;
 
-	//printf("Create ipack...\n");
+	printf("Create ipack...\n");
 	/* Create a request ipack, make IHEAD_REQUEST_LIST Header of the ipack. */
 	msgtype=IHEAD_REQUEST_LIST;
 	ipack=inet_ipacket_create(sizeof(msgtype), (void *)&msgtype,0,NULL);     /* Only headsize, without privdata */
-	if(ipack==NULL)
-		return -2;
+	//if(ipack==NULL) return -2;
 
-	//printf("Send request...\n");
+	printf("Send request...\n");
 	/* 1. Send request ipack to the server */
 	ret=inet_ipacket_tcpSend(uclit->sockfd, ipack);
 	if( ret != 0 ) {
@@ -768,7 +756,7 @@ int client_request_filelist(EGI_TCP_CLIT *uclit)
 		goto END_FUNC;
 	}
 
-	//printf("Recv reply...\n");
+	printf("Recv reply...\n");
 	/* 2. Recevie reply from the server */
 	ret=inet_ipacket_tcpRecv(uclit->sockfd, &ipack);
 	if( ret!=0 ) {

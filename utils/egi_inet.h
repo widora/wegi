@@ -27,6 +27,14 @@ typedef struct egi_udp_client EGI_UDP_CLIT;
 typedef struct egi_tcp_server EGI_TCP_SERV;
 typedef struct egi_tcp_client EGI_TCP_CLIT;
 
+/* Some TCP/UDP common functions */
+int inet_sock_setTimeOut(int sockfd, long sndtmo_sec, long sndtmo_usec, long rcvtmo_sec, long rcvtmo_usec);
+int inet_tcpsock_setUserTimeOut(int sockfd, unsigned long usertmo_ms);
+int inet_tcpsock_keepalive(int sockfd, int idle_sec, int intvl_sec, int probes);
+int inet_tcp_recv(int sockfd, void *data, size_t packsize);		/* A BLOCK TIMEOUT make it return fail! */
+int inet_tcp_send(int sockfd, const void *data, size_t packsize);	/* A BLOCK TIMEOUT make it return fail! */
+int inet_tcp_getState(int sockfd);
+
 
 			/* ------------ An EGI_INETPACK : An abstract packet model ----------- */
 
@@ -113,6 +121,9 @@ __attribute__((weak)) void inet_sigint_handler(int signum);
 int inet_default_sigAction(void);
 
 
+
+
+
 			/* ------------ UDP C/S ----------- */
 
 #define EGI_MAX_UDP_PDATA_SIZE	(1024*60)
@@ -133,7 +144,6 @@ the UDP server/client.
 ---------------------------------------------------------------*/
 typedef int (* EGI_UDPSERV_CALLBACK)( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
 				            struct sockaddr_in *sndAddr,       char *sndBuff, int *sndSize);
-
 
 typedef int (* EGI_UDPCLIT_CALLBACK)( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
 				                   			       char *sndBuff, int *sndSize);
@@ -172,7 +182,6 @@ int 		inet_udpClient_routine(EGI_UDP_CLIT *uclit);
 int 		inet_udpClient_TESTcallback( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
                                        		          			      char *sndBuff, int *sndSize);
 
-
 			/* ------------ TCP C/S ----------- */
 
 #define EGI_MAX_TCP_PDATA_SIZE	(1024*64)  /* Actually there is NO limit for TCP stream data size */
@@ -189,7 +198,9 @@ typedef struct egi_tcp_server_session {
 }EGI_TCP_SERV_SESSION;  /* At server side */
 
 
-/*** EGI_TCP_SERV & EGI_TCP_CLIT
+/* FOR TEST ONLY ---------------------------------------------------- */
+
+/***		------  EGI_TCP_SERV & EGI_TCP_CLIT  ------
  *
  *                         An EGI TCP Server Model
  * A main thread for accepting all clients, and one session handling thread
@@ -197,13 +208,80 @@ typedef struct egi_tcp_server_session {
  * handling/processing thread function.
  */
 
-#define TCP_LOSTCONN_TIME	20	/* in seconds, If send() OR recv() fails persistently for a long time, then it's deemed as lost connection. */
+/*** 		----- KEEPALIVE TIME  v.s. SND/RCV TIMEOUT -----
 
+ * A. Set KEEPALIVE TIME:
+ *	!!!--- If it's running a TCP send(), then keepalive probe will be suspended/prevented ---!!!
+ *      Usually for slow speed and/or long time connections, there may be NO data flow on the link for a certain long time.
+ *   	It needs to probe the remote peer intervally and make sure that it is still connected.
+ * 	A KEEPALIVE probe is supposed to be carried out during idle time.
+
+ * B. TCP_USER_TIMEOUT:
+ *	!!!--- It functions only during TCP sending. ---!!!
+ *	"it specifies the maximum amount of time in milliseconds that transmitted data may remain unacknowledged
+ *      before TCP will forcibly close the corresponding connection and return ETIMEDOUT to the application."
+ * 	"when used with the TCP keepalive (SO_KEEPALIVE) option, TCP_USER_TIMEOUT will override keepalive to ..."  ( man 7 tcp )
+ * 	You'd better apply ONLY one of the them.
+
+ * C. Set SNDTIMEO/RCVTIMEO  or  SNDTIMEO/RCVTIMEO + User_Timer:
+ *	1. Usually for high speed and/or short time connections, and data flow MUST keep consistently on the link.
+ *	   Long delay or too many brokes(TimeOuts) on send()/recv() may cause upper-layer application failure,
+ *	   and it needs to stop OR retart under such circumstances.
+ *	2. Only a send() (OR keepalive probe) can actively probe abnormal disconnection and invoke a ETIMEDOUT error,
+ *    	   as it will wait ACK msg after sendout, and can reckon total time passed.
+ *     	   A recv() function can NOT detect and return such an error by itself! Your may add a timer to decide when to abort.
+ *	3. RCVTIMEO is much more accurate than SNDTIMEO, which is only a rough reference value?
+
+ * NOTE:
+ *	1. Only a sending (OR keepalive probing) can actively probe abnormal disconnection and invoke a ETIMEDOUT error,
+ *	 ( send() trys abt. 13-30Min before return ETIMEDOUT )
+ *	2. For BLOCK type send()/recv(), Use SNDTIMEO/RCVTIMEO is OK?
+ *	3. For NONBLOCK or select method, Use KEEPALVIE +  TCP_USER_TIMEOUT is OK?
+ *
+ */
+
+#define TCP_KEEPALIVE_IDLE	20	/* If socket goes idle in this value seconds, start to probe remote peer then.
+					 * !!! WARNING !!!  This value SHALL less than TCP SND/RECV TimeOut! or it will be overrided.
+					 * Also see following TCP_SERV/CLIT_SNDTIMEO/SNDTIMEO.
+					 */
+#define TCP_KEEPALIVE_INTVL	3	/* It will probe _PROBES times with interval of _INTVL seconds before return ETIMEOUT */
+#define TCP_KEEPALIVE_PROBES	3
+
+#define TCP_USER_TIMER_SET	30	/* In seconds. As in inet_tcp_recv() and inet_tcp_send(), to count total time waiting/trying
+					 * when RCVTIMEO/SNDTIMEO is set.
+					 * If rcv(BLOCK)/send(BLOCK) fails persistently, and total time amount to the value,
+					 * then it's deemed as lost connection.
+					 * !!! WARINGI !!! This value should be greater than xx_RCVTIMEO/xx_SNDTIMEO, because
+					 * actual USER_TIMER value should plus one round of RCVTIMEO/SNDTIMEO.
+					 */
+
+#define TCP_USER_TRNASTIMEO	10000   /* in ms, for TCP_USER_TIMEOUT, to replace send() 15 Min
+					 * Seems Just a rough value?
+					 * The option has no effect on when TCP retransmits a packet, nor when a keepalive probe is sent.
+					 */
+
+#define TCP_SERV_SNDTIMEO	35	/* If send(BLOCK) is running, TCP_KEEPALIVE will be disabled/suspended/ingored!? whatever its value.*/
+		/* NOTE 'man 7 tcp': "Moreover, when used with the TCP keepalive (SO_KEEPALIVE) option, TCP_USER_TIMEOUT will override keepalive
+	       	 * to determine when to close a connection due to keepalive failure." */
+#define TCP_SERV_RCVTIMEO	35	/* recv(BLOCK): If TCP_KEEPALIVE applys, consider to be greater than Keepalive_SumAllTime +allowance
+					 * OR it will be disabled/suspended/ingored.
+					 */
+
+#define TCP_CLIT_SNDTIMEO    35		/* If send(BLOCK) is running, TCP_KEEPALIVE will be disabled/suspended/ingored!? wathever its value. */
+#define TCP_CLIT_RCVTIMEO    35		/* recv(BLOCK): If TCP_KEEPALIVE applys, consider to be greater than Keepalive_SumAllTime +allowance
+					 * OR it will be disabled/suspended/ingored.
+					 * If TCP_USER_TIMEOUT is set, then it be will forever blocked!
+					 */
+
+/* END FOR TEST ONLY ---------------------------------------------------- */
+
+
+/*** EGI_TCP_SERV ***/
 struct egi_tcp_server {
-#define TCP_SERV_SNDTIMEO	5		/* If TCP_KEEPALIVE applys, consider to be greater than Keepalive_time? seems no effect. */
-#define TCP_SERV_RCVTIMEO	5
+
 	int 			sockfd;		/* For accept() */
 	struct sockaddr_in 	addrSERV;	/* Self address */
+	struct timeval		rcvtimeout,sndtimeout;	/* TimeOut, 0 as sys default */
 #define MAX_TCP_BACKLOG		16
 	int 			backlog;	/* BACKLOG for accept(), init. in inet_create_tcpServer() as MAX_TCP_BACKLOG */
 	bool			active;    	/* Server routine IS running! */
@@ -216,29 +294,26 @@ struct egi_tcp_server {
         void *          	(*session_handler)(void *arg);  /* Designed as a detached thread session handler!
 								 * input arg as EGI_TCP_SERV_SESSION *session
 								 */
-
 };
 
+/*** EGI_TCP_CLIT ***/
 struct egi_tcp_client {
-#define TCP_CLIT_SNDTIMEO    5			/* If TCP_KEEPALIVE applys, consider to be greater than Keepalive_time? seems no effect. */
-#define TCP_CLIT_RCVTIMEO    5
+
 	int 	sockfd;
-	struct sockaddr_in addrSERV;
-	struct sockaddr_in addrME;	/* Self address */
+	struct sockaddr_in  addrSERV;
+	struct sockaddr_in  addrME;	/* Self address */
+	struct timeval	    rcvtimeout,sndtimeout;
 };
 
 
 /* TCP C/S Basic Functions */
-int inet_tcp_recv(int sockfd, void *data, size_t packsize);
-int inet_tcp_send(int sockfd, const void *data, size_t packsize);
-int inet_tcp_getState(int sockfd);
 
-EGI_TCP_SERV* 	inet_create_tcpServer(const char *strIP, unsigned short port, int domain);
+EGI_TCP_SERV* 	inet_create_tcpServer(const char *strIP, unsigned short port, int domain, unsigned int sndtimeo, unsigned int rcvtimeo);
 int 		inet_destroy_tcpServer(EGI_TCP_SERV **userv);	/* close and free */
 int 		inet_tcpServer_routine(EGI_TCP_SERV *userv);
 void* 		TEST_tcpServer_session_handler(void *arg);    /* A thread function */
 
-EGI_TCP_CLIT* 	inet_create_tcpClient(const char *servIP, unsigned short servPort, int domain);
+EGI_TCP_CLIT* 	inet_create_tcpClient(const char *servIP, unsigned short servPort, int domain, unsigned int sndtimeo, unsigned int rcvtimeo);
 int 		inet_destroy_tcpClient(EGI_TCP_CLIT **uclit);	/* close and free */
 int 		TEST_tcpClient_routine(EGI_TCP_CLIT *uclit, int packsize, int gms);
 #endif
