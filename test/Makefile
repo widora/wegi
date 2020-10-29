@@ -17,6 +17,7 @@ CFLAGS += -I$(COMMON_USRDIR)/include/json-c
 #-I$(SRC_PATH)/page
 CFLAGS  += -Wall -O2
 CFLAGS  += -D_GNU_SOURCE
+CFLAGS  += -D_FILE_OFFSET_BITS=64
 CFLAGS  += -DENABLE_BACK_BUFFER
 CFLAGS  += -Wno-maybe-uninitialized
 

@@ -70,8 +70,11 @@ int egi_mem_grow(void **ptr, size_t old_size, size_t more_size)
 /*--------------------------------------------
 Mmap a file and return a EGI_FILEMMAP.
 Note:
-1. The file must NOT be empty.
+1. For 32-bits type off_t, mmap Max. file size <2G !
+   off_t: 32bits, Max. fsize:  2^31-1
+   off_t: 64bits, Max. fsize:  2^63-1
 2. mmap with flags: PROT_READ, MAP_PRIVATE
+3. The file must NOT be empty.
 
 Return:
 	Pointer to EGI_FILEMMAP		OK

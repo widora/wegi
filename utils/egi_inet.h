@@ -186,7 +186,7 @@ int 		inet_udpClient_TESTcallback( const struct sockaddr_in *rcvAddr, const char
 
 #define EGI_MAX_TCP_PDATA_SIZE	(1024*64)  /* Actually there is NO limit for TCP stream data size */
 
-/* TCP Session for Server */
+/* TCP Session: for server routine process */
 typedef struct egi_tcp_server_session {
 	int		sessionID;		 /* ID, ref. index of EGI_TCP_SERV_SESSION.sessions[], NOT as sequence number! */
 	int    		csFD;                    /* C/S session fd */

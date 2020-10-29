@@ -15,8 +15,11 @@ to identify clients and handle sessions respectively.
 			--- An EGI TCP Server model ---
 
 A main thread for accpeting all clients, and one session handling thread
-will be created for each accpeted client. The caller SHALL design the
-session processing thread function.
+will be created(and detached) for each accpeted client. The caller SHALL design
+then session processing thread function.
+All recv/send functions work in BLOCKING state, usually to set SERVER TimeOut
+much larger than CLIENT's, as to sustain 'a passive server and an active client'
+mode.
 
 
 NOTE:
@@ -71,7 +74,7 @@ NOTE:
 
   Single IP packet Max. payload:        MTU(1500)-IPhead(20)                                    =1480 Bytes.
   Single TCP packet Max. payload:       MTU(1500)-IPhead(20)-TCPhead(20)                        =1460 Bytes.
-                                        MTU(1500)-IPhead(20)-TCPhead(20)-TimestampOption(12)    =1448 Bytes.
+                                        MTU(1500)-IPhead(20)-TCPhead(20)-TimestampOption(12)    =1448 Bytes.  ( <---- )
   TCP MMS (Max. Segment Size)
   Single UDP packet Max.payload:        MTU(1500)-IPhead(20)-UDPhead(8)                         =1472 bytes.
                when MTU=576:            MTU(576)-IPhead(20)-UDPhead(8)                          =548 bytes.
@@ -118,8 +121,11 @@ NOTE:
    A big packet is fragmented to fit for link MTU first.
    and will be more possible to interfere other WIFI devices. Select a suitable packet size!
    Pros: To increase packet size in a rarely disturbed network can improve general speed considerablely.
+	 (NOTE: The receiving end MUST also have big buffer and corresponding fast saving device/media/mechanism! )
    Cons: It costs more CPU Load, especially for the client of file receiver, and fluctuation on data stream.
    Example: Use bigger packet size in Ethernet than in WiFi net.
+
+   !!! Transmitting speed is restricted by the weakest (most disadvantageous/limited) node/element/factor considered in the whole data link! !!!
 
 12. Linux man recv(): About peer stream socket close:
     "When a stream socket peer has performed an orderly shutdown, the return value will be 0".
@@ -140,7 +146,7 @@ NOTE:
 
 16. Call inet_tcp_getState() to get current TCP connection state.
 
-17. Only a send() (OR keepalive probe) can actively probe abnormal disconnection and invoke a ETIMEDOUT error,
+17. TCP: Only a send() (OR keepalive probe) can actively probe abnormal disconnection and invoke a ETIMEDOUT error,
     as it will wait ACK msg after sendout, and can reckon total time passed.
     A recv() function can NOT detect and return such an error by itself! You have to add a timer for the purpose.
 
@@ -159,6 +165,7 @@ midaszhou@yahoo.com
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <pthread.h>
 //#include <linux/tcp.h>  /* Need TCP_USER_TIMEOUT, which is omitted in <netinet/tcp.h>  */
 #define TCP_USER_TIMEOUT        18      /* How long for loss retry before timeout */
 #include <arpa/inet.h> /* inet_ntoa() */
@@ -1944,12 +1951,12 @@ EGI_TCP_SERV* inet_create_tcpServer(const char *strIP, unsigned short port, int 
 	userv->sndtimeout.tv_sec=sndtimeo;
 	userv->rcvtimeout.tv_sec=rcvtimeo;
         if( setsockopt(userv->sockfd, SOL_SOCKET, SO_SNDTIMEO, (void *)&(userv->sndtimeout), sizeof(userv->sndtimeout)) <0 ) {
-                //printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
+                printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
 		free(userv);
 		return NULL;
         }
         if( setsockopt(userv->sockfd, SOL_SOCKET, SO_RCVTIMEO, (void *)&(userv->rcvtimeout), sizeof(userv->rcvtimeout)) <0 ) {
-                //printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
+                printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
 		free(userv);
 		return NULL;
         }
@@ -2042,20 +2049,21 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 	/* TODO & TBD: Or launch a Select/Poll session process at very beginning. */
 
 	/*** Loop service processing: ***/
-	printf("%s: Start TCP server routine, loop processing...\n", __func__);
-	index=0; /* init. index */
+	printf("%s: Start TCP server accpet routine, loop processing...\n", __func__);
+	//index=0; /* init. index */
 
 	userv->active=true; /* Set flag on */
 	while( userv->cmd !=1 ) {
 		/* Re_count clients, and get an available userv->sessions[] for next new client. */
 		userv->ccnt=0;
+		index=-1;
 		for(i=0; i<EGI_MAX_TCP_CLIENTS; i++) {
 			if( index<0 && userv->sessions[i].alive==false )
 				index=i;  /* availble index for next session */
 			if( userv->sessions[i].alive==true )
 				userv->ccnt++;
 		}
-//		printf("%s: Recount active sessions userv->ccnt=%d\n", __func__, userv->ccnt);
+		printf("%s: Recount active sessions userv->ccnt=%d\n", __func__, userv->ccnt);
 
  #if 0	////////////////* Re_count clients and Re_arrange userv->sessions[], some sessions might end. */
 		int j;
@@ -2092,24 +2100,30 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 		}
 
 		/* Accept clients */
+		printf("%s: accept() waiting...\n", __func__);
 		addrLen=sizeof(struct sockaddr);
+
 		/* NONBLOCK NO use for accept4()!  flags are applied on the new file descriptor!! */
 		//csfd=accept4(userv->sockfd, (struct sockaddr *)&addrCLIT, &addrLen, SOCK_NONBLOCK|SOCK_CLOEXEC);
-		csfd=accept(userv->sockfd, (struct sockaddr *)&addrCLIT, &addrLen); /* timeout same as rcv_timeout set in socket() ! */
+		csfd=accept(userv->sockfd, (struct sockaddr *)&addrCLIT, &addrLen);
 		if(csfd<0) {
 			switch(errno) {
                                 #if(EWOULDBLOCK!=EAGAIN)
                                 case EWOULDBLOCK:
                                 #endif
 				case EAGAIN:
-				case EINTR:
-					tm_delayms(10); /* NONBLOCKING */
+					//tm_delayms(10); /* if NONBLOCKING */
 					continue;  /* ---> continue to while() */
+					break;
+				case EINTR:
+					printf("%s: accept() interrupted! errno=%d Err'%s'.  continue...\n",
+										__func__, errno, strerror(errno));
+					continue;
 					break;
 				default:
 					printf("%s: Fail to accept a new client, errno=%d Err'%s'.  continue...\n",
 												__func__, errno, strerror(errno));
-					tm_delayms(20);
+					//tm_delayms(20); /* if NONBLOCKING */
 					/* TODO: End routine if it's a deadly failure!  */
 					continue;  /* ---> whatever, continue to while() */
 			}
@@ -2125,12 +2139,12 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 
 		/* SND/RCV timeout inherited from usrv->sockfd?! It seems NOT so! */
 	        if( setsockopt(csfd, SOL_SOCKET, SO_SNDTIMEO, (void *)&(userv->sndtimeout), sizeof(userv->sndtimeout)) <0 ) {
-        	        //printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
+        	        printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
 			close(csfd);
 			continue;
         	}
 	        if( setsockopt(csfd, SOL_SOCKET, SO_RCVTIMEO, (void *)&(userv->rcvtimeout), sizeof(userv->rcvtimeout)) <0 ) {
-        	        //printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
+        	        printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
 			close(csfd);
 			continue;
         	}
@@ -2176,6 +2190,19 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 			close(csfd);
 		}
 		else {
+			/* Detach the session process thread
+			 * NOTE: if you call pthread_detach(pthread_self()) in the thread function, it may cause segmentaton fault!!! (LETS_NOTE)
+			 * A glibc(v2.22+) bug may cause that, Ref. https://sourceware.org/bugzilla/show_bug.cgi?id=20116
+			 */
+			//printf("Session_%d: try to detach thread...\n", index);
+		        if(pthread_detach(userv->sessions[index].csthread)!=0) {
+                		printf("Session_%d: Fail to detach thread for TCP session with client '%s:%d'.\n",
+                                                index, inet_ntoa(addrCLIT.sin_addr), ntohs(addrCLIT.sin_port) );
+	                	//go on...
+	       		} else {
+				printf("Session_%d: Session thread detached!.\n", index);
+			}
+
 			/* pthread_create() returns 0 does NOT necessarily means the thread is running!?f
 			 * Let thread to set the flag??!
 			 */
@@ -2184,11 +2211,11 @@ int inet_tcpServer_routine(EGI_TCP_SERV *userv)
 			/* Note: At this point some sessions might end! */
 			userv->ccnt++;
 
-			printf("%s: Accept a new TCP client from %s:%d, totally %d clients now.\n",
-					__func__, inet_ntoa(addrCLIT.sin_addr), ntohs(addrCLIT.sin_port), userv->ccnt );
+			printf("%s: Accept a new TCP client from %s:%d, starts thread session_%d, totally %d clients now.\n",
+					__func__, inet_ntoa(addrCLIT.sin_addr), ntohs(addrCLIT.sin_port), index, userv->ccnt );
 
 			/* Reset index to -1, as it was used. */
-			index=-1;
+			//index=-1; OK, reset it before recount ccnt.
 		}
 	}
 
