@@ -29,7 +29,7 @@ LIBS	+= -lasound  -lshine -lsndfile
 LIBS    += -lpng -ljpeg -lz
 LIBS 	+= -lcurl -lssl -lcrypto
 LIBS 	+= -lfreetype  -lm -lz -lbz2
-LIBS    += -legi
+#LIBS    += -legi
 LIBS    += -lgif
 
 all:	$(APP) libesound.a
@@ -39,7 +39,10 @@ autorec: autorec.c
 	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBS) -o autorec autorec.c
 
 recmp3: recmp3.c
-	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBS) -o recmp3 recmp3.c
+#	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBS) -o recmp3 recmp3.c	#--use shared egilib
+	$(CC) recmp3.c -o recmp3 $(CFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
+-Wl,-Bstatic -legi -Wl,-Bdynamic
+#---use static egilib
 
 test_pcmbuf: test_pcmbuf.c
 	$(CC) -o test_pcmbuf test_pcmbuf.c $(CFLAGS) $(LDFLAGS) $(LIBS) -lesound -pthread
