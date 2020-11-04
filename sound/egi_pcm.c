@@ -212,12 +212,9 @@ void egi_close_pcm_device(void)
 send buffer data to pcm play device with NONINTERLEAVED frame format !!!!
 PCM access mode MUST have been set properly in open_pcm_device().
 
-buffer ---  point to pcm data buffer
-nf     ---  number of frames
+@buffer    	point to pcm data buffer
+@nf     	number of frames
 
-Return:
-#	>0    OK
-#	<0   fails
 ------------------------------------------------------------------------*/
 void  egi_play_pcm_buff(void ** buffer, int nf)
 {
@@ -248,6 +245,50 @@ void  egi_play_pcm_buff(void ** buffer, int nf)
 		EGI_PLOG(LOGLV_ERROR,"%s: short write, write %d of total %d frames\n", __func__,rc,nf);
         }
 }
+
+/*--------------------------------------------------------------------
+Playback buff data through pcm_handle, which has been setup with adequate
+parameters.
+
+@pcm_handle	PCM handle
+@Interleave	Interleaved or noninterleaved frame data
+@buffer    	point to pcm data buffer
+@nf     	number of frames
+
+Return:
+#	>0    OK
+#	<0   fails
+--------------------------------------------------------------------*/
+void  egi_pcmhnd_playBuff(snd_pcm_t *pcm_handle, bool Interleaved, void ** buffer, int nf)
+{
+	int rc;
+
+	/* write interleaved frame data */
+	if(Interleaved)
+	        rc=snd_pcm_writei(pcm_handle,buffer,(snd_pcm_uframes_t)nf );
+	/* write noninterleaved frame data */
+	else
+       	        rc=snd_pcm_writen(pcm_handle, buffer,(snd_pcm_uframes_t)nf ); //write to hw to playback
+        if (rc == -EPIPE)
+        {
+            /* EPIPE means underrun */
+            //fprintf(stderr,"snd_pcm_writen() or snd_pcm_writei(): underrun occurred\n");
+            EGI_PDEBUG(DBG_PCM,"[%lld]: snd_pcm_writen() or snd_pcm_writei(): underrun occurred\n",
+            						tm_get_tmstampms() );
+	    snd_pcm_prepare(pcm_handle);
+        }
+	else if(rc<0)
+        {
+        	//fprintf(stderr,"error from writen():%s\n",snd_strerror(rc));
+		EGI_PLOG(LOGLV_ERROR,"%s: error from writen():%s\n",__func__, snd_strerror(rc));
+        }
+        else if (rc != nf)
+        {
+                //fprintf(stderr,"short write, write %d of total %d frames\n",rc, nf);
+		EGI_PLOG(LOGLV_ERROR,"%s: short write, write %d of total %d frames\n", __func__,rc,nf);
+        }
+}
+
 
 /*-------------------------------------------------------------------------------
 Get current volume value from the first available channel, and then set all
@@ -591,6 +632,75 @@ int egi_adjust_pcm_volume(int vdelt)
 	return 0;
 }
 
+/*---------------------------------------------------------------------------------
+Set params for PCM handler.
+
+@pcm_handle:		PCM PLAYBACK handler.
+@sformat:	 	Sample format, Example: SND_PCM_FORMAT_S16_LE
+@access_type:		PCM access type, Exmple: SND_PCM_ACCESS_RW_INTERLEAVED
+@soft_resample:		0 = disallow alsa-lib resample stream, 1 = allow resampling
+@nchanl:		Number of channels
+@srate:		 	Sample rate
+@latency:		required overall latency in us
+
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------------------------------------------*/
+int egi_pcmhnd_setParams( snd_pcm_t *pcm_handle, snd_pcm_format_t sformat, snd_pcm_access_t access_type,
+                        unsigned int nchanl, unsigned int srate )
+{
+	int rc=0;
+        int dir=0;
+        snd_pcm_hw_params_t *params=NULL;
+
+        /* Allocate a hardware parameters object */
+        snd_pcm_hw_params_alloca(&params);
+	if(params==NULL) {
+                printf("%s: Fail to allocate params!\n",__func__);
+		return -1;
+        }
+
+        /* Fill it in with default values */
+        if( (rc=snd_pcm_hw_params_any(pcm_handle, params)) !=0) {
+                printf("%s: Err'%s'.\n",__func__, snd_strerror(rc));
+		return rc;
+        }
+
+        /* Set access type  */
+        if( (rc=snd_pcm_hw_params_set_access(pcm_handle, params, access_type)) !=0) {
+                printf("%s: Err'%s'.\n",__func__, snd_strerror(rc));
+		return rc;
+        }
+
+        /* Set format */
+        if( (rc=snd_pcm_hw_params_set_format(pcm_handle, params, sformat)) !=0) {
+                printf("%s: Err'%s'.\n",__func__, snd_strerror(rc));
+		return rc;
+        }
+
+        /* Set channels  */
+        if( (rc=snd_pcm_hw_params_set_channels(pcm_handle, params, nchanl)) !=0) {
+                printf("%s: Err'%s'.\n",__func__, snd_strerror(rc));
+		return rc;
+        }
+
+        /* sampling rate */
+        if( (rc=snd_pcm_hw_params_set_rate_near(pcm_handle, params, &srate, &dir)) !=0) {
+                printf("%s: Err'%s'.\n",__func__, snd_strerror(rc));
+		return rc;
+        }
+        if(dir != 0)
+                printf("%s: Actual sampling rate is set to %d HZ!\n",__func__, srate);
+
+        /* Set HW params */
+        if ( (rc=snd_pcm_hw_params(pcm_handle, params)) !=0 ) {
+                printf("%s: Err'%s'.\n",__func__, snd_strerror(rc));
+		return rc;
+        }
+
+	return 0;
+}
 
 
 /*-----------------------------------------------------------------------------------

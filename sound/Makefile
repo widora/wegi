@@ -20,6 +20,7 @@ CFLAGS += -I$(COMMON_USRDIR)/include/json-c
 
 #CFLAGS += -I/home/midas-zhou/openwrt_widora/build_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/alsa-lib-1.0.2/include
 CFLAGS += -Wall -O2
+CFLAGS += -D_FILE_OFFSET_BITS=64
 
 LDFLAGS  += -L.
 LDFLAGS += -L../lib -L$(COMMON_USRDIR)/lib
@@ -28,9 +29,11 @@ LDFLAGS += -L../lib -L$(COMMON_USRDIR)/lib
 LIBS	+= -lasound  -lshine -lsndfile
 LIBS    += -lpng -ljpeg -lz
 LIBS 	+= -lcurl -lssl -lcrypto
-LIBS 	+= -lfreetype  -lm -lz -lbz2
+LIBS 	+= -lm -lz -pthread -lbz2
+LIBS 	+= -lfreetype
 #LIBS    += -legi
 LIBS    += -lgif
+
 
 all:	$(APP) libesound.a
 
@@ -41,8 +44,12 @@ autorec: autorec.c
 recmp3: recmp3.c
 #	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBS) -o recmp3 recmp3.c	#--use shared egilib
 	$(CC) recmp3.c -o recmp3 $(CFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
--Wl,-Bstatic -legi -Wl,-Bdynamic
-#---use static egilib
+-Wl,-Bstatic -lesound -legi -Wl,-Bdynamic
+#---use static egilib  !!!! -lesound needs -legi, with needs LIBS !!!!
+
+test_minimad: test_minimad.c
+	$(CC) test_minimad.c -o test_minimad $(CFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
+-Wl,-Bstatic -lesound -legi -Wl,-Bdynamic -lmad
 
 test_pcmbuf: test_pcmbuf.c
 	$(CC) -o test_pcmbuf test_pcmbuf.c $(CFLAGS) $(LDFLAGS) $(LIBS) -lesound -pthread

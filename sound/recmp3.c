@@ -6,28 +6,32 @@ published by the Free Software Foundation.
 Note:
 1. Record sound and encode it to mp3 by shine. use Ctrl+C to interrupt.
 2. Usage example:
+			<--- LETS_NOTE --->
+	./recmp3 -n 2 -r 44100 -b 64 -l 20000 xxx.mp3
+
 				<--- USB SndCard --->
-	./recmp3 xxx.mp3
+	./recmp3 -w plughw:1,0 -n 1 -r 44100 -b 64 -l 20000 xxx.mp3
+
 	./recmp3 -w plughw:1,0 -n 1 -r 16000 -b 32 -l 300 xxx.mp3
 	./recmp3 -w plughw:1,0 -n 2 -r 16000 -b 64 -c 256 -l 100000 xxx.mp3
 
 	./recmp3 -w plughw:1,0 -n 1 -r 16000 -b 32 -c 128 -l 10000 xxx.mp3	GOOD
 	./recmp3 -w plughw:1,0 -n 1 -r 24000 -b 32 -c 128 -l 10000 xxx.mp3	GOOD
 	./recmp3 -w plughw:1,0 -n 1 -r 32000 -b 64 -c 256 -l 10000 xxx.mp3	GOOD
-	./recmp3 -w plughw:1,0 -n 1 -r 44100 -b 128 -c 256 -l 10000 xxx.mp3	GOOD
+	./recmp3 -w plughw:1,0 -n 1 -r 44100 -b 128 -c 256 -l 20000 xxx.mp3	GOOD
 	./recmp3 -w plughw:1,0 -n 1 -r 48000 -b 128 -c 256 -l 10000 xxx.mp3	GOOD
 
          NOTE:
-		1. For USB Mic Big latency will cause overrun / short read! /
+		1. For USB Mic, Big latency will cause overrun / short read! /
 		   snd_pcm_readi error: Input/output error ...
 		   Take latency=10000us seems OK.
 		2. Take big chunk_frames: 64-256.
-		3. USB MIC produces litte noise, comparing with buildin sound card.
+		3. USB MIC produces litte noise, comparing with the builtin sound card.
 	 	4. ???If you set 2 channels for recording while the HW has only 1 channel,
    		   it makes lots of noise though it works! )
+		   and, the Max. sample rate will be ONLY half of ALSA mixer srate.
 
-
-			<--- NEO Builin SndCard --->
+			<--- NEO Builtin SndCard --->
 
 	./recmp3 -n 1 -r 8000 -b 16 -l 100 xxx.mp3  	(NEO)	GOOD
 		AUDIO: 8000 Hz, 1 ch, s16le, 16.0 kbit/12.50% (ratio: 2000->16000)
@@ -56,7 +60,8 @@ Note:
 
 3. For SND_PCM_FORMAT_S16_LE only.
 4. Adjust asound.conf accordingly, and test your MIC first.
-   Example: arecord -D plughw:'Camera' -f dat xxx.wav
+   Example:
+	arecord -D plughw:'Camera' -f dat xxx.wav
 
    /////////////  Example: /etc/asound.conf  (WidoraNEO) //////////////
 	defaults.ctl.card 0
@@ -85,9 +90,9 @@ Note:
 			1 1
 		}
 	}
-   ///////////////////////////////////////////////////
+   /////////////////////////////////////////////////////////////////////
 
-5. For USB MIC, adjust latency to a rather smaller value.
+5. (Obsolete) For USB MIC, adjust latency to a rather smaller value.
 
 TODO:
 1. Get actual number of capture channels.
@@ -177,6 +182,7 @@ midaszhou@yahoo.com
 #include <stdbool.h>
 #include <shine/layer3.h>
 #include <signal.h>
+#include <egi_pcm.h>
 //#include "pcm2wav.h"
 
 
@@ -191,13 +197,13 @@ int init_shine(shine_t *pshine, shine_config_t *psh_config, int nchanl, int samp
 void print_help(const char* cmd)
 {
         printf("Usage: %s [-hpw:r:b:c:l:n:]  fmp3_name\n", cmd);
-        printf("        -h   This help \n");
+        printf("	-h   This help \n");
 	printf("	-p   Enable resample, default: false.\n");
-        printf("        -w:  Name of alsa capture HW, default: 'plughw:0,0'. \n");
-        printf("        -r:  HZ, Input sample rate. default: 8000. \n");
-        printf("        -b:  Kbits, Shine bit rate. default: 16kbits. \n");
-        printf("        -c:  Chunk frames. default: 32. \n");
-	printf("	-l:  us, latency. default 500000us\n");
+        printf("	-w:  Name of alsa capture HW, default: 'plughw:0,0'. \n");
+        printf("	-r:  HZ, Input sample rate. default: 8000. \n");
+        printf("	-b:  Kbits, Shine bit rate. default: 16kbits. \n");
+        printf("	-c:  Chunk frames. default: 32. \n");
+	printf("	-l:  (Obsolete) us, latency. default 500000us\n");
 	printf("	-n:  number of channels, 1-MONO, 2-STEREO. default 1.\n");
 }
 
@@ -313,14 +319,22 @@ unsigned int 	sample_rate	=8000; 		/* HZ,sample rate */
 	printf("Capture device '%s' opened successfully!\n",strHW);
 
 	/* Set params for pcm capture handle */
+
 #if 1 ///////////////////////
+      #if 1  /* --- GOOD! No latency needed! --- */
+        if( egi_pcmhnd_setParams( pcm_handle, pcm_format, SND_PCM_ACCESS_RW_INTERLEAVED, nchanl, sample_rate) <0 ) {
+		printf("Fail to set params for pcm capture handle.!\n");
+		snd_pcm_close(pcm_handle);
+		return -2;
+	}
+      #else  /* OBSOLETE */
 	if( snd_pcm_set_params( pcm_handle, pcm_format, SND_PCM_ACCESS_RW_INTERLEAVED, // SND_PCM_ACCESS_RW_NONINTERLEAVED,
 				nchanl, sample_rate, enable_resample, latency )  <0 ) {
 		printf("Fail to set params for pcm capture handle.!\n");
 		snd_pcm_close(pcm_handle);
 		return -2;
 	}
-
+     #endif
 #else //////////////////////////
 	snd_pcm_hw_params_t *params;
 	int dir=0;
@@ -332,7 +346,7 @@ unsigned int 	sample_rate	=8000; 		/* HZ,sample rate */
         snd_pcm_hw_params_alloca(&params);
         /* fill it in with default values */
         snd_pcm_hw_params_any(pcm_handle, params);
-	/* Get number of channels */
+	/* TODO: Get actual number of Capture channels */
 	snd_pcm_hw_params_get_channels_min(params, &chmin);
 	snd_pcm_hw_params_get_channels_max(params, &chmax);
 	printf("chmin=%d, chmax=%d\n",chmin, chmax);
@@ -380,8 +394,6 @@ unsigned int 	sample_rate	=8000; 		/* HZ,sample rate */
 	}
 
 	/* Adjust record volume */
-	char strcmd[256];
-	//sprintf(strcmd,"amixer -D %s set Capture 90% >/dev/null", strHW);
 	system("amixer -D hw:0 set Capture 90% >/dev/null");
 	system("amixer -D hw:0 set 'ADC PCM' 90% >/dev/null");
 
@@ -396,7 +408,8 @@ unsigned int 	sample_rate	=8000; 		/* HZ,sample rate */
 	printf("nchanl=%d, ssamples_per_chanl=%d frames for Shine encoder.\n",nchanl, ssamples_per_chanl);
 
 	/* change to frames for snd_pcm_readi() */
-	chunk_frames=ssamples_per_chanl*(16/bits_per_sample)*nchanl; /* 16bits for a shine input sample */
+	//chunk_frames=ssamples_per_chanl*(16/bits_per_sample)*nchanl; /* 16bits for a shine input sample */
+	chunk_frames=ssamples_per_chanl;
 	chunk_size=chunk_frames*frame_size;
 	printf("Expected pcm readi chunk_frames for the shine encoder is %ld frames per pass.\n",chunk_frames);
 	printf("chunck_size=chunk_frames*frame_size=%d*%d=%d\n", (int)chunk_frames, frame_size, (int)chunk_frames*frame_size);
@@ -413,7 +426,7 @@ unsigned int 	sample_rate	=8000; 		/* HZ,sample rate */
 		ret=snd_pcm_readi(pcm_handle, buff, chunk_frames);
 		if(ret == -EPIPE ) {
 			/* EPIPE for overrun */
-			printf("Overrun occurs during capture, try to recover...\n");
+			printf("Overrun occurs during capture, try to recover. Maybe latency it too small...\n");
 			/* try to recover, to put the stream in PREPARED state so it can start again next time */
 			snd_pcm_prepare(pcm_handle);
 			continue;
@@ -423,13 +436,14 @@ unsigned int 	sample_rate	=8000; 		/* HZ,sample rate */
 			continue; /* carry on anyway */
 		}
 		/* CAUTION: short read may cause trouble! Let it carry on though. */
-		else if(ret != chunk_frames) {
+		else if(ret != chunk_frames ) {
 			printf("snd_pcm_readi: read end or short read occurs! get only %d of %ld expected frame data.\n",
 										ret, chunk_frames);
-			/* pad 0 to chunk_frames */
+			#if 0 /* pad 0 to chunk_frames */
 			if( ret<chunk_frames ) {  /* >chunk_frames NOT possible? */
 				memset( buff+ret*frame_size, 0, (chunk_frames-ret)*frame_size);
 			}
+			#endif
 		}
 
 		/* pcm raw data count */
@@ -441,7 +455,10 @@ unsigned int 	sample_rate	=8000; 		/* HZ,sample rate */
                  * ONLY 16bit depth sample is accepted by shine_encoder
                  * chanl_samples_per_pass*chanl_val samples encoded
 		 */
-                mp3_pout=shine_encode_buffer(sh_shine, &pbuf, &mp3_count);
+		if(nchanl==1)
+                	mp3_pout=shine_encode_buffer(sh_shine, &pbuf, &mp3_count);
+		else //nchanl==2
+                	mp3_pout=shine_encode_buffer_interleaved(sh_shine, pbuf, &mp3_count);
 
 		/* 	----- Shine End -----  	*/
 
@@ -470,6 +487,7 @@ unsigned int 	sample_rate	=8000; 		/* HZ,sample rate */
 	printf(" %ld bytes raw pcm data recorded and enconded\n",count);
 
 #if 0	/* encode more chunks to sync for useful data */
+	int i;
 	memset(buff,0, chunk_size);
 	for(i=0;i<32;i++) {
 	        mp3_pout=shine_encode_buffer(sh_shine, &pbuf, &mp3_count);
@@ -480,8 +498,11 @@ unsigned int 	sample_rate	=8000; 		/* HZ,sample rate */
 #endif
 
 	/* close files and release soruces */
+printf("fclose(fmp3)...\n");
 	fclose(fmp3);
+printf("snd_pcm_close(pmc_handle)...\n");
 	snd_pcm_close(pcm_handle);
+printf("shine_close(sh_shine)...\n");
 	shine_close(sh_shine);
 
 	return 0;
