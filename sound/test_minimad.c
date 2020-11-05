@@ -24,7 +24,7 @@
  ---------------------------------------------------------
 
  Usage:
-	./minicad  /Music/*.mp3
+	./minimad  /Music/ *.mp3
 
  KeyInput command:
 	'q'	Quit
@@ -32,6 +32,8 @@
 	'p'	Prev
 	'+'	Increase volume +5%
 	'-'	Decrease volume -5%
+	'>'	Fast forward
+	'<'	Fast backward
 
  Midas Zhou
  midaszhou@yahoo.com
@@ -74,8 +76,15 @@ typedef struct {
 # include <egi_utils.h>
 # include <egi_pcm.h>
 # include <egi_input.h>
+# include <egi_filo.h>
 # include "mad.h"
 
+const char *mad_mode_str[]={
+	"Single channel",
+	"Dual channel",
+	"Joint Stereo",		// joint (MS/intensity) stereo */
+	"Normal LR Stereo",
+};
 
 /*
  * This is perhaps the simplest example use of the MAD high-level API.
@@ -85,7 +94,7 @@ typedef struct {
  * writes them to standard output in little-endian, stereo-interleaved
  * format.
  */
-
+static int decode_preprocess(unsigned char const *start, unsigned long length);
 static int decode(unsigned char const *, unsigned long);
 static int16_t  *data_s16l=NULL;
 static bool pcmdev_ready;
@@ -93,13 +102,38 @@ static bool pcmdev_ready;
 static int cmd_keyin;
 enum {
 	CMD_NONE=0,
+	CMD_NEXT,
 	CMD_PREV,
+	CMD_FFSEEK,	/* Fast forward seek */
+	CMD_FBSEEK,	/* Fast backward seek */
 	CMD_LOOP,
 	CMD_PAUSE,
 };
 
+static unsigned long   	  header_cnt;
+static unsigned long long timelapse_frac;
+static unsigned int	  timelapse_sec;
+static float		  timelapse;
+static float		  lapfSec;
+static int 		  lapHour, lapMin;
+
+static float		  preset_timelapse;
+
 static unsigned long long duration_frac;
 static unsigned int	  duration_sec;
+static float		  duration;
+static float		  durfSec;
+static int		  durHour, durMin;
+
+static unsigned long long poff; /* Offset to buff of mp3 file */
+static unsigned long long fsize;
+
+typedef struct mp3_header_pos
+{
+	off_t poff;		/* Offset */
+	float timelapse;	/* Timelapse at start of the frame */
+} MP3_HEADER_POS;
+EGI_FILO *filo_headpos;		/* Array/index of frame header pos */
 
 static bool get_info;
 static snd_pcm_t *pcm_handle;       /* for PCM playback */
@@ -132,17 +166,47 @@ int main(int argc, char *argv[])
         return 1;
   }
 
-
 /* Play all files */
 for(i=0; i<files; i++) {
+
+	/* Init filo */
+  	filo_headpos=egi_malloc_filo(1024, sizeof(MP3_HEADER_POS), FILOMEM_AUTO_DOUBLE);
+  	if(filo_headpos==NULL) {
+		printf("Fail to malloc headpos FILO!\n");
+		return 2;
+  	}
 
 	/* Reset */
 	duration_frac=0;
 	duration_sec=0;
+	timelapse_frac=0;
+	timelapse_sec=0;
+//	preset_timelapse=0;
+	header_cnt=0;
 	get_info=false;
 	pcmdev_ready=false;
+	poff=0;
 
-	/* Command */
+  	/* Mmap input file */
+	fmap=egi_fmap_create(argv[i+1]);
+	if(fmap==NULL)
+	return 1;
+
+	/* To fill filo_headpos and calculation time duration. */
+	printf("Calculate duration...\n");
+ 	decode_preprocess((const unsigned char *)fmap->fp, fmap->fsize);
+	duration=(1.0*duration_frac/MAD_TIMER_RESOLUTION) + duration_sec;
+  	printf("\rDuration: %.1f seconds\n", duration);
+	durHour=duration/3600; durMin=(duration-durHour*3600)/60;
+	durfSec=duration-durHour*3600-durMin*60;
+
+	/* Decoding ... */
+  	printf(" Start playing...\n %s\n size=%lldk\n", argv[i+1], fmap->fsize>>10);
+ 	decode((const unsigned char *)fmap->fp, fmap->fsize);
+	poff=0;
+	fsize=fmap->fsize;
+
+	/* Command parse, after jumping out of decode */
 	switch(cmd_keyin) {
 		case CMD_PREV:
 			if(i==0) i=-1;
@@ -154,18 +218,10 @@ for(i=0; i<files; i++) {
 	}
 	cmd_keyin=CMD_NONE;
 
-  	/* Mmap input file */
-	fmap=egi_fmap_create(argv[i+1]);
-	if(fmap==NULL)
-	return 1;
-
-	/* Decoding ... */
-  	printf(" Start playing...\n %s\n size=%lldk\n", argv[i+1], fmap->fsize>>10);
- 	decode((const unsigned char *)fmap->fp, fmap->fsize);
-
   	/* Release source */
   	free(data_s16l); data_s16l=NULL;
   	egi_fmap_free(&fmap);
+	egi_filo_free(&filo_headpos);
 }
 
   /* Close pcm handle */
@@ -186,6 +242,7 @@ for(i=0; i<files; i++) {
 struct buffer {
   unsigned char const *start;
   unsigned long length;
+  const struct mad_decoder *decoder;
 };
 
 /*
@@ -197,17 +254,42 @@ struct buffer {
  */
 
 static
-enum mad_flow input(void *data,
-		    struct mad_stream *stream)
+enum mad_flow input_blocks(void *data,  struct mad_stream *stream)
+{
+  struct buffer *buffer = data;
+  int feed_size=4096*2;
+
+  /* NOTE: Each stream will has to be decoded from the start, old tail has been discarded!!! */
+  if(!buffer->length)
+	return MAD_FLOW_STOP;
+
+  if( buffer->length > feed_size ) {
+	  mad_stream_buffer(stream, buffer->start+poff, feed_size);
+	  poff += feed_size;
+	  buffer->length -= feed_size;
+  }
+  else {
+	  mad_stream_buffer(stream, buffer->start+poff, buffer->length );
+	  poff = buffer->length;
+	  buffer->length=0;
+  }
+
+  return MAD_FLOW_CONTINUE;
+}
+
+
+/*
+ * To feed whole mp3 file to the stream
+ */
+static
+enum mad_flow input_all(void *data, struct mad_stream *stream)
 {
   struct buffer *buffer = data;
 
   if (!buffer->length)
-    return MAD_FLOW_STOP;
+    	return MAD_FLOW_STOP;
 
-  //printf("mad stream buffer...\n");
   /* set stream buffer pointers, pass user data to stream ... */
-
   mad_stream_buffer(stream, buffer->start, buffer->length);
 
   buffer->length = 0;
@@ -251,52 +333,8 @@ enum mad_flow output(void *data,
 		     struct mad_pcm *pcm)
 {
   unsigned int i,k;
-  char ch;
   unsigned int nchannels, nsamples, samplerate;
   mad_fixed_t const *left_ch, *right_ch;
-  int percent;
-
-  /* Check input cmd */
-  ch=0;
-  read(STDIN_FILENO, &ch,1);
-  switch(ch) {
-	case 'q':	/* Quit */
-		printf("\n\n");
-		exit(0);
-		break;
-	case 'n':	/* Next */
-		printf("\n\n");
-	  	return MAD_FLOW_STOP;
-	case 'p':	/* Next */
-		printf("\n\n");
-		cmd_keyin=CMD_PREV;
-	  	return MAD_FLOW_STOP;
-	case '+':
-		egi_adjust_pcm_volume(5);
-		egi_getset_pcm_volume(&percent,NULL);
-		printf("\nVol: %d%%\n",percent);
-		break;
-	case '-':
-		egi_adjust_pcm_volume(-5);
-		egi_getset_pcm_volume(&percent,NULL);
-		printf("\nVol: %d%%\n",percent);
-		break;
-  }
-
-  /* Print MP3 file info */
-  if(!get_info) {
-	printf(" ----------------------\n");
-	printf(" Simple is the Best!\n");
-	printf(" miniMAD +Libmad +EGI\n");
-  	printf(" Layer[%d] Mode[%d]\n bitrate:    %.1fkbits\n samplerate: %dHz\n",
-			header->layer, header->mode, 1.0*header->bitrate/1000, header->samplerate);
-	printf(" ----------------------\n");
-	get_info=true;
-  }
-  duration_frac += header->duration.fraction;
-  duration_sec  += header->duration.seconds;
-  printf("\r %.1f seconds", (1.0*duration_frac/MAD_TIMER_RESOLUTION) + duration_sec);
-  fflush(stdout);
 
   /* pcm->samplerate contains the sampling frequency */
   nchannels = pcm->channels;
@@ -317,27 +355,153 @@ enum mad_flow output(void *data,
 	}
   }
 
-   /* Realloc data for S16 */
-   data_s16l=(int16_t *)realloc(data_s16l, nchannels*nsamples*2);
-   if(data_s16l==NULL)
+  /* Realloc data for S16 */
+  data_s16l=(int16_t *)realloc(data_s16l, nchannels*nsamples*2);
+  if(data_s16l==NULL)
 	exit(1);
 
-   /* scale */
-   for(k=0,i=0; i<nsamples; i++) {
-	data_s16l[k]=scale(*(left_ch+i));		/* Left */
-	k++;
-	if(nchannels==2) {
-		data_s16l[k]=scale(*(right_ch+i));	/* Right */
-		k++;
-	}
-   }
+  /* Scale to S16L */
+  for(k=0,i=0; i<nsamples; i++) {
+	data_s16l[k++]=scale(*(left_ch+i));		/* Left */
+	if(nchannels==2)
+		data_s16l[k++]=scale(*(right_ch+i));	/* Right */
+  }
 
-   /* playback */
-   if(pcmdev_ready)
+  /* Playback */
+  if(pcmdev_ready)
 	    egi_pcmhnd_playBuff(pcm_handle, true, (void *)data_s16l, nsamples);
 
   return MAD_FLOW_CONTINUE;
 }
+
+
+/*
+ * Parse frame header
+ *
+ */
+static
+enum mad_flow header(void *data,  struct mad_header const *header )
+{
+  int percent;
+  char ch;
+  ch=0;
+  int mad_ret=MAD_FLOW_CONTINUE;
+  struct buffer *buffer = data;
+  MP3_HEADER_POS headpos;
+
+  /* Count header frame */
+  header_cnt++;
+
+  /* Parse keyinput */
+  read(STDIN_FILENO, &ch,1);
+  switch(ch) {
+	case 'q': 	/* Quit */
+	case 'Q':
+		printf("\n\n");
+		exit(0);
+		break;
+	case 'n':	/* Next */
+	case 'N':
+		printf("\n\n");
+	  	return MAD_FLOW_STOP;
+	case 'p':	/* Next */
+	case 'P':
+		printf("\n\n");
+		cmd_keyin=CMD_PREV;
+	  	return MAD_FLOW_STOP;
+	case '+':
+		egi_adjust_pcm_volume(5);
+		egi_getset_pcm_volume(&percent,NULL);
+		printf("\nVol: %d%%\n",percent);
+		break;
+	case '-':
+		egi_adjust_pcm_volume(-5);
+		egi_getset_pcm_volume(&percent,NULL);
+		printf("\nVol: %d%%\n",percent);
+		break;
+	case '>':
+		preset_timelapse=timelapse+5;  /* 5s */
+		cmd_keyin=CMD_FFSEEK;
+		mad_ret=MAD_FLOW_IGNORE;
+		break;
+	case '<':
+		printf("headcnt:%ld \n", header_cnt);
+		if(egi_filo_read(filo_headpos, header_cnt-50, &headpos)!=0)
+			break;
+		header_cnt-=50;
+
+		/* Reload stream */
+  		mad_stream_buffer(&(buffer->decoder->sync->stream), buffer->start+headpos.poff, fsize-headpos.poff);
+		timelapse_sec=headpos.timelapse;
+		timelapse_frac=headpos.timelapse-timelapse_sec;
+
+		return MAD_FLOW_IGNORE;
+		break;
+  }
+
+  /* Time elapsed */
+  timelapse_frac += header->duration.fraction;
+  timelapse_sec  += header->duration.seconds;
+  timelapse=(1.0*timelapse_frac/MAD_TIMER_RESOLUTION) + timelapse_sec;
+
+  /*** Print MP3 file info
+   * Note:
+   *	1. For some MP3 file, it should wait until the third header frame comes that it contains right layer and samplerate!
+   */
+  if(!get_info ) {
+	if( header_cnt>2 ) {
+		printf(" -----------------------\n");
+		printf(" Simple is the Best!\n");
+		printf(" miniMAD +Libmad +EGI\n");
+  		printf(" Layer_%d\n %s\n bitrate:    %.1fkbits\n samplerate: %dHz\n",
+			header->layer, mad_mode_str[header->mode], 1.0*header->bitrate/1000, header->samplerate);
+		printf(" -----------------------\n");
+		get_info=true; /* Set */
+	}
+	else
+		return MAD_FLOW_CONTINUE;
+  }
+  lapHour=timelapse/3600;
+  lapMin=(timelapse-lapHour*3600)/60;
+  lapfSec=timelapse-3600*lapHour-60*lapMin;
+  printf(" %02d:%02d:%.1f of [%02d:%02d:%.1f]   \r", lapHour, lapMin, lapfSec, durHour, durMin, durfSec);
+  fflush(stdout);
+
+  /* Check timelapse, to skip/ignore if <preset_timelapse. */
+  if(cmd_keyin==CMD_FFSEEK) {
+	if(timelapse < preset_timelapse)
+		return MAD_FLOW_IGNORE;
+	else
+		cmd_keyin=CMD_NONE;
+  }
+
+
+  return mad_ret;
+}
+
+
+/*-----------------------------------
+  To calculate time duration only.
+ -----------------------------------*/
+static
+enum mad_flow header_time(void *data,  struct mad_header const *header )
+{
+  MP3_HEADER_POS head_pos;
+  struct buffer *buffer = data;
+
+  /* Count duration */
+  duration_frac += header->duration.fraction;
+  duration_sec  += header->duration.seconds;
+
+  /* Fill in filo_headpos */
+  head_pos.poff= (buffer->decoder->sync->stream.this_frame)-(buffer->decoder->sync->stream.buffer);
+  head_pos.timelapse=(1.0*duration_frac/MAD_TIMER_RESOLUTION) + duration_sec;
+  egi_filo_push(filo_headpos, (void *)&head_pos);
+
+  /* Do not decode */
+  return MAD_FLOW_IGNORE;
+}
+
 
 /*
  * This is the error callback function. It is called whenever a decoding
@@ -351,9 +515,9 @@ enum mad_flow error(void *data,
 		    struct mad_stream *stream,
 		    struct mad_frame *frame)
 {
+  #if 0
   struct buffer *buffer = data;
 
-  #if 0
   fprintf(stderr, "decoding error 0x%04x (%s) at byte offset %u\n",
 	  stream->error, mad_stream_errorstr(stream),
 	  stream->this_frame - buffer->start);
@@ -384,13 +548,11 @@ int decode(unsigned char const *start, unsigned long length)
   buffer.length = length;
 
   /* configure input, output, and error functions */
-  //printf("decoder init...\n");
   mad_decoder_init(&decoder, &buffer,
-		   input, 0 /* header */, 0 /* filter */, output,
+		   input_all, header /* header */, 0 /* filter */, output,
 		   error, 0 /* message */);
 
   /* start decoding */
-  //printf("mad decoder run...\n");
   result = mad_decoder_run(&decoder, MAD_DECODER_MODE_SYNC);
 
   /* release the decoder */
@@ -398,3 +560,34 @@ int decode(unsigned char const *start, unsigned long length)
 
   return result;
 }
+
+
+/*-----------------------------------------
+ Preprocess decoding.
+ For calculating duration ONLY
+------------------------------------------*/
+static int decode_preprocess(unsigned char const *start, unsigned long length)
+{
+  struct buffer buffer;
+  struct mad_decoder decoder;
+  int result;
+
+  /* initialize our private message structure */
+  buffer.start  = start;
+  buffer.length = length;
+  buffer.decoder = &decoder;
+
+  /* configure input, output, and error functions */
+  mad_decoder_init(&decoder, &buffer,
+                   input_all, header_time /* header */, 0 /* filter */, 0, /* output */
+                   0,/* error */ 0 /* message */);
+
+  /* start decoding */
+  result = mad_decoder_run(&decoder, MAD_DECODER_MODE_SYNC);
+
+  /* release the decoder */
+  mad_decoder_finish(&decoder);
+
+  return result;
+}
+
