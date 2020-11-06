@@ -22,7 +22,7 @@ int 		egi_start_touchread(void);
 int 		egi_end_touchread(void);
 bool 		egi_touchread_is_running(void);
 bool 		egi_touch_getdata(EGI_TOUCH_DATA *data);
-int 		egi_touch_fbpos_data(FBDEV *fbdev, EGI_TOUCH_DATA *touch_data);
+int 		egi_touch_fbpos_data(FBDEV *fbdev, EGI_TOUCH_DATA *touch_data, int rpang);
 EGI_TOUCH_DATA 	egi_touch_peekdata(void);
 int 		egi_touch_peekdx(void);
 int 		egi_touch_peekdy(void);

@@ -132,7 +132,7 @@ int main(int argc, char** argv)
         //printf(" optind=%d, argv[%d]=%s\n", optind, optind, argv[optind] );
 	if( optind < argc ) {
 		i=optind;
-		printf("Follow files found:\n");
+		printf("Following files found:\n");
 		while( i<argc)
 			printf("%s\n",argv[i++]);
 	} else {

@@ -38,6 +38,7 @@ CFLAGS += -I$(COMMON_USRDIR)/include/json-c
 CFLAGS += -I$(COMMON_USRDIR)/include/freetype2
 CFLAGS += -Wall -fPIC -O2 -Wno-maybe-uninitialized #-Wno-unused-but-set-variable  # -Wno-unused-variable
 CFLAGS += -D_GNU_SOURCE 	## for O_CLOEXEC flag ##
+CFLAGS += -D_FILE_OFFSET_BITS=64
 CFLAGS += -DENABLE_BACK_BUFFER
 
 #### --- for debug, put before LDFLAGS!!!! ----

@@ -415,32 +415,31 @@ Note: We suppose that default/HW_set coord sys of FB and TOUCH PAD
 
 (screen's)
 
+@fbdev:		FBDEV
+@touch_data:	Pointer to touch_data, which will be modified.
+@spang:		Rotation angle of screen coord. relative to touch pad coord.
+
 return:
 	0	OK
 	<0	Fails
 ----------------------------------------------------------------*/
-int egi_touch_fbpos_data(FBDEV *fbdev, EGI_TOUCH_DATA *touch_data)
+int egi_touch_fbpos_data(FBDEV *fbdev, EGI_TOUCH_DATA *touch_data, int spang)
 {
-	int pxres,pyres;
+	int pxres,pyres;  /* upright screen resolutions */
 	int tx,ty;
 	int dx,dy;
+	int rpos;
 
 	if(fbdev==NULL || touch_data==NULL)
 		return -1;
 
+	/* Screen coord. rotation relative to touch pad coord. */
+	rpos=(spang/90)%4;
+	if(rpos<0)rpos+=4;
+
 	/* Resolution for X and Y direction, as per pos_rotate */
-	#if 0 /* NOPE: pos_xres and pos_yres MAY be modified */
         pxres=fbdev->pos_xres;
         pyres=fbdev->pos_yres;
-	#else
-	if(fbdev->pos_rotate%2) {
-	        pxres=fbdev->vinfo.yres;
-		pyres=fbdev->vinfo.xres;
-	} else {
-		pxres=fbdev->vinfo.xres;
-		pxres=fbdev->vinfo.yres;
-	}
-	#endif
 
 	/* get original touch data */
 	tx=touch_data->coord.x;
@@ -451,7 +450,7 @@ int egi_touch_fbpos_data(FBDEV *fbdev, EGI_TOUCH_DATA *touch_data)
         /* check FB.pos_rotate, and map touch_data to FB pos_rotate coord.
          * IF FB 90 Deg rotated: touch_Y maps to POS_FB.X,  touch_X maps to POS_FB.Y
          */
-        switch(fbdev->pos_rotate) {
+        switch( rpos ) {
                 case 0:                 /* FB defaul position */
                         break;
                 case 1:                 /* Clockwise 90 deg */

@@ -18,26 +18,40 @@
  *
  * $Id: minimad.c,v 1.4 2004/01/23 09:41:32 rob Exp $
 
+ * This is perhaps the simplest example use of the MAD high-level API.
+ * Standard input is mapped into memory via mmap(), then the high-level API
+ * is invoked with three callbacks: input, output, and error. The output
+ * callback converts MAD's high-resolution PCM samples to 16 bits, then
+ * writes them to standard output in little-endian, stereo-interleaved
+ * format.
 
- ---------------------------------------------------------
- Modified for ALSA PCM playback for SND_PCM_FORMAT_S16_LE.
- ---------------------------------------------------------
 
- Usage:
+ ----------------------------------------------------------
+ Modified for ALSA PCM playback with SND_PCM_FORMAT_S16_LE.
+ ----------------------------------------------------------
+
+ Usage example:
 	./minimad  /Music/ *.mp3
 
  KeyInput command:
-	'q'	Quit
-	'n'	Next
-	'p'	Prev
-	'+'	Increase volume +5%
-	'-'	Decrease volume -5%
-	'>'	Fast forward
-	'<'	Fast backward
+	'q'	Quit			退出
+	'n'	Next			下一首
+	'p'	Prev			前一首
+	'+'	Increase volume +5%　　	增加音量
+	'-'	Decrease volume -5%　　	减小音量
+	'>'	Fast forward		快进
+	'<'	Fast backward		快退
 
  Midas Zhou
  midaszhou@yahoo.com
  -------------------------------------------------------------------------------
+
+		---- Smples Per Frame ----
+
+              MPEG-1      MPEG-2      MPEG-2.5(LSF)
+ Layer_I       384         384           384
+ Layer_II     1152        1152          1152
+ Layer_III    1152         576           576
 
 
 struct mad_header {
@@ -79,6 +93,7 @@ typedef struct {
 # include <egi_filo.h>
 # include "mad.h"
 
+
 const char *mad_mode_str[]={
 	"Single channel",
 	"Dual channel",
@@ -86,19 +101,35 @@ const char *mad_mode_str[]={
 	"Normal LR Stereo",
 };
 
-/*
- * This is perhaps the simplest example use of the MAD high-level API.
- * Standard input is mapped into memory via mmap(), then the high-level API
- * is invoked with three callbacks: input, output, and error. The output
- * callback converts MAD's high-resolution PCM samples to 16 bits, then
- * writes them to standard output in little-endian, stereo-interleaved
- * format.
- */
-static int decode_preprocess(unsigned char const *start, unsigned long length);
-static int decode(unsigned char const *, unsigned long);
-static int16_t  *data_s16l=NULL;
-static bool pcmdev_ready;
 
+/* input回调函数.   在解码前执行．目的是将mp3数据喂给解码器．*/
+static enum mad_flow input_all(void *data, struct mad_stream *stream);
+
+/* header回调函数.  在每次读取帧头后执行．在这里读取键盘指令和mp3格式，播放时间等信息. */
+static enum mad_flow header(void *data,  struct mad_header const *header);
+
+/* header回调函数.  在每次读取帧头后执行．这里作为前处理，将帧头位置和时间推入FILO索引. */
+static enum mad_flow header_preprocess(void *data,  struct mad_header const *header);
+
+/* output回调函数.  在每次完成一帧解码后执行．将PCM数据转化成S16L格式后进行播放．*/
+static enum mad_flow output(void *data, struct mad_header const *header, struct mad_pcm *pcm);
+
+/* error回调函数.   在每次完成mad_header(frame)_decode()后执行．主要用于打印错误信息. */
+static enum mad_flow error(void *data, struct mad_stream *stream, struct mad_frame *frame);
+
+/* 前期解码函数，读取所有帧头，并将位置和时间推入FILO索引. */
+static int decode_preprocess(unsigned char const *start, unsigned long length);
+
+/* 解码函数MP3 */
+static int decode(unsigned char const *, unsigned long);
+
+
+static snd_pcm_t *pcm_handle;      /* PCM播放设备句柄 */
+static int16_t  *data_s16l=NULL;   /* FORMAT_S16L 数据 */
+static bool pcmdev_ready;	   /* PCM 设备ready */
+static bool pcmparam_ready;	   /* PCM 参数ready */
+
+/* KeyIn command 定义键盘输入命令 */
 static int cmd_keyin;
 enum {
 	CMD_NONE=0,
@@ -110,7 +141,10 @@ enum {
 	CMD_PAUSE,
 };
 
+/* Frame counter 帧头计数 */
 static unsigned long   	  header_cnt;
+
+/* Time duration for a MP3 file 已播放时长 */
 static unsigned long long timelapse_frac;
 static unsigned int	  timelapse_sec;
 static float		  timelapse;
@@ -119,15 +153,17 @@ static int 		  lapHour, lapMin;
 
 static float		  preset_timelapse;
 
+/* Time duration for a MP3 file 总时长 */
 static unsigned long long duration_frac;
 static unsigned int	  duration_sec;
 static float		  duration;
 static float		  durfSec;
 static int		  durHour, durMin;
 
-static unsigned long long poff; /* Offset to buff of mp3 file */
-static unsigned long long fsize;
+static unsigned long long poff;		/* Offset to buff of mp3 file */
+static unsigned long long fsize;	/* file size */
 
+/*  Frame header index 帧头位置和时间，推入FILO作为mp3帧头位置和时间索引 */
 typedef struct mp3_header_pos
 {
 	off_t poff;		/* Offset */
@@ -135,9 +171,7 @@ typedef struct mp3_header_pos
 } MP3_HEADER_POS;
 EGI_FILO *filo_headpos;		/* Array/index of frame header pos */
 
-static bool get_info;
-static snd_pcm_t *pcm_handle;       /* for PCM playback */
-snd_pcm_hw_params_t *pcm_params;
+
 
 
 
@@ -154,59 +188,59 @@ int main(int argc, char *argv[])
   	return 1;
   files=argc-1;
 
-  /* Set termI/O */
+  /* Set termI/O 设置终端为直接读取单个字符方式 */
   egi_set_termios();
 
-  /* Prepare vol */
+  /* Prepare vol 启动系统声音调整设备 */
   egi_getset_pcm_volume(NULL,NULL);
 
-  /* Open pcm captrue device */
+  /* Open pcm captrue device 打开PCM播放设备 */
   if( snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0) <0 ) {  /* SND_PCM_NONBLOCK,SND_PCM_ASYNC */
   	printf("Fail to open PCM playback device!\n");
         return 1;
   }
 
-/* Play all files */
+/* Play all files 逐个播放MP3文件 */
 for(i=0; i<files; i++) {
 
-	/* Init filo */
+	/* Init filo 建立一个FILO用于存放　*/
   	filo_headpos=egi_malloc_filo(1024, sizeof(MP3_HEADER_POS), FILOMEM_AUTO_DOUBLE);
   	if(filo_headpos==NULL) {
 		printf("Fail to malloc headpos FILO!\n");
 		return 2;
   	}
 
-	/* Reset */
+	/* Reset 重置参数 */
 	duration_frac=0;
 	duration_sec=0;
 	timelapse_frac=0;
 	timelapse_sec=0;
-//	preset_timelapse=0;
 	header_cnt=0;
-	get_info=false;
+	pcmparam_ready=false;
 	pcmdev_ready=false;
 	poff=0;
 
-  	/* Mmap input file */
+  	/* Mmap input file 映射当前文件 */
 	fmap=egi_fmap_create(argv[i+1]);
-	if(fmap==NULL)
-	return 1;
+	if(fmap==NULL) return 1;
+	fsize=fmap->fsize;
 
 	/* To fill filo_headpos and calculation time duration. */
-	printf("Calculate duration...\n");
+	/* 前期解码处理，仅快速读取所有帧头，并建立索引 */
  	decode_preprocess((const unsigned char *)fmap->fp, fmap->fsize);
+
+	/* Calculate duration 计算总时长 */
 	duration=(1.0*duration_frac/MAD_TIMER_RESOLUTION) + duration_sec;
   	printf("\rDuration: %.1f seconds\n", duration);
 	durHour=duration/3600; durMin=(duration-durHour*3600)/60;
 	durfSec=duration-durHour*3600-durMin*60;
 
-	/* Decoding ... */
+	/* Decoding 解码播放 */
   	printf(" Start playing...\n %s\n size=%lldk\n", argv[i+1], fmap->fsize>>10);
  	decode((const unsigned char *)fmap->fp, fmap->fsize);
-	poff=0;
-	fsize=fmap->fsize;
+//	poff=0;
 
-	/* Command parse, after jumping out of decode */
+	/* Command parse, after jumping out of decode. 键盘输入命令解释 */
 	switch(cmd_keyin) {
 		case CMD_PREV:
 			if(i==0) i=-1;
@@ -218,22 +252,22 @@ for(i=0; i<files; i++) {
 	}
 	cmd_keyin=CMD_NONE;
 
-  	/* Release source */
+  	/* Release source 释放相关资源　*/
   	free(data_s16l); data_s16l=NULL;
   	egi_fmap_free(&fmap);
 	egi_filo_free(&filo_headpos);
 }
 
-  /* Close pcm handle */
+  /* Close pcm handle 关闭PCM播放设备 */
   snd_pcm_close(pcm_handle);
 
-  /* Reset termI/O */
+  /* Reset termI/O 设置终端 */
   egi_reset_termios();
 
   return 0;
 }
 
-/*
+/* 私有数据结构，用于在各callback函数间共享数据
  * This is a private message structure. A generic pointer to this structure
  * is passed to each of the callback functions. Put here any data you need
  * to access from within the callbacks.
@@ -245,6 +279,7 @@ struct buffer {
   const struct mad_decoder *decoder;
 };
 
+#if 0 ///////////////////////////////////////////////////////////////
 /*
  * This is the input callback. The purpose of this callback is to (re)fill
  * the stream buffer which is to be decoded. In this example, an entire file
@@ -276,13 +311,17 @@ enum mad_flow input_blocks(void *data,  struct mad_stream *stream)
 
   return MAD_FLOW_CONTINUE;
 }
+#endif ///////////////////////////////////////////////////////////////
 
-
-/*
- * To feed whole mp3 file to the stream
+/* 回调函数，在解码前执行．目的是将mp3数据喂给解码器．
+ * 　To feed whole mp3 file to the stream
+ * This is the input callback. The purpose of this callback is to (re)fill
+ * the stream buffer which is to be decoded. In this example, an entire file
+ * has been mapped into memory, so we just call mad_stream_buffer() with the
+ * address and length of the mapping. When this callback is called a second
+ * time, we are finished decoding.
  */
-static
-enum mad_flow input_all(void *data, struct mad_stream *stream)
+static enum mad_flow input_all(void *data, struct mad_stream *stream)
 {
   struct buffer *buffer = data;
 
@@ -297,7 +336,7 @@ enum mad_flow input_all(void *data, struct mad_stream *stream)
   return MAD_FLOW_CONTINUE;
 }
 
-/*
+/*　将解码后得到的PCM数据转化为FORMAT_S16L格式
  * The following utility routine performs simple rounding, clipping, and
  * scaling of MAD's high-resolution samples down to 16 bits. It does not
  * perform any dithering or noise shaping, which would be recommended to
@@ -305,8 +344,7 @@ enum mad_flow input_all(void *data, struct mad_stream *stream)
  * use this routine if high-quality output is desired.
  */
 
-static inline
-signed int scale(mad_fixed_t sample)
+static inline signed int scale(mad_fixed_t sample)
 {
   /* round */
   sample += (1L << (MAD_F_FRACBITS - 16));
@@ -321,29 +359,27 @@ signed int scale(mad_fixed_t sample)
   return sample >> (MAD_F_FRACBITS + 1 - 16);
 }
 
-/*
+/*　回调函数，在每次完成一帧解码后执行．将PCM数据转化成S16L格式后进行播放．
  * This is the output callback function. It is called after each frame of
  * MPEG audio data has been completely decoded. The purpose of this callback
  * is to output (or play) the decoded PCM audio.
  */
 
-static
-enum mad_flow output(void *data,
-		     struct mad_header const *header,
-		     struct mad_pcm *pcm)
+static enum mad_flow output(void *data, struct mad_header const *header, struct mad_pcm *pcm)
 {
   unsigned int i,k;
   unsigned int nchannels, nsamples, samplerate;
   mad_fixed_t const *left_ch, *right_ch;
 
+  /*　声道数　采样率　PCM数据 */
   /* pcm->samplerate contains the sampling frequency */
   nchannels = pcm->channels;
-  nsamples  = pcm->length;
   left_ch   = pcm->samples[0];
   right_ch  = pcm->samples[1];
+  nsamples  = pcm->length;
   samplerate= pcm->samplerate;
 
-  //printf("nchanls=%d, sample_rate=%d\n", nchannels, samplerate);
+  /* 为PCM播放设备设置相应参数 */
   /* Sep parameters for pcm_hanle */
   if(!pcmdev_ready) {
 	//printf("nchanls=%d, sample_rate=%d\n", nchannels, samplerate);
@@ -355,11 +391,11 @@ enum mad_flow output(void *data,
 	}
   }
 
+  /* 转换成S16L格式 */
   /* Realloc data for S16 */
   data_s16l=(int16_t *)realloc(data_s16l, nchannels*nsamples*2);
   if(data_s16l==NULL)
 	exit(1);
-
   /* Scale to S16L */
   for(k=0,i=0; i<nsamples; i++) {
 	data_s16l[k++]=scale(*(left_ch+i));		/* Left */
@@ -367,7 +403,7 @@ enum mad_flow output(void *data,
 		data_s16l[k++]=scale(*(right_ch+i));	/* Right */
   }
 
-  /* Playback */
+  /* Playback 播放PCM数据 */
   if(pcmdev_ready)
 	    egi_pcmhnd_playBuff(pcm_handle, true, (void *)data_s16l, nsamples);
 
@@ -375,12 +411,11 @@ enum mad_flow output(void *data,
 }
 
 
-/*
- * Parse frame header
+/* 回调函数，在每次读取帧头后执行．在这里读取键盘指令和mp3格式，播放时间等信息．
+ * Parse keyinput and frame header
  *
  */
-static
-enum mad_flow header(void *data,  struct mad_header const *header )
+static enum mad_flow header(void *data,  struct mad_header const *header )
 {
   int percent;
   char ch;
@@ -392,7 +427,7 @@ enum mad_flow header(void *data,  struct mad_header const *header )
   /* Count header frame */
   header_cnt++;
 
-  /* Parse keyinput */
+  /* Parse keyinput 读取键盘指令 */
   read(STDIN_FILENO, &ch,1);
   switch(ch) {
 	case 'q': 	/* Quit */
@@ -404,31 +439,31 @@ enum mad_flow header(void *data,  struct mad_header const *header )
 	case 'N':
 		printf("\n\n");
 	  	return MAD_FLOW_STOP;
-	case 'p':	/* Next */
+	case 'p':	/* Prev */
 	case 'P':
 		printf("\n\n");
 		cmd_keyin=CMD_PREV;
 	  	return MAD_FLOW_STOP;
-	case '+':
+	case '+':	/* Volume up */
 		egi_adjust_pcm_volume(5);
 		egi_getset_pcm_volume(&percent,NULL);
 		printf("\nVol: %d%%\n",percent);
 		break;
-	case '-':
+	case '-':	/* Volume down */
 		egi_adjust_pcm_volume(-5);
 		egi_getset_pcm_volume(&percent,NULL);
 		printf("\nVol: %d%%\n",percent);
 		break;
-	case '>':
+	case '>':	/* Fast forward */
 		preset_timelapse=timelapse+5;  /* 5s */
 		cmd_keyin=CMD_FFSEEK;
 		mad_ret=MAD_FLOW_IGNORE;
 		break;
-	case '<':
-		printf("headcnt:%ld \n", header_cnt);
+	case '<':	/* Fast backward */
+		printf("\n Headcnt: %ld \n", header_cnt);
 		if(egi_filo_read(filo_headpos, header_cnt-50, &headpos)!=0)
 			break;
-		header_cnt-=50;
+		header_cnt-=50;	/* 50 Frameheaders */
 
 		/* Reload stream */
   		mad_stream_buffer(&(buffer->decoder->sync->stream), buffer->start+headpos.poff, fsize-headpos.poff);
@@ -439,16 +474,16 @@ enum mad_flow header(void *data,  struct mad_header const *header )
 		break;
   }
 
-  /* Time elapsed */
+  /* Time elapsed 计算当前播放时间 ---or read FILO. */
   timelapse_frac += header->duration.fraction;
   timelapse_sec  += header->duration.seconds;
   timelapse=(1.0*timelapse_frac/MAD_TIMER_RESOLUTION) + timelapse_sec;
 
-  /*** Print MP3 file info
+  /*** Print MP3 file info 输出播放信息到终端
    * Note:
    *	1. For some MP3 file, it should wait until the third header frame comes that it contains right layer and samplerate!
    */
-  if(!get_info ) {
+  if(!pcmparam_ready ) {
 	if( header_cnt>2 ) {
 		printf(" -----------------------\n");
 		printf(" Simple is the Best!\n");
@@ -456,7 +491,7 @@ enum mad_flow header(void *data,  struct mad_header const *header )
   		printf(" Layer_%d\n %s\n bitrate:    %.1fkbits\n samplerate: %dHz\n",
 			header->layer, mad_mode_str[header->mode], 1.0*header->bitrate/1000, header->samplerate);
 		printf(" -----------------------\n");
-		get_info=true; /* Set */
+		pcmparam_ready=true; /* Set */
 	}
 	else
 		return MAD_FLOW_CONTINUE;
@@ -467,6 +502,7 @@ enum mad_flow header(void *data,  struct mad_header const *header )
   printf(" %02d:%02d:%.1f of [%02d:%02d:%.1f]   \r", lapHour, lapMin, lapfSec, durHour, durMin, durfSec);
   fflush(stdout);
 
+  /* 当按下快进时，跳过中间帧 */
   /* Check timelapse, to skip/ignore if <preset_timelapse. */
   if(cmd_keyin==CMD_FFSEEK) {
 	if(timelapse < preset_timelapse)
@@ -480,11 +516,10 @@ enum mad_flow header(void *data,  struct mad_header const *header )
 }
 
 
-/*-----------------------------------
-  To calculate time duration only.
- -----------------------------------*/
-static
-enum mad_flow header_time(void *data,  struct mad_header const *header )
+/* 回调函数，在每次读取帧头后执行．这里作为前处理，将帧头位置和时间推入FILO索引
+ * To calculate time duration only.
+ */
+static enum mad_flow header_preprocess(void *data,  struct mad_header const *header )
 {
   MP3_HEADER_POS head_pos;
   struct buffer *buffer = data;
@@ -503,7 +538,7 @@ enum mad_flow header_time(void *data,  struct mad_header const *header )
 }
 
 
-/*
+/*　回调函数, 在每次完成mad_header(frame)_decode()后执行．
  * This is the error callback function. It is called whenever a decoding
  * error occurs. The error is indicated by stream->error; the list of
  * possible MAD_ERROR_* errors can be found in the mad.h (or stream.h)
@@ -522,12 +557,12 @@ enum mad_flow error(void *data,
 	  stream->error, mad_stream_errorstr(stream),
 	  stream->this_frame - buffer->start);
   #endif
-  /* return MAD_FLOW_BREAK here to stop decoding (and propagate an error) */
 
+  /* return MAD_FLOW_BREAK here to stop decoding (and propagate an error) */
   return MAD_FLOW_CONTINUE;
 }
 
-/*
+/* MP3解码函数:	初开始化解码器,进行MP3解码.
  * This is the function called by main() above to perform all the decoding.
  * It instantiates a decoder object and configures it with the input,
  * output, and error callback functions above. A single call to
@@ -561,11 +596,9 @@ int decode(unsigned char const *start, unsigned long length)
   return result;
 }
 
-
-/*-----------------------------------------
- Preprocess decoding.
- For calculating duration ONLY
-------------------------------------------*/
+/* MP3前处理解码函数:	初开始化解码器并执行解码．　这里作为前处理，将帧头位置和时间推入FILO索引
+   Preprocess decoding. Read frame headers and fill into FILO.
+ */
 static int decode_preprocess(unsigned char const *start, unsigned long length)
 {
   struct buffer buffer;
@@ -579,7 +612,7 @@ static int decode_preprocess(unsigned char const *start, unsigned long length)
 
   /* configure input, output, and error functions */
   mad_decoder_init(&decoder, &buffer,
-                   input_all, header_time /* header */, 0 /* filter */, 0, /* output */
+                   input_all, header_preprocess /* header */, 0 /* filter */, 0, /* output */
                    0,/* error */ 0 /* message */);
 
   /* start decoding */

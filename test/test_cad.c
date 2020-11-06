@@ -47,11 +47,13 @@ Convert touch X,Y to under FB coord.
 --------------------------------------------*/
 void convert_touchxy(EGI_TOUCH_DATA *touch_data)
 {
-	//egi_touch_fbpos_data(&gv_fb_dev, &touch_data); /* Default FB and TOUCH coord NOT same! */
-
+#if 0 // NOPTE: gv_fb_dev.pos_xres is changed in cad_skecth(), cad_line() ,cad_circle() !!!
+	egi_touch_fbpos_data(&gv_fb_dev, touch_data, -90); /* Default FB and TOUCH coord NOT same! */
+#else
         int px=320-1-touch_data->coord.y;
 	touch_data->coord.y = touch_data->coord.x;
 	touch_data->coord.x = px;
+#endif
 }
 
 
@@ -187,7 +189,6 @@ int main(int argc, char **argv)
 	                continue;
 
       		/* Touch_data converted to the same coord as of FB */
-        	//egi_touch_fbpos_data(&gv_fb_dev, &touch_data); /* Default FB and TOUCH coord NOT same! */
 		convert_touchxy(&touch_data);
 
 	        /* 1, Check if touched any of the buttons */
@@ -289,7 +290,7 @@ static void btn_react(EGI_RECTBTN *btn)
         	do{
                 	tm_delayms(50);
 	                while(!egi_touch_getdata(&touch));
-        	        egi_touch_fbpos_data(&gv_fb_dev, &touch);
+        	        egi_touch_fbpos_data(&gv_fb_dev, &touch, -90);
 	        }
         	while( egi_touch_on_rectBTN(&touch, btn) );
 	        #endif
@@ -484,7 +485,6 @@ static void cad_sketch(EGI_TOUCH_DATA* touch_data)
 	while(1) {
 
         	while(!egi_touch_getdata(&touch));
-            	//egi_touch_fbpos_data(&gv_fb_dev, &touch);
 		convert_touchxy(&touch);
 
 		/* Releasing: confirm the end point */

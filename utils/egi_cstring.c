@@ -129,7 +129,7 @@ int cstr_txtgroup_push(EGI_TXTGROUP *txtgroup, const char *txt)
 
 	/* Update: buff_size, offs, size */
 	txtgroup->buff_size += txtlen+1;  /* +1 '\0' */
-	txtgroup->offs[txtgroup->size++]=txtgroup->buff_size;
+	txtgroup->offs[++txtgroup->size]=txtgroup->buff_size;
 
 	return 0;
 }

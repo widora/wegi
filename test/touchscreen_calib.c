@@ -115,7 +115,7 @@ int main(int argc, char **argv)
 
   /* Set sys FB mode */
   fb_set_directFB(&gv_fb_dev,true);
-  fb_position_rotate(&gv_fb_dev,0);
+  fb_position_rotate(&gv_fb_dev,1);  /* relative to touch_coord */
 
  /* <<<<<  End of EGI general init  >>>>>> */
 

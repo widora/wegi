@@ -535,7 +535,7 @@ int init_shine(shine_t *pshine, shine_config_t *psh_config, int nchanl, int samp
 
 	mpegver_index=shine_mpeg_version(samplerate_index);
 	if(mpegver_index < 0) {
-		printf("Mpeg version Index for sample rate %dHZ is NOT available.\n",samplerate_index);
+		printf("Mpeg version index for sample rate %dHZ is NOT available.\n",samplerate_index);
 		return -1;
 	}
 

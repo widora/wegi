@@ -34,6 +34,8 @@ typedef struct
 
 //        pthread_mutex_t lock;         /* thread mutex lock */
 
+	#define		FILOMEM_AUTO_DOUBLE	1
+	#define		FILOMEM_AUTO_HALVE	(1<<1)
 	int		auto_realloc;	/* 1:0b01  double buff size each time when it's full.
 					 * 2:0b10  release unused space when it's half empty.
 					 * 3:0b11  auto double and halve 1+2
@@ -42,7 +44,8 @@ typedef struct
 
 
 EGI_FILO * egi_malloc_filo(int buff_size, int item_size, int realloc);
-void 	egi_free_filo(EGI_FILO *efilo );
+void 	egi_free_filo(EGI_FILO *efilo ); /* OBSOLETE */
+void    egi_filo_free(EGI_FILO **efilo );
 int 	egi_filo_push(EGI_FILO *filo, const void* data);
 int 	egi_filo_pop(EGI_FILO *filo, void* data);
 int 	egi_filo_read(const EGI_FILO *filo, int pn, void* data);

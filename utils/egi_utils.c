@@ -116,7 +116,6 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath)
                         goto END_FUNC;
          }
 
-
 END_FUNC:
         /* Munmap file */
         if( fmap->fp==NULL || fmap->fp==MAP_FAILED ) {

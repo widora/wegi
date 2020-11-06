@@ -3,14 +3,17 @@ SRC_PATH = /home/midas-zhou/wegi
 #### ----- 产生文件列表 ------
 SRC_FILES = $(wildcard *.c)
 OBJS = $(patsubst %.c, %.o, $(SRC_FILES))
-OBJS += utils/egi_utils.o utils/egi_cstring.o utils/egi_fifo.o utils/egi_filo.o utils/egi_iwinfo.o
+SRC_UTILS_FILES = $(wildcard utils/*.c)
+OBJS += $(patsubst %.c, %.o, $(SRC_UTILS_FILES))
+
+#OBJS += utils/egi_utils.o utils/egi_cstring.o utils/egi_fifo.o utils/egi_filo.o utils/egi_iwinfo.o
 #OBJS += utils/egi_https.o
 #OBJS += heweather/he_weather.o
 
 $(warning "----- OBJS:$(OBJS) -----")
 
 ##--- exclude some objs !!!BEWARE, :NO SPACE ----
-#OBJS := $(OBJS:test_color.o=)
+OBJS := $(OBJS:utils/egi_https.o=)
 
 DEP_FILES = $(patsubst %.c,%.dep,$(SRC_FILES))
 

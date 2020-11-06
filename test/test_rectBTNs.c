@@ -72,6 +72,9 @@ void logo_button_react(EGI_RECTBTN *btn);
 void ripple_mark(EGI_POINT touch_pxy, uint8_t alpha, EGI_16BIT_COLOR color);
 
 
+/*----------------------------
+	   MAIN
+-----------------------------*/
 int main(int argc, char **argv)
 {
 
@@ -124,7 +127,7 @@ int main(int argc, char **argv)
 
   /* Set sys FB mode */
   fb_set_directFB(&gv_fb_dev,false);
-  fb_position_rotate(&gv_fb_dev,3);
+  fb_position_rotate(&gv_fb_dev,0);
 
  /* <<<<<  End of EGI general init  >>>>>> */
   int vol=30;
@@ -220,7 +223,7 @@ int main(int argc, char **argv)
   	if(egi_touch_timeWait_press(-1, 0, &touch_data)!=0)
 		continue;
         /* Touch_data converted to the same coord as of FB */
-        egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+        egi_touch_fbpos_data(&gv_fb_dev, &touch_data, -90);
 
 	/* Check if touched any of the buttons */
 	for(i=0; i<MAX_BTNS; i++) {
@@ -390,7 +393,7 @@ void bounceback_button_react(EGI_RECTBTN *btn)
 	do{
 		tm_delayms(50);
 		while(!egi_touch_getdata(&touch_data));
-	 	egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+	 	egi_touch_fbpos_data(&gv_fb_dev, &touch_data, -90);
 	}
 	while( egi_touch_on_rectBTN(&touch_data, btn) );
     #endif
@@ -442,7 +445,7 @@ void slide_button_react(EGI_RECTBTN *btn)
 			break;
 
 	        /* Touch_data converted to the same coord as of FB */
-        	egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+        	egi_touch_fbpos_data(&gv_fb_dev, &touch_data,-90);
 
 		//adjvol=-25*touch_data.dy/320+vol;  /* 25 MAX to  [0 100] */
 		adjvol=35*touch_data.dx/320+vol;     /* 30 MAX to  [0 100] */
@@ -493,7 +496,7 @@ void logo_button_react(EGI_RECTBTN *btn)
 	do{
 		tm_delayms(50);
 		while(!egi_touch_getdata(&touch_data));
-	 	egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+	 	egi_touch_fbpos_data(&gv_fb_dev, &touch_data,-90);
 	}
 	while( egi_touch_on_rectBTN(&touch_data, btn) );
     #endif
@@ -531,7 +534,8 @@ void ripple_mark(EGI_POINT touch_pxy, uint8_t alpha, EGI_16BIT_COLOR color)
 	     if(i-k>=0) {
 	        draw_blend_filled_annulus(&gv_fb_dev,
         	                    touch_pxy.x, touch_pxy.y,
-                	            rad[i-k], wid[i], ((k%8)%2)==0 ? WEGI_COLOR_WHITE : WEGI_COLOR_DARKGRAY, alpha );     /* radius, width, color, alpha */
+                	            rad[i-k], wid[i], ((k%8)%2)==0 ? WEGI_COLOR_WHITE : WEGI_COLOR_DARKGRAY, alpha );
+				    /* radius, width, color, alpha */
 	     }
 	}
 

@@ -72,7 +72,7 @@ EGI_FILO * egi_malloc_filo(int buff_size, int item_size, int realloc)
 }
 
 
-/*---------------------------------------
+/*----------  OBSOLETE  ------------------
 Free a EGI_FILO structure and its buff.
 ----------------------------------------*/
 void egi_free_filo(EGI_FILO *efilo )
@@ -89,6 +89,23 @@ void egi_free_filo(EGI_FILO *efilo )
 
                 efilo=NULL;   /* ineffective though...*/
         }
+}
+
+
+/*---------------------------------------
+Free a EGI_FILO structure and its buff.
+----------------------------------------*/
+void egi_filo_free(EGI_FILO **efilo )
+{
+	if(efilo==NULL || *efilo==NULL)
+		return;
+
+         if( (*efilo)->buff != NULL )
+         	egi_free_buff2D((*efilo)->buff, (*efilo)->buff_size);
+
+         free(*efilo);
+
+         *efilo=NULL;
 }
 
 
