@@ -3539,3 +3539,79 @@ int egi_imgbuf_flipX( EGI_IMGBUF *eimg )
 
 	return 0;
 }
+
+/*------------------------ DirectFB Write -------------------------------------
+DirectFB write RGB 24bit color data to FB.
+The orginal (x0,y0) and image size MUST be appropriate so as to ensure that the
+image is totally contained within the screen! Or it will abort.
+
+@rgb:		Pointer to raw RGB data.
+@width,height:	Width and Height of the image
+@fb_dev:	FB dev.
+@x0,y0:		Original coord of image, relative to screen.
+
+------------------------------------------------------------------------------*/
+int  egi_imgbuf_showRBG888( const unsigned char *rgb, unsigned int width, unsigned int height,
+			    FBDEV *fb_dev, int x0, int y0 )
+{
+	unsigned char *fbp;
+	int xres;
+	int yres;
+	int bytes_per_pixel;
+	unsigned char *dat;
+	uint16_t color;
+	long int location = 0;
+	int x,y;
+
+	if(fb_dev==NULL)
+		return -1;
+	if(rgb==NULL)
+		return -1;
+
+	/* Set dat */
+	dat=(unsigned char *)rgb;
+
+	/* Get fb map */
+	fbp =fb_dev->map_fb;
+	xres=fb_dev->finfo.line_length/(fb_dev->vinfo.bits_per_pixel>>3);
+	yres=fb_dev->vinfo.yres;
+	bytes_per_pixel=(fb_dev->vinfo.bits_per_pixel)>>3;
+
+	/* Check image size and position */
+	if( x0<0 || y0<0 || x0+width > xres || y0+height > yres ) {
+		printf("Image cannot fit into the screen!\n");
+		return -2;
+	}
+
+	/* Normal color data sequence */
+	/* WARNING: blackoff not apply here */
+	x = y = 0;
+
+	/* FB pixel: R5G6B5 */
+   	if(bytes_per_pixel==2) {
+		for(y=0; y<height; y++) {
+		   for(x=0; x<width; x++) {
+			location = (x+x0) * bytes_per_pixel + (height-y-1 +y0) * xres * bytes_per_pixel;
+			color=COLOR_RGB_TO16BITS(*dat,*(dat+1),*(dat+2));
+			*(uint16_t *)(fbp+location)=color;
+			dat+=3;
+		   }
+		}
+	}
+
+	/* FB pixel: R8G8B8A8, LETS_NOTE */
+	else if(bytes_per_pixel==4)  {
+		for( y=0; y<height; y++) {	/* Bottom to Top */
+		   for(x=0; x<width; x++) {
+			location = (x+x0) * bytes_per_pixel + (height-y-1 +y0) * xres * bytes_per_pixel;
+			*(fbp+location+2)=*dat++;
+			*(fbp+location+1)=*dat++;
+			*(fbp+location)=*dat++;
+			*(fbp+location+3)=255;		/* Alpha */
+		   }
+		}
+	}
+
+	return 0;
+}
+
