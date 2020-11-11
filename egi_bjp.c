@@ -5,6 +5,14 @@ published by the Free Software Foundation.
 
 Original source: https://blog.csdn.net/luxiaoxun/article/details/7622988
 
+libjpeg.txt:
+  * "Interchange" datastreams contain an image and all tables needed to decode
+     the image.  These are the usual kind of JPEG file.
+  * "Abbreviated image" datastreams contain an image, but are missing some or
+    all of the tables needed to decode that image.
+  * "Abbreviated table specification" (henceforth "tables-only") datastreams
+    contain only table specifications.
+
 
 1. Based on libpng-1.2.56 and jpeg_9a of 19-Jan-2014.
 2. The width of the displaying picture must be a multiple of 4.
@@ -42,13 +50,14 @@ midaszhou@yahoo.com
 //static BITMAPINFOHEADER InfoHead;
 
 /*--------------------------------------------------------------
- open jpg file and return decompressed image buffer pointer
+Open jpg file and return decompressed image buffer pointer,
+Call close_jgpImg() to release image buffer.
 
-@filename
-@w,h:   		with and height of the image
+@filename	File name.
+@w,h:   	Pointer to pass out withd/height of the image
 @components:  	out color components
 
- return:
+return:
 	=NULL fail
 	>0 decompressed image buffer pointer
 --------------------------------------------------------------*/
@@ -61,7 +70,6 @@ unsigned char * open_jpgImg(const char * filename, int *w, int *h, int *componen
         unsigned char *buffer=NULL;
         unsigned char *pt=NULL;
 
-
         if (( infile = fopen(filename, "rbe")) == NULL) {
                 fprintf(stderr, "open %s failed\n", filename);
                 return NULL;
@@ -70,58 +78,81 @@ unsigned char * open_jpgImg(const char * filename, int *w, int *h, int *componen
 	/* To confirm JPEG/JPG type, simple way. */
 	fread(header,1,2,infile); /* start of image 0xFF D8 */
 	if(header[0] != 0xFF || header[1] != 0xD8) {
-		//printf("SOI: header[0]=0x%x, header[1]=0x%x\n",header[0], header[1]);
-		fprintf(stderr, "File %s is NOT a recognizable JPG/JPEG file!\n", filename);
+		fprintf(stderr, "SOI(FF D8): 0x%x 0x%x, '%s is NOT a recognizable JPG/JPEG file!\n",
+										header[0], header[1],filename);
 		fclose(infile);
 		return NULL;
 	}
-	fseek(infile,-2,SEEK_END); /* start of image 0xFF D9 */
+#if 0 /* Omit for abbreviated jpeg file */
+	fseek(infile,-2,SEEK_END); /* end of image 0xFF D9 */
 	fread(header,1,2,infile);
 	if(header[0] != 0xFF || header[1] != 0xD9) {
-		fprintf(stderr, "File %s is NOT a recognizable JPG/JPEG file!\n", filename);
+		fprintf(stderr, "EOI(FF D9): 0x%x 0x%x, '%s is NOT a recognizable JPG/JPEG file!\n",
+									header[0], header[1], filename);
 		fclose(infile);
 		return NULL;
 	}
-	fseek(infile,0,SEEK_SET); /* Must reset seek for jpeg decompressor! */
+#endif
+	/* Must reset seek for jpeg decompressor! */
+	fseek(infile,0,SEEK_SET);
 
-
-	/* decompress jpeg data */
+	/* Fill in the standard error-handling methods */
         cinfo.err = jpeg_std_error(&jerr);
+
+	/* Create decompressor */
         jpeg_create_decompress(&cinfo);
 
+	/* Prepare data source */
         jpeg_stdio_src(&cinfo, infile);
 
         jpeg_read_header(&cinfo, TRUE);
 
+#if 0	/* Check huffman table */
+	int i;
+	printf("Check dc_huff tables: ");
+	for(i=0; i<NUM_HUFF_TBLS; i++)
+		printf("[%d] %s ",i, (cinfo.dc_huff_tbl_ptrs[i] == NULL)?"NULL":"OK");
+	printf("Check ac_huff tables: ");
+	for(i=0; i<NUM_HUFF_TBLS; i++)
+		printf("[%d] %s ",i, (cinfo.ac_huff_tbl_ptrs[i] == NULL)?"NULL":"OK");
+	printf("\n");
+#endif
+
+#if  0    /* TODO: Code to load a fixed Huffman table if necessary */
+	JHUFF_TBL* huff_ptr=NULL;
+
+    if (cinfo.ac_huff_tbl_ptrs[n] == NULL)
+      cinfo.ac_huff_tbl_ptrs[n] = jpeg_alloc_huff_table((j_common_ptr) &cinfo);
+    huff_ptr = cinfo.ac_huff_tbl_ptrs[n];       /* huff_ptr is JHUFF_TBL* */
+    for (i = 1; i <= 16; i++) {
+      /* counts[i] is number of Huffman codes of length i bits, i=1..16 */
+      huff_ptr->bits[i] = counts[i];
+    }
+    for (i = 0; i < 256; i++) {
+      /* symbols[] is the list of Huffman symbols, in code-length order */
+      huff_ptr->huffval[i] = symbols[i];
+    }
+#endif
+
+	/* Start decompress */
         jpeg_start_decompress(&cinfo);
+
+	/* Get image info. */
         *w = cinfo.output_width;
         *h = cinfo.output_height;
 	*components=cinfo.out_color_components;
 
-//	printf("output color components=%d\n",cinfo.out_color_components);
-//        printf("output_width====%d\n",cinfo.output_width);
-//        printf("output_height====%d\n",cinfo.output_height);
-
-	/* --- check size ----*/
-/*
-        if ((cinfo.output_width > 240) ||
-                   (cinfo.output_height > 320)) {
-                printf("too large size JPEG file,cannot display\n");
-                return NULL;
-        }
-*/
-
+	/* Allocate buffer to hold decompressed data */
         buffer = (unsigned char *) malloc(cinfo.output_width *
                         cinfo.output_components * cinfo.output_height);
   	pt = buffer;
 
-	/* decompress */
+	/* Decompressing... */
         while (cinfo.output_scanline < cinfo.output_height) {
                 jpeg_read_scanlines(&cinfo, &pt, 1);
                 pt += cinfo.output_width * cinfo.output_components;
         }
 
-	//printf("start jpeg_finish_decompress()...\n");
         jpeg_finish_decompress(&cinfo);
         jpeg_destroy_decompress(&cinfo);
 
@@ -131,11 +162,80 @@ unsigned char * open_jpgImg(const char * filename, int *w, int *h, int *componen
 
 }
 
+
 /*    release mem for decompressed jpeg image buffer */
 void close_jpgImg(unsigned char *imgbuf)
 {
 	if(imgbuf != NULL)
 		free(imgbuf);
+}
+
+
+/*---------------------------------------------------------------
+Open a buffer holding a complete JPG file and return decompressed
+image buffer pointer. Call close_jgpImg() to release image buffer.
+
+@inbuff		Buffer holding a complete JPG image.
+@insize		Size of inbuff.
+@w,h:   	Pointer to pass out  withd/height of the image
+@components:  	out color components
+
+return:
+	=NULL fail
+	>0 decompressed image buffer pointer
+--------------------------------------------------------------*/
+unsigned char * open_buffer_jpgImg( const unsigned char *inbuff, unsigned long insize,
+						int *w, int *h, int *components )
+{
+	struct jpeg_decompress_struct cinfo;
+        struct jpeg_error_mgr jerr;
+        unsigned char *buffer=NULL;
+        unsigned char *pt=NULL;
+
+	if(inbuff==NULL)
+		return NULL;
+
+	/* To confirm JPEG/JPG type, simple way. */
+	if( inbuff[0] != 0xFF || inbuff[1] != 0xD8) {
+		fprintf(stderr, "SOI(FF D8): 0x%x 0x%x, inbuffer is NOT a recognizable JPG/JPEG file!\n",inbuff[0], inbuff[1]);
+		return NULL;
+	}
+
+	/* Fill in the standard error-handling methods */
+        cinfo.err = jpeg_std_error(&jerr);
+
+	/* Create decompressor */
+        jpeg_create_decompress(&cinfo);
+
+	/* Prepare data source */
+	jpeg_mem_src(&cinfo, (unsigned char *)inbuff, insize);
+
+        jpeg_read_header(&cinfo, TRUE);
+
+	/* Start decompress */
+        jpeg_start_decompress(&cinfo);
+
+	/* Get image info. */
+        *w = cinfo.output_width;
+        *h = cinfo.output_height;
+	*components=cinfo.out_color_components;
+
+	/* Allocate buffer to hold decompressed data */
+        buffer = (unsigned char *) malloc(cinfo.output_width *
+                        cinfo.output_components * cinfo.output_height);
+  	pt = buffer;
+
+	/* Decompressing... */
+        while (cinfo.output_scanline < cinfo.output_height) {
+                jpeg_read_scanlines(&cinfo, &pt, 1);
+                pt += cinfo.output_width * cinfo.output_components;
+        }
+
+	/* Finish */
+        jpeg_finish_decompress(&cinfo);
+        jpeg_destroy_decompress(&cinfo);
+
+	return buffer;
 }
 
 
@@ -295,91 +395,115 @@ int show_bmp(const char* fpath, FBDEV *fb_dev, int blackoff, int x0, int y0)
 }
 
 
-/*-------------------------------------------------------------------------
-open a BMP file and write image data to FB.
-image size limit: 320x240
+/*------------------------  Direct FB wirte -------------------------------
+Open a jpg file and write image data to FB.
+The orginal (x0,y0) and JGP size MUST be appropriate so as to ensure that the
+image is totally contained within the screen! Or it will abort.
 
+@fpath:		JPG file path
+(inbuff and insize will be valid only if fpath==NULL )
+@inbuff:	Buffer holding a compelte jpg file.
+@insize:	Size of inbuff.
 blackoff:   1   Do NOT wirte black pixels to FB.
 		 (keep original data in FB,make black a transparent tunnel)
 	    0	 Wrtie  black pixels to FB.
 (x0,y0): 	original coordinate of picture in LCD
+		MUST >=0  NOW!
 
 NOTE:
 1. FB.pos_rotate is not suppored.
+2. For Little_endian only.
 
 Return:
 	    0	OK
 	    <0  fails
 -------------------------------------------------------------------------*/
-int show_jpg(const char* fpath, FBDEV *fb_dev, int blackoff, int x0, int y0)
+int show_jpg( const char* fpath, const unsigned char *inbuff, unsigned long insize,
+	      FBDEV *fb_dev, int blackoff, int x0, int y0)
 {
-	int xres=fb_dev->vinfo.xres;
-	int bits_per_pixel=fb_dev->vinfo.bits_per_pixel;
+	unsigned char *fbp;
+	int xres;
+	int yres;
+	int bytes_per_pixel;
 	int width,height;
-	int components; 
+	int components;
 	unsigned char *imgbuf;
 	unsigned char *dat;
 	uint16_t color;
+	uint32_t rgb;  /* For LETS_NOTE */
 	long int location = 0;
-	int line_x,line_y;
+//	int line_x,line_y;
+	int x,y;
 
-	/* get fb map */
-	unsigned char *fbp =fb_dev->map_fb;
-
-	imgbuf=open_jpgImg(fpath,&width,&height,&components );
-
-	if(imgbuf==NULL) {
-		printf("open_jpgImg fails!\n");
+	if(fb_dev==NULL)
 		return -1;
+	if(fpath==NULL && inbuff==NULL)
+		return -1;
+
+	/* Get fb map */
+	fbp =fb_dev->map_fb;
+	xres=fb_dev->finfo.line_length/(fb_dev->vinfo.bits_per_pixel>>3);
+	yres=fb_dev->vinfo.yres;
+	bytes_per_pixel=(fb_dev->vinfo.bits_per_pixel)>>3;
+
+	/* Open jpg and get data pointer */
+	if(fpath) {
+		imgbuf=open_jpgImg(fpath, &width, &height, &components );
+		if(imgbuf==NULL)
+			return -1;
 	}
+	else {
+		imgbuf=open_buffer_jpgImg(inbuff, insize, &width, &height, &components );
+		if(imgbuf==NULL)
+			return -1;
+	}
+	//printf("JPG %dx%dx%d\n", width, height, components);
 
 	/* WARNING: need to be improve here: converting 8bit to 24bit color*/
 	if(components==1) /* 8bit color */
 	{
 		height=height/3; /* force to be 24bit pic, however shorten the height */
 	}
-
 	dat=imgbuf;
 
+	/* Check image size and position */
+	if( x0<0 || y0<0 || x0+width > xres || y0+height > yres ) {
+		printf("Image cannot fit into the screen!\n");
+		return -2;
+	}
 
-//       printf("open_jpgImg() succeed, width=%d, height=%d\n",width,height);
-#if 0	//---- normal data sequence ------
-	/* WARNING: blackoff not apply here */
-	line_x = line_y = 0;
-	for(line_y=0;line_y<height;line_y++) {
-		for(line_x=0;line_x<width;line_x++) {
-			location = (line_x+x0) * bits_per_pixel / 8 + (height - line_y - 1 +y0) * xres * bits_per_pixel / 8;
+	/* Flip picture to be same data sequence of BMP file */
+	x = y = 0;
+	for( y=0; y<height; y++) {	/* Bottom to Top */
+		for(x=0; x<width; x++) {
+		   if( bytes_per_pixel==4 ) {
+		   // #ifdef LETS_NOTE /* ----- FOR 32BITS COLOR (ARGB) FBDEV ----- */
+			location = (x+x0) * bytes_per_pixel + (y +y0) * xres * bytes_per_pixel;
+			rgb=(*(uint32_t*)dat)>>8;
+			if(  blackoff<=0 || rgb ) {
+				*(fbp+location+2)=*dat++;
+				*(fbp+location+1)=*dat++;
+				*(fbp+location)=*dat++;
+				*(fbp+location+3)=255;		/* Alpha */
+			}
+		   }
+		   else if( bytes_per_pixel==2 ) {
+		   // #else
+			location = (x+x0) * bytes_per_pixel + (y +y0) * xres * bytes_per_pixel;
 			//显示每一个像素, in ili9431 node of dts, color sequence is defined as 'bgr'(as for ili9431) .
-			// little endian is noticed.
-   	        	// ---- dat(R8G8B8) converting to format R5G6B5(as for framebuffer) -----
+   	        	/* dat(R8G8B8) converting to format R5G6B5(as for framebuffer) */
 			color=COLOR_RGB_TO16BITS(*dat,*(dat+1),*(dat+2));
 			/*if blockoff>0, don't write black to fb, so make it transparent to back color */
-			if(  !blackoff || color )
-			{
+			if(  blackoff<=0 || color ) {
 				*(uint16_t *)(fbp+location)=color;
 			}
 			dat+=3;
+		   }
+		   // #endif
 		}
 	}
-#else
-	//---- flip picture to be same data sequence of BMP file ---
-	line_x = line_y = 0;
-	for(line_y=height-1;line_y>=0;line_y--) {
-		for(line_x=0;line_x<width;line_x++) {
-			location = (line_x+x0) * bits_per_pixel / 8 + (height - line_y - 1 +y0) * xres * bits_per_pixel / 8;
-			//显示每一个像素, in ili9431 node of dts, color sequence is defined as 'bgr'(as for ili9431) .
-			// little endian is noticed.
-   	        	// ---- dat(R8G8B8) converting to format R5G6B5(as for framebuffer) -----
-			color=COLOR_RGB_TO16BITS(*dat,*(dat+1),*(dat+2));
-			/*if blockoff>0, don't write black to fb, so make it transparent to back color */
-			if(  blackoff<=0 || color )
-			{
-				*(uint16_t *)(fbp+location)=color;
-			}
-			dat+=3;
-		}
-	}
-#endif
+
+	/* Free decompressed data buffer */
 	close_jpgImg(imgbuf);
 	return 0;
 }
@@ -998,7 +1122,7 @@ int egi_save_FBbmp(FBDEV *fb_dev, const char *fpath)
 	if(fb_dev==NULL || fb_dev->map_fb==NULL || fpath==NULL)
 		return -1;
 
-   printf("file header size:%d,	info header size:%d\n",sizeof(BITMAPFILEHEADER),sizeof(BITMAPINFOHEADER));
+   printf("file header size:%zd, info header size:%zd\n",sizeof(BITMAPFILEHEADER),sizeof(BITMAPINFOHEADER));
 
 	/* fill in file header */
 	memset(&file_header,0,sizeof(BITMAPFILEHEADER));
@@ -1137,3 +1261,4 @@ int egi_save_FBpng(FBDEV *fb_dev, const char *fpath)
 
 	return ret;
 }
+

@@ -77,10 +77,13 @@ typedef struct
 
 /* functions */
 unsigned char *open_jpgImg(const char *filename, int *w, int *h, int *components);
+unsigned char * open_buffer_jpgImg( const unsigned char *inbuff, unsigned long insize, int *w, int *h, int *components );
 void close_jpgImg(unsigned char *imgbuf);
 
 int show_bmp(const char* fpath,FBDEV *fb_dev, int blackoff, int x0, int y0);
-int show_jpg(const char* fpath,FBDEV *fb_dev, int blackoff, int x0, int y0);
+int show_jpg( const char* fpath, const unsigned char *inbuff, unsigned long insize,
+              FBDEV *fb_dev, int blackoff, int x0, int y0);
+
 
 int egi_imgbuf_loadjpg(const char* fpath, EGI_IMGBUF *egi_imgbuf);
 int egi_imgbuf_loadpng(const char* fpath, EGI_IMGBUF *egi_imgbuf);
