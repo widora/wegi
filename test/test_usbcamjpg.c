@@ -8,10 +8,11 @@ A USBCAM test program.
 
 Usage exmample:
 	./test_usbcamjpg -d /dev/video0 -s 320x240 -r 30
+	./test_usbcamjpg -d /dev/video0  -r 30 -f yuyv -v
 
-TODO:
-1. YUYV to RGB.
-2. Stream jpg decoding.
+
+Note:
+1. Apply YUYV to convert RGB saves much CPU load than apply JPEG.
 
 
 Midas Zhou
@@ -71,11 +72,14 @@ struct vctrl_id_value vctrl_params[] =
 -----------------------------*/
 void print_help(const char* cmd)
 {
-        printf("Usage: %s [-hd:s:r:] \n", cmd);
+        printf("Usage: %s [-hd:s:r:f:v] \n", cmd);
         printf("        -h   help \n");
         printf("        -d:  Video device, default: '/dev/video0' \n");
         printf("        -s:  Image size, default: '320x240' \n");
         printf("        -r:  Frame rate, default: 10fps \n");
+        printf("        -f:  Pixel format, default: V4L2_PIX_FMT_MJPEG \n");
+        printf("             'yuyv' or 'mjpeg' \n");
+	printf("	-v:  Reverse upside down, default: false. for YUYV only.\n");
 }
 
 
@@ -87,6 +91,10 @@ int main (int argc,char ** argv)
 	char *dev_name = "/dev/video0";
 	int fd_dev;	/* Video device */
 	int fd_jpg;	/* Saved JPG file */
+   	char fname[64]="usbcam.jpg";
+   	EGI_IMGBUF *imgbuf=NULL;
+	unsigned char *rgb24=NULL;
+   	fd_set fds;
 
 	struct v4l2_control		vctrl;
      	struct v4l2_capability 		cap;
@@ -97,6 +105,7 @@ int main (int argc,char ** argv)
      	struct v4l2_streamparm 		streamparm;
      	enum v4l2_buf_type type;
 
+	int pixelformat=V4L2_PIX_FMT_MJPEG;	/* Default pixelformat */
 	unsigned int 	i;
 	int	opt;
 	char	*pt;
@@ -106,9 +115,10 @@ int main (int argc,char ** argv)
 	int	width=320;
 	int	height=240;
 	int	fps=10;
+	bool	reverse=false;
 
         /* Parse input option */
-        while( (opt=getopt(argc,argv,"hd:s:r:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hd:s:r:f:v"))!=-1 ) {
                 switch(opt) {
                         case 'h':
                                 print_help(argv[0]);
@@ -127,6 +137,13 @@ int main (int argc,char ** argv)
 			case 'r':	/* Frame rate */
 				fps=atoi(optarg);
 				printf("Input fps=%d\n", fps);
+				break;
+			case 'f':
+				if(strstr(optarg, "yuyv"))
+					pixelformat=V4L2_PIX_FMT_YUYV;
+				break;
+			case 'v':
+				reverse=true;
 				break;
 		}
 	}
@@ -181,7 +198,7 @@ int main (int argc,char ** argv)
      	fmt.fmt.pix.width       = width;
      	fmt.fmt.pix.height      = height;
      	fmt.fmt.pix.field       = V4L2_FIELD_INTERLACED;
-     	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
+     	fmt.fmt.pix.pixelformat = pixelformat;
      	if( ioctl (fd_dev, VIDIOC_S_FMT, &fmt) !=0) {
     		printf("Fail to ioctl VIDIOC_S_FMT, Err'%s'\n", strerror(errno));
 		return -2;
@@ -198,6 +215,10 @@ int main (int argc,char ** argv)
      		printf("Bytesperline: %d\n", fmt.fmt.pix.bytesperline);
      		printf("Pix field: %d\n", fmt.fmt.pix.field);
 	}
+
+	/* Confirm width and height */
+	width=fmt.fmt.pix.width;
+	height=fmt.fmt.pix.height;
 
      	/* Set stream params: frame rate */
      	memset(&streamparm, 0, sizeof(streamparm));
@@ -271,7 +292,7 @@ int main (int argc,char ** argv)
 		return -5;
 	}
 
-	/* UVC queue buffer. After turn on video capture! */
+	/* Queue buffer after turn on video capture! */
        	for (i = 0; i < REQ_BUFF_NUMBER; ++i) {
                bufferinfo.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE;
                bufferinfo.memory      = V4L2_MEMORY_MMAP;
@@ -282,27 +303,35 @@ int main (int argc,char ** argv)
 		}
 	}
 
+   	/* Reset index, from which it starts the loop. */
+   	bufferinfo.index=0;
 
-/*----------------- Loop reading video frames and display --------------*/
-fd_set fds;
-char fname[64]="usbcam.jpg";
-EGI_IMGBUF *imgbuf=NULL;
 
-bufferinfo.index=0;
+        /*----------------- Loop reading video frames and display --------------*/
 
-/* Loop: dequeue the buffer, read out video, then queque the buffer, ....*/
-for(;;) {
+/* 1. --- pixelformat: V4L2_PIX_FMT_YUYV --- */
+if( pixelformat==V4L2_PIX_FMT_YUYV )
+{
+   printf("USBCAM output YUYV, reverse=%s\n", reverse?"Yes":"No");
+
+   rgb24=calloc(1, width*height*3);
+   if(rgb24==NULL) {
+	printf("Fail to calloc rgb24!\n");
+	goto END_FUNC;
+   }
+
+
+   /* Loop: dequeue the buffer, read out video, then queque the buffer, ....*/
+   for(;;) {
 	/* Parse keyinput */
   	read(STDIN_FILENO, &ch,1);
   	switch(ch) {
         	case 'q':       /* Quit */
         	case 'Q':
-			goto FUNC_END;
+			goto END_FUNC;
                 	exit(0);
                 	break;
 	}
-
-   	fd_jpg = open(fname, O_RDWR | O_CREAT, 0777);
 
    	FD_ZERO (&fds);
    	FD_SET (fd_dev, &fds);
@@ -316,19 +345,67 @@ for(;;) {
 		bufferinfo.index=0;
         if( ioctl(fd_dev, VIDIOC_DQBUF, &bufferinfo) !=0)
                 printf("Fail to ioctl VIDIOC_DQBUF, Err'%s'\n", strerror(errno));
-	else
-        	write(fd_jpg, buffers[bufferinfo.index].start, buffers[bufferinfo.index].length);
+	else {
+		/* Convert YUYV to GRB888 */
+		egi_color_YUYV2RGB888(buffers[bufferinfo.index].start, rgb24, width, height, reverse);
+
+		/* DirectFB wirte */
+		egi_imgbuf_showRBG888(rgb24, width, height, &gv_fb_dev, 0, 0);
+	}
 
         /* Queue the buffer */
         if( ioctl(fd_dev, VIDIOC_QBUF, &bufferinfo) !=0)
                 printf("Fail to ioctl VIDIOC_QBUF, Err'%s'\n", strerror(errno));
 
+   }
 
-   	close(fd_jpg);
+} /* End  pixelformat==V4L2_PIX_FMT_YUYV */
 
-   	/* Display image */
+/* 2. --- pixelformat: V4L2_PIX_FMT_MJPEG --- */
+else
+{
+   printf("USBCAM output: MJPEG\n");
+
+   /* Loop: dequeue the buffer, read out video, then queque the buffer, ....*/
+   for(;;) {
+	/* Parse keyinput */
+  	read(STDIN_FILENO, &ch,1);
+  	switch(ch) {
+        	case 'q':       /* Quit */
+        	case 'Q':
+			goto END_FUNC;
+                	exit(0);
+                	break;
+	}
+
+//   	fd_jpg = open(fname, O_RDWR | O_CREAT, 0777);
+
+   	FD_ZERO (&fds);
+   	FD_SET (fd_dev, &fds);
+   	select(fd_dev + 1, &fds, NULL, NULL, NULL);
+
+    	/* Dequeue the buffer */
+        bufferinfo.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	bufferinfo.memory = V4L2_MEMORY_MMAP;
+        bufferinfo.index++;
+	if(bufferinfo.index==REQ_BUFF_NUMBER)
+		bufferinfo.index=0;
+        if( ioctl(fd_dev, VIDIOC_DQBUF, &bufferinfo) !=0)
+                printf("Fail to ioctl VIDIOC_DQBUF, Err'%s'\n", strerror(errno));
+	else {
+        	//write(fd_jpg, buffers[bufferinfo.index].start, buffers[bufferinfo.index].length);
+		show_jpg(NULL, buffers[bufferinfo.index].start, buffers[bufferinfo.index].length, &gv_fb_dev, 0, 0, 0);
+	}
+
+        /* Queue the buffer */
+        if( ioctl(fd_dev, VIDIOC_QBUF, &bufferinfo) !=0)
+                printf("Fail to ioctl VIDIOC_QBUF, Err'%s'\n", strerror(errno));
+
+//   	close(fd_jpg);
+
+   #if 0  /* Display image */
 	#if 1
-   	show_jpg(fname, &gv_fb_dev, 1, 0, 0);
+   	show_jpg(fname, NULL, 0, &gv_fb_dev, 0, 0, 0);
 	//usleep(5000);
 	#else
 	imgbuf=egi_imgbuf_readfile(fname);
@@ -337,10 +414,13 @@ for(;;) {
    	fb_render(&gv_fb_dev);
 	egi_imgbuf_free2(&imgbuf);
 	#endif
-}
+   #endif
+   }
+
+} /* End  pixelformat==V4L2_PIX_FMT_MJPEG */
 
 
-FUNC_END:
+END_FUNC:
 
    /* Video stream off */
    type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -350,7 +430,9 @@ FUNC_END:
    /* Unmap and close file */
    for (i = 0; i < REQ_BUFF_NUMBER; ++i)
       munmap (buffers[i].start, buffers[i].length);
+
    free(buffers);
+   free(rgb24);
 
    close (fd_jpg);
    close (fd_dev);
