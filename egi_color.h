@@ -16,6 +16,7 @@ Midas Zhou
 #define __EGI_COLOR_H__
 
 #include <stdint.h>
+#include <stdbool.h>
 
 /* color definition */
 typedef uint16_t			 EGI_16BIT_COLOR;
@@ -177,6 +178,7 @@ EGI_16BIT_COLOR 	egi_color_random2(enum egi_color_range range, unsigned char lum
 EGI_16BIT_COLOR 	egi_colorGray_random(enum egi_color_range range);
 EGI_16BIT_COLOR 	egi_colorLuma_adjust(EGI_16BIT_COLOR color, int k);
 unsigned char		egi_color_getY(EGI_16BIT_COLOR color);
+int 			egi_color_YUYV2RGB888(const unsigned char *yuyv, unsigned char *rgb, int w, int h, bool reverse);
 EGI_16BIT_COLOR 	egi_color_HSV2RGB(const EGI_HSV_COLOR *hsv);
 int 			egi_color_RGB2HSV(EGI_16BIT_COLOR color, EGI_HSV_COLOR *hsv);
 

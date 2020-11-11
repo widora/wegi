@@ -362,6 +362,82 @@ EGI_16BIT_COLOR egi_colorLuma_adjust(EGI_16BIT_COLOR color, int k)
 	return (EGI_16BIT_COLOR)COLOR_RGB_TO16BITS(R,G,B);
 }
 
+
+/*----------------------------------------------
+	Convert YUYV to 24BIT RGB color
+Y,U,V [0 255]
+
+@src:	Source of YUYV data.
+@dest:	Dest of RGB888 data
+@w,h:	Size of image blocks.
+	W,H MUST be multiples of 2.
+
+@reverse:	To reverse data.
+
+Note:
+1. The caller MUST ensure memory space for dest!
+
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------*/
+int egi_color_YUYV2RGB888(const unsigned char *src, unsigned char *dest, int w, int h, bool reverse)
+{
+	int i,j;
+	unsigned char y1,y2,u,v;
+	int r1,g1,b1, r2,g2,b2;
+
+	if(src==NULL || dest==NULL)
+		return -1;
+
+	if(w<1 || h<1)
+		return -2;
+
+	for(i=0; i<h; i++) {
+	    for(j=0; j<w; j+=2) { /* 2 pixels each time */
+
+		if(reverse) {
+			y1 =*(src + (((h-1-i)*w+j)<<1));
+			u  =*(src + (((h-1-i)*w+j)<<1) +1);
+			y2 =*(src + (((h-1-i)*w+j)<<1) +2);
+			v  =*(src + (((h-1-i)*w+j)<<1) +3);
+		}
+		else {
+			y1 =*(src + ((i*w+j)<<1));
+			u  =*(src + ((i*w+j)<<1) +1);
+			y2 =*(src + ((i*w+j)<<1) +2);
+			v  =*(src + ((i*w+j)<<1) +3);
+		}
+
+		r1 =(y1*4096 + 5765*v -737935)>>12;
+		g1 =((4096*y1-1415*u-2936*v)>>12)+136;
+		b1 =(y1*4096+7287*u-932708)>>12;
+		if(r1>255) r1=255; else if(r1<0) r1=0;
+		if(g1>255) g1=255; else if(g1<0) g1=0;
+		if(b1>255) b1=255; else if(b1<0) b1=0;
+
+		r2 =(y2*4096 + 5765*v -737935)>>12;
+		g2 =((4096*y2-1415*u-2936*v)>>12)+136;
+		b2 =(y2*4096+7287*u-932708)>>12;
+		if(r2>255) r2=255; else if(r2<0) r2=0;
+		if(g2>255) g2=255; else if(g2<0) g2=0;
+		if(b2>255) b2=255; else if(b2<0) b2=0;
+
+		*(dest + (i*w+j)*3)	=(unsigned char)r1;
+		*(dest + (i*w+j)*3 +1)	=(unsigned char)g1;
+		*(dest + (i*w+j)*3 +2)	=(unsigned char)b1;
+		*(dest + (i*w+j)*3 +3)	=(unsigned char)r2;
+		*(dest + (i*w+j)*3 +4)	=(unsigned char)g2;
+		*(dest + (i*w+j)*3 +5)	=(unsigned char)b2;
+	    }
+	}
+
+	return 0;
+}
+
+
+
+
 /*--------------------------------------------------
  Get Y(Luma/Brightness) value from a 16BIT RGB color
  as of YUV
