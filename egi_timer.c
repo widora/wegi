@@ -111,6 +111,25 @@ void tm_get_strday(char *daybuf)
 					str_weekday[tm_s->tm_wday] );
 }
 
+/*---------------------------------------------
+Get local time in string, in form of:
+ 	Year_Mon_Day H:M:S
+The caller must ensure enough space for dtbuf.
+---------------------------------------------*/
+void tm_get_strdaytime(char *dtbuf)
+{
+	time_t tm_t; 	  /* time in seconds */
+	struct tm *tm_s;  /* time in struct tm */
+
+	time(&tm_t);
+	tm_s=localtime(&tm_t);
+
+	sprintf(dtbuf,"%d-%d-%d %02d:%02d:%02d",
+			tm_s->tm_year+1900,tm_s->tm_mon+1,tm_s->tm_mday,
+			tm_s->tm_hour,tm_s->tm_min,tm_s->tm_sec);
+}
+
+
 /*-----------------------------------
 Get local time in uft-8 string:
 	x月x日

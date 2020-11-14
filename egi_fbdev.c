@@ -137,14 +137,14 @@ int init_fbdev(FBDEV *fb_dev)
 #if 1
 //      printf("init_dev successfully. fb_dev->map_fb=%p\n",fb_dev->map_fb);
 	printf("\e[38;5;34;48;5;0m");
-        printf(" \n------- FB Parameters -------\n");
+        printf("\n -------- FB Parameters --------\n");
         printf(" bits_per_pixel: %d bits \n",fb_dev->vinfo.bits_per_pixel);
         printf(" line_length: %d bytes\n",fb_dev->finfo.line_length);
         printf(" xres: %d pixels, yres: %d pixels \n", fb_dev->vinfo.xres, fb_dev->vinfo.yres);
         printf(" xoffset: %d,  yoffset: %d \n", fb_dev->vinfo.xoffset, fb_dev->vinfo.yoffset);
         printf(" screensize: %ld bytes\n", fb_dev->screensize);
         printf(" Total buffer pages: %d\n", FBDEV_BUFFER_PAGES);
-        printf(" ----------------------------\n\n");
+        printf(" ------------  EGi  ------------\n\n");
 	printf("\e[0m\n");
 #endif
         return 0;

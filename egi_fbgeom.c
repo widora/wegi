@@ -12,7 +12,7 @@ Referring to: http://blog.chinaunix.net/uid-22666248-id-285417.html
 Note:
 1. Not thread safe.
 2. TODO: For all lines drawing functions: if distance between two input points
-   is too big, it MAY takes long time! To avoid such case.
+   is too big, it may take too long time! To avoid such case.
 
 
 Modified and appended by Midas-Zhou
@@ -3130,7 +3130,7 @@ int draw_spline2(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int
 				st=s+step;
 				//xe=A[i][0]*st*st*st+B[i][0]*st*st+C[i][0]*st+D[i][0];
 				//ye=A[i][1]*st*st*st+B[i][1]*st*st+C[i][1]*st+D[i][1];
-				/* TODO: Horner's Mothed to evaluate polynomials */
+				/* TODO: Horner's Method to evaluate polynomials */
 				tmp2=st*st; tmp3=tmp2*st;
 				xe=A[i][0]*tmp3+B[i][0]*tmp2+C[i][0]*st+D[i][0];
 				ye=A[i][1]*tmp3+B[i][1]*tmp2+C[i][1]*st+D[i][1];
@@ -3493,4 +3493,6 @@ int draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsig
 	free(chord);
 	free(vu);
 	free(LN);
+
+	return 0;
 }

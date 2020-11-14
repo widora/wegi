@@ -440,8 +440,11 @@ int show_jpg( const char* fpath, const unsigned char *inbuff, unsigned long insi
 	if(fpath==NULL && inbuff==NULL)
 		return -1;
 
-	/* Get fb map */
-	fbp =fb_dev->map_fb;
+        /* Get fb map pointer and params */
+        if(fb_dev->map_bk)
+                fbp =fb_dev->map_bk;
+        else
+                fbp =fb_dev->map_fb;
 	xres=fb_dev->finfo.line_length/(fb_dev->vinfo.bits_per_pixel>>3);
 	yres=fb_dev->vinfo.yres;
 	bytes_per_pixel=(fb_dev->vinfo.bits_per_pixel)>>3;

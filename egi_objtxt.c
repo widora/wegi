@@ -311,7 +311,7 @@ static int egi_txtbox_decorate(EGI_EBOX *ebox)
         int ret=0;
 
         EGI_PDEBUG(DBG_TXT,"egi_txtbox_decorate(): start to show_jpg()...\n");
-        ret=show_jpg("/tmp/openwrt.jpg", &gv_fb_dev, SHOW_BLACK_NOTRANSP, ebox->x0+2, ebox->y0+2);
+        ret=show_jpg("/tmp/openwrt.jpg", NULL, 0, &gv_fb_dev, SHOW_BLACK_NOTRANSP, ebox->x0+2, ebox->y0+2);
 
         return ret;
 }

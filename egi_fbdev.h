@@ -116,7 +116,7 @@ typedef struct fbdev{
 					 *      Rotation coord as per RIGHT HAND RULE of LCD X,Y   ( x-->y grip direction. thumb --> z )
 					 */
 
-	int		pos_xres;	/* Resultion for X and Y direction, as per pos_rotate */
+	int		pos_xres;	/* Resolution for X and Y direction, as per pos_rotate */
 	int		pos_yres;
 
 	/* pthread_mutex_t fbmap_lock; */

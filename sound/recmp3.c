@@ -10,6 +10,7 @@ Note:
 	./recmp3 -n 2 -r 44100 -b 64 -l 20000 xxx.mp3
 
 				<--- USB SndCard --->
+	./recmp3 -w plughw:1,0 -p -r 44100 -b 128 -c 128 -n 2 xxx.mp3  ---OK
 	./recmp3 -w plughw:1,0 -n 1 -r 44100 -b 64 -l 20000 xxx.mp3
 
 	./recmp3 -w plughw:1,0 -n 1 -r 16000 -b 32 -l 300 xxx.mp3
@@ -29,7 +30,7 @@ Note:
 		3. USB MIC produces litte noise, comparing with the builtin sound card.
 	 	4. ???If you set 2 channels for recording while the HW has only 1 channel,
    		   it makes lots of noise though it works! )
-		   and, the Max. sample rate will be ONLY half of ALSA mixer srate.
+		   and, the Max. sample rate will be ONLY half of ALSA mixer srate. ---- NOPE! ok
 
 			<--- NEO Builtin SndCard --->
 
@@ -233,8 +234,8 @@ unsigned int 	sample_rate	=8000; 		/* HZ,sample rate */
 	int 	chunk_size;			/* =frame_size*chunk_frames */
 	//int 	record_size=64*1024;		/* total pcm raw size for recording/encoding */
 
-	/* chunk_frames=576, */
-	int16_t buff[SHINE_MAX_SAMPLES]; 	/* enough size of buff to hold pcm raw data AND encoding results */
+	/* buffer for chunk size raw data, Max. 2 channels  */
+	int16_t buff[SHINE_MAX_SAMPLES*2]; 	/* enough size of buff to hold pcm raw data AND encoding results */
 	int16_t *pbuf=buff;
 	unsigned long 	count;
 

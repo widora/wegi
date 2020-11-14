@@ -3571,8 +3571,11 @@ int  egi_imgbuf_showRBG888( const unsigned char *rgb, unsigned int width, unsign
 	/* Set dat */
 	dat=(unsigned char *)rgb;
 
-	/* Get fb map */
-	fbp =fb_dev->map_fb;
+	/* Get fb map pointer and params */
+	if(fb_dev->map_bk)
+		fbp =fb_dev->map_bk;
+	else
+		fbp =fb_dev->map_fb;
 	xres=fb_dev->finfo.line_length/(fb_dev->vinfo.bits_per_pixel>>3);
 	yres=fb_dev->vinfo.yres;
 	bytes_per_pixel=(fb_dev->vinfo.bits_per_pixel)>>3;

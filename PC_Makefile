@@ -31,6 +31,7 @@ CFLAGS += -I/usr/local/include/libpng12
 CFLAGS += -Wall -fPIC -O2
 CFLAGS += -D_GNU_SOURCE 	## for O_CLOEXEC flag ##
 CFLAGS += -fno-stack-protector  ## disable stack protector
+CFLAGS += -Wunused-result
 ## MUST enable back buffer for LETS_NOTE
 CFLAGS += -DENABLE_BACK_BUFFER -DLETS_NOTE
 

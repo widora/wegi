@@ -41,7 +41,7 @@ LIBS	+= -lrt
 #--- use static or dynamic libs -----
 EGILIB=dynamic
 
-#### --- use dynamic and static libs in compilatoin!!! ---
+#### --- use dynamic and static libs in compilation!!! ---
 # 1. Exclude dynamic -legi first.
 # 2. Use -Wl,Bdynamic and -Wl,Bstatic to switch to dynamic/static libs
 # 3. At last, we must switch back to dynamic libs, as default for Linux system runtime setup.
