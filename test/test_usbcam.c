@@ -1,6 +1,5 @@
-/*------------------------------------------------------------------
+/*----------------------------------------------------------------------
 Reference:
-
   超群天晴    https://www.cnblogs.com/surpassal/archive/2012/12/19/zed_webcam_lab1.html
   JWH SMITH   http://jwhsmith.net/2014/12/capturing-a-webcam-stream-using-v4l2
 
@@ -11,14 +10,23 @@ Usage exmample:
 	./test_usbcam -d /dev/video0 -s 320x240 -r 30
 	./test_usbcam -d /dev/video0  -r 30 -f yuyv -v
 
+Pan control:
+	'a'  Pan left
+	'd'  Pan right
+	'w'  Pan up
+	's'  Pan down
+
 
 Note:
 1. Apply YUYV to convert RGB saves much CPU load than apply JPEG.
 2. Command 'v4l2-ctl -d0 --list-ctrls' to see all supported contrls.
-
+3. It supports unplug_and_plug operation of usbcams.
+4. If you run 2 or 3 USBCAMs at the same time, it may appear Err'No space left on device',
+   which indicates that current USB controller not have enough bandwidth.
+   Try to use smaller image size and turn down FPS.
 
 Midas Zhou
-------------------------------------------------------------------*/
+------------------------------------------------------------------------*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,7 +52,7 @@ Midas Zhou
 #include <egi_timer.h>
 
 /* 申请的帧缓存页数 */
-#define REQ_BUFF_NUMBER	5	/* required buffers to be allocated. */
+#define REQ_BUFF_NUMBER	2	/* required buffers to be allocated. */
 
 /* 用来记录帧缓存的地址和大小 */
 struct buffer {
@@ -77,15 +85,17 @@ void draw_marks(void);
 -----------------------------*/
 void print_help(const char* cmd)
 {
-        printf("Usage: %s [-hd:s:r:f:vo:] \n", cmd);
+        printf("Usage: %s [-hvtd:s:r:f:o:b:] \n", cmd);
         printf("        -h   help \n");
+	printf("	-v:  Reverse upside down, default: false. for YUYV only.\n");
+	printf("	-t:  Display time, default: false.\n");
         printf("        -d:  Video device, default: '/dev/video0' \n");
         printf("        -s:  Image size, default: '320x240' \n");
         printf("        -r:  Frame rate, default: 10fps \n");
         printf("        -f:  Pixel format, default: V4L2_PIX_FMT_MJPEG \n");
         printf("             'yuyv' or 'mjpeg' \n");
-	printf("	-v:  Reverse upside down, default: false. for YUYV only.\n");
 	printf("	-o:  Origin position to the screen, default: 0,0 \n");
+	printf("	-b:  Brightness in percentage, default: 80(%%) \n");
 }
 
 
@@ -139,18 +149,26 @@ struct v4l2_timecode {
 	int	width=320;
 	int	height=240;
 	int	fps=10;
+	int	brightpcnt=80;	/* brightness in percentage */
 	bool	reverse=false;
+	bool	marktime=false;
 	int	x0=0,y0=0;
 
 
 	/* 程序选项 */
         /* Parse input option */
-        while( (opt=getopt(argc,argv,"hd:s:r:f:vo:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hvtd:s:r:f:o:b:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
                                 print_help(argv[0]);
                                 exit(0);
                                 break;
+			case 'v':
+				reverse=true;
+				break;
+			case 't':
+				marktime=true;
+				break;
                         case 'd':	/* Video device name */
 				dev_name=optarg;
 				break;
@@ -169,12 +187,14 @@ struct v4l2_timecode {
 				if(strstr(optarg, "yuyv"))
 					pixelformat=V4L2_PIX_FMT_YUYV;
 				break;
-			case 'v':
-				reverse=true;
-				break;
 			case 'o':
 				x0=atoi(optarg);
 				y0=atoi(strstr(optarg, ",")+1);
+				break;
+			case 'b':
+				brightpcnt=atoi(optarg);
+				if(brightpcnt<30)brightpcnt=30;
+				if(brightpcnt>100)brightpcnt=100;
 				break;
 		}
 	}
@@ -197,21 +217,22 @@ struct v4l2_timecode {
       	fb_position_rotate(&gv_fb_dev, 0);
 
 OPEN_DEV:
-	/* 打开摄像头设备文件 */
+	/* 1. 打开摄像头设备文件 */
 	/* Open video device */
      	while ( (fd_dev = open(dev_name, O_RDWR)) <0 ) {
       	  	printf("Fail to open '%s', Err'%s'.\n", dev_name, strerror(errno));
-		usleep(500000);
+		usleep(200000);
 		//return -1;
 	}
 
-	/* 获取设备驱动支持的操作 */
+	/* 2. 获取设备驱动支持的操作 */
 	/* Get video driver capacity */
       	if( ioctl (fd_dev, VIDIOC_QUERYCAP, &cap) !=0) {
       	  	printf("Fail to ioctl VIDIOC_QUERYCAP, Err'%s'\n", strerror(errno));
 	  	return -1;
       	}
-  	printf("Driver Name:%s\n Card Name:%s\n Bus info:%s\n Capibilities:0x%04X\n",cap.driver,cap.card,cap.bus_info, cap.capabilities);
+	printf("\n\t--- Driver info ---\n");
+  	printf("Driver Name:\t%s\nCard Name:\t%s\nBus info:\t%s\nCapibilities:\t0x%04X\n",cap.driver,cap.card,cap.bus_info, cap.capabilities);
       	if( !(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE) ) {  /* 是否支持视频捕获 */
 	      	printf("The video device does NOT supports capture.\n");
 		  	return -1;
@@ -221,11 +242,11 @@ OPEN_DEV:
 		return -1;
 	}
 
-	/*　在这里查询/设置摄像头的各项控制变量: 亮度，对比度，饱和度，色度等等． */
+	/*　3. 在这里查询/设置摄像头的各项控制变量: 亮度，对比度，饱和度，色度等等． */
 #if 1	/* Set contrast/brightness/saturation/hue/sharpness/gamma/...
 	 * Default usually is OK.
 	 */
-	printf("\n\t\t--- Control params ---\n");
+	printf("\n\t--- Control params ---\n");
 	for(i=0; i<sizeof(vctrl_params)/sizeof(struct v4l2_control); i++) {
 		/* Query Contro　获取设备支持的各项控制变量及其数值 */
 		vctrl.id=vctrl_params[i].id;
@@ -247,7 +268,7 @@ OPEN_DEV:
 	#if 1	/* 将亮度设置到其值域的80% */
 		/* Change brightness to 80% of its range. */
 		if(vctrl.id==V4L2_CID_BRIGHTNESS) {
-			vctrl.value=queryctrl.minimum+(queryctrl.maximum-queryctrl.minimum)*80/100;
+			vctrl.value=queryctrl.minimum+(queryctrl.maximum-queryctrl.minimum)*brightpcnt/100;
 			ioctl( fd_dev, VIDIOC_S_CTRL, &vctrl);
 		}
 	#endif
@@ -262,9 +283,8 @@ OPEN_DEV:
 	}
 #endif
 
-
-	/* 设置视频数据流格式: 模式及相关参数 */
-	/* Set frame format */
+	/* 4. 设置视频数据流格式: 模式及相关参数 */
+	/* Set data format */
      	fmt.type                = V4L2_BUF_TYPE_VIDEO_CAPTURE;	/* 视频捕捉模式 */
      	fmt.fmt.pix.width       = width;			/* 视频尺寸 */
      	fmt.fmt.pix.height      = height;
@@ -291,8 +311,8 @@ OPEN_DEV:
 		printf("Display origin:	(%d,%d)\n", x0,y0);
 	}
 
-	/* 获取生效的实际画面尺寸 */
-	/* Confirm width and height */
+	/* 5. 获取生效的实际画面尺寸 */
+	/* Confirm working width and height */
 	width=fmt.fmt.pix.width;
 	height=fmt.fmt.pix.height;
 
@@ -315,7 +335,7 @@ OPEN_DEV:
 	}
 	#endif
 
-	/* 设置流控参数FPS */
+	/* 6. 设置流控参数FPS */
      	/* Set stream params: frame rate */
      	memset(&streamparm, 0, sizeof(streamparm));
      	streamparm.type=V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -330,11 +350,11 @@ OPEN_DEV:
 		return -3;
 	}
 	else {
-		printf("Frame rate: %d/%d fps\n", streamparm.parm.capture.timeperframe.denominator,
+		printf("Frame rate:\t%d/%d fps\n", streamparm.parm.capture.timeperframe.denominator,
 							streamparm.parm.capture.timeperframe.numerator);
 	}
 
-	/* 枚举支持的视频格式 */
+	/* 7. 枚举支持的视频格式 */
      	/* Enumerate formats supported by the vide device */
      	fmtdesc.index=0;
      	fmtdesc.type=V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -344,7 +364,7 @@ OPEN_DEV:
 		fmtdesc.index++;
      	}
 
-	/* 申请帧缓存 */
+	/* 8. 申请帧缓存 */
 	/* Allocate buffers */
      	req.count               = REQ_BUFF_NUMBER;
      	req.type                = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -386,7 +406,7 @@ OPEN_DEV:
 		memset(buffers[bufindex].start, 0, bufferinfo.length);
      	}
 
-	/* 启动捕获视频，注意:有些设备必须将帧缓存先放入队列后才能启动！ */
+	/* 9. 启动捕获视频，注意:有些设备必须将帧缓存先放入队列后才能启动！ */
 	/* Start to capture video.  some devices may need to queue the buffer at first! */
     	type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     	if( ioctl (fd_dev, VIDIOC_STREAMON, &type) !=0) {
@@ -394,7 +414,7 @@ OPEN_DEV:
 		return -5;
 	}
 
-	/* 将帧缓存放入工作队列，以供摄像头写入数据． */
+	/* 10. 将帧缓存放入工作队列，以供摄像头写入数据． */
 	/* Queue buffer after turn on video capture! */
        	for (i = 0; i < REQ_BUFF_NUMBER; ++i) {
                bufferinfo.type        = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -430,12 +450,24 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
    /* Loop: dequeue the buffer, read out video, then queque the buffer, ....*/
    for(;;) {
 	/* Parse keyinput 键盘输入 */
+	ch=0;
   	read(STDIN_FILENO, &ch,1);
   	switch(ch) {
+		case 'a':	/* Shift left */
+			x0 +=20;
+			break;
+		case 'd':	/* Shift right */
+			x0 -=20;
+			break;
+		case 'w':	/* Shift up */
+			y0 +=20;
+			break;
+		case 's':	/* Shift down */
+			y0 -=20;
+			break;
         	case 'q':       /* Quit */
         	case 'Q':
 			goto END_FUNC;
-                	exit(0);
                 	break;
 	}
 
@@ -461,17 +493,14 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 		bufferinfo.index=0;
         if( ioctl(fd_dev, VIDIOC_DQBUF, &bufferinfo) !=0) {
                 printf("Fail to ioctl VIDIOC_DQBUF, Err'%s'\n", strerror(errno));
-		/* If device is closed, then try to open it.. */
+
+		/* If device is closed, then try to re_open it. this shall follow after select() operation. */
 		if(errno==ENODEV) {
 			/* Unmap and close file */
    			for (i = 0; i < REQ_BUFF_NUMBER; ++i)
       				munmap (buffers[i].start, buffers[i].length);
 			close(fd_dev);
 			goto OPEN_DEV;
-
-			//while( access(dev_name,F_OK)<0 ) usleep(500000);
-			//fd_dev = open (dev_name, O_RDWR);
-			//continue;
 		}
 	}
 	else {
@@ -494,8 +523,8 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 		/* 显示图像 */
 		/* DirectFB write */
 		egi_imgbuf_showRBG888(rgb24, width, height, &gv_fb_dev, x0, y0);
-		draw_marks();		/* 加上标题时间戳 */
-		fb_render(&gv_fb_dev);  /* 刷新Framebuffer */
+		if(marktime) draw_marks();	/* 加上标题时间戳 */
+		fb_render(&gv_fb_dev);  	/* 刷新Framebuffer */
 	}
 
    }
@@ -537,14 +566,24 @@ else
         bufferinfo.index++;
 	if(bufferinfo.index==REQ_BUFF_NUMBER)
 		bufferinfo.index=0;
-        if( ioctl(fd_dev, VIDIOC_DQBUF, &bufferinfo) !=0)
+        if( ioctl(fd_dev, VIDIOC_DQBUF, &bufferinfo) !=0) {
                 printf("Fail to ioctl VIDIOC_DQBUF, Err'%s'\n", strerror(errno));
+
+		/* If device is closed, then try to re_open it. this shall follow after select() operation. */
+		if(errno==ENODEV) {
+			/* Unmap and close file */
+   			for (i = 0; i < REQ_BUFF_NUMBER; ++i)
+      				munmap (buffers[i].start, buffers[i].length);
+			close(fd_dev);
+			goto OPEN_DEV;
+		}
+	}
 	else {
         	//write(fd_jpg, buffers[bufferinfo.index].start, buffers[bufferinfo.index].length);
 		/* 直接解码显示缓存中的JPG图像数据 */
 		show_jpg(NULL, buffers[bufferinfo.index].start, buffers[bufferinfo.index].length, &gv_fb_dev, 0, x0, y0);
-		draw_marks();		/* 加上标题时间戳 */
-		fb_render(&gv_fb_dev); 	/* 刷新Framebuffer */
+		if(marktime) draw_marks();	/* 加上标题时间戳 */
+		fb_render(&gv_fb_dev); 		/* 刷新Framebuffer */
 	}
 
 	/* 将当前帧缓存放入工作队列，以供摄像头写入数据．*/
@@ -591,6 +630,9 @@ END_FUNC:
    /* 关闭设备文件 */
    close (fd_jpg);
    close (fd_dev);
+
+   fb_filo_flush(&gv_fb_dev);
+   release_fbdev(&gv_fb_dev);
 
    /* 释放字符映像 */
    symbol_release_allpages();
