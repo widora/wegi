@@ -427,13 +427,13 @@ int show_jpg( const char* fpath, const unsigned char *inbuff, unsigned long insi
 	int bytes_per_pixel;
 	int width,height;
 	int components;
-	unsigned char *imgbuf;
-	unsigned char *dat;
+	unsigned char *imgbuf;  /* 24bits color data */
+	unsigned char *dat;	/* color data position */
 	uint16_t color;
-	uint32_t rgb;  /* For LETS_NOTE */
-	long int location = 0;
-//	int line_x,line_y;
+	uint32_t rgb;  		/* For LETS_NOTE */
+	long int location = 0;  /* of FB */
 	int x,y;
+	int ltx=0, lty=0, rbx=0, rby=0; /* LeftTop and RightBottom tip coords of image, within and relative to the screen */
 
 	if(fb_dev==NULL)
 		return -1;
@@ -467,6 +467,9 @@ int show_jpg( const char* fpath, const unsigned char *inbuff, unsigned long insi
 	{
 		height=height/3; /* force to be 24bit pic, however shorten the height */
 	}
+
+#if  0  /////////////////////////  Image MUST totally contained in the screen  /////////////////////
+
 	dat=imgbuf;
 
 	/* Check image size and position */
@@ -476,11 +479,10 @@ int show_jpg( const char* fpath, const unsigned char *inbuff, unsigned long insi
 	}
 
 	/* Flip picture to be same data sequence of BMP file */
-	x = y = 0;
 	for( y=0; y<height; y++) {	/* Bottom to Top */
 		for(x=0; x<width; x++) {
-		   if( bytes_per_pixel==4 ) {
 		   // #ifdef LETS_NOTE /* ----- FOR 32BITS COLOR (ARGB) FBDEV ----- */
+		   if( bytes_per_pixel==4 ) {
 			location = (x+x0) * bytes_per_pixel + (y +y0) * xres * bytes_per_pixel;
 			rgb=(*(uint32_t*)dat)>>8;
 			if(  blackoff<=0 || rgb ) {
@@ -491,20 +493,67 @@ int show_jpg( const char* fpath, const unsigned char *inbuff, unsigned long insi
 			}
 		   }
 		   else if( bytes_per_pixel==2 ) {
-		   // #else
 			location = (x+x0) * bytes_per_pixel + (y +y0) * xres * bytes_per_pixel;
 			//显示每一个像素, in ili9431 node of dts, color sequence is defined as 'bgr'(as for ili9431) .
    	        	/* dat(R8G8B8) converting to format R5G6B5(as for framebuffer) */
 			color=COLOR_RGB_TO16BITS(*dat,*(dat+1),*(dat+2));
-			/*if blockoff>0, don't write black to fb, so make it transparent to back color */
+			/* if blockoff>0, don't write black to fb, so make it transparent to back color */
 			if(  blackoff<=0 || color ) {
 				*(uint16_t *)(fbp+location)=color;
 			}
 			dat+=3;
 		   }
-		   // #endif
 		}
 	}
+
+#else  //////////////////////////////////////////////
+
+	/* If totally out of range */
+	if(x0 < -width+1 || x0 > xres-1)
+		return 0;
+	if(y0 < -height+1 || y0 > yres-1)
+		return 0;
+
+	/* Image LeftTop point (x,y), within and relatvie to screen */
+	if(x0<0) ltx=0;
+	else	 ltx=x0;
+	if(y0<0) lty=0;
+	else	 lty=y0;
+
+	/* Image RightBottom point (x,y), within and relatvie to screen */
+	if(x0+width-1 > xres-1)	 rbx=xres-1;
+	else			 rbx=x0+width-1;
+	if(y0+height-1 > yres-1) rby=yres-1;
+	else			 rby=y0+height-1;
+
+	//printf("LT(%d,%d), RB(%d,%d)\n", ltx,lty, rbx, rby);
+
+   	/* Here (x,y) are within screen coord */
+	for( y=lty; y<rby+1; y++) {
+		for(x=ltx; x<rbx+1; x++) {
+		   location = x*bytes_per_pixel + y*xres*bytes_per_pixel;  /* (x,y) within screen */
+		   dat = imgbuf + (x-x0)*3 + (y-y0)*width*3;		/* Of image */
+		   // #ifdef LETS_NOTE /* ----- FOR 32BITS COLOR (ARGB) FBDEV ----- */
+		   if( bytes_per_pixel==4 ) {
+			rgb=(*(uint32_t*)dat)>>8;
+			if(  blackoff<=0 || rgb ) {
+				*(fbp+location+2)=*dat++;
+				*(fbp+location+1)=*dat++;
+				*(fbp+location)=*dat++;
+				*(fbp+location+3)=255;		/* Alpha */
+			}
+		   }
+		   else if( bytes_per_pixel==2 ) {
+   	        	/* dat(R8G8B8) converting to format R5G6B5(as for framebuffer) */
+			color=COLOR_RGB_TO16BITS(*dat,*(dat+1),*(dat+2));
+			/* if blockoff>0, don't write black to fb, so make it transparent to back color */
+			if(  blackoff<=0 || color ) {
+				*(uint16_t *)(fbp+location)=color;
+			}
+		   }
+		}
+	}
+#endif
 
 	/* Free decompressed data buffer */
 	close_jpgImg(imgbuf);
