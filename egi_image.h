@@ -116,7 +116,7 @@ int egi_imgbuf_flipY( EGI_IMGBUF *eimg );		/* mutex_lock */
 int egi_imgbuf_centroSymmetry( EGI_IMGBUF *eimg );	/* mutex_lock */
 int egi_imgbuf_flipX( EGI_IMGBUF *eimg );		/* mutex_lock inside */
 
-int  egi_imgbuf_showRBG888( const unsigned char *rgb, unsigned int width, unsigned int height,
+int  egi_imgbuf_showRBG888( const unsigned char *rgb, int width, int height,
                             FBDEV *fb_dev, int x0, int y0 );
 
 

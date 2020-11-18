@@ -3551,25 +3551,24 @@ image is totally contained within the screen! Or it will abort.
 @x0,y0:		Original coord of image, relative to screen.
 
 ------------------------------------------------------------------------------*/
-int  egi_imgbuf_showRBG888( const unsigned char *rgb, unsigned int width, unsigned int height,
+int  egi_imgbuf_showRBG888( const unsigned char *rgb, int width, int height,
 			    FBDEV *fb_dev, int x0, int y0 )
 {
 	unsigned char *fbp;
 	int xres;
 	int yres;
 	int bytes_per_pixel;
-	unsigned char *dat;
+	unsigned char *dat;  /* color data position */
 	uint16_t color;
-	long int location = 0;
+	long int location = 0;  /* Of FB */
 	int x,y;
+	int ltx=0, lty=0, rbx=0, rby=0; /* LeftTop and RightBottom tip coords of image, within and relative to the screen */
 
 	if(fb_dev==NULL)
 		return -1;
 	if(rgb==NULL)
 		return -1;
 
-	/* Set dat */
-	dat=(unsigned char *)rgb;
 
 	/* Get fb map pointer and params */
 	if(fb_dev->map_bk)
@@ -3580,40 +3579,80 @@ int  egi_imgbuf_showRBG888( const unsigned char *rgb, unsigned int width, unsign
 	yres=fb_dev->vinfo.yres;
 	bytes_per_pixel=(fb_dev->vinfo.bits_per_pixel)>>3;
 
+#if 0 ////////////////  Image MUST totally contained in the screen  ////////////////////////////
+	/* Set dat */
+	dat=(unsigned char *)rgb;
+
 	/* Check image size and position */
 	if( x0<0 || y0<0 || x0+width > xres || y0+height > yres ) {
 		printf("Image cannot fit into the screen!\n");
 		return -2;
 	}
 
-	/* Normal color data sequence */
-	/* WARNING: blackoff not apply here */
-	x = y = 0;
-
-	/* FB pixel: R5G6B5 */
-   	if(bytes_per_pixel==2) {
-		for(y=0; y<height; y++) {
-		   for(x=0; x<width; x++) {
-			location = (x+x0) * bytes_per_pixel + (height-y-1 +y0) * xres * bytes_per_pixel;
-			color=COLOR_RGB_TO16BITS(*dat,*(dat+1),*(dat+2));
-			*(uint16_t *)(fbp+location)=color;
-			dat+=3;
-		   }
-		}
-	}
-
-	/* FB pixel: R8G8B8A8, LETS_NOTE */
-	else if(bytes_per_pixel==4)  {
-		for( y=0; y<height; y++) {	/* Bottom to Top */
-		   for(x=0; x<width; x++) {
-			location = (x+x0) * bytes_per_pixel + (height-y-1 +y0) * xres * bytes_per_pixel;
+	for( y=0; y<height; y++) {   /* Bottom to top */
+	   for(x=0; x<width; x++) {
+		location = (x+x0) * bytes_per_pixel + (y+y0) * xres * bytes_per_pixel;  /* Of FB */
+		/* FB pixel: R8G8B8A8, LETS_NOTE */
+		if(bytes_per_pixel==4)  {
 			*(fbp+location+2)=*dat++;
 			*(fbp+location+1)=*dat++;
 			*(fbp+location)=*dat++;
 			*(fbp+location+3)=255;		/* Alpha */
-		   }
 		}
+		/* FB pixel: R5G6B5 */
+   		else if(bytes_per_pixel==2) {
+			color=COLOR_RGB_TO16BITS(*dat,*(dat+1),*(dat+2));
+			*(uint16_t *)(fbp+location)=color;
+			dat+=3;
+		}
+	   }
 	}
+
+#else  ///////////////////////////////////////////////
+
+        /* If totally out of range */
+        if(x0 < -width+1 || x0 > xres-1)
+                return 0;
+        if(y0 < -height+1 || y0 > yres-1)
+                return 0;
+
+        /* Image LeftTop point (x,y), within and relatvie to screen */
+        if(x0<0) ltx=0;
+        else     ltx=x0;
+        if(y0<0) lty=0;
+        else     lty=y0;
+
+        /* Image RightBottom point (x,y), within and relatvie to screen */
+        if(x0+width-1 > xres-1)  rbx=xres-1;
+        else                     rbx=x0+width-1;
+        if(y0+height-1 > yres-1) rby=yres-1;
+        else                     rby=y0+height-1;
+
+//        printf("LT(%d,%d), RB(%d,%d)\n", ltx,lty, rbx, rby);
+
+        /* Here (x,y) are within screen coord */
+        for( y=lty; y<rby+1; y++) {
+                for(x=ltx; x<rbx+1; x++) {
+		   /* FB/Image map position */
+                   location = x*bytes_per_pixel + y*xres*bytes_per_pixel;  /* of FB */
+                   dat = (unsigned char*)rgb + (x-x0)*3 + (y-y0)*width*3;  /* Of image, RGB888 */
+
+		   /* FB pixel: R8G8B8A8, LETS_NOTE */
+                   if( bytes_per_pixel==4 ) {
+			*(fbp+location+2)=*dat++;
+			*(fbp+location+1)=*dat++;
+			*(fbp+location)=*dat++;
+			*(fbp+location+3)=255;		/* Alpha */
+                   }
+		   /* FB pixel: R5G6B5 */
+                   else if( bytes_per_pixel==2 ) {
+			color=COLOR_RGB_TO16BITS(*dat,*(dat+1),*(dat+2));
+			*(uint16_t *)(fbp+location)=color;
+		  }
+	       }
+	}
+
+#endif
 
 	return 0;
 }
