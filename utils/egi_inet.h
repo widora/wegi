@@ -29,6 +29,10 @@ typedef struct egi_tcp_client EGI_TCP_CLIT;
 
 /* Some TCP/UDP common functions */
 int inet_sock_setTimeOut(int sockfd, long sndtmo_sec, long sndtmo_usec, long rcvtmo_sec, long rcvtmo_usec);
+
+int inet_udp_recvfrom(int sockfd, struct sockaddr *src_addr, void *data, size_t len);
+int inet_udp_sendto(int sockfd, const struct sockaddr *dest_addr, const void *data, size_t packsize);
+
 int inet_tcpsock_setUserTimeOut(int sockfd, unsigned long usertmo_ms);
 int inet_tcpsock_keepalive(int sockfd, int idle_sec, int intvl_sec, int probes);
 int inet_tcp_recv(int sockfd, void *data, size_t packsize);		/* A BLOCK TIMEOUT make it return fail! */
@@ -57,12 +61,17 @@ struct egi_inet_packet {
 void*  IPACK_HEADER(EGI_INETPACK *ipack);
 void*  IPACK_PRIVDATA(EGI_INETPACK *ipack);
 int    IPACK_DATASIZE(const EGI_INETPACK *ipack);
+int    IPACK_PRIVDATASIZE(const EGI_INETPACK *ipack);
 
 EGI_INETPACK* 	inet_ipacket_create(int headsize, void *head, int privdata_size, void * privdata);
 void 	inet_ipacket_free(EGI_INETPACK** ipack);
-int 	inet_ipacket_loadData(EGI_INETPACK *ipack, int off, const void *data, int size);
+int 	inet_ipacket_loadData(EGI_INETPACK *ipack, int off, const void *data, int size); /* Normally: off == sizeof(PRIV_HEADER) */
 int 	inet_ipacket_pushData(EGI_INETPACK **ipack, const void *data, int size);
 int 	inet_ipacket_reallocData(EGI_INETPACK **ipack, int datasize);
+
+int 	inet_ipacket_udpSend(int sockfd, const struct sockaddr *dest_addr, const EGI_INETPACK *ipack);
+int 	inet_ipacket_udpRecv(int sockfd, struct sockaddr *src_addr, EGI_INETPACK **ipack);
+
 int 	inet_ipacket_tcpSend(int sockfd, const EGI_INETPACK *ipack);
 int 	inet_ipacket_tcpRecv(int sockfd, EGI_INETPACK **ipack);       /* Auto. realloc ipack according to leading ipack.packsize */
 
@@ -127,12 +136,24 @@ int inet_default_sigAction(void);
 			/* ------------ UDP C/S ----------- */
 
 #define EGI_MAX_UDP_PDATA_SIZE	(1024*60)
+#define UDP_USER_TIMER_SET      20      /* In seconds. As in inet_tcp_recvfrrom() and inet_udp_sendto(), to count total time waiting/trying
+                                         * when RCVTIMEO/SNDTIMEO is set.
+                                         * If rcv(BLOCK)/send(BLOCK) fails persistently, and total time amount to the value,
+                                         * then the function will give up trying.
+					 * It should be greater than timeout value in inet_create_udpServer()
+					 */
 
-/*---------------------------------------------------------------
+
+/*------------------------------------------------------------------------
           EGI UDP Server/Client Process Callback Functions
 Tasks in callback function should be simple and short, normally
-just to pass out received data to the Caller, and take in data to
-the UDP server/client.
+just to pass out received data to the Caller, and take bring data into
+UDP Server/Client routine.
+
+			!!! WARNING !!!
+All pointers are lvalues, which've been allocated in _routine().
+
+@updcmd:	Command code
 
 @rcvAddr:	Counter part address, from which rcvData was received.
 @rcvData:	Data received from rcvCLIT
@@ -141,11 +162,22 @@ the UDP server/client.
 @sndAddr:	Counter part address, to which sndBuff will be sent.
 @sndBuff:	Data to send to sndCLIT
 @sndSize:	Data size of sndBuff, if<=0, ignore sndBuff.
----------------------------------------------------------------*/
-typedef int (* EGI_UDPSERV_CALLBACK)( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
-				            struct sockaddr_in *sndAddr,       char *sndBuff, int *sndSize);
 
-typedef int (* EGI_UDPCLIT_CALLBACK)( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
+
+Note:
+1. If *sndSize NOT re_assigned to a positive value, server/client rountine
+will NOT proceed to sendto().
+
+
+
+Return:
+	0 	Ok
+	<0      Fails, the xxx_routine() will NOT proceed to sendto().
+--------------------------------------------------------------------------*/
+typedef int (* EGI_UDPSERV_CALLBACK)( int *cmdcode, const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
+				            	   struct sockaddr_in *sndAddr,       char *sndBuff, int *sndSize);
+
+typedef int (* EGI_UDPCLIT_CALLBACK)( int *cmdcode, const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
 				                   			       char *sndBuff, int *sndSize);
 
 
@@ -156,31 +188,40 @@ typedef int (* EGI_UDPCLIT_CALLBACK)( const struct sockaddr_in *rcvAddr, const c
  * function to pass out/in all datagrams. The caller SHALL take responsiblity
  * to identify clients and handle sessions respectively.
  */
+
+#define UDPCMD_NONE  		0
+#define UDPCMD_END_ROUTINE  	1
+
 struct egi_udp_server {
+
 	int sockfd;
 	struct sockaddr_in addrSERV;
 	EGI_UDPSERV_CALLBACK callback;
+	int	cmdcode;			/* Commad code to routine loop, NOW: 1 to end routine. */
 };
 
 struct egi_udp_client {
 	int sockfd;
 	struct sockaddr_in addrSERV;
 	struct sockaddr_in addrME;	/* Self address */
-	EGI_UDPCLIT_CALLBACK callback; /* Same as serv callback */
+	EGI_UDPCLIT_CALLBACK callback; 	/* Same as serv callback */
+	int	cmdcode;			/* Commad code to routine loop, NOW: 1 to end routine. */
 };
 
 /* UDP C/S Basic Functions */
 EGI_UDP_SERV* 	inet_create_udpServer(const char *strIP, unsigned short port, int domain);
 int 		inet_destroy_udpServer(EGI_UDP_SERV **userv);
 int 		inet_udpServer_routine(EGI_UDP_SERV *userv);
-int 		inet_udpServer_TESTcallback( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
-                                       		   struct sockaddr_in *sndAddr,       char *sndBuff, int *sndSize);
+int 		inet_udpServer_TESTcallback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
+                                       		   	struct sockaddr_in *sndAddr,       char *sndBuff, int *sndSize);
+					     /* !!!WARNING: All pointers are lvalues, allocated in _routine() */
 
-EGI_UDP_CLIT* 	inet_create_udpClient(const char *servIP, unsigned short servPort, int domain);
+EGI_UDP_CLIT* 	inet_create_udpClient(const char *servIP, unsigned short servPort, const char *myIP, int domain);
 int 		inet_destroy_udpClient(EGI_UDP_CLIT **uclit);
 int 		inet_udpClient_routine(EGI_UDP_CLIT *uclit);
-int 		inet_udpClient_TESTcallback( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
+int 		inet_udpClient_TESTcallback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
                                        		          			      char *sndBuff, int *sndSize);
+					     /* !!!WARNING: All pointers are lvalues, allocated in _routine() */
 
 			/* ------------ TCP C/S ----------- */
 
@@ -275,6 +316,8 @@ typedef struct egi_tcp_server_session {
 
 /* END FOR TEST ONLY ---------------------------------------------------- */
 
+#define TCPCMD_NONE  		0
+#define TCPCMD_END_SESSION  	1
 
 /*** EGI_TCP_SERV ***/
 struct egi_tcp_server {

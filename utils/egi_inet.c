@@ -37,7 +37,6 @@ NOTE:
 		struct in_addr		sin_addr;
 		unsigned char		sin_zero[8];
 	}
-
 	struct in_addr {
 		union {
 			struct { u_char s_b1,s_b2,s_b3,s_b4; } S_un_b;
@@ -112,9 +111,9 @@ NOTE:
 9. Any INET API functions, like write/read/recv/recvfrom/send/sendto... etc,only deal with kernel buffers!
    It's the kernel that takes care of all end-to-end TCP/UDP connections,transport and reliablity.
 
-10. When sendto() returns (with timeout), it ONLY finish passing returned bytes of data to the kernel!
-   So as recvfrom(), it ONLY returns number of bytes passed from the kernel.
-   It may NOT finish sending/receiving compelete data by only one call! You have
+10. When sendto() returns (with timeout), it ONLY means returned bytes of data have been passed to the kernel!
+   So as for recvfrom(), it ONLY returns number of bytes that passed from the kernel.
+   It may NOT complete sending/receiving expected data with only one call! You have
    to check returned number of bytes with expected size of data.
 
 11. A big packet needs more/extra time/load for transmitting and coordinating!?
@@ -123,7 +122,7 @@ NOTE:
    Pros: To increase packet size in a rarely disturbed network can improve general speed considerablely.
 	 (NOTE: The receiving end MUST also have big buffer and corresponding fast saving device/media/mechanism! )
    Cons: It costs more CPU Load, especially for the client of file receiver, and fluctuation on data stream.
-   Example: Use bigger packet size in Ethernet than in WiFi net.
+   Example: Use bigger packet for Ethernet, and smaller one for WiFi net.
 
    !!! Transmitting speed is restricted by the weakest (most disadvantageous/limited) node/element/factor considered in the whole data link! !!!
 
@@ -209,7 +208,10 @@ void*  IPACK_PRIVDATA(EGI_INETPACK *ipack)
 }
 
 /*------------------------------------------
-   Get ipack data size, NOT privdata size!!!
+Get ipack data size, NOT privdata size!!!
+Reutrn:
+	< 0	Fails
+	>=0	OK
 -------------------------------------------*/
 int  IPACK_DATASIZE(const EGI_INETPACK *ipack)
 {
@@ -218,6 +220,22 @@ int  IPACK_DATASIZE(const EGI_INETPACK *ipack)
 
 	return ipack->packsize-sizeof(EGI_INETPACK);
 }
+
+
+/*---------------------------------------------
+Get ipack privdata size
+Reutrn:
+	< 0	Fails
+	>=0	OK
+---------------------------------------------*/
+int  IPACK_PRIVDATASIZE(const EGI_INETPACK *ipack)
+{
+	if(ipack==NULL)
+		return -1;
+
+	return ipack->packsize-sizeof(EGI_INETPACK)-ipack->headsize;
+}
+
 
 
 /*--------------------------------------------------------
@@ -352,7 +370,7 @@ int inet_ipacket_pushData(EGI_INETPACK **ipack, const void *data, int size)
 
 
 /*-----------------------------------------------------------
-Realloc ipacket with new datasize.
+Realloc ipacket according to new datasize.
 
 Note:
 1. All data[] will be cleared after realloc!
@@ -380,6 +398,85 @@ inline int inet_ipacket_reallocData(EGI_INETPACK **ipack, int datasize)
 	/* Reassign ipack and datasize */
 	*ipack=ptr;
 	(*ipack)->packsize=sizeof(EGI_INETPACK)+datasize;
+
+	return 0;
+}
+
+
+/*-----------------------------------------------------------
+UDP send out an IPACK.
+
+Return:
+        0       OK, data sent out (to kenerl).
+        <0      Fails
+-------------------------------------------------------------*/
+int inet_ipacket_udpSend(int sockfd, const struct sockaddr *dest_addr, const EGI_INETPACK *ipack)
+{
+        if(ipack==NULL)
+                return -1;
+
+	return inet_udp_sendto(sockfd, dest_addr,  (const void*)ipack, ipack->packsize);
+}
+
+
+/*----------------------------------------------------------------
+UDP Receive an ipacket.
+If comming packsize is NOT same as the ipack, then ipack will be
+reallocated/shrinked to be the same.
+
+Note:
+1. 0 packsize MAY received!  ipack will be freed and set NULL.
+
+@fd:		A socket descriptor.
+		Timeout and block mode set as expected.
+@src_addr:	Pointer to pass out sender address.
+		NULL if not interested.
+@ipack:		Ppointer to an EGI_INETPACK
+		!!! WARNING !!!
+		ipack mem space MUST be big enough to hold the
+		comming datagram. Or it will be truncated.
+
+Return:
+	>0	(=1)Peer socket closed.
+	0	OK, packisze data received.
+	<0	Fails
+---------------------------------------------------------------*/
+int inet_ipacket_udpRecv(int sockfd, struct sockaddr *src_addr, EGI_INETPACK **ipack)
+{
+	int packsize;
+	void *ptr;
+
+	if(ipack==NULL)
+		return -1;
+
+	/* If null, create an IPACK body, set packsize = EGI_MAX_UDP_PDATA_SIZE */
+	if( *ipack==NULL ) {
+		*ipack=(EGI_INETPACK *)calloc(1, EGI_MAX_UDP_PDATA_SIZE);
+		if(*ipack==NULL)
+			return -2;
+		(*ipack)->packsize=EGI_MAX_UDP_PDATA_SIZE;
+	}
+
+	/* UDP recvfrom, packsize limit EGI_MAX_UDP_PDATA_SIZE, received datagram will refresh/overwrite ipack. */
+	packsize=inet_udp_recvfrom(sockfd, src_addr, (void *)(*ipack), (*ipack)->packsize );
+	if(packsize<0)
+		return -3;
+
+	/* Update IPACK.packsize */
+	(*ipack)->packsize=packsize;
+
+	/* If 0 packsize */
+	if(packsize==0) {
+		free(*ipack);
+		*ipack=NULL;
+		return 0;
+	}
+
+	/* IPACK adjust/shrink to fit for packsize */
+        ptr=realloc(*ipack, packsize);
+        if(ptr==NULL)
+                return -4;
+	*ipack=(EGI_INETPACK *)ptr;
 
 	return 0;
 }
@@ -845,6 +942,228 @@ int inet_sock_setTimeOut(int sockfd, long sndtmo_sec, long sndtmo_usec, long rcv
 	return 0;
 }
 
+
+/*----------------------------------------------------------
+Receive data from a UDP sockfd with specified size.
+A BLOCK TIMEOUT make it return fail!
+
+@fd:		A socket descriptor.
+		Timeout and block mode set as expected.
+@src_add:	Address of source/sender.
+		addrlen==sizeof(struct sockaddr_in)!
+@data:		Pointer to data[], as for recv buffer.
+		The caller MUST ensure enough mem space.
+@len:		Data length.
+
+Note:
+1. The sockfd expected to be BLOCK type.
+2. The function MAY stuck in dead loop?
+
+Return:
+	>=0	OK, size of datagram received.
+	<0	Fails
+-----------------------------------------------------------*/
+inline int inet_udp_recvfrom(int sockfd, struct sockaddr *src_addr, void *data, size_t len)
+{
+	int nrcv;	/* Number of bytes receied */
+	//int rcvsize;	/* accumulated size */
+	//unsigned int cnt=0;
+	//int state;
+	EGI_CLOCK eclock={0};
+	long tmus;
+	socklen_t addrlen;
+	struct sockaddr_in *sockin=NULL;
+
+	if(data==NULL)
+		return -EINVAL;
+	if(len<0)	/* UDP: 0 size is possible! */
+		return -EINVAL;
+
+	/* If don't care about src_addr */
+	if(src_addr==NULL)
+		addrlen=0;
+
+     /* --------------- Loop recvfrom(BLOCK) Method --------------- */
+	/* Big msgdata MAY need serveral rounds of recvfrom()...*/
+	//rcvsize=0;
+	//while( rcvsize < packsize ) {
+
+	nrcv = -1;
+	while( nrcv < 0 ) {
+		/* Expect to be BLOCK type socket. For datagram MSG_WAITALL is NOT applicable? */
+		//nrcv=recvfrom(sockfd, data+rcvsize, packsize-rcvsize, 0, src_addr, &addrlen); /* MSG_DONTWAIT,MSG_ERRQUEUE */
+		addrlen=sizeof(struct sockaddr); /* Always reset before recvfrom */
+		nrcv=recvfrom(sockfd, data, len, 0, src_addr, &addrlen); /* MSG_DONTWAIT,MSG_ERRQUEUE */
+		if(nrcv>0) {
+
+		#if 0 /* !!! For UDP datagram, it returns whole packsize. followings should be impossible */
+			/* count rcvsize  */
+			rcvsize += nrcv;
+
+			if( rcvsize==packsize) {
+				break; /* OK */
+			}
+			else if( rcvsize < packsize ) {
+				EGI_PLOG(LOGLV_TEST, "%s: rcvsize < packsize, impossible?!",__func__);
+				usleep(10000);    /* To avoid hight CPU Load while loop calling recv() too frequently. */
+				continue; /* -----> continue to recv remaining data */
+			}
+			else { /* rcvsize > packsize, '>' seems impossible! */
+				EGI_PLOG(LOGLV_TEST, "%s: rcvsize > packsize, impossible!",__func__);
+				return -3;
+			}
+		#endif
+	        }
+        	else if(nrcv==0) {
+       			/* MAN:
+			 * "Datagram sockets in various domains (e.g., the UNIX and Internet domains) permit zero-length datagrams.
+       			 * The value 0 may also be returned if the requested number of bytes to receive from a stream socket was 0."
+			 */
+			EGI_PLOG(LOGLV_TEST, "%s: nrcv==0!", __func__);
+			return 0;
+        	}
+	        else if(nrcv<0) {
+			/* Start timing. NOTE: one round RCVTIMEOUT missed! */
+			if( eclock.status==ECLOCK_STATUS_IDLE )
+				egi_clock_start(&eclock);
+
+                	switch(errno) {
+                        	#if(EWOULDBLOCK!=EAGAIN)
+                                case EWOULDBLOCK:
+                                #endif
+                                case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
+					EGI_PLOG(LOGLV_TEST,"%s: Timeout!", __func__);
+					//return -4;
+
+			/* For TEST ONLY: ----- */
+					if( (tmus=egi_clock_peekCostUsec(&eclock)) > UDP_USER_TIMER_SET*1000000) {
+						EGI_PLOG(LOGLV_TEST,"%s: Time_trying_send() %ldus > TCP_USER_TIMER_SET!", __func__, tmus);
+						return 5;
+					}
+					usleep(50000);
+					continue;  /* ---> continue to recv while() */
+			/* ---------------*/
+
+					break;
+				default:
+		        	  	EGI_PLOG(LOGLV_TEST,"%s: UDP Err'%s'", __func__, strerror(errno));
+					return -4;
+			}
+		}
+
+		/* Check domain */
+		sockin=(struct sockaddr_in *)src_addr;
+		if(sockin->sin_family != AF_INET) {
+			EGI_PLOG(LOGLV_TEST,"%s: src_addr is NOT AF_INET domain!", __func__);
+		}
+
+   	}
+
+	return nrcv;
+}
+
+
+/*---------------------------------------------------------
+Send out data through a UDP socket.
+A BLOCK TIMEOUT make it return fail!
+
+@fd:		A socket descriptor.
+		Timeout and block mode set as expected.
+@dest_addr:	Destination address.
+@data:		Pointer to data[]
+@packsize:	Size expected to send out.
+
+Note:
+1. sockfd expected to be BLOCK type.
+2. If packsize > EGI_MAX_UDP_PDATA_SIZE, it will return error.
+3. The function MAY stuck in dead loop?
+
+Return:
+	0	OK, data sent out (to kenerl).
+	<0	Fails
+-----------------------------------------------------------*/
+inline int inet_udp_sendto(int sockfd, const struct sockaddr *dest_addr, const void *data, size_t packsize)
+{
+	int nsnd;		/* Number of bytes sent out in one round */
+	int sndsize;		/* accumulated size */
+	unsigned int cnt=0;
+	EGI_CLOCK eclock={0};
+	long tmus;
+	socklen_t addrlen=sizeof(struct sockaddr);
+
+	if(data==NULL)
+		return -EINVAL;
+	if(packsize<1)
+		return -EINVAL;
+
+	if(packsize>EGI_MAX_UDP_PDATA_SIZE) {
+		EGI_PLOG(LOGLV_TEST, "%s: packsize > EGI_MAX_UDP_PDATA_SIZE! Error.", __func__);
+		return -EINVAL;
+	}
+
+	 /* --------------- Loop sendto(BLOCK) Method --------------- */
+	/* Big msgdata MAY need serveral rounds of sendto()...*/
+	sndsize=0;
+	while( sndsize < packsize ) {
+		/* Expect to be BLOCK type socket for UDP. */
+	        nsnd=sendto(sockfd, data+sndsize, packsize-sndsize, 0, dest_addr, addrlen); /* flags: MSG_CONFIRM, MSG_DONTWAI */
+		if(nsnd>0) {
+			/* count sndsize  */
+			sndsize += nsnd;
+
+			if( sndsize==packsize) {
+				break; /* OK */
+			}
+			else if( sndsize < packsize ) {
+				/* It usually needs to call sendto() just once to send out all packsize,
+				 * anyway, just to avoid high CPU Load while calling sendto() too frequently.
+				 */
+				usleep(1000);
+				continue; /* -----> continue to send remaining data */
+			}
+			else { /* sndsize > packsize, '>' seems impossible! */
+				EGI_PLOG(LOGLV_TEST, "%s: sndsize > packsize, impossible!", __func__);
+				return -ECOMM;
+			}
+	        }
+	        else if(nsnd<0) {
+			/* Start timing, Note: one round SNDTIMEOUT missed! */
+			if( eclock.status==ECLOCK_STATUS_IDLE )
+				egi_clock_start(&eclock);
+
+                	switch(errno) {
+                        	#if(EWOULDBLOCK!=EAGAIN)
+                                case EWOULDBLOCK:
+                                #endif
+                                case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
+					EGI_PLOG(LOGLV_TEST,"%s: Timeout!",__func__);
+					return 5;
+
+			/* For TEST ONLY ----------*/
+					EGI_PLOG(LOGLV_TEST,"%s: Timeout! try again. cnt=%d",__func__, cnt++);
+					if( (tmus=egi_clock_peekCostUsec(&eclock)) > UDP_USER_TIMER_SET*1000000) {
+						EGI_PLOG(LOGLV_TEST,"%s: Time_trying_sendto() %ldus > UDP_USER_TIMER_SET!", __func__, tmus);
+						return 5;
+					}
+					usleep(50000);
+					continue;  /* ---> continue to send while() */
+			/* --------------------------*/
+
+					break;
+				default:
+		        	  	EGI_PLOG(LOGLV_TEST,"%s: UDP Err'%s'",__func__, strerror(errno));
+					return -4;
+			}
+		}
+		else { /* nsnd==0 */
+			EGI_PLOG(LOGLV_TEST,"%s: snd==0!", __func__);
+		}
+   	}
+
+	return 0;
+}
+
+
 /*---------------------------------------------------------------------------
 Set TCP_USER_TIMEOUT for the socket.
 
@@ -927,7 +1246,7 @@ int inet_tcpsock_keepalive(int sockfd, int idle_sec, int intvl_sec, int probes)
 
 
 /*----------------------------------------------------------
-Receive data from sockfd with specified size.
+Receive data from a TCP sockfd with specified size.
 A BLOCK TIMEOUT make it return fail!
 
 @fd:		A socket descriptor.
@@ -1045,7 +1364,7 @@ inline int inet_tcp_recv(int sockfd, void *data, size_t packsize)
 
 
 /*---------------------------------------------------------
-Send out data through a socket.
+Send out data through a UDP socket.
 A BLOCK TIMEOUT make it return fail!
 
 @fd:		A socket descriptor.
@@ -1084,13 +1403,13 @@ inline int inet_tcp_send(int sockfd, const void *data, size_t packsize)
 		return -EINVAL;
 
 	 /* --------------- Loop send(BLOCK) Method --------------- */
-	/* Big msgdata MAY need serveral rounds of recv()...*/
+	/* Big msgdata MAY need serveral rounds of send()...*/
 	sndsize=0;
 	while( sndsize < packsize ) {
 		/* Expect to be BLOCK type socket for TCP link. */
 		nsnd=send(sockfd, data+sndsize, packsize-sndsize, 0); /* In connectiong_mode, flags: MSG_CONFIRM, MSG_DONTWAIT */
 		if(nsnd>0) {
-			/* count rcvsize  */
+			/* count sndsize  */
 			sndsize += nsnd;
 
 			if( sndsize==packsize) {
@@ -1337,7 +1656,7 @@ to client.
 	------ One Routine, One caller -------
 
 NOTE:
-1. For a UDP server, the routine process always start with
+1. For a UDP server, the routine process always starts with
    recvfrom().
 2. If sndCLIT is meaningless, then sendto() will NOT execute.
    SO a caller may stop server to sendto() by clearing sndCLIT.
@@ -1345,7 +1664,7 @@ NOTE:
    			!!! WARNING !!!
    The counter peer client should inform routine Caller to clear/reset
    sndCLIT before close the connection! OR the routine will NEVER
-   stop sending data, even the peer client is closed.
+   stop sending data, even after the peer client is closed.
    UDP is a kind of connectionless link!
 
 3. nrcv<0. means no data from client.
@@ -1368,7 +1687,9 @@ int inet_udpServer_routine(EGI_UDP_SERV *userv)
 	socklen_t clen;
 	char rcvbuff[EGI_MAX_UDP_PDATA_SIZE]; /* EtherNet packet payload MAX. 46-MTU(1500) bytes,  UPD packet payload MAX. 2^16-1-8-20=65507 */
 	char sndbuff[EGI_MAX_UDP_PDATA_SIZE];
-	int  sndsize;	    /* size of to_send_data */
+	int  sndsize;	    	/* size of to_send_data */
+	int  cbret;		/* callback return */
+	int  cmdcode=0;	 	/* Command code */
 
 	/* Check input */
 	if( userv==NULL )
@@ -1381,11 +1702,16 @@ int inet_udpServer_routine(EGI_UDP_SERV *userv)
 	/*** Loop service processing: ***/
 	printf("%s: Start UDP service loop processing...\n", __func__);
 	while(1) {
+
+		/* Parse command code, just after callback&sendto() */
+		if(cmdcode==UDPCMD_END_ROUTINE)
+			break;
+
 		/* ---- UDP Server: NON_Blocking recvfrom() ---- */
                 /*  MSG_DONTWAIT (since Linux 2.2)
                  *  Enables  nonblocking  operation; if the operation would block, EAGAIN or EWOULDBLOCK is returned.
                  */
-		clen=sizeof(rcvCLIT); /*  Before callING recvfrom(), it should be initialized */
+		clen=sizeof(rcvCLIT); /*  Each time before calling recvfrom(), it should be initialized */
 		nrcv=recvfrom(userv->sockfd, rcvbuff, sizeof(rcvbuff), MSG_CMSG_CLOEXEC|MSG_DONTWAIT, &rcvCLIT, &clen); /* MSG_DONTWAIT, MSG_ERRQUEUE */
 		/* TODO: What if clen != sizeof( struct sockaddr_in ) ! */
 		if( clen != sizeof(rcvCLIT) )
@@ -1398,9 +1724,11 @@ int inet_udpServer_routine(EGI_UDP_SERV *userv)
                                 case EWOULDBLOCK:
                                 #endif
 				case EAGAIN:
-					printf("%s: errno==EAGAIN/EWOULDBLOCK.\n",__func__);
+					//printf("%s: errno==EAGAIN/EWOULDBLOCK.\n",__func__);
+					usleep(10000);
 					break;
 				default:
+					printf("%s: Fail to call recvfrom(), Err'%s'\n", __func__, strerror(errno));
 					return -2;
 			}
 		}
@@ -1419,14 +1747,16 @@ int inet_udpServer_routine(EGI_UDP_SERV *userv)
 		 *   Pass out: rcvCLIT, rcvbuff, rcvsize
 		 *   Take in:  sndCLIT, sndbuff, sndsize
 		 */
-		sndsize=0; /* reset first */
-		userv->callback(&rcvCLIT, rcvbuff, nrcv,  &sndCLIT, sndbuff, &sndsize);
+		sndsize=-1; /* reset first */
+		cbret=userv->callback(&cmdcode, &rcvCLIT, rcvbuff, nrcv,  &sndCLIT, sndbuff, &sndsize);
+		if(cbret!=0) {
+			usleep(5000);
+			continue;
+		}
 
-                /* Send data to server */
-		clen=sizeof(sndCLIT); /* Always SAME here!*/
-
-		/* Sendto: Only If sndCLIT is meaningful and sndaSize >0 */
-		if( sndCLIT.sin_addr.s_addr !=0  && sndsize>0 ) {
+		/* Sendto client: Only If sndCLIT is meaningful and sndaSize >0 */
+		if( sndsize > -1 && sndCLIT.sin_addr.s_addr !=0 ) {
+			clen=sizeof(sndCLIT); /* Always SAME here!*/
        		        nsnd=sendto(userv->sockfd, sndbuff, sndsize, 0, &sndCLIT, clen); /* flags: MSG_CONFIRM, MSG_DONTWAI */
         		if(nsnd<0){
        	        		printf("%s: Fail to sendto() data to client '%s:%d', Err'%s'\n",
@@ -1470,8 +1800,8 @@ Return:
 	0	OK
 	<0	Fails
 ------------------------------------------------------------------*/
-int inet_udpServer_TESTcallback( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
-                                       struct sockaddr_in *sndAddr, 	  char *sndBuff, int *sndSize)
+int inet_udpServer_TESTcallback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
+                                       		struct sockaddr_in *sndAddr, 	  char *sndBuff, int *sndSize)
 {
 	int  psize=EGI_MAX_UDP_PDATA_SIZE; /* EGI_MAX_UDP_PDATA_SIZE=1024;  UDP packet payload size, in bytes. */
 	char buff[psize];
@@ -1537,7 +1867,7 @@ Return:
 	Pointer to an EGI_UPD_SERV	OK
 	NULL				Fails
 -------------------------------------------------------------*/
-EGI_UDP_CLIT* inet_create_udpClient(const char *servIP, unsigned short servPort, int domain)
+EGI_UDP_CLIT* inet_create_udpClient(const char *servIP, unsigned short servPort, const char *myIP, int domain)
 {
 	struct timeval timeout={10,0}; /* Default time out */
         socklen_t clen;
@@ -1576,7 +1906,10 @@ EGI_UDP_CLIT* inet_create_udpClient(const char *servIP, unsigned short servPort,
 	uclit->addrSERV.sin_port=htons(servPort);
 
 	uclit->addrME.sin_family=domain;
-	uclit->addrME.sin_addr.s_addr=htonl(INADDR_ANY);
+	if(myIP)
+		uclit->addrME.sin_addr.s_addr=inet_addr(myIP);
+	else
+		uclit->addrME.sin_addr.s_addr=htonl(INADDR_ANY);
 	printf("%s: Initial addrME at '%s:%d'\n", __func__, inet_ntoa(uclit->addrME.sin_addr), ntohs(uclit->addrME.sin_port));
 
 	/* NOTE: You may bind CLIENT to a given port, mostly not necessary. If 0, let kernel decide. */
@@ -1634,7 +1967,7 @@ EGI_UDP_CLIT* inet_create_udpClient(const char *servIP, unsigned short servPort,
                 printf("%s: Fail to getsockname for client, Err'%s'\n", __func__, strerror(errno));
         }
 	else
-		printf("%s: An EGI UDP client created at ???%s:%d, targeting to the server at %s:%d.\n",
+		printf("%s: An EGI UDP client created at ?%s?:%d, targeting to the server at %s:%d.\n",
 			 __func__, inet_ntoa(uclit->addrME.sin_addr), ntohs(uclit->addrME.sin_port),
 				   inet_ntoa(uclit->addrSERV.sin_addr), ntohs(uclit->addrSERV.sin_port)	  );
 
@@ -1693,13 +2026,16 @@ Return:
 --------------------------------------------------------------*/
 int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
 {
-	struct sockaddr_in addrSENDER;   /* Address of the sender(server) from recvfrom(), expected to be same as uclit->addrSERV */
+	struct sockaddr_in addrSENDER={0};   /* Address of the sender(server) from recvfrom(), expected to be same as uclit->addrSERV */
 	socklen_t sndlen;
 	int nrcv,nsnd;
 	socklen_t svrlen;
 	char rcvbuff[EGI_MAX_UDP_PDATA_SIZE]; /* EtherNet packet payload MAX. 46-MTU(1500) bytes,  UPD packet payload MAX. 2^16-1-8-20=65507 */
 	char sndbuff[EGI_MAX_UDP_PDATA_SIZE];
-	int  sndsize=-1;	    /* size of to_send_data */
+	int  sndsize=-1;	 /* size of to_send_data */
+	int  cbret;		 /* callback return */
+	int  cmdcode=0;		 /* Command code */
+
 
 	/* Check input */
 	if( uclit==NULL )
@@ -1723,11 +2059,11 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
 		 *   Take in:   	sndbuff, sndsize
 		 */
 		sndsize=-1; /* Reset it first */
-		uclit->callback(&addrSENDER, rcvbuff, nrcv, sndbuff, &sndsize); /* Init. nrcv=0 */
-
-		/* Send data to ther Server */
-		if(sndsize>-1) /* permit zero-length datagrams */
+		cbret=uclit->callback(&cmdcode, &addrSENDER, rcvbuff, nrcv, sndbuff, &sndsize); /* Init. nrcv=0 */
+		/* Sendto(BLOCKING) Server */
+		if(cbret==0 && sndsize>-1) /* permit zero-length datagrams */
 		{
+			printf("%s: sendto...\n", __func__);
                 	nsnd=sendto(uclit->sockfd, sndbuff, sndsize, 0, &uclit->addrSERV, svrlen); /* flags: MSG_CONFIRM, MSG_DONTWAI */
                         if(nsnd<0){
                         	printf("%s: Fail to sendto() data to UDP server '%s:%d', Err'%s'\n",
@@ -1741,13 +2077,17 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
 
 		}
 
+		/* Parse command code,  just after callback&sendto() */
+		if(cmdcode==UDPCMD_END_ROUTINE)
+			break;
+
 		/* ---- UDP Client: Blocking recvfrom() ---- */
                 /*  MSG_DONTWAIT (since Linux 2.2)
                  *  Enables  nonblocking  operation; if the operation would block, EAGAIN or EWOULDBLOCK is returned.
                  */
 		sndlen=sizeof(addrSENDER); /*  Before the call, it should be initialized to adddrSENDR */
 		nrcv=recvfrom(uclit->sockfd, rcvbuff, sizeof(rcvbuff), MSG_CMSG_CLOEXEC, &addrSENDER, &sndlen); /* MSG_DONTWAIT, MSG_ERRQUEUE */
-		/* TODO: What if sndlen > sizeof( addrSENDER ) ! */
+		/* TODO: What if sndlen > sizeof( addrSENDER ) ! hacker? */
 		if(sndlen>sizeof(addrSENDER))
 			printf("%s: sndlen > sizeof(addrSENDER)!\n",__func__);
 		/* Datagram sockets in various domains permit zero-length datagrams */
@@ -1789,6 +2129,10 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
                 /* Loop Session gap */
                 usleep(5000); //500000);
 	}
+
+
+
+	return 0;
 }
 
 
@@ -1813,8 +2157,8 @@ Return:
 	0	OK
 	<0	Fails
 --------------------------------------------------------------------*/
-int inet_udpClient_TESTcallback( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
-                                        	  		          char *sndBuff, int *sndSize )
+int inet_udpClient_TESTcallback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
+                                        	  		         		char *sndBuff, int *sndSize )
 {
 	int  psize=EGI_MAX_UDP_PDATA_SIZE; /* EGI_MAX_UDP_PDATA_SIZE=1024;  UDP packet payload size, in bytes. */
 	char buff[psize];
