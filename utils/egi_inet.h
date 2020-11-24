@@ -193,19 +193,24 @@ typedef int (* EGI_UDPCLIT_CALLBACK)( int *cmdcode, const struct sockaddr_in *rc
 #define UDPCMD_END_ROUTINE  	1
 
 struct egi_udp_server {
-
-	int sockfd;
-	struct sockaddr_in addrSERV;
-	EGI_UDPSERV_CALLBACK callback;
-	int	cmdcode;			/* Commad code to routine loop, NOW: 1 to end routine. */
+	int 			sockfd;		/* Socket descriptor */
+	struct sockaddr_in 	addrSERV;	/* Sefl address */
+	EGI_UDPSERV_CALLBACK 	callback;	/* Callback function */
+	unsigned int		idle_waitus;	/* Sleep us for idle looping, to relax CPU load. */
+	unsigned int		send_waitus;	/* Sleep us after sendto(), to relax traffic pressure through whole link. */
+						/* For server, recvfrom() is MSG_DONTWAIT mode */
+	int			cmdcode;	/* Commad code to routine loop, NOW: 1 to end routine. */
 };
 
 struct egi_udp_client {
-	int sockfd;
-	struct sockaddr_in addrSERV;
-	struct sockaddr_in addrME;	/* Self address */
-	EGI_UDPCLIT_CALLBACK callback; 	/* Same as serv callback */
-	int	cmdcode;			/* Commad code to routine loop, NOW: 1 to end routine. */
+	int 			sockfd;		/* Socket descriptor */
+	struct sockaddr_in 	addrSERV;	/* Server address */
+	struct sockaddr_in 	addrME;		/* Self address */
+	EGI_UDPCLIT_CALLBACK 	callback; 	/* Callback function */
+	unsigned int		idle_waitus;	/* Sleep us for idle looping, to relax CPU load. */
+	unsigned int		send_waitus;	/* Sleep us after each sendto(), to relax traffic pressure through whole link. */
+						/* For client, recvfrom() is BLOCKING mode. */
+	int			cmdcode;	/* Commad code to routine loop, NOW: 1 to end routine. */
 };
 
 /* UDP C/S Basic Functions */

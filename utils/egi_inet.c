@@ -1559,7 +1559,7 @@ EGI_UDP_SERV* inet_create_udpServer(const char *strIP, unsigned short port, int 
 	if(userv==NULL)
 		return NULL;
 
-	/*--------------------------------------------------
+	/*--------------- domain ---------------------------
        	AF_INET             IPv4 Internet protocols
        	AF_INET6            IPv6 Internet protocols
        	AF_IPX              IPX - Novell protocols
@@ -1615,6 +1615,7 @@ EGI_UDP_SERV* inet_create_udpServer(const char *strIP, unsigned short port, int 
 		return NULL;
         }
 
+	/* TODO: If port default as 0, current sin_port is still 0! */
 	printf("%s: An EGI UDP server created at %s:%d.\n", __func__, inet_ntoa(userv->addrSERV.sin_addr), ntohs(userv->addrSERV.sin_port));
 
 	/* OK */
@@ -1689,7 +1690,7 @@ int inet_udpServer_routine(EGI_UDP_SERV *userv)
 	char sndbuff[EGI_MAX_UDP_PDATA_SIZE];
 	int  sndsize;	    	/* size of to_send_data */
 	int  cbret;		/* callback return */
-	int  cmdcode=0;	 	/* Command code */
+	int  cmdcode=UDPCMD_NONE;	/* Command code */
 
 	/* Check input */
 	if( userv==NULL )
@@ -1724,8 +1725,8 @@ int inet_udpServer_routine(EGI_UDP_SERV *userv)
                                 case EWOULDBLOCK:
                                 #endif
 				case EAGAIN:
-					//printf("%s: errno==EAGAIN/EWOULDBLOCK.\n",__func__);
-					usleep(10000);
+					//printf("%s: errno==EAGAIN/EWOULDBLOCK.\n",__func__); /* Yes! */
+					//usleep(10000);  sleep at last!
 					break;
 				default:
 					printf("%s: Fail to call recvfrom(), Err'%s'\n", __func__, strerror(errno));
@@ -1769,9 +1770,18 @@ int inet_udpServer_routine(EGI_UDP_SERV *userv)
 			}
                	}
 
-	    	/* END one round routine. sleep if NO DATA received */
-		if(nrcv<0)
-	    		usleep(5000);
+                /* To relax idle looping CPU Load */
+                if( sndsize<0 && nrcv<0 ) {
+                        if(userv->idle_waitus)
+                                usleep(userv->idle_waitus);
+                        //usleep(5000);
+                }
+                /* To relax inet traffic speed */
+                else if( sndsize > 0) {
+                        if(userv->send_waitus)
+                                usleep(userv->send_waitus);
+                }
+
 	}
 
 	return 0;
@@ -1910,7 +1920,7 @@ EGI_UDP_CLIT* inet_create_udpClient(const char *servIP, unsigned short servPort,
 		uclit->addrME.sin_addr.s_addr=inet_addr(myIP);
 	else
 		uclit->addrME.sin_addr.s_addr=htonl(INADDR_ANY);
-	printf("%s: Initial addrME at '%s:%d'\n", __func__, inet_ntoa(uclit->addrME.sin_addr), ntohs(uclit->addrME.sin_port));
+//	printf("%s: Initial addrME at '%s:%d'\n", __func__, inet_ntoa(uclit->addrME.sin_addr), ntohs(uclit->addrME.sin_port));
 
 	/* NOTE: You may bind CLIENT to a given port, mostly not necessary. If 0, let kernel decide. */
 	if( bind(uclit->sockfd,(struct sockaddr *)&(uclit->addrME), sizeof(uclit->addrME)) < 0)
@@ -2034,7 +2044,7 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
 	char sndbuff[EGI_MAX_UDP_PDATA_SIZE];
 	int  sndsize=-1;	 /* size of to_send_data */
 	int  cbret;		 /* callback return */
-	int  cmdcode=0;		 /* Command code */
+	int  cmdcode=UDPCMD_NONE; /* Command code */
 
 
 	/* Check input */
@@ -2050,7 +2060,7 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
 
 	/*** Loop service processing ***/
 	printf("%s: Start UDP client loop processing...\n", __func__);
-	nrcv=0; /* Reset it first */
+	nrcv=-1; /* Reset it first */
 	while(1) {
 
 		/***  CALLBACK ( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
@@ -2063,7 +2073,7 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
 		/* Sendto(BLOCKING) Server */
 		if(cbret==0 && sndsize>-1) /* permit zero-length datagrams */
 		{
-			printf("%s: sendto...\n", __func__);
+			printf("%s: sendto(BLOCK)...\n", __func__);
                 	nsnd=sendto(uclit->sockfd, sndbuff, sndsize, 0, &uclit->addrSERV, svrlen); /* flags: MSG_CONFIRM, MSG_DONTWAI */
                         if(nsnd<0){
                         	printf("%s: Fail to sendto() data to UDP server '%s:%d', Err'%s'\n",
@@ -2074,7 +2084,6 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
                         	printf("%s: WARNING! Send %d of total %d bytes to '%s:%d'!\n",
                                             __func__, nsnd, sndsize, inet_ntoa(uclit->addrSERV.sin_addr), ntohs(uclit->addrSERV.sin_port) );
 			}
-
 		}
 
 		/* Parse command code,  just after callback&sendto() */
@@ -2086,6 +2095,7 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
                  *  Enables  nonblocking  operation; if the operation would block, EAGAIN or EWOULDBLOCK is returned.
                  */
 		sndlen=sizeof(addrSENDER); /*  Before the call, it should be initialized to adddrSENDR */
+		//printf("%s: recvfrom(BLOCK)...\n",__func__);
 		nrcv=recvfrom(uclit->sockfd, rcvbuff, sizeof(rcvbuff), MSG_CMSG_CLOEXEC, &addrSENDER, &sndlen); /* MSG_DONTWAIT, MSG_ERRQUEUE */
 		/* TODO: What if sndlen > sizeof( addrSENDER ) ! hacker? */
 		if(sndlen>sizeof(addrSENDER))
@@ -2094,6 +2104,9 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
 		if(nrcv<0) {
 			printf("%s: Fail to call recvfrom(), Err'%s'\n", __func__, strerror(errno));
 			switch(errno) {
+                                #if(EWOULDBLOCK!=EAGAIN)
+                                case EWOULDBLOCK:
+                                #endif
 				case EAGAIN:  /* Note: EAGAIN == EWOULDBLOCK */
 					printf("%s: errno==EAGAIN or EWOULDBLOCK.\n",__func__);
 					break;
@@ -2110,15 +2123,9 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
                          */
 
 			/* NOTE: too fast calling recvfrom() will interfere other UDP sessions...? */
-			//BLOCKED: usleep(5000);
-			continue;
 		}
 
 		/* Datagram sockets in various domains permit zero-length datagrams. */
-                //else if(nrcv==0) {
-                //        usleep(10000);
-                //        continue;
-                //}
 
 		/* ELSE: (nrcv>=0) */
 		#if 0
@@ -2126,11 +2133,18 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
                            __func__, nrcv, inet_ntoa(addrSENDER.sin_addr), ntohs(addrSENDER.sin_port));
 		#endif
 
-                /* Loop Session gap */
-                usleep(5000); //500000);
+                /* To relax idle loop CPU Load */
+		if( sndsize<0 && nrcv<0 ) {
+			if(uclit->idle_waitus)
+				usleep(uclit->idle_waitus);
+	                //usleep(5000);
+		}
+		/* To relax inet traffic speed */
+		else if( sndsize > 0) {
+			if(uclit->send_waitus)
+				usleep(uclit->send_waitus);
+		}
 	}
-
-
 
 	return 0;
 }
