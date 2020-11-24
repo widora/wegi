@@ -31,7 +31,7 @@ typedef struct {
 	char 		*fp;
 	off_t		off;
 } EGI_FILEMMAP;
-EGI_FILEMMAP *egi_fmap_create(const char *fpath);
+EGI_FILEMMAP *egi_fmap_create(const char *fpath, off_t resize);
 int egi_fmap_free(EGI_FILEMMAP** fmap);
 
 /* A file, functions as the system memo pad, for copy/paste operation */
@@ -67,5 +67,25 @@ int egi_encode_base64(int type, const unsigned char *data, unsigned int size, ch
 int egi_encode_base64URL(const unsigned char *base64_data, unsigned int data_size, char *buff, unsigned int buff_size, bool notail);
 int egi_encode_uft8URL(const unsigned char *ustr, char *buff, unsigned int buff_size);
 
+/* EGI_BITSTATUS: Bitwise status */
+typedef struct egi_bit_status {
+	unsigned int 	total;		/* Total number of effective bits in octbits[] */
+		int	pos;		/* Current position, set -1 before posnext op. */
+	unsigned char *octbits;		/* Arrays of bit_status holders, each with 8 bits. */
+	//unsigned uint32_t *32bits;
+} EGI_BITSTATUS;
+
+EGI_BITSTATUS *egi_bitstatus_create(unsigned int total);
+void 	egi_bitstatus_free(EGI_BITSTATUS **ebits);
+int 	egi_bitstatus_getval(const EGI_BITSTATUS *ebits, unsigned int index);
+void 	egi_bitstatus_print(const EGI_BITSTATUS *ebits);
+int 	egi_bitstatus_set(EGI_BITSTATUS *ebits, unsigned int index);
+int 	egi_bitstatus_reset(EGI_BITSTATUS *ebits, unsigned int index);
+int 	egi_bitstatus_setall(EGI_BITSTATUS *ebits);
+int 	egi_bitstatus_resetall(EGI_BITSTATUS *ebits);
+int 	egi_bitstatus_count_ones(const EGI_BITSTATUS *ebits);
+int 	egi_bitstatus_count_zeros(const EGI_BITSTATUS *ebits);
+int 	egi_bitstatus_posnext_zero(EGI_BITSTATUS *ebits); /* ebits->pos self increase */
+int 	egi_bitstatus_posnext_one(EGI_BITSTATUS *ebits);  /* ebits->pos self increase */
 
 #endif

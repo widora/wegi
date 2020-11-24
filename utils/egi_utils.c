@@ -27,6 +27,7 @@ midaszhou@yahoo.com
 #include <libgen.h>
 
 
+
 /*---------------------------------
 Free a char pointer and reset
 it to NULL
@@ -67,8 +68,12 @@ int egi_mem_grow(void **ptr, size_t old_size, size_t more_size)
 }
 
 
-/*--------------------------------------------
+/*-----------------------------------------------------------
 Mmap a file and return a EGI_FILEMMAP.
+If the file dose NOT exis, then create it first.
+If resize>0, then truncated to the size, extended part reads
+as null bytes ('\0').
+
 Note:
 1. For 32-bits type off_t, mmap Max. file size <2G !
    off_t: 32bits, Max. fsize:  2^31-1
@@ -76,11 +81,14 @@ Note:
 2. mmap with flags: PROT_READ, MAP_PRIVATE
 3. The file must NOT be empty.
 
+@fpath:	  File path
+@resize:  resize
+	  if>0, the file will be truncated to the size.
 Return:
 	Pointer to EGI_FILEMMAP		OK
 	NULL				Fails
---------------------------------------------*/
-EGI_FILEMMAP * egi_fmap_create(const char *fpath)
+----------------------------------------------------------*/
+EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize)
 {
         struct stat	sb;
 	EGI_FILEMMAP *fmap=NULL;
@@ -91,7 +99,7 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath)
 		return NULL;
 
         /* Open text file */
-        fmap->fd=open(fpath, O_RDONLY, S_IRUSR);
+        fmap->fd=open(fpath, O_CREAT|O_RDWR, S_IRUSR|S_IWUSR);
         if(fmap->fd<0) {
                 printf("%s: Fail to open input file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
 		free(fmap);
@@ -106,15 +114,33 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath)
 
 	/* Check size */
         fmap->fsize=sb.st_size;
-	if(fmap->fsize <= 0)
-		goto END_FUNC;
+	//if( fmap->fsize <= 0) {
+	if( resize>0 ) {
+		//goto END_FUNC;
+		if( ftruncate(fmap->fd, resize) !=0 ) {
+	                printf("%s: ftruncate '%s' fails. ERR:%s\n", __func__, fpath, strerror(errno));
+        	        goto END_FUNC;
+		}
+
+		/* Obtain new size */
+	        if( fstat(fmap->fd, &sb)<0 ) {
+                	printf("%s: Fail to obtain expanded size for '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
+                	goto END_FUNC;
+		}
+		fmap->fsize=sb.st_size;
+		printf("%s: Succeed to create and/or ftruncate '%s' to %jd Bytes.\n", __func__, fpath, fmap->fsize);
+        }
 
         /* MMAP Text file */
-        fmap->fp=mmap(NULL, fmap->fsize, PROT_READ, MAP_PRIVATE, fmap->fd, 0);
+        fmap->fp=mmap(NULL, fmap->fsize, PROT_READ|PROT_WRITE, MAP_PRIVATE, fmap->fd, 0);
         if(fmap->fp==MAP_FAILED) {
                         printf("%s: Fail to mmap file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
                         goto END_FUNC;
          }
+
+	/* Actually we can close(fd) now, instead of closing it in egi_fmap_free().
+	 * Anyway, leave it to egi_fmap_free()..
+	 */
 
 END_FUNC:
         /* Munmap file */
@@ -148,7 +174,7 @@ int egi_fmap_free(EGI_FILEMMAP** fmap)
 		return -2;
 	}
 
-        /* Close file */
+    	/* Close file */
         if( close((*fmap)->fd) !=0 ) {
                 printf("%s: Fail to close file fd=%d. Err'%s!'\n",__func__, (*fmap)->fd, strerror(errno));
 		return -3;
@@ -1296,4 +1322,268 @@ END_ENCODE:
                 printf("%s: Buffer size is NOT enough, quit encoding. \n",__func__);
 
 	return ret;
+}
+
+
+
+
+/*--------------------------------------------
+Create an EGI_BITSTATUS.
+
+@total: Total number of effective bits needed.
+
+Return:
+	OK	An pointer to EGI_BITSTATUS.
+	NULL	Fails
+---------------------------------------------*/
+EGI_BITSTATUS *egi_bitstatus_create(unsigned int total)
+{
+
+	EGI_BITSTATUS *ebits=calloc(1, sizeof(EGI_BITSTATUS));
+	if(ebits==NULL)
+		return NULL;
+
+	ebits->octbits=calloc((total>>3)+1, 1);
+	if(ebits->octbits==NULL) {
+		free(ebits);
+		return NULL;
+	}
+
+	ebits->total=total;
+
+	return ebits;
+}
+
+/*--------------------------------------------
+Free an EGI_BITSTATUS
+---------------------------------------------*/
+void egi_bitstatus_free(EGI_BITSTATUS **ebits)
+{
+	if(ebits==NULL) return;
+	if(*ebits==NULL) return;
+
+	free((*ebits)->octbits);
+	free(*ebits);
+	*ebits=NULL;
+}
+
+/*------------------------------------------------------
+Get value of the specified bit.
+
+@ebits: 	EGI_BITSTATUS*
+@index:		position/index of the bit in all octbis[]
+		starts from 0.
+Return:
+        0||1       OK
+        <0         Fails
+-------------------------------------------------------*/
+int egi_bitstatus_getval(const EGI_BITSTATUS *ebits, unsigned int index)
+{
+        if(ebits==NULL)
+                return -1;
+	if(index > ebits->total-1)
+		return -2;
+
+	if( ebits->octbits[(index>>3)] & (1<<(index&0b111)) )
+		return 1;
+	else
+		return 0;
+}
+
+
+/*------------------------------------------------------
+Print bits value of an EGI_BITSTATUS.
+
+@ebits: EGI_BITSTATUS*
+Return:
+        >=0       OK
+        <0      Fails
+-------------------------------------------------------*/
+void egi_bitstatus_print(const EGI_BITSTATUS *ebits)
+{
+	int i;
+
+        if(ebits==NULL)
+                return;
+
+	printf("Total bits: %d\n", ebits->total);
+
+	for(i=0; i < ebits->total; i++) {
+		if( (i&0b111) == 0 )
+			printf("[%d]", i>>3);
+
+		if( ebits->octbits[(i>>3)] & (1<<(i&0b111)) )
+			printf("1");
+		else
+			printf("0");
+
+		if( (i&0b111) == 0b111 )
+			printf(" ");
+	}
+	printf("\n");
+}
+
+
+
+/*----------------------------------------------------------
+Set/reset the  bit to be 1/0.
+
+@ebits:		EGI_BITSTATUS
+@index:		position/index of the bit in all octbis[]
+		starts from 0.
+
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------------------*/
+int egi_bitstatus_set(EGI_BITSTATUS *ebits, unsigned int index)
+{
+	if(ebits==NULL)
+		return -1;
+	if(index > ebits->total-1 )
+		return -1;
+
+	ebits->octbits[(index>>3)] |= 1<<(index&0b111);
+
+	return 0;
+}
+int egi_bitstatus_reset(EGI_BITSTATUS *ebits, unsigned int index)
+{
+	if(ebits==NULL)
+		return -1;
+	if(index > ebits->total-1 )
+		return -1;
+
+	ebits->octbits[(index>>3)] &= ~(1<<(index&0b111));
+
+	return 0;
+}
+
+
+/*---------------------------------------------
+Set/reset all bits to be 1/0.
+@ebits:		EGI_BITSTATUS*
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------*/
+int egi_bitstatus_setall(EGI_BITSTATUS *ebits)
+{
+	int i;
+
+	if(ebits==NULL)
+		return -1;
+
+	for(i=0; i < (ebits->total>>3)+1; i++)
+		ebits->octbits[i]=0xFF;
+
+	return 0;
+}
+/* Reset all bits to be 1 */
+int egi_bitstatus_resetall(EGI_BITSTATUS *ebits)
+{
+	int i;
+
+	if(ebits==NULL)
+		return -1;
+
+	for(i=0; i < (ebits->total>>3)+1; i++)
+		ebits->octbits[i]=0x00;
+
+	return 0;
+}
+
+
+/*------------------------------------------------------
+Count all 1_bits in octbits[]
+@ebits: EGI_BITSTATUS*
+Return:
+        >=0       OK
+        <0      Fails
+-------------------------------------------------------*/
+inline int egi_bitstatus_count_ones(const EGI_BITSTATUS *ebits)
+{
+	int index;
+	int count;
+
+        if(ebits==NULL)
+                return -1;
+
+	for(count=0, index=0; index < ebits->total; index++) {
+		if( ebits->octbits[(index>>3)] & (1<<(index&0b111)) )
+			count++;
+	}
+
+	return count;
+}
+
+/*-------------------------------------------------------
+Count all 0_bits in octbits[]
+@ebits: EGI_BITSTATUS*
+Return:
+        >=0       OK
+        <0      Fails
+-------------------------------------------------------*/
+inline int egi_bitstatus_count_zeros(const EGI_BITSTATUS *ebits)
+{
+	int index;
+	int count;
+
+        if(ebits==NULL)
+                return -1;
+
+	for(count=0, index=0; index < ebits->total; index++) {
+		if( !(ebits->octbits[(index>>3)] & (1<<(index&0b111))) )
+			count++;
+	}
+
+	return count;
+}
+
+/*---------------------------------------------------------
+Search for the next ZERO bit, and set ebits->pos accordingly.
+It starts from current ebits->pos +1!
+
+@ebits: EGI_BITSTATUS*
+Return:
+        =0     OK, found next ZERO as indicated by ebits->pos
+        <0     Fails
+	       No result, ebits->pos gets to the end.
+----------------------------------------------------------*/
+int egi_bitstatus_posnext_zero(EGI_BITSTATUS *ebits)
+{
+        if(ebits==NULL)
+                return -1;
+
+	for(ebits->pos++; ebits->pos < ebits->total; ebits->pos++) {
+		if( ebits->octbits[(ebits->pos>>3)] & (1<<( ebits->pos&0b111 )) )
+			continue;
+		else
+			return 0;
+	}
+
+	return -2;
+}
+
+/*---------------------------------------------------------
+Search for the next ONE bit, and set ebits->pos accordingly.
+It starts from current ebits->pos +1!
+
+@ebits: EGI_BITSTATUS*
+Return:
+        =0     OK, found next ONE as indicated by ebits->pos
+        <0     Fails
+	       No result, ebits->pos gets to the end.
+----------------------------------------------------------*/
+int egi_bitstatus_posnext_one(EGI_BITSTATUS *ebits)
+{
+        if(ebits==NULL)
+                return -1;
+
+	for(ebits->pos++; ebits->pos < ebits->total; ebits->pos++) {
+		if( ebits->octbits[(ebits->pos>>3)] & (1<<( ebits->pos&0b111 )) )
+			return 0;
+	}
+
+	return -2;
 }
