@@ -84,11 +84,19 @@ Note:
 @fpath:	  File path
 @resize:  resize
 	  if>0, the file will be truncated to the size.
+@prot:	  memory protection of the mapping (and must not conflict
+	  with the open mode of the file).
+	  Example: PROT_READ, PROT_WRITE
+	  If PROT_WRITE is not set, then write to fmap will result
+	  in segmentation fault!
+
+@flag:	  MAP_SHARED or MAP_PRIVATE
+
 Return:
 	Pointer to EGI_FILEMMAP		OK
 	NULL				Fails
 ----------------------------------------------------------*/
-EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize)
+EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize, int prot, int flags)
 {
         struct stat	sb;
 	EGI_FILEMMAP *fmap=NULL;
@@ -132,7 +140,7 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize)
         }
 
         /* MMAP Text file */
-        fmap->fp=mmap(NULL, fmap->fsize, PROT_READ|PROT_WRITE, MAP_PRIVATE, fmap->fd, 0);
+        fmap->fp=mmap(NULL, fmap->fsize, prot, flags, fmap->fd, 0);
         if(fmap->fp==MAP_FAILED) {
                         printf("%s: Fail to mmap file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
                         goto END_FUNC;
@@ -1377,7 +1385,7 @@ Return:
         0||1       OK
         <0         Fails
 -------------------------------------------------------*/
-int egi_bitstatus_getval(const EGI_BITSTATUS *ebits, unsigned int index)
+inline int egi_bitstatus_getval(const EGI_BITSTATUS *ebits, unsigned int index)
 {
         if(ebits==NULL)
                 return -1;
@@ -1423,8 +1431,6 @@ void egi_bitstatus_print(const EGI_BITSTATUS *ebits)
 	printf("\n");
 }
 
-
-
 /*----------------------------------------------------------
 Set/reset the  bit to be 1/0.
 
@@ -1436,7 +1442,7 @@ Return:
 	0	OK
 	<0	Fails
 ---------------------------------------------------------*/
-int egi_bitstatus_set(EGI_BITSTATUS *ebits, unsigned int index)
+inline int egi_bitstatus_set(EGI_BITSTATUS *ebits, unsigned int index)
 {
 	if(ebits==NULL)
 		return -1;
@@ -1447,7 +1453,7 @@ int egi_bitstatus_set(EGI_BITSTATUS *ebits, unsigned int index)
 
 	return 0;
 }
-int egi_bitstatus_reset(EGI_BITSTATUS *ebits, unsigned int index)
+inline int egi_bitstatus_reset(EGI_BITSTATUS *ebits, unsigned int index)
 {
 	if(ebits==NULL)
 		return -1;
@@ -1467,7 +1473,7 @@ Return:
 	0	OK
 	<0	Fails
 ---------------------------------------------*/
-int egi_bitstatus_setall(EGI_BITSTATUS *ebits)
+inline int egi_bitstatus_setall(EGI_BITSTATUS *ebits)
 {
 	int i;
 
@@ -1480,7 +1486,7 @@ int egi_bitstatus_setall(EGI_BITSTATUS *ebits)
 	return 0;
 }
 /* Reset all bits to be 1 */
-int egi_bitstatus_resetall(EGI_BITSTATUS *ebits)
+inline int egi_bitstatus_resetall(EGI_BITSTATUS *ebits)
 {
 	int i;
 
@@ -1550,7 +1556,7 @@ Return:
         <0     Fails
 	       No result, ebits->pos gets to the end.
 ----------------------------------------------------------*/
-int egi_bitstatus_posnext_zero(EGI_BITSTATUS *ebits)
+inline int egi_bitstatus_posnext_zero(EGI_BITSTATUS *ebits)
 {
         if(ebits==NULL)
                 return -1;
@@ -1575,7 +1581,7 @@ Return:
         <0     Fails
 	       No result, ebits->pos gets to the end.
 ----------------------------------------------------------*/
-int egi_bitstatus_posnext_one(EGI_BITSTATUS *ebits)
+inline int egi_bitstatus_posnext_one(EGI_BITSTATUS *ebits)
 {
         if(ebits==NULL)
                 return -1;
@@ -1586,4 +1592,31 @@ int egi_bitstatus_posnext_one(EGI_BITSTATUS *ebits)
 	}
 
 	return -2;
+}
+
+
+
+/*---------------------------------------------------------
+Bits checksum:  to addup up all ONE bits in the data.
+
+@data:	Data
+@size:  Data size.
+
+Return:
+        >=0     OK, bits checksum
+        <0     Fails
+	       No result, ebits->pos gets to the end.
+----------------------------------------------------------*/
+int egi_bitstatus_checksum(void *data, size_t size)
+{
+	EGI_BITSTATUS ebits={0};
+
+	if(data==NULL)
+		return -1;
+
+	ebits.total=size;
+	ebits.octbits=data;
+
+	/* TODO: divide data into 2^31 bits parts, 2^(31-8)=2^23 bytes.  */
+	return egi_bitstatus_count_ones(&ebits);
 }

@@ -16,6 +16,7 @@ midaszhou@yahoo.com
 #include <sys/stat.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <sys/mman.h>
 
 #define EGI_URL_MAX  256 /* Max length for a URL address */
 #define EGI_PATH_MAX 256 /* Max length for a file path, 4096 for PATH_MAX in <limit.h>  */
@@ -24,14 +25,14 @@ midaszhou@yahoo.com
 #define EGI_FEXTNAME_MAX 10 /* !!! exclude '.', length of extension name */
 #define EGI_FEXTBUFF_MAX 16 /* Max items of separated extension names  */
 
-/* EGI File MMAP:  mmap with flags: PROT_READ, MAP_PRIVATE */
+/* EGI File MMAP:  mmap with flags: PROT_READ|PROT_WRITE, MAP_PRIVATE */
 typedef struct {
 	int 		fd;
 	off_t 		fsize;
 	char 		*fp;
 	off_t		off;
 } EGI_FILEMMAP;
-EGI_FILEMMAP *egi_fmap_create(const char *fpath, off_t resize);
+EGI_FILEMMAP *egi_fmap_create(const char *fpath, off_t resize, int prot, int flag);
 int egi_fmap_free(EGI_FILEMMAP** fmap);
 
 /* A file, functions as the system memo pad, for copy/paste operation */
@@ -87,5 +88,6 @@ int 	egi_bitstatus_count_ones(const EGI_BITSTATUS *ebits);
 int 	egi_bitstatus_count_zeros(const EGI_BITSTATUS *ebits);
 int 	egi_bitstatus_posnext_zero(EGI_BITSTATUS *ebits); /* ebits->pos self increase */
 int 	egi_bitstatus_posnext_one(EGI_BITSTATUS *ebits);  /* ebits->pos self increase */
+int 	egi_bitstatus_checksum(void *data, size_t size);
 
 #endif
