@@ -3,7 +3,7 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-A test program to through UDP
+A test program to transfer video through UDP.
 
 Usage exmample:
 	./test_usbcam -d /dev/video0 -s 320x240 -r 30
@@ -17,6 +17,12 @@ Pan control:
 
 
 Note:
+1. Support hot unplug and plug USBCAM.
+
+TODO:
+1. Mutual authentication.
+2. Server stop transfering when client quits unexpectedly.
+3. If the server quits, the client can detect and re_engage.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -28,6 +34,8 @@ midaszhou@yahoo.com
 //#include <egi_FTsymbol.h>
 #include <egi_timer.h>
 #include <egi_inet.h>
+#include <egi_utils.h>
+#include <egi_debug.h>
 
 #include <getopt.h>
 #include <fcntl.h>
@@ -42,42 +50,120 @@ midaszhou@yahoo.com
 #include <asm/types.h>
 #include <linux/videodev2.h> /* include <linux/v4l2-controls.h>, <linux/v4l2-common.h> */
 
+#undef  DEFAULT_DBG_FLAGS
+#define DEFAULT_DBG_FLAGS   DBG_TEST
 
-/* 申请的帧缓存页数 */
+
+/* Video frame buffers */
 #define REQ_BUFF_NUMBER	4	/* Buffers to be allocated for the CAM */
 
+/* Arguments for usbcam_routine() */
 struct thread_cam_args {
 	char	*dev_name;
 	int 	pixelformat;
 	int 	width;
 	int	height;
 	int	fps;
+	bool	reverse;
+	bool	display;	/* Display on the host */
 };
+struct thread_cam_args cam_args;
 
 //int usbcam_routine(char * dev_name, int width, int height, int pixelformat, int fps );
 void* usbcam_routine(void *args);
 
-int Server_Callback( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
-                           struct sockaddr_in *sndAddr,       char *sndBuff, int *sndSize);
 
-int Client_Callback( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
-                                                              char *sndBuff, int *sndSize );
+/* Data for UDP transmission */
+struct  udp_trans_data {
+	void 	*src_data;	/* Source data, Only referece */
+	size_t 	 size;
+	bool	 ready;		/* Ready for transfer */
+	//pthread_mutex_t  mutex_lock;
+} trans_data;
 
+void *dest_data;  		/* Received data, from src_data */
+unsigned char *rgb24;		/* For RGB 24bits color data */
+
+
+/* A private header for my IPACK */
+typedef struct {
+	int		code;
+	unsigned int	seq;	/* Packet sequence number, from 0 */
+	unsigned int	total;  /* Total packets */
+	off_t		fsize;	/* Total size of the file */
+	int		stamp;  /* signature, stamp */
+#define CODE_NONE		0	/* none */
+#define CODE_DATA		1	/* Data availabe, seq/total, data in privdata */
+#define	CODE_REQUEST_VIDEO	2	/* Client ask for file stransfer */
+#define CODE_REQUEST_PACK	3	/* Client ask for lost packs, ipack seq number in privdata */
+#define CODE_FINISH		4	/* Client ends session */
+#define CODE_FAIL		5	/* Client fails to receive packets */
+} PRIV_HEADER;
+
+/* Following pointers to be used as reference only!
+ * They'll be nested into allocated send/recv buffer.
+ */
+PRIV_HEADER  *header_rcv;
+PRIV_HEADER  *header_snd;
+EGI_INETPACK *ipack_rcv;
+EGI_INETPACK *ipack_snd;
+
+struct sockaddr_in  clientAddr;
+struct sockaddr_in  serverAddr;
+
+/* 1. UDP packet information
+ * privdata size in each IPACK. MUST <= EGI_MAX_UDP_PDATA_SIZE-sizeof(EGI_INETPACK)-sizeof(PRIV_HEADER)
+ * For Server ONLY
+ * 2. pack_total, tailsize, pack_seq=0 to be calculated and set in/by usbcam_routine()
+ *
+ */
+static unsigned int datasize=1024*25;   /* Server: set avg privdata size.  Client: recevied ipack privdata size. */
+static unsigned int tailsize;		/* For server: Defined as size of last pack, when pack_seq == pack_total-1 */
+static unsigned int pack_seq;	   	/* For server: Sequence number for current IPACK */
+static unsigned int pack_total;    	/* For server/client: Total number of IPACKs for transfering a file */
+static unsigned int pack_count;		/* For client */
+static unsigned int lost_seq;		/* Lost pack seq number */
+
+EGI_BITSTATUS *ebits;			/* To record  packet squence number */
+
+/* Callback functions, define routine jobs. */
+int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
+								 	   char *sndBuff, int *sndSize );
+int Server_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
+					 struct sockaddr_in *sndAddr, char *sndBuff, int *sndSize);
+
+bool verbose_on;
+bool run_session;	/* predicate: transmission session is running */
 
 /*---------------------------
         Print help
 -----------------------------*/
 void print_help(const char* cmd)
 {
-        printf("Usage: %s [-hvtd:s:r:f:o:b:] \n", cmd);
+        printf("Usage: %s [-hvPRd:s:r:f:b:SCa:y:p:t:w:] \n", cmd);
         printf("        -h   help \n");
-	printf("	-v:  Reverse upside down, default: false. for YUYV only.\n");
+        printf("        -v   print verbose\n");
+	/* For USB CAM */
+	printf("\n	--- USB CAM ---\n");
+	printf("	-P   Display CAM video on the host.\n");
+	printf("	-R   Reverse upside down, default: false. for YUYV only.\n");
         printf("        -d:  Video device, default: '/dev/video0' \n");
         printf("        -s:  Image size, default: '320x240' \n");
         printf("        -r:  Frame rate, default: 10fps \n");
         printf("        -f:  Pixel format, default: V4L2_PIX_FMT_MJPEG \n");
         printf("             'yuyv' or 'mjpeg' \n");
 	printf("	-b:  Brightness in percentage, default: 80(%%) \n");
+
+	/* For UDP transmission */
+	printf("\n	--- UDP transmission ---\n");
+        printf("        -S   work as UDP Server\n");
+        printf("        -C   work as UDP Client (default)\n");
+        printf("        -a:  Server IP address, with or without port.\n");
+        printf("        -y:  Client IP address, default NULL.\n");
+        printf("        -p:  Port number, default 5678.\n");
+        printf("        -t:  Size of pridata packed in each IPACK, default 25kBs.\n");
+        printf("        -w:  Server send_waitus in us. defautl 10ms.\n");
+
 }
 
 
@@ -93,25 +179,41 @@ int main (int argc,char ** argv)
 	pthread_t	thread_cam;
 
 	/* Defaut params: pxiformat, image size and frame rate */
-	struct thread_cam_args cam_args;
 	cam_args.dev_name="/dev/video0";
-	cam_args.pixelformat=V4L2_PIX_FMT_YUYV;//MJPEG;
+	cam_args.pixelformat=V4L2_PIX_FMT_YUYV; //MJPEG;
 	cam_args.width=320;
 	cam_args.height=240;
 	cam_args.fps=10;
 
-	/* UDP server */
-	EGI_UDP_SERV 	*userv=NULL;
-
         int     brightpcnt=80;  /* brightness in percentage */
 
+	/* For UDP server/client transfer */
+        bool SetUDPServer=false;
+        char *svrAddr=NULL;             /* Default NULL, to be decided by system */
+        char *cltAddr=NULL;
+        unsigned short int port=5678;
+        unsigned int send_waitus=10000; /* in us, For server */
+        unsigned int pack_shellsize=sizeof(EGI_INETPACK)+sizeof(PRIV_HEADER);
+
+
         /* Parse input option */
-        while( (opt=getopt(argc,argv,"hvtd:s:r:f:o:b:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hvPRd:s:r:f:b:SCa:y:p:t:w:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
                                 print_help(argv[0]);
                                 exit(0);
                                 break;
+                        case 'v':
+                                verbose_on=true;
+                                break;
+
+			/* Four USB CAM */
+			case 'P':
+				cam_args.display=true;
+				break;
+			case 'R':
+				cam_args.reverse=true;
+				break;
                         case 'd':       /* Video device name */
                                 cam_args.dev_name=optarg;
                                 break;
@@ -135,6 +237,49 @@ int main (int argc,char ** argv)
                                 if(brightpcnt<30)brightpcnt=30;
                                 if(brightpcnt>100)brightpcnt=100;
                                 break;
+
+			/* For UDP transmission */
+                        case 'S':
+                                SetUDPServer=true;
+                                break;
+                        case 'C':
+                                SetUDPServer=false;
+                                break;
+                        case 'a':
+                                /* If detects delimiter ':' */
+                                if((pt=strstr(optarg,":"))!=NULL) {
+                                        port=atoi(pt+1);
+                                        *pt='\0';
+                                        svrAddr=strdup(optarg);
+                                        printf("Input server address: '%s:%d'\n",svrAddr, port);
+                                }
+                                else {
+                                        svrAddr=strdup(optarg);
+                                        printf("Input server address='%s'\n",svrAddr);
+                                }
+                                break;
+                        case 'y':
+                                cltAddr=strdup(optarg);
+                                printf("Input client address='%s'\n",cltAddr);
+                                break;
+
+                        case 'p':
+                                port=atoi(optarg);
+                                break;
+                        case 't':
+                                datasize=atoi(optarg);
+                                if(datasize<1448-pack_shellsize)
+                                        datasize=1448-pack_shellsize;
+                                else if(datasize>EGI_MAX_UDP_PDATA_SIZE-pack_shellsize) {
+                                        datasize=EGI_MAX_UDP_PDATA_SIZE-pack_shellsize;
+                                        printf("UDP packet size exceeds limit of %dBs, reset datasize=%d-%d(pack_shellsize)=%dBs.\n",
+                                                EGI_MAX_UDP_PDATA_SIZE, EGI_MAX_UDP_PDATA_SIZE, pack_shellsize, datasize);
+                                }
+                                break;
+                        case 'w':
+                                send_waitus=atoi(optarg);
+                                break;
+
                 }
         }
 
@@ -146,6 +291,10 @@ int main (int argc,char ** argv)
         fb_set_directFB(&gv_fb_dev, true);
         fb_position_rotate(&gv_fb_dev, 0);
 
+   /* A. -------- Work as a UDP Server --------- */
+  if( SetUDPServer ) {
+        printf("Set as UDP Server, set port=%d \n", port);
+
 	/* Start thread CAM */
 	printf("Start CAM routine thread...\n");
 	if( pthread_create(&thread_cam, NULL, usbcam_routine, &cam_args) !=0 ) {
@@ -154,9 +303,13 @@ int main (int argc,char ** argv)
 	}
 
 	/* Create a UDP server */
-	userv=inet_create_udpServer(NULL, 5678, 4);
+ 	EGI_UDP_SERV  *userv=inet_create_udpServer(NULL, port, 4);
 	if(userv==NULL)
 		exit(EXIT_FAILURE);
+
+        /* Set waitus */
+        userv->idle_waitus=10000;
+        userv->send_waitus=send_waitus;
 
 	/* Set callback */
 	userv->callback=Server_Callback;
@@ -165,17 +318,57 @@ int main (int argc,char ** argv)
 	printf("Start UDP server routine...\n");
 	inet_udpServer_routine(userv);
 
-	/* CAM routine */
-	printf("Start CAM routine job...\n");
-//	usbcam_routine(dev_name, width, height, pixelformat, fps );
-
-	/* Joint thread */
+	/* Joint thread CAM */
 	void *ret=NULL;
 	if( pthread_join(thread_cam, &ret)!=0 ) {
 		printf("Fail pthread_join, ret=%d, Err'%s'\n", *(int *)ret, strerror(errno));
 	}
 
-	/* Release FBDEV */
+        /* Free and destroy */
+        inet_destroy_udpServer(&userv);
+  }
+
+  /* B. -------- Work as a UDP Client --------- */
+  else {
+        printf("Set as UDP Client, targets to server at %s:%d. \n", svrAddr, port);
+
+        if( svrAddr==NULL || port==0 ) {
+                printf("Please provide Server IP address and port number!\n");
+                print_help(argv[0]);
+                exit(EXIT_FAILURE);
+        }
+
+        /* Create UDP client */
+        EGI_UDP_CLIT *uclit=inet_create_udpClient(svrAddr, port, cltAddr, 4);
+        if(uclit==NULL)
+                exit(EXIT_FAILURE);
+
+        /* Set timeout, note UDP client works in BLOCKING mode
+         * Set a small rcv_timeout for the case: the Client waits in recvfrom(),
+         * while the Server has already sent out all packs. it takes rcv_timout
+         * time for the Client to realize that some packs are lost. If rcv_timeout
+         * is big, it just waste time waiting.... OK, check lost packs in other places.
+         */
+        inet_sock_setTimeOut(uclit->sockfd, 3, 0, 0, 50000);  /* snd, rcv */
+
+        /* Set waitus */
+        uclit->idle_waitus=10000;
+        uclit->send_waitus=10000;
+
+        /* Set callback */
+        uclit->callback=Client_Callback;
+
+        /* Process UDP server routine */
+        inet_udpClient_routine(uclit);
+
+        /* Free and destroy */
+        inet_destroy_udpClient(&uclit);
+        egi_bitstatus_free(&ebits);
+	free(dest_data);
+
+  }
+
+	/* Common:  Release FBDEV */
 	fb_filo_flush(&gv_fb_dev);
    	release_fbdev(&gv_fb_dev);
 
@@ -203,7 +396,6 @@ args:
 void* usbcam_routine(void *args)
 {
 	struct thread_cam_args *camargs=NULL;
-
 	char	*dev_name;
 	int     width;
 	int     height;
@@ -212,13 +404,11 @@ void* usbcam_routine(void *args)
 
 	int 	fd_dev;
    	fd_set 	fds;
-	unsigned char *rgb24=NULL;
+//	unsigned char *rgb24=NULL;
 	unsigned int i;
-
 
 	int	brightpcnt=80;	/* brightness in percentage */
 	bool	reverse=false;
-	bool	marktime=false;
 	int	x0=0,y0=0;
 
 	/* Get CAM args */
@@ -259,12 +449,12 @@ void* usbcam_routine(void *args)
 	struct timeval          	timestamp;
 	struct v4l2_timecode    	timecode;
 
-	/* To store allocated video buffer address/size */
-	struct buffer {
+	/* To store allocated video buffer address and size */
+	struct vbuffer {
         	void *                  start;
         	size_t                  length;
 	};
-	struct buffer *buffers;
+	struct vbuffer *buffers;
 	unsigned long bufindex;
 
 	/* To store controll values for specific CAM only */
@@ -282,6 +472,7 @@ void* usbcam_routine(void *args)
 
 
 OPEN_DEV:
+
 	/* 1. Open video device */
      	while ( (fd_dev = open(dev_name, O_RDWR)) <0 ) {
       	  	printf("Fail to open '%s', Err'%s'.\n", dev_name, strerror(errno));
@@ -302,7 +493,7 @@ OPEN_DEV:
       	}
       	if( !(cap.capabilities & V4L2_CAP_STREAMING) ) {
 	      	printf("The video device does NOT support streaming!\n");
-		return -1;
+		return (void *)-1;
 	}
 
 	/* 3. Adjust CAM controls
@@ -343,11 +534,13 @@ OPEN_DEV:
      	fmt.fmt.pix.pixelformat = pixelformat;			/*  MJPEG or YUYV */
      	if( ioctl (fd_dev, VIDIOC_S_FMT, &fmt) !=0) {
     		printf("Fail to ioctl VIDIOC_S_FMT, Err'%s'\n", strerror(errno));
-		return (void *)-2;
+		//return (void *)-2;
+		goto END_FUNC;
 	}
      	if( ioctl( fd_dev, VIDIOC_G_FMT, &fmt) !=0 ) {
     		printf("Fail to ioctl VIDIOC_G_FMT, Err'%s'\n", strerror(errno));
-		return (void *)-2;
+		//return (void *)-2;
+		goto END_FUNC;
 	}
 	else {
 		printf("\n\t--- Effective params ---\n");
@@ -371,12 +564,14 @@ OPEN_DEV:
      	streamparm.parm.capture.timeperframe.numerator=1;
      	if( ioctl( fd_dev, VIDIOC_S_PARM, &streamparm) !=0) {
     		printf("Fail to ioctl VIDIOC_S_PARM, Err'%s'\n", strerror(errno));
-		return (void *)-3;
+		//return (void *)-3;
+		goto END_FUNC;
 	}
 	/* Confirm working FPS */
 	if( ioctl( fd_dev, VIDIOC_G_PARM, &streamparm) !=0) {
     		printf("Fail to ioctl VIDIOC_G_PARM, Err'%s'\n", strerror(errno));
-		return (void *)-3;
+		//return (void *)-3;
+		goto END_FUNC;
 	}
 	else {
 		printf("Frame rate:\t%d/%d fps\n", streamparm.parm.capture.timeperframe.denominator,
@@ -398,10 +593,12 @@ OPEN_DEV:
      	req.memory              = V4L2_MEMORY_MMAP;
      	if( ioctl (fd_dev, VIDIOC_REQBUFS, &req) !=0) {
     		printf("Fail to ioctl VIDIOC_REQBUFS, Err'%s'\n", strerror(errno));
-		return (void *)-4;
+		//return (void *)-4;
+		goto END_FUNC;
 	}
 	/* Confirm actual buffers allocated */
 	printf("Req. buffer ret/req:\t%d/%d \n", req.count, REQ_BUFF_NUMBER);
+
 	/* Save allocated buffer info */
      	buffers = calloc (req.count, sizeof (*buffers));
 	memset(&bufferinfo, 0, sizeof(bufferinfo));
@@ -413,7 +610,8 @@ OPEN_DEV:
 
            	if( ioctl (fd_dev, VIDIOC_QUERYBUF, &bufferinfo) !=0) {
 	    		printf("Fail to ioctl VIDIOC_QUERYBUF, Err'%s'\n", strerror(errno));
-			return (void *)-4;
+			//return (void *)-4;
+			goto END_FUNC;
 		}
            	buffers[bufindex].length = bufferinfo.length;
 
@@ -428,12 +626,15 @@ OPEN_DEV:
 		/* Clear it */
 		memset(buffers[bufindex].start, 0, bufferinfo.length);
      	}
+        /* Size of allocated video buffer */
+        printf("Video buffer size:\t%d(Bytes)\n", bufferinfo.length);
 
 	/* 9. Start to capture video.  some devices may need to queue the buffer at first! */
     	type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     	if( ioctl (fd_dev, VIDIOC_STREAMON, &type) !=0) {
     		printf("Fail to ioctl VIDIOC_STREAMON, Err'%s'\n", strerror(errno));
-		return (void *)-5;
+		//return (void *)-5;
+		goto END_FUNC;
 	}
 
 	/* 10. Queue buffer after turn on video capture! */
@@ -443,7 +644,8 @@ OPEN_DEV:
                bufferinfo.index       = i;
                if( ioctl (fd_dev, VIDIOC_QBUF, &bufferinfo) !=0) {
 		    	printf("Fail to ioctl VIDIOC_QBUF, Err'%s'\n", strerror(errno));
-			return (void *)-4;
+			//return (void *)-4;
+			goto END_FUNC;
 		}
 	}
 
@@ -457,18 +659,14 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 {
    printf("Output format: YUYV, reverse=%s\n", reverse?"Yes":"No");
 
-   /* 为RBG888数据申请内存 */
    rgb24=calloc(1, width*height*3);
    if(rgb24==NULL) {
 	printf("Fail to calloc rgb24!\n");
 	goto END_FUNC;
    }
 
-   /* 循环: 帧缓存出列-->读数据转码成RGB888--->帧缓存入列--->显示图像 */
    /* Loop: dequeue the buffer, read out video, then queque the buffer, ....*/
    for(;;) {
-
-	/* 等待数据 */
    	FD_ZERO (&fds);
    	FD_SET (fd_dev, &fds);
 
@@ -478,7 +676,6 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 		fprintf(stderr, "Device file abnormal, Err'%s'.\n", strerror(errno));
 	}
 
-	/* 将当前帧缓存从工作队列出取出 */
     	/* Dequeue the buffer */
         bufferinfo.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	bufferinfo.memory = V4L2_MEMORY_MMAP;
@@ -490,56 +687,77 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 
 		/* If device is closed, then try to re_open it. this shall follow after select() operation. */
 		if(errno==ENODEV) {
+			goto END_FUNC;
+
 			/* Unmap and close file */
-   			for (i = 0; i < REQ_BUFF_NUMBER; ++i)
-      				munmap (buffers[i].start, buffers[i].length);
-			close(fd_dev);
-			goto OPEN_DEV;
+   			//for (i = 0; i < REQ_BUFF_NUMBER; ++i)
+      			//	munmap (buffers[i].start, buffers[i].length);
+			//close(fd_dev);
+			//goto OPEN_DEV;
 		}
 	}
 	else {
-		/* 获取帧时间戳 */
 		/* Get frame timestamp. it's uptime!  */
-		printf("Ts: %ld.%01ld \r", bufferinfo.timestamp.tv_sec, bufferinfo.timestamp.tv_usec/100000 );
+		//printf("VBUF len: %dBs,  Ts: %ld.%01ld \r",
+		//		buffers[bufferinfo.index].length,  bufferinfo.timestamp.tv_sec, bufferinfo.timestamp.tv_usec/100000 );
 		//printf("Tc: %02d:%02d:%02d \r");
 		//		bufferinfo.timecode.hours, bufferinfo.timecode.minutes, bufferinfo.timecode.seconds);
-		fflush(stdout);
+		// fflush(stdout);
 
-		/* 将当前缓存里的数据转化成RGB888格式放入到rbg24中 */
-		/* Convert YUYV to RGB888 */
-		egi_color_YUYV2RGB888(buffers[bufferinfo.index].start, rgb24, width, height, reverse);
+		/* -------> Prepare buffer for UDP transfer */
+		trans_data.src_data=buffers[bufferinfo.index].start;
+		trans_data.size=buffers[bufferinfo.index].length;
 
-		/* 将当前帧缓存放入工作队列，以供摄像头写入数据．*/
+		/* Cal. pack total */
+		pack_total=trans_data.size/datasize;
+		tailsize=trans_data.size - pack_total*datasize;
+		if(tailsize)
+			pack_total +=1;
+		else	/* All pack same size */
+			tailsize=datasize;
+		/* Let go */
+		pack_seq=0;
+		trans_data.ready=true;
+
+		/* Display Video */
+		if( camargs->display ) {
+			egi_color_YUYV2RGB888(buffers[bufferinfo.index].start, rgb24, width, height, reverse);
+			egi_imgbuf_showRBG888(rgb24, width, height, &gv_fb_dev, x0, y0);  /* Direct FBwrite */
+			fb_render(&gv_fb_dev);
+		}
+
+	        /* If has client */
+        	if( clientAddr.sin_addr.s_addr ==0 )
+			trans_data.ready=false;
+
+		/* Wait for transmission to be finished */
+		while( trans_data.ready ) usleep(5000);
+
         	/* Queue the buffer */
         	if( ioctl(fd_dev, VIDIOC_QBUF, &bufferinfo) !=0)
 	                printf("Fail to ioctl VIDIOC_QBUF, Err'%s'\n", strerror(errno));
 
-		/* 显示图像 */
-		/* DirectFB write */
-		egi_imgbuf_showRBG888(rgb24, width, height, &gv_fb_dev, x0, y0);
-		fb_render(&gv_fb_dev);  	/* 刷新Framebuffer */
+
+
+
+		/* <-------- Wait for complete of transfer  */
 	}
 
    }
 
 } /* End  pixelformat==V4L2_PIX_FMT_YUYV */
 
-/* 2. V4L2_PIX_FMT_MJPEG格式读取和显示循环例程序 */
 /* 2. --- pixelformat: V4L2_PIX_FMT_MJPEG --- */
 else if( pixelformat==V4L2_PIX_FMT_MJPEG )
 {
    printf("Output format: MJPEG\n");
 
-   /* 循环: 帧缓存出列-->解码显示JPG图像--->帧缓存入列 */
    /* Loop: dequeue the buffer, read out video, then queque the buffer, ....*/
    for(;;) {
-
-	/* 等待数据 */
    	FD_ZERO (&fds);
    	FD_SET (fd_dev, &fds);
    	select(fd_dev + 1, &fds, NULL, NULL, NULL);
 
-	/* 将当前帧缓存从工作队列出取出 */
     	/* Dequeue the buffer */
         bufferinfo.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	bufferinfo.memory = V4L2_MEMORY_MMAP;
@@ -551,20 +769,25 @@ else if( pixelformat==V4L2_PIX_FMT_MJPEG )
 
 		/* If device is closed, then try to re_open it. this shall follow after select() operation. */
 		if(errno==ENODEV) {
+			goto END_FUNC;
+
 			/* Unmap and close file */
-   			for (i = 0; i < REQ_BUFF_NUMBER; ++i)
-      				munmap (buffers[i].start, buffers[i].length);
-			close(fd_dev);
-			goto OPEN_DEV;
+   			//for (i = 0; i < REQ_BUFF_NUMBER; ++i)
+      			//	munmap (buffers[i].start, buffers[i].length);
+			//close(fd_dev);
+			//goto OPEN_DEV;
 		}
 	}
 	else {
-		/* 直接解码显示缓存中的JPG图像数据 */
+		/* Print size and timestamp */
+		//printf("VBUF len: %dBs,  Ts: %ld.%01ld \r",
+		//		buffers[bufferinfo.index].length,  bufferinfo.timestamp.tv_sec, bufferinfo.timestamp.tv_usec/100000 );
+		fflush(stdout);
+
 		show_jpg(NULL, buffers[bufferinfo.index].start, buffers[bufferinfo.index].length, &gv_fb_dev, 0, x0, y0);
 		fb_render(&gv_fb_dev); 		/* 刷新Framebuffer */
 	}
 
-	/* 将当前帧缓存放入工作队列，以供摄像头写入数据．*/
         /* Queue the buffer */
         if( ioctl(fd_dev, VIDIOC_QBUF, &bufferinfo) !=0)
                 printf("Fail to ioctl VIDIOC_QBUF, Err'%s'\n", strerror(errno));
@@ -594,12 +817,20 @@ END_FUNC:
    close (fd_dev);
 
 
+goto OPEN_DEV;
+
    return 0;
 }
 
 
-/*-----------------------------------------------------------------
-A TEST callback routine for UPD server.
+
+/*----------------------------------------------------------------------
+A callback routine for UPD server.
+
+Note:
+1. If *sndSize NOT re_assigned to a positive value, server rountine will NOT
+proceed to sendto().
+2. Server routine shall never exit.
 
 @rcvAddr:       Client address, from which rcvData was received.
 @rcvData:       Data received from rcvAddr
@@ -610,52 +841,230 @@ A TEST callback routine for UPD server.
 @sndSize:       Data size of sndBuff
 
 Return:
+	=1	No client.
         0       OK
-        <0      Fails
-------------------------------------------------------------------*/
-int Server_Callback( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
-                           struct sockaddr_in *sndAddr,       char *sndBuff, int *sndSize)
+		If !=0, the server_routine() will NOT proceed to sendto().
+        <0      Fails, the server_routine() will NOT proceed to sendto().
+		!!! WARNING !!!
+------------------------------------------------------------------------*/
+int Server_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
+                           		struct sockaddr_in *sndAddr,       char *sndBuff, int *sndSize)
 {
-	bool verbose_on=false;
+	int privdata_off=0;
 
-	#if 0	/* NOT necessary NOW!  	 If a new client */
-	static int toksize=0;
-	if( toksize==0 && rcvSize>0 ) {
-		printf("New client from: '%s:%d'.\n", inet_ntoa(rcvAddr->sin_addr), ntohs(rcvAddr->sin_port));
-		toksize=1;
-	}
-	#endif
+	/* Note: *sndSize preset to -1 in routine() */
 
-	/* Check rcvSize */
+	/* 1. Check and parse receive data  */
 	if(rcvSize>0) {
-		if(verbose_on)
-			printf("Received %d bytes data.\n", rcvSize);
+		//EGI_PDEBUG(DBG_TEST,"Received %d bytes data.\n", rcvSize);
+
+		/* 1. Convert rcvData to an IPACK, which is just a reference */
+		ipack_rcv=(EGI_INETPACK *)rcvData;
+		header_rcv=IPACK_HEADER(ipack_rcv);
+		if(header_rcv==NULL) {
+			printf("header_rcv is NULL!\n");
+			return 0;
+		}
+
+		/* 2. Parse CODE */
+		switch(header_rcv->code) {
+			case CODE_REQUEST_VIDEO:
+				/* Get/save clientAddr, and reset pack_seq */
+				printf("Client from '%s:%d' requests for video transfer!\n",
+							inet_ntoa(rcvAddr->sin_addr), ntohs(rcvAddr->sin_port) );
+
+			#if 0   /* Get clientAddr */
+				if( clientAddr.sin_addr.s_addr !=0 ) {
+					/* Consider only one client! */
+					printf("Transmission already started!\n");
+				}
+				else
+					clientAddr=*rcvAddr;
+			#else  /* Just Update clientAddr! */
+				clientAddr=*rcvAddr;
+			#endif
+
+				break;
+
+#if 0 //////////////////// request lost_pack //////////////////////
+			case CODE_REQUEST_PACK:
+				/* Note:
+				 *	1. *rcvAddr will be used for *sndAddr. It MAY NOT be same as clientAddr.
+				 *	2. The lost pack will be sent out immediately, rather than the next pack_seq.
+				 */
+
+				/* Get lost_seq number from received ipack_rcv */
+				lost_seq= *(unsigned int *)IPACK_PRIVDATA(ipack_rcv);
+				printf("Client requests for pack[%d]!\n", lost_seq);
+
+				/* Nest IPACK into sndBuff, fill in header info. */
+				ipack_snd=(EGI_INETPACK *)sndBuff;
+				ipack_snd->headsize=sizeof(PRIV_HEADER); /* set headsize, Or IPACK_HEADER() may return NULL */
+
+				header_snd=IPACK_HEADER(ipack_snd);
+				header_snd->code=CODE_DATA;
+				header_snd->seq=lost_seq;
+				header_snd->total=pack_total;
+				header_snd->fsize=fmap_snd->fsize;
+
+				/* Load data into ipack_snd */
+				privdata_off=sizeof(EGI_INETPACK)+sizeof(PRIV_HEADER);
+				if( lost_seq < pack_total-1) {
+					/* Set packsize before loadData */
+					ipack_snd->packsize=privdata_off+datasize;
+					/* Put stamp */
+					header_snd->stamp=egi_bitstatus_checksum(fmap_snd->fp+lost_seq*datasize, datasize);
+					/* Load privdata */
+					if( inet_ipacket_loadData(ipack_snd, sizeof(PRIV_HEADER), fmap_snd->fp+lost_seq*datasize, datasize)!=0 ) {
+						printf("Fail to inet_ipacket_loadData() datasize!\n");
+						return -1;
+					}
+				}
+				else if ( lost_seq == pack_total-1) {	/* the tail  */
+					/* Set packsize before loadData */
+					ipack_snd->packsize=privdata_off+tailsize;
+					/* Put stamp */
+					header_snd->stamp=egi_bitstatus_checksum(fmap_snd->fp+lost_seq*datasize, tailsize);
+					/* Load privdata */
+					if( inet_ipacket_loadData(ipack_snd, sizeof(PRIV_HEADER), fmap_snd->fp+lost_seq*datasize, tailsize)!=0 ) {
+						printf("Fail to inet_ipacket_loadData() tailsize!\n");
+						return -1;
+					}
+				}
+				else  { /* Invalid lost_seq number */
+					printf("Invalid lost_seq number!\n");
+					return -1;
+				}
+
+				/* Set sndAddr and sndsize */
+				*sndAddr=*rcvAddr;
+				*sndSize=ipack_snd->packsize;
+
+				/* Print */
+				printf("Sent out lost pack[%d](%dBs).\n", lost_seq, ipack_snd->packsize);
+				fflush(stdout);
+
+				/* Return to routine to sendto() it immediately! Any other sendto() jobs are ignored in this round. */
+				return 0;
+
+				break;
+#endif ///////////////////////////////////////////////////////
+
+			case CODE_FAIL:
+				printf("Client fails! End session now.\n");
+				/* Clear clientAddr and reset pack_seq */
+				bzero(&clientAddr,sizeof(clientAddr));
+				*sndAddr=clientAddr;
+				pack_seq=pack_total;
+
+				break;
+			case CODE_FINISH:   /* Finish, clear clientAddr */
+				printf("/t--- OK, Client finish receiving and close the session! ---\n");
+
+				/* Clear clientAddr and reset pack_seq */
+				bzero(&clientAddr,sizeof(clientAddr));
+				*sndAddr=clientAddr;
+				pack_seq=pack_total;
+
+				/* End routine */
+				// *cmdcode=UDPCMD_END_ROUTINE;
+				break;
+			default:
+				break;
+		}
+		/* Proceed on ...*/
 	}
 	else if(rcvSize==0) {
 		/* A Client probe from EGI_UDP_CLIT means a client is created! */
 		printf("Client Probe from: '%s:%d'.\n", inet_ntoa(rcvAddr->sin_addr), ntohs(rcvAddr->sin_port));
+
+		/* DO NOT return, need to proceed on... */
+	}
+	else  {  /* rcvSize<0 */
+		// printf("rcvSize<0\n");
+
+		/* DO NOT return, need to proceed on... */
 	}
 
-#if 0	/* If Client_to_Server only, reply a small packet to keep alive. */
-	if(trans_mode==mode_C2S) {
-		*sndSize=4;
-		*sndAddr=*rcvAddr;
-		return 0;
-	}
-#endif
+	/* 2. If NO client specified */
+	if( clientAddr.sin_addr.s_addr ==0 ) {
 
-	/* TEST FOR SPEED: whatever, just request to send back ... */
-	*sndSize=EGI_MAX_UDP_PDATA_SIZE;
-	/* Use default rcvAddr data in EGI UDP SERV buffer */
-	*sndAddr=*rcvAddr;
-	/* If rcvSize<0, then rcvAddr would be meaningless, whaterver, use default value in EGI UDP SERV.
-	 * However, if *rcvAddr is meaningless, EGI_UDP_SERV will NOT send! */
+		return 1;
+	}
+
+	/* 3. Continue to send packs */
+	if( trans_data.ready && pack_seq < pack_total ) {
+		//EGI_PDEBUG(DBG_TEST,"Start send packs...\n");
+
+		/* Nest IPACK into sndBuff, fill in header info. */
+		ipack_snd=(EGI_INETPACK *)sndBuff;
+		ipack_snd->headsize=sizeof(PRIV_HEADER); /* set headsize, Or IPACK_HEADER() may return NULL */
+
+		header_snd=IPACK_HEADER(ipack_snd);
+		header_snd->code=CODE_DATA;
+		header_snd->seq=pack_seq;
+		header_snd->total=pack_total;
+		header_snd->fsize=trans_data.size;
+
+		/* Load data into ipack_snd */
+		privdata_off=sizeof(EGI_INETPACK)+sizeof(PRIV_HEADER);
+		if( pack_seq > pack_total-1 ) {
+			printf("ERR: pack_seq > pack_total-1 \n");
+			exit(EXIT_FAILURE);
+		}
+		else if( pack_seq < pack_total-1) {
+			/* Set packsize before loadData */
+			ipack_snd->packsize=privdata_off+datasize;
+			/* Put stamp */
+			header_snd->stamp=egi_bitstatus_checksum(trans_data.src_data+pack_seq*datasize, datasize);
+			/* Load privdata */
+			if( inet_ipacket_loadData(ipack_snd, sizeof(PRIV_HEADER), trans_data.src_data+pack_seq*datasize, datasize)!=0 )
+				return -1;
+		}
+		else {  /* Tail, pack_seq == pack_total-1 */
+			/* Set packsize before loadData */
+			ipack_snd->packsize=privdata_off+tailsize;
+			/* Put stamp */
+			header_snd->stamp=egi_bitstatus_checksum(trans_data.src_data+pack_seq*datasize, tailsize);
+			/* Load privdata */
+			if( inet_ipacket_loadData(ipack_snd, sizeof(PRIV_HEADER), trans_data.src_data+pack_seq*datasize, tailsize)!=0 )
+				return -1;
+		}
+
+		/* Set sndAddr and sndsize */
+		*sndAddr=clientAddr;
+		*sndSize=ipack_snd->packsize;
+
+		/* Print */
+		EGI_PDEBUG(DBG_TEST,"Sent out pack[%d](%dBs), of total %d packs.\r", pack_seq, ipack_snd->packsize, pack_total);
+		fflush(stdout);
+
+		/* Increase pack_seq, as next sequence number. */
+		pack_seq++;
+
+	}
+	/* 4. Finish sending, clear clientAddr */
+	else if(pack_seq==pack_total) {
+			//printf("\nFinish one frame!\n");
+			trans_data.ready=false;
+	}
+	else {
+		EGI_PDEBUG(DBG_TEST, " trans_data.ready:%s, pack_seq:%d, pack_total:%d\n",
+					trans_data.ready ? "true":"false", pack_seq, pack_total );
+	}
 
 	return 0;
 }
 
-/*-------------------------------------------------------------------
-A TEST callback routine for UPD client.
+
+/*-----------------------------------------------------------------------
+A callback routine for UPD client.
+To requeset and receive a file from the server.
+
+Note:
+If *sndSize NOT re_assigned to a positive value, server rountine will NOT
+proceed to sendto().
+
 @rcvAddr:       Server/Sender address, from which rcvData was received.
 @rcvData:       Data received from rcvAddr
 @rcvSize:       Data size of rcvData.
@@ -665,29 +1074,261 @@ A TEST callback routine for UPD client.
 
 Return:
         0       OK
-        <0      Fails
---------------------------------------------------------------------*/
-int Client_Callback( const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
-                                                              char *sndBuff, int *sndSize )
+        <0      Fails, the client_routine() will NOT proceed to sendto().
+		!!! WARING !!!
+-----------------------------------------------------------------------*/
+int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
+	                                                              char *sndBuff, int *sndSize )
 {
-	bool verbose_on=false;
 
-	/* Check rcvSize */
-	if(rcvSize>0) {
-		if(verbose_on)
-			printf("Received %d bytes data.\n", rcvSize);
+	/* 1. Start request IPACK. Usually this will be sent twice before receive reply from the Server.  */
+	if( !run_session ) {
+		pack_count=0;
+
+		/* Nest IPACK into sndBuff, fill in header info. */
+		//void *ptmp=sndBuff;
+		ipack_snd=(EGI_INETPACK *)sndBuff;
+		ipack_snd->headsize=sizeof(PRIV_HEADER); /* Or IPACK_HEADER() may return NULL */
+		header_snd=IPACK_HEADER(ipack_snd);
+		header_snd->code=CODE_REQUEST_VIDEO;
+
+		/* Update IPACK packsize, just a header! */
+		ipack_snd->packsize=sizeof(EGI_INETPACK)+sizeof(PRIV_HEADER);
+
+		/* Set sndsize */
+		*sndSize=ipack_snd->packsize;
+		if(verbose_on) printf("Finish preping request ipack.\n");
+
+		/* DO NOT return here, need to proceed on to receive reply/data next! */
 	}
 
-#if 0	/* If Server_to_Client only. Reply a small packet to keep alive. */
-	if(trans_mode==mode_S2C) {
-		*sndSize=4;
-		return 0;
-	}
-#endif
+	/* 2. Receive file data */
+	if( rcvSize > 0 ) {
+		//EGI_PDEBUG(DBG_TEST,"Received %d bytes data.\n", rcvSize);
 
-	/* TEST FOR SPEED: whatever, just request to send back ... */
-	*sndSize=EGI_MAX_UDP_PDATA_SIZE;
-	/* Use default data in EGI UDP CLIT buffer */
+		/* No authenication */
+		run_session=true;
+
+		/* Convert rcvData to IPACK, which is just a reference */
+		ipack_rcv=(EGI_INETPACK *)rcvData;
+		header_rcv=IPACK_HEADER(ipack_rcv);
+
+		/* Parse CODE */
+		if(header_rcv==NULL) {
+			printf("header_rcv is NULL!\n");
+			return -1;
+		}
+
+		/* Parse CODE */
+		switch(header_rcv->code) {
+			case CODE_DATA:
+				/* 1. Receive file data */
+				if(1) {
+					printf("pack_count=%d: Receive pack[%d](%dBs), of total %d packs, ~%jd KBytes.\r",
+					    	pack_count, header_rcv->seq, ipack_rcv->packsize, header_rcv->total, header_rcv->fsize>>10);
+					fflush(stdout);
+				}
+
+				/* 2. Create ebits for the first time. */
+				if( dest_data==NULL ) {
+					dest_data=calloc(1, header_rcv->fsize);
+					if(dest_data==NULL) {
+						printf("Fail to calloc dest_data!\n");
+						exit(EXIT_FAILURE);
+					}
+				}
+				if( ebits==NULL ) {
+					ebits=egi_bitstatus_create(header_rcv->total);
+					if(ebits==NULL) exit(EXIT_FAILURE);
+					if(verbose_on) printf("Create ebits OK.\n");
+				}
+				if( rgb24==NULL ) {
+					rgb24=calloc(1, cam_args.width*cam_args.height*3);
+					if(rgb24==NULL) {
+					        printf("Fail to calloc rgb24!\n");
+						exit(EXIT_FAILURE);
+					}
+				}
+
+				/* 3. Checking seq number, only to see if it's out of sequence, proceed on... */
+				if(  header_rcv->seq != pack_count ) {
+					//printf("\nOut of sequence! pack_seq=%d, expect seq=%d.\n",
+					//		header_rcv->seq, pack_count );
+					/* count fails */
+					//cnt_disorders ++;
+				}
+
+		#if 0//////* 4. Check ebits to see if corresponding pack already received. */
+				if( egi_bitstatus_getval(ebits, header_rcv->seq)==1 ) {
+					printf("Ipack[%d] already received, skip it!\n",header_rcv->seq);
+					break;
+				}
+		#endif
+				/* Get pack privdata size */
+				datasize=IPACK_PRIVDATASIZE(ipack_rcv);
+
+				/* 5. Check stamp */
+				if( header_rcv->stamp != egi_bitstatus_checksum(IPACK_PRIVDATA(ipack_rcv),datasize) )
+				{
+					printf("	xxxxx Ipack[%d] stamp/checksum error! xxxxx\n", header_rcv->seq);
+					exit(EXIT_FAILURE);
+				}
+
+				if( IPACK_PRIVDATA(ipack_rcv)==NULL ) {
+					printf("NO data in ipack_rcv->privdata\n");
+					exit(EXIT_FAILURE);
+				}
+
+				/* 6. Write to dest_data, offset as per the sequence number. */
+				if(header_rcv->seq > header_rcv->total-1) {
+					printf("Seq > header_rcv->total-1! Error.\n");
+					break;
+				}
+				else if(header_rcv->seq != header_rcv->total-1 ) {   /* Not tail, packsize is the same. */
+					memcpy( dest_data + header_rcv->seq * datasize,
+						IPACK_PRIVDATA(ipack_rcv),
+						datasize
+					      );
+				}
+				else {	/* Write the tail */
+					memcpy( dest_data + header_rcv->fsize - datasize,
+						IPACK_PRIVDATA(ipack_rcv),
+						datasize
+					      );
+				}
+
+				/* 7. Take seq number as index of ebits, and set 1 to the bit . */
+				if( egi_bitstatus_set(ebits, header_rcv->seq)!=0 ) {
+					printf("Bitstatus set index=%d fails!\n", header_rcv->seq);
+				}
+				else {
+					//EGI_PDEBUG(DBG_TEST,"Bitstatus set seq=%d\n",header_rcv->seq);
+				}
+
+				/* 8. Increase pack_count, also as next ref. sequence number */
+				pack_count++;
+
+			    	/* 9. Retry request for lost_pack
+				* 9.1 Pick out first ZERO bit in the ebits, ebits->pos is the missed seq number.
+				* 9.2 This may be NOT a lost ipack, but just the next ipack in sequence.
+				*     so to rule out ebits->pos==pack_count
+				* 9.3 TODO: next received pack may NOT be the requested lost ipack, so the same request
+				*     may send more than once!
+				*/
+			    	ebits->pos=-1;
+				if( egi_bitstatus_posnext_zero(ebits) ==0 && ebits->pos != pack_count )
+			    	{
+					lost_seq = ebits->pos;
+					printf("Pack[%d] is lost!\n",lost_seq);
+
+#if 0 //////////////////////////////// Retry lost_pack, Nest IPACK into sndBuff, fill in header info. */
+					ipack_snd=(EGI_INETPACK *)sndBuff;
+					ipack_snd->headsize=sizeof(PRIV_HEADER); /* Or IPACK_HEADER() may return NULL */
+					header_snd=IPACK_HEADER(ipack_snd);
+					header_snd->code=CODE_REQUEST_PACK;
+
+					/* Update IPACK packsize first! or IPACK_PRIVDATA() will fail! */
+					ipack_snd->packsize=sizeof(EGI_INETPACK)+sizeof(PRIV_HEADER)+sizeof(lost_seq);
+
+					/* Push lost seq number into privdata */
+					*(unsigned int *)IPACK_PRIVDATA(ipack_snd)=lost_seq;
+
+					/* Set sndsize */
+					*sndSize=ipack_snd->packsize;
+					if(verbose_on)
+						printf("Finish preping request for lost pack[%d].\n", lost_seq);
+
+					/* Count retry for lost packs */
+					//cnt_retrys++;
+
+					/* Return to routine to sendto() immediately. */
+					return 0;
+#endif /////////////////////////////////////////////////
+
+				}
+
+				/* 10. If get last pack_seq, then complete one frame, convert data to rgb24 and display it. */
+				if(header_rcv->seq==header_rcv->total-1) {
+
+					/* Check ebits again! */
+				    	ebits->pos=-1;
+				    	if( egi_bitstatus_posnext_zero(ebits) ==0 ) {
+						lost_seq = ebits->pos;
+						printf("Pack[%d] is lost!\n",lost_seq);
+					}
+					else
+						EGI_PDEBUG(DBG_TEST,"OK, ebits all ONEs!\n");
+
+
+					/* Display Video */
+					egi_color_YUYV2RGB888(dest_data, rgb24, cam_args.width, cam_args.height, false);
+					egi_imgbuf_showRBG888(rgb24, cam_args.width, cam_args.height, &gv_fb_dev, 0, 0);  /* Direct FBwrite */
+					fb_render(&gv_fb_dev);
+
+					/* Reset pack_count */
+					pack_count=0;
+				}
+
+				break;
+			case CODE_FINISH:
+				break;
+			default:
+				break;
+
+		   } /* END switch */
+
+	}
+	else if( rcvSize == 0 ) {
+		printf("rcvSize==0 from: '%s:%d'.\n", inet_ntoa(rcvAddr->sin_addr), ntohs(rcvAddr->sin_port));
+	}
+	/* recfrome() TIMEOUT : errno=EAGAIN or ECONNREFUSED */
+	else  { /* rcvSize <0, recvfrom() ERR! */
+
+		/* DO NOT return -1 here; need to proceed to sendto()! */
+
+		/* Check if any unreceived packs, prepare request ipack. */
+		if( pack_count>0 ) {  /* Only if transfer started  */
+			EGI_PDEBUG(DBG_TEST,"Recvfrom() timeout!\n");
+
+#if 0   ////////// request lost_pack /////////////////////////////////
+		/* WARNING!!! If the Server finish sending out all packs at this point, then we have
+		 * to check any lost pack here, NOT in if(rcvSize>0){... } part!
+		 * Pick out first ZERO bit in the ebits, ebits->pos is the missed seq number.
+		 * Note: This may be NOT a lost ipack, but just the next ipack in sequence.
+		 */
+		    	ebits->pos=-1;
+		    	if( egi_bitstatus_posnext_zero(ebits) ==0 ) {
+				lost_seq = ebits->pos;
+				printf("Pack[%d] is lost!\n",lost_seq);
+
+				/* Nest IPACK into sndBuff, fill in header info. */
+				ipack_snd=(EGI_INETPACK *)sndBuff;
+				ipack_snd->headsize=sizeof(PRIV_HEADER); /* Or IPACK_HEADER() may return NULL */
+				header_snd=IPACK_HEADER(ipack_snd);
+				header_snd->code=CODE_REQUEST_PACK;
+
+				/* Update IPACK packsize first! or IPACK_PRIVDATA() will fail! */
+				ipack_snd->packsize=sizeof(EGI_INETPACK)+sizeof(PRIV_HEADER)+sizeof(lost_seq);
+
+				/* Push lost seq number into privdata */
+				*(unsigned int *)IPACK_PRIVDATA(ipack_snd)=lost_seq;
+
+				/* Set sndsize */
+				*sndSize=ipack_snd->packsize;
+				EGI_PDEBUG(DBG_TEST,"Finish preping request for lost pack[%d].\n", lost_seq);
+
+				/* Count retry for lost packs */
+				cnt_retrys++;
+
+				/* Return to routine to sendto() immediately. */
+				return 0;
+		     	}
+#endif ///////////////////////////////////////////
+
+		}  /* END if(pack_count>0) */
+
+	}
 
 	return 0;
 }
+
