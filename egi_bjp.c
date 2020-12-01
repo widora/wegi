@@ -50,6 +50,148 @@ midaszhou@yahoo.com
 //static BITMAPINFOHEADER InfoHead;
 
 /*--------------------------------------------------------------
+Compress RGB_24bit image to an JPEG file.
+
+@filename:	File path to save target JPEG file.
+@qulity:	Jpeg compression quality(0-100).
+@width,height:  Image size.
+@rgb24:		Pointer to RGB_24bit image data.
+
+return:
+	0	Ok
+	<0	Fails
+--------------------------------------------------------------*/
+int compress_to_jpgFile(const char * filename, int quality, int width, int height, unsigned char *rgb24 )
+{
+  	FILE * fil;
+
+	struct jpeg_compress_struct cinfo;
+	struct jpeg_error_mgr jerr;
+
+  	JSAMPROW row_pointer[1];      /* pointer to JSAMPLE row[s] */
+  	int bytes_per_row;            /* row width  */
+
+	/* Check input */
+	if(rgb24==NULL || width<1 || height<1)
+		return -1;
+
+	/* Step 1: allocate and initialize JPEG compression object */
+	cinfo.err = jpeg_std_error(&jerr);
+	jpeg_create_compress(&cinfo);
+
+	/* Step 2: specify data destination (eg, a file) */
+	if ((fil= fopen(filename, "wb")) == NULL) {
+    		fprintf(stderr, "%s: Fail to open '%s' for write JPEG.", __func__, filename);
+		return -1;
+  	}
+  	jpeg_stdio_dest(&cinfo, fil);
+
+	/* Step 3: set parameters for compression */
+	cinfo.image_width = width;
+  	cinfo.image_height = height;
+  	cinfo.input_components = 3;
+  	cinfo.in_color_space = JCS_RGB;
+	jpeg_set_defaults(&cinfo);
+	jpeg_set_quality(&cinfo, quality, TRUE /* limit to baseline-JPEG values */);
+
+	/* Step 4: Start compressor */
+	jpeg_start_compress(&cinfo, TRUE);
+
+	/* Step 5: while (scan lines remain to be written) */
+	/*           jpeg_write_scanlines(...); */
+	bytes_per_row = width * 3;  /* R8G8B8 */
+	while (cinfo.next_scanline < cinfo.image_height) {
+		/* One row each time, maybe more. */
+    		row_pointer[0] = &rgb24[cinfo.next_scanline * bytes_per_row];
+    		(void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
+  	}
+
+  	/* Step 6: Finish compression */
+  	jpeg_finish_compress(&cinfo);
+  	fclose(fil);
+
+	/* Step 7: release JPEG compression object */
+  	jpeg_destroy_compress(&cinfo);
+
+	return 0;
+}
+
+
+/*--------------------------------------------------------------
+Compress RGB_24bit image to JPEG, and save to outbuffer.
+
+			!!! WARING !!!
+The caller MUST ensure that mem space of outbuffer is big enough,
+AND always reset outsize to the actually allocated size before
+EACH CALL!
+If the input outsize is NOT big enough(include if NULL), the
+function will allocate outbuffer again! and it triggers memory
+leakage!
+OR you just have the function to allocate outbuffer, and free it
+after EACH CALL!
+
+@outbuff:	Buffer to strore compressed jpeg data.
+@outsize:	Jpeg data size.
+@qulity:	Jpeg compression quality.
+@width,height:  Image size.
+@rgb24:		Pointer to RGB_24bit image data.
+
+
+return:
+	0	Ok
+	<0	Fails
+--------------------------------------------------------------*/
+int compress_to_jpgBuffer(unsigned char ** outbuffer, unsigned long * outsize,
+				int quality, int width, int height, unsigned char *rgb24 )
+{
+	struct jpeg_compress_struct cinfo;
+	struct jpeg_error_mgr jerr;
+
+  	JSAMPROW row_pointer[1];      /* pointer to JSAMPLE row[s] */
+  	int bytes_per_row;            /* row width  */
+
+	/* Check input */
+	if(rgb24==NULL || width<1 || height<1)
+		return -1;
+
+	/* Step 1: allocate and initialize JPEG compression object */
+	cinfo.err = jpeg_std_error(&jerr);
+	jpeg_create_compress(&cinfo);
+
+	/* Step 2: specify data destination (eg, a file) */
+	jpeg_mem_dest(&cinfo, outbuffer, outsize);
+
+	/* Step 3: set parameters for compression */
+	cinfo.image_width = width;
+  	cinfo.image_height = height;
+  	cinfo.input_components = 3;
+  	cinfo.in_color_space = JCS_RGB;
+	jpeg_set_defaults(&cinfo);
+	jpeg_set_quality(&cinfo, quality, TRUE /* limit to baseline-JPEG values */);
+
+	/* Step 4: Start compressor */
+	jpeg_start_compress(&cinfo, TRUE);
+
+	/* Step 5: while (scan lines remain to be written) */
+	/*           jpeg_write_scanlines(...); */
+	bytes_per_row = width * 3;  /* R8G8B8 */
+	while (cinfo.next_scanline < cinfo.image_height) {
+		/* One row each time, maybe more. */
+    		row_pointer[0] = &rgb24[cinfo.next_scanline * bytes_per_row];
+    		(void) jpeg_write_scanlines(&cinfo, row_pointer, 1);
+  	}
+
+  	/* Step 6: Finish compression */
+  	jpeg_finish_compress(&cinfo);
+
+	/* Step 7: release JPEG compression object */
+  	jpeg_destroy_compress(&cinfo);
+
+	return 0;
+}
+
+
+/*--------------------------------------------------------------
 Open jpg file and return decompressed image buffer pointer,
 Call close_jgpImg() to release image buffer.
 
@@ -1259,8 +1401,6 @@ int egi_save_FBbmp(FBDEV *fb_dev, const char *fpath)
 	fclose(fil);
 	return 0;
 }
-
-
 
 
 /*---------------------------------------------------

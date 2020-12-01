@@ -3,16 +3,8 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-
 Original source: https://blog.csdn.net/luxiaoxun/article/details/7622988
 
-1. The width of the displaying picture must be a multiple of 4.
-
-TODO:
-    1. to pad width to a multiple of 4 for bmp file.
-    2. jpgshow() picture flips --OK
-
-./open-gcc -L./lib -I./include -ljpeg -o jpgshow fbshow.c
 
 Midas Zhou
 -----------------------------------------------------------------------*/
@@ -76,18 +68,19 @@ typedef struct
 #define SHOW_BLACK_NOTRANSP	0
 
 /* functions */
-unsigned char *open_jpgImg(const char *filename, int *w, int *h, int *components);
-unsigned char * open_buffer_jpgImg( const unsigned char *inbuff, unsigned long insize, int *w, int *h, int *components );
-void close_jpgImg(unsigned char *imgbuf);
+int compress_to_jpgFile(const char * filename, int quality, int width, int height, unsigned char *rgb24 );
+int compress_to_jpgBuffer(unsigned char ** outbuffer, unsigned long * outsize,int quality, int width, int height, unsigned char *rgb24);
+
+unsigned char* 	open_jpgImg(const char *filename, int *w, int *h, int *components);
+unsigned char* 	open_buffer_jpgImg( const unsigned char *inbuff, unsigned long insize, int *w, int *h, int *components );
+void 		close_jpgImg(unsigned char *imgbuf);
 
 int show_bmp(const char* fpath,FBDEV *fb_dev, int blackoff, int x0, int y0);
 int show_jpg( const char* fpath, const unsigned char *inbuff, unsigned long insize,
               FBDEV *fb_dev, int blackoff, int x0, int y0);
 
-
 int egi_imgbuf_loadjpg(const char* fpath, EGI_IMGBUF *egi_imgbuf);
 int egi_imgbuf_loadpng(const char* fpath, EGI_IMGBUF *egi_imgbuf);
-
 int egi_imgbuf_savepng(const char* fpath, EGI_IMGBUF *egi_imgbuf);
 
 /* roaming picture in a window */
