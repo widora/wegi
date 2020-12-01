@@ -32,6 +32,7 @@ Midas Zhou
 -----------------------------------------------------------------*/
 #include <signal.h>
 #include <sys/time.h>
+#include <sys/timeb.h>;
 #include <time.h>
 #include <stdio.h>
 #include <unistd.h> /* usleep */
@@ -75,6 +76,8 @@ long long unsigned int tm_get_tmstampms(void)
 }
 
 
+/*  SUBSTITUE: size_t strftime(char *s, size_t max, const char *format, const struct tm *tm) */
+
 /*---------------------------------------------
  Get local time string in form of:
  		H:M:S 	(in 24hours)
@@ -95,6 +98,32 @@ void tm_get_strtime(char *tmbuf)
 
 
 /*---------------------------------------------
+ Get local time string in form of:
+ 		H:M:S.ms 	(in 24hours)
+ The caller must ensure enough space for tmbuf.
+
+---------------------------------------------*/
+void tm_get_strtime2(char *tmbuf, const char *appen)
+{
+	time_t tm_t; /* time in seconds */
+	struct tm *tm_s; /* time in struct */
+	struct timeb tp;
+
+	time(&tm_t);
+	tm_s=localtime(&tm_t);
+
+	ftime(&tp);
+
+	/*  tm_s->tm_year start from 1900
+	    tm_s->tm_mon start from 0
+	*/
+	sprintf(tmbuf,"%d-%d-%d_%02d:%02d:%02d.%d%s",
+			tm_s->tm_year+1900,tm_s->tm_mon+1,tm_s->tm_mday,
+				tm_s->tm_hour,tm_s->tm_min,tm_s->tm_sec, tp.millitm, appen);
+}
+
+
+/*---------------------------------------------
 Get local time in string, in form of:
  	Year_Mon_Day  Weekday
 The caller must ensure enough space for tmdaybuf.
@@ -110,6 +139,7 @@ void tm_get_strday(char *daybuf)
 	sprintf(daybuf,"%d-%d-%d   %s", tm_s->tm_year+1900,tm_s->tm_mon+1,tm_s->tm_mday, \
 					str_weekday[tm_s->tm_wday] );
 }
+
 
 /*---------------------------------------------
 Get local time in string, in form of:

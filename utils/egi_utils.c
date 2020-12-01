@@ -136,7 +136,7 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize, int prot, int fl
                 	goto END_FUNC;
 		}
 		fmap->fsize=sb.st_size;
-		printf("%s: Succeed to create and/or ftruncate '%s' to %jd Bytes.\n", __func__, fpath, fmap->fsize);
+		//printf("%s: Succeed to create and/or ftruncate '%s' to %jd Bytes.\n", __func__, fpath, fmap->fsize);
         }
 
         /* MMAP Text file */

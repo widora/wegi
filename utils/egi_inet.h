@@ -135,7 +135,9 @@ int inet_default_sigAction(void);
 
 			/* ------------ UDP C/S ----------- */
 
-#define EGI_MAX_UDP_PDATA_SIZE	(1024*60)
+#define EGI_MAX_UDP_PDATA_SIZE	65507	/* Actual MAX. 2^31-1-8-20(IP header)=65507Bs, Or Err'Message too long'
+					 * This value also limit static send/recv buffer in UDP routine functions
+ 					 */
 #define UDP_USER_TIMER_SET      20      /* In seconds. As in inet_tcp_recvfrrom() and inet_udp_sendto(), to count total time waiting/trying
                                          * when RCVTIMEO/SNDTIMEO is set.
                                          * If rcv(BLOCK)/send(BLOCK) fails persistently, and total time amount to the value,

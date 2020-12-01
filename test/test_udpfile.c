@@ -22,7 +22,7 @@ Note:
 
 2. Once receives Client's request, the UDP server send out all packs in sequence,
    while the UDP client may fail and break if any pack is lost, then a
-   round of request/receive process will start again.
+   round of request/receive process will start again.  ----- OK, lost_pack retransmission.
 
    (If IPACKs reach to the Client in wrong sequence, ---OK! Just memcpy
     them to the corresponding position in the EGI_FILEMMAP.)
@@ -56,13 +56,14 @@ Note:
 
 7. Transmitting speed is restricted by the weakest (most disadvantageous/limited)
    node/element/factor/ considered in the whole data link,
-   Example: For micrSD IO(write/read) speed limit, you may set a larger buffer to imporve
+   Example: For micrSD IO(write/read) speed limit, you may set a larger buffer to improve
    inet send/recv speed.
 
 TODO:
+   1. Mutual authentication.
 
 
- Test results:  ( for a 14Mby test file )
+ Test results:  ( for a 14Mbytes test file )
    Select small packet and big waitus:   slow, stable, more probable to complete.
    Select big packet and samll waitus:   fast, unstable, more probable to break midway,
 					 and more likely to jam the link.
@@ -134,6 +135,8 @@ TODO:
 	Avg speed: ~4.7MBps
 	TRYs: 128,  FAILs: 0, TimeOuts: 0
 
+		( --- Eth0 --- : PC Client <---eth0--- widoraNEO   )
+
  ./test_udpfile -s -d 52000 -w 5000
 	UDP transfer: Round 1,  Retrys: 3/284,  TimeOuts: 0, Time: 2612ms
 	UDP transfer: Round 1,  Retrys: 3/284,  TimeOuts: 0, Time: 2618ms
@@ -172,13 +175,15 @@ https://github.com/widora/wegi
 #include <egi_inet.h>
 #include <egi_timer.h>
 #include <egi_utils.h>
+#include <egi_debug.h>
 
+#undef  DEFAULT_DBG_FLAGS
+#define DEFAULT_DBG_FLAGS   DBG_NONE //DBG_TEST
 
 const char *fpath="udp_test.dat";
 
 EGI_FILEMMAP *fmap_snd;   /* For server: send file. */
 EGI_FILEMMAP *fmap_rcv;   /* For Client: received file. */
-int fd;	      		  /* For client: save file. */
 
 /* A private header for my IPACK */
 typedef struct {
@@ -229,20 +234,22 @@ int cnt_disorders;			/* disorder packs */
 int cnt_rounds;				/* Rounds of transmission/session. */
 int cnt_retrys;				/* Retrys for lost packs */
 int cnt_tmouts;				/* Client recvfrom() Timeout */
+long cnt_tmms;				/* Time cost, in ms */
 
 /* Print help */
 void print_help(const char* cmd)
 {
-	printf("Usage: %s [-hscva:p:m:d:] \n", cmd);
+	printf("Usage: %s [-hscva:p:m:d:w:l:] \n", cmd);
        	printf("        -h   help \n");
    	printf("        -s   work as UDP Server\n");
    	printf("        -c   work as UDP Client (default)\n");
-	printf("	-v   verbose to print rcvSize\n");
+	printf("	-v   verbose\n");
 	printf("	-a:  Server IP address, with or without port.\n");
 	printf("	-y:  Client IP address, default NULL.\n");
 	printf("	-p:  Port number, default 5678.\n");
-	printf("	-d:  size of pridata packed in each IPACK, default 25kBs.\n");
+	printf("	-d:  Size of pridata packed in each IPACK, default 25kBs.\n");
 	printf("	-w:  Server send_waitus in us. defautl 10ms.\n");
+	printf("	-l:  Test loop times, default 1. If <=0, nonstop. \n");
 }
 
 /* Callback functions, define routine jobs. */
@@ -258,6 +265,8 @@ int Server_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 int main(int argc, char **argv)
 {
 	int opt;
+	bool ever_loop=false;
+	int  nloops=1;
 	bool SetUDPServer=false;
 	char *svrAddr=NULL;		/* Default NULL, to be decided by system */
 	char *cltAddr=NULL;
@@ -265,6 +274,10 @@ int main(int argc, char **argv)
 	unsigned int send_waitus=10000;	/* in us, For server */
 	char *pt;
 	EGI_CLOCK eclock={0};
+	unsigned int pack_shellsize=sizeof(EGI_INETPACK)+sizeof(PRIV_HEADER);
+
+
+
 
 #if  0 /* TEST: ------ EGI_BITSTAUTS ---------- */
 	EGI_BITSTATUS *ebits=egi_bitstatus_create(1024);
@@ -286,14 +299,8 @@ int main(int argc, char **argv)
 	exit(0);
 #endif
 
-#if  0  /* TEST: ------ EGI_FILEMMAP ---------- */
-	EGI_FILEMMAP *fmap_dat=egi_fmap_create("/tmp/fmap.dat", 9867);
-	egi_fmap_free(&fmap_dat);
-	exit(0);
-#endif /* --------*/
-
 	/* Parse input option */
-	while( (opt=getopt(argc,argv,"hscva:y:p:m:d:w:"))!=-1 ) {
+	while( (opt=getopt(argc,argv,"hscva:y:p:m:d:w:l:"))!=-1 ) {
 		switch(opt) {
 			case 'h':
 				print_help(argv[0]);
@@ -331,12 +338,21 @@ int main(int argc, char **argv)
 				break;
 			case 'd':
 				datasize=atoi(optarg);
-				if(datasize<1448-40) datasize=1448-40;
-				else if(datasize>EGI_MAX_UDP_PDATA_SIZE-sizeof(EGI_INETPACK)-sizeof(PRIV_HEADER))
-					datasize=EGI_MAX_UDP_PDATA_SIZE-sizeof(EGI_INETPACK)-sizeof(PRIV_HEADER);
+				if(datasize<1448-pack_shellsize)
+					datasize=1448-pack_shellsize;
+				else if(datasize>EGI_MAX_UDP_PDATA_SIZE-pack_shellsize) {
+					datasize=EGI_MAX_UDP_PDATA_SIZE-pack_shellsize;
+					printf("UDP packet size exceeds limit of %dBs, reset datasize=%d-%d(pack_shellsize)=%dBs.\n",
+						EGI_MAX_UDP_PDATA_SIZE, EGI_MAX_UDP_PDATA_SIZE, pack_shellsize, datasize);
+				}
 				break;
 			case 'w':
 				send_waitus=atoi(optarg);
+				break;
+			case 'l':
+				nloops=atoi(optarg);
+				if(nloops<=0)
+					ever_loop=true;
 				break;
 			default:
 				SetUDPServer=false;
@@ -353,6 +369,7 @@ int main(int argc, char **argv)
 	printf("Set port=%d\n",port);
 	printf("Set datasize=%d(Bytes)\n", datasize);
 	printf("Set send_waitus=%d(us) for the Server.\n", send_waitus);
+	printf("Size of empty EGI_INETPACK+PRIV_HEADER: %d Bytes\n",sizeof(EGI_INETPACK)+sizeof(PRIV_HEADER));
 
   /* A. -------- Work as a UDP Server --------- */
   if( SetUDPServer ) {
@@ -404,7 +421,7 @@ int main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 
-     while(1) { ////////////////    LOOP  TEST    /////////////////
+     do { ////////////////    LOOP  TEST    /////////////////
 
         /* Create UDP client */
         EGI_UDP_CLIT *uclit=inet_create_udpClient(svrAddr, port, cltAddr, 4);
@@ -433,17 +450,22 @@ int main(int argc, char **argv)
 
         /* Free and destroy */
         inet_destroy_udpClient(&uclit);
-	close(fd);
 	egi_fmap_free(&fmap_rcv);
 	egi_bitstatus_free(&ebits);
 
-	/* sum up */
+	/* Sum up */
 	cnt_rounds++;
-	printf("\n--- UDP transfer: Round %d,  Retrys: %d/%d,  TimeOuts: %d, Time: %ldms ---\n",
-		cnt_rounds, cnt_retrys, pack_total, cnt_tmouts, egi_clock_readCostUsec(&eclock)/1000 );
+	cnt_tmms+=egi_clock_readCostUsec(&eclock)/1000;
+	printf("\n--- UDP transfer Rounds: %d,  Retrys: %d/(%d*%d), TimeOuts: %d, CostTime: %ldms ---\n",
+		cnt_rounds, cnt_retrys, pack_total, cnt_rounds, cnt_tmouts, cnt_tmms );
 
-	break;
-     }	  /////////////    END LOOP  TEST    //////////////
+	if( !ever_loop ) {
+		char ch=getchar();
+		if(ch=='q')
+			exit(0);
+	}
+
+     } while( --nloops || ever_loop); /////////////    END LOOP  TEST    //////////////
 
   }
 
@@ -485,8 +507,7 @@ int Server_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 
 	/* 1. Check and parse receive data  */
 	if(rcvSize>0) {
-		if(verbose_on)
-			printf("Received %d bytes data.\n", rcvSize);
+		//EGI_PDEBUG(DBG_TEST,"Received %d bytes data.\n", rcvSize);
 
 		/* 1. Convert rcvData to an IPACK, which is just a reference */
 		ipack_rcv=(EGI_INETPACK *)rcvData;
@@ -713,15 +734,14 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 
 		/* Set sndsize */
 		*sndSize=ipack_snd->packsize;
-		printf("Finish preping request ipack.\n");
+		if(verbose_on) printf("Finish preping request ipack.\n");
 
 		/* DO NOT return here, need to proceed on to receive reply/data next! */
 	}
 
 	/* 2. Receive file data */
 	if( rcvSize > 0 ) {
-		if(verbose_on)
-			printf("Received %d bytes data.\n", rcvSize);
+		EGI_PDEBUG(DBG_TEST,"Received %d bytes data.\n", rcvSize);
 
 		/* Convert rcvData to IPACK, which is just a reference */
 		ipack_rcv=(EGI_INETPACK *)rcvData;
@@ -737,9 +757,11 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 		switch(header_rcv->code) {
 			case CODE_DATA:
 				/* 1. Receive file data */
-				printf("pack_count=%d: Receive pack[%d](%dBs), of total %d packs, ~%jd KBytes.\n",
-					pack_count, header_rcv->seq, ipack_rcv->packsize, header_rcv->total, header_rcv->fsize>>10);
-				fflush(stdout);
+				if(1) {
+					printf("pack_count=%d: Receive pack[%d](%dBs), of total %d packs, ~%jd KBytes.\r",
+					    	pack_count, header_rcv->seq, ipack_rcv->packsize, header_rcv->total, header_rcv->fsize>>10);
+					fflush(stdout);
+				}
 
 				/* 2. Create fmap_rcv and ebits for the first time. */
 				if(fmap_rcv==NULL) {
@@ -748,12 +770,12 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 					/* fmap create a file */
 					fmap_rcv=egi_fmap_create(fpath, header_rcv->fsize, PROT_READ|PROT_WRITE, MAP_SHARED);
 					if(fmap_rcv==NULL) exit(EXIT_FAILURE);
-					printf("Create fmap_rcv OK.\n");
+					if(verbose_on) printf("Create fmap_rcv OK.\n");
 				}
 				if( ebits==NULL ) {
 					ebits=egi_bitstatus_create(header_rcv->total);
 					if(ebits==NULL) exit(EXIT_FAILURE);
-					printf("Create ebits OK.\n");
+					if(verbose_on) printf("Create ebits OK.\n");
 				}
 
 				/* 3. Checking seq number, only to see if it's out of sequence, proceed on... */
@@ -806,8 +828,9 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 				/* 7. Take seq number as index of ebits, and set 1 to the bit . */
 				if( egi_bitstatus_set(ebits, header_rcv->seq)!=0 )
 					printf("Bitstatus set index=%d fails!\n", header_rcv->seq);
-				else
-					printf("Bitstatus set seq=%d\n",header_rcv->seq);
+				else {
+					EGI_PDEBUG(DBG_TEST,"Bitstatus set seq=%d\n",header_rcv->seq);
+				}
 
 				/* 8. Increase pack_count, also as next ref. sequence number */
 				pack_count++;
@@ -839,7 +862,8 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 
 					/* Set sndsize */
 					*sndSize=ipack_snd->packsize;
-					printf("Finish preping request for lost pack[%d].\n", lost_seq);
+					if(verbose_on)
+						printf("Finish preping request for lost pack[%d].\n", lost_seq);
 
 					/* Count retry for lost packs */
 					cnt_retrys++;
@@ -861,7 +885,8 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 						printf("Pack[%d] is lost!\n",lost_seq);
 					}
 					else
-						printf("OK, ebits all ONEs!\n");
+						EGI_PDEBUG(DBG_TEST,"OK, ebits all ONEs!\n");
+
 
 					/* Feed back to server and end this round of routine process. */
 					/* Nest IPACK into sndBuff, fill in header info. */
@@ -896,7 +921,7 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 
 		/* Check if any unreceived packs, prepare request ipack. */
 		if( pack_count>0 ) {  /* Only if transfer started  */
-			printf("Recvfrom() timeout!\n");
+			EGI_PDEBUG(DBG_TEST,"Recvfrom() timeout!\n");
 
 		/* WARNING!!! If the Server finish sending out all packs at this point, then we have
 		 * to check any lost pack here, NOT in if(rcvSize>0){... } part!
@@ -922,7 +947,7 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 
 				/* Set sndsize */
 				*sndSize=ipack_snd->packsize;
-				printf("Finish preping request for lost pack[%d].\n", lost_seq);
+				EGI_PDEBUG(DBG_TEST,"Finish preping request for lost pack[%d].\n", lost_seq);
 
 				/* Count retry for lost packs */
 				cnt_retrys++;

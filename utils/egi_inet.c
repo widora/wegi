@@ -302,8 +302,12 @@ void inet_ipacket_free(EGI_INETPACK** ipack)
 /*--------------------------------------------------------
 Load data into specified position in ipack->data.
 
+Note:
+1. If ipack->packsize is NOT big enough,it will abort, and
+   ipack->packsize will NOT be modified!
+
 @ipack:		Pointer to an EGI_INETPACK
-@off:		Offset to ipack->data.
+@off:		Inserting position, offset to ipack->data[0].
 @data:		Source data
 @size:		Size of input data
 
@@ -2102,16 +2106,16 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
 			printf("%s: sndlen > sizeof(addrSENDER)!\n",__func__);
 		/* Datagram sockets in various domains permit zero-length datagrams */
 		if(nrcv<0) {
-			printf("%s: Fail to call recvfrom(), Err'%s'\n", __func__, strerror(errno));
+			//printf("%s: Fail to call recvfrom(), Err'%s'\n", __func__, strerror(errno));
 			switch(errno) {
                                 #if(EWOULDBLOCK!=EAGAIN)
                                 case EWOULDBLOCK:
                                 #endif
 				case EAGAIN:  /* Note: EAGAIN == EWOULDBLOCK */
-					printf("%s: errno==EAGAIN or EWOULDBLOCK.\n",__func__);
+					printf("%s: recvfrom() EAGAIN or EWOULDBLOCK.\n",__func__);
 					break;
 				case ECONNREFUSED: /* Connection reset by peer. Usually the counter part is NOT ready */
-					printf("%s: errno==ECONNREFUSED.\n",__func__);
+					printf("%s: recvfrom() ECONNREFUSED.\n",__func__);
 				     	break;
 				default:
 					return -2;

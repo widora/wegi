@@ -722,9 +722,10 @@ bool egi_mouse_getRequest(EGI_MOUSE_STATUS *mostat)
 		return true;
 		/* --- Keep mostatus mutex locked! --- */
 	}
-	else   /* Put mutex lock */
+	else {  /* Put mutex lock */
 		pthread_mutex_unlock(&mostat->mutex);
-
+		return false;
+	}
 }
 
 
@@ -783,7 +784,11 @@ void egi_set_termios(void)
 	/* Save old settings */
         tcgetattr(0, &old_termioset);
 	old_termispeed=cfgetispeed(&old_termioset);
+	if(old_termispeed<0)
+		printf("%s: Fail cfgetispeed, Err'%s'\n", __func__, strerror(errno));
 	old_termospeed=cfgetospeed(&old_termioset);
+	if(old_termospeed<0)
+		printf("%s: Fail cfgetispeed, Err'%s'\n", __func__, strerror(errno));
 
 	/* Setup with new settings */
         new_termioset=old_termioset;
@@ -793,11 +798,15 @@ void egi_set_termios(void)
         new_termioset.c_cc[VTIME]=0; //0
 
 	/* TEST: set IO speed with tentative values. */
-        cfsetispeed(&new_termioset,B57600);  /* 4k */
-        cfsetospeed(&new_termioset,B57600);
+        if( cfsetispeed(&new_termioset,B57600)<0 )  /* 4k */
+		printf("%s: Fail cfsetiseepd, Err'%s'\n", __func__, strerror(errno));
+
+        if( cfsetospeed(&new_termioset,B57600)<0 )
+		printf("%s: Fail cfsetoseepd, Err'%s'\n", __func__, strerror(errno));
 
 	/* Set parameters to the terminal. TCSANOW -- the change occurs immediately.*/
-        tcsetattr(0, TCSANOW, &new_termioset);
+        if( tcsetattr(0, TCSANOW, &new_termioset)<0 )
+		printf("%s: Fail tcsetattr, Err'%s'\n", __func__, strerror(errno));
 
         printf("NEW input speed:%d, output speed:%d\n",cfgetispeed(&new_termioset), cfgetospeed(&new_termioset) );
 

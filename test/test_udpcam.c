@@ -18,6 +18,10 @@ Pan control:
 
 Note:
 1. Support hot unplug and plug USBCAM.
+2. ebits init once only: Assume that each image frame is divided into
+   just same numbers of ipacks!
+3. It supports YUYV and MJEPG data transmission, However,mjpeg data
+   is converted from YUYV, not from the CAM controller.
 
 TODO:
 1. Mutual authentication.
@@ -76,28 +80,39 @@ void* usbcam_routine(void *args);
 /* Data for UDP transmission */
 struct  udp_trans_data {
 	void 	*src_data;	/* Source data, Only referece */
-	size_t 	 size;
+	size_t 	 src_size;
 	bool	 ready;		/* Ready for transfer */
 	//pthread_mutex_t  mutex_lock;
-} trans_data;
+};
+struct udp_trans_data	trans_data;
+int trans_format=V4L2_PIX_FMT_YUYV;	/* OR V4L2_PIX_FMT_MJPEG */
 
 void *dest_data;  		/* Received data, from src_data */
-unsigned char *rgb24;		/* For RGB 24bits color data */
+unsigned long dest_size;	/* Size of dest_data */
 
+unsigned char *rgb24;		/* For RGB 24bits color data */
+unsigned char *jpgdata;		/* For mjpeg data */
+unsigned long jpgdata_size=0;	/* Size of jpgdata */
+unsigned int  jpg_quality=80;
 
 /* A private header for my IPACK */
 typedef struct {
-	int		code;
-	unsigned int	seq;	/* Packet sequence number, from 0 */
-	unsigned int	total;  /* Total packets */
-	off_t		fsize;	/* Total size of the file */
-	int		stamp;  /* signature, stamp */
+
 #define CODE_NONE		0	/* none */
 #define CODE_DATA		1	/* Data availabe, seq/total, data in privdata */
 #define	CODE_REQUEST_VIDEO	2	/* Client ask for file stransfer */
 #define CODE_REQUEST_PACK	3	/* Client ask for lost packs, ipack seq number in privdata */
 #define CODE_FINISH		4	/* Client ends session */
 #define CODE_FAIL		5	/* Client fails to receive packets */
+
+	int		code;   /* MSG code */
+	unsigned int	seq;	/* Packet sequence number, from 0 */
+	unsigned int	total;  /* Total packets */
+	off_t		fsize;	/* Total size of the complete file */
+	int		width;
+	int		height;	/* For image size */
+	int		stamp;  /* signature, stamp */
+
 } PRIV_HEADER;
 
 /* Following pointers to be used as reference only!
@@ -124,7 +139,7 @@ static unsigned int pack_total;    	/* For server/client: Total number of IPACKs
 static unsigned int pack_count;		/* For client */
 static unsigned int lost_seq;		/* Lost pack seq number */
 
-EGI_BITSTATUS *ebits;			/* To record  packet squence number */
+EGI_BITSTATUS *ebits;			/* To record/check packet sequence number */
 
 /* Callback functions, define routine jobs. */
 int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
@@ -135,12 +150,14 @@ int Server_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 bool verbose_on;
 bool run_session;	/* predicate: transmission session is running */
 
+int x0,y0;		/* Display origin */
+
 /*---------------------------
         Print help
 -----------------------------*/
 void print_help(const char* cmd)
 {
-        printf("Usage: %s [-hvPRd:s:r:f:b:SCa:y:p:t:w:] \n", cmd);
+        printf("Usage: %s [-hvPRd:s:r:f:b:SCF:q:a:y:p:t:w:] \n", cmd);
         printf("        -h   help \n");
         printf("        -v   print verbose\n");
 	/* For USB CAM */
@@ -150,14 +167,16 @@ void print_help(const char* cmd)
         printf("        -d:  Video device, default: '/dev/video0' \n");
         printf("        -s:  Image size, default: '320x240' \n");
         printf("        -r:  Frame rate, default: 10fps \n");
-        printf("        -f:  Pixel format, default: V4L2_PIX_FMT_MJPEG \n");
-        printf("             'yuyv' or 'mjpeg' \n");
+        printf("        -f:  Pixel data format, default: 'yuyv'(V4L2_PIX_FMT_YUYV) \n");
+        printf("             or 'mjpeg(V4L2_PIX_FMT_MJPEG)' \n");
 	printf("	-b:  Brightness in percentage, default: 80(%%) \n");
 
 	/* For UDP transmission */
 	printf("\n	--- UDP transmission ---\n");
         printf("        -S   work as UDP Server\n");
         printf("        -C   work as UDP Client (default)\n");
+	printf("	-F:  Trans_Data format, default 'yuyv', or 'mjpeg'(converted from yuyv)\n");
+	printf("	-q:  JPEG quality, default: 80\n");
         printf("        -a:  Server IP address, with or without port.\n");
         printf("        -y:  Client IP address, default NULL.\n");
         printf("        -p:  Port number, default 5678.\n");
@@ -197,7 +216,7 @@ int main (int argc,char ** argv)
 
 
         /* Parse input option */
-        while( (opt=getopt(argc,argv,"hvPRd:s:r:f:b:SCa:y:p:t:w:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hvPRd:s:r:f:b:SCF:q:a:y:p:t:w:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
                                 print_help(argv[0]);
@@ -245,6 +264,13 @@ int main (int argc,char ** argv)
                         case 'C':
                                 SetUDPServer=false;
                                 break;
+			case 'F':
+                                if(strstr(optarg, "jpeg"))
+                                        trans_format=V4L2_PIX_FMT_MJPEG;
+                                break;
+			case 'q':
+				jpg_quality=atoi(optarg);
+				break;
                         case 'a':
                                 /* If detects delimiter ':' */
                                 if((pt=strstr(optarg,":"))!=NULL) {
@@ -290,6 +316,11 @@ int main (int argc,char ** argv)
         /* Set FB mode */
         fb_set_directFB(&gv_fb_dev, true);
         fb_position_rotate(&gv_fb_dev, 0);
+
+   printf("\n\t--- UDP Transmission params ---\n");
+   printf("Format:	%s\n", trans_format==V4L2_PIX_FMT_YUYV?"YUYV":"MJPEG");
+   printf("Packsize:	%dBs\n", datasize + pack_shellsize);
+   printf("Pack privdata size:	%dBs\n", datasize);
 
    /* A. -------- Work as a UDP Server --------- */
   if( SetUDPServer ) {
@@ -404,7 +435,6 @@ void* usbcam_routine(void *args)
 
 	int 	fd_dev;
    	fd_set 	fds;
-//	unsigned char *rgb24=NULL;
 	unsigned int i;
 
 	int	brightpcnt=80;	/* brightness in percentage */
@@ -659,11 +689,22 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 {
    printf("Output format: YUYV, reverse=%s\n", reverse?"Yes":"No");
 
+
+   /* Allocate mem for rgb24 data */
    rgb24=calloc(1, width*height*3);
    if(rgb24==NULL) {
 	printf("Fail to calloc rgb24!\n");
 	goto END_FUNC;
    }
+
+   /* Allocate mem for jpgdata, pre.. */
+   jpgdata_size=width*height*3;
+   jpgdata=calloc(1, jpgdata_size);
+   if(jpgdata==NULL) {
+	printf("Fail to calloc jpgdata!\n");
+	goto END_FUNC;
+   }
+
 
    /* Loop: dequeue the buffer, read out video, then queque the buffer, ....*/
    for(;;) {
@@ -704,17 +745,45 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 		//		bufferinfo.timecode.hours, bufferinfo.timecode.minutes, bufferinfo.timecode.seconds);
 		// fflush(stdout);
 
-		/* -------> Prepare buffer for UDP transfer */
-		trans_data.src_data=buffers[bufferinfo.index].start;
-		trans_data.size=buffers[bufferinfo.index].length;
+ 	   	/* 1. trans_data format: YUYV -------- */
+		if(trans_format==V4L2_PIX_FMT_YUYV) {
+			/* -------> Prepare buffer for UDP transfer */
+			trans_data.src_data=buffers[bufferinfo.index].start;
+			trans_data.src_size=buffers[bufferinfo.index].length;
+	   	}
+	   	/* 2. trans_data format: MJPEG -------- */
+ 	   	else {
+			egi_color_YUYV2RGB888(buffers[bufferinfo.index].start, rgb24, width, height, reverse);
+			/* Alway reset jpgdata_size to original value, otherwise the function will realloc if NOT enough! */
+			jpgdata_size=3*width*height;
+			//free(jpgdata); jpgdata=NULL; /* OR let function to allocate it each time! */
+			compress_to_jpgBuffer(&jpgdata, &jpgdata_size, 80, width, height, rgb24);
+			printf("WxH: %dx%d, jpadata_size: %dBs\n", width,height, jpgdata_size);
+
+		    #if 0 /* TEST: show jpgdata ----------- */
+			show_jpg(NULL, jpgdata, jpgdata_size, &gv_fb_dev, 0, x0, y0);
+			fb_render(&gv_fb_dev);
+
+			//usleep(500000);
+	        	if( ioctl(fd_dev, VIDIOC_QBUF, &bufferinfo) !=0)
+		               printf("Fail to ioctl VIDIOC_QBUF, Err'%s'\n", strerror(errno));
+			continue;
+		    #endif
+
+			/* -------> Prepare buffer for UDP transfer */
+			trans_data.src_data=jpgdata;
+			trans_data.src_size=jpgdata_size;
+	   	}
 
 		/* Cal. pack total */
-		pack_total=trans_data.size/datasize;
-		tailsize=trans_data.size - pack_total*datasize;
+		pack_total=trans_data.src_size/datasize;
+		tailsize=trans_data.src_size - pack_total*datasize;
+		printf("trans_data.src_size=%d, datasize=%d, tailsize=%d \n", trans_data.src_size, datasize, tailsize);
 		if(tailsize)
 			pack_total +=1;
 		else	/* All pack same size */
 			tailsize=datasize;
+
 		/* Let go */
 		pack_seq=0;
 		trans_data.ready=true;
@@ -726,7 +795,8 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 			fb_render(&gv_fb_dev);
 		}
 
-	        /* If has client */
+
+	        /* If NO client */
         	if( clientAddr.sin_addr.s_addr ==0 )
 			trans_data.ready=false;
 
@@ -736,9 +806,6 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
         	/* Queue the buffer */
         	if( ioctl(fd_dev, VIDIOC_QBUF, &bufferinfo) !=0)
 	                printf("Fail to ioctl VIDIOC_QBUF, Err'%s'\n", strerror(errno));
-
-
-
 
 		/* <-------- Wait for complete of transfer  */
 	}
@@ -816,7 +883,7 @@ END_FUNC:
    /* 关闭设备文件 */
    close (fd_dev);
 
-
+   usleep(500000);
 goto OPEN_DEV;
 
    return 0;
@@ -988,7 +1055,6 @@ int Server_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 
 	/* 2. If NO client specified */
 	if( clientAddr.sin_addr.s_addr ==0 ) {
-
 		return 1;
 	}
 
@@ -1004,7 +1070,7 @@ int Server_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 		header_snd->code=CODE_DATA;
 		header_snd->seq=pack_seq;
 		header_snd->total=pack_total;
-		header_snd->fsize=trans_data.size;
+		header_snd->fsize=trans_data.src_size;
 
 		/* Load data into ipack_snd */
 		privdata_off=sizeof(EGI_INETPACK)+sizeof(PRIV_HEADER);
@@ -1036,7 +1102,7 @@ int Server_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 		*sndSize=ipack_snd->packsize;
 
 		/* Print */
-		EGI_PDEBUG(DBG_TEST,"Sent out pack[%d](%dBs), of total %d packs.\r", pack_seq, ipack_snd->packsize, pack_total);
+		EGI_PDEBUG(DBG_TEST,"Sent out pack[%d](%dBs), of total %d packs.\n", pack_seq, ipack_snd->packsize, pack_total);
 		fflush(stdout);
 
 		/* Increase pack_seq, as next sequence number. */
@@ -1080,6 +1146,7 @@ Return:
 int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char *rcvData, int rcvSize,
 	                                                              char *sndBuff, int *sndSize )
 {
+	void *ptr=NULL;
 
 	/* 1. Start request IPACK. Usually this will be sent twice before receive reply from the Server.  */
 	if( !run_session ) {
@@ -1124,24 +1191,30 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 			case CODE_DATA:
 				/* 1. Receive file data */
 				if(1) {
-					printf("pack_count=%d: Receive pack[%d](%dBs), of total %d packs, ~%jd KBytes.\r",
+					printf("pack_count=%d: Receive pack[%d](%dBs), of total %d packs, ~%jd KBytes.\n",
 					    	pack_count, header_rcv->seq, ipack_rcv->packsize, header_rcv->total, header_rcv->fsize>>10);
 					fflush(stdout);
 				}
 
 				/* 2. Create ebits for the first time. */
-				if( dest_data==NULL ) {
-					dest_data=calloc(1, header_rcv->fsize);
-					if(dest_data==NULL) {
-						printf("Fail to calloc dest_data!\n");
-						exit(EXIT_FAILURE);
-					}
-				}
+				/* WARNING!!! Assume that number of packs for each image frame is the SAME! */
 				if( ebits==NULL ) {
 					ebits=egi_bitstatus_create(header_rcv->total);
 					if(ebits==NULL) exit(EXIT_FAILURE);
 					if(verbose_on) printf("Create ebits OK.\n");
 				}
+
+				/* 2. Check and allocate dest_data each time, since fsize MAY be differenct for each ipack! */
+				if( dest_size < header_rcv->fsize ) {
+					ptr=realloc(dest_data, header_rcv->fsize);
+					if(ptr==NULL) {
+						printf("Fail to realloc dest_data!\n");
+						exit(EXIT_FAILURE);
+					}
+					else
+						dest_data=ptr;
+				}
+				/* 2. Allocate rgb24 once! */
 				if( rgb24==NULL ) {
 					rgb24=calloc(1, cam_args.width*cam_args.height*3);
 					if(rgb24==NULL) {
@@ -1166,6 +1239,7 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 		#endif
 				/* Get pack privdata size */
 				datasize=IPACK_PRIVDATASIZE(ipack_rcv);
+				//printf("datasize=%d, fsize=%jd\n", datasize, header_rcv->fsize);
 
 				/* 5. Check stamp */
 				if( header_rcv->stamp != egi_bitstatus_checksum(IPACK_PRIVDATA(ipack_rcv),datasize) )
@@ -1249,24 +1323,31 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 
 				/* 10. If get last pack_seq, then complete one frame, convert data to rgb24 and display it. */
 				if(header_rcv->seq==header_rcv->total-1) {
-
 					/* Check ebits again! */
 				    	ebits->pos=-1;
 				    	if( egi_bitstatus_posnext_zero(ebits) ==0 ) {
 						lost_seq = ebits->pos;
 						printf("Pack[%d] is lost!\n",lost_seq);
 					}
-					else
-						EGI_PDEBUG(DBG_TEST,"OK, ebits all ONEs!\n");
+					else {
+						//EGI_PDEBUG(DBG_TEST,"OK, ebits all ONEs!\n");
+					}
 
-
+ 				   /* dest_data format: YUYV */
+				   if(trans_format==V4L2_PIX_FMT_YUYV) {
 					/* Display Video */
 					egi_color_YUYV2RGB888(dest_data, rgb24, cam_args.width, cam_args.height, false);
-					egi_imgbuf_showRBG888(rgb24, cam_args.width, cam_args.height, &gv_fb_dev, 0, 0);  /* Direct FBwrite */
+					egi_imgbuf_showRBG888(rgb24, cam_args.width, cam_args.height, &gv_fb_dev, x0, x0);  /* Direct FBwrite */
+					fb_render(&gv_fb_dev);
+				   }
+				   /* dest_data format: V4L2_PIX_FMT_MJPEG  */
+				   else {
+					show_jpg(NULL, dest_data, datasize, &gv_fb_dev, 0, x0, y0);
 					fb_render(&gv_fb_dev);
 
 					/* Reset pack_count */
 					pack_count=0;
+				   }
 				}
 
 				break;

@@ -3,7 +3,6 @@ Reference:
   超群天晴    https://www.cnblogs.com/surpassal/archive/2012/12/19/zed_webcam_lab1.html
   JWH SMITH   http://jwhsmith.net/2014/12/capturing-a-webcam-stream-using-v4l2
 
-
 A USBCAM test program, support format MJPEG and YUYV.
 
 Usage exmample:
@@ -15,6 +14,7 @@ Pan control:
 	'd'  Pan right
 	'w'  Pan up
 	's'  Pan down
+	'j'  Save current frame to a JPEG file.
 
 
 Note:
@@ -24,6 +24,9 @@ Note:
 4. If you run 2 or 3 USBCAMs at the same time, it may appear Err'No space left on device',
    which indicates that current USB controller not have enough bandwidth.
    Try to use smaller image size and turn down FPS.
+
+TODO:
+1. Control quality of MJPEG.
 
 Midas Zhou
 ------------------------------------------------------------------------*/
@@ -108,9 +111,12 @@ int main (int argc,char ** argv)
 	int fd_dev;	/* Video device */
 	int fd_jpg;	/* Saved JPG file */
    	fd_set fds;
-   	char fname[64]="usbcam.jpg";
-   	EGI_IMGBUF *imgbuf=NULL;
+	char strtmp[256];
+
+   	//char fname[64]="usbcam.jpg";
 	unsigned char *rgb24=NULL;
+	unsigned char *jpgdata=NULL;
+	unsigned long jpgdata_size;
 
 	struct v4l2_queryctrl		queryctrl={0};
 	struct v4l2_control		vctrl;
@@ -120,6 +126,7 @@ int main (int argc,char ** argv)
      	struct v4l2_requestbuffers 	req;
      	struct v4l2_buffer 		bufferinfo;
      	struct v4l2_streamparm 		streamparm;
+	struct v4l2_jpegcompression	jpgcmp;
 	struct v4l2_cropcap		cropcap;
 	struct v4l2_crop		crop;
      	enum v4l2_buf_type type;
@@ -283,6 +290,14 @@ OPEN_DEV:
 	}
 #endif
 
+	/* Get JPEG compression params */
+	if( ioctl( fd_dev, VIDIOC_G_JPEGCOMP, &jpgcmp ) !=0 ) {
+      	  	printf("Fail to ioctl VIDIOC_G_JPEGCOMP, Err'%s'\n", strerror(errno));
+	}
+	else
+		printf("JPEG quality: %d.\n", jpgcmp.quality);
+
+
 	/* 4. 设置视频数据流格式: 模式及相关参数 */
 	/* Set data format */
      	fmt.type                = V4L2_BUF_TYPE_VIDEO_CAPTURE;	/* 视频捕捉模式 */
@@ -405,6 +420,8 @@ OPEN_DEV:
 		/* Clear it */
 		memset(buffers[bufindex].start, 0, bufferinfo.length);
      	}
+	/* Size of allocated video buffer */
+	printf("Video buffer size:\t%d(Bytes)\n", bufferinfo.length);
 
 	/* 9. 启动捕获视频，注意:有些设备必须将帧缓存先放入队列后才能启动！ */
 	/* Start to capture video.  some devices may need to queue the buffer at first! */
@@ -437,7 +454,7 @@ OPEN_DEV:
 /* 1. --- pixelformat: V4L2_PIX_FMT_YUYV --- */
 if( pixelformat==V4L2_PIX_FMT_YUYV )
 {
-   printf("Output format: YUYV, reverse=%s\n", reverse?"Yes":"No");
+   printf("Output format:\tYUYV, reverse=%s\n", reverse?"Yes":"No");
 
    /* 为RBG888数据申请内存 */
    rgb24=calloc(1, width*height*3);
@@ -445,6 +462,14 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 	printf("Fail to calloc rgb24!\n");
 	goto END_FUNC;
    }
+
+   jpgdata_size=width*height*3;
+   jpgdata=calloc(1, jpgdata_size);
+   if(jpgdata==NULL) {
+	printf("Fail to calloc jpgdata!\n");
+	goto END_FUNC;
+   }
+
 
    /* 循环: 帧缓存出列-->读数据转码成RGB888--->帧缓存入列--->显示图像 */
    /* Loop: dequeue the buffer, read out video, then queque the buffer, ....*/
@@ -466,13 +491,22 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 			y0 -=20;
 			break;
         	case 'q':       /* Quit */
+		case 'j':	/* Save the image to jpeg file */
+			tm_get_strtime2(strtmp, ".jpg");
+			compress_to_jpgFile(strtmp, 80, width, height, rgb24 );
+			break;
+		case 'm':	/* TEST: Compress image to jpg data */
+			compress_to_jpgBuffer(&jpgdata, &jpgdata_size,
+							80, width, height, rgb24 );
+			printf("jpgdata_size: %ldk\n", jpgdata_size>>10);
+			sleep(1);
+			break;
         	case 'Q':
 			goto END_FUNC;
                 	break;
 	}
 
 	/* Check fd_dev */
-
 
 	/* 等待数据 */
    	FD_ZERO (&fds);
@@ -515,6 +549,8 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 		/* Convert YUYV to RGB888 */
 		egi_color_YUYV2RGB888(buffers[bufferinfo.index].start, rgb24, width, height, reverse);
 
+
+
 		/* 将当前帧缓存放入工作队列，以供摄像头写入数据．*/
         	/* Queue the buffer */
         	if( ioctl(fd_dev, VIDIOC_QBUF, &bufferinfo) !=0)
@@ -535,7 +571,7 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 /* 2. --- pixelformat: V4L2_PIX_FMT_MJPEG --- */
 else
 {
-   printf("Output format: MJPEG\n");
+   printf("Output format:\tMJPEG\n");
 
    /* 循环: 帧缓存出列-->解码显示JPG图像--->帧缓存入列 */
    /* Loop: dequeue the buffer, read out video, then queque the buffer, ....*/

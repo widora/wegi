@@ -46,7 +46,9 @@ extern char tm_strbuf[];
 
 /* functions */
 long long unsigned int tm_get_tmstampms(void);
+/*  SUBSTITUE: size_t strftime(char *s, size_t max, const char *format, const struct tm *tm) */
 void tm_get_strtime(char *tmbuf);
+void tm_get_strtime2(char *tmbuf, const char *appen);
 void tm_get_strday(char *tmdaybuf);
 void tm_get_strdaytime(char *dtbuf);
 void tm_get_ustrday(char *udaybuf);
