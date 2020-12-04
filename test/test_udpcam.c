@@ -6,8 +6,14 @@ published by the Free Software Foundation.
 A test program to transfer video through UDP.
 
 Usage exmample:
-	./test_usbcam -d /dev/video0 -s 320x240 -r 30
-	./test_usbcam -d /dev/video0  -r 30 -f yuyv -v
+
+	< CAM format YUYV: to trans_data mjpeg >
+	./test_udpcam -S -F mjpeg -s 640x480
+	./test_udpcam -C -a 192.168.10.1:5678 -F mjpeg -s 640x480
+
+	< CAM format MJPEG >
+	./test_udpcam -S -r 30 -f mjpeg -w 0 -t 52000 -s 1280x720  ( with/without '-F mjpeg' all OK )
+	./test_udpcam -C -a 192.168.10.1:5678 -F mjpeg -s 1280x720
 
 Pan control:
 	'a'  Pan left
@@ -20,8 +26,19 @@ Note:
 1. Support hot unplug and plug USBCAM.
 2. ebits init once only: Assume that each image frame is divided into
    just same numbers of ipacks!
-3. It supports YUYV and MJEPG data transmission, However,mjpeg data
-   is converted from YUYV, not from the CAM controller.
+3. It supports YUYV and MJEPG data transmission,
+   If input options:  '-f yuyv -F mjpeg',  then mjpeg data is converted
+   from YUYV, not from CAM original source.
+4. The Client MUST set same option args for -F (tran_format)
+   and -s (image size) as the Server.
+5. Set REQ_BUFF_NUMBER as 1 seems better than other values?!
+   To many vidoe buffers maybe NOT good.
+6. Zlib compress test:
+	320x240 jpeg data, ~150kBs, compress time ~30ms  ( --- Applicable --- )
+        640x480 jpeg data, ~600kBs, compress time ~150ms
+	1280x720 jpeg data, ~1800kBs, compress time ~500ms
+
+
 
 TODO:
 1. Mutual authentication.
@@ -54,12 +71,14 @@ midaszhou@yahoo.com
 #include <asm/types.h>
 #include <linux/videodev2.h> /* include <linux/v4l2-controls.h>, <linux/v4l2-common.h> */
 
+#include <zlib.h>
+
 #undef  DEFAULT_DBG_FLAGS
 #define DEFAULT_DBG_FLAGS   DBG_TEST
 
 
 /* Video frame buffers */
-#define REQ_BUFF_NUMBER	4	/* Buffers to be allocated for the CAM */
+#define REQ_BUFF_NUMBER	1	/* Buffers to be allocated for the CAM */
 
 /* Arguments for usbcam_routine() */
 struct thread_cam_args {
@@ -108,9 +127,9 @@ typedef struct {
 	int		code;   /* MSG code */
 	unsigned int	seq;	/* Packet sequence number, from 0 */
 	unsigned int	total;  /* Total packets */
-	off_t		fsize;	/* Total size of the complete file */
-	int		width;
-	int		height;	/* For image size */
+	off_t		fsize;	/* Total size of a file/buffer divided into packs for transmission */
+//	int		width;
+//	int		height;	/* For image size */
 	int		stamp;  /* signature, stamp */
 
 } PRIV_HEADER;
@@ -132,7 +151,7 @@ struct sockaddr_in  serverAddr;
  * 2. pack_total, tailsize, pack_seq=0 to be calculated and set in/by usbcam_routine()
  *
  */
-static unsigned int datasize=1024*25;   /* Server: set avg privdata size.  Client: recevied ipack privdata size. */
+static unsigned int datasize=1024*25;   /* !!!Server: set avg privdata size.  Client: recevied ipack privdata size(avg and tail). */
 static unsigned int tailsize;		/* For server: Defined as size of last pack, when pack_seq == pack_total-1 */
 static unsigned int pack_seq;	   	/* For server: Sequence number for current IPACK */
 static unsigned int pack_total;    	/* For server/client: Total number of IPACKs for transfering a file */
@@ -150,7 +169,8 @@ int Server_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 bool verbose_on;
 bool run_session;	/* predicate: transmission session is running */
 
-int x0,y0;		/* Display origin */
+int px0;		/* Display origin */
+int py0;
 
 /*---------------------------
         Print help
@@ -167,15 +187,16 @@ void print_help(const char* cmd)
         printf("        -d:  Video device, default: '/dev/video0' \n");
         printf("        -s:  Image size, default: '320x240' \n");
         printf("        -r:  Frame rate, default: 10fps \n");
-        printf("        -f:  Pixel data format, default: 'yuyv'(V4L2_PIX_FMT_YUYV) \n");
-        printf("             or 'mjpeg(V4L2_PIX_FMT_MJPEG)' \n");
-	printf("	-b:  Brightness in percentage, default: 80(%%) \n");
+        printf("        -f:  CAM pixel data format, default: 'yuyv'(V4L2_PIX_FMT_YUYV) \n");
+        printf("             or 'mjpeg'(V4L2_PIX_FMT_MJPEG), then trans_data format is also 'mjpeg'. \n");
+	printf("	-b:  Brightness in percentage(for host display), default: 80(%%) \n");
 
 	/* For UDP transmission */
 	printf("\n	--- UDP transmission ---\n");
         printf("        -S   work as UDP Server\n");
         printf("        -C   work as UDP Client (default)\n");
-	printf("	-F:  Trans_Data format, default 'yuyv', or 'mjpeg'(converted from yuyv)\n");
+	printf("	-F:  Trans_Data format, default 'yuyv', (or 'mjpeg'(converted from yuyv))\n");
+	printf("	     when set option '-f mjpeg', then trans_data format is also 'mjpeg'.\n");
 	printf("	-q:  JPEG quality, default: 80\n");
         printf("        -a:  Server IP address, with or without port.\n");
         printf("        -y:  Client IP address, default NULL.\n");
@@ -211,8 +232,71 @@ int main (int argc,char ** argv)
         char *svrAddr=NULL;             /* Default NULL, to be decided by system */
         char *cltAddr=NULL;
         unsigned short int port=5678;
-        unsigned int send_waitus=10000; /* in us, For server */
         unsigned int pack_shellsize=sizeof(EGI_INETPACK)+sizeof(PRIV_HEADER);
+
+	/* Routine waitus */
+        unsigned int send_waitus=5000; /* in us */
+	unsigned int idle_waitus=5000;
+
+
+#if 1 /* TEST: zlib ------ argv[1]: filepath, argv[2]: compress level */
+	/* NOTE:
+	 * 320x240 jpeg data, ~150kBs, compress time ~30ms
+         * 640x480 jpeg data, ~600kBs, compress time ~150ms
+	 * 1280x720 jpeg data, ~1800kBs, compress time ~500ms
+	 */
+	int level;
+	unsigned long len;
+	EGI_CLOCK eclock={0};
+
+	if(argc>2)
+		level=atoi(argv[2]);
+	if(level<0) level=0;
+	if(level>9) level=9;
+
+	EGI_FILEMMAP *fin=egi_fmap_create(argv[1], 0, PROT_READ, MAP_PRIVATE);
+	if(fin==NULL) exit(1);
+
+	unsigned long bsize=compressBound(fin->fsize);
+	printf("bsize=%lu\n", bsize);
+
+	/* 1. Compress to test.z */
+	EGI_FILEMMAP *fout=egi_fmap_create("/tmp/test.z", bsize, PROT_WRITE, MAP_SHARED);
+	if(fout==NULL) exit(1);
+
+	len=bsize;
+	egi_clock_start(&eclock);
+	if(compress2((Bytef *)fout->fp, &len, (Bytef *)fin->fp, fin->fsize, level) !=Z_OK) {  /* LEVEL 0~9 */
+		printf("Zlib compress2 error!\n");
+		exit(1);
+	}
+	egi_clock_stop(&eclock);
+	printf("Input size=%jd, output size=%lu, compress ratio=%.1f:1\n", fin->fsize, len, 1.0*fin->fsize/len);
+	printf("Cost tm=%ld us\n", egi_clock_readCostUsec(&eclock));
+
+	/* Resize fout */
+ 	if( ftruncate(fout->fd, len) !=0 ) {
+		printf("ftruncate error!\n");
+	}
+	fout->fsize=len;
+
+	/* 2. Uncompress again to zlib.jpg */
+	EGI_FILEMMAP *fbk=egi_fmap_create("/tmp/zlib.jpg",fin->fsize, PROT_WRITE, MAP_SHARED);
+	if(fbk==NULL) exit(1);
+
+	len=fbk->fsize;
+	if(uncompress((Bytef *)fbk->fp, &len, (Bytef *)fout->fp, fout->fsize)!=Z_OK) {
+		printf("Zlib uncompress error!\n");
+		exit(1);
+	}
+
+	egi_fmap_free(&fin);
+	egi_fmap_free(&fout);
+	egi_fmap_free(&fbk);
+	exit(0);
+
+#endif /* END:TEST */
+
 
 
         /* Parse input option */
@@ -248,8 +332,8 @@ int main (int argc,char ** argv)
                                 printf("Input fps=%d\n", cam_args.fps);
                                 break;
                         case 'f':
-                                if(strstr(optarg, "yuyv"))
-                                        cam_args.pixelformat=V4L2_PIX_FMT_YUYV;
+                                if(strstr(optarg, "mjpeg"))
+                                        cam_args.pixelformat=V4L2_PIX_FMT_MJPEG;
                                 break;
                         case 'b':
                                 brightpcnt=atoi(optarg);
@@ -318,9 +402,9 @@ int main (int argc,char ** argv)
         fb_position_rotate(&gv_fb_dev, 0);
 
    printf("\n\t--- UDP Transmission params ---\n");
-   printf("Format:	%s\n", trans_format==V4L2_PIX_FMT_YUYV?"YUYV":"MJPEG");
-   printf("Packsize:	%dBs\n", datasize + pack_shellsize);
-   printf("Pack privdata size:	%dBs\n", datasize);
+   printf("Format: %s\n", trans_format==V4L2_PIX_FMT_YUYV?"YUYV":"MJPEG");
+   printf("Packsize: %dBs\n", datasize + pack_shellsize);
+   printf("Pack privdata size: %dBs\n", datasize);
 
    /* A. -------- Work as a UDP Server --------- */
   if( SetUDPServer ) {
@@ -339,7 +423,7 @@ int main (int argc,char ** argv)
 		exit(EXIT_FAILURE);
 
         /* Set waitus */
-        userv->idle_waitus=10000;
+        userv->idle_waitus=2000;
         userv->send_waitus=send_waitus;
 
 	/* Set callback */
@@ -383,7 +467,7 @@ int main (int argc,char ** argv)
         inet_sock_setTimeOut(uclit->sockfd, 3, 0, 0, 50000);  /* snd, rcv */
 
         /* Set waitus */
-        uclit->idle_waitus=10000;
+        uclit->idle_waitus=2000;
         uclit->send_waitus=10000;
 
         /* Set callback */
@@ -439,7 +523,7 @@ void* usbcam_routine(void *args)
 
 	int	brightpcnt=80;	/* brightness in percentage */
 	bool	reverse=false;
-	int	x0=0,y0=0;
+//	int	x0=0,y0=0;
 
 	/* Get CAM args */
 	if(args==NULL)
@@ -581,7 +665,7 @@ OPEN_DEV:
      		printf("Bytesperline: 	%d\n", fmt.fmt.pix.bytesperline);
      		printf("Pixfield: 	%d (1-no field)\n", fmt.fmt.pix.field);
 		printf("Colorspace:	%d\n", fmt.fmt.pix.colorspace);
-		printf("Display origin:	(%d,%d)\n", x0,y0);
+		printf("Display origin:	(%d,%d)\n", px0,py0);
 	}
 	/* Confirm working width and height */
 	width=fmt.fmt.pix.width;
@@ -753,15 +837,23 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 	   	}
 	   	/* 2. trans_data format: MJPEG -------- */
  	   	else {
+		   #if 0 /* METHOD 1: YUYV --> RGB24 --> JPEG */
 			egi_color_YUYV2RGB888(buffers[bufferinfo.index].start, rgb24, width, height, reverse);
 			/* Alway reset jpgdata_size to original value, otherwise the function will realloc if NOT enough! */
 			jpgdata_size=3*width*height;
 			//free(jpgdata); jpgdata=NULL; /* OR let function to allocate it each time! */
-			compress_to_jpgBuffer(&jpgdata, &jpgdata_size, 80, width, height, rgb24);
-			printf("WxH: %dx%d, jpadata_size: %dBs\n", width,height, jpgdata_size);
+			compress_to_jpgBuffer(&jpgdata, &jpgdata_size, 80, width, height, rgb24, JCS_RGB);
+
+		   #else /* METHOD 2: YUYV --> YUV --> JPEG  */
+                        /* Convert YUYV to YUV, then to JPEG */
+                        egi_color_YUYV2YUV(buffers[bufferinfo.index].start, rgb24, width, height, reverse); /* rbg24 for dest YUV data */
+			compress_to_jpgBuffer(&jpgdata, &jpgdata_size, 80, width, height, rgb24, JCS_YCbCr);
+
+		   #endif
+			printf("WxH: %dx%d, jpadata_size: %luBs\n", width,height, jpgdata_size);
 
 		    #if 0 /* TEST: show jpgdata ----------- */
-			show_jpg(NULL, jpgdata, jpgdata_size, &gv_fb_dev, 0, x0, y0);
+			show_jpg(NULL, jpgdata, jpgdata_size, &gv_fb_dev, 0, px0, py0);
 			fb_render(&gv_fb_dev);
 
 			//usleep(500000);
@@ -791,7 +883,7 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 		/* Display Video */
 		if( camargs->display ) {
 			egi_color_YUYV2RGB888(buffers[bufferinfo.index].start, rgb24, width, height, reverse);
-			egi_imgbuf_showRBG888(rgb24, width, height, &gv_fb_dev, x0, y0);  /* Direct FBwrite */
+			egi_imgbuf_showRBG888(rgb24, width, height, &gv_fb_dev, px0, py0);  /* Direct FBwrite */
 			fb_render(&gv_fb_dev);
 		}
 
@@ -800,7 +892,7 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
         	if( clientAddr.sin_addr.s_addr ==0 )
 			trans_data.ready=false;
 
-		/* Wait for transmission to be finished */
+/* <-------- Wait for complete of transfer  */
 		while( trans_data.ready ) usleep(5000);
 
         	/* Queue the buffer */
@@ -849,15 +941,44 @@ else if( pixelformat==V4L2_PIX_FMT_MJPEG )
 		/* Print size and timestamp */
 		//printf("VBUF len: %dBs,  Ts: %ld.%01ld \r",
 		//		buffers[bufferinfo.index].length,  bufferinfo.timestamp.tv_sec, bufferinfo.timestamp.tv_usec/100000 );
-		fflush(stdout);
+		//fflush(stdout);
 
-		show_jpg(NULL, buffers[bufferinfo.index].start, buffers[bufferinfo.index].length, &gv_fb_dev, 0, x0, y0);
-		fb_render(&gv_fb_dev); 		/* 刷新Framebuffer */
+		/* -------> Prepare buffer for UDP transfer */
+		trans_data.src_data=buffers[bufferinfo.index].start;
+		trans_data.src_size=buffers[bufferinfo.index].length;
+
+		/* Cal. pack total */
+		pack_total=trans_data.src_size/datasize;
+		tailsize=trans_data.src_size - pack_total*datasize;
+		printf("trans_data.src_size=%d, datasize=%d, tailsize=%d \n", trans_data.src_size, datasize, tailsize);
+		if(tailsize)
+			pack_total +=1;
+		else	/* All pack same size */
+			tailsize=datasize;
+
+		/* Let go */
+		pack_seq=0;
+		trans_data.ready=true;
+
+		/* Display Video */
+		if( camargs->display ) {
+			show_jpg(NULL, buffers[bufferinfo.index].start, buffers[bufferinfo.index].length, &gv_fb_dev, 0, px0, py0);
+			fb_render(&gv_fb_dev); 		/* 刷新Framebuffer */
+		}
+
+	        /* If NO client */
+        	if( clientAddr.sin_addr.s_addr ==0 )
+			trans_data.ready=false;
+
+/* <-------- Wait for complete of transfer  */
+		while( trans_data.ready ) usleep(5000);
+
+        	/* Queue the buffer */
+        	if( ioctl(fd_dev, VIDIOC_QBUF, &bufferinfo) !=0)
+	                printf("Fail to ioctl VIDIOC_QBUF, Err'%s'\n", strerror(errno));
+
 	}
 
-        /* Queue the buffer */
-        if( ioctl(fd_dev, VIDIOC_QBUF, &bufferinfo) !=0)
-                printf("Fail to ioctl VIDIOC_QBUF, Err'%s'\n", strerror(errno));
    }
 
 } /* End  pixelformat==V4L2_PIX_FMT_MJPEG */
@@ -1211,8 +1332,10 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 						printf("Fail to realloc dest_data!\n");
 						exit(EXIT_FAILURE);
 					}
-					else
+					else {
 						dest_data=ptr;
+						dest_size=header_rcv->fsize;
+					}
 				}
 				/* 2. Allocate rgb24 once! */
 				if( rgb24==NULL ) {
@@ -1245,7 +1368,7 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 				if( header_rcv->stamp != egi_bitstatus_checksum(IPACK_PRIVDATA(ipack_rcv),datasize) )
 				{
 					printf("	xxxxx Ipack[%d] stamp/checksum error! xxxxx\n", header_rcv->seq);
-					exit(EXIT_FAILURE);
+					//exit(EXIT_FAILURE);
 				}
 
 				if( IPACK_PRIVDATA(ipack_rcv)==NULL ) {
@@ -1265,7 +1388,7 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 					      );
 				}
 				else {	/* Write the tail */
-					memcpy( dest_data + header_rcv->fsize - datasize,
+					memcpy( dest_data + header_rcv->fsize - datasize,  /* now, datasize is tailsize */
 						IPACK_PRIVDATA(ipack_rcv),
 						datasize
 					      );
@@ -1337,12 +1460,12 @@ int Client_Callback( int *cmdcode, const struct sockaddr_in *rcvAddr, const char
 				   if(trans_format==V4L2_PIX_FMT_YUYV) {
 					/* Display Video */
 					egi_color_YUYV2RGB888(dest_data, rgb24, cam_args.width, cam_args.height, false);
-					egi_imgbuf_showRBG888(rgb24, cam_args.width, cam_args.height, &gv_fb_dev, x0, x0);  /* Direct FBwrite */
+					egi_imgbuf_showRBG888(rgb24, cam_args.width, cam_args.height, &gv_fb_dev, px0, py0);  /* Direct FBwrite */
 					fb_render(&gv_fb_dev);
 				   }
 				   /* dest_data format: V4L2_PIX_FMT_MJPEG  */
 				   else {
-					show_jpg(NULL, dest_data, datasize, &gv_fb_dev, 0, x0, y0);
+					show_jpg(NULL, dest_data, header_rcv->fsize, &gv_fb_dev, 0, px0, py0);
 					fb_render(&gv_fb_dev);
 
 					/* Reset pack_count */
