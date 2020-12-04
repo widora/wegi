@@ -179,6 +179,7 @@ EGI_16BIT_COLOR 	egi_colorGray_random(enum egi_color_range range);
 EGI_16BIT_COLOR 	egi_colorLuma_adjust(EGI_16BIT_COLOR color, int k);
 unsigned char		egi_color_getY(EGI_16BIT_COLOR color);
 int 			egi_color_YUYV2RGB888(const unsigned char *yuyv, unsigned char *rgb, int w, int h, bool reverse);
+int 			egi_color_YUYV2YUV(const unsigned char *src, unsigned char *dest, int w, int h, bool reverse);
 EGI_16BIT_COLOR 	egi_color_HSV2RGB(const EGI_HSV_COLOR *hsv);
 int 			egi_color_RGB2HSV(EGI_16BIT_COLOR color, EGI_HSV_COLOR *hsv);
 

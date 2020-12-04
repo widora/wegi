@@ -436,6 +436,62 @@ int egi_color_YUYV2RGB888(const unsigned char *src, unsigned char *dest, int w, 
 }
 
 
+/*----------------------------------------------
+	Convert YUYV to YUV
+Y,U,V [0 255]
+
+@src:	Source of YUYV data.
+@dest:	Dest of YUV data
+@w,h:	Size of image blocks.
+	W,H MUST be multiples of 2.
+
+@reverse:	To reverse data.
+
+Note:
+1. The caller MUST ensure memory space for dest!
+
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------*/
+int egi_color_YUYV2YUV(const unsigned char *src, unsigned char *dest, int w, int h, bool reverse)
+{
+	int i,j;
+	unsigned char y1,y2,u,v;
+
+	if(src==NULL || dest==NULL)
+		return -1;
+
+	if(w<1 || h<1)
+		return -2;
+
+	for(i=0; i<h; i++) {
+	    for(j=0; j<w; j+=2) { /* 2 pixels each time */
+
+		if(reverse) {
+			y1 =*(src + (((h-1-i)*w+j)<<1));
+			u  =*(src + (((h-1-i)*w+j)<<1) +1);
+			y2 =*(src + (((h-1-i)*w+j)<<1) +2);
+			v  =*(src + (((h-1-i)*w+j)<<1) +3);
+		}
+		else {
+			y1 =*(src + ((i*w+j)<<1));
+			u  =*(src + ((i*w+j)<<1) +1);
+			y2 =*(src + ((i*w+j)<<1) +2);
+			v  =*(src + ((i*w+j)<<1) +3);
+		}
+
+		*(dest + (i*w+j)*3)	=y1;
+		*(dest + (i*w+j)*3 +1)	=u;
+		*(dest + (i*w+j)*3 +2)	=v;
+		*(dest + (i*w+j)*3 +3)	=y2;
+		*(dest + (i*w+j)*3 +4)	=u;
+		*(dest + (i*w+j)*3 +5)	=v;
+	    }
+	}
+
+	return 0;
+}
 
 
 /*--------------------------------------------------
