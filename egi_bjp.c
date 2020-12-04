@@ -56,12 +56,16 @@ Compress RGB_24bit image to an JPEG file.
 @qulity:	Jpeg compression quality(0-100).
 @width,height:  Image size.
 @rgb24:		Pointer to RGB_24bit image data.
+@cspace:	Color space of input data.
+		Example:  JCS_RGB, JCS_YCbCr, JCS_CMYK, JCS_YCCK,
+			  JCS_BG_RGB, JCS_BG_YCC
 
 return:
 	0	Ok
 	<0	Fails
 --------------------------------------------------------------*/
-int compress_to_jpgFile(const char * filename, int quality, int width, int height, unsigned char *rgb24 )
+int compress_to_jpgFile(const char * filename, int quality, int width, int height,
+			unsigned char *rgb24, J_COLOR_SPACE inspace)
 {
   	FILE * fil;
 
@@ -90,7 +94,7 @@ int compress_to_jpgFile(const char * filename, int quality, int width, int heigh
 	cinfo.image_width = width;
   	cinfo.image_height = height;
   	cinfo.input_components = 3;
-  	cinfo.in_color_space = JCS_RGB;
+  	cinfo.in_color_space = inspace; //JCS_RGB;
 	jpeg_set_defaults(&cinfo);
 	jpeg_set_quality(&cinfo, quality, TRUE /* limit to baseline-JPEG values */);
 
@@ -120,7 +124,7 @@ int compress_to_jpgFile(const char * filename, int quality, int width, int heigh
 /*--------------------------------------------------------------
 Compress RGB_24bit image to JPEG, and save to outbuffer.
 
-			!!! WARING !!!
+			!!! WARNING !!!
 The caller MUST ensure that mem space of outbuffer is big enough,
 AND always reset outsize to the actually allocated size before
 EACH CALL!
@@ -130,11 +134,14 @@ leakage!
 OR you just have the function to allocate outbuffer, and free it
 after EACH CALL!
 
-@outbuff:	Buffer to strore compressed jpeg data.
+@outbuff:	Buffer to store compressed jpeg data.
 @outsize:	Jpeg data size.
 @qulity:	Jpeg compression quality.
 @width,height:  Image size.
 @rgb24:		Pointer to RGB_24bit image data.
+@cspace:	Color space of input data.
+		Example:  JCS_RGB, JCS_YCbCr, JCS_CMYK, JCS_YCCK,
+			  JCS_BG_RGB, JCS_BG_YCC
 
 
 return:
@@ -142,7 +149,7 @@ return:
 	<0	Fails
 --------------------------------------------------------------*/
 int compress_to_jpgBuffer(unsigned char ** outbuffer, unsigned long * outsize,
-				int quality, int width, int height, unsigned char *rgb24 )
+				int quality, int width, int height, unsigned char *rgb24, J_COLOR_SPACE inspace)
 {
 	struct jpeg_compress_struct cinfo;
 	struct jpeg_error_mgr jerr;
@@ -158,14 +165,14 @@ int compress_to_jpgBuffer(unsigned char ** outbuffer, unsigned long * outsize,
 	cinfo.err = jpeg_std_error(&jerr);
 	jpeg_create_compress(&cinfo);
 
-	/* Step 2: specify data destination (eg, a file) */
+	/* Step 2: specify data destination */
 	jpeg_mem_dest(&cinfo, outbuffer, outsize);
 
 	/* Step 3: set parameters for compression */
 	cinfo.image_width = width;
   	cinfo.image_height = height;
   	cinfo.input_components = 3;
-  	cinfo.in_color_space = JCS_RGB;
+  	cinfo.in_color_space = inspace; //JCS_RGB;
 	jpeg_set_defaults(&cinfo);
 	jpeg_set_quality(&cinfo, quality, TRUE /* limit to baseline-JPEG values */);
 

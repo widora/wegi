@@ -68,9 +68,10 @@ typedef struct
 #define SHOW_BLACK_NOTRANSP	0
 
 /* functions */
-int compress_to_jpgFile(const char * filename, int quality, int width, int height, unsigned char *rgb24 );
-int compress_to_jpgBuffer(unsigned char ** outbuffer, unsigned long * outsize,int quality, int width, int height, unsigned char *rgb24);
-
+int compress_to_jpgFile(const char * filename, int quality, int width, int height,
+			unsigned char *rgb24, J_COLOR_SPACE inspace);
+int compress_to_jpgBuffer(unsigned char ** outbuffer, unsigned long * outsize,int quality,
+					int width, int height, unsigned char *indata, J_COLOR_SPACE inspace);
 unsigned char* 	open_jpgImg(const char *filename, int *w, int *h, int *components);
 unsigned char* 	open_buffer_jpgImg( const unsigned char *inbuff, unsigned long insize, int *w, int *h, int *components );
 void 		close_jpgImg(unsigned char *imgbuf);
