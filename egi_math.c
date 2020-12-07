@@ -68,7 +68,7 @@ int fp16_cos[360]={0}; /* fixed point cos() value table, divisor 2<<16 */
 void mat_FixPrint(EGI_FVAL a)
 {
 	printf("Float: %.8f   ", mat_floatFix(a) );
-	printf("[num:%"PRId64", div:%d]",a.num, a.div);
+	printf("[num:%"PRId64", div:%d]",a.num, a.div);  /* OR lld for uint64_t */
 }
 
 /*-------------------------------------------------------
@@ -1623,3 +1623,279 @@ float mat_FastInvSqrt( float x )
 
 	return x;
 }
+
+
+/*--------------------------------------------------------
+To generate SHA-256 hash(digest) for the input message.
+
+Principle refrence:
+https://qvault.io/2020/07/08/how-sha-2-works-step-by-step-sha-256
+
+Note:
+1. Assume that Right_shift and Left_shift are both both arithmetic shifting!
+2. All addition result in modulo of 2^32!
+3. Macros are for 32bit variables, x in BIG_ENDIAN!
+
+TODO:
+1. Bitlen NOT of 8 multiples.
+
+@input:		Pointer to input message.
+@len:		Length of input message, in bytes.
+@init_hv[8]:	Initial hash values.
+		If NULL,
+@init_kv[64]:	Initial round constants.
+		If NUll, use builtin default.
+@hv[8]:		To pass out final hash values. (256bits)
+		The caller MUST enusre hv[8] space!!!
+@digest[8*8+1]:	Output digest string. If NULL, ignore.
+		convert u32 hv[0-7] to string by sprintf(%08x)
+		The caller MUST ensure 8*8+1 bytes space!!!
+
+Return:
+	0	OK
+	<0	Fails.
+---------------------------------------------------------*/
+int mat_sha256_digest(const uint8_t *input, uint32_t len,  uint32_t *init_hv, uint32_t *init_kv, uint32_t *hv, char *digest)
+{
+	int i;
+	int nk;
+	uint8_t chunk_mem[512/8]={0};
+	uint8_t *chunk_data=NULL;    /* Just a pointer ref */
+	//uint8_t chunk_data[512/8]={0}; /* 512bits/8 = 64bytes */
+	unsigned int nch;	/* Total number of 512bits_chunks */
+	unsigned int mod;	/* Result of mod calculation: msgbitlen%512 */
+
+	uint32_t words[64]={0}; /* 32*64 = 2048 bits */
+	uint64_t bitlen;	/* length in bits */
+	//unsigned char digest[4*8*4+1]={0}; /* convert u32 hv[0-7] to string by sprintf(%04x) */
+
+	/* hv_primes[8]
+	 * They represent the first 32bits of the fractional parts of the square
+         * roots of the first 8 primes: 2,3,5,7,11,13,17,19.
+         */
+	static uint32_t hv_primes[8]= {
+		0x6a09e667,
+		0xbb67ae85,
+		0x3c6ef372,
+		0xa54ff53a,
+		0x510e527f,
+		0x9b05688c,
+		0x1f83d9ab,
+		0x5be0cd19
+	};
+
+	/* SHA compression vars */
+	uint32_t a,b,c,d,e,f,g,h;
+	uint32_t s0, s1, ch, temp1, temp2, maj;
+
+	/* kv_primes[64]
+	 * Each is the first 32bits of the fractional parts of the cube roots of the first 64 primes(2-311)
+	 */
+	const uint32_t kv_primes[64]= {
+	  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+	  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+	  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+	  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+	  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+	  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+	  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+	  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+	};
+
+	/* Variable round constants kv[64] */
+	uint32_t kv[64];
+
+	/* Check input */
+	if( input==NULL || hv==NULL || len==0 )
+		return -1;
+
+	/* 1. Pre-processing */
+	bitlen=len*8;
+
+	/* Calculate bitlen mod */
+	mod=bitlen%512;
+	/* mod > 448-1: fill the last chunk and need a new chunck */
+	if(mod > 448-1) {
+		nch=bitlen/512+2;
+	}
+	/* mod <= 448-1: fill the last chunk. */
+	else
+		nch=bitlen/512+1;
+
+	printf("Input message has %llubits, with mod=%d %s 448-1!\n", bitlen, mod, mod>448-1?">":"<=");
+
+	/* 2. Init hash values hv[8] */
+	for(i=0; i<8; i++) {
+		if(init_hv)
+			hv[i]=init_hv[i];
+		else
+			hv[i]=hv_primes[i];
+	}
+
+	/* 3. Init round constants kv[64] */
+	for(i=0; i<64; i++) {
+		if(init_kv)
+			kv[i]=init_kv[i];
+		else
+			kv[i]=kv_primes[i];
+	}
+
+/* ---- chunk loop ---- */
+for(nk=0; nk<nch; nk++) {
+	//printf("\n\t--- nk=%d ---\n", nk);
+
+	/* 4. Loak chunck_data[64] */
+	if( mod <= 448-1 ) {
+		/* For complete chunck blocks */
+		if( nk < nch-1 ) {
+			chunk_data=(uint8_t *)input+nk*(512>>3); /* No copy, just a ref */
+			//memcpy((void *)chunk_data, input+(nk*(512>>3)), (512>>3));
+		}
+		/* The last block, Need to fill 1+0s for the last chunk */
+		else {  /* nk == nch -1 */
+			chunk_data=chunk_mem; /* Ref. chunk_data to chunk_mem */
+			bzero(chunk_data, sizeof(chunk_mem));
+			memcpy((void *)chunk_data, input+(nk*(512>>3)), mod>>3);
+			/* Append a single 1, big_endian */
+			chunk_data[mod>>3]=0x80;
+			/* Append 64bits to the end of chunk, as BIT_LENGTH of original message, in big_endian! */
+			for(i=0; i<sizeof(bitlen); i++)
+				*(chunk_data+(512>>3)-1-i) = (bitlen>>(i*8))&0xff; /* Big_endian */
+		}
+	}
+	else if( mod > 448-1 ) {
+		/* For complete chunck blocks */
+		if( nk < nch-2 ) {
+			chunk_data=(uint8_t *)input+nk*(512>>3); /* No copy, just a ref */
+			//memcpy((void *)chunk_data, input+(nk*(512>>3)), (512>>3));
+		}
+		/* The last block of original msg, appended with 1+0s to complete a 512bits chunck. */
+		else if( nk == nch-2 ) {
+			chunk_data=chunk_mem; /* Ref. chunk_data to chunk_mem */
+			bzero(chunk_data, sizeof(chunk_mem));
+			memcpy((void *)chunk_data, input+(nk*(512>>3)), mod>>3);
+			/* Append a single 1, big_endian */
+			chunk_data[mod>>3]=0x80;
+		}
+		/* Additional new chunk, as the last chunck. */
+		else { /* nk == nch -1 */
+			chunk_data=chunk_mem; /* Ref. chunk_data to chunk_mem */
+			/* All 0s */
+			bzero(chunk_data, sizeof(chunk_mem));
+			/* Append 64bits to the end of chunk, as BIT_LENGTH of original message, in big_endian! */
+			for(i=0; i<sizeof(bitlen); i++)
+				*(chunk_data+(512>>3)-1-i) = (bitlen>>(i*8))&0xff; /* Big_endian */
+		}
+	}
+	#if 0	/* TEST:-------- Print chunk_data */
+	for(i=0; i<512/8; i++) {
+		printf("%02x ", chunk_data[i]);
+		if((i%8)==7) printf("\n");
+	}
+	printf("\n");
+	#endif
+
+	/* 5. Create message schedule: u32 words[64] */
+	/* 5.1 words[0]~[15]:  u8 chunck_data[64] ---> u32 words[64] */
+	for(i=0; i<16; i++) {
+		/* Convert chunk_data[](type u8) TO words[] (BIG_ENDIAN! type unint32_t) */
+		// OR words[i]=htonl(*(uint32_t *)(chunk_data+4*i));
+		words[i]=(chunk_data[4*i]<<24) +(chunk_data[4*i+1]<<16)+(chunk_data[4*i+2]<<8)+chunk_data[4*i+3];
+		//printf("words[%d]: %08x\n", i, words[i]);
+	}
+	//printf("RTROT(words[1],7): %08x\n", RTROT(sizeof(words[1]), words[1],7));
+
+	/* 5.2 words[15]~[63]: 48 more words */
+	for(i=16; i<64; i++) {
+		/* s0 = (w[i-15] rightrotate 7) xor (w[i-15] rightrotate 18) xor (w[i-15] rightshift 3) */
+		s0=MAT_RTROT(4,words[i-15],7) ^ MAT_RTROT(4,words[i-15],18) ^ MAT_RTSHIFT(words[i-15],3);
+		/* s1 = (w[i- 2] rightrotate 17) xor (w[i- 2] rightrotate 19) xor (w[i- 2] rightshift 10) */
+		s1=MAT_RTROT(4,words[i-2],17) ^ MAT_RTROT(4,words[i-2],19) ^ MAT_RTSHIFT(words[i-2],10);
+		/* w[i] = w[i-16] + s0 + w[i-7] + s1 */
+		words[i]=words[i-16]+s0+words[i-7]+s1;
+
+		//printf("words[%d]: %08x\n", i, words[i]);
+	}
+	//printf("\n");
+
+#if 0	/* TEST: -----Print u32 words[64] */
+	printf("Message schedule u32 words[64]: \n");
+	for(i=0; i<64; i++) {
+		printf("%08x ",words[i]);
+		if(i%2)printf("\n");
+	}
+	printf("\n");
+#endif
+
+	/* 6. SHA Compression, 64 rounds. */
+	/* Update a,b,c,d,e,f,g,h */
+	a=hv[0]; b=hv[1]; c=hv[2]; d=hv[3]; e=hv[4]; f=hv[5]; g=hv[6]; h=hv[7];
+	/* Compress for 64 rounds */
+	for(i=0; i<64; i++) {
+		/* S1 = (e rightrotate 6) xor (e rightrotate 11) xor (e rightrotate 25) */
+		s1=MAT_RTROT(4,e,6)^MAT_RTROT(4,e,11)^MAT_RTROT(4,e,25);
+		//printf("s1: %08x\n", s1);
+
+		/* ch = (e and f) xor ((not e) and g) */
+		ch= (e&f)^((~e)&g);
+		//printf("ch: %08x\n", ch);
+
+		/* temp1 = h + S1 + ch + kv[i] + w[i] */
+		temp1=h+s1+ch+kv[i]+words[i];
+		//printf("temp1: %08x\n", temp1);
+
+		/* S0 = (a rightrotate 2) xor (a rightrotate 13) xor (a rightrotate 22) */
+		s0=MAT_RTROT(4,a,2)^MAT_RTROT(4,a,13)^MAT_RTROT(4,a,22);
+		//printf("s0: %08x\n", s0);
+
+		/* maj = (a and b) xor (a and c) xor (b and c) */
+		maj=(a&b)^(a&c)^(b&c);
+		//printf("maj: %08x\n", maj);
+
+		/* temp2 = S0 + maj */
+		temp2=s0+maj;
+		//printf("temp2: %08x\n", temp2);
+
+		h=g;
+		g=f;
+		f=e;
+		e=d+temp1;
+		d=c;
+		c=b;
+		b=a;
+		a=temp1+temp2;
+	}
+
+#if 0	/* Print a~h */
+	printf("a: %08x \n", a);
+	printf("b: %08x \n", b);
+	printf("c: %08x \n", c);
+	printf("d: %08x \n", d);
+	printf("e: %08x \n", e);
+	printf("f: %08x \n", f);
+	printf("g: %08x \n", g);
+	printf("h: %08x \n", h);
+#endif
+
+	/* 7. Modify final values */
+	hv[0] += a;
+	hv[1] += b;
+	hv[2] += c;
+	hv[3] += d;
+	hv[4] += e;
+	hv[5] += f;
+	hv[6] += g;
+	hv[7] += h;
+
+} /* ---- END: chunk loop ---- */
+
+	/* 8. Generate final hash digest string */
+	if( digest!=NULL ) {
+		for(i=0; i<8; i++)
+			sprintf(digest+8*i,"%08X",hv[i]); /*Convert to string */
+		//printf("\nDigest: %s\n", digest);
+	}
+
+	return 0;
+}
+

@@ -60,6 +60,21 @@ EGI_FVAL       imag;	/* imaginery part */
 */
 #define MAT_FHAMMING(n, N)  ( MAT_FVAL(0.54-0.46*cos(2.0*n*MATH_PI/N)) )
 
+
+/* Right_shift and Right_rotate operation
+ @x:  	 input variable.
+ @n:  	 Number of places to be moved.
+ */
+#define MAT_RTSHIFT(x,n)        ( (x)>>(n) )
+
+/* Right_rotate operation
+ @x:  	 input variable.
+ @xsize: size of input variable
+ @n:  	 Rotate position
+ */
+#define MAT_RTROT(xsize,x,n)    ( ((x)>>(n)) | ( ((x)&((1<<(n+1))-1)) << ( ((xsize)<<3)-(n) )) )
+
+
 /* complex and FFT functions */
 void 		mat_FixPrint(EGI_FVAL a);
 void 		mat_CompPrint(EGI_FCOMPLEX a);
@@ -114,5 +129,7 @@ double 	mat_bernstein_polynomial(int n, int i, double u);
 double *mat_bernstein_polynomials(int n, double u, double *berns);
 int 	mat_bspline_basis(int i, int deg, float u, const float *vu, float *LN);
 float   mat_FastInvSqrt( float x );
+
+int 	mat_sha256_digest(const uint8_t *input, uint32_t len, uint32_t *init_hv, uint32_t *init_kv, uint32_t *hv, char *digest);
 
 #endif
