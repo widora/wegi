@@ -1,9 +1,14 @@
-/*----------------------------------------------------------------
+/*---------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 A test for AES encryption (RIJNDAEL symmetric key encryption algorithm).
+
+Reference:
+	1. Advanced Encryption Standard (AES) (FIPS PUB 197)
+	2. Advanced Encryption Standard by Example  (by Adam Berent)
+
 
 Note:
 1. Standard and parameters.
@@ -17,7 +22,7 @@ AES-256       8               4             14
 Midas Zhou
 midaszhou@yahoo.com
 https://github.com/widora/wegi
-------------------------------------------------------------------*/
+----------------------------------------------------------------------*/
 #include <stdio.h>
 #include <egi_math.h>
 
@@ -84,7 +89,6 @@ static const uint8_t Etab[256]= {
   0x39, 0x4B, 0xDD, 0x7C, 0x84, 0x97, 0xA2, 0xFD, 0x1C, 0x24, 0x6C, 0xB4, 0xC7, 0x52, 0xF6, 0x01
 };
 
-
 static const uint8_t Ltab[256]= {
 /* 0     1      2    3     4     5     6     7      8     9     A     B     C     D     E     F  */
   0x0,  0x0,  0x19, 0x01, 0x32, 0x02, 0x1A, 0xC6, 0x4B, 0xC7, 0x1B, 0x68, 0x33, 0xEE, 0xDF, 0x03, // 0
@@ -104,7 +108,6 @@ static const uint8_t Ltab[256]= {
   0x44, 0x11, 0x92, 0xD9, 0x23, 0x20, 0x2E, 0x89, 0xB4, 0x7C, 0xB8, 0x26, 0x77, 0x99, 0xE3, 0xA5, // E
   0x67, 0x4A, 0xED, 0xDE, 0xC5, 0x31, 0xFE, 0x18, 0x0D, 0x63, 0x8C, 0x80, 0xC0, 0xF7, 0x70, 0x07  // F
 };
-
 
 static const uint32_t Rcon[15]= {
   0x01000000,
@@ -126,160 +129,152 @@ static const uint32_t Rcon[15]= {
 
 /* Functions */
 int aes_ShiftRows(uint8_t *state);
-int aes_ExpRoundKeys(uint8_t Nr, uint8_t Nk, const uint8_t *inkey, uint32_t *keyword);
-int aes_AddRoundKey(uint8_t Nr, uint8_t Nk, uint8_t round, uint8_t *state, const uint32_t *keyword);
+int aes_InvShiftRows(uint8_t *state);
+int aes_ExpRoundKeys(uint8_t Nr, uint8_t Nk, const uint8_t *inkey, uint32_t *keywords);
+int aes_AddRoundKey(uint8_t Nr, uint8_t Nk, uint8_t round, uint8_t *state, const uint32_t *keywords);
+int aes_EncryptState(uint8_t Nr, uint8_t Nk, uint32_t *keywords, uint8_t *state);
+int aes_DecryptState(uint8_t Nr, uint8_t Nk, uint32_t *keywords, uint8_t *state);
+
 void print_state(const uint8_t *s)
 {
 	int i,j;
 	for(i=0; i<4; i++) {
-		for(j=0; j<4; j++)
-			printf("%02X  ",s[i*4+j]);
+		for(j=0; j<4; j++) {
+			printf("%02x",s[i*4+j]);
+			//printf("'%c'",s[i*4+j]); /* !!! A control key MAY erase previous chars on screen! !!! */
+			printf(" ");
+		}
 		printf("\n");
 	}
-	printf("\t---\n");
+	printf("\n");
 }
 
-/*------------
-     MAIN
--------------*/
+
+
+/*==============
+      MAIN
+===============*/
 int main(void)
 {
 	int i,k;
-//  	const char *input_msg="Here is a secret";
-const uint8_t input_msg[]={0x32, 0x43, 0xf6, 0xa8, 0x88, 0x5a, 0x30, 0x8d, 0x31, 0x31, 0x98, 0xa2, 0xe0, 0x37, 0x07, 0x34};
-const char input_key[]={0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
-
-  	/* Password */
-
-  	//uint8_t short_key[256/8]; /* AES-256 Secret Key */
-  	//uint8_t round_key[4*4];  /* Round key */
-	uint8_t round;
 	uint8_t Nk=4;		    /* column number, as of 4xNk, 4/6/8 for AES-128/192/256 */
   const uint8_t Nb=4;		    /* Block size, 4/4/4 for AES-128/192/256 */
 	uint8_t Nr=10;		    /* Number of rounds, 10/12/14 for AES-128/192/256 */
   	uint8_t state[4*4];	    /* State array --- ROW order -- */
-	uint8_t round_key[4*4];     /* Round key */
-	uint8_t mc[4];		    /* Temp. var */
+	uint64_t ns;		    /* Total number of states */
 
 
-	/* Get first round key */
-	/* Fill input_key into round_key: from colum[0] to colum[3] */
-	printf(" --- Fill round_key ---\n");
-	for(k=0; k<16; k++)
-		round_key[(k%4)*4+k/4]=input_key[k];
 
-	/* Key expansion */
-	const	uint8_t inkey[4*4]=  /* Nb*Nk */
-	{0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
-	uint32_t keyword[Nb*(Nr+1)];  /* Nb==4, All expended keys, words as column:  0xb0b1b2b3   */
+	const uint8_t input_msg[]= {
+		0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff
+	};
+
+#if 0 /* ----- TEST: AES-128 */
+	Nk=4;
+	Nr=10;
+	const uint8_t inkey[4*4]= {  /* Nb*Nk */
+		0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f
+	};
+#endif
+
+#if 0 /* ----- TEST: AES-192 */
+	Nk=6;
+	Nr=12;
+	const uint8_t inkey[4*6]= {  /* Nb*Nk */
+		0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
+		0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17
+	};
+#endif
+
+#if 1 /* ----- TEST: AES-256 */
+	Nk=8;
+	Nr=14;
+
+	const uint8_t inkey[4*8]= {  /* Nb*Nk */
+		0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
+		0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f
+	};
+#endif
+
+
+#if 0	/* ------ TEST: ------ */
+	uint8_t test[4*4]= {
+	0x1,0x5,0x9,0x13,
+	0x2,0x6,0x10,0x14,
+	0x3,0x7,0x11,0x15,
+	0x4,0x8,0x12,0x16
+	};
+	aes_ShiftRows(test);
+	print_state(test);
+	aes_InvShiftRows(test);
+	print_state(test);
+	exit(0);
+#endif
+
+  	/* Password */
+
+
+	/* ------TEST: For Key expansion */
+#if 0
+	Nk=4;
+	Nr=10;
+	const uint8_t inkey[4*4]=  /* Nb*Nk */
+	{ 0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c };
+#endif
+
+#if 0
+	Nk=6;
+	Nr=12;
+	const uint8_t inkey[4*6]=  /* Nb*Nk */
+	{ 0x8e, 0x73, 0xb0, 0xf7, 0xda, 0x0e, 0x64, 0x52, 0xc8, 0x10, 0xf3, 0x2b,
+	  0x80, 0x90, 0x79, 0xe5, 0x62, 0xf8, 0xea, 0xd2, 0x52, 0x2c, 0x6b, 0x7b  };
+#endif
+
+#if 0
+	Nk=8;
+	Nr=14;
+	const uint8_t inkey[4*8]=  /* Nb*Nk */
+	{ 0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
+          0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4 };
+
+#endif
+
+
+	uint32_t keywords[Nb*(Nr+1)];  /* Nb==4, All expended keys, words as column:  0xb0b1b2b3   */
 
 	/* Generate round keys */
-	aes_ExpRoundKeys(Nr, Nk, inkey, keyword);
+	aes_ExpRoundKeys(Nr, Nk, inkey, keywords);
 
-	/* Fill into state array: from colum[0] to colum[3] */
-	printf(" --- Fill state array ---\n");
-	for(k=0; k<16; k++)
-		state[(k%4)*4+k/4]=input_msg[k];
-	print_state(state);
+	/* Cal. total states */
+	//ns=(strlen(input_msg)+15)/16;
+	ns=1;
 
-	/* 1. Add round key */
-	printf(" --- Add Round_key ---\n");
-        aes_AddRoundKey(Nr, Nk, 0, state, keyword);
-	print_state(state);
+	/* Encrypt each state */
+	printf(" Start encrypt Nr=%d, Nk=%d, ns=%llu ...\n", Nr, Nk, ns);
+	for(i=0; i<ns; i++) {
+		/* Fill into state array: from colum[0] to colum[3] */
+		printf(" --- Fill state array ---\n");
+		bzero(state,16);
+		for(k=0; k<16; k++)
+			//state[k]=input_msg[i*16+k];
+			state[(k%4)*4+k/4]=input_msg[i*16+k];
+		print_state(state);
 
-
- /* Rund Nr round functions */
- for( round=1; round<Nr; round++) {  /* Nr */
-
-	/* 2. Substitue State Bytes with SBOX */
-	printf(" --- SubBytes() Round:%d ---\n",round);
-	for(k=0; k<16; k++)
-		state[k]=sbox[state[k]];
-	print_state(state);
-
-	/* 3. Shift State Rows */
-	printf(" --- ShiftRows() Round:%d ---\n",round);
-	aes_ShiftRows(state);
-	print_state(state);
-
-	/* 4. Mix State Cloumns */
-	printf(" --- MixColumn() Round:%d ---\n",round);
-	for(i=0; i<4; i++) { /* i as column index */
-	   	mc[0]=Etab[(Ltab[state[i]]+Ltab[2])%0xFF]^Etab[(Ltab[state[i+4]]+Ltab[3])%0xFF]
-			^state[i+8]^state[i+12];
-		mc[1]=state[i]^Etab[(Ltab[state[i+4]]+Ltab[2])%0xFF]
-			^Etab[(Ltab[state[i+8]]+Ltab[3])%0xFF]^state[i+12];
-		mc[2]=state[i]^state[i+4]
-			^Etab[(Ltab[state[i+8]]+Ltab[2])%0xFF]^Etab[(Ltab[state[i+12]]+Ltab[3])%0xFF];
-		mc[3]=Etab[(Ltab[state[i]]+Ltab[3])%0xFF]^state[i+4]
-			^state[i+8]^Etab[(Ltab[state[i+12]]+Ltab[2])%0xFF];
-
-		state[i+0]=mc[0];
-		state[i+4]=mc[1];
-		state[i+8]=mc[2];
-		state[i+12]=mc[3];
+		/* Encryp state */
+		aes_EncryptState(Nr, Nk, keywords, state);
 	}
+
+	printf("Finish encrypt message, Round Nr=%d, KeySize Nk=%d, States ns=%llu.\n", Nr, Nk, ns);
 	print_state(state);
 
-
-#if 0 ///////////// TEST: MixColumns /////////////
-#if 1
-	uint8_t col[4]={0xD4, 0xBF, 0x5D, 0x30};
-	uint8_t mcol[4];
-
-	mcol[0]=Etab[(Ltab[col[0]]+Ltab[2])%0xFF]^Etab[(Ltab[col[1]]+Ltab[3])%0xFF]^col[2]^col[3];
-	mcol[1]=col[0]^Etab[(Ltab[col[1]]+Ltab[2])%0xFF]^Etab[(Ltab[col[2]]+Ltab[3])%0xFF]^col[3];
-	mcol[2]=col[0]^col[1]^Etab[(Ltab[col[2]]+Ltab[2])%0xFF]^Etab[(Ltab[col[3]]+Ltab[3])%0xFF];
-	mcol[3]=Etab[(Ltab[col[0]]+Ltab[3])%0xFF]^col[1]^col[2]^Etab[(Ltab[col[3]]+Ltab[2])%0xFF];
-
-	for(i=0; i<4; i++)
-		printf("mcol[%d]=0x%02X\n",i, mcol[i]);
-
-#else
-	uint8_t col[4]={0x4, 0x66, 0x81, 0xE5};
-	uint8_t mcol[4];
-
-	mcol[0]=Etab[(Ltab[col[0]]+Ltab[0x0E])%0xFF]^Etab[(Ltab[col[1]]+Ltab[0x0B])%0xFF]
-		^Etab[(Ltab[col[2]]+Ltab[0x0D])%0xFF]^Etab[(Ltab[col[3]]+Ltab[0x09])%0xFF];
-	mcol[1]=Etab[(Ltab[col[0]]+Ltab[0x09])%0xFF]^Etab[(Ltab[col[1]]+Ltab[0x0E])%0xFF]
-		^Etab[(Ltab[col[2]]+Ltab[0x0B])%0xFF]^Etab[(Ltab[col[3]]+Ltab[0x0D])%0xFF];
-	mcol[2]=Etab[(Ltab[col[0]]+Ltab[0x0D])%0xFF]^Etab[(Ltab[col[1]]+Ltab[0x09])%0xFF]
-		^Etab[(Ltab[col[2]]+Ltab[0x0E])%0xFF]^Etab[(Ltab[col[3]]+Ltab[0x0B])%0xFF];
-	mcol[3]=Etab[(Ltab[col[0]]+Ltab[0x0B])%0xFF]^Etab[(Ltab[col[1]]+Ltab[0x0D])%0xFF]
-		^Etab[(Ltab[col[2]]+Ltab[0x09])%0xFF]^Etab[(Ltab[col[3]]+Ltab[0x0E])%0xFF];
-
-	for(i=0; i<4; i++)
-		printf("mcol[%d]=0x%02X\n",i, mcol[i]);
-
-#endif
-#endif
-
-	/* 5. Add State with Round Key */
-	printf(" --- Add Round_key ---\n");
-        aes_AddRoundKey(Nr, Nk, round, state, keyword);
-	print_state(state);
-
-   } /* END Nr rounds */
-
-
-	/* 6. Substitue State Bytes with SBOX */
-	printf(" --- SubBytes() Round:%d ---\n",round);
-	for(k=0; k<16; k++)
-		state[k]=sbox[state[k]];
-	print_state(state);
-
-	/* 7. Shift State Rows */
-	printf(" --- ShiftRows() Round:%d ---\n",round);
-	aes_ShiftRows(state);
-	print_state(state);
-
-	/* 8. Add State with Round Key */
-	printf(" --- Add Round_key ---\n");
-        aes_AddRoundKey(Nr, Nk, round, state, keyword);
+	/* Decrypt state  */
+	aes_DecryptState(Nr, Nk, keywords, state);
+	printf("Finish decrypt message, Round Nr=%d, KeySize Nk=%d, States ns=%llu.\n", Nr, Nk, ns);
 	print_state(state);
 
 	return 0;
 }
+
 
 /*------------------------------
 Shift operation of the state.
@@ -301,12 +296,31 @@ int aes_ShiftRows(uint8_t *state)
 	for(k=0; k<4; k++) {
 		/* each row shift k times */
 		for(j=0; j<k; j++) {
-			tmp=*(state+4*k);
-			memcpy(state+4*k, state+4*k+1,3);
-			*(state+4*k+3)=tmp;
+			tmp=*(state+4*k);   /* save the first byte */
+			//memcpy(state+4*k, state+4*k+1, 3);
+			memmove(state+4*k, state+4*k+1, 3);
+			*(state+4*k+3)=tmp; /* set the last byte */
 		}
 	}
+	return 0;
+}
 
+int aes_InvShiftRows(uint8_t *state)
+{
+	int j,k;
+	uint8_t tmp;
+
+	if(state==NULL)
+		return -1;
+
+	for(k=0; k<4; k++) {
+		/* each row shift k times */
+		for(j=0; j<k; j++) {
+			tmp=*(state+4*k+3); /* save the last byte */
+			memmove(state+4*k+1, state+4*k, 3);
+			*(state+4*k)=tmp;   /* set the first byte */
+		}
+	}
 	return 0;
 }
 
@@ -318,29 +332,30 @@ Add round key to the state.
 @Nk:        Key length, in words.
 @round:	    Current round number.
 @state:	    Pointer to state.
-@keyword[Nb*(Nr+1)]:   All round keys, in words.
+@keywords[Nb*(Nr+1)]:   All round keys, in words.
 
 --------------------------------------------------------------*/
-int aes_AddRoundKey(uint8_t Nr, uint8_t Nk, uint8_t round, uint8_t *state, const uint32_t *keyword)
+int aes_AddRoundKey(uint8_t Nr, uint8_t Nk, uint8_t round, uint8_t *state, const uint32_t *keywords)
 {
 	int k;
-	if(state==NULL || keyword==NULL)
+	if(state==NULL || keywords==NULL)
 		return -1;
 
 	for(k=0; k<4*4; k++)
-		state[k] = ( keyword[round*4+k%4]>>((3-(k>>2))<<3) &0xFF )^state[k];
+		state[k] = ( keywords[round*4+k%4]>>((3-(k>>2))<<3) &0xFF )^state[k];
 
 	return 0;
 }
 
 
-/*-----------------------------------------------------------
+/*-------------------------------------------------------------------
 Generate round keys.
 
 @Nr:	    Number of rounds, 10/12/14 for AES-128/192/256
 @Nk:        		Key length, in words.
-@inkey[4*Nk]:  	       Original key, 4*Nk bytes.
+@inkey[4*Nk]:  	        Original key, 4*Nk bytes, arranged row by row.
 @keywords[Nb*(Nr+1)]:  Output keys, in words.  Nb*(Nr+1)
+			one keywords(32 bytes) as one column of key_bytes(4 bytes)
 
 Note:
 1. The caller MUST ensure enough mem space of input params.
@@ -348,23 +363,24 @@ Note:
 Return:
 	0	Ok
 	<0	Fails
------------------------------------------------------------*/
-int aes_ExpRoundKeys(uint8_t Nr, uint8_t Nk, const uint8_t *inkey, uint32_t *keyword)
+---------------------------------------------------------------------*/
+int aes_ExpRoundKeys(uint8_t Nr, uint8_t Nk, const uint8_t *inkey, uint32_t *keywords)
 {
 	int i;
 	const int Nb=4;
 	uint32_t temp;
 
-	if(inkey==NULL || keyword==NULL)
+	if(inkey==NULL || keywords==NULL)
 		return -1;
 
-	/* Nk column of words, example: 0xb0b1b2b3 */
+	/* Re_arrange inkey to keywords, convert 4x8bytes each row_data to a 32bytes keyword, as a complex column_data. */
 	for( i=0; i<Nk; i++ ) {
-		keyword[i]=(inkey[4*i]<<24)+(inkey[4*i+1]<<16)+(inkey[4*i+2]<<8)+inkey[4*i+3];
+		keywords[i]=(inkey[4*i]<<24)+(inkey[4*i+1]<<16)+(inkey[4*i+2]<<8)+inkey[4*i+3];
 	}
+
 	/* Expend round keys */
 	for(i=Nk; i<Nb*(Nr+1); i++) {
-		temp=keyword[i-1];
+		temp=keywords[i-1];
 		if( i%Nk==0 ) {
 			/* RotWord */
 			temp=( temp<<8 )+( temp>>24 );
@@ -374,18 +390,224 @@ int aes_ExpRoundKeys(uint8_t Nr, uint8_t Nk, const uint8_t *inkey, uint32_t *key
 			/* temp=SubWord(RotWord(temp)) XOR Rcon[i/Nk-1] */
 			temp=temp ^ Rcon[i/Nk-1];
 		}
-		else if (Nk>6 && i/Nk==4 ) {
+		else if (Nk>6 && i%Nk==4 ) {
 			/* Subword */
 			temp=(sbox[temp>>24]<<24) +(sbox[(temp>>16)&0xFF]<<16) +(sbox[(temp>>8)&0xFF]<<8)
                                 +sbox[temp&0xFF];
 		}
 
-		/* Get keyword[i] */
-		keyword[i]=keyword[i-Nk]^temp;
+		/* Get keywords[i] */
+		keywords[i]=keywords[i-Nk]^temp;
 	}
 	/* Print all keys */
 	for(i=0; i<Nb*(Nr+1); i++)
-		printf("keyword[%d]=0x%08X\n", i, keyword[i]);
+		printf("keywords[%d]=0x%08X\n", i, keywords[i]);
 
 	return 0;
+}
+
+
+/*----------------------------------------------------------------------
+Generate round keys.
+
+@Nr:	   		 Number of rounds, 10/12/14 for AES-128/192/256
+@Nk:        		Key length, in words.
+@keywordss[Nb*(Nr+1)]:   All round keys, in words.
+@state[4*4]:		The state block.
+
+Note:
+1. The caller MUST ensure enough mem space of input params.
+
+Return:
+	0	Ok
+	<0	Fails
+------------------------------------------------------------------------*/
+int aes_EncryptState(uint8_t Nr, uint8_t Nk, uint32_t *keywords, uint8_t *state)
+{
+	int i,k;
+	uint8_t round;
+	uint8_t mc[4];		    /* Temp. var */
+
+	/* 1. Add round key */
+	printf(" --- Add Round_key ---\n");
+        aes_AddRoundKey(Nr, Nk, 0, state, keywords);
+	print_state(state);
+
+	 /* Run Nr round functions */
+	 for( round=1; round<Nr; round++) {  /* Nr */
+
+		/* 2. Substitue State Bytes with SBOX */
+		printf(" --- SubBytes() Round:%d ---\n",round);
+		for(k=0; k<16; k++)
+			state[k]=sbox[state[k]];
+		print_state(state);
+
+		/* 3. Shift State Rows */
+		printf(" --- ShiftRows() Round:%d ---\n",round);
+		aes_ShiftRows(state);
+		print_state(state);
+
+		/* 4. Mix State Cloumns */
+		/* Galois Field Multiplication, Multi_Matrix:
+			2 3 1 1
+			1 2 3 1
+			1 1 2 3
+			3 1 1 2
+		   Note:
+		   1. Any number multiplied by 1 is equal to the number itself.
+		   2. Any number multiplied by 0 is 0!
+		*/
+		printf(" --- MixColumn() Round:%d ---\n",round);
+		for(i=0; i<4; i++) { /* i as column index */
+	   		mc[0]=  ( state[i]==0 ? 0 : Etab[(Ltab[state[i]]+Ltab[2])%0xFF] )
+  				^( state[i+4]==0 ? 0 : Etab[(Ltab[state[i+4]]+Ltab[3])%0xFF] )
+				^state[i+8]^state[i+12];
+			mc[1]=  state[i]
+				^( state[i+4]==0 ? 0 : Etab[(Ltab[state[i+4]]+Ltab[2])%0xFF] )
+				^( state[i+8]==0 ? 0 : Etab[(Ltab[state[i+8]]+Ltab[3])%0xFF] )
+				^state[i+12];
+			mc[2]=  state[i]^state[i+4]
+				^( state[i+8]==0 ? 0 : Etab[(Ltab[state[i+8]]+Ltab[2])%0xFF] )
+				^( state[i+12]==0 ? 0 : Etab[(Ltab[state[i+12]]+Ltab[3])%0xFF] );
+			mc[3]=  ( state[i]==0 ? 0 : Etab[(Ltab[state[i]]+Ltab[3])%0xFF] )
+				^state[i+4]^state[i+8]
+				^( state[i+12]==0 ? 0 : Etab[(Ltab[state[i+12]]+Ltab[2])%0xFF] );
+
+			state[i+0]=mc[0];
+			state[i+4]=mc[1];
+			state[i+8]=mc[2];
+			state[i+12]=mc[3];
+		}
+		print_state(state);
+
+		/* 5. Add State with Round Key */
+		printf(" --- Add Round_key ---\n");
+	        aes_AddRoundKey(Nr, Nk, round, state, keywords);
+		print_state(state);
+
+   	} /* END Nr rounds */
+
+	/* 6. Substitue State Bytes with SBOX */
+	printf(" --- SubBytes() Round:%d ---\n",round);
+	for(k=0; k<16; k++)
+		state[k]=sbox[state[k]];
+	print_state(state);
+
+	/* 7. Shift State Rows */
+	printf(" --- ShiftRows() Round:%d ---\n",round);
+	aes_ShiftRows(state);
+	print_state(state);
+
+	/* 8. Add State with Round Key */
+	printf(" --- Add Round_key ---\n");
+        aes_AddRoundKey(Nr, Nk, round, state, keywords);
+	print_state(state);
+
+	return 0;
+
+}
+
+
+/*----------------------------------------------------------------------
+Generate round keys.
+
+@Nr:	   		 Number of rounds, 10/12/14 for AES-128/192/256
+@Nk:        		Key length, in words.
+@keywordss[Nb*(Nr+1)]:   All round keys, in words.
+@state[4*4]:		The state block.
+
+Note:
+1. The caller MUST ensure enough mem space of input params.
+
+Return:
+	0	Ok
+	<0	Fails
+------------------------------------------------------------------------*/
+int aes_DecryptState(uint8_t Nr, uint8_t Nk, uint32_t *keywords, uint8_t *state)
+{
+	int i,k;
+	uint8_t round;
+	uint8_t mc[4];		    /* Temp. var */
+
+	/* 1. Add round key */
+	printf(" --- Add Round_key ---\n");
+        aes_AddRoundKey(Nr, Nk, Nr, state, keywords);  /* From Nr_th round */
+	print_state(state);
+
+	 /* Run Nr round functions */
+	 for( round=Nr-1; round>0; round--) {  /* round [Nr-1  1]  */
+
+		/* 2. InvShift State Rows */
+		printf(" --- InvShiftRows() Round:%d ---\n",round);
+		aes_InvShiftRows(state);
+		print_state(state);
+
+		/* 3. (Inv)Substitue State Bytes with R_SBOX */
+		printf(" --- (Inv)SubBytes() Round:%d ---\n",round);
+		for(k=0; k<16; k++)
+			state[k]=rsbox[state[k]];
+		print_state(state);
+
+		/* 4. Add State with Round Key */
+		printf(" --- Add Round_key ---\n");
+	        aes_AddRoundKey(Nr, Nk, round, state, keywords);
+		print_state(state);
+
+		/* 5. Inverse Mix State Cloumns */
+		/* Galois Field Multiplication, Multi_Matrix:
+			0x0E 0x0B 0x0D 0x09
+			0x09 0x0E 0x0B 0x0D
+			0x0D 0x09 0x0E 0x0B
+			0x0B 0x0D 0x09 0x0E
+		   Note:
+		   1. Any number multiplied by 1 is equal to the number itself.
+		   2. Any number multiplied by 0 is 0!
+		*/
+		printf(" --- InvMixColumn() Round:%d ---\n",round);
+		for(i=0; i<4; i++) { 	/* i as column index */
+	   		mc[0]=  ( state[i]==0 ? 0 : Etab[(Ltab[state[i]]+Ltab[0x0E])%0xFF] )
+  				^( state[i+4]==0 ? 0 : Etab[(Ltab[state[i+4]]+Ltab[0x0B])%0xFF] )
+  				^( state[i+8]==0 ? 0 : Etab[(Ltab[state[i+8]]+Ltab[0x0D])%0xFF] )
+  				^( state[i+12]==0 ? 0 : Etab[(Ltab[state[i+12]]+Ltab[0x09])%0xFF] );
+	   		mc[1]=  ( state[i]==0 ? 0 : Etab[(Ltab[state[i]]+Ltab[0x09])%0xFF] )
+  				^( state[i+4]==0 ? 0 : Etab[(Ltab[state[i+4]]+Ltab[0x0E])%0xFF] )
+  				^( state[i+8]==0 ? 0 : Etab[(Ltab[state[i+8]]+Ltab[0x0B])%0xFF] )
+  				^( state[i+12]==0 ? 0 : Etab[(Ltab[state[i+12]]+Ltab[0x0D])%0xFF] );
+	   		mc[2]=  ( state[i]==0 ? 0 : Etab[(Ltab[state[i]]+Ltab[0x0D])%0xFF] )
+  				^( state[i+4]==0 ? 0 : Etab[(Ltab[state[i+4]]+Ltab[0x09])%0xFF] )
+  				^( state[i+8]==0 ? 0 : Etab[(Ltab[state[i+8]]+Ltab[0x0E])%0xFF] )
+  				^( state[i+12]==0 ? 0 : Etab[(Ltab[state[i+12]]+Ltab[0x0B])%0xFF] );
+	   		mc[3]=  ( state[i]==0 ? 0 : Etab[(Ltab[state[i]]+Ltab[0x0B])%0xFF] )
+  				^( state[i+4]==0 ? 0 : Etab[(Ltab[state[i+4]]+Ltab[0x0D])%0xFF] )
+  				^( state[i+8]==0 ? 0 : Etab[(Ltab[state[i+8]]+Ltab[0x09])%0xFF] )
+  				^( state[i+12]==0 ? 0 : Etab[(Ltab[state[i+12]]+Ltab[0x0E])%0xFF] );
+
+			state[i+0]=mc[0];
+			state[i+4]=mc[1];
+			state[i+8]=mc[2];
+			state[i+12]=mc[3];
+		}
+		print_state(state);
+
+
+   	} /* END Nr rounds */
+
+	/* 6. Inverse Shift State Rows */
+	printf(" --- InvShiftRows() Round:%d ---\n",round);
+	aes_InvShiftRows(state);
+	print_state(state);
+
+	/* 7. Substitue State Bytes with SBOX */
+	printf(" --- InvSubBytes() Round:%d ---\n",round);
+	for(k=0; k<16; k++)
+		state[k]=rsbox[state[k]];
+	print_state(state);
+
+	/* 8. Add State with Round Key */
+	printf(" --- Add Round_key ---\n");
+        aes_AddRoundKey(Nr, Nk, 0, state, keywords);
+	print_state(state);
+
+	return 0;
+
 }
