@@ -112,6 +112,7 @@ int main (int argc,char ** argv)
 	int fd_jpg;	/* Saved JPG file */
    	fd_set fds;
 	char strtmp[256];
+	//unsigned char *ptr=NULL;
 
    	//char fname[64]="usbcam.jpg";
 	unsigned char *rgb24=NULL;
@@ -307,11 +308,13 @@ OPEN_DEV:
      	fmt.fmt.pix.pixelformat = pixelformat;			/*  MJPEG or YUYV */
      	if( ioctl (fd_dev, VIDIOC_S_FMT, &fmt) !=0) {
     		printf("Fail to ioctl VIDIOC_S_FMT, Err'%s'\n", strerror(errno));
-		return -2;
+		goto END_FUNC;
+		//return -2;
 	}
      	if( ioctl( fd_dev, VIDIOC_G_FMT, &fmt) !=0 ) {
     		printf("Fail to ioctl VIDIOC_G_FMT, Err'%s'\n", strerror(errno));
-		return -2;
+		goto END_FUNC;
+		//return -2;
 	}
 	else {
 		/* 打印实际设置生效的参数 */
@@ -358,11 +361,13 @@ OPEN_DEV:
      	streamparm.parm.capture.timeperframe.numerator=1;
      	if( ioctl( fd_dev, VIDIOC_S_PARM, &streamparm) !=0) {
     		printf("Fail to ioctl VIDIOC_S_PARM, Err'%s'\n", strerror(errno));
-		return -3;
+		goto END_FUNC;
+		//return -3;
 	}
 	if( ioctl( fd_dev, VIDIOC_G_PARM, &streamparm) !=0) {
     		printf("Fail to ioctl VIDIOC_G_PARM, Err'%s'\n", strerror(errno));
-		return -3;
+		goto END_FUNC;
+		//return -3;
 	}
 	else {
 		printf("Frame rate:\t%d/%d fps\n", streamparm.parm.capture.timeperframe.denominator,
@@ -386,7 +391,8 @@ OPEN_DEV:
      	req.memory              = V4L2_MEMORY_MMAP;
      	if( ioctl (fd_dev, VIDIOC_REQBUFS, &req) !=0) {
     		printf("Fail to ioctl VIDIOC_REQBUFS, Err'%s'\n", strerror(errno));
-		return -4;
+		//return -4;
+		goto END_FUNC;
 	}
 	/* Actual buffer number allocated */
 	printf("Req. buffer ret/req:\t%d/%d \n", req.count, REQ_BUFF_NUMBER);
@@ -428,7 +434,8 @@ OPEN_DEV:
     	type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     	if( ioctl (fd_dev, VIDIOC_STREAMON, &type) !=0) {
     		printf("Fail to ioctl VIDIOC_STREAMON, Err'%s'\n", strerror(errno));
-		return -5;
+		//return -5;
+		goto END_FUNC;
 	}
 
 	/* 10. 将帧缓存放入工作队列，以供摄像头写入数据． */
@@ -439,7 +446,8 @@ OPEN_DEV:
                bufferinfo.index       = i;
                if( ioctl (fd_dev, VIDIOC_QBUF, &bufferinfo) !=0) {
 		    	printf("Fail to ioctl VIDIOC_QBUF, Err'%s'\n", strerror(errno));
-			return -4;
+			goto END_FUNC;
+			//return -4;
 		}
 	}
 
@@ -490,19 +498,22 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 		case 's':	/* Shift down */
 			y0 -=20;
 			break;
-        	case 'q':       /* Quit */
 		case 'j':	/* Save the image to jpeg file */
 			tm_get_strtime2(strtmp, ".jpg");
-			compress_to_jpgFile(strtmp, 80, width, height, rgb24 );
+			//compress_to_jpgFile(strtmp, 80, width, height, rgb24, JCS_RGB);
+			/* Convert YUYV to YUV, then to JPEG */
+			egi_color_YUYV2YUV(buffers[bufferinfo.index].start, rgb24, width, height, false); /* rbg24 for dest YUV data */
+			compress_to_jpgFile(strtmp, 80, width, height, rgb24, JCS_YCbCr);
 			break;
 		case 'm':	/* TEST: Compress image to jpg data */
 			compress_to_jpgBuffer(&jpgdata, &jpgdata_size,
-							80, width, height, rgb24 );
+							100, width, height, rgb24, JCS_RGB);
 			printf("jpgdata_size: %ldk\n", jpgdata_size>>10);
 			sleep(1);
 			break;
+        	case 'q':       /* Quit */
         	case 'Q':
-			goto END_FUNC;
+			exit(0);
                 	break;
 	}
 
@@ -549,8 +560,6 @@ if( pixelformat==V4L2_PIX_FMT_YUYV )
 		/* Convert YUYV to RGB888 */
 		egi_color_YUYV2RGB888(buffers[bufferinfo.index].start, rgb24, width, height, reverse);
 
-
-
 		/* 将当前帧缓存放入工作队列，以供摄像头写入数据．*/
         	/* Queue the buffer */
         	if( ioctl(fd_dev, VIDIOC_QBUF, &bufferinfo) !=0)
@@ -579,16 +588,44 @@ else
 
 	/* Parse keyinput 键盘输入 */
 	/* Parse keyinput */
+	ch=0;
   	read(STDIN_FILENO, &ch,1);
   	switch(ch) {
+		case 'a':	/* Shift left */
+			x0 +=20;
+			break;
+		case 'd':	/* Shift right */
+			x0 -=20;
+			break;
+		case 'w':	/* Shift up */
+			y0 +=20;
+			break;
+		case 's':	/* Shift down */
+			y0 -=20;
+			break;
+		case 'j':	/* Save the image to jpeg file */
+			tm_get_strtime2(strtmp, ".jpg");
+		   	fd_jpg = open(strtmp, O_RDWR | O_CREAT, 0777);
+			#if 0 /* End of jpeg, buffers[].length NOT include 0xFF and 0xD9 */
+			for(pt=buffers[bufferinfo.index].start; pt-(char *)buffers[bufferinfo.index].start<buffers[bufferinfo.index].length; pt++) {
+				if(*pt==0xFF && *(pt+1)==0xD9) break;
+			}
+			printf("buffer len=%d, Jpg file len=%d Bytes\n",
+					buffers[bufferinfo.index].length, pt-(char *)buffers[bufferinfo.index].start);
+			#endif
+        		write(fd_jpg, buffers[bufferinfo.index].start, buffers[bufferinfo.index].length);
+   			close(fd_jpg);
+			//exit(0);
+			break;
+		case 'm':	/* TEST: Compress image to jpg data */
+
+			break;
         	case 'q':       /* Quit */
         	case 'Q':
-			goto END_FUNC;
                 	exit(0);
                 	break;
 	}
 
-//   	fd_jpg = open(fname, O_RDWR | O_CREAT, 0777);
 
 	/* 等待数据 */
    	FD_ZERO (&fds);
@@ -615,7 +652,6 @@ else
 		}
 	}
 	else {
-        	//write(fd_jpg, buffers[bufferinfo.index].start, buffers[bufferinfo.index].length);
 		/* 直接解码显示缓存中的JPG图像数据 */
 		show_jpg(NULL, buffers[bufferinfo.index].start, buffers[bufferinfo.index].length, &gv_fb_dev, 0, x0, y0);
 		if(marktime) draw_marks();	/* 加上标题时间戳 */
@@ -624,10 +660,11 @@ else
 
 	/* 将当前帧缓存放入工作队列，以供摄像头写入数据．*/
         /* Queue the buffer */
-        if( ioctl(fd_dev, VIDIOC_QBUF, &bufferinfo) !=0)
+        if( ioctl(fd_dev, VIDIOC_QBUF, &bufferinfo) !=0) {
                 printf("Fail to ioctl VIDIOC_QBUF, Err'%s'\n", strerror(errno));
 
-//   	close(fd_jpg);
+	}
+
 
    #if 0  /* Display image */
 	#if 1
@@ -667,6 +704,9 @@ END_FUNC:
    close (fd_jpg);
    close (fd_dev);
 
+   usleep(500000);
+goto OPEN_DEV;
+
    fb_filo_flush(&gv_fb_dev);
    release_fbdev(&gv_fb_dev);
 
@@ -674,7 +714,6 @@ END_FUNC:
    symbol_release_allpages();
 
    egi_reset_termios();
-
 
    return 0;
 }

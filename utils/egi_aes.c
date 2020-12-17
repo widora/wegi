@@ -158,6 +158,9 @@ Write/Read data[] into/from a state[4*4]:
 		a2 a6 a0  a14
 		a3 a7 a11 a15
 
+	!!!--- WARNING ---!!!
+state[] INDEX is NOT in sequence!!!
+
 Return:
 	0	OK
 	<0	Fails
@@ -210,10 +213,9 @@ int aes_ShiftRows(uint8_t *state)
 	for(k=0; k<4; k++) {
 		/* each row shift k times */
 		for(j=0; j<k; j++) {
-			tmp=*(state+4*k);   /* save the first byte */
-			//memcpy(state+4*k, state+4*k+1, 3);
-			memmove(state+4*k, state+4*k+1, 3);
-			*(state+4*k+3)=tmp; /* set the last byte */
+			tmp=*(state+(k<<2));   //tmp=*(state+4*k);   /* save the first byte */
+			memmove(state+(k<<2), state+(k<<2)+1, 3); //memmove(state+4*k, state+4*k+1, 3);
+			*(state+(k<<2)+3)=tmp; // *(state+4*k+3)=tmp; /* set the last byte */
 		}
 	}
 	return 0;
@@ -239,9 +241,9 @@ int aes_InvShiftRows(uint8_t *state)
 	for(k=0; k<4; k++) {
 		/* each row shift k times */
 		for(j=0; j<k; j++) {
-			tmp=*(state+4*k+3); /* save the last byte */
-			memmove(state+4*k+1, state+4*k, 3);
-			*(state+4*k)=tmp;   /* set the first byte */
+			tmp=*(state+(k<<2)+3); //tmp=*(state+4*k+3); /* save the last byte */
+			memmove(state+(k<<2)+1, state+(k<<2), 3); // memmove(state+4*k+1, state+4*k, 3);
+			*(state+(k<<2))=tmp; // *(state+4*k)=tmp;   /* set the first byte */
 		}
 	}
 	return 0;
@@ -265,7 +267,8 @@ int aes_AddRoundKey(uint8_t Nr, uint8_t Nk, uint8_t round, uint8_t *state, const
 		return -1;
 
 	for(k=0; k<4*4; k++)
-		state[k] = ( keywords[round*4+k%4]>>((3-(k>>2))<<3) &0xFF )^state[k];
+		//state[k] = ( keywords[round*4+k%4]>>((3-k/4)*8) &0xFF )^state[k];
+		state[k] = ( keywords[ (round<<2) +k&0x3 ]>>((3-(k>>2))<<3) &0xFF )^state[k];
 
 	return 0;
 }

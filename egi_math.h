@@ -70,7 +70,7 @@ EGI_FVAL       imag;	/* imaginery part */
 /* Right_rotate operation
  @x:  	 input variable.
  @xsize: size of input variable
- @n:  	 Rotate position
+ @n:    Rotate position
  */
 #define MAT_RTROT(xsize,x,n)    ( ((x)>>(n)) | ( ((x)&((1<<(n+1))-1)) << ( ((xsize)<<3)-(n) )) )
 

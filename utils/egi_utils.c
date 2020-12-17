@@ -146,7 +146,8 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize, int prot, int fl
                         goto END_FUNC;
          }
 
-	/* Actually we can close(fd) now, instead of closing it in egi_fmap_free().
+	/* FOR PRO_READ/MAP_PRIVATE only!:
+   	 * Actually we can close(fd) now, instead of closing it in egi_fmap_free().
 	 * Anyway, leave it to egi_fmap_free()..
 	 */
 
@@ -162,6 +163,52 @@ END_FUNC:
 		return fmap;
 }
 
+/*------------------------------------------------
+Adjust size of the file that fmap underlies.
+
+@fmap:		an EGI_FILEMMAP
+@resize:	New size of fmap->fp.
+
+Return:
+	0	OK
+	<0	Fail
+--------------------------------------------------*/
+int egi_fmap_resize(EGI_FILEMMAP* fmap, off_t resize)
+{
+	if(fmap==NULL || fmap->fp==NULL)
+		return -1;
+
+        if( ftruncate(fmap->fd, resize) !=0 ) {
+                printf("%s: ftruncate fails. ERR:%s\n", __func__, strerror(errno));
+		return -2;
+        }
+
+        fmap->fsize=resize;
+
+	return 0;
+}
+
+/*-----------------------------------------------------------------
+"msync()  flushes  changes made to the in-core copy of a file that
+was mapped into memory using mmap(2) back to the filesystem.
+Without use of this call, there is no guarantee that changes are
+written back before munmap(2) is called." --man msync
+
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------------------------*/
+int egi_fmap_msync(EGI_FILEMMAP* fmap)
+{
+	int ret;
+	ret=msync(fmap->fp, fmap->fsize, MS_SYNC); //MS_INVALIDATE
+	if(ret!=0) {
+		printf("%s: msync Err'%s'.\n", __func__,strerror(errno));
+		return ret;
+	}
+	else
+		return 0;
+}
 
 /*--------------------------------------------
 Release an EGI_FILEMMAP, unmap and close the
@@ -1547,53 +1594,79 @@ inline int egi_bitstatus_count_zeros(const EGI_BITSTATUS *ebits)
 }
 
 /*---------------------------------------------------------
-Search for the next ZERO bit, and set ebits->pos accordingly.
-It starts from current ebits->pos +1!
+Search for the first ZERO bit starting from ebits->pos=cp.
 
-@ebits: EGI_BITSTATUS*
+@ebits:  EGI_BITSTATUS*
+@cp:     Set as current ebits->pos
+
 Return:
         =0     OK, found next ZERO as indicated by ebits->pos
         <0     Fails
 	       No result, ebits->pos gets to the end.
 ----------------------------------------------------------*/
-inline int egi_bitstatus_posnext_zero(EGI_BITSTATUS *ebits)
+inline int egi_bitstatus_posfirst_zero(EGI_BITSTATUS *ebits,  int cp)
 {
+	unsigned char byte;
+
         if(ebits==NULL)
                 return -1;
 
-	for(ebits->pos++; ebits->pos < ebits->total; ebits->pos++) {
-		if( ebits->octbits[(ebits->pos>>3)] & (1<<( ebits->pos&0b111 )) )
+	/* Limit cp */
+	if(cp<0) cp=0;
+
+	/* Set cp as current pos */
+	for(ebits->pos=cp; ebits->pos < ebits->total; ebits->pos++) {
+		byte=ebits->octbits[(ebits->pos>>3)];
+		if( byte==0xFF ) {
+			ebits->pos += 8-1;  /* Skip to next byte */
 			continue;
-		else
+		}
+
+		if( !(byte&( 1<<( ebits->pos&0b111 ) )) )
 			return 0;
+		else
+			continue;  /* OK, find pos */
 	}
 
 	return -2;
 }
 
 /*---------------------------------------------------------
-Search for the next ONE bit, and set ebits->pos accordingly.
-It starts from current ebits->pos +1!
+Search for the first ONE bit starting from ebits->pos=cp.
 
 @ebits: EGI_BITSTATUS*
+
 Return:
         =0     OK, found next ONE as indicated by ebits->pos
         <0     Fails
 	       No result, ebits->pos gets to the end.
 ----------------------------------------------------------*/
-inline int egi_bitstatus_posnext_one(EGI_BITSTATUS *ebits)
+inline int egi_bitstatus_posfirst_one(EGI_BITSTATUS *ebits,  int cp)
 {
+	unsigned char byte;
+
         if(ebits==NULL)
                 return -1;
 
-	for(ebits->pos++; ebits->pos < ebits->total; ebits->pos++) {
-		if( ebits->octbits[(ebits->pos>>3)] & (1<<( ebits->pos&0b111 )) )
-			return 0;
+	/* Limit cp */
+	if(cp<0) cp=0;
+
+	/* Set cp as current pos */
+	for(ebits->pos=cp; ebits->pos < ebits->total; ebits->pos++) {
+		byte=ebits->octbits[(ebits->pos>>3)];
+		if( byte==0x00 ) {
+			ebits->pos += 8-1; /* Skip to next byte */
+			continue;
+		}
+
+		if( byte&( 1<<( ebits->pos&0b111 ) ) )
+			return 0;  /* Ok, find pos */
+		else
+		    continue;
 	}
 
 	return -2;
 }
-
 
 
 /*---------------------------------------------------------

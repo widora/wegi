@@ -584,7 +584,7 @@ for( i=optind; i<argc; i++) {
                			        showimg->width, showimg->height);
 	   #endif
 		gettimeofday(&tm_end, NULL);
-		printf("writeFB time: %ldms \n",(tm_diffus(tm_start, tm_end)+400)/1000);
+		//printf("writeFB time: %ldms \n",(tm_diffus(tm_start, tm_end)+400)/1000);
 	   }
 
 	   /* B3.2  Display GIF */

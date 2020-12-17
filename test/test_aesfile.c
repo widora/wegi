@@ -4,13 +4,15 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 A test for AES encryption (RIJNDAEL symmetric key encryption algorithm).
+
 Reference:
 	1. Advanced Encryption Standard (AES) (FIPS PUB 197)
 	2. Advanced Encryption Standard by Example  (by Adam Berent)
 
 Usage Example:
 	./test_aesfile -e -i text -o text.lock -p "hello world"
-	./test_aesfile -d -i text.lock -o text -p "hello wordl"
+	./test_aesfile -d -i text.lock -o text -p "hello world"
+	 ( in_file and out_file name may be the same! )
 
 Note:
 1. Standard and parameters.
@@ -20,8 +22,16 @@ AES-128	      4               4             10
 AES-192       6               4             12
 AES-256       8               4             14
 
-2. File size < 2G, for MMAP limit.
 
+2. File size < 2G, for MMAP limit.
+3. In_file and out_file may be the same.
+4. Encrypt and Decrypt is reversible/symmetrical to each other.
+   So, you may use '-d' to encrypt and '-e' to decrypt....
+5. MT7688 speed: ~1/3MBps for encryption;  ~1/5MBpsfor decryption.
+
+TODO:
+1. Encrypt/decrypt tail data treatment!
+2. AES-128/192/256 selection.
 
 Midas Zhou
 https://github.com/widora/wegi
@@ -52,7 +62,7 @@ void print_help(const char* cmd)
 
 int main(int argc, char **argv)
 {
-	int i;
+	int64_t i,j,k;
 	int opt;
 	bool do_encrypt=true;
 
@@ -63,16 +73,14 @@ int main(int argc, char **argv)
 
 	char password[64+1]={0};	/* Though SHA256 result is 32bytes */
 
-	uint8_t Nk=4;		    /* column number, as of 4xNk, 4/6/8 for AES-128/192/256 */
   const uint8_t Nb=4;		    /* Block size, 4/4/4 for AES-128/192/256 */
-	uint8_t Nr=10;		    /* Number of rounds, 10/12/14 for AES-128/192/256 */
+	uint8_t Nk=8;		    /* column number, as of 4xNk, 4/6/8 for AES-128/192/256 */
+	uint8_t Nr=14;		    /* Number of rounds, 10/12/14 for AES-128/192/256 */
   	uint8_t state[4*4];	    /* State array --- ROW order -- */
+	uint8_t tmpstate[4*4];	    /* Temp. state */
+	uint8_t tail_size;	    /* The tail(or the last state) of a data */
 	uint64_t ns;		    /* Total number of states */
-	uint32_t *keywords=NULL;    /* Round keys, in word. */
-
-	const uint8_t input_msg[]= {
-		0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff
-	};
+	uint32_t *keywords=NULL;    /* Round keys in words, total number of keys: Nb*(Nr+1). */
 
         /* 1. Parse input option */
         while( (opt=getopt(argc,argv,"hi:o:edp:"))!=-1 ) {
@@ -118,9 +126,19 @@ int main(int argc, char **argv)
 	}
 
 	/* 2. Fmmap in/out file */
+	/* NOTE:
+	 * WRITE for tail decrypt,  TODO: With PROT_WRITE, cannot allocate memory for big file in /mmc!??
+	 * Use fwrite()/write() instead.
+	 */
 	fmap_in=egi_fmap_create(fpath_in, 0, PROT_READ, MAP_PRIVATE);
 	if(fmap_in==NULL) {
 		printf("Fail to mmap file '%s'.\n", fpath_in);
+		exit(EXIT_FAILURE);
+	}
+	/* check size */
+	if(fmap_in->fsize<16) {
+		printf("Input file size at least to be 16bytes!\n");
+		egi_fmap_free(&fmap_in);
 		exit(EXIT_FAILURE);
 	}
 
@@ -142,55 +160,190 @@ int main(int argc, char **argv)
                 0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f
         };
 	#else
-	uint8_t inkey[4*8];
+	uint8_t inkey[Nb*Nk];
 	/* Use your own init_hv/kv if necessary~  */
 	mat_sha256_digest((const uint8_t *)password, strlen(password), NULL, NULL, (uint32_t *)inkey, NULL);
+	printf("SHA256 inkey: ");
+	for(i=0; i<Nk; i++)
+		printf("%04X",inkey[i]);
+	printf("\n");
 	#endif
 
 	/* 5. Generate Nr+1 round_keys(derived from inkey), to save in keywords. */
 	aes_ExpRoundKeys(Nr, Nk, inkey, keywords);
 
-	/* 6. Calculate total state blocks. */
-	ns=(fmap_in->fsize+15)/16;
+
+#if 0 ////////////////////   TAIL OPTION 1 : Keep tail data unencrypted  //////////////////////
+
+	/* 6. Calculate total state blocks needed. */
+	ns=fmap_in->fsize/16;
+	tail_size=fmap_in->fsize&0b1111;
+	printf("fsize=%lluBytes, ns=%llu, tail_size=%dBytes\n", fmap_in->fsize, ns, tail_size);
 
 	/* 7. Do encrypt or decrypt */
+ /* -----> DO ENCRYPTION */
 	if( do_encrypt ) {
+		printf("Start encrypting...\n");
 		/* Encrypt each state */
-		for(i=0; i<ns; i++) {
+		for(i=0,k=0; i<ns; i++, k++) {
 			/* Fill into state array: from colum[0] to colum[3] */
-			bzero(state,16);
-			aes_DataToState( (uint8_t *)fmap_in->fp+i*16,state);
+			//bzero(state,16);
+			aes_DataToState( (uint8_t *)fmap_in->fp+i*16, state);
 
 			/* Encryp state */
 			aes_EncryptState(Nr, Nk, keywords, state);
 
 			/* Write to fmap_out: read out from state[] column by column*/
-			aes_StateToData(state,(uint8_t *)fmap_out->fp+i*16);
+			aes_StateToData(state, (uint8_t *)fmap_out->fp+i*16);
+
+			/* Print msg very 10k states */
+			if( k==10000 ) {
+				k=0;
+				printf("for(i): %llu/%llu --%%%f.1--\r", i, ns-1,(1.0*i+1)/ns);fflush(stdout);
+			}
 		}
 
-		printf("Finish encrypting '%s' to '%s', with Round_Nr=%d, KeySize_Nk=%d, States_ns=%llu.\n",
+		/* --- Tail data treatment --- */
+		/* Just copy tail_size */
+		for(i=0; i<tail_size; i++)
+			fmap_out->fp[ns*16+i]=fmap_in->fp[ns*16+i];
+
+		printf("\nFinish encrypting '%s' to '%s', with Round_Nr=%d, KeySize_Nk=%d, States_ns=%llu.\n",
 		        fpath_in, fpath_out, Nr, Nk, ns);
 	}
+ /* -----> DO DECRYPTION */
 	else { /* do_decrypt */
+		printf("Start decrypting...\n");
 		/* Decrypt each state */
-		for(i=0; i<ns; i++) {
-			/* Fill into state array: write to state[] from column[0] to column[3] */
-			bzero(state,16);
-			aes_DataToState( (uint8_t *)fmap_in->fp+i*16,state);
+		for(i=0,k=0; i<ns; i++,k++) {
+			/* Read from state array: write to state[] from column[0] to column[3] */
+			//bzero(state,16);
+			aes_DataToState( (uint8_t *)fmap_in->fp+i*16, state);
 
 			/* Decrypt state  */
 			aes_DecryptState(Nr, Nk, keywords, state);
 
 			/* Write to fmap_out: read out from state[] column by column*/
 			aes_StateToData(state,(uint8_t *)fmap_out->fp+i*16);
+
+			/* Print msg every 10k states */
+			if( k==10000 ) {
+				k=0;
+				printf("for(i): %llu/%llu --%%%f.1--\r", i, ns-1,(1.0*i+1)/ns);fflush(stdout);
+			}
 		}
 
-		printf("Finish decrypting '%s' to '%s', with Round_Nr=%d, KeySize_Nk=%d, States_ns=%llu.\n",
+		/* Just copy tail_size */
+		for(i=0; i<tail_size; i++)
+			fmap_out->fp[ns*16+i]=fmap_in->fp[ns*16+i];
+
+		printf("\nFinish decrypting '%s' to '%s', with Round_Nr=%d, KeySize_Nk=%d, States_ns=%llu.\n",
 			fpath_in, fpath_out, Nr, Nk, ns );
 	}
 
+#else  ////////////////////   TAIL OPTION 2 : Roll back data and make tail a complete state of 16bytes  /////////////////////
+
+	/* 6. Calculate total state blocks needed. */
+	ns=fmap_in->fsize/16;
+	tail_size=fmap_in->fsize&0b1111;
+	if(tail_size)
+		ns+=1;
+
+	printf("fsize=%lluBytes, ns=%llu, tail_size=%dBytes\n", fmap_in->fsize, ns, tail_size);
+
+	/* 7. Do encrypt or decrypt */
+ /* -----> DO ENCRYPTION */
+	if( do_encrypt ) {
+		printf("Start encrypting...\n");
+		/* Encrypt each state in sequence */
+		for(i=0,k=0; i<ns; i++, k++) {
+			/* 1. Fill into state array: from colum[0] to colum[3] */
+			bzero(state,16);
+			if( i < ns-1 || tail_size==0 )
+				aes_DataToState( (uint8_t *)fmap_in->fp+i*16, state);
+			else { /* tail data */
+			        for(j=0; j<16-tail_size; j++)
+					/* Roll in previous ENCRYPTED data */
+		                	state[(j%4)*4+j/4]=*((uint8_t *)(fmap_out->fp)+(fmap_out->fsize)-16+j);
+			        for(j=16-tail_size; j<16; j++)
+		                	state[(j%4)*4+j/4]=*((uint8_t *)(fmap_in->fp)+(fmap_in->fsize)-16+j);
+			}
+
+			/* 2. Encryp state */
+			aes_EncryptState(Nr, Nk, keywords, state);
+
+			/* 3. Write to fmap_out: read out from state[] column by column*/
+			if( i < ns-1 || tail_size==0 )
+				aes_StateToData(state, (uint8_t *)fmap_out->fp+i*16);
+			else {
+				/* Tail state, parts of previou state encrypted twice. */
+				aes_StateToData(state, (uint8_t *)(fmap_out->fp)+(fmap_out->fsize)-16);
+			}
+
+			/* 4. Print msg very 10k states */
+			if( k==10000 ) {
+				k=0;
+				printf("for(i): %llu/%llu --%%%f.1--\r", i, ns-1,(1.0*i+1)/ns);fflush(stdout);
+			}
+		}
+
+		printf("\nFinish encrypting '%s' to '%s', with Round_Nr=%d, KeySize_Nk=%d, States_ns=%llu.\n",
+		        fpath_in, fpath_out, Nr, Nk, ns);
+	}
+ /* -----> DO DECRYPTION */
+	else { /* do_decrypt */
+		printf("Start decrypting...\n");
+		/* Decrypt from the tail state...! */
+		for(i=ns-1,k=0; i>=0; i--,k++) {
+			/* 1. Read from state array: write to state[] from column[0] to column[3] */
+			bzero(state,16);
+			if(i==ns-1 && tail_size)  /* Decrypt the tail state first! */
+				aes_DataToState( (uint8_t *)(fmap_in->fp)+(fmap_in->fsize)-16, state);
+			/* Put part of previously encrpted tmpstate to state */
+			else if(i==ns-2 && tail_size) {
+				aes_DataToState( (uint8_t *)(fmap_in->fp)+i*16, state);
+				/* Replace aft. part of state with fore. part of tmpstate */
+				for(j=0; j<16-tail_size; j++)
+					state[((j+tail_size)%4)*4+(j+tail_size)/4]=tmpstate[(j%4)*4+j/4];
+			}
+			else {
+				aes_DataToState( (uint8_t *)(fmap_in->fp)+i*16, state);
+			}
+
+			/* 2. Decrypt state  */
+			aes_DecryptState(Nr, Nk, keywords, state);
+
+			/* 3. Write to fmap_out: read out from state[] column by column*/
+			if(i==ns-1 && tail_size ) { /* The last tail state */
+			        for(j=0; j<16-tail_size; j++) {
+					/* Save to temp state, to put back to state before next decryption, see above */
+					tmpstate[(j%4)*4+j/4]=state[(j%4)*4+j/4];
+					/* Roll out to previous ENCRYPTED data! */
+		                	//fmap_in->fp[fmap_in->fsize-16+j]=state[(j%4)*4+j/4];
+				}
+			        for(j=16-tail_size; j<16; j++)
+					fmap_out->fp[fmap_out->fsize-16+j]=state[(j%4)*4+j/4];
+			}
+			else {
+				aes_StateToData(state, (uint8_t *)(fmap_out->fp)+i*16);
+			}
+
+			/* 4. Print msg every 10k states */
+			if( k==10000 ) {
+				k=0;
+				printf("for(i): %llu/%llu --%%%f.1--\r", i, ns-1,(1.0*i+1)/ns);fflush(stdout);
+			}
+		}
+
+		printf("\nFinish decrypting '%s' to '%s', with Round_Nr=%d, KeySize_Nk=%d, States_ns=%llu.\n",
+			fpath_in, fpath_out, Nr, Nk, ns );
+	}
+
+#endif /////////// END TAIL OPTIONS //////////
+
 	/* 8. Free resource */
 	egi_fmap_free(&fmap_in);
+	egi_fmap_msync(fmap_out);
 	egi_fmap_free(&fmap_out);
 	free(keywords);
 

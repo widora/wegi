@@ -135,7 +135,7 @@ int inet_default_sigAction(void);
 
 			/* ------------ UDP C/S ----------- */
 
-#define EGI_MAX_UDP_PDATA_SIZE	65507	/* Actual MAX. 2^31-1-8-20(IP header)=65507Bs, Or Err'Message too long'
+#define EGI_MAX_UDP_PDATA_SIZE	65507	/* Actual MAX. 2^16-1-8-20(IP header)=65507Bs, Or Err'Message too long'
 					 * This value also limit static send/recv buffer in UDP routine functions
  					 */
 #define UDP_USER_TIMER_SET      20      /* In seconds. As in inet_tcp_recvfrrom() and inet_udp_sendto(), to count total time waiting/trying
@@ -185,10 +185,14 @@ typedef int (* EGI_UDPCLIT_CALLBACK)( int *cmdcode, const struct sockaddr_in *rc
 
 /*** EGI_UDP_SERV & EGI_UDP_CLIT
  *
- *   			An EGI UDP Server Model
- * ONLY One routine process for receiving/sending all datagrams, and a backcall
- * function to pass out/in all datagrams. The caller SHALL take responsiblity
- * to identify clients and handle sessions respectively.
+ *   			An EGI UDP Server/Client Model
+ * 1. ONLY One routine process for receiving/sending all datagrams, and a backcall
+ *    function to pass out/in all datagrams. The caller SHALL take responsiblity
+ *    to identify clients and handle sessions respectively.
+ * 2. Set xxx_waitus according to specific scenarios, For instance, tune xxx_waitus
+ *    to adjust MEM/CPU load and improve packet lost/error ratio.
+ * 3. In most case, it works in 'AN Active Sender and A Passive Receiver' mode, and
+ *    recv_waitus is usually 0, while send_waitus is NOT 0!
  */
 
 #define UDPCMD_NONE  		0
@@ -201,6 +205,7 @@ struct egi_udp_server {
 	unsigned int		idle_waitus;	/* Sleep us for idle looping, to relax CPU load. */
 	unsigned int		send_waitus;	/* Sleep us after sendto(), to relax traffic pressure through whole link. */
 						/* For server, recvfrom() is MSG_DONTWAIT mode */
+	unsigned int 		recv_waitus;	/* Sleep us after recvfrom() */
 	int			cmdcode;	/* Commad code to routine loop, NOW: 1 to end routine. */
 };
 
@@ -212,6 +217,7 @@ struct egi_udp_client {
 	unsigned int		idle_waitus;	/* Sleep us for idle looping, to relax CPU load. */
 	unsigned int		send_waitus;	/* Sleep us after each sendto(), to relax traffic pressure through whole link. */
 						/* For client, recvfrom() is BLOCKING mode. */
+	unsigned int 		recv_waitus;	/* Sleep us after recvfrom() */
 	int			cmdcode;	/* Commad code to routine loop, NOW: 1 to end routine. */
 };
 

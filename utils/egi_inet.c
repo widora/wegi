@@ -11,6 +11,7 @@ NOW: For IPv4 ONLY!
 ONLY One routine process for receiving/sending all datagrams, and a backcall
 function to pass out/in all datagrams. The caller SHALL take responsiblity
 to identify clients and handle sessions respectively.
+Usually it works in 'AN Active Sender and A Passive Receiver' mode.
 
 			--- An EGI TCP Server model ---
 
@@ -18,7 +19,7 @@ A main thread for accpeting all clients, and one session handling thread
 will be created(and detached) for each accpeted client. The caller SHALL design
 then session processing thread function.
 All recv/send functions work in BLOCKING state, usually to set SERVER TimeOut
-much larger than CLIENT's, as to sustain 'a passive server and an active client'
+much larger than CLIENT's, as to sustain 'An Active Client and A Passive Server'
 mode.
 
 
@@ -1663,6 +1664,7 @@ to client.
 NOTE:
 1. For a UDP server, the routine process always starts with
    recvfrom().
+
 2. If sndCLIT is meaningless, then sendto() will NOT execute.
    SO a caller may stop server to sendto() by clearing sndCLIT.
 
@@ -1673,6 +1675,13 @@ NOTE:
    UDP is a kind of connectionless link!
 
 3. nrcv<0. means no data from client.
+
+4. idle_waitus: If callback() returns without sendto job, then it may sleep
+                to relax MEM/CPU load (if idle_waitus != 0).
+   send_waitus: If sendto() is carried out, then it may sleep to relax
+		Mem/CPU load (if send_waitus !=0).
+   recv_waitus: If data is received, then it may sleep to relax
+		Mem/CPU load (if recv_waitus !=0).
 
 TODO.
 1. IPv6 connection.
@@ -1693,7 +1702,7 @@ int inet_udpServer_routine(EGI_UDP_SERV *userv)
 	char rcvbuff[EGI_MAX_UDP_PDATA_SIZE]; /* EtherNet packet payload MAX. 46-MTU(1500) bytes,  UPD packet payload MAX. 2^16-1-8-20=65507 */
 	char sndbuff[EGI_MAX_UDP_PDATA_SIZE];
 	int  sndsize;	    	/* size of to_send_data */
-	int  cbret;		/* callback return */
+	int  cbret;		/* callback return: ==0, proceed to  sendto(), otherwise continue to while() */
 	int  cmdcode=UDPCMD_NONE;	/* Command code */
 
 	/* Check input */
@@ -1755,7 +1764,16 @@ int inet_udpServer_routine(EGI_UDP_SERV *userv)
 		sndsize=-1; /* reset first */
 		cbret=userv->callback(&cmdcode, &rcvCLIT, rcvbuff, nrcv,  &sndCLIT, sndbuff, &sndsize);
 		if(cbret!=0) {
-			usleep(5000);
+			if(nrcv>0) {
+				if(userv->recv_waitus)
+        	                        usleep(userv->recv_waitus);
+			}
+			else {	/* NO recv + NO send */
+	                        if(userv->idle_waitus)
+		                        usleep(userv->idle_waitus);
+					//usleep(5000);
+			}
+
 			continue;
 		}
 
@@ -1774,14 +1792,19 @@ int inet_udpServer_routine(EGI_UDP_SERV *userv)
 			}
                	}
 
-                /* To relax idle looping CPU Load */
+                #if 0 /* To relax idle looping CPU Load --- Move to after callback(). */
                 if( sndsize<0 && nrcv<0 ) {
                         if(userv->idle_waitus)
                                 usleep(userv->idle_waitus);
-                        //usleep(5000);
                 }
+		#endif
+
                 /* To relax inet traffic speed */
-                else if( sndsize > 0) {
+                if( nrcv > 0) {
+                        if(userv->recv_waitus)
+                                usleep(userv->recv_waitus);
+                }
+                if( sndsize > 0) {
                         if(userv->send_waitus)
                                 usleep(userv->send_waitus);
                 }
@@ -2025,12 +2048,23 @@ and send it to the Server.
 	------ One Routine for One Server -------
 
 NOTE:
-1. For a UDP client, the routine process always start with taking
-   in send_data from the Caller and then sendto() the UDP server.
+1. For a UDP client, the routine process always starts with callback,
+   and then it proceed to take in send_data from the Caller and send
+   data to the UDP server if any.
+
+2. idle_waitus: If callback() returns without sendto job AND there is
+		no data from the server, then it may sleep to relax
+                MEM/CPU load (if idle_waitus != 0).
+   send_waitus: If sendto() is carried out, then it may sleep to relax
+		MEM/CPU load (if send_waitus !=0).
+   recv_waitus: If data is received, then it may sleep to relax
+		MEM/CPU load (if recv_waitus !=0).
+
 
 !!!TODO.
 1. IPv6 connection.
 2. Use select/poll to monitor IO fd.
+
 
 @userv: Pointer to an EGI_UDP_CLIT.
 
@@ -2077,7 +2111,7 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
 		/* Sendto(BLOCKING) Server */
 		if(cbret==0 && sndsize>-1) /* permit zero-length datagrams */
 		{
-			printf("%s: sendto(BLOCK)...\n", __func__);
+			//printf("%s: sendto(BLOCK)...\n", __func__);
                 	nsnd=sendto(uclit->sockfd, sndbuff, sndsize, 0, &uclit->addrSERV, svrlen); /* flags: MSG_CONFIRM, MSG_DONTWAI */
                         if(nsnd<0){
                         	printf("%s: Fail to sendto() data to UDP server '%s:%d', Err'%s'\n",
@@ -2112,7 +2146,7 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
                                 case EWOULDBLOCK:
                                 #endif
 				case EAGAIN:  /* Note: EAGAIN == EWOULDBLOCK */
-					printf("%s: recvfrom() EAGAIN or EWOULDBLOCK.\n",__func__);
+					//printf("%s: recvfrom() EAGAIN or EWOULDBLOCK.\n",__func__);
 					break;
 				case ECONNREFUSED: /* Connection reset by peer. Usually the counter part is NOT ready */
 					printf("%s: recvfrom() ECONNREFUSED.\n",__func__);
@@ -2138,15 +2172,23 @@ int inet_udpClient_routine(EGI_UDP_CLIT *uclit)
 		#endif
 
                 /* To relax idle loop CPU Load */
-		if( sndsize<0 && nrcv<0 ) {
+		if( sndsize<0 && nrcv<0 ) {   /* No send + NO recv */
 			if(uclit->idle_waitus)
 				usleep(uclit->idle_waitus);
 	                //usleep(5000);
+
+			/* No send + NO recv */
+			continue;
 		}
+
 		/* To relax inet traffic speed */
-		else if( sndsize > 0) {
+		if( sndsize>0 ) {
 			if(uclit->send_waitus)
 				usleep(uclit->send_waitus);
+		}
+		if( nrcv>0 ) {
+			if(uclit->recv_waitus)
+				usleep(uclit->recv_waitus);
 		}
 	}
 

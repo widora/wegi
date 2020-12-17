@@ -7,12 +7,16 @@ A test program to transfer video through UDP.
 
 Usage exmample:
 
-	< CAM format YUYV: to trans_data mjpeg >
+	< CAM format YUYV, Trans_data format: YUYV >
+	./test_udpcam -S -s 320x240   ( Default: -F yuyv -f yuyv )
+	./test_udpcam -C -a 192.168.10.1:5678 -s 320x240 ( Default: -F yuyv )
+
+	< CAM format YUYV, Trans_data format: MJPEG >
 	./test_udpcam -S -F mjpeg -s 640x480
 	./test_udpcam -C -a 192.168.10.1:5678 -F mjpeg -s 640x480
 
-	< CAM format MJPEG >
-	./test_udpcam -S -r 30 -f mjpeg -w 0 -t 52000 -s 1280x720  ( with/without '-F mjpeg' all OK )
+	< CAM format MJPEG, Trans_data format: MJPEG  >
+	./test_udpcam -S -r 30 -f mjpeg -w 0 -t 52000 -s 1280x720  ( '-f mjpeg' also implys '-F mjpeg')
 	./test_udpcam -C -a 192.168.10.1:5678 -F mjpeg -s 1280x720
 
 Pan control:
@@ -39,11 +43,12 @@ Note:
 	1280x720 jpeg data, ~1800kBs, compress time ~500ms
 
 
-
 TODO:
 1. Mutual authentication.
 2. Server stop transfering when client quits unexpectedly.
-3. If the server quits, the client can detect and re_engage.
+3. If the UDP_server quits, the UDP_client can detect and ....clock timer?
+   If the UDP_client quits, the UDP_server will be informed...
+   Or a rather reliable way to communicate/confirm with eatch other.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -104,7 +109,7 @@ struct  udp_trans_data {
 	//pthread_mutex_t  mutex_lock;
 };
 struct udp_trans_data	trans_data;
-int trans_format=V4L2_PIX_FMT_YUYV;	/* OR V4L2_PIX_FMT_MJPEG */
+int trans_format=V4L2_PIX_FMT_YUYV;	/* Default is YUYUV,  may set to be V4L2_PIX_FMT_MJPEG */
 
 void *dest_data;  		/* Received data, from src_data */
 unsigned long dest_size;	/* Size of dest_data */
@@ -261,34 +266,37 @@ int main (int argc,char ** argv)
 	printf("bsize=%lu\n", bsize);
 
 	/* 1. Compress to test.z */
-	EGI_FILEMMAP *fout=egi_fmap_create("/tmp/test.z", bsize, PROT_WRITE, MAP_SHARED);
+	EGI_FILEMMAP *fout=egi_fmap_create("test.z", bsize, PROT_WRITE, MAP_SHARED);
 	if(fout==NULL) exit(1);
 
 	len=bsize;
 	egi_clock_start(&eclock);
+	printf("start compress..."); fflush(stdout);
 	if(compress2((Bytef *)fout->fp, &len, (Bytef *)fin->fp, fin->fsize, level) !=Z_OK) {  /* LEVEL 0~9 */
 		printf("Zlib compress2 error!\n");
 		exit(1);
 	}
+	printf("OK!\n");
 	egi_clock_stop(&eclock);
-	printf("Input size=%jd, output size=%lu, compress ratio=%.1f:1\n", fin->fsize, len, 1.0*fin->fsize/len);
+	printf("Input size=%jdBs, output size=%luBs, compress ratio=%.1f:1\n", fin->fsize, len, 1.0*fin->fsize/len);
 	printf("Cost tm=%ld us\n", egi_clock_readCostUsec(&eclock));
 
 	/* Resize fout */
- 	if( ftruncate(fout->fd, len) !=0 ) {
-		printf("ftruncate error!\n");
+	if( egi_fmap_resize(fout, len)!=0 ) {
+		printf("Fout resize error!\n");
 	}
-	fout->fsize=len;
 
 	/* 2. Uncompress again to zlib.jpg */
-	EGI_FILEMMAP *fbk=egi_fmap_create("/tmp/zlib.jpg",fin->fsize, PROT_WRITE, MAP_SHARED);
+	EGI_FILEMMAP *fbk=egi_fmap_create("zlib.jpg",fin->fsize, PROT_WRITE, MAP_SHARED);
 	if(fbk==NULL) exit(1);
 
+	printf("start uncompress...");fflush(stdout);
 	len=fbk->fsize;
 	if(uncompress((Bytef *)fbk->fp, &len, (Bytef *)fout->fp, fout->fsize)!=Z_OK) {
 		printf("Zlib uncompress error!\n");
 		exit(1);
 	}
+	printf("Ok!\n");
 
 	egi_fmap_free(&fin);
 	egi_fmap_free(&fout);

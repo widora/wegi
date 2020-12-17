@@ -27,13 +27,15 @@ midaszhou@yahoo.com
 
 /* EGI File MMAP:  mmap with flags: PROT_READ|PROT_WRITE, MAP_PRIVATE */
 typedef struct {
-	int 		fd;
-	off_t 		fsize;
-	char 		*fp;
-	off_t		off;
+	int 		fd;	/* File descriptor */
+	off_t 		fsize;  /* Size of file */
+	char		*fp;	/* Protected */
+	off_t		off;	/* Current offset, editable. */
 } EGI_FILEMMAP;
 EGI_FILEMMAP *egi_fmap_create(const char *fpath, off_t resize, int prot, int flag);
+int egi_fmap_msync(EGI_FILEMMAP* fmap);
 int egi_fmap_free(EGI_FILEMMAP** fmap);
+int egi_fmap_resize(EGI_FILEMMAP* fmap, off_t resize);
 
 /* A file, functions as the system memo pad, for copy/paste operation */
 #define EGI_SYSPAD_PATH "/tmp/.egi_syspad"
@@ -86,8 +88,8 @@ int 	egi_bitstatus_setall(EGI_BITSTATUS *ebits);
 int 	egi_bitstatus_resetall(EGI_BITSTATUS *ebits);
 int 	egi_bitstatus_count_ones(const EGI_BITSTATUS *ebits);
 int 	egi_bitstatus_count_zeros(const EGI_BITSTATUS *ebits);
-int 	egi_bitstatus_posnext_zero(EGI_BITSTATUS *ebits); /* ebits->pos self increase */
-int 	egi_bitstatus_posnext_one(EGI_BITSTATUS *ebits);  /* ebits->pos self increase */
+int 	egi_bitstatus_posfirst_zero(EGI_BITSTATUS *ebits,  int cp);  /* ebits->pos self increase */
+int 	egi_bitstatus_posfirst_one(EGI_BITSTATUS *ebits,  int cp);   /* ebits->pos self increase */
 int 	egi_bitstatus_checksum(void *data, size_t size);
 
 #endif

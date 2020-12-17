@@ -3,7 +3,7 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-A test for SHA256 hashing/digesting.
+A test for SHA-256 hashing/digesting.
 
 Speed: ~6MBps for files at tmp mem.
 
@@ -105,6 +105,7 @@ int main(int argc, char **argv)
 
  do {  /*----------------- LOOP TEST ---------------- */
 	printf("\t--- k=%d ---\n", k++);
+	printf("Start hashing...\n");
 	egi_clock_start(&eclock);
         mat_sha256_digest(input, len, NULL, NULL, hv, digest);
 	egi_clock_stop(&eclock);

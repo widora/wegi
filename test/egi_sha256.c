@@ -85,6 +85,11 @@ int main(int argc, char **argv)
 	/* 0. 读取输入信息　Get input string */
 	if(argc>1)
 		input=(unsigned char *)argv[1];
+	if(input==NULL) {
+		printf("Please input message for SHA256 digesting!\n");
+		printf("Example: ./egi_sha256 'hello world'\n");
+		exit(1);
+	}
 
 	/* 1. 前处理　Pre-processing */
 	len=strlen((char *)input);
@@ -115,6 +120,7 @@ for(nk=0; nk<nch; nk++) {
 	printf("\n\t--- nk=%d ---\n", nk);
 
 	/* 4. 分情况加载512位消息块　Loak chunck_data[64] */
+	/* 4.1 Need to append tail data to ONE 512bits chunk */
 	if( mod <= 448-1 ) {
 		/* For complete chunck blocks */
 		if( nk < nch-1 )
@@ -130,6 +136,7 @@ for(nk=0; nk<nch; nk++) {
 				*(chunk_data+(512>>3)-1-i) = (bitlen>>(i*8))&0xff; /* Big_endian */
 		}
 	}
+	/* 4.2 Need to append tail data to TWO 512bits chunks */
 	else if( mod > 448-1 ) {
 		/* For complete chunck blocks */
 		if( nk < nch-2 )

@@ -1722,7 +1722,8 @@ int mat_sha256_digest(const uint8_t *input, uint32_t len,  uint32_t *init_hv, ui
 	else
 		nch=bitlen/512+1;
 
-	printf("Input message has %llubits, with mod=%d %s 448-1!\n", bitlen, mod, mod>448-1?">":"<=");
+//	printf("%s: Input message has %llubits, with mod=%d %s 448-1!\n",
+//					 __func__,bitlen, mod, mod>448-1?">":"<=");
 
 	/* 2. Init hash values hv[8] */
 	for(i=0; i<8; i++) {
@@ -1744,7 +1745,7 @@ int mat_sha256_digest(const uint8_t *input, uint32_t len,  uint32_t *init_hv, ui
 for(nk=0; nk<nch; nk++) {
 	//printf("\n\t--- nk=%d ---\n", nk);
 
-	/* 4. Loak chunck_data[64] */
+	/* 4. Load chunck_data[64] */
 	if( mod <= 448-1 ) {
 		/* For complete chunck blocks */
 		if( nk < nch-1 ) {
