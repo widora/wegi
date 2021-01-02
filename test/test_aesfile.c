@@ -29,6 +29,29 @@ AES-256       8               4             14
    So, you may use '-d' to encrypt and '-e' to decrypt....
 5. MT7688 speed: ~1/3MBps for encryption;  ~1/5MBpsfor decryption.
 
+	--- TEST Results ---
+File: '1280x720r30.avi', size: 448981910Bs,
+Hash digest: B64185F4C51D5B0F165D1F23B41761F3015B5D128A2AF8663B0ED32DA94F9ECF  Hash cost time: 117681952us
+File: '1280x720r30.avi.dec', size: 448981910Bs,
+Hash digest: B64185F4C51D5B0F165D1F23B41761F3015B5D128A2AF8663B0ED32DA94F9ECF  Hash cost time: 115208456us
+Encrypt from Thu Dec 17 19:19:48 CST 2020 to Thu Dec 17 19:43:40 CST 2020
+Decrypt from Thu Dec 17 19:43:40 CST 2020 to Thu Dec 17 20:21:24 CST 2020
+
+File: '1280x720r30.avi', size: 448981910Bs,
+Hash digest: B64185F4C51D5B0F165D1F23B41761F3015B5D128A2AF8663B0ED32DA94F9ECF Hash cost time: 117409475us
+File: '1280x720r30.avi.dec', size: 448981910Bs,
+Hash digest: B64185F4C51D5B0F165D1F23B41761F3015B5D128A2AF8663B0ED32DA94F9ECF Hash cost time: 115281359us
+Encrypt from Thu Dec 17 20:25:21 CST 2020 to Thu Dec 17 20:49:45 CST 2020
+Decrypt from Thu Dec 17 20:49:45 CST 2020 to Thu Dec 17 21:28:03 CST 2020
+
+File: '1280x720r30.avi', size: 448981910Bs,
+Hash digest: B64185F4C51D5B0F165D1F23B41761F3015B5D128A2AF8663B0ED32DA94F9ECF Hash cost time: 117307367us
+File: '1280x720r30.avi.dec', size: 448981910Bs,
+Hash digest: B64185F4C51D5B0F165D1F23B41761F3015B5D128A2AF8663B0ED32DA94F9ECF Hash cost time: 115097046us
+Encrypt from Thu Dec 17 21:32:01 CST 2020 to Thu Dec 17 21:56:28 CST 2020
+Decrypt from Thu Dec 17 21:56:28 CST 2020 to Thu Dec 17 22:34:43 CST 2020
+
+
 TODO:
 1. Encrypt/decrypt tail data treatment!
 2. AES-128/192/256 selection.

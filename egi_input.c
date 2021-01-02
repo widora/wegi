@@ -766,7 +766,7 @@ void egi_set_termios(void)
 	 struct termios new_termioset;
 
 #if 0   /* TEST: Call cfmakeraw() */
-        tcgetattr(0, &old_termioset);
+        tcgetattr(STDIN_FILENO, &old_termioset);
         new_termioset=old_termioset;
 
         cfsetispeed(&new_termioset,B57600);  /* 4097k */
@@ -777,12 +777,12 @@ void egi_set_termios(void)
          * Mouse event is disabled!???
          */
         cfmakeraw(&new_termioset);
-        tcsetattr(0, TCSANOW, &new_termioset);
+        tcsetattr(STDIN_FILENO, TCSANOW, &new_termioset);
 	return;
 #else
 
 	/* Save old settings */
-        tcgetattr(0, &old_termioset);
+        tcgetattr(STDIN_FILENO, &old_termioset);
 	old_termispeed=cfgetispeed(&old_termioset);
 	if(old_termispeed<0)
 		printf("%s: Fail cfgetispeed, Err'%s'\n", __func__, strerror(errno));
@@ -805,7 +805,7 @@ void egi_set_termios(void)
 		printf("%s: Fail cfsetoseepd, Err'%s'\n", __func__, strerror(errno));
 
 	/* Set parameters to the terminal. TCSANOW -- the change occurs immediately.*/
-        if( tcsetattr(0, TCSANOW, &new_termioset)<0 )
+        if( tcsetattr(STDIN_FILENO, TCSANOW, &new_termioset)<0 )
 		printf("%s: Fail tcsetattr, Err'%s'\n", __func__, strerror(errno));
 
         printf("NEW input speed:%d, output speed:%d\n",cfgetispeed(&new_termioset), cfgetospeed(&new_termioset) );
@@ -824,7 +824,7 @@ void egi_reset_termios(void)
         cfsetospeed(&old_termioset,old_termospeed);
 
         /* Restore old terminal settings */
-        tcsetattr(0, TCSANOW, &old_termioset);
+        tcsetattr(STDIN_FILENO, TCSANOW, &old_termioset);
 
         printf("OLD input speed:%d, output speed:%d\n",cfgetispeed(&old_termioset), cfgetospeed(&old_termioset) );
 }

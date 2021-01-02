@@ -64,6 +64,28 @@ int main(int argc, char** argv)
 
 
 
+#if 1 ///////////////////////
+fb_set_directFB(&gv_fb_dev,false);
+fb_position_rotate(&gv_fb_dev,0);
+
+if(argc<3) exit(1);
+EGI_IMGBUF* origimg=egi_imgbuf_readfile(argv[1]);
+if(origimg==NULL)exit(1);
+
+EGI_IMGBUF* myimg=egi_imgbuf_resize(origimg, 320, 240);
+if(myimg==NULL)exit(1);
+
+egi_imgbuf_windisplay2( myimg, &gv_fb_dev,
+                        0,0,0,0,320,240 );     /* xp,yp,xw,yw,w,h */
+fb_render(&gv_fb_dev);
+
+egi_imgbuf_free2(&origimg);
+egi_imgbuf_free2(&myimg);
+exit(0);
+#endif ////////////////////////
+
+
+
 
 #if 0 ///////////////////////////////////////////////////////
 EGI_IMGBUF *test_img=egi_imgbuf_create(50, 180, 0, WEGI_COLOR_RED);/* H,W, alpha ,color */

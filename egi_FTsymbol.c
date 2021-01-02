@@ -869,7 +869,7 @@ inline int FTsymbol_uft8string_getAdvances(FT_Face face, int fw, int fh, const u
 			if( sdw >= 0 ) {
 				sum += sdw;
 			}
-			else if( size==1 ) { //&& isascii(*p) ) {
+			else if( size==1 ) { //&& isascii(*p) ) {  /* If ASCII, NOT apply FT_Get_Advance() */
 				pch[0]=*p;
 			 	sdw=FTsymbol_uft8strings_pixlen(face, fw, fh, (unsigned char *)pch);
 				if(sdw>0) sum += sdw;
@@ -1006,6 +1006,7 @@ void FTsymbol_unicode_print(wchar_t wcode)
    bitmap to FB.
 2. The caller shall check and skip unprintable symbols, and parse ASCII control codes.
    This function only deal with symbol bitmap if it exists.
+   FTsymbol_cooked_charWidth() is called for self_defined charWidth for some unprintable symbols.
 3. Xleft will be subtrated by slot->advance.x first, then check, and write data to FB only if
    Xleft >=0. However, if bitmap data is NULL for the input unicode, xleft will NOT be changed.
 4. Doundary box is defined as bbox_W=MAX(advanceX,bitmap.width) bbox_H=fh.

@@ -191,8 +191,8 @@ struct egi_uniHanGroup		/* UNIHAN Words/Phrasese/Cizus */
 	#define		UHGROUP_WCODES_MAXSIZE   4   	/* Max. number of unihans contained in a uniHanGroup */
 	EGI_UNICODE	wcodes[UHGROUP_WCODES_MAXSIZE];	/* UNICODEs for UNIHANs, NO non_UNIHAN chars!!! */
 	unsigned int	freq;		/* Frequency of the unihan group */
-	unsigned int 	pos_uchar;	/* Position of utf8-encoding, offset to buffer */
-	unsigned int 	pos_typing;	/* Position of typing, offset to buffer */
+	unsigned int 	pos_uchar;	/* Position of utf8-encoding, offset to buffer, as of EGI_UNINHANGROUP_SET.uchars */
+	unsigned int 	pos_typing;	/* Position of typing, offset to buffer, as of EGI_UNIHANGROUP_SET.typings */
 }__attribute__((packed));               /* To avoid byte aligment, with consideration of saving structs to a file. */
 
 struct egi_uniHanGroup_set

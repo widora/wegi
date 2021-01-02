@@ -2548,7 +2548,7 @@ to get a new EGI_POINT by interpolation of 2 points
 interpolation direction: from pa to pb
 pn:	interpolate point.
 pa,pb:	2 points defines the interpolation line.
-off:	distance form pa to pn.
+off:	distance from pa to pn.
 	>0  directing from pa to pb.
 	<0  directiong from pb to pa.
 
@@ -2572,8 +2572,8 @@ int egi_getpoit_interpol2p(EGI_POINT *pn, int off, const EGI_POINT *pa, const EG
 		return -1;
 	else
 	{
-		cosang=(pb->x-pa->x)/s;
-		sinang=(pb->y-pa->y)/s;
+		cosang=1.0*(pb->x-pa->x)/s;
+		sinang=1.0*(pb->y-pa->y)/s;
 	}
 	/* check if out of range */
 	if(off>s)ret=1;

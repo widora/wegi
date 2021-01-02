@@ -109,7 +109,7 @@ int main(int argc, char **argv)
 	egi_clock_start(&eclock);
         mat_sha256_digest(input, len, NULL, NULL, hv, digest);
 	egi_clock_stop(&eclock);
-	printf("Hash digest: %s\n", digest);
+	printf("File: '%s', size: %dBs, Hash digest: %s\n", fpath, len, digest);
 	printf("Cost time: %ldus\n", egi_clock_readCostUsec(&eclock));
 
  } while(--nloops); /* END:Loop test */

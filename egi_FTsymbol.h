@@ -16,6 +16,7 @@ Midas Zhou
 #include <arpa/inet.h>
 #include FT_FREETYPE_H
 
+typedef unsigned char   UFT8_CHAR;
 typedef unsigned char * UFT8_PCHAR;
 typedef wchar_t         EGI_UNICODE;
 

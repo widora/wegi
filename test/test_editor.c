@@ -216,7 +216,7 @@ static int WBTMenu_Command_ID=WBTMENU_COMMAND_NONE;
 /* Functions */
 static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void FTcharmap_goto_end(void);
-static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
+static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
 static void draw_mcursor(int x, int y);
 static void draw_RCMenu(int x0, int y0);  /* Draw right_click menu */
@@ -1034,7 +1034,6 @@ return 0;
 /*-------------------------------------
         FTcharmap WriteFB TXT
 @txt:   	Input text
-@px,py: 	LCD X/Y for start point.
 @color: 	Color for text
 @penx, peny:    pointer to pen X.Y.
 --------------------------------------*/
@@ -1042,10 +1041,10 @@ static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int
 {
 	int ret;
 
-       	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,          	/* FBdev, charmap*/
-                                        egi_sysfonts.regular, fw, fh,   /* fontface, fw,fh */
-	                                        color, -1, 255,      		/* fontcolor, transcolor,opaque */
-                                        NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
+       	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,          	   /* FBdev, charmap*/
+                                           egi_sysfonts.regular, fw, fh,   /* fontface, fw,fh */
+	                                   color, -1, 255,      	   /* fontcolor, transcolor,opaque */
+                                           NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
         /* Double check! */
         if( chmap->chcount > chmap->mapsize ) {
@@ -1097,7 +1096,7 @@ static void FTcharmap_goto_end(void)
 @color: 	Color for text
 @penx, peny:    pointer to pen X.Y.
 --------------------------------------*/
-static void FTsymbol_writeFB(char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny)
+static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny)
 {
        	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
                                         fw, fh,(const unsigned char *)txt,    	/* fw,fh, pstr */

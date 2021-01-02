@@ -122,6 +122,11 @@ typedef struct FTsymbol_char_map	EGI_FTCHAR_MAP;		/* Char map for visiable/displ
 								 * A map to relate displayed chars with their positions on LCD.
 								 * Call FTsymbol_uft8strings_writeFB() to fill in the struct.
 								 */
+
+/* 		!!! WARNING !!!
+   Reference to any recallocable/memgrowable memeber is dangerous! Offset position is recommended instead.
+*/
+
 struct  FTsymbol_char_map {
 
 /* 1. Global vars for txtbuff.  ( offset position relative to txtbuff ) */
@@ -129,7 +134,7 @@ struct  FTsymbol_char_map {
 						 * !=0: Some params are reset, and is requested to do charmap immediately and exclusively
 					 	 *	to make pch/pchoff, txtdlncount/pref and other data consistent!
 						 *
-						 * 			--- IMPORATNT ---
+						 * 			--- IMPORTANT ---
 						 * After an operation which needs an immediate re_charmap afterwards, the 'request' must be set.
 						 * It will then acts as an rejection semaphore to other thread functions which are also trying to
 						 * modify charmap parameters before the urgent re_charmap is completed.
@@ -142,7 +147,7 @@ struct  FTsymbol_char_map {
 
 	int		txtsize;		/* Size of txtbuff mem space allocated, in bytes */
 	unsigned char	*txtbuff;		/* txt buffer, auto mem_grow. */
-	#define TXTBUFF_GROW_SIZE       64      /* Auto. mem_grow size for chmap->txtbuff[] */
+	#define TXTBUFF_GROW_SIZE       1024    //64      /* Auto. mem_grow size for chmap->txtbuff[] */
 
 	int		txtlen;			/* string length of txtbuff,  txtbuff EOF '\0' is NOT counted in!
 						 * To be updated if content of txtbuff changed.
@@ -225,7 +230,7 @@ struct  FTsymbol_char_map {
 	wchar_t		maskchar;		/* If maskchar !=0 , then use maskchar for displaying ( NOT charmapping ) */
 	int		chcount;	 	/* Total number of displayed/charmapped chars.
 					         * (EOF also include if charmapped, '\n' also counted in. NOT as index.
-					   	 * Note: chcount-1 chars, the last data pref[charPos[chcount-1]] is EOF, and is always
+					   	 * Note: xxxchcount-1 charsxx, the last data pref[charPos[chcount-1]] is EOF, and is always
 						 * an inserting point. ( If EOF is charmapped.  )
 					   	 */
 
@@ -303,8 +308,10 @@ int  	FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,			/* 
                                     int *cnt, int *lnleft, int* penx, int* peny );
 //static void FTcharmap_mark_selection(FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap); /*without mutex_lock */
 
+/* Note: Following functions assume that current/previous pages have been charmapped already! */
 int 	FTcharmap_page_up(EGI_FTCHAR_MAP *chmap);			/* mutex_lock + request */
 int 	FTcharmap_page_down(EGI_FTCHAR_MAP *chmap);			/* mutex_lock + request */
+int 	FTcharmap_page_fitBottom(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request */
 int 	FTcharmap_scroll_oneline_up(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request */
 int 	FTcharmap_scroll_oneline_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request */
 
@@ -322,6 +329,7 @@ int 	FTcharmap_shift_cursor_down(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + reques
 int 	FTcharmap_shift_cursor_right(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request */
 int 	FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap);		/* mutex_lock + request */
 
+int 	FTcharmap_set_pchoff( EGI_FTCHAR_MAP *chmap, unsigned int pchoff, unsigned int pchoff2 );   /* mutex_lock */
 int 	FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap );  	/* mutex_lock + request */
 int 	FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap );	/* mutex_lock + request */
 
@@ -329,7 +337,7 @@ int     FTcharmap_goto_firstDline ( EGI_FTCHAR_MAP *chmap );    /* mutex_lock + 
 //int     FTcharmap_goto_lastDline ( EGI_FTCHAR_MAP *chmap );    /* mutex_lock + request */
 
 int 	FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln); /* ret pos is relative to txtdlinePos[] */
-int 	FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  int pchoff);
+int 	FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  unsigned int pchoff);
 
 int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
 

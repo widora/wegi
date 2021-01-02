@@ -5,12 +5,41 @@ published by the Free Software Foundation.
 
 An example of a simple mimic Xterminal.
 
-Note:
-1. TODO: It can NOT parse/simulate terminal contorl character sequence, such as
-   cursor movement, clear, color and font mode, etc.
+			----- Control KEYs -----
 
-	CTRL+C  To stop shell command
-	CTRL+D  To exit Xterminal
+		( --- 0. Shell command --- )
+CTRL+C  To stop currently running shell command
+CTRL+D  To exit Xterminal
+
+                ( --- 1. The Editor: Keys and functions --- )
+Mouse move:
+Mouse scroll:   Scroll charmap up and down.
+ARROW_KEYs:     Shift typing cursor to locate insert/delete position.(Only command input line )
+BACKSPACE:      Delete chars before the cursor.
+DEL:            Delete chars following the cursor.
+HOME(or Fn+LEFT_ARROW!):        Return cursor to the begin of the retline.
+END(or Fn+RIGHT_ARROW!):        Move cursor to the end of the retline.
+CTRL+N:         Scroll down 1 line, keep typing cursor position.
+CTRL+O:         Scroll up 1 line, keep typing cursor position.
+CTRL+H:         Go to the first page.
+CTRL+E:         Go to the last page.
+CTRL+F:		None.
+PG_UP:          Page up
+PG_DN:          Page down
+
+		( --- 2. PINYIN Input Method --- )
+Refer to: test_editor.c
+
+Note:
+1. For Xterm editor, ONLY command lines are editable!
+   Editing_cursor is locked to prevent from moving up/down, and only allowed to
+   shift left and right.
+
+2. TODO: It can NOT parse/simulate terminal contorl character sequence, such as
+   cursor movement, clear, color and font mode, etc.
+2.1 Command 'ps': Can NOT display a complete line on LOCAL CONSOLE! ---OK, erase '\n'
+2.2 Command 'ls(ps..) | more', sh: more: not found!  But | tai,head,grep is OK!
+2.3 Command less,more
 
 TODO:
 1. Charmap fontcolor.
@@ -22,10 +51,11 @@ TODO:
    OR when mem is NOT enough, it MUST shift out old lines one by one.
 
 4. To support:  cd, clear
-6. Error display.
+6. Error display --- OK
 7. Cursor shape and it should NOT appear at other place.
-8. History
+8. History --- OK
 9. UFT8 cutout position!
+10. Escape sequence parse,
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -49,26 +79,45 @@ midaszhou@yahoo.com
 #include "egi_utils.h"
 #include "egi_procman.h"
 
-/* Terminal appearance */
-#define TERM_FONT_COLOR		WEGI_COLOR_GREEN
-#define TERM_BKG_COLOR		WEGI_COLOR_DARKPURPLE
+/* --- TERM settings --- */
+struct termios old_isettings;
+struct termios old_osettings;
+struct termios new_isettings;
+struct termios new_osettings;
 
-UFT8_CHAR  ShellCmd[256];	/* The last user input shell command */
-UFT8_PCHAR pShCmd;		/* Start pointer of shell command string in charmap->txtbuff, after current Prompt_String.
-				 * WARNING: charmap->txtbuff MUST NOT be reallocated further!!!
-				 */
+/* --- Terminal appearance --- */
+#define TERM_FONT_COLOR		WEGI_COLOR_GREEN
+#define TERM_BKG_COLOR		COLOR_RGB_TO16BITS(100,5,46)
+
+/* --- User Shell command --- */
+#define SHELLCMD_MAX	256		/* Max length of a shell command */
+#define HISTORY_MAX	10		/* Max. items of history commands saved */
+
+UFT8_CHAR  ShellCmd[SHELLCMD_MAX];	/* The last user input shell command */
+UFT8_CHAR  ShCmdHistory[HISTORY_MAX*SHELLCMD_MAX];  /* Shell command history */
+unsigned int hisCnt;			/* History items counter */
+int hisID;				/* History item index, for history command selection
+					 * ALWAYS set hisID=hisCnt (latest ID+1), when a new command saved. */
+
+UFT8_PCHAR pShCmd;			/* Start pointer of shell command string in charmap->txtbuff, after current Prompt_String.
+				 	 * WARNING: charmap->txtbuff MUST NOT be reallocated further!!!
+				 	*/
+
+UFT8_CHAR strPrompt[64]="Neo# ";  /* Prompt_String, input hint for user. */
+
+
+/* --- Shell command PID --- */
 static UFT8_CHAR  obuf[1024];	/* User stdout buffer */
 pid_t sh_pid;			/* child pid for shell command */
-bool  sustain_cmdout;		/* Continue reading output of the shell command */
+bool  sustain_cmdout;		/* 1. Set true to signal to continue reading output from the running shell command.
+				 * 2. Set false to stop reading output from the running shell command, if it's too tedious.
+				 * 3. If it's TURE, other thread(mousecall) MUST NOT edit charmap at the same time!
+ 				 * Example: To scroll down the champ while the main thread is just writing shell output to chmap,
+				 * it raises a race condition and crash the charmap data!
+				 */
 
-#define SINGLE_PINYIN_INPUT	0       /* !0: Single chinese_phoneticizing input method.
-					 *  0: Multiple chinese_phoneticizing input method.
-					 */
 
-#define 	CHMAP_TXTBUFF_SIZE	1024//64// /* 256,text buffer size for EGI_FTCHAR_MAP.txtbuff */
-#define		CHMAP_SIZE		2048 //256  /* NOT less than Max. total number of chars (include '\n's and EOF) that may displayed in the txtbox */
-
-/* TTY input escape sequences.  USB Keyboard hidraw data is another story...  */
+/* --- TTY input escape sequences.  USB Keyboard hidraw data is another story...  */
 #define		TTY_ESC		"\033"
 #define		TTY_UP		"\033[A"
 #define		TTY_DOWN	"\033[B"
@@ -83,10 +132,7 @@ bool  sustain_cmdout;		/* Continue reading output of the shell command */
 #define		TTY_PAGE_UP	"\033[5~"
 #define		TTY_PAGE_DOWN	"\033[6~"
 
-
-#define 	TEST_INSERT 	0
-
-/* Some Shell TTY ASCII control key */
+/* --- Some Shell TTY ASCII control key */
 #define		CTRL_D	4	/* Ctrl + D: exit  */
 #define		CTRL_N	14	/* Ctrl + N: scroll down  */
 #define		CTRL_O	15	/* Ctrl + O: scroll up  */
@@ -96,23 +142,16 @@ bool  sustain_cmdout;		/* Continue reading output of the shell command */
 #define		CTRL_H  8	/* Ctrl + h: go to the first dline, head of the txtbuff */
 #define		CTRL_P  16	/* Ctrl + p: PINYIN input ON/OFF toggle */
 
-char *strInsert="Widora和小伙伴们";
-char *fpath="/mmc/hello.txt";
 
-//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
-static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1} };	/* Text displaying area */
-/* To adjust later ... */
-
-static int smargin=5; 		/* left and right side margin of text area */
-static int tmargin=2;		/* top margin of text area */
-
-/* Input Method: PINYIN */
+/* --- Input Method: PINYIN --- */
+#define SINGLE_PINYIN_INPUT	0       /* !0: Single chinese_phoneticizing input method.
+					 *  0: Multiple chinese_phoneticizing input method.
+					 */
 wchar_t wcode;
 EGI_UNIHAN_SET *uniset;
 EGI_UNIHANGROUP_SET *group_set;
-static bool enable_pinyin=false;
-/* Enable input method PINYIN */
-char strPinyin[4*8]={0}; /* To store unbroken input pinyin string */
+static bool enable_pinyin=false;  /* Enable input method PINYIN */
+char strPinyin[4*8]={0}; 	  /* To store unbroken input pinyin string */
 char group_pinyin[UNIHAN_TYPING_MAXLEN*4]; 	/* For divided group pinyins */
 EGI_UNICODE group_wcodes[4];			/* group wcodes  */
 char display_pinyin[UNIHAN_TYPING_MAXLEN*4];    /* For displaying */
@@ -125,17 +164,31 @@ int  unicount; 		/* Count of unihan(group)s found */
 char strHanlist[128]; 	/* List of unihans to be displayed for selecting, 5-10 unihans as a group. */
 char strItem[32]; 	/* buffer for each UNIHAN with preceding index, example "1.啊" */
 int  GroupStartIndex; 	/* Start index for displayed unihan(group)s */
-int  GroupItems;		/* Current unihan(group)s items in selecting panel */
+int  GroupItems;	/* Current unihan(group)s items in selecting panel */
 int  GroupMaxItems=7; 	/* Max. number of unihan(group)s displayed for selecting */
 int  HanGroups=0; 	/* Groups with selecting items, each group with Max. GroupMaxItems unihans.
 	          	 * Displaying one group of unihans each time on the PINYIN panel
 		  	 */
 int  HanGroupIndex=0;	/* group index number, < HanGroups */
 
+
+/* --- CHARMAP --- */
+#define 	CHMAP_TXTBUFF_SIZE	1024 /* 256,text buffer size for EGI_FTCHAR_MAP.txtbuff */
+#define		CHMAP_SIZE		2048 /* NOT less than Max. total number of chars (include '\n's and EOF) that may displayed in the txtbox */
+
 /* NOTE: char position, in respect of txtbuff index and data_offset: pos=chmap->charPos[pch] */
 static EGI_FTCHAR_MAP *chmap;	/* FTchar map to hold char position data */
 static unsigned int chns;	/* total number of chars in a string */
+static int fw=18;		/* Font size */
+static int fh=20;
+static int fgap=2; //20/4;	/* Text line fgap : TRICKY ^_- */
+static int tlns;  //=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total available line space for displaying txt */
+static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1} };	/* Text displaying area, To adjust later ... */
+static int smargin=5; 		/* left and right side margin of text area */
+static int tmargin=2;		/* top margin of text area */
 
+
+/* --- Mouse --- */
 static bool mouseLeftKeyDown;
 static bool mouseLeftKeyUp;
 static bool start_pch=false;	/* True if mouseLeftKeyDown switch from false to true */
@@ -143,13 +196,6 @@ static int  mouseX, mouseY, mouseZ; /* Mouse point position */
 static int  mouseMidX, mouseMidY;   /* Mouse cursor mid position */
 static int  menuX0, menuY0;
 
-static int fw=18;	/* Font size */
-static int fh=20;
-static int fgap=2; //20/4;	/* Text line fgap : TRICKY ^_- */
-static int tlns;  //=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total available line space for displaying txt */
-
-//static int penx;	/* Pen position */
-//static int peny;
 
 /* Component elements in the APP, Only one of them is active at one point. */
 enum CompElem
@@ -190,8 +236,10 @@ static void FTcharmap_goto_end(void);
 static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
 static void draw_mcursor(int x, int y);
-static int  load_pinyin_data(void);
 void signal_handler(int signal);
+void arrow_down_history(void);  /* In_process function */
+void arrow_up_history(void);	/* In_process function */
+void execute_shellcmd(void);	/* In_process function */
 
 
 /* ============================
@@ -276,17 +324,10 @@ int main(int argc, char **argv)
                    *            Main Program
                    -----------------------------------*/
 
-        struct termios old_isettings;
-	struct termios old_osettings;
-        struct termios new_isettings;
-        struct termios new_osettings;
 
 	char ch;
 	int  j,k;
 	int lndis; /* Distance between lines */
-
-	if( argc > 1 )
-		fpath=argv[1];
 
 	/* Load unihan group set */
 	group_set=UniHanGroup_load_set(UNIHANGROUPS_DATA_PATH);
@@ -327,11 +368,6 @@ MAIN_START:
 
 	/* NO: Load file to chmap */
 
-	/* Set Prompt_String */
-	UFT8_CHAR strPrompt[128>CHMAP_TXTBUFF_SIZE?CHMAP_TXTBUFF_SIZE:128]="Neo# ";
-	//strncpy(strPrompt, getenv("PS1"), sizeof(strPrompt)-1);
-	strncpy((char *)chmap->txtbuff,(char *)strPrompt,sizeof(strPrompt));
-	chmap->txtlen=strlen((char *)chmap->txtbuff);
 
         /* Init. mouse position */
         mouseX=gv_fb_dev.pos_xres/2;
@@ -340,30 +376,48 @@ MAIN_START:
         /* Init. FB working buffer */
         fb_clear_workBuff(&gv_fb_dev, TERM_BKG_COLOR);
 
-	/* TEST: getAdvances ---- */
+	/* Title */
 	const char *title="EGI: 迷你终端"; // "EGI Mini Terminal";
 	int penx=140, peny=3;
 	int pixlen;
 	pixlen=FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fw, fh, (const UFT8_PCHAR)title);
 	FTsymbol_writeFB((char *)title,(320-pixlen)/2,peny,WEGI_COLOR_GRAY2, &penx, &peny);
-	printf("FTsymbol_writFB get advanceX =%d\n", penx-140);
-	printf("FTsymbol_uft8string_getAdvances =%d\n", pixlen);
 
-#if 0	/* Draw blank paper + margins */
-	fbset_color(WEGI_COLOR_WHITE);
-	draw_filled_rect(&gv_fb_dev, txtbox.startxy.x, txtbox.startxy.y, txtbox.endxy.x, txtbox.endxy.y );
+#if 0 /* ----TEST: Advances  FTcharmap_uft8strings_writeFB() with/withou fb_dev, diff of advances! */
+	//const char*Teststr="Linux SEER 3.18.29 #29 Wed Sep 30 14:38:04 CST 2020 mips GNU/Linux\n";
+	const char *Teststr="0123456789";
 
-        fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
+	penx=0; peny=0;
+        FTsymbol_writeFB(Teststr,penx,peny,WEGI_COLOR_LTBLUE, &penx, &peny);
+        printf("FTsymbol_writFB get advanceX =%d\n", penx);
+        printf("FTsymbol_uft8string_getAdvances =%d\n",
+                FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fw, fh, (const UFT8_PCHAR)Teststr) );
+
+
+	//chmap->pchoff=0; chmap->pchoff2=0;
+	FTcharmap_insert_string(chmap, (UFT8_PCHAR)Teststr,strlen(Teststr));
+
+	penx=0; peny=0;
+	FTcharmap_writeFB(&gv_fb_dev, &penx, &peny);
+	printf("fb_dev !=NULL: penx=%d, peny=%d\n", penx, peny);
+
+	penx=0; peny=0;
+	FTcharmap_writeFB(NULL, &penx, &peny);
+	printf("fb_dev ==NULL: penx=%d, peny=%d\n", penx, peny);
 	fb_render(&gv_fb_dev);
+	exit(0);
 #endif
+
+	/* Set Prompt_String */
+	//strncpy(strPrompt, getenv("PS1"), sizeof(strPrompt)-1);
+	FTcharmap_insert_string(chmap,strPrompt,strlen((char*)strPrompt));
 
 	/* Set termio */
         tcgetattr(STDIN_FILENO, &old_isettings);
         new_isettings=old_isettings;
-        new_isettings=old_isettings;
         new_isettings.c_lflag &= (~ICANON);      /* disable canonical mode, no buffer */
         new_isettings.c_lflag &= (~ECHO);        /* disable echo */
-        new_isettings.c_cc[VMIN]=0;
+        new_isettings.c_cc[VMIN]=0;		 /* Nonblock */
         new_isettings.c_cc[VTIME]=0;
         tcsetattr(STDIN_FILENO, TCSANOW, &new_isettings);
 
@@ -393,7 +447,7 @@ MAIN_START:
 		i++;
 	}
         fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
-//	goto MAIN_END;
+	//goto MAIN_END;
 
 	/* Move cursor to end, just after Prompt_String */
 	FTcharmap_goto_lineEnd(chmap);
@@ -403,125 +457,8 @@ MAIN_START:
 	/* Loop editing ...   Read from TTY standard input, without funcion keys on keyboard ...... */
 	while(1) {
 
-		////////////////////  Terminal Simulation :: Execute Shell Command  ////////////////
-		if(ShellCmd[0]) {
-			sustain_cmdout=TRUE;
-			printf("Execute shell cmd: %s\n", ShellCmd);
-
-			//system((char *)ShellCmd);
-
-		#if 0   ///////////////////*  Option 1: Call popen()  *//////////////////
-		        FILE *pfil;
-		        size_t nread;
-
-		        pfil=popen((char *)ShellCmd,"r");
-			if(pfil != NULL ) {
-			   do {
-			        bzero(obuf,sizeof(obuf));
-			        nread=fread(obuf, 1, sizeof(obuf)-1, pfil);
-			        printf("nread=%d\n",nread);
-
-				/* Copy results into chamap->txtbuff */
-				//printf("obuf(%d):%s\n", strlen((char *)obuf), obuf);
-				FTcharmap_insert_string(chmap,obuf,strlen((char *)obuf));
-				chmap->follow_cursor=false;
-				//FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
-				//fb_render(&gv_fb_dev);
-
-        			while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
-        			{
-					//printf("scroll oneline down!\n");
-			 		//FTcharmap_scroll_oneline_down(chmap);
-                			FTcharmap_page_down(chmap);
-                			FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
-					fb_render(&gv_fb_dev);
-					//tm_delayms(500);
-				}
-
-				FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
-				fb_render(&gv_fb_dev);
-
-			   } while(nread==sizeof(obuf)-1);
-
-	        	   pclose(pfil);
-			}
-
-		#else   ///////////////////*  Option 2: Use system() and pipes  *//////////////////
-			int iopipe[2]={0};
-			size_t nread;
-
-			if(pipe(iopipe)<0) {
-				printf("Fail to create iopipe!\n");
-			}
-
-			sh_pid=vfork();
-			/* Child process to execute shell command */
-			if( sh_pid==0) {
-				printf("Child process\n");
-				/* Connect to stdout */
-				close(iopipe[0]);
-				if(dup2(iopipe[1],STDOUT_FILENO)<0)
-					printf("Fail to call dup2!\n");
-
-				/* Execute shell command */
-				//system((char *)ShellCmd);
-				execl("/bin/sh", "sh", "-c", (char *)ShellCmd, (char *) 0);
-			}
-			/* Father porcess to read child stdout put */
-			else if(sh_pid>0) {
-				close(iopipe[1]);
-			   do {
-			        bzero(obuf,sizeof(obuf));
-			        nread=read(iopipe[0], obuf, sizeof(obuf)-1);
-			        //printf("nread=%d\n",nread);
-				printf("obuf:%s\n",obuf);
-				/* Copy results into chamap->txtbuff */
-				FTcharmap_insert_string(chmap,obuf,strlen((char *)obuf));
-				chmap->follow_cursor=false;
-
-        			while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
-        			{
-					//printf("scroll oneline down!\n");
-			 		//FTcharmap_scroll_oneline_down(chmap);
-                			FTcharmap_page_down(chmap);
-                			FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
-					fb_render(&gv_fb_dev);
-				}
-
-			   } while( nread>0 && sustain_cmdout );
-
-			   if(!sustain_cmdout)
-				FTcharmap_insert_string(chmap,"\n",1);
-
-			   wait(NULL);
-
-			}
-			else {
-				printf("Fail to call vfork!\n");
-			}
-
-			close(iopipe[0]);
-			close(iopipe[1]);
-
-		#endif  ///////  END options ///////
-
-			/* Move cursor to end, just after Prompt_String */
-			FTcharmap_goto_lineEnd(chmap);
-
-			/* Insert new PS */
-			FTcharmap_insert_string_nolock(chmap,strPrompt,strlen((char *)strPrompt));
-			chmap->follow_cursor=false;
-			/* ReSet start pointer of shell command */
-			pShCmd=chmap->txtbuff+chmap->txtlen;
-
-			/* Clear ShellCmd */
-			bzero(ShellCmd, sizeof(ShellCmd));
-
-			/* Refresh charmap */
-			FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
-			fb_render(&gv_fb_dev);
-		}
-		//////////////////// --- END --- Terminal Simulation (Shell Command)  ////////////////
+		/* Execute Shell command, record history, and get output */
+		execute_shellcmd();
 
 	/* ---- OPTION 1: Read more than N bytes each time, nonblock. !!! NOT good, response slowly, and may cause parse errors !!!  -----*/
 	/* ---- OPTION 2: Read in char one by one, nonblock  -----*/
@@ -578,7 +515,7 @@ MAIN_START:
 						}
                                                 break;
 
-					case 65:  /* LOCK_UP for TERM. (UP arrow : move cursor one display_line up)  */
+					case 65:  /* ARROW UP */
 						/* Shift displaying UNIHAN group in the PINYIN panel */
 						#if SINGLE_PINYIN_INPUT  /* PINYIN Input for single UNIHANs */
 						if( enable_pinyin && strPinyin[0]!='\0' ) {
@@ -604,8 +541,13 @@ MAIN_START:
 							GroupStartIndex -= i;
                                                 }
 						#endif
+
+						/* Get history command upward(old) */
+						arrow_up_history();
+
+
 						break;
-					case 66:  /* LOCK_UP for TERM. (DOWN arrow : move cursor one display_line down) */
+					case 66:  /* ARROW DOWN */
 						/* Shift displaying UNIHAN group in PINYIN panel */
 						#if SINGLE_PINYIN_INPUT  /* PINYIN Input for single UNIHANs */
 						if( enable_pinyin && strPinyin[0]!='\0' ) {
@@ -618,6 +560,10 @@ MAIN_START:
                                                                 GroupStartIndex += GroupItems;
                                                 }
 						#endif
+
+						/* Get history command downward(new) */
+						arrow_down_history();
+
 						break;
 					case 67:  /* RIGHT arrow : move cursor one char right, Limit to the last [pch] */
 						FTcharmap_shift_cursor_right(chmap);
@@ -627,7 +573,7 @@ MAIN_START:
 							FTcharmap_shift_cursor_left(chmap);
 						}
 						break;
-					case 70: /* END : move cursor to the end of the dline */
+					case 70: /* END : move current cursor to the end of the dline */
 						FTcharmap_goto_lineEnd(chmap);
 						break;
 
@@ -889,32 +835,28 @@ MAIN_START:
 			/* 3.2.2 Keyboard Direct Input */
 			else
 			{
-				/* ---- TEST: insert string */
-				if(ch=='5' && TEST_INSERT  ) {
-					static int pos=0;
-
-	                                /* revise chsize and chns  */
-        	                        chns=cstr_strcount_uft8((UFT8_PCHAR)strInsert);
-					FTcharmap_insert_char( chmap, strInsert+pos );
-
-					pos += cstr_charlen_uft8((const UFT8_PCHAR)(strInsert+pos));
-					if(*(strInsert+pos)=='\0')
-						pos=0;
-	                        }
 				/* As end of shell command input */
-				else {
-					if( ch=='\n' ) {
-						/* The ENTER MUST put at end of shell command! Whatever the cursor position.  */
-						FTcharmap_goto_lineEnd(chmap);
-						FTcharmap_insert_string_nolock(chmap,(UFT8_PCHAR)&ch,1);
-						/* If an ENTER: End of shell command, ENTER not included in ShellCmd! */
-						strncpy((char *)ShellCmd, (char *)pShCmd, sizeof(ShellCmd)-1);
-						printf("ShellCmd: %s\n", ShellCmd);
-					}
-					else
-						FTcharmap_insert_char( chmap, &ch );
-				}
+				if( ch=='\n' ) {
+/* TEST: ----- */
+ printf("---Before cmd ret: maplines=%d, maplncount=%d, txtlncount=%d\n",
+                                chmap->maplines, chmap->maplncount,chmap->txtdlncount );
 
+					/* The ENTER MUST put at end of shell command! Whatever the cursor position.  */
+					FTcharmap_goto_lineEnd(chmap); /* This MAY be wrong, if next line is out of dlinePos[] range! */
+					FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+					//FTcharmap_insert_string(chmap,(UFT8_PCHAR)&ch,1);  /* follow cursor */
+					FTcharmap_insert_char(chmap, &ch);  /* Follow cursor */
+					FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+/* TEST: ----- */
+ printf("---Aft cmd ret: maplines=%d, maplncount=%d, txtlncount=%d\n",
+                                chmap->maplines, chmap->maplncount,chmap->txtdlncount );
+
+					/* If an ENTER: End of shell command, ENTER not included in ShellCmd! */
+					strncpy((char *)ShellCmd, (char *)pShCmd, SHELLCMD_MAX-1);
+					printf("ShellCmd: %s\n", ShellCmd);
+				}
+				else
+					FTcharmap_insert_char( chmap, &ch );
 			}
 
 			ch=0;
@@ -1173,6 +1115,7 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
 {
 	EGI_POINT  pxy={0,0};
 
+
         /* 1. Check mouse Left Key status */
 	mouseLeftKeyDown=mostatus->LeftKeyDown; // || mostatus->LeftKeyDownHold;
 	mouseLeftKeyUp=mostatus->LeftKeyUp;
@@ -1220,10 +1163,10 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
 	mouseY = mostatus->mouseY;
 
 	/* Scroll down/up */
-	if( mostatus->mouseDZ > 0 ) {
+	if( mostatus->mouseDZ > 0 && !sustain_cmdout ) {
 		 FTcharmap_scroll_oneline_down(chmap);
 	}
-	else if ( mostatus->mouseDZ < 0 ) {
+	else if ( mostatus->mouseDZ < 0 && !sustain_cmdout ) {
 		 FTcharmap_scroll_oneline_up(chmap);
 	}
 
@@ -1231,7 +1174,7 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
        	mouseMidX=mostatus->mouseX+fw/2;
 //    	printf("mouseMidX,Y=%d,%d \n",mouseMidX, mouseMidY);
 
-	#if 0 /* Disable for TERM: (3. To get current cursor/pchoff position)  */
+	#if 0 /* Disable for TERM/sustain_cmdout: (3. To get current cursor/pchoff position)  */
 	if( (mostatus->LeftKeyDownHold || mostatus->LeftKeyDown) && ActiveComp==CompTXTBox ) {
 		/* Set cursor position/Start of selection, LeftKeyDown */
 		if(start_pch) {
@@ -1314,103 +1257,222 @@ void signal_handler(int signal) {
 }
 
 
-/*-----------------------------------------------------------------
-1. Free old data of uniset and group_set.
-2. Load PINYIN data of uniset and group_set.
-3. Load new_words to expend group_set.
-4. Load update_words to fix some pingyings. Prepare pinyin sorting.
-
-Return:
-	0	OK
-	<0	Fails
-------------------------------------------------------------------*/
-int load_pinyin_data(void)
+/*-----------------------------------------------------------
+		   An In_Process Function
+Select history command Downward/Upward.
+Note:
+1. Delet current input and inster history command
+2. ASSUE mouse action will NOT edit charmap!! No race condition.
+3. Need to charmap to update.
+-----------------------------------------------------------*/
+void arrow_down_history(void)
 {
-	int ret=0;
-
-	/* 0. Free old data */
-	UniHan_free_set(&uniset);
-	UniHanGroup_free_set(&group_set);
-
-  	/* 1. Load UniHan Set for PINYIN Assembly and Input */
-  	uniset=UniHan_load_set(UNIHANS_DATA_PATH);
-  	if( uniset==NULL ) {
-		printf("Fail to load uniset from %s!\n",UNIHANS_DATA_PATH);
-		return -1;
+ 	/* Always set hisID==hisCnt after save a history cmd. */
+	if( hisCnt>1 && hisID < hisCnt ) {
+		hisID++;
+		//printf("hisID=%d; hisCnt=%d\n", hisID, hisCnt);
+		chmap->pchoff=pShCmd-chmap->txtbuff;
+		chmap->pchoff2=chmap->txtlen;
+		if( hisID < hisCnt )
+		   	FTcharmap_insert_string(chmap, ShCmdHistory+hisID*SHELLCMD_MAX, strlen((char*)ShCmdHistory+hisID*SHELLCMD_MAX));
+		else /* histID == histCnt */
+			FTcharmap_delete_string(chmap);
 	}
-	if( UniHan_quickSort_set(uniset, UNIORDER_TYPING_FREQ, 10) !=0 ) {
-		printf("Fail to quickSort uniset!\n");
-		ret=-2; goto FUNC_END;
+}
+void arrow_up_history(void)
+{
+ 	/* Always set hisID==hisCnt after save a history cmd. */
+	if( hisCnt>0 && hisID > 0 ) {
+		hisID--;
+		chmap->pchoff=pShCmd-chmap->txtbuff;
+		chmap->pchoff2=chmap->txtlen;
+		FTcharmap_insert_string(chmap, ShCmdHistory+hisID*SHELLCMD_MAX, strlen((char*)ShCmdHistory+hisID*SHELLCMD_MAX));
 	}
+}
 
-	/* 2. Load from text first, if it fails, then try data file. TODO: group_set MAY be incompelet if it failed during saving! */
-	group_set=UniHanGroup_load_CizuTxt(UNIHANGROUPS_EXPORT_TXT_PATH);
-	if( group_set==NULL) {
-                printf("Fail to load group_set from %s, try to load from %s...\n", UNIHANGROUPS_EXPORT_TXT_PATH,UNIHANGROUPS_DATA_PATH);
-	  	/* Load UniHanGroup Set for PINYIN Input, it's assumed already merged with nch==1 UniHans! */
-	  	group_set=UniHanGroup_load_set(UNIHANGROUPS_DATA_PATH);
-		if(group_set==NULL) {
-	                printf("Fail to load group_set from %s!\n",UNIHANGROUPS_DATA_PATH);
-                	ret=-3; goto FUNC_END;
+
+/*---------------------------------------
+	   An In_Process Function
+Execute shell command and read output.
+Need to charmap to update.
+----------------------------------------*/
+void execute_shellcmd(void)
+{
+	int i;
+	int stdout_pipe[2]={0}; /* For stdout io */
+	int stderr_pipe[2]={0}; /* For stderr io */
+	int status;
+	ssize_t nread=0; //nread_out=0, nread_err=0;
+
+	if( ShellCmd[0] ) {
+		/* Get rid of NL token '\n' */
+		ShellCmd[strlen((char *)ShellCmd)-1]=0;
+
+		/* To lock any MOUSE operation. */
+		sustain_cmdout=TRUE;
+		printf("Execute shell cmd: %s\n", ShellCmd);
+
+		/* Set termIO to Canonical mode for shell pid. */
+	        new_isettings.c_lflag |= ICANON;      /* enable canonical mode, no buffer */
+	        new_isettings.c_lflag |= ECHO;        /* enable echo */
+	        tcsetattr(STDIN_FILENO, TCSANOW, &new_isettings);
+
+		/* Create pipe */
+		if(pipe(stdout_pipe)<0)
+			printf("Fail to create stdout_pipe!\n");
+		if(pipe(stderr_pipe)<0)
+			printf("Fail to create stderr_pipe!\n");
+
+		status=0;
+		sh_pid=vfork();
+
+		/* Child process to execute shell command */
+		if( sh_pid==0) {
+			//printf("Child process\n");
+
+			/* Connect to stdout and stderr write_end */
+			close(stdout_pipe[0]);  /* Close read_end */
+			if(dup2(stdout_pipe[1],STDOUT_FILENO)<0)
+				printf("Fail to call dup2 for stdout!\n");
+			close(stderr_pipe[0]);  /* Close read_end */
+			if(dup2(stderr_pipe[1],STDERR_FILENO)<0)
+				printf("Fail to call dup2 for stderr!\n");
+
+			/* Execute shell command, the last NL must included in ShellCmd */
+			//system((char *)ShellCmd);
+			execl("/bin/sh", "sh", "-c", (char *)ShellCmd, (char *)0);
 		}
-	}
-	else {
-		/* Need to add uniset to grou_set, as a text group_set has NO UniHans inside. */
-        	if( UniHanGroup_add_uniset(group_set, uniset) !=0 ) {
-	                printf("Fail to add uniset to  group_set!\n");
-                	ret=-3; goto FUNC_END;
-        	}
-	}
+		/* Father process to read child stdout put */
+		else if(sh_pid>0) {
+			/* Save command to history, get rid of the last '\n' */
+			if( hisCnt < HISTORY_MAX ) {
+				/* Ingore repeated command, save command. */
+				if( hisCnt==0 || strcmp((char *)ShCmdHistory+(hisCnt-1)*SHELLCMD_MAX, (char *)ShellCmd )!=0 ) {
+					memset((char *)ShCmdHistory+hisCnt*SHELLCMD_MAX,0,SHELLCMD_MAX);
+					strncpy( (char *)ShCmdHistory+hisCnt*SHELLCMD_MAX, (char *)ShellCmd, strlen((char *)ShellCmd)); /* -1 \n */
+					hisCnt++;
+					hisID=hisCnt; /* lastest history ID +1 */
+				}
+			}
+			else {
+				/* Discard the oldest history item, and save command to the last. */
+				memmove((char *)ShCmdHistory, (char *)ShCmdHistory+SHELLCMD_MAX, SHELLCMD_MAX*(HISTORY_MAX-1));
+				hisCnt--;
+				if( strcmp((char *)ShCmdHistory+(hisCnt-1)*SHELLCMD_MAX, (char *)ShellCmd )!=0 ) {
+					memset((char *)ShCmdHistory+hisCnt*SHELLCMD_MAX,0,SHELLCMD_MAX);
+					strncpy( (char *)ShCmdHistory+hisCnt*SHELLCMD_MAX, (char *)ShellCmd, strlen((char *)ShellCmd)); /* -1 \n */
+				}
+				hisCnt++;
+				hisID=hisCnt;  /* lastest history ID +1*/
+			}
+			/* TEST --------------- */
+			printf("History:\n");
+			for(i=0; i<hisCnt; i++)
+				printf("%s\n",ShCmdHistory+i*SHELLCMD_MAX);
+			printf("\n");
 
-	/* 3. Readin new words and merge into group_set */
-        EGI_UNIHANGROUP_SET*  expend_set=UniHanGroup_load_CizuTxt(PINYIN_NEW_WORDS_FPATH);
-        if(expend_set != NULL) {
-		if( UniHanGroup_merge_set(expend_set, group_set)!=0 ) {
-			printf("Fail to merge expend_set into group_set !\n");
-			ret=-5; goto FUNC_END;
+			/* Close pipe write_end, which is for the child */
+			close(stdout_pipe[1]);
+			close(stderr_pipe[1]);
+
+			do {
+		        	bzero(obuf,sizeof(obuf));
+			        nread=read(stdout_pipe[0], obuf, sizeof(obuf)-1);
+			        //printf("strlen=%d, nread=%d\n",strlen((char *)obuf), nread);
+				//printf("obuf[0]=0x%02x obuf: %s\n",obuf[0],obuf);
+				//printf("obuf[last-1]=0x%02x \n",obuf[nread-2]);
+				//printf("obuf[last]=0x%02x \n",obuf[nread-1]);
+
+				if(nread<=0)
+				        nread=read(stderr_pipe[0], obuf, sizeof(obuf)-1);
+				if(nread<=0)
+					break;
+
+/* TEST: ----- */
+ printf("---Befor insert: pchoff=%u, pchoff2=%u, maplines=%d, maplncount=%d, txtlncount=%d\n",
+                                chmap->pchoff, chmap->pchoff2, chmap->maplines, chmap->maplncount,chmap->txtdlncount );
+
+				/* Copy results into chamap->txtbuff */
+			       #if 0 /* TEST: ---------- */
+				//const char *Hello="Sat_Dec_26_17_58_35_CST_2020\n";
+				const char *Hello="Linux SEER2 3.18.29 #29 Wed Sep 30 14:38:04 CST 2020 mips GNU/Linux\n";
+				FTcharmap_insert_string(chmap, (UFT8_PCHAR)Hello,strlen(Hello));
+			       #else
+				FTcharmap_insert_string(chmap,obuf,strlen((char *)obuf));
+				chmap->follow_cursor=false;
+			       #endif
+				/* charmap to update current page, otherwise following FTcharmap_page_down() will fetch error data. */
+        	        	FTcharmap_writeFB(&gv_fb_dev, NULL, NULL); /* TODO: self_cooked fw */
+
+/* TEST: ----- */
+ printf("---Aft insert: maplines=%d, maplncount=%d, txtlncount=%d\n",
+                                chmap->maplines, chmap->maplncount,chmap->txtdlncount );
+
+				/* Page_down to the last page, sustain_cmdout locked MOUSE operation! */
+       				while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
+        			{
+					//printf("scroll oneline down!\n");
+			 		//FTcharmap_scroll_oneline_down(chmap);
+               				FTcharmap_page_down(chmap);
+               				FTcharmap_writeFB(NULL, NULL, NULL);
+					//fb_render(&gv_fb_dev);
+				}
+
+			    	#if 1 /* Adjust last page to a full page, let PS at bottom. */
+       	      			FTcharmap_page_fitBottom(chmap);
+       	       			FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+				fb_render(&gv_fb_dev);
+			    	#endif
+
+			} while( nread>0 && sustain_cmdout );
+
+			/* User interrupt to end sh_pid, insert a LN */
+		   	if(!sustain_cmdout) {
+				FTcharmap_insert_string(chmap,(const UFT8_PCHAR)"\n",1); /* Mouse insert..ignored */
+	                	FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+			}
+
+			/* Not necessary? Err'Inappropriate ioctl for device' */
+		   	if( wait(&status)!=0 ) {
+				printf("Fail to wait() sh_pid! Err'%s'\n", strerror(errno) );
+		   	}
+		   	printf("sh_pid return with status:0x%04X\n",status);
 		}
-		if( UniHanGroup_purify_set(group_set)<0 ) {
-			printf("Fail to purify group_set!\n");
-			ret=-5; goto FUNC_END;
+		/* sh_pid<0 */
+		else {
+			printf("Fail to call vfork!\n");
 		}
-		if( UniHanGroup_assemble_typings(group_set, uniset) != 0) {
-                        printf("Fail to assmeble typings for group_set by uniset!\n");
-			ret=-5; goto FUNC_END;
-                }
-	} else {
-		printf("Fail to load %s into group_set!\n", PINYIN_NEW_WORDS_FPATH);
-		ret=-6;
-		goto FUNC_END;
+
+		/* Release sustain_cmdout */
+		sustain_cmdout=false;
+
+		close(stdout_pipe[0]);
+		close(stdout_pipe[1]);
+
+#if 1		/* Insert new PS */
+		printf("insert PS...\n");
+		FTcharmap_insert_string(chmap,strPrompt,strlen((char *)strPrompt));
+		//chmap->follow_cursor=false;
+		FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+		printf("Ok\n");
+#endif
+
+      		FTcharmap_page_fitBottom(chmap);
+       		FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+		fb_render(&gv_fb_dev);
+
+		/* ReSet start pointer of shell command */
+		pShCmd=chmap->txtbuff+chmap->txtlen;
+
+		/* Clear ShellCmd */
+		bzero(ShellCmd, sizeof(ShellCmd));
+
 	}
 
-	/* 4. Modify typings */
-	EGI_UNIHANGROUP_SET *update_set=UniHanGroup_load_CizuTxt(PINYIN_UPDATE_FPATH);
-	if( update_set==NULL) {
-		printf("Fail to load %s!\n",PINYIN_UPDATE_FPATH);
-		ret=-7;	goto FUNC_END;
-	}
-	if( UniHanGroup_update_typings(group_set, update_set) < 0 ) {
-		printf("Fail to update typings for group_set!\n");
-		ret=-7;	goto FUNC_END;
-	}
-
-	/* 5. quckSort typing for PINYIN input */
-	if( UniHanGroup_quickSort_typings(group_set, 0, group_set->ugroups_size-1, 10) !=0 ) {
-		printf("Fail to quickSort typings for group_set!\n");
-		ret=-8;
-		goto FUNC_END;
-	}
-
-FUNC_END:
-	/* Free temp. expend_set AND update_set */
-	UniHanGroup_free_set(&expend_set);
-	UniHanGroup_free_set(&update_set);
-
-	/* If fails, free uniset AND group_set */
-	if(ret!=0) {
-		UniHan_free_set(&uniset);
-		UniHanGroup_free_set(&group_set);
-	}
-
-	return ret;
+	/* Set termIO to NON_Canonical mode */
+	new_isettings.c_lflag &= (~ICANON);      /* disable canonical mode, no buffer */
+        new_isettings.c_lflag &= (~ECHO);        /* disable echo */
+	new_isettings.c_cc[VMIN]=0;		 /* Nonblock */
+        new_isettings.c_cc[VTIME]=0;
+	tcsetattr(STDIN_FILENO, TCSANOW, &new_isettings);
 }

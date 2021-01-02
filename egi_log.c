@@ -133,7 +133,7 @@ int egi_push_log(enum egi_log_level log_level, const char *fmt, ...)
 	const char *attrMagenta="\033[0;35;40m";
 	const char *attrCyan="\033[0;36;40m";
 	const char *attrGray="\033[0;37;40m";		/* No GRAY, use WHITE */
-	#else /* ----- 256 color console ---- */
+	#else /* ----- 256 color console : env TERM=xterm-256color ---- */
 	const char *attrRed="\e[38;5;196;48;5;0m";      /* forecolor 196, backcolor 0 */
 	const char *attrGreen="\e[38;5;34;48;5;0m";
 	const char *attrYellow="\e[38;5;220;48;5;0m";   /* forecolor 220, backcolor 0 */

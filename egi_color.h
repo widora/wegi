@@ -19,15 +19,13 @@ Midas Zhou
 #include <stdbool.h>
 
 /* color definition */
-typedef uint16_t			 EGI_16BIT_COLOR;
-typedef uint32_t			 EGI_24BIT_COLOR;
-typedef unsigned char			 EGI_8BIT_ALPHA;
-typedef struct egi_hsv_color		 EGI_HSV_COLOR;
-struct egi_hsv_color {
-	int h; 			/* H--Hue	 [0 360]  or X%360 */
-	unsigned int s; 	/* S--Saturation [0 100%]*10000  */
-	uint8_t v; 		/* V--Value      [0 255] */
-};
+typedef uint16_t		EGI_16BIT_COLOR;
+typedef uint32_t		EGI_24BIT_COLOR;
+typedef unsigned char		EGI_8BIT_ALPHA;
+typedef struct egi_hsv_color	EGI_HSV_COLOR;
+typedef struct egi_color_band 	EGI_COLOR_BAND;
+typedef struct egi_color_band_map 	EGI_COLOR_BANDMAP;
+
 
 /* convert 24bit rgb(3*8bits) to 16bit LCD rgb */
 #if 1  /* Just truncate other bits to get 565 RBG bits */
@@ -139,6 +137,7 @@ EGI_16BIT_COLOR egi_16bitColor_blend2(EGI_16BIT_COLOR front, unsigned char falph
 #define WEGI_COLOR_RASPBERRY		 COLOR_RGB_TO16BITS(255,0,125)
 
 #define WEGI_COLOR_PURPLE		 COLOR_RGB_TO16BITS(0x80,0,0x80)
+#define WEGI_COLOR_DARKPURPLE		 COLOR_RGB_TO16BITS(0x30,0x19,0x34)
 #define WEGI_COLOR_BROWN		 COLOR_RGB_TO16BITS(0xA5,0x2A,0x2A)
 #define WEGI_COLOR_FIREBRICK		 COLOR_RGB_TO16BITS(178,34,34)
 /* GRAY2 deeper than GRAY1 */
@@ -167,7 +166,14 @@ enum egi_color_range
 	color_all=0,
 };
 
-/* functions */
+/* HSV color */
+struct egi_hsv_color {
+	int h; 			/* H--Hue	 [0 360]  or X%360 */
+	unsigned int s; 	/* S--Saturation [0 100%]*10000  */
+	uint8_t v; 		/* V--Value      [0 255] */
+};
+
+/* EGI Color Treatment Functions */
 void 		egi_16bitColor_interplt( EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2,
                        	                 unsigned char alpha1,  unsigned char alpha2,
                                	         int f15_ratio, EGI_16BIT_COLOR* color, unsigned char *alpha);
@@ -182,5 +188,27 @@ int 			egi_color_YUYV2RGB888(const unsigned char *yuyv, unsigned char *rgb, int 
 int 			egi_color_YUYV2YUV(const unsigned char *src, unsigned char *dest, int w, int h, bool reverse);
 EGI_16BIT_COLOR 	egi_color_HSV2RGB(const EGI_HSV_COLOR *hsv);
 int 			egi_color_RGB2HSV(EGI_16BIT_COLOR color, EGI_HSV_COLOR *hsv);
+
+
+/*  EGI COLOR MAP and Functions */
+struct egi_color_band
+{
+	unsigned int	pos;	/* Start position/offset of the band */
+	unsigned int  	len;	/* Length of the band */
+	EGI_16BIT_COLOR	color;  /* Color of the band */
+};
+struct egi_color_band_map
+{
+	EGI_COLOR_BAND *bands;		 /* An array of EGI_COLOR_BAND, sorted in order. */
+	#define COLORMAP_BANDS_GROW_SIZE 256 /* Capacity GROW SIZE for bands, also as initial value. */
+
+	unsigned int 	size;		/* Current size of the bands */
+	unsigned int 	capacity;	/* Capacity of mem that capable of holding MAX of EGI_COLOR_BANDs */
+};
+EGI_COLOR_BANDMAP *egi_colorBandMap_create(EGI_16BIT_COLOR color, unsigned int len);
+void egi_colorBandMap_free(EGI_COLOR_BANDMAP **map);
+EGI_16BIT_COLOR  egi_colorBandMap_pickColor(const EGI_COLOR_BANDMAP *map, unsigned int pos);
+int  egi_colorBandMap_splitBand(EGI_COLOR_BANDMAP *map, unsigned int pos); /* Split one to two */
+int  egi_colorBandMap_updateBand(EGI_COLOR_BANDMAP *map, const EGI_COLOR_BAND *band);
 
 #endif
