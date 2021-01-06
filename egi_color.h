@@ -8,7 +8,9 @@ Color classification method:
   	http://www.jakesan.com
 
 
-TODO: GAMMA CORRECTION for TFT LCD.
+TODO:
+1. GAMMA CORRECTION for TFT LCD.
+2. LCD sub_pixel deviation depends on pixel structure, RGB, RGBW,WRGB,RGB delt.. etc.
 
 Midas Zhou
 -------------------------------------------------------------------*/
@@ -190,14 +192,14 @@ EGI_16BIT_COLOR 	egi_color_HSV2RGB(const EGI_HSV_COLOR *hsv);
 int 			egi_color_RGB2HSV(EGI_16BIT_COLOR color, EGI_HSV_COLOR *hsv);
 
 
-/*  EGI COLOR MAP and Functions */
-struct egi_color_band
+/*  EGI COLOR BANDMAP and Functions */
+struct egi_color_band   /* EGI_COLOR_MAP */
 {
 	unsigned int	pos;	/* Start position/offset of the band */
 	unsigned int  	len;	/* Length of the band */
 	EGI_16BIT_COLOR	color;  /* Color of the band */
 };
-struct egi_color_band_map
+struct egi_color_band_map  /* EGI_COLOR_BANDMAP */
 {
 	EGI_COLOR_BAND *bands;		 /* An array of EGI_COLOR_BAND, sorted in order. */
 	#define COLORMAP_BANDS_GROW_SIZE 256 /* Capacity GROW SIZE for bands, also as initial value. */
@@ -207,8 +209,11 @@ struct egi_color_band_map
 };
 EGI_COLOR_BANDMAP *egi_colorBandMap_create(EGI_16BIT_COLOR color, unsigned int len);
 void egi_colorBandMap_free(EGI_COLOR_BANDMAP **map);
-EGI_16BIT_COLOR  egi_colorBandMap_pickColor(const EGI_COLOR_BANDMAP *map, unsigned int pos);
+int egi_colorBandMap_memGrowBands(EGI_COLOR_BANDMAP *map, unsigned int more_bands);
+EGI_16BIT_COLOR  egi_colorBandMap_pickColor(const EGI_COLOR_BANDMAP *map, unsigned int pos); /* pick color as BEFORE pos! */
 int  egi_colorBandMap_splitBand(EGI_COLOR_BANDMAP *map, unsigned int pos); /* Split one to two */
-int  egi_colorBandMap_updateBand(EGI_COLOR_BANDMAP *map, const EGI_COLOR_BAND *band);
+int  egi_colorBandMap_insertBand(EGI_COLOR_BANDMAP *map, unsigned int pos, unsigned int len, EGI_16BIT_COLOR color);
+int  egi_colorBandMap_combineBands(EGI_COLOR_BANDMAP *map, unsigned int pos, unsigned int len, EGI_16BIT_COLOR color);
+int  egi_colorBandMap_deleteBands(EGI_COLOR_BANDMAP *map, unsigned int pos, unsigned int len, EGI_16BIT_COLOR color);
 
 #endif

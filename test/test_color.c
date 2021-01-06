@@ -12,12 +12,62 @@ Midas Zhou
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/mman.h>
+#include "egi_math.h"
 #include "egi_timer.h"
 #include "egi_fbgeom.h"
 #include "egi_color.h"
 #include "egi_log.h"
 #include "egi.h"
 
+/* Draw color band map */
+void draw_CBmap(const EGI_COLOR_BANDMAP *cbmap)
+{
+	int i,j;
+	int swid=80; 	/* color strip with on screen */
+	int ns_start, ns_end; /* start/end of a band, as to Screen Strip index [0 - 240/swid-1] */
+
+	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
+
+	/* Draw the band map */
+	for(i=0; i< cbmap->size; i++) {
+		ns_start=cbmap->bands[i].pos/320;
+		ns_end=(cbmap->bands[i].pos+cbmap->bands[i].len-1)/320;
+
+		/* A band appears shown in more than one strip */
+		if( ns_end > ns_start ) {
+			/* Upper part */
+			draw_filled_rect2(&gv_fb_dev, cbmap->bands[i].color,
+					  cbmap->bands[i].pos%320, ns_start*swid,
+					  320-1, (ns_start+1)*swid-1 );
+			/* Mid part, whole strip */
+			if( ns_end-ns_start >1 ) {   // ns_start+1, ns_start+2,
+				for(j=ns_start+1; j<ns_end; j++) {
+					draw_filled_rect2(&gv_fb_dev, cbmap->bands[i].color,
+							  0, j*swid,
+							  320-1, (j+1)*swid-1 );
+				}
+			}
+
+			/* Lower part */
+			draw_filled_rect2(&gv_fb_dev, cbmap->bands[i].color,
+					   0, ns_end*swid,
+					  (cbmap->bands[i].pos+cbmap->bands[i].len-1)%320, (ns_end+1)*swid-1 );
+		}
+		/* Else: ns_start==ns_end, A band shown in ONE strip */
+		else {
+			draw_filled_rect2(&gv_fb_dev, cbmap->bands[i].color,
+					  cbmap->bands[i].pos%320, ns_start*swid,
+					  (cbmap->bands[i].pos+cbmap->bands[i].len-1)%320, (ns_start+1)*swid-1);
+		}
+	}
+
+	fb_render(&gv_fb_dev);
+}
+
+
+/*=====================
+	MAIN()
+=====================*/
 int main(void)
 {
 	int i,j,k;
@@ -37,7 +87,93 @@ int main(void)
         if( init_fbdev(&gv_fb_dev) )            /* init sys FB */
                 return -1;
 
-#if 1	/* -------- TEST: EGI HSV COLOR -------- */
+
+#if 1	/* ------- TEST: EGI COLOR BANDMAP ------ */
+
+int inpos;  /* insert pos */
+int inlen;  /* insert len */
+int endpos;
+
+  /* Set sys FB mode */
+  fb_set_directFB(&gv_fb_dev,false);
+  fb_position_rotate(&gv_fb_dev,0);
+
+
+EGI_COLOR_BANDMAP *cbmap=NULL;
+
+do {  	/* ----------------------- LOOP TEST ---------------------*/
+
+/* Create cbmap */
+cbmap=egi_colorBandMap_create(WEGI_COLOR_WHITE, 20);
+if(cbmap==NULL) exit(1);
+
+fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
+
+/* Insert a band at beginning */
+egi_colorBandMap_insertBand(cbmap, 0, 50, WEGI_COLOR_BLUE); /* map, pos, len, color */
+
+/* Insert a band at end */
+egi_colorBandMap_insertBand(cbmap, cbmap->bands[cbmap->size-1].pos+cbmap->bands[cbmap->size-1].len, 50, WEGI_COLOR_RED); /* map, pos, len, color */
+
+/* Insert a band at middle */
+egi_colorBandMap_insertBand(cbmap, (cbmap->bands[cbmap->size-1].pos+cbmap->bands[cbmap->size-1].len)/2, 50, WEGI_COLOR_GREEN); /* map, pos, len, color */
+
+/* Randome insersion */
+for(k=0; ; k++) {
+	endpos=cbmap->bands[cbmap->size-1].pos+cbmap->bands[cbmap->size-1].len;
+	inpos = mat_random_range( endpos>2*320 ? 2*320 : endpos+1 );
+	inlen =mat_random_range(50+1);
+	printf("Insert(k=%d): pos=%d, len=%d \n", k, inpos, inlen);
+	egi_colorBandMap_insertBand(cbmap,  inpos, inlen, egi_color_random(color_all));
+	/* Draw the band map */
+	draw_CBmap(cbmap);
+
+	/* Out of range, define limit  */
+	if( cbmap->bands[cbmap->size-1].pos > 2*320 )
+		break;
+
+	usleep(100000);
+	//sleep(1);
+}
+
+ /* Insert a band at END of the map */
+ printf("Insert: pos=%d, len=%d \n", inpos, inlen);
+ egi_colorBandMap_insertBand(cbmap, cbmap->bands[cbmap->size-1].pos+cbmap->bands[cbmap->size-1].len, 100, WEGI_COLOR_BLUE); /* map, pos, len, color */
+ draw_CBmap(cbmap);
+ usleep(500000);
+
+ /* Insert a band at beginning of a band */
+ printf("Insert: pos=%d, len=%d \n", inpos, inlen);
+ egi_colorBandMap_insertBand(cbmap, cbmap->bands[cbmap->size/2].pos, 100, WEGI_COLOR_RED); /* map, pos, len, color */
+ draw_CBmap(cbmap);
+ usleep(500000);
+
+ /* Insert a band at beginning of the MAP */
+ printf("Insert: pos=%d, len=%d \n", inpos, inlen);
+ egi_colorBandMap_insertBand(cbmap, 0, 100, WEGI_COLOR_GREEN); /* map, pos, len, color */
+ draw_CBmap(cbmap);
+ sleep(2);
+
+
+ /* Combine bands */
+ inpos=mat_random_range(2*320);
+ inlen=2*320;
+ printf("Combine bands from pos=%d, len=%d \n", inpos, inlen);
+ egi_colorBandMap_combineBands(cbmap, inpos, inlen, WEGI_COLOR_PURPLE);
+ draw_CBmap(cbmap);
+ sleep(2);
+
+ /* Free */
+ egi_colorBandMap_free(&cbmap);
+
+
+ } while(1); /* ------ EDN: LOOP TEST ----- */ 
+
+exit(0);
+#endif
+
+
+#if 0	/* -------- TEST: EGI HSV COLOR -------- */
 	int xres=gv_fb_dev.vinfo.xres;
 	int yres=gv_fb_dev.vinfo.yres;
 	for(j=0; j<xres; j++) {
@@ -55,11 +191,7 @@ int main(void)
 	/* <<<<<<<<<<<<<<<<<<<<<<<<<<<<  test draw_wline <<<<<<<<<<<<<<<<<<<<<<*/
 
 
- //void symbol_strings_writeFB( FBDEV *fb_dev, const struct symbol_page *sym_page, unsigned int pixpl,
- //                unsigned int gap, int fontcolor, int transpcolor, int x0, int y0, const char* str )
-
-
-	/* <<<<<<<<<<<<<<<<<<<<<<<<<<<<  test draw_wline <<<<<<<<<<<<<<<<<<<<<<*/
+#if 0	/* <<<<<<<<<<<<<<<<<<<<<<<<<<<<  test draw_wline <<<<<<<<<<<<<<<<<<<<<<*/
 	EGI_POINT p1,p2;
 	EGI_BOX box={{0,0},{240-1,320-1,}};
    while(1)
@@ -77,10 +209,10 @@ int main(void)
 	usleep(200000);
   }
 	exit(1);
-	/* >>>>>>>>>>>>>>>>>>>>>>>>>>> end testing draw_wlines >>>>>>>>>>>>>>>>>*/
+#endif 	/* >>>>>>>>>>>>>>>>>>>>>>>>>>> end testing draw_wlines >>>>>>>>>>>>>>>>>*/
 
 
-	/* get a random color */
+#if 0	/* -------------- TEST: Luma adjust ------------ */
 	for(i=0;i<3;i++) {
 		color[i]= egi_color_random(color_deep);
 	}
@@ -109,6 +241,8 @@ while(1)
 	//tm_delayms(50);
 	usleep(55000);
 }
+#endif /* ----- END TEST: luma adjust ----- */
+
 
         /* <<<<<-----  EGI general release  ---->>>>> */
         printf("release_fbdev()...\n");
