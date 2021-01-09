@@ -52,7 +52,9 @@ Note:
 
 
 Note:
-1. Mouse_events and and key_events run in two independent threads.
+1. You must have PINYIN_UPDATE_FPATH("/tmp/update_words.txt") created, otherwise it will fail.
+   The purpose of this program is for accumulating/updating unihan groups!
+2. Mouse_events and and key_events run in two independent threads.
    When you input keys while moving/scrolling mouse to change inserting position, it can
    happen simutaneously!  TODO: To avoid?
 
@@ -62,6 +64,12 @@ TODO:
 3. If two UniGroups have same wcodes[] and differen typings,  Only one will
    be saved in group_test.txt/unihangroups_pinyin.dat!
    Example:  重重 chong chong   重重 zhong zhong
+
+Journal
+2021-1-9:
+	1. Revise FTcharmap_writeFB() to get rid of fontcolor, which will now decided by
+	   chmap->fontcolor OR chmap->charColorMap.
+	2. FTcharmap_create() to add param 'charColorMap_ON' and 'fontcolor'.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -214,7 +222,8 @@ enum WBTMenu_Command {
 static int WBTMenu_Command_ID=WBTMENU_COMMAND_NONE;
 
 /* Functions */
-static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
+//static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
+static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny);
 static void FTcharmap_goto_end(void);
 static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
@@ -342,11 +351,20 @@ MAIN_START:
 	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/lndis;
 	printf("Blank lines tlns=%d\n", tlns);
 
+	/* Create charMAP */
 	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,		/* txtsize,  x0, y0  */
 //		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
 		  		tlns*lndis, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
-				CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis);   /* mapsize, lines, pixpl, lndis */
+				CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis,   /* mapsize, lines, pixpl, lndis */
+				false, WEGI_COLOR_DARKBLUE );  /* charColorMap_ON, fontcolor */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
+
+	/* -----TEST:  Set char color band map */
+	if(chmap->charColorMap) {
+		egi_colorBandMap_combineBands(chmap->charColorMap, 0, 16, WEGI_COLOR_RED);
+		egi_colorBandMap_combineBands(chmap->charColorMap, 16, 16, WEGI_COLOR_GREEN);
+		egi_colorBandMap_combineBands(chmap->charColorMap, 32, 16, WEGI_COLOR_BLUE);
+	}
 
 	/* Load file to chmap */
 	if( argc>1 ) {
@@ -391,7 +409,7 @@ MAIN_START:
         tcsetattr(0, TCSANOW, &new_settings);
 
 	/* To fill initial charmap and get penx,peny */
-	FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL, NULL);
+	FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
 	fb_render(&gv_fb_dev);
 
 	/* Charmap to the end */
@@ -399,14 +417,14 @@ MAIN_START:
 	while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
 	{
 		FTcharmap_page_down(chmap);
-		FTcharmap_writeFB(NULL, 0, NULL, NULL);
+		FTcharmap_writeFB(NULL, NULL, NULL);
 		//FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL);
 
 		if( chmap->txtdlinePos[chmap->txtdlncount] > chmap->txtlen/100 )
 			break;
 
 		if( i==20 ) {  /* Every time when i counts to 20 */
-		   FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL);
+		   FTcharmap_writeFB(&gv_fb_dev, NULL,NULL);
 		   fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 		   draw_progress_msgbox( &gv_fb_dev, (320-260)/2, (240-120)/2, "文件加载中...",
 								chmap->txtdlinePos[chmap->txtdlncount], chmap->txtlen/100);
@@ -828,7 +846,7 @@ MAIN_START:
 		FTsymbol_writeFB("EGI笔记本",140,5,WEGI_COLOR_LTBLUE, NULL, NULL);
 	/* --- 2. Charmap Display txt */
         	//fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-		FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL, NULL);
+		FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
 	/* --- 3. PINYING IME */
 		if(enable_pinyin) {
 			/* Back pad */
@@ -1037,13 +1055,14 @@ return 0;
 @color: 	Color for text
 @penx, peny:    pointer to pen X.Y.
 --------------------------------------*/
-static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny)
+static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny)
 {
 	int ret;
 
        	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,          	   /* FBdev, charmap*/
                                            egi_sysfonts.regular, fw, fh,   /* fontface, fw,fh */
-	                                   color, -1, 255,      	   /* fontcolor, transcolor,opaque */
+	                                   //color, -1, 255,      	   /* fontcolor, transcolor,opaque */
+	                                   -1, 255,      	   	   /* transcolor,opaque */
                                            NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
         /* Double check! */
@@ -1070,7 +1089,7 @@ static void FTcharmap_goto_end(void)
         while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
         {
                 FTcharmap_page_down(chmap);
-                FTcharmap_writeFB(NULL, 0, NULL, NULL);
+                FTcharmap_writeFB(NULL, NULL, NULL);
 	}
 
         /* Reset cursor position: pchoff/pchoff2 accordingly */
@@ -1083,7 +1102,7 @@ static void FTcharmap_goto_end(void)
 
 	/* Display OR let MAIN to handle it */
 	#if 0
-        FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL);
+        FTcharmap_writeFB(&gv_fb_dev, NULL,NULL);
         fb_render(&gv_fb_dev);
 	#endif
 }

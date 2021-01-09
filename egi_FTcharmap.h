@@ -188,10 +188,14 @@ struct  FTsymbol_char_map {
 						  * If bkgcolor<0, ignore. no bkg color,
 						  * Else if bkgcolor>=0 set as EGI_16BIT_COLOR
 						  */
-	EGI_16BIT_COLOR fontcolor;		 /* font color */
+	EGI_16BIT_COLOR fontcolor;		 /* font color,charColorMap will prevail. */
+	EGI_COLOR_BANDMAP *charColorMap;	 /* color map for chars: bands[]->pos corresponds to pos(offset) to txtbuff.
+						  * If NULL, then apply fontcolor
+						  */
 
 	EGI_16BIT_COLOR	markcolor;		 /* Selection mark color */
 	EGI_8BIT_ALPHA	markalpha;		 /* Selection mark alpha */
+
 
 	/* --- Geometry parameters and fixed vars --- */
 	int		mapx0;			/* charmap area left top point  */
@@ -281,7 +285,7 @@ struct  FTsymbol_char_map {
 	unsigned int	*charPos;		/* Array, Char offset position relative to pref, in bytes. auto_grow */
 	//unsigned int 	*charW;			/* Array,Widths of chars */
 
-	/* Extension: color,size,...*/
+	/* Extension: color,size,... */
 
 	#define CURSOR_BLINK_INTERVAL_MS 500 	/* typing_cursor blink interval in ms, cursor ON and OFF duration time, same.*/
 	bool		cursor_on;		/* To turn ON cursor */
@@ -291,7 +295,8 @@ struct  FTsymbol_char_map {
 
 
 EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, int width, int offx, int offy,
-                                 size_t mapsize, size_t maplines, size_t mappixpl, int maplndis );
+                                 size_t mapsize, size_t maplines, size_t mappixpl, int maplndis,
+				 bool charColorMap_ON, EGI_16BIT_COLOR fontcolor );
 
 void 	FTcharmap_set_markcolor(EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha);
 int 	FTcharmap_memGrow_txtbuff(EGI_FTCHAR_MAP *chmap, size_t more_size);	/* NO lock */
@@ -304,7 +309,8 @@ void 	FTcharmap_free(EGI_FTCHAR_MAP **chmap);
 int 	FTcharmap_set_pref_nextDispLine(EGI_FTCHAR_MAP *chmap);
 int  	FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,			/* mutex_lock, request_clear */
                                     FT_Face face, int fw, int fh,
-                                    int fontcolor, int transpcolor, int opaque,
+                                    //int fontcolor, int transpcolor, int opaque,
+                                    int transpcolor, int opaque,
                                     int *cnt, int *lnleft, int* penx, int* peny );
 //static void FTcharmap_mark_selection(FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap); /*without mutex_lock */
 
@@ -339,16 +345,16 @@ int     FTcharmap_goto_firstDline ( EGI_FTCHAR_MAP *chmap );    /* mutex_lock + 
 int 	FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln); /* ret pos is relative to txtdlinePos[] */
 int 	FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  unsigned int pchoff);
 
-int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
+int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request +charColorMap */
 
-int 	FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned char *pstr, size_t strsize );
+int 	FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned char *pstr, size_t strsize ); /* +charColorMap */
 int 	FTcharmap_insert_string( EGI_FTCHAR_MAP *chmap, const unsigned char *pstr, size_t strsize );  /* mutex_lock + request */
 
 
-int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock + request */
+int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock + request  +charColorMap  */
 
 /* Delete a char preceded by cursor OR chars selected between pchoff2 and pchoff */
-int 	FTcharmap_delete_string_nolock( EGI_FTCHAR_MAP *chmap );	/* mutex_lock + request */
+int 	FTcharmap_delete_string_nolock( EGI_FTCHAR_MAP *chmap );	/*  +charColorMap */
 int 	FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
 
 /* To/from EGI_SYSPAD */
