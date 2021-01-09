@@ -651,7 +651,8 @@ EGI_COLOR_BANDMAP *egi_colorBandMap_create(EGI_16BIT_COLOR color, unsigned int l
 		return NULL;
 	}
 
-	/* Set default color to the first band */
+	/* Set default_color to the first band */
+	map->default_color=color;
 	map->bands[0].pos=0;
 	map->bands[0].len=len;
 	map->bands[0].color=color;
@@ -689,6 +690,8 @@ int egi_colorBandMap_memGrowBands(EGI_COLOR_BANDMAP *map, unsigned int more_band
 	if(map==NULL || map->bands==NULL)
 		return -1;
 
+	printf("%s: grow mem. space from %u to %u (bands).\n", __func__, map->capacity, map->capacity+more_bands);
+
         /* Check capacity and growsize */
         if( egi_mem_grow( (void **)&map->bands, map->capacity*sizeof(EGI_COLOR_BAND), more_bands*sizeof(EGI_COLOR_BAND)) !=0 ) {
         	printf("%s: Fail to mem grow map->bands!\n", __func__);
@@ -703,12 +706,13 @@ int egi_colorBandMap_memGrowBands(EGI_COLOR_BANDMAP *map, unsigned int more_band
 
 /*-----------------------------------------------------------------------
 Pick color from the band map,
- !!! The color is selected in the band map BEFORE postion pos !!!
- This is differenct from egi_colorBandMap_get_bandIndex();
+NOPE !!!  XXXX --- The color is selected in the band map BEFORE pos
+NOPE !!!  This is differenct from egi_colorBandMap_get_bandIndex();
 
 Note:
 1. If map unavailbale, return 0 as black;
-2. If position is out of range, then it returns the color of last band.
+2. If map->size==0, then return map->default_color.
+3. If position is out of range, then it returns the color of last band.
 TODO: A fast way, binary search.
 
 @map:	An EGI_COLOR_BANDMAP pointer
@@ -720,30 +724,36 @@ EGI_16BIT_COLOR  egi_colorBandMap_pickColor(const EGI_COLOR_BANDMAP *map, unsign
 
 	if(map==NULL || map->bands==NULL)
 		return 0;
-	if(map->size==0)
-		return 0;
+
+	/* If map->size<1 */
+	if(map->size==0) {
+		//return 0;
+		return map->default_color;
+	}
 
 	/* If pos==0 */
 	if(pos==0)
 		return map->bands[0].color;
 
-	/* Pick color value before pos!!! */
+	/* Pick color value */
 	for(i=0; i< map->size-1; i++) {
-		if( pos > map->bands[i].pos && pos <= map->bands[i+1].pos )
+		if( pos >= map->bands[i].pos && pos < map->bands[i+1].pos )
 			return map->bands[i].color;
 	}
 
-	/* pos at end, or out of range: Same color as the last band */
+	/* pos at the last band, or out of range: Same color as the last band */
 	return map->bands[ map->size-1 ].color;
 }
 
 
 /*------------------------------------------------------------------------
 Get index of map->bands[] accroding to pos.
+ !!! --- The Index is selected for the first band as pos>=bands[index].pos --- !!!
 
 Note:
 1. If map is unavailable, it returns 0!
-2. !!! If pos out of range, it returns the last band index(map->size-1) !!!
+2. !!! If pos out of range, it returns the last band index(map->size-1)
+   !!! Especially when map->size=0, it still returns index as 0!
 
 TODO: A fast way. binary search!
 
@@ -772,14 +782,14 @@ unsigned int egi_colorBandMap_get_bandIndex(const EGI_COLOR_BANDMAP *map, unsign
 
 
 /*---------------------------------------------------------------------
-Insert a color band into BANDMAP.  !!! A recursive funtion !!!
+Insert a color band into BANDMAP.  !!! A recursive function !!!
 Note:
 0. Pos MUST be 0 if the map is empty with map->size==0.
 1. If pos out of range, then it will fail!
-   It's OK to insert just at end of the band.
+   It's OK to insert just at bottom/end of the last band.
 2. If the inserted band holds the same color as the located original band,
-then just expand then original band.
-3. All following map->bans[].pos MUST be updated after insersion!
+   then just expand the original band.
+3. All followed map->bans[].pos MUST be updated after insersion!
 
 @map:   An EGI_COLOR_BANDMAP pointer
 @pos:   Inserting position of the map, as start point of the new band.
@@ -798,62 +808,73 @@ int  egi_colorBandMap_insertBand(EGI_COLOR_BANDMAP *map, unsigned int pos, unsig
         if(map==NULL || map->bands==NULL)
                 return -1;
 
-	/* If insert at an empty map, then pos MUST be 0! */
+	/* A. If insert to an empty map, then pos MUST be 0! */
 	if(map->size==0) {
-		if(pos!=0)
+		if(pos!=0) {
+			printf("%s: Insert into an empty map, pos MUST be 0!\n", __func__);
 			return -2;
+		}
 		else {
+			printf("%s: Insert into an empty map!\n", __func__);
 			map->bands[0].pos=0;
 			map->bands[0].color=color;
 			map->bands[0].len=len;
+
+			map->size +=1;
 
 			return 0;
 		}
 	}
 
-	/* map->size>0: If out of range (BUT! it's OK to insert just at end of the band. == see following case: 4. ELSE IF ) */
+	/* B. map->size>0: If out of range (BUT! it's OK to insert just at end of the band. == see following case: 4. ELSE IF ) */
 	if( pos > map->bands[map->size-1].pos + map->bands[map->size-1].len ) {
 		printf("%s: Insert pos is out of range!\n", __func__);
 		return -2;
 	}
 
-        /* Get index of band, as pos refers, (If pos out of range it will return the last band index, we rule out the case as above.) */
+        /* Get index of band, as pos refers, (If pos out of range it will return the last band index, we ruled out the case as above.) */
         index=egi_colorBandMap_get_bandIndex(map, pos);
 
 	/* 1. If just insert at the beginning of the map */
 	if(pos==0) {
-		printf("%s: Insert at pos=0!\n", __func__);
+		printf("%s: Insert a band at pos=0!\n", __func__);
 		/* 1.1 If same color as the first band, merge with it. (map->size==0 ruled out) */
                 if( map->bands[0].color==color ) {
                         map->bands[0].len += len;
+
+			/* Update all followed bands */
+			for(i=1; i < map->size; i++)
+				map->bands[i].pos+=len;
+
                         return 0;
                 }
-
 		/* 1.2 Not same color, insert a new band then. */
-		/* Grow bands mem */
-		if(map->capacity-map->size <1){
-			if( egi_colorBandMap_memGrowBands(map,COLORMAP_BANDS_GROW_SIZE)!=0 ) {
-				printf("%s: Fail to mem grow map->bands(case 1.2)!\n", __func__);
-				return -3;
+		else {
+			/* Grow bands mem */
+			if(map->capacity-map->size <1){
+				if( egi_colorBandMap_memGrowBands(map,COLORMAP_BANDS_GROW_SIZE)!=0 ) {
+					printf("%s: Fail to mem grow map->bands(case 1.2)!\n", __func__);
+					return -3;
+				}
 			}
+
+			/* Set aside bands[0] space for the new band */
+			/* NOTE: map->size == 0 is ruled out at very beginning. */
+			memmove( map->bands+1, map->bands+0, sizeof(EGI_COLOR_BAND)*map->size );
+
+			/* Increase map->size and assign new band */
+			map->size +=1;
+
+			map->bands[0].pos=0;
+			map->bands[0].len=len;
+			map->bands[0].color=color;
+
+			/* Update all followed bands */
+			for(i=1; i < map->size; i++)
+				map->bands[i].pos+=len;
+
+			return 0;
 		}
-
-		/* Set aside bands[0] space for the new band */
-		/* NOTE: map->size == 0 is ruled out at very beginning. */
-		memmove( map->bands+1, map->bands+0, sizeof(EGI_COLOR_BAND)*map->size );
-
-		/* Increase map->size and assign new band */
-		map->size +=1;
-
-		map->bands[0].pos=0;
-		map->bands[0].len=len;
-		map->bands[0].color=color;
-
-		/* Update all followed bands */
-		for(i=1; i < map->size; i++)
-			map->bands[i].pos+=len;
-
-		return 0;
 	}
 	/* 2. If insert just at start pos of a band */
 	else if( map->bands[index].pos==pos ) {
@@ -904,7 +925,10 @@ int  egi_colorBandMap_insertBand(EGI_COLOR_BANDMAP *map, unsigned int pos, unsig
 			return 0;
 		}
 	}
-	/* 3. ELSE If: NOT start pos, but same color, just expend map->bands[index].len */
+	/* 3. ELSE If: NOT start pos, but same color, just expend map->bands[index].len
+	 *    Note:  This also includes case 4.1, as pos out of range, _get_bandIndex() will
+         *    return index of the last band!
+	 */
 	else if(map->bands[index].color==color) {
 		printf("%s: Insert at bands[%u] with same color!\n", __func__, index);
 		 map->bands[index].len += len;
@@ -914,15 +938,17 @@ int  egi_colorBandMap_insertBand(EGI_COLOR_BANDMAP *map, unsigned int pos, unsig
 
 		return 0;
 	}
-	/* 4. ELSE if: pos just at end of the map!  (map->size==0 ruled out) */
+	/* 4. ELSE if: pos just at bottom/end of the map!  (map->size==0 ruled out) */
 	else if(pos == map->bands[map->size-1].pos+map->bands[map->size-1].len) {
 		printf("%s: Insert at map end!\n", __func__);
 
 		/* 4.1 If same color as the last band, merge with it. */
+		#if 0 /* Note: this is included in case 3. */
                 if(map->bands[map->size-1].color==color ) {
                         map->bands[map->size-1].len += len;
                         return 0;
                 }
+		#endif
 
 		/* 4.2 Not same color, add a new band. */
 		/* Grow bands mem */
@@ -933,10 +959,10 @@ int  egi_colorBandMap_insertBand(EGI_COLOR_BANDMAP *map, unsigned int pos, unsig
 			}
 		}
 
-		/* Increase map->size and assign new band */
+		/* Increase map->size frist, then assign new band */
 		map->size +=1;
 
-		map->bands[map->size-1].pos=map->bands[map->size-2].pos+map->bands[map->size-2].len;
+		map->bands[map->size-1].pos=pos; //map->bands[map->size-2].pos+map->bands[map->size-2].len;
 		map->bands[map->size-1].len=len;
 		map->bands[map->size-1].color=color;
 
@@ -946,7 +972,7 @@ int  egi_colorBandMap_insertBand(EGI_COLOR_BANDMAP *map, unsigned int pos, unsig
 	}
 	/* 5. ELSE, insert into mid of a band, split the indexed band into two parts and do recursive job! */
 	else {
-		printf("%s: Insert in mid of bands[%u], to split!\n",  __func__, index);
+		printf("%s: Insert in mid of bands[%u], to split first!\n",  __func__, index);
 		/* 5.1 Split indexed band into 2 bands */
 		if( egi_colorBandMap_splitBand(map, pos)!=0 ) {
 			printf("%s: Fail to split band(case 5.1)!\n",__func__);
@@ -971,9 +997,9 @@ all bands within the boundary. and also merger nearby bands if their color
 is the same.
 
 Note:
-1. Map->size MUST NOT be ZERO!
-2. If pos just the end of the map, need NOT to split.
-3. The pos MUST NOT be out of map range!
+1. Map->size at least be ONE!
+2. If pos is out of map range, need NOT to split.
+3. If pos just the bottom/end of the map, need NOT to split.
 4. If pos is already start position of a band in map, then need NOT
    to split the band.
 
@@ -987,7 +1013,7 @@ Return:
 int  egi_colorBandMap_splitBand(EGI_COLOR_BANDMAP *map, unsigned int pos)
 {
 	unsigned int  index; /* pos located in map->bands[index] */
-	unsigned posend;
+	unsigned posend;     /* Bottom position of the map */
 
 	if(map==NULL || map->bands==NULL)
 		return -1;
@@ -997,10 +1023,10 @@ int  egi_colorBandMap_splitBand(EGI_COLOR_BANDMAP *map, unsigned int pos)
 
 	/* 1. If pos is out of range */
 	posend=map->bands[map->size-1].pos+map->bands[map->size-1].len;
-	if( pos > posend ) /* == is the bottom */
-		return -3;
-	else if( pos == posend )
+	if( pos >= posend ) /* out of range */
 		return 0;
+	//else if( pos == posend ) /* the bottom */
+	//	return 0;
 
 	/* Get index of the band, to which pos refers */
 	index=egi_colorBandMap_get_bandIndex(map, pos);
@@ -1033,6 +1059,8 @@ int  egi_colorBandMap_splitBand(EGI_COLOR_BANDMAP *map, unsigned int pos)
 	/* Upate map->size */
 	map->size++;
 
+	/* Split operation need NOT to update following bands[].pos~ */
+
 	return 0;
 }
 
@@ -1040,8 +1068,9 @@ int  egi_colorBandMap_splitBand(EGI_COLOR_BANDMAP *map, unsigned int pos)
 /*-----------------------------------------------------------------------------------------
 Combine/merge band area within the range of [pos, pos+len-1] to one band, and modify map
 data accordingly.
+
 Note:
-1. Map end (the last band) will be modified if input scope exceeds its range.
+1. Map bottom/end (of the last band) will be modified if input scope exceeds its range.
    However, input pos MUST be within original map spectrum!
 2. It's necessary to split bands at boundary of [pos, pos+len-1] first.
 3. After combination, if its nearby band bears the same color, then they will also be merged
@@ -1058,7 +1087,7 @@ Return:
 ------------------------------------------------------------------------------------------*/
 int  egi_colorBandMap_combineBands(EGI_COLOR_BANDMAP *map, unsigned int pos, unsigned int len, EGI_16BIT_COLOR color)
 {
-	int i;
+	unsigned int i;
 	unsigned int headIdx, endIdx; /* indice of bands, in which new band head_pos and end_pos are located. */
 
 	if(map==NULL || map->bands==NULL )
@@ -1179,21 +1208,114 @@ int  egi_colorBandMap_combineBands(EGI_COLOR_BANDMAP *map, unsigned int pos, uns
 
 
 /*-----------------------------------------------------------------------------------------
-Delet band area within the range of [pos, pos+len-1], and modify map data accordingly.
+Delete band area within the range of [pos, pos+len-1], and modify map data accordingly.
 
 Note:
 
+TODO: Shrink map->capacity (free bands mem) if necessary.
 
 @map:   An EGI_COLOR_BANDMAP pointer
-@pos:   Inserting position of the map, as start point of the new band.
-@len:	length of the inserted band.
-@color: Color of the inserted band.
+@pos:   Starting position for deleting.
+@len:	Length of bands to be deleted.
 
 Return:
 	0	OK
 	<0	Fails
-------------------------------------------------------------------------------------------*/
-int  egi_colorBandMap_deleteBands(EGI_COLOR_BANDMAP *map, unsigned int pos, unsigned int len, EGI_16BIT_COLOR color)
+-----------------------------------------------------------------------------------------*/
+int  egi_colorBandMap_deleteBands(EGI_COLOR_BANDMAP *map, unsigned int pos, unsigned int len)
 {
+	unsigned int i;
+	unsigned int headIdx, endIdx; /* indice of bands, in which pos and pos+len are located. */
+	unsigned int lensum;
 
+	if(map==NULL || map->bands==NULL)
+		return -1;
+
+	if(map->size==0) {
+		printf("%s: Fail to split a BANDMAP with map->size=0!\n", __func__);
+		return -1;
+	}
+
+	/* If pos is out of range OR bottom of map!
+	 * Note: _get_bandIndex(map, pos) will return 0 when map->size==0! so we have to rule out first!
+	 */
+	if( pos >= map->bands[map->size-1].pos +map->bands[map->size-1].len ) {
+		printf("%s: Fail to split a BANDMAP, input pos out of range!\n", __func__);
+		return -1;
+	}
+
+	if(len==0)
+		return 0;
+
+	/* 1. Split original map at pos and pos+len */
+	if( egi_colorBandMap_splitBand(map, pos)!=0 ) {
+		printf("%s: Fail to split band(case 2.1)!\n",__func__);
+		return -2;
+	}
+	if( egi_colorBandMap_splitBand(map, pos+len)!=0 ) {
+		printf("%s: Fail to split band(case 2.2)!\n",__func__);
+		return -3;
+	}
+
+	/* 2. After split, get deleting start/end position */
+	headIdx=egi_colorBandMap_get_bandIndex(map, pos);
+	endIdx=egi_colorBandMap_get_bandIndex(map, pos+len); /* bands[endIdx] should NOT be deleted! */
+	/* NOTE: if pos just at map END,  then .._get_bandIndex() will return the last band index,  so we need to
+	 * check/confirm this condition in following case 3.
+         */
+
+	/* 3. If pos+len out of range, then it deletes all bands from bands[headIdx]  */
+	if( pos+len >= map->bands[map->size-1].pos+map->bands[map->size-1].len ) {
+		/* 3.1 If from the very beginning of map, delete all! */
+		if( pos==0 ) {
+			map->size=0;
+			/* TODO: shrink capacity if necessary */
+			return 0;
+		}
+		/* 3.2 Else: Delete from pos to the last */
+		else {
+			map->size -= (map->size-headIdx);
+			/* TODO: shrink capacity if necessary */
+			return 0;
+		}
+	}
+	/* 4. Else, delete bands and update bands[].pos */
+	else {
+
+		/* Cal. total length of bands to be deleted */
+		lensum=0;
+		for(i=headIdx; i<endIdx; i++)
+			lensum += map->bands[i].len;
+
+		/* Memmove bands to squeeze out unwanted bands, from bands[headIdx] */
+		memmove(map->bands+headIdx, map->bands+endIdx, (map->size-endIdx)*sizeof(EGI_COLOR_BAND));
+
+		/* Update size */
+		map->size -= endIdx-headIdx;
+
+		/* Update following pos */
+		for(i=headIdx; i< map->size; i++)
+			map->bands[i].pos -= lensum;
+
+		/* If new neighbors have same color, merge then. */
+		if( headIdx>0 && map->bands[headIdx-1].color==map->bands[headIdx].color ) {
+			/* Merge to bands[headIdx-1] */
+			map->bands[headIdx-1].len += map->bands[headIdx].len;
+
+			/* Erase bands[headIdx], move up following bands */
+			if(map->size > headIdx+1) /* Only if headIdx+1 is NOT he bottom of map. */
+				memmove(map->bands+headIdx, map->bands+headIdx+1, (map->size-headIdx-1)*sizeof(EGI_COLOR_BAND));
+
+			/* Update size */
+			map->size -= 1;
+
+			/* NOT necessary to update following pos */
+
+		}
+
+		return 0;
+	}
+
+	/* It should never get here! */
+	return 0;
 }

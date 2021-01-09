@@ -192,7 +192,14 @@ EGI_16BIT_COLOR 	egi_color_HSV2RGB(const EGI_HSV_COLOR *hsv);
 int 			egi_color_RGB2HSV(EGI_16BIT_COLOR color, EGI_HSV_COLOR *hsv);
 
 
-/*  EGI COLOR BANDMAP and Functions */
+/***  EGI COLOR BANDMAP and Functions
+ * Note/Pitfalls:
+ * 	1. _pickColor(map,pos): returns color value of the bands[], pos is located within [bands[].pos ~ bans[].pos+len-1].
+ *	2. _get_bandIndex(): returns index of a band, input postion(pos) is within [bands[index].pos ~ bands[index].pos+len-1].
+ *	   		     If pos out of range, it returns the last band index(map->size-1),
+ *			     Especially when map->size=0, it still returns index as 0!
+ *
+ */
 struct egi_color_band   /* EGI_COLOR_MAP */
 {
 	unsigned int	pos;	/* Start position/offset of the band */
@@ -201,8 +208,9 @@ struct egi_color_band   /* EGI_COLOR_MAP */
 };
 struct egi_color_band_map  /* EGI_COLOR_BANDMAP */
 {
+	EGI_16BIT_COLOR	default_color;   /* Default color, when bands==NULL */
 	EGI_COLOR_BAND *bands;		 /* An array of EGI_COLOR_BAND, sorted in order. */
-	#define COLORMAP_BANDS_GROW_SIZE 256 /* Capacity GROW SIZE for bands, also as initial value. */
+	#define COLORMAP_BANDS_GROW_SIZE 4 //256 /* Capacity GROW SIZE for bands, also as initial value. */
 
 	unsigned int 	size;		/* Current size of the bands */
 	unsigned int 	capacity;	/* Capacity of mem that capable of holding MAX of EGI_COLOR_BANDs */
@@ -210,10 +218,10 @@ struct egi_color_band_map  /* EGI_COLOR_BANDMAP */
 EGI_COLOR_BANDMAP *egi_colorBandMap_create(EGI_16BIT_COLOR color, unsigned int len);
 void egi_colorBandMap_free(EGI_COLOR_BANDMAP **map);
 int egi_colorBandMap_memGrowBands(EGI_COLOR_BANDMAP *map, unsigned int more_bands);
-EGI_16BIT_COLOR  egi_colorBandMap_pickColor(const EGI_COLOR_BANDMAP *map, unsigned int pos); /* pick color as BEFORE pos! */
+EGI_16BIT_COLOR  egi_colorBandMap_pickColor(const EGI_COLOR_BANDMAP *map, unsigned int pos);
 int  egi_colorBandMap_splitBand(EGI_COLOR_BANDMAP *map, unsigned int pos); /* Split one to two */
 int  egi_colorBandMap_insertBand(EGI_COLOR_BANDMAP *map, unsigned int pos, unsigned int len, EGI_16BIT_COLOR color);
 int  egi_colorBandMap_combineBands(EGI_COLOR_BANDMAP *map, unsigned int pos, unsigned int len, EGI_16BIT_COLOR color);
-int  egi_colorBandMap_deleteBands(EGI_COLOR_BANDMAP *map, unsigned int pos, unsigned int len, EGI_16BIT_COLOR color);
+int  egi_colorBandMap_deleteBands(EGI_COLOR_BANDMAP *map, unsigned int pos, unsigned int len);
 
 #endif

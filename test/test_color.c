@@ -3,7 +3,6 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-
 Test EGI COLOR functions
 
 Midas Zhou
@@ -23,10 +22,15 @@ Midas Zhou
 void draw_CBmap(const EGI_COLOR_BANDMAP *cbmap)
 {
 	int i,j;
-	int swid=80; 	/* color strip with on screen */
+	int swid=40; 	/* color strip with on screen */
 	int ns_start, ns_end; /* start/end of a band, as to Screen Strip index [0 - 240/swid-1] */
 
 	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
+
+	if(cbmap==NULL) {
+		fb_render(&gv_fb_dev);
+		return;
+	}
 
 	/* Draw the band map */
 	for(i=0; i< cbmap->size; i++) {
@@ -103,57 +107,78 @@ EGI_COLOR_BANDMAP *cbmap=NULL;
 
 do {  	/* ----------------------- LOOP TEST ---------------------*/
 
-/* Create cbmap */
-cbmap=egi_colorBandMap_create(WEGI_COLOR_WHITE, 20);
-if(cbmap==NULL) exit(1);
+draw_CBmap(cbmap);
+sleep(1);
 
-fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
+/* Create cbmap */
+if(cbmap==NULL) {
+	cbmap=egi_colorBandMap_create(WEGI_COLOR_WHITE, 150);
+	if(cbmap==NULL)
+		exit(1);
+}
+draw_CBmap(cbmap);
+sleep(1);
 
 /* Insert a band at beginning */
 egi_colorBandMap_insertBand(cbmap, 0, 50, WEGI_COLOR_BLUE); /* map, pos, len, color */
+draw_CBmap(cbmap);
+sleep(1);
 
 /* Insert a band at end */
 egi_colorBandMap_insertBand(cbmap, cbmap->bands[cbmap->size-1].pos+cbmap->bands[cbmap->size-1].len, 50, WEGI_COLOR_RED); /* map, pos, len, color */
+draw_CBmap(cbmap);
+sleep(1);
 
 /* Insert a band at middle */
 egi_colorBandMap_insertBand(cbmap, (cbmap->bands[cbmap->size-1].pos+cbmap->bands[cbmap->size-1].len)/2, 50, WEGI_COLOR_GREEN); /* map, pos, len, color */
+draw_CBmap(cbmap);
+sleep(1);
 
-/* Randome insersion */
+#if 0 //////* Test: Delete a band */
+for(i=0; i<10; i++) {
+	egi_colorBandMap_deleteBands(cbmap, 50, 50); /* map,pos,len */
+	draw_CBmap(cbmap);
+	printf("ColorMap size=%u\n", cbmap->size);
+	sleep(1);
+}
+continue;
+#endif ///////////////
+
+/* Random insersion */
 for(k=0; ; k++) {
 	endpos=cbmap->bands[cbmap->size-1].pos+cbmap->bands[cbmap->size-1].len;
-	inpos = mat_random_range( endpos>2*320 ? 2*320 : endpos+1 );
-	inlen =mat_random_range(50+1);
+	inpos = mat_random_range( endpos>320 ? 320 : endpos+1 );
+	inlen =mat_random_range(100+1);
 	printf("Insert(k=%d): pos=%d, len=%d \n", k, inpos, inlen);
 	egi_colorBandMap_insertBand(cbmap,  inpos, inlen, egi_color_random(color_all));
 	/* Draw the band map */
 	draw_CBmap(cbmap);
 
 	/* Out of range, define limit  */
-	if( cbmap->bands[cbmap->size-1].pos > 2*320 )
+	if( cbmap->bands[cbmap->size-1].pos > 6*320-3*100 ) /* 3*100 inserting blocks */
 		break;
 
-	usleep(100000);
-	//sleep(1);
+	usleep(80000);
 }
+ sleep(1);
 
  /* Insert a band at END of the map */
  printf("Insert: pos=%d, len=%d \n", inpos, inlen);
  egi_colorBandMap_insertBand(cbmap, cbmap->bands[cbmap->size-1].pos+cbmap->bands[cbmap->size-1].len, 100, WEGI_COLOR_BLUE); /* map, pos, len, color */
  draw_CBmap(cbmap);
- usleep(500000);
+ usleep(600000);
 
  /* Insert a band at beginning of a band */
  printf("Insert: pos=%d, len=%d \n", inpos, inlen);
  egi_colorBandMap_insertBand(cbmap, cbmap->bands[cbmap->size/2].pos, 100, WEGI_COLOR_RED); /* map, pos, len, color */
  draw_CBmap(cbmap);
- usleep(500000);
+ usleep(600000);
 
  /* Insert a band at beginning of the MAP */
  printf("Insert: pos=%d, len=%d \n", inpos, inlen);
  egi_colorBandMap_insertBand(cbmap, 0, 100, WEGI_COLOR_GREEN); /* map, pos, len, color */
  draw_CBmap(cbmap);
  sleep(2);
-
 
  /* Combine bands */
  inpos=mat_random_range(2*320);
@@ -162,6 +187,20 @@ for(k=0; ; k++) {
  egi_colorBandMap_combineBands(cbmap, inpos, inlen, WEGI_COLOR_PURPLE);
  draw_CBmap(cbmap);
  sleep(2);
+
+ /* Delete above combined band */
+ printf("Delete bands from pos=%d, len=%d \n", inpos, inlen);
+ egi_colorBandMap_deleteBands(cbmap, inpos, inlen);
+ draw_CBmap(cbmap);
+ sleep(2);
+
+ /* Loop delete bands */
+ for(i=0; i<32; i++) {
+	egi_colorBandMap_deleteBands(cbmap, 160, 80); /* map,pos,len */
+	draw_CBmap(cbmap);
+	printf("ColorMap size=%u\n", cbmap->size);
+	usleep(500000);
+ }
 
  /* Free */
  egi_colorBandMap_free(&cbmap);
