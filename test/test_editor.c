@@ -66,10 +66,13 @@ TODO:
    Example:  重重 chong chong   重重 zhong zhong
 
 Journal
-2021-1-9:
+2021-1-9/10:
 	1. Revise FTcharmap_writeFB() to get rid of fontcolor, which will now decided by
 	   chmap->fontcolor OR chmap->charColorMap.
-	2. FTcharmap_create() to add param 'charColorMap_ON' and 'fontcolor'.
+	2. FTcharmap_create(): Add param 'charColorMap_ON' and 'fontcolor'.
+	3. Add RCMENU_COMMAND_COLOR and WBTMENU_COMMAND_MORE.
+	4. Add color palette.
+
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -205,6 +208,7 @@ enum RCMenu_Command {
 	RCMENU_COMMAND_COPY	=1,
 	RCMENU_COMMAND_PASTE	=2,
 	RCMENU_COMMAND_CUT	=3,
+	RCMENU_COMMAND_COLOR	=4,
 };
 static int RCMenu_Command_ID=RCMENU_COMMAND_NONE;
 
@@ -218,6 +222,7 @@ enum WBTMenu_Command {
 	WBTMENU_COMMAND_HELP 	=4,
 	WBTMENU_COMMAND_RENEW 	=5,
 	WBTMENU_COMMAND_ABOUT 	=6,
+	WBTMENU_COMMAND_HIGHLIGHT   =7,
 };
 static int WBTMenu_Command_ID=WBTMENU_COMMAND_NONE;
 
@@ -227,7 +232,8 @@ static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny);
 static void FTcharmap_goto_end(void);
 static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
-static void draw_mcursor(int x, int y);
+//static void draw_mcursor(int x, int y);
+static void draw_mcursor(void);
 static void draw_RCMenu(int x0, int y0);  /* Draw right_click menu */
 static void draw_WTBMenu(int x0, int y0); /* Draw window_top_bar menu */
 static void draw_msgbox( FBDEV *fb_dev, int x0, int y0, int width, const char *msg );
@@ -237,6 +243,7 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID);
 static int  load_pinyin_data(void);
 static void save_all_data(void);
 void signal_handler(int signal);
+void draw_palette(int x0, int y0);
 
 
 /* ============================
@@ -244,7 +251,6 @@ void signal_handler(int signal);
 ============================ */
 int main(int argc, char **argv)
 {
-
  /* <<<<<<  EGI general init  >>>>>> */
 
   /* Start sys tick */
@@ -352,19 +358,13 @@ MAIN_START:
 	printf("Blank lines tlns=%d\n", tlns);
 
 	/* Create charMAP */
-	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,		/* txtsize,  x0, y0  */
+	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,	 /* txtsize,  x0, y0  */
 //		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
-		  		tlns*lndis, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
-				CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis,   /* mapsize, lines, pixpl, lndis */
-				false, WEGI_COLOR_DARKBLUE );  /* charColorMap_ON, fontcolor */
+	  		tlns*lndis, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin, /*  height, width, offx, offy */
+			CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis,   	 /* mapsize, lines, pixpl, lndis */
+			WEGI_COLOR_WHITE, WEGI_COLOR_BLACK, true, true );  /*  bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 
-	/* -----TEST:  Set char color band map */
-	if(chmap->charColorMap) {
-		egi_colorBandMap_combineBands(chmap->charColorMap, 0, 16, WEGI_COLOR_RED);
-		egi_colorBandMap_combineBands(chmap->charColorMap, 16, 16, WEGI_COLOR_GREEN);
-		egi_colorBandMap_combineBands(chmap->charColorMap, 32, 16, WEGI_COLOR_BLUE);
-	}
 
 	/* Load file to chmap */
 	if( argc>1 ) {
@@ -375,6 +375,31 @@ MAIN_START:
 		if( FTcharmap_load_file(DEFAULT_FILE_PATH, chmap, CHMAP_TXTBUFF_SIZE) !=0 )
 			printf("Fail to load file to champ!\n");
 	}
+	/* TODO: ColorMap ALSO saved:
+	*  Before that, we manually create monocolor map for loaded txt first.
+	*/
+	if( egi_colorBandMap_insertBand(chmap->charColorMap, 0, chmap->txtlen, chmap->fontcolor)!=0 ) {  /* map, pos, len, color */
+		printf("Fail to inser char color band for loaded file!\n");
+	}
+	if( egi_colorBandMap_insertBand(chmap->hlmarkColorMap, 0, chmap->txtlen, chmap->bkgcolor)!=0 ) {  /* map, pos, len, color */
+		printf("Fail to inser high_light color band for loaded file!\n");
+	}
+
+
+#if 0	/* -----TEST:  Set char color band map */
+	if(chmap->charColorMap) {
+		egi_colorBandMap_combineBands(chmap->charColorMap, 0, 16, WEGI_COLOR_RED);
+		egi_colorBandMap_combineBands(chmap->charColorMap, 16, 16, WEGI_COLOR_GREEN);
+		egi_colorBandMap_combineBands(chmap->charColorMap, 32, 16, WEGI_COLOR_BLUE);
+	}
+#endif
+#if 0	/* -----TEST:  Set High_light mark band map */
+	if(chmap->hlmarkColorMap) {
+		egi_colorBandMap_combineBands(chmap->hlmarkColorMap, 0, 16, WEGI_COLOR_RED);
+		egi_colorBandMap_combineBands(chmap->hlmarkColorMap, 16, 16, WEGI_COLOR_GREEN);
+		egi_colorBandMap_combineBands(chmap->hlmarkColorMap, 32, 16, WEGI_COLOR_BLUE);
+	}
+#endif
 
         /* Init. mouse position */
         mouseX=gv_fb_dev.pos_xres/2;
@@ -912,9 +937,7 @@ MAIN_START:
 			while( !start_pch ) {  /* Wait for click */
         			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 				draw_RCMenu(menuX0, menuY0);
-
-
-       				draw_mcursor(mouseMidX, mouseMidY);
+       				draw_mcursor();
 				fb_render(&gv_fb_dev);
 			}
 			/* Execute Menu Command */
@@ -938,7 +961,7 @@ MAIN_START:
 			while( !start_pch || mouseLeftKeyDown==false ) {
         			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 				draw_WTBMenu( txtbox.startxy.x, txtbox.startxy.y );
-       				draw_mcursor(mouseMidX, mouseMidY);
+       				draw_mcursor();
 				fb_render(&gv_fb_dev);
 			}
 
@@ -955,7 +978,7 @@ MAIN_START:
 	    } /* END Switch */
 
 		//printf("Draw mcursor......\n");
-       		draw_mcursor(mouseMidX, mouseMidY);
+       		draw_mcursor();
 
 		/* Render and bring image to screen */
 		fb_render(&gv_fb_dev);
@@ -1216,7 +1239,7 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
 1. In txtbox area, use typing cursor.
 2. Otherwise, apply mcursor.
 ----------------------------------*/
-static void draw_mcursor(int x, int y)
+static void draw_mcursor(void)
 {
 //	int mode;
         static EGI_IMGBUF *mcimg=NULL;
@@ -1272,8 +1295,8 @@ Draw right_click menu.
 --------------------------------------*/
 static void draw_RCMenu(int x0, int y0)
 {
-	#define RCMENU_ITEMS	4
-	char *mwords[RCMENU_ITEMS]={"Words", "Copy", "Paste", "Cut" };
+	#define RCMENU_ITEMS	5
+	char *mwords[RCMENU_ITEMS]={"Words", "Copy", "Paste", "Cut", "Color"};
 
 	int mw=70;   /* menu width */
 	int smh=33;  /* sub menu height */
@@ -1329,10 +1352,10 @@ static void draw_WTBMenu(int x0, int y0)
 	static int  mtag=-1;	/* [0]-File,  [1]-Help */
 
         const int MFileNum=4; /* Number of items under tag File */
-        const int MHelpNum=3; /* Number of items under tag Help */
+        const int MHelpNum=4; /* Number of items under tag Help */
 
 	const char *MFileItems[4]={"Open", "Save", "Exit", "Abort"};
-	const char *MHelpItems[3]={"Help", "Renew", "About" };
+	const char *MHelpItems[4]={"Help", "Renew", "About","Mark" };
 
 	int mw=70;   /* menu width */
 	int smh=33;  /* menu item height */
@@ -1579,6 +1602,8 @@ Exectue command for selected right_click menu
 ------------------------------------------------*/
 static void RCMenu_execute(enum RCMenu_Command RCMenu_Command_ID)
 {
+	EGI_16BIT_COLOR color;
+
 	if(RCMenu_Command_ID<0)
 		return;
 
@@ -1599,6 +1624,21 @@ static void RCMenu_execute(enum RCMenu_Command RCMenu_Command_ID)
 			printf("RCMENU_COMMAND_CUT\n");
 			FTcharmap_cut_to_syspad(chmap);
 			break;
+		case RCMENU_COMMAND_COLOR:
+			printf("RCMENU_COMMAND_COLOR\n");
+			mouseLeftKeyDown=false; /* reset it first */
+			while( !mouseLeftKeyDown ) {  /* Wait for click */
+				fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
+				draw_palette(50, 50);
+				/* Draw pick square */
+				color=fbget_pixColor(&gv_fb_dev, mouseX, mouseY);
+				draw_filled_rect2(&gv_fb_dev, color, mouseX+10, mouseY+10, mouseX+49, mouseY+49);
+				draw_mcursor();
+				fb_render(&gv_fb_dev);
+			}
+			/* Pick color and dye selections, DO NOT pick color here! the mouse thread already updated position after above. */
+			FTcharmap_modify_charColor(chmap, color);
+			break;
 		default:
 			printf("RCMENU_COMMAND_NONE\n");
 			break;
@@ -1613,6 +1653,8 @@ Exectue command for selected Window_Bar top menu
 -----------------------------------------------------*/
 static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 {
+	EGI_16BIT_COLOR color;
+
 	if(Command_ID<0)
 		return;
 
@@ -1628,7 +1670,7 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
                         while( !start_pch ) {  /* Wait for click */
                                 fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 				draw_msgbox( &gv_fb_dev, 50, 50, 240, "文件已经保存！" );
-                                draw_mcursor(mouseMidX, mouseMidY);
+                                draw_mcursor();
                                 fb_render(&gv_fb_dev);
                         }
 
@@ -1643,7 +1685,7 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 			char ch;
 	                while(1) {
 				draw_msgbox( &gv_fb_dev, 30, 50, 260, "放弃后修改的数据都将不会被保存！\n　　[N]取消　[Y]确认！" );
-                                draw_mcursor(mouseMidX, mouseMidY);
+                                draw_mcursor();
 				fb_render(&gv_fb_dev);
 
 				read(STDIN_FILENO, &ch, 1);
@@ -1679,11 +1721,27 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
                         while( !mouseLeftKeyDown ) {  /* Wait for click */
                                 fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 				draw_msgbox( &gv_fb_dev, 50, 50, 240, "　　这是用EGI编制的一个简单的记事本. Widora和他的小伙伴们" );
-                                draw_mcursor(mouseMidX, mouseMidY);
+                                draw_mcursor();
                                 fb_render(&gv_fb_dev);
                         }
 
 			break;
+		case WBTMENU_COMMAND_HIGHLIGHT:
+			printf("WBTMENU_COMMAND_HIGHLIGHT\n");
+			mouseLeftKeyDown=false; /* reset it first */
+			while( !mouseLeftKeyDown ) {  /* Wait for click */
+				fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
+				draw_palette(50, 50);
+				/* Draw pick square */
+				color=fbget_pixColor(&gv_fb_dev, mouseX, mouseY);
+				draw_filled_rect2(&gv_fb_dev, color, mouseX+10, mouseY+10, mouseX+49, mouseY+49);
+				draw_mcursor();
+				fb_render(&gv_fb_dev);
+			}
+			/* Pick color and dye selections, DO NOT pick color here! the mouse thread already updated position after above. */
+			FTcharmap_modify_hlmarkColor(chmap, color);
+			break;
+
 		default:
 			printf("WBTMENU_COMMAND_NONE\n");
 			break;
@@ -1854,4 +1912,57 @@ FUNC_END:
 	}
 
 	return ret;
+}
+
+/*---------------------
+Draw a simple palette.
+---------------------*/
+void draw_palette(int x0, int y0)
+{
+	int i,j;
+	int row=6;
+	int col=10;
+	int side=20; /* color square side, in pixels */
+	int gap=3;  /* Gap between color squares */
+	EGI_16BIT_COLOR color;
+
+	/* Draw pad */
+	draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAY, x0,y0, x0+gap+(side+gap)*col, y0+gap+(side+gap)*row);
+	fbset_color(WEGI_COLOR_BLACK);
+	draw_rect(&gv_fb_dev, x0-1,y0-1, x0+gap+(side+gap)*col+1, y0+gap+(side+gap)*row+1);
+
+	/* Draw color squares */
+	for( i=0; i<row; i++) {
+		for(j=0; j<col; j++) {
+			/* Complex color */
+			//if(j<6)
+			//	 color= COLOR_RGB_TO16BITS(0x33*i,0x33*j, 0xFF); //0xFF-0x11*j); //0x99
+
+			/* R G B */
+			if(j==6)
+				color=COLOR_RGB_TO16BITS(0x55+0x22*i, 0, 0);
+			else if(j==7)
+				color=COLOR_RGB_TO16BITS(0,0x55+0x22*i, 0);
+			else if(j==8)
+				color=COLOR_RGB_TO16BITS(0,0,0x55+0x22*i);
+			/* Gray */
+			else
+				color=COLOR_RGB_TO16BITS(0x55+0x22*i,0x55+0x22*i,0x55+0x22*i);
+
+			/* Draw squares */
+			draw_filled_rect2(&gv_fb_dev, color, x0+side*j+gap*(j+1), y0+side*i+gap*(i+1),
+							    x0+side*j+gap*(j+1) +side-1, y0+side*i+gap*(i+1)+side-1 );
+		}
+	}
+
+	/* Douglas.R.Jacobs' RGB Hex Triplet Color Chart */
+	row=36;
+	col=6;
+	for( i=0; i<row; i++) {
+		for(j=0; j<col; j++) {
+			color= COLOR_RGB_TO16BITS(0xFF-0x33*(i/6), 0xFF-0x33*j, 0xFF-0x33*(i%6));
+			draw_filled_rect2(&gv_fb_dev, color, x0+23*j, y0+4*i,  x0+23*(j+1)-1, y0+4*(i+1)-1);
+		}
+	}
+
 }

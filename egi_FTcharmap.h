@@ -192,6 +192,9 @@ struct  FTsymbol_char_map {
 	EGI_COLOR_BANDMAP *charColorMap;	 /* color map for chars: bands[]->pos corresponds to pos(offset) to txtbuff.
 						  * If NULL, then apply fontcolor
 						  */
+	EGI_COLOR_BANDMAP *hlmarkColorMap;	 /* color map for High_Light mark: bands[]->pos corresponds to pos(offset) to txtbuff.
+						  * If NULL, then do not apply.
+						  */
 
 	EGI_16BIT_COLOR	markcolor;		 /* Selection mark color */
 	EGI_8BIT_ALPHA	markalpha;		 /* Selection mark alpha */
@@ -296,7 +299,8 @@ struct  FTsymbol_char_map {
 
 EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, int width, int offx, int offy,
                                  size_t mapsize, size_t maplines, size_t mappixpl, int maplndis,
-				 bool charColorMap_ON, EGI_16BIT_COLOR fontcolor );
+				 int bkgcolor, EGI_16BIT_COLOR fontcolor, bool charColorMap_ON, bool hlmarkColorMap_ON);
+				 //bool charColorMap_ON, EGI_16BIT_COLOR fontcolor );
 
 void 	FTcharmap_set_markcolor(EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha);
 int 	FTcharmap_memGrow_txtbuff(EGI_FTCHAR_MAP *chmap, size_t more_size);	/* NO lock */
@@ -357,10 +361,16 @@ int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lo
 int 	FTcharmap_delete_string_nolock( EGI_FTCHAR_MAP *chmap );	/*  +charColorMap */
 int 	FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
 
+/* Modify color */
+int     FTcharmap_modify_charColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color);
+int  	FTcharmap_modify_hlmarkColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color);
+
 /* To/from EGI_SYSPAD */
 int 	FTcharmap_copy_from_syspad( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
 int 	FTcharmap_copy_to_syspad( EGI_FTCHAR_MAP *chmap );
 int 	FTcharmap_cut_to_syspad( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
 
 int 	FTcharmap_save_words( EGI_FTCHAR_MAP *chmap, const char *fpath );
+
+
 #endif

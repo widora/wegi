@@ -178,7 +178,7 @@ Return:
 ----------------------------------------------------------------*/
 EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, int width, int offx, int offy,
 				 size_t mapsize, size_t maplines, size_t mappixpl, int maplndis,
-				 bool charColorMap_ON, EGI_16BIT_COLOR fontcolor )
+				 int bkgcolor, EGI_16BIT_COLOR fontcolor, bool charColorMap_ON, bool hlmarkColorMap_ON)
 {
 	if( height<=0 || width <=0 ) {
 		printf("%s: Input height and/or width is invalid!\n",__func__);
@@ -191,7 +191,7 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
 		return NULL;
 	}
 
-        /* Init charmap mutex */
+        /* 1. Init charmap mutex */
         if(pthread_mutex_init(&chmap->mutex,NULL) != 0)
         {
                 printf("%s: fail to initiate charmap mutex.\n",__func__);
@@ -199,7 +199,7 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
                 return NULL;
         }
 
-	/* To allocate txtbuff */
+	/* 2. Allocate txtbuff */
 	chmap->txtbuff=calloc(1,sizeof(typeof(*chmap->txtbuff))*(txtsize+1) );
 	if( chmap->txtbuff == NULL) {
 		printf("%s: Fail to calloc chmap txtbuff!\n",__func__);
@@ -213,7 +213,7 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
 	printf(" --- TEST ---: sizeof(typeof(*chmap->txtdlinePos))=%d\n", sizeof(typeof(*chmap->txtdlinePos)) );
 
 
-	/* To allocate txtdlinePos */
+	/* 3. To allocate txtdlinePos */
 	chmap->txtdlines=1024;	/* Initial value, Min>2, see mem_grow codes in FTcharmap_uft8strings_writeFB().*/
 	chmap->txtdlinePos=calloc(1, sizeof(typeof(*chmap->txtdlinePos))*(chmap->txtdlines) );
 	if( chmap->txtdlinePos == NULL) {
@@ -222,7 +222,7 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
 		return NULL;
 	}
 
-	/* To create charColorMap */
+	/* 4. To create charColorMap */
 	if( charColorMap_ON ) {
 		chmap->charColorMap=egi_colorBandMap_create(fontcolor, COLORMAP_BANDS_GROW_SIZE);
 		if(chmap->charColorMap==NULL) {
@@ -232,7 +232,17 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
 		}
 	}
 
-	/* To allocate maplinePos */
+	/* 5. To create hlmarkColorMap for high_light mark. If no bkgcolor, set mark color as BLACK! */
+	if( hlmarkColorMap_ON ) {
+		chmap->hlmarkColorMap=egi_colorBandMap_create(bkgcolor>=0?bkgcolor:WEGI_COLOR_BLACK, COLORMAP_BANDS_GROW_SIZE);
+		if(chmap->hlmarkColorMap==NULL) {
+			printf("%s: Fail to create colorBandMap for highlight mark!\n", __func__);
+			FTcharmap_free(&chmap);
+			return NULL;
+		}
+	}
+
+	/* 6. To allocate maplinePos */
 	chmap->maplinePos=calloc(1,sizeof(typeof(*chmap->maplinePos))*maplines );
 	if( chmap->maplinePos == NULL) {
 		printf("%s: Fail to calloc chmap maplinePos!\n",__func__);
@@ -243,7 +253,7 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
 	chmap->mappixpl=mappixpl;
 	chmap->maplndis=maplndis;
 
-	/* To allocate just once!???? */
+	/* 7. To allocate just once!???? to be big enough */
 	chmap->charX=calloc(1, sizeof(typeof(*chmap->charX))*(mapsize+1) );
 	chmap->charY=calloc(1, sizeof(typeof(*chmap->charY))*(mapsize+1) );
 	chmap->charPos=calloc(1, sizeof(typeof(*chmap->charPos))*(mapsize+1) );
@@ -253,13 +263,13 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
 		return NULL;
 	}
 
-	/* Set default  color/alpha */
-	chmap->bkgcolor=WEGI_COLOR_WHITE;
-	chmap->fontcolor=fontcolor; 	   /* charColorMap!=NULL will prevail. */
-	chmap->markcolor=WEGI_COLOR_YELLOW;
+	/* 8. Set default  color/alpha */
+	chmap->bkgcolor=bkgcolor;
+	chmap->fontcolor=fontcolor; 	     /* charColorMap!=NULL will prevail. */
+	chmap->markcolor=WEGI_COLOR_YELLOW;  /* Can be ajust aft. init */
 	chmap->markalpha=50;
 
-	/* Assign other params */
+	/* 9. Assign other params */
 	chmap->mapx0=x0;
 	chmap->mapy0=y0;
 	chmap->width=width;
@@ -268,10 +278,10 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
 	chmap->offy=offy;
 	chmap->mapsize=mapsize;
 
-	/* Set default draw_cursor function */
+	/* 10. Set default draw_cursor function */
 	chmap->draw_cursor=FTcharmap_draw_cursor;
 
-	/* Set blink timer */
+	/* 11. Set blink timer */
 	if(gettimeofday(&chmap->tm_blink, NULL)!=0) {
 		printf("%s: Fail to set chmap->tm_blink!\n",__func__);
 		FTcharmap_free(&chmap);
@@ -569,8 +579,9 @@ void FTcharmap_free(EGI_FTCHAR_MAP **chmap)
 	free( (*chmap)->charY );
 	free( (*chmap)->charPos );
 
-	/* Free colorband for chars */
+	/* Free colorband MAP */
 	egi_colorBandMap_free(&(*chmap)->charColorMap);
+	egi_colorBandMap_free(&(*chmap)->hlmarkColorMap);
 
    	/*  ??? necesssary ??? */
         /*  <-------- Put mutex lock */
@@ -711,6 +722,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	FT_Error   error;
 	int sdw;			/* Self_defined width for some unicodes */
 	int fontcolor;
+	int hlmarkcolor;
 
 	/* Check input font face */
 	if(face==NULL) {
@@ -832,6 +844,15 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 		else
 			fontcolor=chmap->fontcolor;
 
+		/* Get high_light mark color from colormap here! */
+		if(chmap->hlmarkColorMap!=NULL) {
+			hlmarkcolor=egi_colorBandMap_pickColor(chmap->hlmarkColorMap, p-chmap->txtbuff);
+			//printf("hlmarkcolor=%u, RGB: 0x%06X, getY=%u \n",hlmarkcolor, COLOR_16TO24BITS(hlmarkcolor), egi_color_getY(hlmarkcolor));
+			/* If highligh color too dark, make fontcolor WHITE */
+			if( egi_color_getY(hlmarkcolor) < 100 )
+				fontcolor=WEGI_COLOR_WHITE;
+		}
+
 #if 0 /* ----TEST: print ASCII code */
 		if(size==1) {
 			printf("%s: ASCII code: %d \n",__func__,*wcstr);
@@ -912,6 +933,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 		/* If TAB(9) key, align to imaginary grid */
 		if( *wcstr==9 ) {
 			xleft = pixpl-((pixpl-xleft)/TabWidth +1)*TabWidth;
+			/*  NO High_light mark for TAB! */
 		}
 		/* If fb_dev==NULL: To get xleft in a fast way */
 		else if( fb_dev == NULL) {
@@ -945,6 +967,23 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 		}
 		else /* fb_dev is NOT NULL, TODO: fake fb_dev to NULL */
 		{
+			/* High_light mark */
+                        if( chmap->hlmarkColorMap && hlmarkcolor!=chmap->bkgcolor ) {
+				int tmp=xleft;
+				/* If selfcooked width */
+				sdw=FTsymbol_cooked_charWidth(wcstr[0], fw);
+				/* Else */
+				if( sdw<0 ) {
+	                                FTsymbol_unicode_writeFB(NULL, face, fw, fh, wcstr[0], &tmp,
+        	                                                         0, 0, WEGI_COLOR_BLACK, -1, -1 );
+					sdw=xleft-tmp;
+				}
+
+				/* Draw high_light mark block for the char */
+				if( tmp>=0 )  /* If tmp<0, NOT enough space for the char! */
+				 draw_filled_rect2(&gv_fb_dev, hlmarkcolor, px, py, px+sdw-1, py+chmap->maplndis-1);
+                        }
+
 			/* Use marskchar to replace/cover original chars, such as asterisk. */
 			if( chmap->maskchar !=0 ) {
 				FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, chmap->maskchar, &xleft,
@@ -953,6 +992,8 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 			else
 				FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, wcstr[0], &xleft,
 								 px, py, fontcolor, transpcolor, opaque );
+
+
 		}
 
 		/* --- check line space --- */
@@ -3028,6 +3069,10 @@ Note:
 1. If the inserting string is very big, then it may take a while charmapping
    and scrolling to follow cursor to updated pchoff.
 
+2. Color of chars will be same as the preceding char, BUT if insersion point
+   is the first char of a rline, then the color will be same as the following
+   char.
+
 
 @chmap:         Pointer to the EGI_FTCHAR_MAP.
 @pstr:		Pointer to inserting string.
@@ -3254,6 +3299,9 @@ Insert a character into charmap->txtbuff.
    Set to scroll to dline where it located.
 2. If selection marked, delete all selected chars first.
 3. Then insert a char(ASCII or UFT-8 encoding) into the chmap->txtbuff.
+4. Color of the char will be same as the preceding char, BUT if it
+   is the first char of a rline, then its color will be same as the
+   following char.
 
 			!!! --- WARNING --- !!!
 
@@ -3337,7 +3385,9 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 	}
 	//printf("current chmap->pch=%d\n", chmap->pch);
 
-	/* 1. If head of selection (pchoff or pchoff2 wich is smaller) Not in current charmap page, set to scroll to */
+	/* 1. If head of selection (pchoff or pchoff2 wich is smaller) Not in current charmap page, set to scroll to.
+	 *    Cross check following codes same as in FTcharmap_modify_charColor().
+	 */
 	/* Get head of selection, consider pchoff==pchoff2 also as a selection. */
 	if( chmap->pch < 0 && chmap->pchoff <= chmap->pchoff2 )
 	{
@@ -3715,6 +3765,237 @@ int FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap )
 	/* Keep cursor on */
 	gettimeofday(&chmap->tm_blink,NULL);
 	chmap->cursor_on=true;
+
+	/* Set chmap->request for charmapping */
+	chmap->request=1;
+
+        /*  <-------- Put mutex lock */
+        pthread_mutex_unlock(&chmap->mutex);
+
+	return 0;
+}
+
+
+/*-------------------------------------------------------------------
+Modify color for selected chars, by operating chmap->charColorMap.
+
+Note:
+1. If cursor OR head of selection NOT in current charmap,
+   Set to scroll to dline where it located.
+2. If selection marked, ret those chars with the given color,
+   and group them to one color band.
+3. TODO: If no selection ....
+
+@chmap:         Pointer to the EGI_FTCHAR_MAP.
+@color:		Color for chmap currrent selections.
+
+Return:
+        0       OK
+        <0      Fail
+-------------------------------------------------------------------*/
+int  FTcharmap_modify_charColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color)
+{
+	int startPos=0;
+	int endPos=0;
+	int dln;
+
+	/* Check input */
+        if( chmap==NULL || chmap->txtbuff==NULL ) {
+                printf("%s: Input FTCHAR map is empty!\n", __func__);
+                return -1;
+        }
+
+	if( chmap->charColorMap==NULL ) {
+		printf("%s: chmap->charColorMap==NULL!\n",__func__);
+		return -2;
+	}
+
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+
+	/* Check request ? OR wait ??? */
+	if( chmap->request !=0 ) {
+       	/*  <-------- Put mutex lock */
+	        pthread_mutex_unlock(&chmap->mutex);
+		return -3;
+	}
+
+        /* 1. If head of selection (pchoff or pchoff2 wich is smaller) Not in current charmap page, set to scroll to.
+	 *    Cross check following codes same as in FTcharmap_insert_char().
+	 */
+        /* Get head of selection, consider pchoff==pchoff2 also as a selection. */
+        if( chmap->pch < 0 && chmap->pchoff <= chmap->pchoff2 )
+        {
+                printf("%s: pch not in current charmap!\n", __func__);
+                /* Get txtdlncount corresponding to pchoff  */
+                dln=FTcharmap_get_txtdlIndex(chmap, chmap->pchoff);
+                if(dln<0) {
+                        printf("%s: Fail to find index of chmap->txtdlinePos[] for pchoff!\n", __func__);
+                        /* --- Do nothing! --- */
+                }
+                else {
+                                /* PRE_: Update chmap->txtdlncount */
+                                chmap->txtdlncount=dln;
+                                /* PRE_: Update chmap->pref */
+                                chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+                                /* In charmapping, chmap->pch will be updated according to chmap->pchoff */
+                }
+        }
+        else if( chmap->pch2 < 0 && chmap->pchoff2 < chmap->pchoff )
+        {
+                printf("%s: pch2 not in current charmap!\n", __func__);
+                /* Get txtdlncount corresponding to pchoff  */
+                dln=FTcharmap_get_txtdlIndex(chmap, chmap->pchoff2);
+                if(dln<0) {
+                        printf("%s: Fail to find index of chmap->txtdlinePos[] for pchoff2!\n", __func__);
+                        /* --- Do nothing! --- */
+                }
+                else {
+                        /* PRE_: Update chmap->txtdlncount */
+                        chmap->txtdlncount=dln;
+                        /* PRE_: Update chmap->pref */
+                        chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+                        /* In charmapping, chmap->pch will be updated according to chmap->pchoff */
+                }
+        }
+
+	/* 2. If selection marks. */
+	if( chmap->pchoff != chmap->pchoff2 ) {
+		if(chmap->pchoff > chmap->pchoff2) {
+			startPos=chmap->pchoff2;
+			endPos=chmap->pchoff;
+		}
+		else {
+			startPos=chmap->pchoff;
+			endPos=chmap->pchoff2;
+		}
+
+		/* Combine char Color Map in the selection and set new color */
+		if( egi_colorBandMap_combineBands( chmap->charColorMap, startPos, endPos-startPos, color) !=0) {
+			printf("%s: Fail to combine colormap for char selection!\n", __func__);
+		}
+	}
+	/* 3. TODO: If no selection, AUTO/NON_AUTO color set */
+	else {
+
+	}
+
+	/* Set chmap->request for charmapping */
+	chmap->request=1;
+
+        /*  <-------- Put mutex lock */
+        pthread_mutex_unlock(&chmap->mutex);
+
+	return 0;
+}
+
+
+/*-------------------------------------------------------------------------------
+Add/modify high_light mark/color for selected chars, by operating chmap->hlmarkColorMap.
+
+Note:
+1. If cursor OR head of selection NOT in current charmap,
+   Set to scroll to dline where it located.
+2. If selection marked, add/modify high_light mark colr for those chars ,
+   and group them to one color band.
+3. If no selection, do nothing.
+
+@chmap:         Pointer to the EGI_FTCHAR_MAP.
+@color:		High_light mark color for currrent selections.
+
+Return:
+        0       OK
+        <0      Fail
+------------------------------------------------------------------------------*/
+int  FTcharmap_modify_hlmarkColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color)
+{
+	int startPos=0;
+	int endPos=0;
+	int dln;
+
+	/* Check input */
+        if( chmap==NULL || chmap->txtbuff==NULL ) {
+                printf("%s: Input FTCHAR map is empty!\n", __func__);
+                return -1;
+        }
+
+	if( chmap->hlmarkColorMap==NULL ) {
+		printf("%s: chmap->hlmarkColorMap==NULL!\n",__func__);
+		return -2;
+	}
+
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+
+	/* Check request ? OR wait ??? */
+	if( chmap->request !=0 || chmap->pchoff == chmap->pchoff2 ) {
+       	/*  <-------- Put mutex lock */
+	        pthread_mutex_unlock(&chmap->mutex);
+		return -3;
+	}
+
+        /* 1. If head of selection (pchoff or pchoff2 wich is smaller) Not in current charmap page, set to scroll to.
+	 *    Cross check following codes same as in FTcharmap_insert_char().
+	 */
+        /* Get head of selection, consider pchoff==pchoff2 also as a selection. */
+        if( chmap->pch < 0 && chmap->pchoff <= chmap->pchoff2 )
+        {
+                printf("%s: pch not in current charmap!\n", __func__);
+                /* Get txtdlncount corresponding to pchoff  */
+                dln=FTcharmap_get_txtdlIndex(chmap, chmap->pchoff);
+                if(dln<0) {
+                        printf("%s: Fail to find index of chmap->txtdlinePos[] for pchoff!\n", __func__);
+                        /* --- Do nothing! --- */
+                }
+                else {
+                                /* PRE_: Update chmap->txtdlncount */
+                                chmap->txtdlncount=dln;
+                                /* PRE_: Update chmap->pref */
+                                chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+                                /* In charmapping, chmap->pch will be updated according to chmap->pchoff */
+                }
+        }
+        else if( chmap->pch2 < 0 && chmap->pchoff2 < chmap->pchoff )
+        {
+                printf("%s: pch2 not in current charmap!\n", __func__);
+                /* Get txtdlncount corresponding to pchoff  */
+                dln=FTcharmap_get_txtdlIndex(chmap, chmap->pchoff2);
+                if(dln<0) {
+                        printf("%s: Fail to find index of chmap->txtdlinePos[] for pchoff2!\n", __func__);
+                        /* --- Do nothing! --- */
+                }
+                else {
+                        /* PRE_: Update chmap->txtdlncount */
+                        chmap->txtdlncount=dln;
+                        /* PRE_: Update chmap->pref */
+                        chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+                        /* In charmapping, chmap->pch will be updated according to chmap->pchoff */
+                }
+        }
+
+	/* 2. If selection marks. */
+	if( chmap->pchoff != chmap->pchoff2 ) {
+		if(chmap->pchoff > chmap->pchoff2) {
+			startPos=chmap->pchoff2;
+			endPos=chmap->pchoff;
+		}
+		else {
+			startPos=chmap->pchoff;
+			endPos=chmap->pchoff2;
+		}
+
+		/* Combine char Color Map in the selection and set new color */
+		if( egi_colorBandMap_combineBands( chmap->hlmarkColorMap, startPos, endPos-startPos, color) !=0) {
+			printf("%s: Fail to combine colormap for char selection!\n", __func__);
+		}
+	}
+	/* 3. If no selection, See 'check request' above. */
 
 	/* Set chmap->request for charmapping */
 	chmap->request=1;
