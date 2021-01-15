@@ -218,7 +218,8 @@ int main(int argc, char **argv)
 	/* Create and init FTcharmap */
 	chmap=FTcharmap_create( PASSWORD_MAX_SIZE, txtbox.startxy.x, txtbox.startxy.y,		/* txtsize,  x0, y0  */
 		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
-				CHMAP_SIZE, tlns, txtbox.endxy.x-txtbox.startxy.x-smargin, fh+fgap);   /* mapsize, lines, pixpl, lndis */
+			CHMAP_SIZE, tlns, txtbox.endxy.x-txtbox.startxy.x-smargin, fh+fgap,   /* mapsize, lines, pixpl, lndis */
+			-1, WEGI_COLOR_DARKBLUE, true, true );  /* bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 	chmap->bkgcolor=-1;			/* no bkgcolor */
 	chmap->markcolor=WEGI_COLOR_GREEN; 	/* Selection mark color */
@@ -502,7 +503,7 @@ static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int
 
        	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,          	/* FBdev, charmap*/
                                         egi_sysfonts.regular, fw, fh,   /* fontface, fw,fh */
-                                        color, -1, 255,      		/* fontcolor, transcolor,opaque */
+                                        -1, 255,      			/* transcolor,opaque */
                                         NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
         /* Double check! */

@@ -382,7 +382,7 @@ MAIN_START:
 		printf("Fail to inser char color band for loaded file!\n");
 	}
 	if( egi_colorBandMap_insertBand(chmap->hlmarkColorMap, 0, chmap->txtlen, chmap->bkgcolor)!=0 ) {  /* map, pos, len, color */
-		printf("Fail to inser high_light color band for loaded file!\n");
+		printf("Fail to inser highlight color band for loaded file!\n");
 	}
 
 
@@ -393,7 +393,7 @@ MAIN_START:
 		egi_colorBandMap_combineBands(chmap->charColorMap, 32, 16, WEGI_COLOR_BLUE);
 	}
 #endif
-#if 0	/* -----TEST:  Set High_light mark band map */
+#if 0	/* -----TEST:  Set Highlight mark band map */
 	if(chmap->hlmarkColorMap) {
 		egi_colorBandMap_combineBands(chmap->hlmarkColorMap, 0, 16, WEGI_COLOR_RED);
 		egi_colorBandMap_combineBands(chmap->hlmarkColorMap, 16, 16, WEGI_COLOR_GREEN);
@@ -1629,7 +1629,7 @@ static void RCMenu_execute(enum RCMenu_Command RCMenu_Command_ID)
 			mouseLeftKeyDown=false; /* reset it first */
 			while( !mouseLeftKeyDown ) {  /* Wait for click */
 				fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-				draw_palette(50, 50);
+				draw_palette(50, 40);
 				/* Draw pick square */
 				color=fbget_pixColor(&gv_fb_dev, mouseX, mouseY);
 				draw_filled_rect2(&gv_fb_dev, color, mouseX+10, mouseY+10, mouseX+49, mouseY+49);
@@ -1637,7 +1637,7 @@ static void RCMenu_execute(enum RCMenu_Command RCMenu_Command_ID)
 				fb_render(&gv_fb_dev);
 			}
 			/* Pick color and dye selections, DO NOT pick color here! the mouse thread already updated position after above. */
-			FTcharmap_modify_charColor(chmap, color);
+			FTcharmap_modify_charColor(chmap, color, true);
 			break;
 		default:
 			printf("RCMENU_COMMAND_NONE\n");
@@ -1739,7 +1739,7 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 				fb_render(&gv_fb_dev);
 			}
 			/* Pick color and dye selections, DO NOT pick color here! the mouse thread already updated position after above. */
-			FTcharmap_modify_hlmarkColor(chmap, color);
+			FTcharmap_modify_hlmarkColor(chmap, color, true);
 			break;
 
 		default:
@@ -1923,15 +1923,16 @@ void draw_palette(int x0, int y0)
 	int row=6;
 	int col=10;
 	int side=20; /* color square side, in pixels */
-	int gap=3;  /* Gap between color squares */
+	int gap=3;  /* Gap between color squares, also as pad side margin */
+	int x,y;
 	EGI_16BIT_COLOR color;
 
-	/* Draw pad */
+#if 0	/* Draw pad */
 	draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAY, x0,y0, x0+gap+(side+gap)*col, y0+gap+(side+gap)*row);
 	fbset_color(WEGI_COLOR_BLACK);
 	draw_rect(&gv_fb_dev, x0-1,y0-1, x0+gap+(side+gap)*col+1, y0+gap+(side+gap)*row+1);
 
-	/* Draw color squares */
+	/* Draw RGB color squares */
 	for( i=0; i<row; i++) {
 		for(j=0; j<col; j++) {
 			/* Complex color */
@@ -1954,8 +1955,7 @@ void draw_palette(int x0, int y0)
 							    x0+side*j+gap*(j+1) +side-1, y0+side*i+gap*(i+1)+side-1 );
 		}
 	}
-
-	/* Douglas.R.Jacobs' RGB Hex Triplet Color Chart */
+	/* Draw Douglas.R.Jacobs' RGB Hex Triplet Color Chart */
 	row=36;
 	col=6;
 	for( i=0; i<row; i++) {
@@ -1964,5 +1964,42 @@ void draw_palette(int x0, int y0)
 			draw_filled_rect2(&gv_fb_dev, color, x0+23*j, y0+4*i,  x0+23*(j+1)-1, y0+4*(i+1)-1);
 		}
 	}
+
+#else  /* ANSI control sequence 256 color, for xterm. */
+
+	int margin=3; /* pad side margin, gap=0 */
+	side=12;
+	col=18;
+	row=15;
+
+	/* Draw pad */
+	draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAY, x0,y0, x0+2*margin+side*col, y0+2*margin+side*row);
+	fbset_color(WEGI_COLOR_BLACK);
+	draw_rect(&gv_fb_dev, x0-1,y0-1, x0+2*margin+side*col+1, y0+2*margin+side*row+1);
+
+	/* Code 16-231 */
+	for( i=16; i<232; i++ ) {
+		color=egi_256color_code(i);
+		x=x0+margin+( (((i-16)%6) + (i-16)/72*6)*side);  /* 6 square as a group, vertically 12 group as a colomn.  */
+		y=y0+margin+((((i-16)/6)%12)*side);
+		draw_filled_rect2(&gv_fb_dev, color, x, y, x+side-1, y+side-1);
+	}
+	/* Code 0-15 */
+	for( i=0; i<16; i++ ) {
+		color=egi_256color_code(i);
+		x=x0+margin+i*side;
+		y=y0+margin+12*side;
+		draw_filled_rect2(&gv_fb_dev, color, x, y, x+side-1, y+side-1);
+	}
+	/* Code 232-255: 24_grade grays */
+	for( i=232; i<255; i++ ) {
+		color=egi_256color_code(i);
+		x=x0+margin+((i-232)%18)*side;
+		y=y0+margin+13*side+(i-232)/18*side;
+		draw_filled_rect2(&gv_fb_dev, color, x, y, x+side-1, y+side-1);
+	}
+
+
+#endif
 
 }

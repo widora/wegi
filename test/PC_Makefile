@@ -4,6 +4,11 @@ SRC_PATH=/home/midas-zhou/wegi
 CFLAGS  = -I$(SRC_PATH) -I$(SRC_PATH)/utils -I$(SRC_PATH)/sound
 ## for libasound.h
 #CFLAGS += -I/home/midas-zhou/openwrt_widora/staging_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/usr/include
+
+## for alsa/asoundlib.h
+CFLAGS += -I/home/midas-zhou/openwrt_widora/staging_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/usr/include
+CFLAGS += -I/home/midas-zhou/shine-3.1.0/finish/include
+
 CFLAGS += -I/usr/local/include/freetype2
 CFLAGS += -I/usr/local/include/libpng12
 CFLAGS += -I/usr/local/include

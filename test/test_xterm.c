@@ -35,14 +35,17 @@ Note:
    Editing_cursor is locked to prevent from moving up/down, and only allowed to
    shift left and right.
 
-2. TODO: It can NOT parse/simulate terminal contorl character sequence, such as
+2. TODO: CSI of ISO/IEC-6429 (ANSI escape sequence)
+   It can NOT parse/simulate terminal contorl character sequence, such as
    cursor movement, clear, color and font mode, etc.
+
+
 2.1 Command 'ps': Can NOT display a complete line on LOCAL CONSOLE! ---OK, erase '\n'
 2.2 Command 'ls(ps..) | more', sh: more: not found!  But | tai,head,grep is OK!
 2.3 Command less,more
 
 TODO:
-1. Charmap fontcolor.
+1. Charmap fontcolor. ---OK
 2. Charmap FT-face.
 
 3. For charmap->txtbuff will be reallocated, reference(pointer) to it will be
@@ -70,6 +73,7 @@ midaszhou@yahoo.com
 #include <linux/input.h>
 #include <termios.h>
 #include <sys/wait.h>
+#include <pty.h> 	/* -lutil */
 #include "egi_common.h"
 #include "egi_input.h"
 #include "egi_unihan.h"
@@ -86,8 +90,11 @@ struct termios new_isettings;
 struct termios new_osettings;
 
 /* --- Terminal appearance --- */
-#define TERM_FONT_COLOR		WEGI_COLOR_GREEN
-#define TERM_BKG_COLOR		COLOR_RGB_TO16BITS(100,5,46)
+#define XTERM_PS_COLOR		WEGI_COLOR_GREEN     /* Prompt string */
+#define XTERM_SHCMD_COLOR	WEGI_COLOR_LTYELLOW  /* Input shell command */
+#define XTERM_STDOUT_COLOR	WEGI_COLOR_WHITE
+#define XTERM_STDERR_COLOR	WEGI_COLOR_RED
+#define XTERM_BKG_COLOR		COLOR_RGB_TO16BITS(100,5,46)
 
 /* --- User Shell command --- */
 #define SHELLCMD_MAX	256		/* Max length of a shell command */
@@ -240,13 +247,30 @@ void signal_handler(int signal);
 void arrow_down_history(void);  /* In_process function */
 void arrow_up_history(void);	/* In_process function */
 void execute_shellcmd(void);	/* In_process function */
+void parse_shellout(char* pstr); /* Escape sequence parsing */
 
 
 /* ============================
 	    MAIN()
 ============================ */
+pid_t pty_pid;
+int pty_fd;
+
 int main(int argc, char **argv)
 {
+
+#if 0
+  pty_pid=forkpty(&pty_fd, NULL, &old_isettings, NULL);
+  if(pty_pid<0)
+	exit(EXIT_FAILURE);
+  else if(pty_pid!=0) {
+	printf("Parent process enter waiting status...\n");
+	exit(0);
+	wait(NULL);
+  }
+  /* ELSE: pty process */
+  printf("Child process start ...\n");
+#endif
 
  /* <<<<<<  EGI general init  >>>>>> */
 
@@ -324,9 +348,8 @@ int main(int argc, char **argv)
                    *            Main Program
                    -----------------------------------*/
 
-
 	char ch;
-	int  j,k;
+	int  i,j,k;
 	int lndis; /* Distance between lines */
 
 	/* Load unihan group set */
@@ -358,13 +381,14 @@ MAIN_START:
 
 	/* Create FTcharmap */
 	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,		/* txtsize,  x0, y0  */
-		  		//tlns*lndis, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
+		  	//tlns*lndis, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
 		  	txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
-				CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis);   /* mapsize, lines, pixpl, lndis */
+			CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis,   /* mapsize, lines, pixpl, lndis */
+			XTERM_BKG_COLOR, XTERM_STDOUT_COLOR, true, false );      /*  bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 	/* Set color */
-	chmap->bkgcolor=TERM_BKG_COLOR;
-	chmap->fontcolor=TERM_FONT_COLOR;
+	//chmap->bkgcolor=XTERM_BKG_COLOR;
+	//chmap->fontcolor=XTERM_STDOUT_COLOR;
 
 	/* NO: Load file to chmap */
 
@@ -374,7 +398,7 @@ MAIN_START:
         mouseY=gv_fb_dev.pos_yres/2;
 
         /* Init. FB working buffer */
-        fb_clear_workBuff(&gv_fb_dev, TERM_BKG_COLOR);
+        fb_clear_workBuff(&gv_fb_dev, XTERM_BKG_COLOR);
 
 	/* Title */
 	const char *title="EGI: 迷你终端"; // "EGI Mini Terminal";
@@ -409,10 +433,11 @@ MAIN_START:
 #endif
 
 	/* Set Prompt_String */
-	//strncpy(strPrompt, getenv("PS1"), sizeof(strPrompt)-1);
+	chmap->precolor=XTERM_PS_COLOR;
 	FTcharmap_insert_string(chmap,strPrompt,strlen((char*)strPrompt));
 
-	/* Set termio */
+
+#if 1	/* Set termio */
         tcgetattr(STDIN_FILENO, &old_isettings);
         new_isettings=old_isettings;
         new_isettings.c_lflag &= (~ICANON);      /* disable canonical mode, no buffer */
@@ -423,13 +448,14 @@ MAIN_START:
 
         tcgetattr(STDOUT_FILENO, &old_osettings);
 	new_osettings=old_osettings;
+#endif
 
 	/* To fill initial charmap and get penx,peny */
 	FTcharmap_writeFB(&gv_fb_dev,  NULL, NULL);
 	fb_render(&gv_fb_dev);
 
-	/* Charmap to the end */
-	int i=0;
+#if 0	/* Charmap to the end */
+	i=0;
 	while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
 	{
 		FTcharmap_page_down(chmap);
@@ -448,6 +474,7 @@ MAIN_START:
 	}
         fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 	//goto MAIN_END;
+#endif
 
 	/* Move cursor to end, just after Prompt_String */
 	FTcharmap_goto_lineEnd(chmap);
@@ -544,7 +571,6 @@ MAIN_START:
 
 						/* Get history command upward(old) */
 						arrow_up_history();
-
 
 						break;
 					case 66:  /* ARROW DOWN */
@@ -855,8 +881,10 @@ MAIN_START:
 					strncpy((char *)ShellCmd, (char *)pShCmd, SHELLCMD_MAX-1);
 					printf("ShellCmd: %s\n", ShellCmd);
 				}
-				else
+				else {
+					chmap->precolor=XTERM_SHCMD_COLOR;
 					FTcharmap_insert_char( chmap, &ch );
+				}
 			}
 
 			ch=0;
@@ -1039,7 +1067,7 @@ static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny)
 
        	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,          	   /* FBdev, charmap*/
                                            egi_sysfonts.regular, fw, fh,   /* fontface, fw,fh */
-	                                   chmap->fontcolor, -1, 255,      	   /* fontcolor, transcolor,opaque */
+	                                   -1, 255,      		   /* transcolor,opaque */
                                            NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
         /* Double check! */
@@ -1262,7 +1290,7 @@ void signal_handler(int signal) {
 Select history command Downward/Upward.
 Note:
 1. Delet current input and inster history command
-2. ASSUE mouse action will NOT edit charmap!! No race condition.
+2. ASSUME mouse action will NOT edit charmap!! No race condition.
 3. Need to charmap to update.
 -----------------------------------------------------------*/
 void arrow_down_history(void)
@@ -1273,8 +1301,10 @@ void arrow_down_history(void)
 		//printf("hisID=%d; hisCnt=%d\n", hisID, hisCnt);
 		chmap->pchoff=pShCmd-chmap->txtbuff;
 		chmap->pchoff2=chmap->txtlen;
-		if( hisID < hisCnt )
+		if( hisID < hisCnt ) {
+			chmap->precolor=XTERM_SHCMD_COLOR;
 		   	FTcharmap_insert_string(chmap, ShCmdHistory+hisID*SHELLCMD_MAX, strlen((char*)ShCmdHistory+hisID*SHELLCMD_MAX));
+		}
 		else /* histID == histCnt */
 			FTcharmap_delete_string(chmap);
 	}
@@ -1286,6 +1316,7 @@ void arrow_up_history(void)
 		hisID--;
 		chmap->pchoff=pShCmd-chmap->txtbuff;
 		chmap->pchoff2=chmap->txtlen;
+		chmap->precolor=XTERM_SHCMD_COLOR;
 		FTcharmap_insert_string(chmap, ShCmdHistory+hisID*SHELLCMD_MAX, strlen((char*)ShCmdHistory+hisID*SHELLCMD_MAX));
 	}
 }
@@ -1303,6 +1334,8 @@ void execute_shellcmd(void)
 	int stderr_pipe[2]={0}; /* For stderr io */
 	int status;
 	ssize_t nread=0; //nread_out=0, nread_err=0;
+	bool err_out, std_out;
+	int ptyfd;
 
 	if( ShellCmd[0] ) {
 		/* Get rid of NL token '\n' */
@@ -1324,20 +1357,20 @@ void execute_shellcmd(void)
 			printf("Fail to create stderr_pipe!\n");
 
 		status=0;
-		sh_pid=vfork();
-
+		//sh_pid=vfork();
+		sh_pid=forkpty(&ptyfd,NULL,NULL,NULL);
 		/* Child process to execute shell command */
 		if( sh_pid==0) {
 			//printf("Child process\n");
 
-			/* Connect to stdout and stderr write_end */
+#if 0			/* Connect to stdout and stderr write_end */
 			close(stdout_pipe[0]);  /* Close read_end */
 			if(dup2(stdout_pipe[1],STDOUT_FILENO)<0)
 				printf("Fail to call dup2 for stdout!\n");
 			close(stderr_pipe[0]);  /* Close read_end */
 			if(dup2(stderr_pipe[1],STDERR_FILENO)<0)
 				printf("Fail to call dup2 for stderr!\n");
-
+#endif
 			/* Execute shell command, the last NL must included in ShellCmd */
 			//system((char *)ShellCmd);
 			execl("/bin/sh", "sh", "-c", (char *)ShellCmd, (char *)0);
@@ -1377,20 +1410,24 @@ void execute_shellcmd(void)
 
 			do {
 		        	bzero(obuf,sizeof(obuf));
-			        nread=read(stdout_pipe[0], obuf, sizeof(obuf)-1);
-			        //printf("strlen=%d, nread=%d\n",strlen((char *)obuf), nread);
-				//printf("obuf[0]=0x%02x obuf: %s\n",obuf[0],obuf);
-				//printf("obuf[last-1]=0x%02x \n",obuf[nread-2]);
-				//printf("obuf[last]=0x%02x \n",obuf[nread-1]);
-
-				if(nread<=0)
-				        nread=read(stderr_pipe[0], obuf, sizeof(obuf)-1);
+			        //nread=read(stdout_pipe[0], obuf, sizeof(obuf)-1);
+			        nread=read(ptyfd, obuf, sizeof(obuf)-1);
+				if(nread<=0) {
+				        //nread=read(stderr_pipe[0], obuf, sizeof(obuf)-1);
+				        nread=read(ptyfd, obuf, sizeof(obuf)-1);
+					std_out=false;
+					chmap->precolor=XTERM_STDERR_COLOR;
+				}
+				else {
+					std_out=true;
+					chmap->precolor=XTERM_STDOUT_COLOR;
+				}
 				if(nread<=0)
 					break;
 
 /* TEST: ----- */
- printf("---Befor insert: pchoff=%u, pchoff2=%u, maplines=%d, maplncount=%d, txtlncount=%d\n",
-                                chmap->pchoff, chmap->pchoff2, chmap->maplines, chmap->maplncount,chmap->txtdlncount );
+// printf("---Befor insert: pchoff=%u, pchoff2=%u, maplines=%d, maplncount=%d, txtlncount=%d\n",
+//                                chmap->pchoff, chmap->pchoff2, chmap->maplines, chmap->maplncount,chmap->txtdlncount );
 
 				/* Copy results into chamap->txtbuff */
 			       #if 0 /* TEST: ---------- */
@@ -1398,15 +1435,20 @@ void execute_shellcmd(void)
 				const char *Hello="Linux SEER2 3.18.29 #29 Wed Sep 30 14:38:04 CST 2020 mips GNU/Linux\n";
 				FTcharmap_insert_string(chmap, (UFT8_PCHAR)Hello,strlen(Hello));
 			       #else
-				FTcharmap_insert_string(chmap,obuf,strlen((char *)obuf));
-				chmap->follow_cursor=false;
+				//chmap->precolor=std_out?XTERM_STDOUT_COLOR:XTERM_STDERR_COLOR;
+				//FTcharmap_insert_string(chmap,obuf,strlen((char *)obuf));
+				parse_shellout((char *)obuf);
+				chmap->follow_cursor=false;  /* Slow down greatly?! */
 			       #endif
+
+#if 0 //////////////////
 				/* charmap to update current page, otherwise following FTcharmap_page_down() will fetch error data. */
         	        	FTcharmap_writeFB(&gv_fb_dev, NULL, NULL); /* TODO: self_cooked fw */
+				fb_render(&gv_fb_dev);
 
 /* TEST: ----- */
- printf("---Aft insert: maplines=%d, maplncount=%d, txtlncount=%d\n",
-                                chmap->maplines, chmap->maplncount,chmap->txtdlncount );
+// printf("---Aft insert: maplines=%d, maplncount=%d, txtlncount=%d\n",
+//                               chmap->maplines, chmap->maplncount,chmap->txtdlncount );
 
 				/* Page_down to the last page, sustain_cmdout locked MOUSE operation! */
        				while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
@@ -1423,6 +1465,7 @@ void execute_shellcmd(void)
        	       			FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
 				fb_render(&gv_fb_dev);
 			    	#endif
+#endif /////////////
 
 			} while( nread>0 && sustain_cmdout );
 
@@ -1451,6 +1494,7 @@ void execute_shellcmd(void)
 
 #if 1		/* Insert new PS */
 		printf("insert PS...\n");
+		chmap->precolor=XTERM_PS_COLOR;
 		FTcharmap_insert_string(chmap,strPrompt,strlen((char *)strPrompt));
 		//chmap->follow_cursor=false;
 		FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
@@ -1475,4 +1519,189 @@ void execute_shellcmd(void)
 	new_isettings.c_cc[VMIN]=0;		 /* Nonblock */
         new_isettings.c_cc[VTIME]=0;
 	tcsetattr(STDIN_FILENO, TCSANOW, &new_isettings);
+}
+
+
+/*-------------------------------------------------------------------------------
+Parse shell output and write to chmap, color attributes are extracted here.
+
+Note:
+   		CSI ( Control sequence introducer ) and Display attributes
+			< Refer to man console_codes >
+   CSI starts with 'ESC[' (or '\033[') and the action of a CSI sequence is determined by
+   its final character.
+    m -- Set display attributes:
+	ESC[ param,param,param,,,,m
+   "Several attributes can be set in the same sequence, separated by semicolons.
+   An empty parameter (between semicolons or string initiator or terminator) is interpreted as a zero."
+
+	<< parameters for color setting >>
+	0       reset all attributes to their defaults
+	...
+	5       set blink
+	...
+       30      set black foreground
+       31      set red foreground
+       32      set green foreground
+       33      set brown foreground
+       34      set blue foreground
+       35      set magenta foreground
+       36      set cyan foreground
+       37      set white foreground
+       38      set underscore on, set default foreground color
+       39      set underscore off, set default foreground color
+       40      set black background
+       41      set red background
+
+       42      set green background
+       43      set brown background
+       44      set blue background
+       45      set magenta background
+       46      set cyan background
+       47      set white background
+       49      set default background color
+	....
+
+		((( 8_color_console control sequence )))
+
+CSI Format: "\033[..3X;4X..m"  3X -- foreground color, 4X -- background color
+
+Examples:
+	attrGreen: 	"\033[0;32;40m"
+	attrRed:	"\033[0;31;40m"
+
+
+		((( 256_color_console control sequence )))
+
+
+CSI Format: "\033[..38;5;n..m"  n -- foreground color
+	    "\033[..48;5;n..m"  n -- backround color
+
+	     256_color(n):
+			0-7:	 Same as 8_color "ESC[30-37m"
+			8-15:    Bright version of above colors. "ESC[90-97m"
+			16-231:  6x6x6=216 colors ( 16+36*r+6*g+b  where 0<=r,g,b<=5 )
+			232-255: 24_grade grays
+Examples:
+	attrRed:	"\e[38;5;196;48;5;0m"    (forecolor 196, backcolor 0)
+
+Reset to defaults:  "\e[0m"
+
+
+Params:
+@pstr:	Pointer to shell output string.
+
+---------------------------------------------------------------------------*/
+void parse_shellout(char* pstr)
+{
+	int k,j;
+	char *ps, *pe;		/* Start and end of a CSI */
+	const char *delim_ESC="\033"; /* Start of CSI seq */
+	const char *delim_Param=";";   /* parameter separator */
+	char *param;
+	char *pins;		/* Pointer to plain string (without CSI) for inserting to Charmap */
+	static char *saveptr;
+	static char *saveps;
+
+	/* Calloc saveptr/saveps */
+	if(saveptr==NULL) {
+		saveptr=calloc(1, 2048);
+		if(saveptr==NULL) {
+			printf("Fail to calloc saveptr!\n");
+			return;
+		}
+	}
+	if(saveps==NULL) {
+		saveps=calloc(1, 2048);
+		if(saveps==NULL) {
+			printf("Fail to calloc saveps!\n");
+			return;
+		}
+	}
+
+	printf("---pstr: %s\n", pstr);
+
+	/* Fetch CSI */
+ 	ps=strtok_r(pstr, delim_ESC,&saveptr);
+        for(k=0; ps!=NULL; k++) {
+//		printf("ps: %s\n", ps);
+		/* Parse CSI color attribute, only if a legal CSI sequence. */
+		if( ps[0]=='[' && (pe=strstr(ps, "m"))!=NULL) {
+			/* Buffer current line before calling strtok */
+//			printf("pe+1: %s\n", pe+1);
+			/* Parse parameters of CSI sequence, separated by semicolons */
+			param=strtok_r(ps+1, delim_Param, &saveps);
+//			printf("param: %s\n", param);
+			for(j=0; param!=NULL; j++ ) {
+				/* Only parse font color NOW. TODO: more... */
+				switch(atoi(param)) {
+					case 0: /* All set to default */
+						chmap->precolor=chmap->fontcolor;
+						break;
+
+					/* Xterm color: 0-7   TOO DARK!!!!
+					 * BLACK(0,0,0)
+					 * Maroon(128,0,0), Green(0,128,0), Olive(128,128,0),
+        	              		 * Navy(0,0,128), Purple(128,0,128), Teal(0,128,128),
+					 * Silver(192,192,192)
+					 */
+
+					case 30:
+						chmap->precolor=WEGI_COLOR_BLACK;
+						break;
+					case 31: case 32: case 33: case 35:
+					case 36:
+						chmap->precolor=egi_256color_code(atoi(param)-30 +8); //+8);
+						break;
+					case 37:
+						chmap->precolor=egi_256color_code(7);
+						break;
+					default:
+						break;
+				}
+
+				/* Fetch next param */
+				param=strtok_r(NULL, delim_Param,&saveps);
+			}
+
+			/* Write to charmap immediatly after precolor setting. */
+//			printf("insert string:%s\n", pe+1); //tmpbuf);
+			FTcharmap_insert_string(chmap,(UFT8_PCHAR)(pe+1),strlen(pe+1));
+			chmap->request=0;
+
+			#if 1 /* Refresh screen after each NL, slow... */
+			if( strstr(pe+1, "\n")!=NULL ) {
+				chmap->follow_cursor=false;
+				FTcharmap_goto_end();
+	      			FTcharmap_page_fitBottom(chmap);
+       				FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+				fb_render(&gv_fb_dev);
+			}
+			#endif
+		}
+		/* Plain string withou CSI */
+		else if( ps[0] !='[' ) {
+			FTcharmap_insert_string(chmap,(UFT8_PCHAR)(ps),strlen(ps));
+			chmap->request=0;
+
+			if( strstr(ps, "\n")!=NULL ) {
+				chmap->follow_cursor=false;
+				FTcharmap_goto_end();
+	      			FTcharmap_page_fitBottom(chmap);
+       				FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+				fb_render(&gv_fb_dev);
+			}
+		}
+
+		/* Fetch next CSI sequence */
+	 	ps=strtok_r(NULL, delim_ESC, &saveptr);
+        }
+
+#if 0
+	chmap->follow_cursor=false;
+	FTcharmap_goto_end();
+	FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+	fb_render(&gv_fb_dev);
+#endif
+
 }
