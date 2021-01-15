@@ -188,11 +188,16 @@ struct  FTsymbol_char_map {
 						  * If bkgcolor<0, ignore. no bkg color,
 						  * Else if bkgcolor>=0 set as EGI_16BIT_COLOR
 						  */
-	EGI_16BIT_COLOR fontcolor;		 /* font color,charColorMap will prevail. */
+	int		precolor;		 /* Preset as fontcolor before each inserting(string/char) operation.
+						  * MUST reset to -1 after insertion. means functions only once.
+						  * It prevails fontcolor AND charColorMap
+						  * If <0, then it will be invalid.
+						  */
+	EGI_16BIT_COLOR fontcolor;		 /* font color,charColorMap will prevail it. */
 	EGI_COLOR_BANDMAP *charColorMap;	 /* color map for chars: bands[]->pos corresponds to pos(offset) to txtbuff.
 						  * If NULL, then apply fontcolor
 						  */
-	EGI_COLOR_BANDMAP *hlmarkColorMap;	 /* color map for High_Light mark: bands[]->pos corresponds to pos(offset) to txtbuff.
+	EGI_COLOR_BANDMAP *hlmarkColorMap;	 /* color map for Highlight mark: bands[]->pos corresponds to pos(offset) to txtbuff.
 						  * If NULL, then do not apply.
 						  */
 
@@ -349,21 +354,21 @@ int     FTcharmap_goto_firstDline ( EGI_FTCHAR_MAP *chmap );    /* mutex_lock + 
 int 	FTcharmap_getPos_lastCharOfDline(EGI_FTCHAR_MAP *chmap,  int dln); /* ret pos is relative to txtdlinePos[] */
 int 	FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  unsigned int pchoff);
 
-int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request +charColorMap */
+int 	FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request +charColorMap|hlmarkColorMap */
 
-int 	FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned char *pstr, size_t strsize ); /* +charColorMap */
+int 	FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned char *pstr, size_t strsize ); /* +charColorMap|hlmarkColorMap */
 int 	FTcharmap_insert_string( EGI_FTCHAR_MAP *chmap, const unsigned char *pstr, size_t strsize );  /* mutex_lock + request */
 
 
-int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock + request  +charColorMap  */
+int 	FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch );	/* mutex_lock + request  +charColorMap|hlmarkColorMap */
 
 /* Delete a char preceded by cursor OR chars selected between pchoff2 and pchoff */
-int 	FTcharmap_delete_string_nolock( EGI_FTCHAR_MAP *chmap );	/*  +charColorMap */
+int 	FTcharmap_delete_string_nolock( EGI_FTCHAR_MAP *chmap );	/*  +charColorMap|hlmarkColorMap */
 int 	FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */
 
-/* Modify color */
-int     FTcharmap_modify_charColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color);
-int  	FTcharmap_modify_hlmarkColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color);
+/* Modify color band associated with char/highlight */
+int     FTcharmap_modify_charColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, bool request);	/* mutex_lock + request + charColorMap */
+int  	FTcharmap_modify_hlmarkColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, bool request);	/* mutex_lock + request + hlmarkColorMap */
 
 /* To/from EGI_SYSPAD */
 int 	FTcharmap_copy_from_syspad( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */

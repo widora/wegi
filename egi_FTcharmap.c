@@ -112,13 +112,18 @@ Journal:
 2020-12-27.
 	1.Modify:  int FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  int pchoff)
      	   to int FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  unsigned int pchoff)
-
 	2.Modify: FTcharmap_uft8strings_writeFB()
 	  When input fb_dev is NULL: For ASCII chars, call FTsymbol_unicode_writeFB()! instead of FT_Get_Advance()!
 	  See. FTsymbol_uft8strings_pixlen() also.
 2021-1-9.
 	1. Add chmap->charColorMap for go_backSpace()/insert_char()/delete_string()/insert_string.
 	2. Modify: FTcharmap_create() to add param 'charColorMap_ON' and 'fontcolor'.
+2021-1-12.
+	1. Add chmap->hlmarkColorMap for go_backSpace()/insert_char()/delete_string()/insert_string.
+	2. Add FTcharmap_modify_charColor() and FTcharmap_modify_hlmarkColor().
+2021-1-13.
+	1. Add param 'bool request' to FTcharmap_modify_charColor() and FTcharmap_modify_hlmarkColor().
+	2. Add chmap->precolor for insert_char() and insert_string().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -232,7 +237,7 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
 		}
 	}
 
-	/* 5. To create hlmarkColorMap for high_light mark. If no bkgcolor, set mark color as BLACK! */
+	/* 5. To create hlmarkColorMap for highlight mark. If no bkgcolor, set mark color as BLACK! */
 	if( hlmarkColorMap_ON ) {
 		chmap->hlmarkColorMap=egi_colorBandMap_create(bkgcolor>=0?bkgcolor:WEGI_COLOR_BLACK, COLORMAP_BANDS_GROW_SIZE);
 		if(chmap->hlmarkColorMap==NULL) {
@@ -265,6 +270,7 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
 
 	/* 8. Set default  color/alpha */
 	chmap->bkgcolor=bkgcolor;
+	chmap->precolor=-1;		     /* <0 to make it invalid. it will prevail fontcolor. */
 	chmap->fontcolor=fontcolor; 	     /* charColorMap!=NULL will prevail. */
 	chmap->markcolor=WEGI_COLOR_YELLOW;  /* Can be ajust aft. init */
 	chmap->markalpha=50;
@@ -844,7 +850,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 		else
 			fontcolor=chmap->fontcolor;
 
-		/* Get high_light mark color from colormap here! */
+		/* Get highlight mark color from colormap here! */
 		if(chmap->hlmarkColorMap!=NULL) {
 			hlmarkcolor=egi_colorBandMap_pickColor(chmap->hlmarkColorMap, p-chmap->txtbuff);
 			//printf("hlmarkcolor=%u, RGB: 0x%06X, getY=%u \n",hlmarkcolor, COLOR_16TO24BITS(hlmarkcolor), egi_color_getY(hlmarkcolor));
@@ -933,7 +939,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 		/* If TAB(9) key, align to imaginary grid */
 		if( *wcstr==9 ) {
 			xleft = pixpl-((pixpl-xleft)/TabWidth +1)*TabWidth;
-			/*  NO High_light mark for TAB! */
+			/*  NO Highlight mark for TAB! */
 		}
 		/* If fb_dev==NULL: To get xleft in a fast way */
 		else if( fb_dev == NULL) {
@@ -967,7 +973,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 		}
 		else /* fb_dev is NOT NULL, TODO: fake fb_dev to NULL */
 		{
-			/* High_light mark */
+			/* Highlight mark */
                         if( chmap->hlmarkColorMap && hlmarkcolor!=chmap->bkgcolor ) {
 				int tmp=xleft;
 				/* If selfcooked width */
@@ -979,7 +985,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 					sdw=xleft-tmp;
 				}
 
-				/* Draw high_light mark block for the char */
+				/* Draw highlight mark block for the char */
 				if( tmp>=0 )  /* If tmp<0, NOT enough space for the char! */
 				 draw_filled_rect2(&gv_fb_dev, hlmarkcolor, px, py, px+sdw-1, py+chmap->maplndis-1);
                         }
@@ -2949,12 +2955,16 @@ int FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap )
 			chmap->pref=chmap->txtbuff+chmap->txtdlinePos[dln];
 	  	}
 
-                /* Delete charColorMap accordingly */
+                /* A. Delete charColorMap accordingly */
                 if( chmap->charColorMap!=NULL
 		    && egi_colorBandMap_deleteBands(chmap->charColorMap, startPos, endPos-startPos) !=0 ) {
                         printf("%s: Fail to delete charColorMap!\n", __func__);
                 }
-
+                /* B. Delete hlmarkColorMap accordingly */
+                if( chmap->hlmarkColorMap!=NULL
+		    && egi_colorBandMap_deleteBands(chmap->hlmarkColorMap, startPos, endPos-startPos) !=0 ) {
+                        printf("%s: Fail to delete hlmarkColorMap!\n", __func__);
+                }
 
 	}
 	/* 2. pchoff==pchoff2: If chmap->pch Not in current charmap page, set to scroll to dline */
@@ -3008,10 +3018,15 @@ int FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap )
 		/* MUST_4. Set pref to previous txtdline before charmap and set txtdlncount also */
                 chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
 
-                /* Delete charColorMap accordingly */
+                /* A. Delete charColorMap accordingly */
                 if( chmap->charColorMap!=NULL
 		    && egi_colorBandMap_deleteBands(chmap->charColorMap, pos, chsize) !=0) {
                         printf("%s: Fail to delete charColorMap for char at top leftmost of charmap!\n", __func__);
+                }
+                /* B. Delete hlmarkColorMap accordingly */
+                if( chmap->hlmarkColorMap!=NULL
+		    && egi_colorBandMap_deleteBands(chmap->hlmarkColorMap, pos, chsize) !=0) {
+                        printf("%s: Fail to delete hlmarkColorMap for char at top leftmost of charmap!\n", __func__);
                 }
 
 	   }
@@ -3038,11 +3053,17 @@ int FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap )
 		chmap->pchoff=pos;
 		chmap->pchoff2=chmap->pchoff; /* interlocked */
 
-                /* Delete charColorMap accordingly */
+                /* A. Delete charColorMap accordingly */
                 if( chmap->charColorMap!=NULL &&
 		    egi_colorBandMap_deleteBands(chmap->charColorMap, pos, chsize) !=0) {
                         printf("%s: Fail to delete charColorMap for a char at current charmap!\n", __func__);
                 }
+                /* B. Delete hlmarkColorMap accordingly */
+                if( chmap->hlmarkColorMap!=NULL &&
+		    egi_colorBandMap_deleteBands(chmap->hlmarkColorMap, pos, chsize) !=0) {
+                        printf("%s: Fail to delete hlmarkColorMap for a char at current charmap!\n", __func__);
+                }
+
 	   }
 
 	}
@@ -3086,11 +3107,14 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
 {
 	int dln;
 	int startPos, endPos;
+	EGI_16BIT_COLOR color;
 
 	/* Check input */
         if( chmap==NULL || pstr==NULL ) {
                 return -1;
         }
+	if(strsize==0)
+		return 0;
 
 	/* 1. Check txtbuff space, and auto mem_grow if necessary. NOT deduct selected chars which are supposed to be replaced! */
 	if( chmap->txtlen +strsize > chmap->txtsize-1 ) {  /* ?-1 */
@@ -3127,10 +3151,15 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
 		chmap->pchoff=startPos;
 		chmap->pchoff2=startPos;
 
-		/* Delete charColorMap accordingly */
+		/* A. Delete charColorMap accordingly */
 		if( chmap->charColorMap!=NULL
 		    && egi_colorBandMap_deleteBands(chmap->charColorMap, startPos, endPos-startPos) !=0) {
 			printf("%s: Fail to delete charColorMap for selection marks!\n", __func__);
+		}
+		/* B. Delete hlmarkColorMap accordingly */
+		if( chmap->hlmarkColorMap!=NULL
+		    && egi_colorBandMap_deleteBands(chmap->hlmarkColorMap, startPos, endPos-startPos) !=0) {
+			printf("%s: Fail to delete hlmarkColorMap for selection marks!\n", __func__);
 		}
 
 	   if( chmap->txtbuff+startPos < chmap->pref)
@@ -3184,12 +3213,33 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
 
 		/* 4. Update charColorMap */
 		if( chmap->charColorMap!=NULL ) {
+			if(chmap->precolor>0)
+				color=chmap->precolor;
+			else
 											/* --- use previous char color! */
-			EGI_16BIT_COLOR color=egi_colorBandMap_pickColor(chmap->charColorMap, chmap->pchoff>0 ? chmap->pchoff-1:0 );
+				color=egi_colorBandMap_pickColor(chmap->charColorMap, chmap->pchoff>0 ? chmap->pchoff-1:0 );
+
 			if( egi_colorBandMap_insertBand(chmap->charColorMap, chmap->pchoff, strsize, color)!= 0 ) {
-				printf("%s: Fail to insert color band at EOF!\n",__func__);
+				printf("%s: Fail to insert char color band at EOF!\n",__func__);
 			}
+
+			chmap->precolor=-1; /* reset */
 		}
+		/* 5. Update hlmarkColorMap */
+		if( chmap->hlmarkColorMap!=NULL ) {
+			if(chmap->precolor>0)
+				color=chmap->precolor;
+			else
+										/* --- use previous highlight color! */
+				color=egi_colorBandMap_pickColor(chmap->hlmarkColorMap, chmap->pchoff>0 ? chmap->pchoff-1:0 );
+
+			if( egi_colorBandMap_insertBand(chmap->hlmarkColorMap, chmap->pchoff, strsize, color)!= 0 ) {
+				printf("%s: Fail to insert highlight color band at EOF!\n",__func__);
+			}
+
+			chmap->precolor=-1; /* reset */
+		}
+
 	}
 	/* 2.2 Insert char not at EOF */
 	else {
@@ -3207,17 +3257,40 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
 
 		/* 4. Update charColorMap accordingly */
 		if( chmap->charColorMap!=NULL ) {
-			EGI_16BIT_COLOR color;
+			if(chmap->precolor>0)
+				color=chmap->precolor;
 			/* If previous char is NewLine! then use current pos BANDMAP color value */
-			if( chmap->pchoff>0 && *(chmap->txtbuff+chmap->pchoff -1) == '\n' ) {
+			else if( chmap->pchoff>0 && *(chmap->txtbuff+chmap->pchoff -1) == '\n' ) {
 				color=egi_colorBandMap_pickColor(chmap->charColorMap, chmap->pchoff);
 			}
 			else	/* Else, use previous BANDMAP pos color! */
 				color=egi_colorBandMap_pickColor(chmap->charColorMap, chmap->pchoff>0 ? chmap->pchoff-1:0 );
+
 			/* Update charColorMap */
 			if( egi_colorBandMap_insertBand(chmap->charColorMap, chmap->pchoff, strsize, color)!= 0 ) {
-				printf("%s: Fail to insert color band not at EOF!\n",__func__);
+				printf("%s: Fail to insert char color band not at EOF!\n",__func__);
 			}
+
+			chmap->precolor=-1; /* reset */
+		}
+
+		/* 5. Update charColorMap accordingly */
+		if( chmap->hlmarkColorMap!=NULL ) {
+			if(chmap->precolor>0)
+				color=chmap->precolor;
+			/* If previous char is NewLine! then use current pos BANDMAP color value */
+			if( chmap->pchoff>0 && *(chmap->txtbuff+chmap->pchoff -1) == '\n' ) {
+				color=egi_colorBandMap_pickColor(chmap->hlmarkColorMap, chmap->pchoff);
+			}
+			else	/* Else, use previous BANDMAP pos color! */
+				color=egi_colorBandMap_pickColor(chmap->hlmarkColorMap, chmap->pchoff>0 ? chmap->pchoff-1:0 );
+
+			/* Update hlmarkColorMap */
+			if( egi_colorBandMap_insertBand(chmap->hlmarkColorMap, chmap->pchoff, strsize, color)!= 0 ) {
+				printf("%s: Fail to insert highlight color band not at EOF!\n",__func__);
+			}
+
+			chmap->precolor=-1; /* reset */
 		}
 
 	}
@@ -3322,6 +3395,7 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 	int dln;
 	int startPos, endPos;
 	//int chns;    /* Total number of inserted chars, ==1 NOW */
+	EGI_16BIT_COLOR color;
 
 	/* Check input */
         if( chmap==NULL ) {
@@ -3446,10 +3520,16 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 		chmap->pchoff=startPos;
 		chmap->pchoff2=startPos;
 
-		/* Delete charColorMap accordingly */
+		/* A. Delete charColorMap accordingly */
 		if( chmap->charColorMap!=NULL
 		    && egi_colorBandMap_deleteBands(chmap->charColorMap, startPos, endPos-startPos) !=0) {
-			printf("%s: Fail to delete charColorMap!\n", __func__);
+			printf("%s: Fail to delete associated color band in charColorMap!\n", __func__);
+		}
+
+		/* B. Delete hlmarkColorMap accordingly */
+		if( chmap->hlmarkColorMap!=NULL
+		    && egi_colorBandMap_deleteBands(chmap->hlmarkColorMap, startPos, endPos-startPos) !=0) {
+			printf("%s: Fail to delete associated color band in hlmarkColorMap!\n", __func__);
 		}
 
 	    }
@@ -3475,13 +3555,32 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 		 * champ->pchoff/pchoff2 to be modified accordingly for pch/pch2, see below.
 		 */
 
-		/* Update charColorMap  */
+		/* 4. Update charColorMap  */
 		if( chmap->charColorMap!=NULL ) {
-											/* --- use previous char color! */
-			EGI_16BIT_COLOR color=egi_colorBandMap_pickColor(chmap->charColorMap, chmap->pchoff>0 ? chmap->pchoff-1:0 );
+			if(chmap->precolor>0)
+				color=chmap->precolor;
+			else
+										/* --- use previous char color! */
+				color=egi_colorBandMap_pickColor(chmap->charColorMap, chmap->pchoff>0 ? chmap->pchoff-1:0 );
 			if( egi_colorBandMap_insertBand(chmap->charColorMap, chmap->pchoff, chsize, color)!= 0 ) {
-				printf("%s: Fail to insert color band at EOF!\n",__func__);
+				printf("%s: Fail to insert char color band at EOF!\n",__func__);
 			}
+
+			chmap->precolor=-1; /* reset */
+		}
+
+		/* 5. Update hlmarkColorMap  */
+		if( chmap->hlmarkColorMap!=NULL ) {
+			if(chmap->precolor>0)
+                                color=chmap->precolor;
+                        else
+                       								/* --- use previous highlight color! */
+			color=egi_colorBandMap_pickColor(chmap->hlmarkColorMap, chmap->pchoff>0 ? chmap->pchoff-1:0 );
+			if( egi_colorBandMap_insertBand(chmap->hlmarkColorMap, chmap->pchoff, chsize, color)!= 0 ) {
+				printf("%s: Fail to insert highlight color band at EOF!\n",__func__);
+			}
+
+			chmap->precolor=-1; /* reset */
 		}
 
 	   }
@@ -3501,18 +3600,41 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 
 		/* 4. Update charColorMap accordingly */
 		if( chmap->charColorMap!=NULL ) {
-			EGI_16BIT_COLOR color;
+			if(chmap->precolor>0)
+				color=chmap->precolor;
 			/* If previous char is NewLine! then use current pos BANDMAP color value */
-			if( chmap->pchoff>0 && *(chmap->txtbuff+chmap->pchoff -1) == '\n' ) {
+			else if( chmap->pchoff>0 && *(chmap->txtbuff+chmap->pchoff -1) == '\n' ) {
 				color=egi_colorBandMap_pickColor(chmap->charColorMap, chmap->pchoff);
 			}
 			else	/* Else, use previous BANDMAP pos color! */
 				color=egi_colorBandMap_pickColor(chmap->charColorMap, chmap->pchoff>0 ? chmap->pchoff-1:0 );
 			/* Update charColorMap */
 			if( egi_colorBandMap_insertBand(chmap->charColorMap, chmap->pchoff, chsize, color)!= 0 ) {
-				printf("%s: Fail to insert color band not at EOF!\n",__func__);
+				printf("%s: Fail to insert char color band not at EOF!\n",__func__);
 			}
+
+			chmap->precolor=-1; /* reset */
 		}
+
+		/* 5. Update hlmarkColorMap accordingly */
+		if( chmap->hlmarkColorMap!=NULL ) {
+                        if(chmap->precolor>0)
+                                color=chmap->precolor;
+			/* If previous char is NewLine! then use current pos BANDMAP color value */
+			else if( chmap->pchoff>0 && *(chmap->txtbuff+chmap->pchoff -1) == '\n' ) {
+				color=egi_colorBandMap_pickColor(chmap->hlmarkColorMap, chmap->pchoff);
+			}
+			else	/* Else, use previous BANDMAP pos color! */
+				color=egi_colorBandMap_pickColor(chmap->hlmarkColorMap, chmap->pchoff>0 ? chmap->pchoff-1:0 );
+			/* Update hlmarkColorMap */
+			if( egi_colorBandMap_insertBand(chmap->hlmarkColorMap, chmap->pchoff, chsize, color)!= 0 ) {
+				printf("%s: Fail to insert highlight color band not at EOF!\n",__func__);
+			}
+
+			chmap->precolor=-1; /* reset */
+		}
+
+
 	     }
 
 	     /* In case that inserting a new char just at the end of the charmap, and AFTER charmapping: chmap->pch > chmap->chcount-1
@@ -3625,11 +3747,17 @@ inline int FTcharmap_delete_string_nolock( EGI_FTCHAR_MAP *chmap )
 				chmap->pref=chmap->txtbuff+chmap->txtdlinePos[dlindex];
 		  	}
 
-			/* Delete charColorMap accordingly */
+			/* A. Delete charColorMap accordingly */
 			if( chmap->charColorMap!=NULL
 			    && egi_colorBandMap_deleteBands(chmap->charColorMap, startPos, endPos-startPos) !=0) {
-				printf("%s: Fail to delete charColorMap for selected chars!\n", __func__);
+				printf("%s: Fail to delete associated band in charColorMap for selected chars!\n", __func__);
 			}
+			/* B. Delete hlmarkColorMap accordingly */
+			if( chmap->hlmarkColorMap!=NULL
+			    && egi_colorBandMap_deleteBands(chmap->hlmarkColorMap, startPos, endPos-startPos) !=0) {
+				printf("%s: Fail to delete associated hightligh band in hlmarkColorMap for selected chars!\n", __func__);
+			}
+
 		}
 
 		/* 2. No selection marks, and chmap->pchoff(pchoff2) NOT in current charmpa */
@@ -3657,11 +3785,17 @@ inline int FTcharmap_delete_string_nolock( EGI_FTCHAR_MAP *chmap )
 			/* PRE_2:  Set chmap->pref */
 			chmap->pref=chmap->txtbuff+chmap->txtdlinePos[dlindex];
 
-	                /* Delete charColorMap accordingly */
+	                /* A. Delete charColorMap accordingly */
         	        if( chmap->charColorMap!=NULL
 			    && egi_colorBandMap_deleteBands(chmap->charColorMap, startPos, charlen) !=0) {
-                	        printf("%s: Fail to delete charColorMap for a char not in current charmap.\n", __func__);
+                	        printf("%s: Fail to delete associated band in charColorMap for a char not in current charmap.\n", __func__);
                 	}
+	                /* B. Delete hlmarkColorMap accordingly */
+        	        if( chmap->hlmarkColorMap!=NULL
+			    && egi_colorBandMap_deleteBands(chmap->hlmarkColorMap, startPos, charlen) !=0) {
+                	        printf("%s: Fail to delete associated band in hlmarkColorMap for a char not in current charmap.\n", __func__);
+                	}
+
 		}
 
 		/* 3. NO selection marks, chmap->pch in current charmap, But NOT the end */
@@ -3677,11 +3811,16 @@ inline int FTcharmap_delete_string_nolock( EGI_FTCHAR_MAP *chmap )
                        /* If reset EOF here, it must clear length of the deleted uft8 char. so we'd rather reset EOF when
 			* inserting char at the end of txtbuff. */
 
-	                /* Delete charColorMap accordingly */
                         startPos=chmap->pchoff;
+	                /* A. Delete charColorMap accordingly */
         	        if( chmap->charColorMap!=NULL
 			    && egi_colorBandMap_deleteBands(chmap->charColorMap, startPos, charlen) !=0) {
-                	        printf("%s: Fail to delete charColorMap for a char in current charmap.\n", __func__);
+                	        printf("%s: Fail to delete associated band in charColorMap for a char in current charmap.\n", __func__);
+                	}
+	                /* B. Delete hlmarkColorMap accordingly */
+        	        if( chmap->hlmarkColorMap!=NULL
+			    && egi_colorBandMap_deleteBands(chmap->hlmarkColorMap, startPos, charlen) !=0) {
+                	        printf("%s: Fail to delete associated band in hlmarkColorMap for a char in current charmap.\n", __func__);
                 	}
 
                  }
@@ -3701,13 +3840,17 @@ inline int FTcharmap_delete_string_nolock( EGI_FTCHAR_MAP *chmap )
                        /* If reset EOF here, it must clear length of the deleted uft8 char. so we'd rather reset EOF when
 			* inserting char at the end of txtbuff. */
 
-	                /* Delete charColorMap accordingly */
                         startPos=chmap->pchoff;
+	                /* A. Delete charColorMap accordingly */
         	        if( chmap->charColorMap!=NULL
 			    && egi_colorBandMap_deleteBands(chmap->charColorMap, startPos, charlen) !=0) {
-                	        printf("%s: Fail to delete charColorMap for a char at end of current charmap.\n", __func__);
+                	        printf("%s: Fail to delete associated band in charColorMap for a char at end of current charmap.\n", __func__);
                 	}
-
+	                /* B. Delete hlmarkColorMap accordingly */
+        	        if( chmap->hlmarkColorMap!=NULL
+			    && egi_colorBandMap_deleteBands(chmap->hlmarkColorMap, startPos, charlen) !=0) {
+                	        printf("%s: Fail to delete associated band in hlmarkColorMap for a char at end of current charmap.\n", __func__);
+                	}
                  }
 	}
 	/* ELSE: txtlen==0, chmap->txtbuff is empty! */
@@ -3788,12 +3931,13 @@ Note:
 
 @chmap:         Pointer to the EGI_FTCHAR_MAP.
 @color:		Color for chmap currrent selections.
+@request:	Request to re_charmap aftter calling.
 
 Return:
         0       OK
         <0      Fail
 -------------------------------------------------------------------*/
-int  FTcharmap_modify_charColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color)
+int  FTcharmap_modify_charColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, bool request)
 {
 	int startPos=0;
 	int endPos=0;
@@ -3817,10 +3961,12 @@ int  FTcharmap_modify_charColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color)
         }
 
 	/* Check request ? OR wait ??? */
-	if( chmap->request !=0 ) {
-       	/*  <-------- Put mutex lock */
-	        pthread_mutex_unlock(&chmap->mutex);
-		return -3;
+	if(request) {
+		if( chmap->request !=0 ) {
+       		/*  <-------- Put mutex lock */
+	        	pthread_mutex_unlock(&chmap->mutex);
+			return -3;
+		}
 	}
 
         /* 1. If head of selection (pchoff or pchoff2 wich is smaller) Not in current charmap page, set to scroll to.
@@ -3874,6 +4020,7 @@ int  FTcharmap_modify_charColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color)
 		}
 
 		/* Combine char Color Map in the selection and set new color */
+		printf("%s: To combine color bands...\n",__func__);
 		if( egi_colorBandMap_combineBands( chmap->charColorMap, startPos, endPos-startPos, color) !=0) {
 			printf("%s: Fail to combine colormap for char selection!\n", __func__);
 		}
@@ -3884,7 +4031,8 @@ int  FTcharmap_modify_charColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color)
 	}
 
 	/* Set chmap->request for charmapping */
-	chmap->request=1;
+	if(request)
+		chmap->request=1;
 
         /*  <-------- Put mutex lock */
         pthread_mutex_unlock(&chmap->mutex);
@@ -3894,23 +4042,24 @@ int  FTcharmap_modify_charColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color)
 
 
 /*-------------------------------------------------------------------------------
-Add/modify high_light mark/color for selected chars, by operating chmap->hlmarkColorMap.
+Add/modify highlight mark/color for selected chars, by operating chmap->hlmarkColorMap.
 
 Note:
 1. If cursor OR head of selection NOT in current charmap,
    Set to scroll to dline where it located.
-2. If selection marked, add/modify high_light mark colr for those chars ,
+2. If selection marked, add/modify highlight mark colr for those chars ,
    and group them to one color band.
-3. If no selection, do nothing.
+3. TODO: If no selection,
 
 @chmap:         Pointer to the EGI_FTCHAR_MAP.
-@color:		High_light mark color for currrent selections.
+@color:		Highlight mark color for currrent selections.
+@request:	Request to re_charmap aftter calling.
 
 Return:
         0       OK
         <0      Fail
 ------------------------------------------------------------------------------*/
-int  FTcharmap_modify_hlmarkColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color)
+int  FTcharmap_modify_hlmarkColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, bool request)
 {
 	int startPos=0;
 	int endPos=0;
@@ -3934,10 +4083,12 @@ int  FTcharmap_modify_hlmarkColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color)
         }
 
 	/* Check request ? OR wait ??? */
-	if( chmap->request !=0 || chmap->pchoff == chmap->pchoff2 ) {
-       	/*  <-------- Put mutex lock */
-	        pthread_mutex_unlock(&chmap->mutex);
-		return -3;
+	if( request ) {
+		if( chmap->request !=0 ) {
+	 	/*  <-------- Put mutex lock */
+		        pthread_mutex_unlock(&chmap->mutex);
+			return -3;
+		}
 	}
 
         /* 1. If head of selection (pchoff or pchoff2 wich is smaller) Not in current charmap page, set to scroll to.
@@ -3995,10 +4146,14 @@ int  FTcharmap_modify_hlmarkColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color)
 			printf("%s: Fail to combine colormap for char selection!\n", __func__);
 		}
 	}
-	/* 3. If no selection, See 'check request' above. */
+	/* 3. TODO: If no selection, AUTO/NON_AUTO color set */
+	else {
+
+	}
 
 	/* Set chmap->request for charmapping */
-	chmap->request=1;
+	if(request)
+		chmap->request=1;
 
         /*  <-------- Put mutex lock */
         pthread_mutex_unlock(&chmap->mutex);
