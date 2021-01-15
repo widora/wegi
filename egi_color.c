@@ -28,6 +28,8 @@ Midas ZHou
 #include <sys/time.h> /*gettimeofday*/
 #include <stdint.h>
 
+
+
 /*------------------------------------------------------------------------------------
 Get a 16bit color value/alpha between two given colors/alphas by interpolation.
 
@@ -70,6 +72,63 @@ inline void egi_16bitColor_interplt( EGI_16BIT_COLOR color1, EGI_16BIT_COLOR col
 		*alpha=A;
 	}
 }
+
+
+/*---------------------------------------------------------------------
+To generate Xterm 256 colors as defined by ISO/IEC-6429.
+
+code:
+	0-7:     Same as 8_color,  CSI: "ESC[30-37m"
+	8-15:    Bright version of above colors. CSI: "ESC[90-97m"
+	16-231:  6x6x6=216 colors ( 16+36*r+6*g+b  where 0<=r,g,b<=5 )
+	232-255: 24_grade grays
+
+Return:
+	code<256  EGI_16BIT_COLOR
+	code>255  0 as BLACK
+----------------------------------------------------------------------*/
+EGI_16BIT_COLOR egi_256color_code(unsigned int code)
+{
+	int nr,ng,nb;
+
+	/* 1. Code 0-7: 8 standard xterm color */
+	if( code<8 ) {
+		if(code==7)  /* Silver(192,192,192) */
+			return COLOR_RGB_TO16BITS(192,192,192);
+		else /* 0-7: BLACK(0,0,0)
+		      *	     Maroon(128,0,0), Green(0,128,0), Olive(128,128,0),
+		      *	     Navy(0,0,128), Purple(128,0,128), Teal(0,128,128)
+		      */
+			return COLOR_RGB_TO16BITS((code&0x1)<<7, ((code>>1)&0x1)<<7, (code>>2)<<7); /* /2 %2 *128 */
+	}
+	/* 2. Code 8-15: 8 bright version standard xterm color */
+	else if(code<16) {
+		if(code==8) /* Grey(128,128,128) */
+			return COLOR_RGB_TO16BITS(128,128,128);
+                else /* 9-15: Red(255,0,0)
+                      *       Lime(0,255,0), Yellow(255,255,0), Blue(0,0,255),
+                      *       Fuchsia(255,0,255), Aqua(0,255,255), White(255,255,255)
+                      */
+                        return COLOR_RGB_TO16BITS((code&0x1)*255, ((code>>1)&0x1)*255, ((code>>2)&0x1)*255); /* /2 %2 *256 */
+
+	}
+	/* 3. Code 16-231:  6x6x6=216 colors ( 16+36*r+6*g+b  where 0<=r,g,b<=5 ) */
+	else if(code<232) {
+		nr=(code-16)/36;
+		ng=(code-16)%36/6;
+		nb=(code-16)%6;
+		return COLOR_RGB_TO16BITS(nr==0?0:(95+40*(nr-1)), ng==0?0:(95+40*(ng-1)),nb==0?0:(95+40*(nb-1)));
+	}
+	/* 4. Code 232-255: 24_grade grays*/
+	else if( code<256 ) {
+		int val=8+(code-232)*10;
+		return COLOR_RGB_TO16BITS( val, val, val);
+	}
+	/* 5. CODE >255 , illegal. */
+	else
+		return 0;
+}
+
 
 /*------------------------------------------------------------------
 Get average color value
@@ -500,7 +559,7 @@ int egi_color_YUYV2YUV(const unsigned char *src, unsigned char *dest, int w, int
  Get Y(Luma/Brightness) value from a 16BIT RGB color
  as of YUV
 
- Y=0.30R+0.59G+0.11B=(307R+604G+113G)>>10 [0 255]
+ Y=0.30R+0.59G+0.11B=(307R+604G+113B)>>10 [0 255]
 ---------------------------------------------------*/
 unsigned char egi_color_getY(EGI_16BIT_COLOR color)
 {

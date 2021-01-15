@@ -179,7 +179,7 @@ struct egi_hsv_color {
 void 		egi_16bitColor_interplt( EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2,
                        	                 unsigned char alpha1,  unsigned char alpha2,
                                	         int f15_ratio, EGI_16BIT_COLOR* color, unsigned char *alpha);
-
+EGI_16BIT_COLOR 	egi_256color_code(unsigned int code);
 EGI_16BIT_COLOR 	egi_16bitColor_avg(EGI_16BIT_COLOR *colors, int n);
 EGI_16BIT_COLOR 	egi_color_random(enum egi_color_range range);
 EGI_16BIT_COLOR 	egi_color_random2(enum egi_color_range range, unsigned char luma);
@@ -210,7 +210,7 @@ struct egi_color_band_map  /* EGI_COLOR_BANDMAP */
 {
 	EGI_16BIT_COLOR	default_color;   /* Default color, when bands==NULL */
 	EGI_COLOR_BAND *bands;		 /* An array of EGI_COLOR_BAND, sorted in order. */
-	#define COLORMAP_BANDS_GROW_SIZE 4 //256 /* Capacity GROW SIZE for bands, also as initial value. */
+	#define COLORMAP_BANDS_GROW_SIZE 256 /* Capacity GROW SIZE for bands, also as initial value. */
 
 	unsigned int 	size;		/* Current size of the bands */
 	unsigned int 	capacity;	/* Capacity of mem that capable of holding MAX of EGI_COLOR_BANDs */
