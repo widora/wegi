@@ -145,7 +145,10 @@ struct  FTsymbol_char_map {
 	unsigned int	errbits;		/* to record types of errs that have gone through.  */
 	pthread_mutex_t mutex;      		/* mutex lock for charmap */
 
+	FT_Face		face;			/* Freetype font typeface, A handle to a given typographic face object. */
+
 	int		txtsize;		/* Size of txtbuff mem space allocated, in bytes */
+	//unsigned int	txtsize;		/* Size of txtbuff mem space allocated, in bytes */
 	unsigned char	*txtbuff;		/* txt buffer, auto mem_grow. */
 	#define TXTBUFF_GROW_SIZE       1024    //64      /* Auto. mem_grow size for chmap->txtbuff[] */
 
@@ -298,12 +301,14 @@ struct  FTsymbol_char_map {
 	#define CURSOR_BLINK_INTERVAL_MS 500 	/* typing_cursor blink interval in ms, cursor ON and OFF duration time, same.*/
 	bool		cursor_on;		/* To turn ON cursor */
 	struct timeval tm_blink;		/* For cursor blinking timimg */
-	void (*draw_cursor)(int x, int y, int lndis);   	/* Draw cursor func */
+	void (*draw_cursor)(int x, int y, int lndis); /* Draw blinking editing cursor,
+						       * default: FTcharmap_draw_cursor(int x, int y, int lndis )
+						       */
 };
 
 
 EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, int width, int offx, int offy,
-                                 size_t mapsize, size_t maplines, size_t mappixpl, int maplndis,
+                                 FT_Face face, size_t mapsize, size_t maplines, size_t mappixpl, int maplndis,
 				 int bkgcolor, EGI_16BIT_COLOR fontcolor, bool charColorMap_ON, bool hlmarkColorMap_ON);
 				 //bool charColorMap_ON, EGI_16BIT_COLOR fontcolor );
 
@@ -317,7 +322,8 @@ int 	FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap);	/* mutex_loc
 void 	FTcharmap_free(EGI_FTCHAR_MAP **chmap);
 int 	FTcharmap_set_pref_nextDispLine(EGI_FTCHAR_MAP *chmap);
 int  	FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,			/* mutex_lock, request_clear */
-                                    FT_Face face, int fw, int fh,
+                                    //FT_Face face, int fw, int fh,
+                                    int fw, int fh,
                                     //int fontcolor, int transpcolor, int opaque,
                                     int transpcolor, int opaque,
                                     int *cnt, int *lnleft, int* penx, int* peny );
@@ -369,6 +375,8 @@ int 	FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request 
 /* Modify color band associated with char/highlight */
 int     FTcharmap_modify_charColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, bool request);	/* mutex_lock + request + charColorMap */
 int  	FTcharmap_modify_hlmarkColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, bool request);	/* mutex_lock + request + hlmarkColorMap */
+
+int  FTcharmap_shrink_dlines( EGI_FTCHAR_MAP *chmap, size_t dlns);	/* mutex_lock + request  +charColorMap|hlmarkColorMap */
 
 /* To/from EGI_SYSPAD */
 int 	FTcharmap_copy_from_syspad( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */

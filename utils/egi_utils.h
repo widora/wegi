@@ -24,6 +24,7 @@ midaszhou@yahoo.com
 #define EGI_SEARCH_FILE_MAX (1<<10) /* to be 2**n, Max number of files */
 #define EGI_FEXTNAME_MAX 10 /* !!! exclude '.', length of extension name */
 #define EGI_FEXTBUFF_MAX 16 /* Max items of separated extension names  */
+#define EGI_LINE_MAX 4096   /* Max length for a line */
 
 /* EGI File MMAP:  mmap with flags: PROT_READ|PROT_WRITE, MAP_PRIVATE */
 typedef struct {

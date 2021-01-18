@@ -15,6 +15,11 @@ Note:
    is too big, it may take too long time! To avoid such case.
 
 
+Jurnal
+2021-1-10:
+	1. Modify fbget_pixColor(): to pick color from working buffer.
+
+
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
 ----------------------------------------------------------------------------*/
@@ -380,10 +385,10 @@ Midas Zhou
 -------------------------------------------------------------------*/
 EGI_16BIT_COLOR fbget_pixColor(FBDEV *fb_dev, int x, int y)
 {
-	if(fb_dev==NULL|| fb_dev->map_fb==NULL)
+	if(fb_dev==NULL || fb_dev->map_fb==NULL)
 		return 0;
 
-	int  fx=0, fy=0;
+	int  fx=0, fy=0;		/* FB mem space coordinate */
 	int  xres=fb_dev->vinfo.xres;
         int  yres=fb_dev->vinfo.yres;
 
@@ -413,7 +418,12 @@ EGI_16BIT_COLOR fbget_pixColor(FBDEV *fb_dev, int x, int y)
 	if( fx < 0 || fx > xres-1 ) return 0;
 	if( fy < 0 || fy > yres-1 ) return 0;
 
-	return *(EGI_16BIT_COLOR *)(fb_dev->map_fb+(fy*xres+fx)*sizeof(EGI_16BIT_COLOR));
+	/* Pick pix color from working buffer */
+	if(fb_dev->map_bk)
+		return *(EGI_16BIT_COLOR *)(fb_dev->map_bk+(fy*xres+fx)*sizeof(EGI_16BIT_COLOR));
+	/* Pick from FB mmap */
+	else
+		return *(EGI_16BIT_COLOR *)(fb_dev->map_fb+(fy*xres+fx)*sizeof(EGI_16BIT_COLOR));
 }
 
 
@@ -2580,8 +2590,8 @@ int egi_getpoit_interpol2p(EGI_POINT *pn, int off, const EGI_POINT *pa, const EG
 	if(off<0)ret=2;
 
 	/* interpolate point */
-	pn->x=pa->x+off*cosang;
-	pn->y=pa->y+off*sinang;
+	pn->x=roundf(pa->x+cosang*off);
+	pn->y=roundf(pa->y+sinang*off);
 
 	return ret;
 }

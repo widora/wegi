@@ -119,7 +119,7 @@ EGI_16BIT_COLOR egi_256color_code(unsigned int code)
 		nb=(code-16)%6;
 		return COLOR_RGB_TO16BITS(nr==0?0:(95+40*(nr-1)), ng==0?0:(95+40*(ng-1)),nb==0?0:(95+40*(nb-1)));
 	}
-	/* 4. Code 232-255: 24_grade grays*/
+	/* 4. Code 232-255: 24_grade grays, Grey(8,8,8) (18,18,18)...(238,238,238) */
 	else if( code<256 ) {
 		int val=8+(code-232)*10;
 		return COLOR_RGB_TO16BITS( val, val, val);
@@ -794,6 +794,11 @@ EGI_16BIT_COLOR  egi_colorBandMap_pickColor(const EGI_COLOR_BANDMAP *map, unsign
 	if(pos==0)
 		return map->bands[0].color;
 
+	/* Most frequent case for editor input: Pos is the last inserting position!! */
+	else if(pos == map->bands[map->size-1].pos+map->bands[map->size-1].len ) {
+		return map->bands[ map->size-1 ].color;
+	}
+
 	/* Pick color value */
 	for(i=0; i< map->size-1; i++) {
 		if( pos >= map->bands[i].pos && pos < map->bands[i+1].pos )
@@ -830,6 +835,11 @@ unsigned int egi_colorBandMap_get_bandIndex(const EGI_COLOR_BANDMAP *map, unsign
 	if(map->size==0)
 		return 0;
 
+	/* Most frequent case for editor input: Pos is the last inserting position!! */
+	else if(pos == map->bands[map->size-1].pos+map->bands[map->size-1].len ) {
+		return map->size-1;
+	}
+
 	for(i=0; i< map->size-1; i++) {
 		if( pos >= map->bands[i].pos && pos < map->bands[i+1].pos )
 			return i;
@@ -845,7 +855,7 @@ Insert a color band into BANDMAP.  !!! A recursive function !!!
 Note:
 0. Pos MUST be 0 if the map is empty with map->size==0.
 1. If pos out of range, then it will fail!
-   It's OK to insert just at bottom/end of the last band.
+   !!! It's OK to insert just at bottom/end of the last band.
 2. If the inserted band holds the same color as the located original band,
    then just expand the original band.
 3. All followed map->bans[].pos MUST be updated after insersion!
@@ -937,7 +947,7 @@ int  egi_colorBandMap_insertBand(EGI_COLOR_BANDMAP *map, unsigned int pos, unsig
 	}
 	/* 2. If insert just at start pos of a band */
 	else if( map->bands[index].pos==pos ) {
-		printf("%s: Insert at start of bands[%u]!\n", __func__, index);
+//		printf("%s: Insert at start of bands[%u]!\n", __func__, index);
 		/* 2.1 If same color as previous indexed band, merge with it. */
 		if( map->bands[index-1].color==color ) {
 			 map->bands[index-1].len += len;
@@ -989,7 +999,7 @@ int  egi_colorBandMap_insertBand(EGI_COLOR_BANDMAP *map, unsigned int pos, unsig
          *    return index of the last band!
 	 */
 	else if(map->bands[index].color==color) {
-		printf("%s: Insert at bands[%u] with same color!\n", __func__, index);
+//		printf("%s: Insert at bands[%u] with same color!\n", __func__, index);
 		 map->bands[index].len += len;
 		 /* Update all pos of following bands */
 		 for(i=index+1; i < map->size; i++)
@@ -999,7 +1009,7 @@ int  egi_colorBandMap_insertBand(EGI_COLOR_BANDMAP *map, unsigned int pos, unsig
 	}
 	/* 4. ELSE if: pos just at bottom/end of the map!  (map->size==0 ruled out) */
 	else if(pos == map->bands[map->size-1].pos+map->bands[map->size-1].len) {
-		printf("%s: Insert at map end!\n", __func__);
+//		printf("%s: Insert at map end!\n", __func__);
 
 		/* 4.1 If same color as the last band, merge with it. */
 		#if 0 /* Note: this is included in case 3. */
@@ -1031,7 +1041,7 @@ int  egi_colorBandMap_insertBand(EGI_COLOR_BANDMAP *map, unsigned int pos, unsig
 	}
 	/* 5. ELSE, insert into mid of a band, split the indexed band into two parts and do recursive job! */
 	else {
-		printf("%s: Insert in mid of bands[%u], to split first!\n",  __func__, index);
+//		printf("%s: Insert in mid of bands[%u], to split first!\n",  __func__, index);
 		/* 5.1 Split indexed band into 2 bands */
 		if( egi_colorBandMap_splitBand(map, pos)!=0 ) {
 			printf("%s: Fail to split band(case 5.1)!\n",__func__);
@@ -1212,7 +1222,7 @@ int  egi_colorBandMap_combineBands(EGI_COLOR_BANDMAP *map, unsigned int pos, uns
 	}
 	/* 4.2 Merge bands between [headIdx and endIdx-1] to bands[headIdx] */
 	else {
-		printf("%s: Merge bands[%u - %u] to bands[%u].\n", __func__, headIdx, endIdx-1, headIdx);
+//		printf("%s: Merge bands[%u - %u] to bands[%u].\n", __func__, headIdx, endIdx-1, headIdx);
 		/* Update bands[headIdx].len and .color */
 		for(i=headIdx+1; i<endIdx; i++)
 			map->bands[headIdx].len += map->bands[i].len;
