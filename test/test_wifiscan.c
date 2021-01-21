@@ -1,0 +1,414 @@
+/*------------------------------------------------------------------
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License version 2 as
+published by the Free Software Foundation.
+
+A simple graphical Wifi Scanner.
+
+Usage:
+	./test_wifiscan
+
+Midas Zhou
+midaszhou@yahoo.com
+------------------------------------------------------------------*/
+#include <stdio.h>
+#include <pty.h>
+#include "egi_common.h"
+#include "egi_pcm.h"
+#include "egi_FTsymbol.h"
+#include "egi_utils.h"
+
+void print_help(const char* cmd)
+{
+        printf("Usage: %s [-h]\n", cmd);
+        printf("        -h   Help \n");
+}
+
+void parse_apinfo(char *info, int index);
+void draw_bkg(void);
+void FBwrite_total(int total);
+void FBwrite_tip(void);
+
+int blpx=22;		/* Base line left point XY */
+int blpy=240-8;
+int fw=12;
+int fh=12;
+
+int cfg=5;	/* Central freq. gap: 5MHz */
+int ppm=3;	/* Pixel per MHz */
+int pps=2;	/* Pixel per signal strength(percentage) 2*100 */
+
+int main(int argc, char** argv)
+{
+	int opt;
+
+
+	int shpid;
+	int ptyfd;
+	int nread;
+	char obuf[2048];
+        size_t nbuf;     /* bytes of data in obuf */
+	char *pnl;	 /* pointer to a newline */
+	char linebuf[256]; /* As we already know abt. the size */
+	int linesize;
+	int index;
+
+        /* <<<<<  EGI general init  >>>>>> */
+        printf("tm_start_egitick()...\n");
+        tm_start_egitick();		   	/* start sys tick */
+#if 0
+        printf("egi_init_log()...\n");
+        if(egi_init_log("/mmc/log_test") != 0) {	/* start logger */
+                printf("Fail to init logger,quit.\n");
+                return -1;
+        }
+        printf("symbol_load_allpages()...\n");
+        if(symbol_load_allpages() !=0 ) {   	/* load sys fonts */
+                printf("Fail to load sym pages,quit.\n");
+                return -2;
+        }
+
+        if(FTsymbol_load_appfonts() !=0 ) {  	/* load FT fonts LIBS */
+                printf("Fail to load FT appfonts, quit.\n");
+                return -2;
+        }
+#endif
+
+	/* Load freetype fonts */
+  	printf("FTsymbol_load_sysfonts()...\n");
+  	if(FTsymbol_load_sysfonts() !=0) {
+        	printf("Fail to load FT sysfonts, quit.\n");
+        	return -1;
+  	}
+  	//FTsymbol_set_SpaceWidth(1);
+
+
+  	/* Initilize sys FBDEV */
+  	printf("init_fbdev()...\n");
+  	if(init_fbdev(&gv_fb_dev))
+        	return -1;
+
+  	/* Start touch read thread */
+#if 0
+  	printf("Start touchread thread...\n");
+  	if(egi_start_touchread() !=0)
+        	return -1;
+#endif
+  	/* Set sys FB mode */
+	fb_set_directFB(&gv_fb_dev,false);
+	fb_position_rotate(&gv_fb_dev,0);
+
+ /* <<<<<  End of EGI general init  >>>>>> */
+
+        /* Parse input option */
+        while( (opt=getopt(argc,argv,"h"))!=-1 ) {
+                switch(opt) {
+                        case 'h':
+                                print_help(argv[0]);
+                                exit(0);
+                                break;
+		}
+	}
+        if( optind < argc ) {
+	}
+
+	/* Create displaying window */
+	draw_bkg();
+	FBwrite_tip();
+	fb_render(&gv_fb_dev);
+
+/* LOOP */
+while(1) {
+
+
+	/* Create a pty shell to execute aps */
+	shpid=forkpty(&ptyfd,NULL,NULL,NULL);
+        /* Child process to execute shell command */
+	if( shpid==0) {
+
+	/* Widora aps RETURN Examples:
+	 *  ( -- Ch  SSID              BSSID               Security               Signal(%)W-Mode  ExtCH  NT WPS DPID -- )
+	 *	12  Chinawwwwww      55:55:55:55:55:55   WPA1PSKWPA2PSK/AES     81       11b/g/n BELOW  In YES
+	 *	11  ChinaNet-678     66:66:66:66:66:66   WPA2PSK/TKIPAES        65       11b/g/n NONE   In  NO
+	 *	7   CMCC-RED         77:77:77:77:77:77   WPA1PSKWPA2PSK/TKIPAES 55       11b/g/n NONE   In  NO
+	*/
+                execl("/bin/sh", "sh", "-c", "aps | grep 11b/g/n", (char *)0);
+        }
+	else if( shpid <0 ){
+		printf("Fail to forkpty! \n");
+		exit(EXIT_FAILURE);
+	}
+
+	printf("Start to read aps results and parse data...\n");
+
+	/* ELSE: Parent process to get execl() result */
+        bzero(obuf,sizeof(obuf));
+        nbuf=0;
+	index=0;
+        do {
+		/* Check remaining space of obuf[] */
+                if(0==sizeof(obuf)-nbuf-1) {
+	        	/* TODO: memgrow obuf */
+                	printf("Buffer NOT enough! nbuf=%zd! \n", nbuf);
+			break;
+		}
+                else
+                        printf("nbuf=%zd \n", nbuf);
+
+		/* Continue to read output from ptyfd */
+                nread=read(ptyfd, obuf+nbuf, sizeof(obuf)-nbuf-1);
+                printf("nread=%zd\n",nread);
+                //printf("obuf: \n%s\n",obuf);
+                if(nread>0) {
+                	nbuf += nread;
+                }
+                else if(nread==0) {
+                	printf("nread=0...\n");
+                }
+                else  { /* nread<0 */
+                }
+
+                /* Check if there is a NL in obuf[]. */
+                pnl=strstr(obuf,"\n");
+                if( pnl!=NULL || nread<0 ) {  /* If nread<0, get remaining data, even withou NL */
+                	/* Copy to linebuf, TODO: memgrow linebuf */
+                        if( nread<0 && pnl==NULL ) /* shell pid ends, and remains in obuf without '\n'! */
+                        	linesize=strlen(obuf);
+                        else  /* A line with '\n' at end. */
+                        	linesize=pnl+1-obuf;
+
+                        /* Limit linesize */
+                        if(linesize > sizeof(linebuf)-1 ) {
+                        	printf("linebuf is NOT enough!, current linesize=%zd\n",linesize);
+	                        linesize=sizeof(linebuf)-1;  /* linesize LIMIT */
+                        }
+
+			/* Copy the line into obuf[], with '\n'. */
+                      	strncpy(linebuf, obuf, linesize);
+                        linebuf[linesize]='\0';
+
+                        /* Move out from obuf[], and update nbuf. */
+                        memmove(obuf, obuf+linesize, nbuf-linesize+1); /* +1 EOF */
+                        nbuf -= linesize;
+                        obuf[nbuf]='\0';
+
+			/* Parse result line. */
+			printf("Result: %s", linebuf);
+			if(index==0) draw_bkg();
+			parse_apinfo(linebuf, index++);
+		}
+
+	} while( nread>=0 || nbuf>0 );
+
+	/* Put total number */
+	FBwrite_total(index);
+
+	/* Render */
+	fb_render(&gv_fb_dev);
+
+	/* Close and release */
+	close(ptyfd);
+
+} /* END LOOP */
+
+END_PROG:
+
+        /* <<<<<  EGI general release >>>>> */
+        printf("FTsymbol_release_allfonts()...\n");
+        FTsymbol_release_allfonts();
+        printf("symbol_release_allpages()...\n");
+        symbol_release_allpages();
+	printf("release_fbdev()...\n");
+        fb_filo_flush(&gv_fb_dev);
+        release_fbdev(&gv_fb_dev);
+        //printf("egi_quit_log()...\n");
+        //egi_quit_log();
+        printf("<-------  END  ------>\n");
+
+return 0;
+}
+
+/*--------------------------------
+Parse AP information, draw curve.
+
+Ch  SSID     BSSID               Security               Signal(%)W-Mode  ExtCH  NT WPS DPID
+------------------------------------------------------------------------------------------
+12  Chinaw   55:55:55:55:55:55   WPA1PSKWPA2PSK/AES     81       11b/g/n BELOW  In YES
+
+--------------------------------*/
+void parse_apinfo(char *info, int index)
+{
+	UFT8_CHAR ssid[256]; /* SSID */
+	int ch;		/* Channel */
+	int signal; 	/* In percent */
+	int bw;		/* HT bandwidth, Mode HT20, HT40+/- */
+	char *ps;
+	int k;
+	char *delim=" ";
+	int px_cf;	/* Cetral Freq. coordinate X */
+	int py_cf;	/* Cetral Freq. coordinate Y */
+	EGI_POINT pts[3];
+
+
+	/* Defaule mode HT20 */
+	bw=20;
+
+        /* Fetch CSI */
+        ps=strtok(info, delim);
+        for(k=0; ps!=NULL; k++) {
+		switch(k) {
+			case 0:	/* Channel */
+				ch=atoi(ps);
+				break;
+			case 1: /* SSID */
+				strncpy((char *)ssid, ps, sizeof(ssid)-1);
+				break;
+			case 2: /* BSSID */
+				break;
+			case 3: /* Security */
+				break;
+			case 4: /* Signal strength in percentage */
+				signal=atoi(ps);
+				printf("Signal=%d\n", signal);
+				break;
+			case 5: /* W-Mode */
+				break;
+			case 6: /* ExtCH, HT40+ OR HT40-  */
+				if(strstr(ps,"ABOVE") || strstr(ps,"BELOW"))
+					bw=40;
+				break;
+			case 7: /* NT */
+				break;
+			case 8: /* WPS */
+				break;
+		}
+		ps=strtok(NULL, delim);
+	}
+
+	/* Avoid uncomplete info, example hidden SSID */
+	printf("k=%d\n",k);
+	if(k<10) /* including LN */
+		return;
+
+	/* Draw channel */
+	/* 256COLOR Select */
+	unsigned int color_codes[]={
+	  9,10,11,12,13,14,15,36,39,100,105,144,148,155,158,169,197,201,202,205,207,208,213,214,219,220,227,230
+	};
+	EGI_16BIT_COLOR color=egi_256color_code(color_codes[index%(sizeof(color_codes)/sizeof(color_codes[0]))]);
+	fbset_color(color);
+	if(ch==14) {
+		px_cf=blpx+10*ppm+(12*cfg+12)*ppm;
+		py_cf=blpy-signal*pps-1;
+//		draw_line(&gv_fb_dev, px_cf, blpy, px_cf, py_cf);
+	}
+	else {
+		px_cf=blpx+10*ppm+(ch-1)*cfg*ppm;
+		py_cf=blpy-signal*pps-1;
+//		draw_line(&gv_fb_dev, px_cf, blpy, px_cf, py_cf);
+	}
+
+	pts[0].x=px_cf-bw/2*ppm; 	pts[0].y=blpy;
+	pts[1].x=px_cf;			pts[1].y=py_cf;
+	pts[2].x=px_cf+bw/2*ppm;  	pts[2].y=blpy;
+
+	draw_spline(&gv_fb_dev, 3, pts, 2, 1);
+	// draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int w)
+
+	/* Mark SSID */
+	int pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.regular, fw, fh, ssid);
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, /* FBdev, fontface */
+                                        fw, fh,(const UFT8_PCHAR)ssid,    /* fw,fh, pstr */
+                                        320, 1, 0,      		 /* pixpl, lines, fgap */
+                                        px_cf-pixlen/2, py_cf-fw-2,        /* x0,y0, */
+                                        color, -1, 255,                  /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+}
+
+
+/*------------------
+Draw back ground
+-------------------*/
+void draw_bkg(void)
+{
+	int i;
+	char percent[8]={0};
+	int freqcent;
+
+        /* Init. FB working buffer */
+        fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_DARKGRAY1); //DARKPURPLE);
+
+	/* Draw upper banner */
+	fbset_color(WEGI_COLOR_GRAYA);
+	draw_filled_rect(&gv_fb_dev, 0,0, 320-1, 15-1);
+
+	/* Draw title */
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, /* FBdev, fontface */
+       	                                15, 15,(const UFT8_PCHAR)"EGI WiFi Scanner", /* fw,fh, pstr */
+               	                        320, 1, 0,      		  /* pixpl, lines, fgap */
+                       	                10, -2,         /* x0,y0, */
+       	                      	        WEGI_COLOR_BLACK, -1, 255,        /* fontcolor, transcolor,opaque */
+                                       	NULL, NULL, NULL, NULL);      	  /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+
+	/* Draw lower banner */
+	fbset_color(WEGI_COLOR_GRAY);
+	draw_filled_rect(&gv_fb_dev, 0,blpy+1, 320-1,240-1);
+
+	/* Draw spectrum line */
+//	fbset_color(WEGI_COLOR_GRAYC);
+//	draw_wline_nc(&gv_fb_dev, blpx,blpy, blpx+92*3-1, blpy, 1);
+
+	/* Draw Channel Freq. Center Mark */
+	fbset_color(WEGI_COLOR_BLACK);
+	/* CHANNEL 1-13 */
+	for(i=0; i<13; i++) {
+		//draw_rect(&gv_fb_dev, blpx+10*ppm+cfg*ppm*i, blpy, blpx+10*ppm+cfg*ppm*(i+1), blpy+10);
+		freqcent=blpx+(10+cfg*i)*ppm;
+		draw_filled_rect(&gv_fb_dev, freqcent -2, blpy+1, freqcent +2, blpy+10);
+	}
+	/* CHANNEL 14 */
+	freqcent=blpx+(10+cfg*12+12)*ppm;
+	draw_filled_rect(&gv_fb_dev, freqcent -2, blpy+1,  freqcent +2, blpy+10);
+
+	/* Draw signal percentage */
+	fbset_color(WEGI_COLOR_GRAY);
+	for(i=0; i<11; i++) {
+		sprintf(percent,"%d",10*i);
+	        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, /* FBdev, fontface */
+        	                                fw, fh,(const UFT8_PCHAR)percent,    /* fw,fh, pstr */
+                	                        320, 1, 0,      		 /* pixpl, lines, fgap */
+                        	                320-20, blpy-fh-i*pps*10,          /* x0,y0, */
+         	                      	        WEGI_COLOR_WHITE, -1, 255,       /* fontcolor, transcolor,opaque */
+	                                       	NULL, NULL, NULL, NULL);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+	}
+}
+
+/*-----------------------
+Put total number of APs
+------------------------*/
+void FBwrite_total(int total)
+{
+	char str[32];
+
+	sprintf(str,"Total %d APs",total);
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, /* FBdev, fontface */
+       	                                15, 15,(const UFT8_PCHAR)str, 	  /* fw,fh, pstr */
+               	                        320, 1, 0,      		  /* pixpl, lines, fgap */
+                       	                320-100, -2,         /* x0,y0, */
+       	                      	        WEGI_COLOR_BLACK, -1, 255,        /* fontcolor, transcolor,opaque */
+                                       	NULL, NULL, NULL, NULL);      	  /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+}
+
+/*------------------------
+ FBwrite tips.
+-------------------------*/
+void FBwrite_tip(void)
+{
+	/* Put scanning tip... */
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, /* FBdev, fontface */
+       	                                24, 24,(const UFT8_PCHAR)"Scanning...",	  /* fw,fh, pstr */
+               	                        320, 1, 0,      		  /* pixpl, lines, fgap */
+                       	                100, 100,         		  /* x0,y0, */
+       	                      	        WEGI_COLOR_WHITE, -1, 200,        /* fontcolor, transcolor,opaque */
+                                       	NULL, NULL, NULL, NULL);      	  /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+}
