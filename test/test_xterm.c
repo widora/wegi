@@ -17,8 +17,8 @@ Mouse scroll:   Scroll charmap up and down.
 ARROW_KEYs:     Shift typing cursor to locate insert/delete position.(Only command input line )
 BACKSPACE:      Delete chars before the cursor.
 DEL:            Delete chars following the cursor.
-HOME(or Fn+LEFT_ARROW!):        Return cursor to the begin of the retline.
-END(or Fn+RIGHT_ARROW!):        Move cursor to the end of the retline.
+HOME(or Fn+LEFT_ARROW!):        Return cursor to the begin of the xterm inputting line.
+END(or Fn+RIGHT_ARROW!):        Move cursor to the end of the xterm inputting line.
 CTRL+N:         Scroll down 1 line, keep typing cursor position.
 CTRL+O:         Scroll up 1 line, keep typing cursor position.
 XXX CTRL+H:         Go to the first page.
@@ -38,7 +38,7 @@ Note:
 2. TODO: CSI of ISO/IEC-6429 (ANSI escape sequence)
    It can NOT parse/simulate terminal contorl character sequence, such as
    cursor movement, clear, color and font mode, etc.
-   Stander xterm 8 color ---OK
+   To parse Stander xterm 8 color ---OK
 
 2.1 Command 'ps': Can NOT display a complete line on LOCAL CONSOLE! ---OK, erase '\n'
 2.2 Command 'ls(ps..) | more', sh: more: not found!  But | tai,head,grep is OK!
@@ -57,10 +57,11 @@ TODO:
 6. Error display --- OK
 7. Cursor shape and it should NOT appear at other place.
 8. History --- OK
-9. UFT8 cutout position!
+9. UFT8 cutout position! --- OK
 10. Escape sequence parse,
 11. obuf/linebuf memgrow().
-12. TAB not allowed for XTERM inputing.
+12. TAB Completion: TAB not allowed for XTERM inputing, instead it's for auto. completing
+    your commands.
 13. 'clear' command in a shell scprit will erase the first output line from shell_pid.
 
 Jurnal:
@@ -128,11 +129,13 @@ UFT8_CHAR strPrompt[64]="Neo# ";  /* Prompt_String, input hint for user. */
 /* --- Shell command PID --- */
 char  obuf[EGI_LINE_MAX*4];	/* User stdout buffer */
 pid_t sh_pid;			/* child pid for shell command */
+bool  lock_mousectrl;		/* 1. If TRUE, LOCK mouse control for editting charmap.
+ 				 * Example: To lock scroll_down the champ while the main thread is just writing shell output to chmap.
+				 */
 bool  sustain_cmdout;		/* 1. Set true to signal to continue reading output from the running shell command.
 				 * 2. Set false to stop reading output from the running shell command, if it's too tedious.
-				 * 3. If it's TURE, other thread(mousecall) MUST NOT edit charmap at the same time!
- 				 * Example: To scroll down the champ while the main thread is just writing shell output to chmap,
-				 * it raises a race condition and crash the charmap data!
+				 * 3. If it's TRUE, other thread(mousecall) MUST NOT edit charmap at the same time!
+				 *    OR it raises a race condition and crash the charmap data!
 				 */
 
 
@@ -142,7 +145,7 @@ bool  sustain_cmdout;		/* 1. Set true to signal to continue reading output from 
 #define		TTY_DOWN	"\033[B"
 #define		TTY_RIGHT	"\033[C"
 #define		TTY_LEFT	"\033[D"
-#define		TTY_HOME	"\033[1~"
+#define		TTY_HOME	"\033[1~"   /* Mkeyboard HOME */
 #define		TTY_HOME_1	"\033[H"
 #define		TTY_INSERT	"\033[2~"
 #define		TTY_DEL		"\033[3~"
@@ -161,6 +164,8 @@ bool  sustain_cmdout;		/* 1. Set true to signal to continue reading output from 
 #define		CTRL_H  8	/* Ctrl + h: go to the first dline, head of the txtbuff */
 #define		CTRL_P  16	/* Ctrl + p: PINYIN input ON/OFF toggle */
 
+/* --- Special keys --- */
+#define		CH_TAB 9   	/* TAB for auto. completion */
 
 /* --- Input Method: PINYIN --- */
 #define SINGLE_PINYIN_INPUT	0       /* !0: Single chinese_phoneticizing input method.
@@ -258,10 +263,12 @@ static void draw_mcursor(int x, int y);			/* Selecting cursor */
 static void draw_ecursor(int x, int y, int lndis);	/* Editing/blinking cursor */
 
 void signal_handler(int signal);
-void arrow_down_history(void);  /* In_process function */
-void arrow_up_history(void);	/* In_process function */
-void execute_shellcmd(void);	/* In_process function */
-void parse_shellout(char* pstr); /* Escape sequence parsing */
+
+/* TODO: Mutex_lock for chmap */
+void arrow_down_history(void);  /* In_process function, NO mutex_lock for chmap! */
+void arrow_up_history(void);	/* In_process function, NO mutex_lock fir chmap! */
+void execute_shellcmd(void);	/* In_process function, NO mutex_lock fir chmap! */
+void parse_shellout(char* pstr); /* Escape sequence parsing, NO mutex_lock fir chmap! */
 
 
 /* ============================
@@ -508,9 +515,11 @@ MAIN_START:
 				switch ( ch ) {
 					case 49:
 						read(STDIN_FILENO,&ch, 1);
-						/* mkeyboard HOME  move cursor to the first of the line */
+						/* Mkeyboard HOME  move cursor to the first of the line */
 						if( ch == 126 ) {
-							FTcharmap_goto_lineBegin(chmap);
+							//FTcharmap_goto_lineBegin(chmap);
+							/* Move cursor to pos just after PS! */
+							FTcharmap_set_pchoff( chmap, pShCmd-chmap->txtbuff, pShCmd-chmap->txtbuff );
 						}
                                                 break;
 					case 51: /* DEL */
@@ -600,8 +609,8 @@ MAIN_START:
 						FTcharmap_goto_lineEnd(chmap);
 						break;
 
-					case 72: /* HOME : move cursor to the begin of the dline */
-						FTcharmap_set_pchoff( chmap,pShCmd-chmap->txtbuff,pShCmd-chmap->txtbuff );
+					case 72: /* HOME : move cursor to the begin of the xterm inputting dline. */
+						FTcharmap_set_pchoff( chmap, pShCmd-chmap->txtbuff, pShCmd-chmap->txtbuff );
 						break;
 				}
 				/* reset 0 to ch: NOT a char, just for the following precess to ignore it.  */
@@ -669,6 +678,10 @@ MAIN_START:
 			case CTRL_F:
 				/* Save PINYIN data first */
 				break;
+
+			case CH_TAB:
+				/* XTERM TAB Completion */
+				break;
 		}
 
 		/* 3. Edit text */
@@ -722,7 +735,8 @@ MAIN_START:
 			ch=0;
 		}
 		/* --- EDIT:  3.2 Insert chars, !!! printable chars + '\n' + TAB  !!! */
-		else if( ch>31 || ch==9 || ch==10 ) {  //pos>=0 ) {   /* If pos<0, then ... */
+		//else if( ch>31 || ch==9 || ch==10 ) {  //pos>=0 ) {   /* If pos<0, then ... */
+		else if( ch>31 || ch==10 ) {  /* TAB(9) not for XTERM inputting! */
 
 			/* 3.2.1 PINYING Input, put to strPinyin[]  */
 	   		if( enable_pinyin ) {  //&& ( ch==32 || isdigit(ch) || isalpha(ch) ) ) {
@@ -880,6 +894,7 @@ MAIN_START:
 					strncpy((char *)ShellCmd, (char *)pShCmd, SHELLCMD_MAX-1);
 					printf("ShellCmd: %s\n", ShellCmd);
 				}
+				/* Input as shell command */
 				else {
 					chmap->precolor=XTERM_SHCMD_COLOR;
 					FTcharmap_insert_char( chmap, &ch );
@@ -1139,14 +1154,17 @@ static void FTsymbol_writeFB( const char *txt, int px, int py, EGI_16BIT_COLOR c
 }
 
 
-/*-----------------------------------------------------------
+/*------------------------------------------------------------------------------
 		Callback for mouse input
 Callback runs in MouseRead thread.
-1. Just update mouseXYZ
-2. Check and set ACTIVE token for menus.
-3. If click in TXTBOX, set typing cursor or marks.
-4. The function will be pending until there is a mouse event.
-------------------------------------------------------------*/
+1. If lock_mousectrl is TRUE, then any operation to champ MUST be locked! just to
+   avoid race condition with main thread.
+2. Just update mouseXYZ
+3. Check and set ACTIVE token for menus.
+4. If click in TXTBOX, set typing cursor or marks.
+5. The function will be pending until there is a mouse event.
+
+--------------------------------------------------------------------------------*/
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus)
 {
 	EGI_POINT  pxy={0,0};
@@ -1199,10 +1217,10 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
 	mouseY = mostatus->mouseY;
 
 	/* Scroll down/up */
-	if( mostatus->mouseDZ > 0 && !sustain_cmdout ) {
+	if( mostatus->mouseDZ > 0 && !lock_mousectrl ) {
 		 FTcharmap_scroll_oneline_down(chmap);
 	}
-	else if ( mostatus->mouseDZ < 0 && !sustain_cmdout ) {
+	else if ( mostatus->mouseDZ < 0 && !lock_mousectrl ) {
 		 FTcharmap_scroll_oneline_up(chmap);
 	}
 
@@ -1287,7 +1305,7 @@ Draw blinking/editting cursor.
 ----------------------------------------*/
 static void draw_ecursor(int x, int y, int lndis )
 {
-	int w,h;
+	int w;
         fbset_color(WEGI_COLOR_GRAYB);
 	UFT8_CHAR uchar[8]={0};
 	int  len;
@@ -1311,7 +1329,7 @@ static void draw_ecursor(int x, int y, int lndis )
 			w=fw/2;
 
 		/* Get height of a uchar. looks not good for some typeface. */
-		// h=FTsymbol_get_FTface_Height(chmap->face, fw, fh);
+		// int h=FTsymbol_get_FTface_Height(chmap->face, fw, fh);
 
 		/* Draw a block */
 	        draw_filled_rect(&gv_fb_dev, x, y, x+w-1, y+lndis-1); // y+h-1
@@ -1333,47 +1351,67 @@ void signal_handler(int signal) {
 Select history command Downward/Upward.
 Note:
 1. Delet current input and inster history command
+   the cursor should be followed up as set by FTcharmap_insert_string().
 2. ASSUME mouse action will NOT edit charmap!! No race condition.
 3. Need to charmap to update.
------------------------------------------------------------*/
+--------------------------------------------------------------*/
 void arrow_down_history(void)
 {
  	/* Always set hisID==hisCnt after save a history cmd. */
-	if( hisCnt>1 && hisID < hisCnt ) {
+	if( hisCnt>=1 ) {
 		hisID++;
 		//printf("hisID=%d; hisCnt=%d\n", hisID, hisCnt);
+
+		/* Set hisID Limit then */
+		if(hisID>hisCnt)
+			hisID=hisCnt;
+
+		/* Set selection, to be deleted by _insert_string() */
 		chmap->pchoff=pShCmd-chmap->txtbuff;
 		chmap->pchoff2=chmap->txtlen;
-		if( hisID < hisCnt ) {
+
+		/* Anyway, trigger _insert_string()  to trigger cursor follow_up */
+		if( hisID <= hisCnt ) {
 			chmap->precolor=XTERM_SHCMD_COLOR;
 			/* selection between pchoff/pchoff2 will be deleted first */
 		   	FTcharmap_insert_string(chmap, ShCmdHistory+hisID*SHELLCMD_MAX, strlen((char*)ShCmdHistory+hisID*SHELLCMD_MAX));
 		}
-		else /* histID == histCnt */
-			FTcharmap_delete_string(chmap);
+		//else /* histID == histCnt */
+		//	FTcharmap_delete_string(chmap);
 	}
+
 }
 void arrow_up_history(void)
 {
  	/* Always set hisID==hisCnt after save a history cmd. */
-	if( hisCnt>0 && hisID > 0 ) {
-		hisID--;
+	if( hisCnt>0 && hisID>=0 ) {
+	    	if( hisID > 0 )
+			hisID--;
+
+		/* Set selection, to be deleted by _insert_string() */
 		chmap->pchoff=pShCmd-chmap->txtbuff;
 		chmap->pchoff2=chmap->txtlen;
+
 		chmap->precolor=XTERM_SHCMD_COLOR;
 		FTcharmap_insert_string(chmap, ShCmdHistory+hisID*SHELLCMD_MAX, strlen((char*)ShCmdHistory+hisID*SHELLCMD_MAX));
 	}
 }
 
 
-/*---------------------------------------
+/*-------------------------------------------------------------
 	   An In_Process Function
 Execute shell command and read output.
 Need to charmap to update.
-----------------------------------------*/
+
+		!!! WARNING !!!
+Mouse control for charmap MUST be locked when execute_shellcmd()
+Some func has NO mutex_lock/request for the charmap!!!
+FTcharmap_goto_end(), parse_shellout(), ....
+
+--------------------------------------------------------------*/
 void execute_shellcmd(void)
 {
-	int i;
+	//int i;
 	int status;
 	ssize_t nread=0; //nread_out=0, nread_err=0;
 	size_t nbuf;	 // bytes of data in obuf
@@ -1384,14 +1422,15 @@ void execute_shellcmd(void)
 	char ptyname[256]={0};
 	int ptyfd;
 	char **lineptr=NULL;
-	size_t n=0;
+	//size_t n=0;
 
 	if( ShellCmd[0] ) {
 		/* Get rid of NL token '\n' */
 		ShellCmd[strlen((char *)ShellCmd)-1]=0;
 
 		/* To lock any MOUSE operation. */
-		sustain_cmdout=TRUE;
+		sustain_cmdout=true;
+		lock_mousectrl=true;
 		printf("Execute shell cmd: %s\n", ShellCmd);
 
 		/* Set termIO to Canonical mode for shell pid. */
@@ -1400,12 +1439,10 @@ void execute_shellcmd(void)
 	        tcsetattr(STDIN_FILENO, TCSANOW, &new_isettings);
 
 		status=0;
-		//sh_pid=vfork();
 		sh_pid=forkpty(&ptyfd,ptyname,NULL,NULL);
 		/* Child process to execute shell command */
 		if( sh_pid==0) {
 			/* Execute shell command, the last NL must included in ShellCmd */
-			//system((char *)ShellCmd);
 			execl("/bin/sh", "sh", "-c", (char *)ShellCmd, (char *)0);
 		}
 		/* Father process to read child stdout put */
@@ -1460,9 +1497,14 @@ void execute_shellcmd(void)
 				 * 4. If one line from ptyfd is too big (>EGI_LINE_MAX-1), it will be splited then. usually it's
 				 *    from a text file, not from printf, and no ESC sequence there.
 				 */
-				/* TODO: memgrow obuf */
-				if(nbuf==sizeof(obuf)-nbuf-1)
+				/* Check remaining space of obuf[] */
+				//if(nbuf==sizeof(obuf)-nbuf-1) {
+				if(0==sizeof(obuf)-nbuf-1) {
+					/* TODO: memgrow obuf */
 					printf("Buffer NOT enough! nbuf=%zd! \n", nbuf);
+					sustain_cmdout=false;
+					break;
+				}
 				else
 					printf("nbuf=%zd \n", nbuf);
 
@@ -1481,7 +1523,7 @@ void execute_shellcmd(void)
 
 				/* Check if has a complete line in obuf. */
 				pnl=strstr(obuf,"\n");
-				if( pnl!=NULL || nread<0 ) {
+				if( pnl!=NULL || nread<0 ) {   /* If nread<0, get remaining data, even without NL. */
 					/* Copy to linebuf, TODO: memgrow linebuf */
 					if( nread<0 && pnl==NULL ) /* shell pid ends, and remains in obuf without '\n'! */
 						linesize=strlen(obuf);
@@ -1552,8 +1594,10 @@ void execute_shellcmd(void)
 	                	FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
 			}
 
+			/* TODO: here, mouse control is allowed! */
+
 			/* Not necessary? Err'Inappropriate ioctl for device' */
-		   	if( wait(&status)!=0 ) {
+		   	if( wait(&status)!=sh_pid ) {
 				printf("Fail to wait() sh_pid! Err'%s'\n", strerror(errno) );
 		   	}
 		   	printf("sh_pid return with status:0x%04X\n",status);
@@ -1570,8 +1614,7 @@ void execute_shellcmd(void)
 		printf("insert PS...\n");
 		chmap->precolor=XTERM_PS_COLOR;
 		FTcharmap_insert_string(chmap,strPrompt,strlen((char *)strPrompt));
-		//chmap->follow_cursor=false;
-		FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+		FTcharmap_writeFB(NULL, NULL, NULL);
 		printf("Ok\n");
 #endif
 
@@ -1586,6 +1629,9 @@ void execute_shellcmd(void)
 		bzero(ShellCmd, sizeof(ShellCmd));
 
 	}
+
+	/* Unlock mousectrl for champ */
+	lock_mousectrl=false;
 
 END_FUNC:
 	/* Set termIO to NON_Canonical mode */
@@ -1707,14 +1753,29 @@ void parse_shellout(char* pstr)
 		if( ps!=pstr && ps[0]=='[' && (pe=strstr(ps, "m"))!=NULL) {   /* ps!=pstr to rule out "[..m....." case without a leading ESC */
 			/* Buffer current line before calling strtok */
 //			printf("pe+1: %s\n", pe+1);
-			/* Parse parameters of CSI sequence, separated by semicolons */
+			/* Parse parameters of CSI sequence, separated by semicolons ';' */
 			param=strtok_r(ps+1, delim_Param, &saveps);
 //			printf("param: %s\n", param);
 			for(j=0; param!=NULL; j++ ) {
+				printf("code %d ",atoi(param));
 				/* Only parse 8 font_color NOW. TODO: more... */
 				switch(atoi(param)) {
-					case 0: /* All set to default */
+					case 0:
+						/* All set to default */
+						//if(j==0) {
 						chmap->precolor=chmap->fontcolor;
+						break;
+					case 1:
+						/* Set bold */
+						break;
+					case 2:
+						/* set half-bright */
+						break;
+					case 4:
+						/* set underscore */
+						break;
+					case 5:
+						/* set blink */
 						break;
 
 					/* Xterm color: 0-7   TOO DARK!!!!
@@ -1723,11 +1784,10 @@ void parse_shellout(char* pstr)
         	              		 * Navy(0,0,128), Purple(128,0,128), Teal(0,128,128),
 					 * Silver(192,192,192)
 					 */
-
 					case 30:
 						chmap->precolor=WEGI_COLOR_BLACK;
 						break;
-					case 31: case 32: case 33: case 35:
+					case 31: case 32: case 33: case 34: case 35:
 					case 36:
 						chmap->precolor=egi_256color_code(atoi(param)-30 +8);
 						break;
@@ -1758,6 +1818,7 @@ void parse_shellout(char* pstr)
 			}
 			#endif
 		}
+
 		/* Plain string withou CSI */
 		else if( ps==pstr || ps[0] !='[' ) {  /* ps==ptr: "[..m....." case without a leading ESC. */
 			FTcharmap_insert_string(chmap,(UFT8_PCHAR)(ps),strlen(ps));
@@ -1776,7 +1837,7 @@ void parse_shellout(char* pstr)
 		/* Fetch next CSI sequence */
 	 	ps=strtok_r(NULL, delim_ESC, &saveptr);
         }
-
+	printf("\n"); /* code printf end */
 #if 0
 	chmap->follow_cursor=false;
 	FTcharmap_goto_end();

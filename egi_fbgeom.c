@@ -731,8 +731,13 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 
 
 /*---------------------------------------------------
-	Draw a simple line
+		Draw a simple line
+Modified.
+TODO: To improve accuracy and anti_alising.
+
+Midas Zhou
 ---------------------------------------------------*/
+#if 1
 void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 {
         int i=0;
@@ -745,7 +750,7 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
         if(x2>x1) {
 	    tmp=y1;
             for(i=x1;i<=x2;i++) {
-                j=(i-x1)*tekyy/tekxx+y1;
+                j=(i-x1)*tekyy/tekxx+y1;		/* TODO: fround() to improve accuracy. */
 		if(y2>=y1) {
 			for(k=tmp;k<=j;k++)		/* fill uncontinous points */
 		                draw_dot(dev,i,k);
@@ -784,7 +789,100 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
             }
         }
 }
+#else /////////////////// With anti-aliasing /////////////////////
 
+/*--------------------------------------
+Draw dots around Point(x,y) with
+blend effect.
+---------------------------------------*/
+static void draw_dot_blend(int x, int y)
+{
+	/* turn on FBDEV pixcolor and pixalpha_hold */
+	dev->pixcolor_on=true;
+	dev->pixalpha_hold=true;
+	dev->pixalpha=115;
+
+	draw_dot(dev, x-1, y); /* Left */
+	draw_dot(dev, x+1, y); /* Right */
+	draw_dot(dev, x, y-1); /* Up */
+	draw_dto(dev, x, y+1); /* Down */
+
+        /* turn off FBDEV pixcolor and pixalpha_hold */
+	dev->pixcolor_on=false;
+        dev->pixalpha_hold=false;
+        dev->pixalpha=255;
+}
+
+void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
+{
+        int i=0;
+        int j=0;
+	int k;
+        int tekxx=x2-x1;
+        int tekyy=y2-y1;
+	int tmp;
+	EGI_16BIT_COLOR color;
+
+        if(x2>x1) {
+	    tmp=y1;
+            for(i=x1;i<=x2;i++) {
+                j=(i-x1)*tekyy/tekxx+y1;		/* TODO: fround() to improve accuracy. */
+		if(y2>=y1) {
+			for(k=tmp;k<=j;k++)		/* fill uncontinous points */
+		                draw_dot(dev,i,k);
+
+				if(dev->antialias_on) {
+				        /* turn on FBDEV pixcolor and pixalpha_hold */
+				        dev->pixcolor_on=true;
+				        dev->pixalpha_hold=true;
+				        dev->pixalpha=115;
+
+					draw_dot(dev, i-1, k); /* Left */
+					draw_dot(dev, i+1, k); /* Right */
+					draw_dot(dev, i, k-1); /* Up */
+					draw_dto(dev, i, k+1); /* Down */
+
+				        /* turn off FBDEV pixcolor and pixalpha_hold */
+					dev->pixcolor_on=false;
+				        dev->pixalpha_hold=false;
+				        dev->pixalpha=255;
+				}
+		}
+		else { /* y2<y1 */
+			for(k=tmp;k>=j;k--)
+				draw_dot(dev,i,k);
+		}
+		tmp=j;
+            }
+        }
+	else if(x2 == x1) {
+	   if(y2>=y1) {
+		for(i=y1;i<=y2;i++)
+		   draw_dot(dev,x1,i);
+	    }
+	    else {
+		for(i=y2;i<=y1;i++)
+			draw_dot(dev,x1,i);
+	   }
+	}
+        else /* x1>x2 */
+        {
+	    tmp=y2;
+            for(i=x2;i<=x1;i++) {
+                j=(i-x2)*tekyy/tekxx+y2;
+		if(y1>=y2) {
+			for(k=tmp;k<=j;k++)		/* fill uncontinous points */
+		        	draw_dot(dev,i,k);
+		}
+		else {  /* y2>y1 */
+			for(k=tmp;k>=j;k--)		/* fill uncontinous points */
+		        	draw_dot(dev,i,k);
+		}
+		tmp=j;
+            }
+        }
+}
+#endif
 
 /*-----------------------------------------------------
 Only draw a frame for rectangluar button, to illustrate
@@ -2905,6 +3003,207 @@ END_FUNC:
 
 	return ret;
 }
+
+
+/*---------------------------------------------------
+Draw a filled cubic spline, areas between spline and
+line y=baseY will be filled with color/alpha.
+
+see also draw_spline().
+
+Return:
+	0	OK
+	<0	Fails
+
+Midas Zhou
+---------------------------------------------------*/
+#include <egi_matrix.h>
+int draw_filled_spline( FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int w,
+			int baseY, EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha)
+{
+	int ret=0;
+	int k;
+	int n=np-1;		 	/* segments of curves */
+	EGI_MATRIX *MatAB=NULL;	 	/* Dimension [np*(np+1)] */
+	EGI_MATRIX *MatM=NULL;	 	/* m[i]=2*c[i] */
+	float *a=NULL;	 		/* Cubic spline coefficients: y=a+b*(x-xi)+c*(x-xi)^2+d*(x-xi)^3*/
+	float *b=NULL,*c=NULL,*d=NULL;  /* To calloc together with a */
+	float *h=NULL;			/* Step: h[i]=x[i+1]-x[i] */
+	int ptx;
+	float xs=0,ys=0,xe=0,ye=0;	/* start,end x,y */
+	float dx=0.0;			/* dx=(x-xi) */
+	int step;
+	int kn;
+
+	/* check np */
+	if(np<2)
+		return -1;
+
+	/* Init matrix AB [6*7] */
+   	MatAB=init_float_Matrix(np,np+1);
+   	if(MatAB==NULL) {
+                fprintf(stderr,"%s: Fail to init. MatAB!\n",__func__);
+                return -1;
+        }
+
+	/* Init x step h[] */
+	h=calloc(n, sizeof(float));
+	if(h==NULL) {
+                fprintf(stderr,"%s: Fail to calloc step h!\n",__func__);
+                ret=-2;
+		goto END_FUNC;
+	}
+
+	/* Init a,b,c,d */
+	a=calloc(4*n, sizeof(float));
+	if(a==NULL) {
+                fprintf(stderr,"%s: Fail to calloc a,b,c,d!\n",__func__);
+                ret=-3;
+		goto END_FUNC;
+	}
+	b=a+n;
+	c=b+n;
+	d=c+n;
+
+	/* Cal. step h[] */
+	for(k=0; k<n; k++)
+		h[k]=pxy[k+1].x-pxy[k].x;
+
+	/* Fill A to  matrixAB */
+
+	/* MatAB[]: Row 0 and np as for boundary conditions */
+	switch( endtype )
+	{
+		/* 1. Clamped Spline */
+		case 1:
+			MatAB->pmat[0]=2*h[0];
+			MatAB->pmat[1]=h[0];
+			MatAB->pmat[np*(np+1)-3]=h[n-1];
+			MatAB->pmat[np*(np+1)-2]=2*h[n-1];
+			break;
+
+		/* 2. Not_A_Kont Spline */
+		case 2:
+			MatAB->pmat[0]=-h[1];
+			MatAB->pmat[1]=h[0]+h[1];
+			MatAB->pmat[2]=-h[0];
+			MatAB->pmat[np*(np+1)-4]=-h[n-1];
+			MatAB->pmat[np*(np+1)-3]=h[n-1]+h[n-2];
+			MatAB->pmat[np*(np+1)-2]=-h[n-2];
+			break;
+
+		/* 3. Natrual Spline */
+		default:
+			MatAB->pmat[0]=1;
+			MatAB->pmat[np*(np+1)-2]=1;
+			break;
+	}
+
+	/* MatAB[]: From Row (1) to Row (np-2), As k+1=(1 -> np-2), so k=(0 -> np-3) */
+	for(k=0; k<np-2; k++) {
+		/* Mat A [np*np] */
+		MatAB->pmat[(1+k)*(np+1)+k]=h[k];			/* MatAB [np*(np+1)] */
+		MatAB->pmat[(1+k)*(np+1)+k+1]=2.0*(h[k]+h[k+1]);
+		MatAB->pmat[(1+k)*(np+1)+k+2]=h[k+1];
+		/* Mat B [np*1]:  B[0] and B[np-1] all zeros */
+		MatAB->pmat[(1+k)*(np+1)+np]=6.0*( (pxy[k+2].y-pxy[k+1].y)/h[k+1]-(pxy[k+1].y-pxy[k].y)/h[k] );
+	}
+	/* TEST---- */
+//	Matrix_Print(MatAB);
+
+	/* --- Solve matrix --- */
+#if 0  /* OPTION 1: Guass Elimination */
+	MatM=Matrix_GuassSolve(MatAB);
+#else  /* OPTION 2: Thomas Algorithm (The Tridiagonal Matrix Algorithom) */
+	MatM=Matrix_ThomasSolve(NULL,MatAB);
+#endif
+	if(MatM==NULL) {
+                fprintf(stderr,"%s: Fail to solve the matrix equation!\n",__func__);
+		ret=-4;
+		goto END_FUNC;
+	}
+
+
+	/* TEST---- */
+//	Matrix_Print(MatM);
+
+	/* Calculate coefficients for each cubic curve */
+	for(k=0; k<n; k++) {
+		a[k]=pxy[k].y;
+		b[k]=(pxy[k+1].y-pxy[k].y)/h[k] -h[k]*MatM->pmat[k]/3.0 -h[k]*MatM->pmat[k+1]/6.0;
+		c[k]=MatM->pmat[k]/2.0;
+		d[k]=(MatM->pmat[k+1]-MatM->pmat[k])/6.0/h[k];
+	}
+
+
+        /* turn on FBDEV pixcolor and pixalpha_hold */
+        fbdev->pixcolor_on=true;
+        fbdev->pixcolor=color;
+        fbdev->pixalpha_hold=true;
+        fbdev->pixalpha=alpha;
+
+	/* Draw n segements of curves: Notice pxy[] is INT type! */
+	for(k=0; k<n; k++) {
+//		printf("k=%d\n",k); //getchar();
+		/* Step */
+		if(pxy[k].x <  pxy[k+1].x) step=1;
+		else step=-1;
+
+		/* Draw a curve/segment with many short lines: pxy[k]->pxy[k+1], step +/-1 */
+		for( ptx=pxy[k].x; 	ptx != pxy[k+1].x; 	ptx +=step) {   /* NOTICE: All integer type! */
+			/* Get two ends of a short line */
+			if(xs==0 && xe==0) { /* Token as the first line of the [k]th segment */
+				xs=ptx; 	dx=0;	/* dx = (x-xi) */
+				ys=a[k]+b[k]*dx+c[k]*pow(dx,2)+d[k]*pow(dx,3);
+
+				xe=xs+step;	dx+=step;
+				ye=a[k]+b[k]*dx+c[k]*pow(dx,2)+d[k]*pow(dx,3);
+			} else {	    /* Not first line */
+				xs=xe; ys=ye;
+				xe=xs+step;	dx+=step;
+				ye=a[k]+b[k]*dx+c[k]*pow(dx,2)+d[k]*pow(dx,3);
+			}
+
+			/* Draw short line */
+			//draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w);
+
+			/* Draw areas */
+			int tekxx=xe-xs;
+        		int tekyy=ye-ys;
+			int ky;
+			float tek;
+
+			if(tekxx==0)
+				tekxx=0.0000001;
+			tek=tekyy/tekxx;
+
+			fbset_color(color);
+			for(kn=roundf(xs); kn<=roundf(xe); kn++) {
+				ky=roundf(1.0*ys+(1.0*kn-xs)*tek);
+				draw_line(fbdev, kn, ky, kn, baseY);
+			}
+
+		}
+
+		/* reste xs,xe as for token */
+		xs=0; xe=0;
+	}
+
+        /* turn off FBDEV pixcolor and pixalpha_hold */
+        fbdev->pixcolor_on=false;
+        fbdev->pixalpha_hold=false;
+        fbdev->pixalpha=255;
+
+END_FUNC:
+	/* free */
+	free(h);
+	free(a);
+	release_float_Matrix(&MatM);
+	release_float_Matrix(&MatAB);
+
+	return ret;
+}
+
 
 /*--------------------------------------------------------------------
 Draw a parametric cubic spline passing through given points.

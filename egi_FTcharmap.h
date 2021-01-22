@@ -171,6 +171,8 @@ struct  FTsymbol_char_map {
 	int		txtdlines;		/* LIMIT: Size of txtdlinePos[], auto mem_grow.  */
 	unsigned int	*txtdlinePos;		/* An array to store offset position(relative to txtbuff) of each txt dlines, which
 						 * have already been charmapped, and MAYBE not displayed in the current charmap.
+						 * 1. In FTcharmap_get_txtdlIndex(), txtdlinePos[] after current charmap are considered as
+						 *    VALID if they are >0!
 					         */
 	#define TXTDLINES_GROW_SIZE     1024    /* Auto. mem_grow size for chmap->txtdlines and chmap->txtdlinePos[] */
 
@@ -376,6 +378,7 @@ int 	FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request 
 int     FTcharmap_modify_charColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, bool request);	/* mutex_lock + request + charColorMap */
 int  	FTcharmap_modify_hlmarkColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, bool request);	/* mutex_lock + request + hlmarkColorMap */
 
+/* For XTERM */
 int  FTcharmap_shrink_dlines( EGI_FTCHAR_MAP *chmap, size_t dlns);	/* mutex_lock + request  +charColorMap|hlmarkColorMap */
 
 /* To/from EGI_SYSPAD */

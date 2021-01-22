@@ -42,7 +42,7 @@ Midas Zhou
 #define ENABLE_EGI_DEBUG
 
 /* default debug flags */
-#define DEFAULT_DBG_FLAGS   (DBG_NONE|DBG_UNIHAN )//| DBG_CHARMAP) //DBG_FFPLAY|DBG_PAGE ) //|DBG_TOUCH ) // |DBG_BTN)  //DBG_TOUCH )
+#define DEFAULT_DBG_FLAGS   (DBG_NONE|DBG_UNIHAN | DBG_CHARMAP) //DBG_FFPLAY|DBG_PAGE ) //|DBG_TOUCH ) // |DBG_BTN)  //DBG_TOUCH )
 
 #ifdef ENABLE_EGI_DEBUG
 	/* define egi_pdebug() */

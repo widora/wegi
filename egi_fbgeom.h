@@ -98,6 +98,8 @@ void 	draw_blend_filled_annulus( FBDEV *dev, int x0, int y0, int r, unsigned int
                                                                EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha );
 /////////////// Draw curves //////////////
 int 	draw_spline(FBDEV* dev, int np, EGI_POINT *pxy, int endtype, unsigned int w);
+int 	draw_filled_spline( FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int w,
+        	                int baseY, EGI_16BIT_COLOR color, EGI_8BIT_ALPHA alpha);
 int 	draw_spline2(FBDEV* dev, int np, EGI_POINT *pxy, int endtype, unsigned int w);
 int 	draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, unsigned int w);
 int 	draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsigned int w);

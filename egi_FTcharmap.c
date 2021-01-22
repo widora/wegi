@@ -2463,6 +2463,7 @@ int FTcharmap_set_pchoff( EGI_FTCHAR_MAP *chmap, unsigned int pchoff, unsigned i
         }
 
 	if( pchoff > chmap->txtlen || pchoff2 > chmap->txtlen ) {
+                printf("%s: pchoff OR pchoff2 out of chmap->xtxtbuff!", __func__);
        	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
 		return -3;
@@ -3128,10 +3129,12 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
         if( chmap==NULL || pstr==NULL ) {
                 return -1;
         }
-	if(strsize==0)
-		return 0;
 
-	/* 1. Check txtbuff space, and auto mem_grow if necessary. NOT deduct selected chars which are supposed to be replaced! */
+	/* We want to trigger cursor follow_up... */
+	//if(strsize==0)
+	//	return 0;
+
+	/* 0. Check txtbuff space, and auto mem_grow if necessary. NOT deduct selected chars which are supposed to be replaced! */
 	if( chmap->txtlen +strsize > chmap->txtsize-1 ) {  /* ?-1 */
 
                 EGI_PDEBUG(DBG_CHARMAP,"chmap->txtbuff is full! txtlen=%d + strsize=%d > txtsize-1=%d, mem_grow chmap->txtbuff...\n",
@@ -3147,6 +3150,48 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
 	}
 
 	/* If head of selection (pchoff or pchoff2) Not in current charmap page, set to scroll to ? Just refert to FTcharmap_insert_char() */
+
+/////////////////// TODO: TEST 
+	/* 1. If head of selection (pchoff or pchoff2 wich is smaller) Not in current charmap page, set to scroll to.
+	 *    Cross check following codes same as in FTcharmap_modify_charColor(),_insert_char().
+	 */
+	/* Get head of selection, consider pchoff==pchoff2 also as a selection. */
+	if( chmap->pch < 0 && chmap->pchoff <= chmap->pchoff2 )
+	{
+		EGI_PDEBUG(DBG_CHARMAP,"pch not in current charmap!\n");
+		/* Get txtdlncount corresponding to pchoff  */
+		dln=FTcharmap_get_txtdlIndex(chmap, chmap->pchoff);
+		if(dln<0) {
+			printf("%s: Fail to find index of chmap->txtdlinePos[] for pchoff!\n", __func__);
+			/* --- Do nothing! --- */
+		}
+		else {
+				EGI_PDEBUG(DBG_CHARMAP,"get txtdlncount as per pchoff: dln=%d!\n", dln);
+       	        		/* PRE_: Update chmap->txtdlncount */
+				chmap->txtdlncount=dln;
+        		        /* PRE_: Update chmap->pref */
+	                	chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+				/* In charmapping, chmap->pch will be updated according to chmap->pchoff */
+		}
+	}
+	else if( chmap->pch2 < 0 && chmap->pchoff2 < chmap->pchoff )
+	{
+		EGI_PDEBUG(DBG_CHARMAP,"pch2 not in current charmap!\n");
+		/* Get txtdlncount corresponding to pchoff  */
+		dln=FTcharmap_get_txtdlIndex(chmap, chmap->pchoff2);
+		if(dln<0) {
+			printf("%s: Fail to find index of chmap->txtdlinePos[] for pchoff2!\n", __func__);
+			/* --- Do nothing! --- */
+		}
+		else {
+       			/* PRE_: Update chmap->txtdlncount */
+			chmap->txtdlncount=dln;
+        		/* PRE_: Update chmap->pref */
+	                chmap->pref=chmap->txtbuff + chmap->txtdlinePos[chmap->txtdlncount];
+			/* In charmapping, chmap->pch will be updated according to chmap->pchoff */
+		}
+	}
+////////////////////////////
 
     	/* 2.0 If selection marks, delete all selected chars first and reset pchoff/pchoff2 */
 	if( chmap->pchoff != chmap->pchoff2 ) {
@@ -3379,7 +3424,6 @@ int FTcharmap_insert_string( EGI_FTCHAR_MAP *chmap, const unsigned char *pstr, s
 }
 
 
-
 /*---------------------------------------------------------------
 Insert a character into charmap->txtbuff.
 
@@ -3488,6 +3532,7 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 			/* --- Do nothing! --- */
 		}
 		else {
+				EGI_PDEBUG(DBG_CHARMAP,"get txtdlncount as per pchoff: dln=%d!\n", dln);
        	        		/* PRE_: Update chmap->txtdlncount */
 				chmap->txtdlncount=dln;
         		        /* PRE_: Update chmap->pref */
@@ -4177,13 +4222,12 @@ int  FTcharmap_modify_hlmarkColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color,
 }
 
 
-/*----------------------------------------------------------------------
+/*---------------   This function is for XTERM  -----------------------
 Shrink charmap by deleting dlines from the beginning, and ajust relevant
 params accordingly!
 
-    --- This function is for keeping XTERM row number LIMIT. ---
-
 Note:
+1. All txtdlinePos[] after current charmap dlines will be reset to ZERO!
 
 @chmap:         Pointer to the EGI_FTCHAR_MAP.
 @dlns:		Number of dlines to be deleted.
@@ -4194,7 +4238,8 @@ Return:
 ---------------------------------------------------------------------*/
 int  FTcharmap_shrink_dlines( EGI_FTCHAR_MAP *chmap, size_t dlns)
 {
-	unsigned int shrink_size;
+	size_t shrink_size;
+	size_t dln_remain;
 	size_t k;
 
 	/* Check input */
@@ -4240,8 +4285,12 @@ int  FTcharmap_shrink_dlines( EGI_FTCHAR_MAP *chmap, size_t dlns)
 	}
 
 	/* memmove txtdlinePos[] */
+	dln_remain=chmap->txtdlncount+chmap->maplncount-dlns; /* Data of charmapped dlines that remains. */
 	memmove(chmap->txtdlinePos, chmap->txtdlinePos+dlns,
-				sizeof(typeof(*(chmap->txtdlinePos)))*(chmap->txtdlncount+chmap->maplncount-dlns));
+				sizeof(typeof(*(chmap->txtdlinePos)))*dln_remain);
+
+	/* !!!MUST bzero all old txtdlinePos[], FTcharmap_get_txtdlIndex() will see txtdlinePos[]=0 as start of UNcharmapped  */
+	bzero(chmap->txtdlinePos+dln_remain, sizeof(typeof(*(chmap->txtdlinePos)))*(chmap->txtdlines-dln_remain) );
 
 	/* PRE_1: Modify chmap->txtdlncount */
 	chmap->txtdlncount -= dlns;

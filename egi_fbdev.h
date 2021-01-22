@@ -88,6 +88,8 @@ typedef struct fbdev{
 					 * means FB will never try to free it, whatever.
 					 */
 
+	bool		antialias_on;	/* Carry out anti-aliasing functions */
+
 	bool		pixcolor_on;	/* default/init as off */
 	uint16_t 	pixcolor;	/* pixel color */
 	unsigned char	pixalpha;	/* pixel alpha value in use, 0: 100% bkcolor, 255: 100% frontcolor */
