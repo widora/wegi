@@ -18,6 +18,10 @@ Note:
 Jurnal
 2021-1-10:
 	1. Modify fbget_pixColor(): to pick color from working buffer.
+2021-1-21/25:
+	1. draw_dot(): Use var. pix_color instead of fb_color to store blended color value.
+		       fb_color is FB sys color value!
+	2. draw_line(): extend pixel/alpha as for anti_aliasing.
 
 
 Modified and appended by Midas-Zhou
@@ -457,6 +461,7 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 	int yres;
 	FBPIX fpix;
 	int sumalpha;
+	EGI_16BIT_COLOR pix_color;
 
 	/* check input data */
 	if(fb_dev==NULL)
@@ -686,31 +691,35 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 	{
 		if(fb_dev->pixcolor_on) { 	/* use fbdev pixcolor */
 			if( fb_dev->lumadelt!=0 ) {  /* --- TEST Luma --- */
-				fb_color=COLOR_16BITS_BLEND(  egi_colorLuma_adjust(fb_dev->pixcolor,fb_dev->lumadelt),    /* Front color */
+				//fb_color=COLOR_16BITS_BLEND(  egi_colorLuma_adjust(fb_dev->pixcolor,fb_dev->lumadelt),    /* Front color */
+				pix_color=COLOR_16BITS_BLEND(  egi_colorLuma_adjust(fb_dev->pixcolor,fb_dev->lumadelt),    /* Front color */
 							     *(uint16_t *)(map+location), /* Back color */
 							      fb_dev->pixalpha );	  /* Alpha value */
 			}
 			else {
-				fb_color=COLOR_16BITS_BLEND(  fb_dev->pixcolor,		  /* Front color */
+				//fb_color=COLOR_16BITS_BLEND(  fb_dev->pixcolor,		  /* Front color */
+				pix_color=COLOR_16BITS_BLEND(  fb_dev->pixcolor,		  /* Front color */
 							     *(uint16_t *)(map+location), /* Back color */
 							      fb_dev->pixalpha );	  /* Alpha value */
 			}
 
-	        	*((uint16_t *)(map+location))=fb_color; //fb_dev->pixcolor;
+	        	*((uint16_t *)(map+location))=pix_color; //fb_color; //fb_dev->pixcolor;
 		}
 		else {				/* use system pxicolor */
 			if( fb_dev->lumadelt!=0 ) {  /* --- TEST Luma --- */
-				fb_color=COLOR_16BITS_BLEND(  egi_colorLuma_adjust(fb_color,fb_dev->lumadelt),    /* Front color */
+				//fb_color=COLOR_16BITS_BLEND(  egi_colorLuma_adjust(fb_color,fb_dev->lumadelt),    /* Front color */
+				pix_color=COLOR_16BITS_BLEND(  egi_colorLuma_adjust(fb_color,fb_dev->lumadelt),    /* Front color */
 							     *(uint16_t *)(map+location), /* Back color */
 							      fb_dev->pixalpha );	  /* Alpha value */
 			}
 			else {
-				fb_color=COLOR_16BITS_BLEND(  fb_color,			  /* Front color */
+				//fb_color=COLOR_16BITS_BLEND(  fb_color,			  /* Front color */
+				pix_color=COLOR_16BITS_BLEND(  fb_color,			  /* Front color */
 							     *(uint16_t *)(map+location), /* Back color */
 							      fb_dev->pixalpha );	  /* Alpha value */
 			}
 
-		        *((uint16_t *)(map+location))=fb_color;
+		        *((uint16_t *)(map+location))=pix_color; //fb_color;
 		}
 	}
 
@@ -737,7 +746,7 @@ TODO: To improve accuracy and anti_alising.
 
 Midas Zhou
 ---------------------------------------------------*/
-#if 1
+#if 0
 void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 {
         int i=0;
@@ -789,98 +798,251 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
             }
         }
 }
-#else /////////////////// With anti-aliasing /////////////////////
 
-/*--------------------------------------
-Draw dots around Point(x,y) with
-blend effect.
----------------------------------------*/
-static void draw_dot_blend(int x, int y)
-{
-	/* turn on FBDEV pixcolor and pixalpha_hold */
-	dev->pixcolor_on=true;
-	dev->pixalpha_hold=true;
-	dev->pixalpha=115;
+#else /////////////////// With anti-aliasing effect /////////////////////
 
-	draw_dot(dev, x-1, y); /* Left */
-	draw_dot(dev, x+1, y); /* Right */
-	draw_dot(dev, x, y-1); /* Up */
-	draw_dto(dev, x, y+1); /* Down */
+/*----------------------------------------------------
+Draw a simple line, with anti_aliasing effect.
 
-        /* turn off FBDEV pixcolor and pixalpha_hold */
-	dev->pixcolor_on=false;
-        dev->pixalpha_hold=false;
-        dev->pixalpha=255;
-}
+Note:
+1. If a spline is drawn by many short lines, and each line
+is so short, that slope/aslope MAY be unfortuantely be
+deminished. ???!!
 
+
+------------------------------------------------------*/
 void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 {
         int i=0;
         int j=0;
 	int k;
-        int tekxx=x2-x1;
-        int tekyy=y2-y1;
-	int tmp;
-	EGI_16BIT_COLOR color;
+        int tekxx;
+        int tekyy;
+	float fslope;
+	int slope;  /* abs(tekyy/tekxx) */
+	int aslope;  /* abs(tekxx/tekyy) */
+	bool slope_on;
+	int tmp,tmpx,tmpy;
 
+	/* Extend pixel alphas */
+	EGI_8BIT_ALPHA alphas[3]={120,80,60}; /* 150,100,80 */
+
+	/* Turn on pixcolor */
+	if( dev->antialias_on ) {
+		//dev->pixcolor_on=true;
+		//dev->pixcolor=fb_color;
+		/* Use fb_color */
+		dev->pixalpha_hold=true;
+	}
+
+	/* Make always x2>x1 OR x2==x1 */
+	if(x1>x2) {
+		/* Swap (x1,y1)  (x2,y2) */
+		tmpx=x2;   tmpy=y2;
+		x2=x1;     y2=y1;
+		x1=tmpx;   y1=tmpy;
+	}
+
+	/* NOW: Case 1: X2 > X1 OR  Case 2: X2==X1 */
+
+	/* Cal. slope/aslop */
+        tekxx=x2-x1;
+        tekyy=y2-y1;
+
+	fslope=(float)tekyy/tekxx;
+
+	if(tekxx!=0)
+		slope=abs(roundf(1.0*tekyy/tekxx));
+	else
+		slope=1000000;
+	if(tekyy!=0)
+		aslope=abs(roundf(1.0*tekxx/tekyy));
+	else
+		aslope=1000000;
+
+	/* Slope effective, more extend pixel.. */
+	if( slope >20 || aslope >20 )
+		slope_on=true;
+
+	/* Case 1: x2>x1 */
         if(x2>x1) {
 	    tmp=y1;
             for(i=x1;i<=x2;i++) {
-                j=(i-x1)*tekyy/tekxx+y1;		/* TODO: fround() to improve accuracy. */
+                //j=(i-x1)*tekyy/tekxx+y1;
+		j=roundf(fslope*(i-x1)+y1);
 		if(y2>=y1) {
-			for(k=tmp;k<=j;k++)		/* fill uncontinous points */
-		                draw_dot(dev,i,k);
+			for(k=tmp;k<=j;k++) {		/* fill uncontinous points */
+			    /* A. If anti_aliasing ON */
+			    if(dev->antialias_on) {
+				/* A.1 Draw overlapped/step adjacent dots at start */
+				if( k==tmp && j!=tmp ) {
+					/* NOTE:
+					 *  1. j!=tmp ensure a Y step begins, not straigh part! for checking slope<1 condition.
+					 *  2. For slope>1 line, it's alway has Y steps, so j!=tmp always OK!
+					 */
+					/* End pixel */
+					dev->pixalpha=alphas[0];
+					draw_dot(dev,i,k);
 
-				if(dev->antialias_on) {
-				        /* turn on FBDEV pixcolor and pixalpha_hold */
-				        dev->pixcolor_on=true;
-				        dev->pixalpha_hold=true;
-				        dev->pixalpha=115;
-
-					draw_dot(dev, i-1, k); /* Left */
-					draw_dot(dev, i+1, k); /* Right */
-					draw_dot(dev, i, k-1); /* Up */
-					draw_dto(dev, i, k+1); /* Down */
-
-				        /* turn off FBDEV pixcolor and pixalpha_hold */
-					dev->pixcolor_on=false;
-				        dev->pixalpha_hold=false;
-				        dev->pixalpha=255;
+					/* Extend pixel */
+					dev->pixalpha=alphas[1];
+					if(slope>2) {  /* Nearby_parallel to Y axis */
+						draw_dot(dev,i,k-1);	/* Extend -Y */
+						if(slope_on) {		/* Entend -Y again! */
+							dev->pixalpha=alphas[2];
+							draw_dot(dev,i,k-2);
+						}
+					}
+					else if(aslope>2)  { /* Nearby_parallel to X axis */
+						//draw_dot(dev, i-1,k);   /* Extend -X */
+						draw_dot(dev, i+1,k);    /* Extend +X */
+						if(slope_on) {		/* Extend X again! */
+							dev->pixalpha=alphas[2];
+							//draw_dot(dev,i-2, k); /* Extend -X */
+							draw_dot(dev,i+2,k);    /* Extend +X */
+						}
+					}
 				}
+				/* A.2 Draw overlapped/step adjacent dots at end */
+				else if( k==j && j!=tmp ) {
+					/* End pixel */
+					dev->pixalpha=alphas[0];
+					draw_dot(dev,i,k);
+
+					/* Extend pixel */
+					dev->pixalpha=alphas[1];
+					if(slope>2) {  /* Nearby_parallel to Y axis */
+						draw_dot(dev,i,k+1);	/* Extend +Y */
+						if(slope_on) {		/* Entend +Y again! */
+							dev->pixalpha=alphas[2];
+							draw_dot(dev,i,k+2);
+						}
+					}
+					else if(aslope>2) { /* Nearby_parallel to X axis */
+						//draw_dot(dev, i+1,k);   /* Extend +X */
+						draw_dot(dev, i-1,k);   /* Extend -X */
+						if(slope_on) {		/* Extend X again! */
+							dev->pixalpha=alphas[2];
+							//draw_dot(dev,i+2, k); /* Extend +X */
+							draw_dot(dev,i-2, k);	/* Extend -X */
+						}
+					}
+				}
+				/* A.3 Draw other dots, where no overlapped/step. */
+				else {
+					dev->pixalpha=225;
+		                	draw_dot(dev,i,k);
+				}
+
+			     /* B. ELSE: No anti_aliasing */
+			     } else
+			      		draw_dot(dev, i, k);
+			}
 		}
 		else { /* y2<y1 */
-			for(k=tmp;k>=j;k--)
-				draw_dot(dev,i,k);
+			for(k=tmp;k>=j;k--) {
+
+			    /* C. If anti_aliasing ON */
+			    if(dev->antialias_on) {
+				/* C.1 Draw overlapped/step adjacent dots at start */
+				if(k==tmp && j!=tmp ) {
+					/* NOTE:
+					 *  1. j!=tmp ensure a Y step begins, not straigh part! for checking slope<1 condition.
+					 *  2. For slope>1 line, it's alway has Y steps, so j!=tmp always OK!
+					 */
+					/* End pixel */
+					dev->pixalpha=alphas[0];
+					draw_dot(dev,i,k);
+
+					/* Extend pixel */
+					dev->pixalpha=alphas[1];
+					/* C.1.1 */
+					if(slope>2) {  /* Nearby_parallel to Y axis */
+						draw_dot(dev,i,k+1);	/* Extend +Y */
+						//draw_dot(dev,i,k-1);	/* Extend -Y */
+						if(slope_on) {		/* Entend again! */
+							dev->pixalpha=alphas[2];
+							draw_dot(dev,i,k+2); /* Extend +Y */
+							//draw_dot(dev,i,k-2);   /* Extend -Y */
+						}
+					}
+					/* C.1.2 */
+					else if(aslope>2) { /* Nearby_parallel to X axis */
+						//draw_dot(dev, i-1, k);   /* Extend -X */
+						/* ??? !!! */
+						draw_dot(dev, i+1, k);   /* Extend +X */
+						if(slope_on) {		/* Extend again! */
+							dev->pixalpha=alphas[2];
+							//draw_dot(dev,i-2, k); /* Extend -X */
+							draw_dot(dev,i+2, k);   /* Extend +x */
+						}
+					}
+				}
+				/* C.2 Draw overlapped/step adjacent dots at end */
+				else if(k==j && j!=tmp ) {
+					/* End pixel */
+					dev->pixalpha=alphas[0];
+					draw_dot(dev,i,k);
+
+					/* Extend pixel */
+					dev->pixalpha=alphas[1];
+					if(slope>2) {  /* Nearby_parallel to Y axis */
+						draw_dot(dev,i,k-1);	/* Extend -Y */
+						//draw_dot(dev,i,k+1);	/* Extend +Y */
+						if(slope_on) {		/* Entend again! */
+							dev->pixalpha=alphas[2];
+							draw_dot(dev,i,k-2); /* Extend -Y */
+							//draw_dot(dev,i,k+2);   /* Extend +Y */
+						}
+					}
+					else if(aslope>2) { /* Nearby_parallel to X axis */
+						//draw_dot(dev, i+1,k);   /* Extend +X */
+						/* ????? */
+						draw_dot(dev, i-1,k);   /* Extend -X */
+
+						if(slope_on) {		/* Extend again! */
+							dev->pixalpha=alphas[2];
+							//draw_dot(dev,i+2, k);  /* Extend +X */
+							draw_dot(dev,i-2, k);  /* Extend -X */
+						}
+					}
+
+				}
+				/* C.3 Draw other dots */
+				else {
+					dev->pixalpha=225;
+		                	draw_dot(dev,i,k);
+				}
+
+			     /* D. ELSE: No anti_aliasing */
+			     } else
+			      		draw_dot(dev, i, k);
+			}
 		}
 		tmp=j;
             }
         }
-	else if(x2 == x1) {
+	/* Case 2: X2 == X1 */
+	else   {
 	   if(y2>=y1) {
-		for(i=y1;i<=y2;i++)
-		   draw_dot(dev,x1,i);
+		for(i=y1;i<=y2;i++) {
+		   	draw_dot(dev,x1,i);
+		}
 	    }
 	    else {
-		for(i=y2;i<=y1;i++)
+		for(i=y2;i<=y1;i++) {
 			draw_dot(dev,x1,i);
+		}
 	   }
 	}
-        else /* x1>x2 */
-        {
-	    tmp=y2;
-            for(i=x2;i<=x1;i++) {
-                j=(i-x2)*tekyy/tekxx+y2;
-		if(y1>=y2) {
-			for(k=tmp;k<=j;k++)		/* fill uncontinous points */
-		        	draw_dot(dev,i,k);
-		}
-		else {  /* y2>y1 */
-			for(k=tmp;k>=j;k--)		/* fill uncontinous points */
-		        	draw_dot(dev,i,k);
-		}
-		tmp=j;
-            }
-        }
+
+        /* Turn off FBDEV pixcolor and pixalpha_hold */
+	if( dev->antialias_on ) {
+		dev->pixcolor_on=false;
+        	dev->pixalpha_hold=false;
+	        dev->pixalpha=255;
+	}
+
 }
 #endif
 
@@ -964,6 +1126,8 @@ w: width of the line ( W=2*N+1 )
 
 NOTE: if you input w=0, it's same as w=1.
 
+w=3 may be same as w=1, because of inaccuracy of fixed_point cal.
+
 Midas Zhou
 ----------------------------------------------------------------------*/
 void draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
@@ -1022,6 +1186,7 @@ NOTE:
 1. If you input w=0, it's same as w=1.
 2. As fixed point calculation will lose certain accuracy, some w value
    will fail to get desired effect. Example: w=3 has same effect of w=1.
+w=3 may be same as w=1, because of inaccuracy of fixed_point cal.
 
 Midas Zhou
 ----------------------------------------------------------------------*/
@@ -3168,14 +3333,15 @@ int draw_filled_spline( FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsig
 			//draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w);
 
 			/* Draw areas */
-			int tekxx=xe-xs;
-        		int tekyy=ye-ys;
+			float tekxx=xe-xs;
+        		float tekyy=ye-ys;
 			int ky;
 			float tek;
 
 			if(tekxx==0)
-				tekxx=0.0000001;
-			tek=tekyy/tekxx;
+				tek=1000000;
+			else
+				tek=tekyy/tekxx;
 
 			fbset_color(color);
 			for(kn=roundf(xs); kn<=roundf(xe); kn++) {

@@ -15,6 +15,7 @@ Midas Zhou
 #include <string.h>
 #include <errno.h>
 #include <math.h>
+#include "egi_math.h"
 #include "egi_common.h"
 #include "egi_FTsymbol.h"
 
@@ -55,7 +56,7 @@ int main(int argc, char ** argv)
                 printf("Fail to init logger,quit.\n");
                 return -1;
         }
-#endif 
+#endif
 
 #if 1
         printf("symbol_load_allpages()...\n");
@@ -159,7 +160,52 @@ while(1) {
 #endif
 
 
-#if 1  /* <<<<<<<<<<<<<<  test draw circle  <<<<<<<<<<<<<<<*/
+#if 1  /* <<<<<<<<<<<<<<  test anti_aliasing effect  <<<<<<<<<<<<<<<*/
+	int i,k;
+	int r=200;//75,180
+	int xc=160,yc=120;
+	int x1,x2,y1,y2;
+	int tmp[4]={3, 180-3, 93,180-93};
+
+        /* Check whether lookup table fp16_cos[] and fp16_sin[] is generated */
+        if( fp16_sin[30] == 0) {
+                printf("%s: Start to create fixed point trigonometric table...\n",__func__);
+                mat_create_fpTrigonTab();
+        }
+
+while(1) {
+	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY2);
+
+	/* Draw lines without anti_aliasing effect */
+	for(i=0; i<180; i+=2) {
+
+//	for(k=0; k<4; k++) {
+//		i=tmp[k];
+
+		x1=xc+(r*fp16_cos[i]>>16);
+		y1=yc-(r*fp16_sin[i]>>16);
+		x2=xc+(r*fp16_cos[i+180]>>16);
+		y2=yc-(r*fp16_sin[i+180]>>16);
+
+		printf("i=%d: line (%d,%d)-(%d,%d) \n", i,x1,y1,x2,y2);
+
+		gv_fb_dev.antialias_on=true;
+		fbset_color(egi_color_random(color_medium));
+		draw_line(&gv_fb_dev, x1,y1, x2,y2);	/* Note: LCD coord sys! */
+		gv_fb_dev.antialias_on=false;
+
+		fb_render(&gv_fb_dev);
+	}
+
+	sleep(3);
+}
+
+	fb_render(&gv_fb_dev);
+
+#endif
+
+
+#if 0  /* <<<<<<<<<<<<<<  test draw circle  <<<<<<<<<<<<<<<*/
 	int k;
 	int r;
 	int rmax, rmin;
