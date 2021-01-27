@@ -90,7 +90,7 @@ typedef struct fbdev{
 
 	bool		antialias_on;	/* Carry out anti-aliasing functions */
 
-	bool		pixcolor_on;	/* default/init as off */
+	bool		pixcolor_on;	/* default/init as off, If ture: draw_dot() use pixcolor, else: draw_dot() use fb_color. */
 	uint16_t 	pixcolor;	/* pixel color */
 	unsigned char	pixalpha;	/* pixel alpha value in use, 0: 100% bkcolor, 255: 100% frontcolor */
 	bool		pixalpha_hold;  /* Normally, pixalpha will be reset to 255 after each draw_dot() operation

@@ -22,7 +22,7 @@ Midas Zhou
 int main(int argc, char **argv)
 {
 	char path[128]={0};
-	FBDEV fb_dev;
+	FBDEV fb_dev={ .devname="/dev/fb0", .fbfd=-1,  };
 
 	/* --- init logger --- */
 /*
@@ -36,7 +36,15 @@ int main(int argc, char **argv)
 //        tm_start_egitick();
 
         /* --- prepare fb device --- */
-        init_fbdev(&fb_dev);
+        if(init_fbdev(&fb_dev)!=0) {
+		printf("Fail to init fbdev!\n");
+		exit(EXIT_FAILURE);
+	}
+
+        /* Set sys FB mode */
+        fb_set_directFB(&fb_dev,false);
+        fb_position_rotate(&fb_dev,0);
+
 
 #if 1   /*  --------------  TEST:  egi_save_FBpng()  ------------- */
         /* get time stamp */
@@ -46,12 +54,13 @@ int main(int argc, char **argv)
 	if(argc>1)
 	     sprintf(path,argv[1]);
 	else {
-		sprintf(path,"/tmp/FB%d-%02d-%02d_%02d:%02d:%02d.png",
+		//sprintf(path,"/tmp/FB%d-%02d-%02d_%02d:%02d:%02d.png",
+		sprintf(path,"/tmp/FB%d-%02d-%02d_%02d_%02d_%02d.png",
         	                   tm->tm_year+1900,tm->tm_mon+1,tm->tm_mday,tm->tm_hour, tm->tm_min,tm->tm_sec);
 	}
 
 	/* set pos_rotate, WARNING!!! Make sure that screen image is posed the same way! */
-	fb_dev.pos_rotate=1;
+	//fb_dev.pos_rotate=1;
 	egi_save_FBpng(&fb_dev, path); /* imgbuf will rotated as per pos_rotate */
 
 	exit(0);

@@ -50,6 +50,34 @@ struct FTsymbol_library {
 	char 		*fpath_special;
 };
 
+/* To  buffer frequently used wchars  */
+typedef struct FTsymbol_font_buffer  EGI_FONT_BUFFER;
+struct FTsymbol_font_buffer {
+	FT_Face face;	/* A face object in FreeType2 library, MUST be a ref. to an already loaded facetype in sys EGI_FONTS */
+	int	fw; 	/* Font size */
+	int	fh;
+
+	/* TODO: lookup scatter/hash table */
+
+	wchar_t unistart;		/* Start of wcode/unicode. */
+	size_t  size;			/* Fontdata size, as of fontdata[], total number of wchars buffered, with glyphs/data */
+
+	/* font image data */
+	struct font_data {
+		unsigned char	*alpha;  	/* as per slot->bitmap.buffer,symheight*ftwidth pixels */
+		int		symheight;	/* as per slot->bitmap.rows, font height in pixels is bigger than bitmap.rows! */
+		int		ftwidth;	/* as per slot->bitmap.width, ftwidth <= (slot->advance.x>>6) */
+		int		advanceX;	/* as per advanceX = slot->advance.x>>6, OR self cooked width. */
+	        /* bitmap position relative to boundary box */
+        	int delX;			/* = slot->bitmap_left; */
+        	int delY; 			/* = -slot->bitmap_top + fh */
+	} *fontdata;				/* index 0 --> unistart, 1 --> unistart+1, ... size-1 --> unistart+size-1 */
+
+};
+
+EGI_FONT_BUFFER* FTsymbol_create_fontBuffer(FT_Face face, int fw, int fh, wchar_t unistart, size_t size);
+void FTsymbol_free_fontBuffer(EGI_FONT_BUFFER **fontbuff);
+
 extern EGI_SYMPAGE sympg_ascii;  /* default font  LiberationMono-Regular */
 
 extern EGI_FONTS   egi_sysfonts; /* system font set */
@@ -90,3 +118,9 @@ int  	FTsymbol_uft8strings_pixlen( FT_Face face, int fw, int fh, const unsigned 
 
 
 #endif
+int     FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, const unsigned char *pstr,
+                               unsigned int pixpl,  unsigned int lines,  unsigned int gap,
+                               int x0, int y0,
+                               int fontcolor, int transpcolor, int opaque,
+                               int *cnt, int *lnleft, int* penx, int* peny );
+

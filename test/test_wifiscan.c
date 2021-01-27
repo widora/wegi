@@ -12,12 +12,14 @@ Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
 #include <stdio.h>
+#include <unistd.h>
+#include <errno.h>
 #include <pty.h>
 #include <sys/wait.h>
-#include "egi_common.h"
-#include "egi_pcm.h"
+#include "egi_log.h"
 #include "egi_FTsymbol.h"
 #include "egi_utils.h"
+#include "egi_cstring.h"
 
 void print_help(const char* cmd)
 {
@@ -60,9 +62,10 @@ int main(int argc, char** argv)
 	char ptyname[256]={0};
 
         /* <<<<<  EGI general init  >>>>>> */
+#if 0
         printf("tm_start_egitick()...\n");
         tm_start_egitick();		   	/* start sys tick */
-
+#endif
         printf("egi_init_log()...\n");
         if(egi_init_log("/mmc/log_wifiscan") != 0) {	/* start logger */
                 printf("Fail to init logger,quit.\n");
@@ -132,8 +135,6 @@ while(1) {
 
 	/* Create a pty shell to execute aps */
 	shpid=forkpty(&ptyfd, ptyname, NULL, NULL);
-	printf("ptyname: %s\n",ptyname);
-
         /* Child process to execute shell command */
 	if( shpid==0) {
 		/* Widora aps RETURN Examples:
@@ -152,9 +153,9 @@ while(1) {
 		EGI_PLOG(LOGLV_CRITICAL, "Fail to forkpty! Err'%s'.  retry later...", strerror(errno));
 		sleep(3);
 		continue;
-		// exit(EXIT_FAILURE);
 	}
 
+	printf("ptyname: %s\n",ptyname);
 	EGI_PLOG(LOGLV_TEST,"Start to read aps results and parse data...");
 
 	/* ELSE: Parent process to get execl() result */
@@ -276,6 +277,9 @@ void parse_apinfo(char *info, int index)
 	int py_cf;	/* Cetral Freq. Mark coordinate Y */
 	EGI_POINT pts[3];
 
+	/* sss */
+	if(index>30)
+		EGI_PLOG(LOGLV_CRITICAL, "Info[%d]: %s", index, info);
 
 	/* Defaule mode HT20 */
 	bw=20;
@@ -320,10 +324,19 @@ void parse_apinfo(char *info, int index)
 	/* Draw channel */
 
 	/* 256COLOR Select */
+	EGI_16BIT_COLOR color;
 	unsigned int color_codes[]={
 	  9,10,11,12,13,14,15,36,39,100,105,144,148,155,158,169,197,201,202,205,207,208,213,214,219,220,227,230
 	};
-	EGI_16BIT_COLOR color=egi_256color_code(color_codes[index%(sizeof(color_codes)/sizeof(color_codes[0]))]);
+	int color_total=sizeof(color_codes)/sizeof(color_codes[0]);
+	int code;
+	code=(cstr_hash_string(ssid, 0)%1000)%color_total;
+	printf("ssid: %s, color code=%d\n", ssid, code);
+	#if 0
+	color=egi_256color_code(color_codes[code]);
+	#else
+	color=egi_256color_code(color_codes[index%color_total]);
+	#endif
 	fbset_color(color);
 
 	/* Cal. top point XY of sginal strength arc. */
@@ -342,7 +355,11 @@ void parse_apinfo(char *info, int index)
 	pts[0].x=px_cf-bw/2*ppm; 	pts[0].y=blpy;
 	pts[1].x=px_cf;			pts[1].y=py_cf;
 	pts[2].x=px_cf+bw/2*ppm;  	pts[2].y=blpy;
+
+	gv_fb_dev.antialias_on=true;
 	draw_spline(&gv_fb_dev, 3, pts, 2, 1);
+	gv_fb_dev.antialias_on=false;
+
 	draw_filled_spline(&gv_fb_dev, 3,pts, 2, 1, blpy, color, 50); /* baseY, color, alpha */
 
 	/* Mark SSID */

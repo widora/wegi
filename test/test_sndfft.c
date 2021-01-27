@@ -98,13 +98,17 @@ int main(void)
                 printf("Fail to load sym pages,quit.\n");
                 return -2;
         }
-        if(FTsymbol_load_appfonts() !=0 ) {  	/* load FT fonts LIBS */
+        if(FTsymbol_load_sysfonts() !=0 ) {  	/* load FT fonts LIBS */
                 printf("Fail to load FT appfonts, quit.\n");
                 return -2;
         }
         printf("init_fbdev()...\n");
         if( init_fbdev(&gv_fb_dev) )		/* init sys FB */
                 return -1;
+
+        /* Set sys FB mode */
+        fb_set_directFB(&gv_fb_dev,true);
+        fb_position_rotate(&gv_fb_dev,1);
 
 
         /* open pcm captrue device */
@@ -144,12 +148,14 @@ int main(void)
 	draw_line(&gv_fb_dev, 0, 240, 239, 240);
 	fbset_color(WEGI_COLOR_CYAN);
 
+
 	/* put a tab */
-        FTsymbol_uft8strings_writeFB(&gv_fb_dev, egi_appfonts.bold,  /* FBdev, fontface */
-                                     25, 25, "FFT DEMO",               /* fw,fh, pstr */
-                                     240, 1,  0,           /* pixpl, lines, gap */
-                                     55, 240+30,                      /* x0,y0, */
-                                     WEGI_COLOR_WHITE, -1, -1);   /* fontcolor, stranscolor,opaque */
+        FTsymbol_uft8strings_writeFB(&gv_fb_dev, egi_sysfonts.regular,  /* FBdev, fontface */
+                                     25, 25, (UFT8_PCHAR)"FFT DEMO",             /* fw,fh, pstr */
+                                     240, 1,  0,           	     /* pixpl, lines, gap */
+                                     55, 240+30,                     /* x0,y0, */
+                                     WEGI_COLOR_WHITE, -1, 255,   /* fontcolor, stranscolor,opaque */
+				     NULL, NULL, NULL, NULL);
 
         printf("Start recording and playing ...\n");
         while(1) /* let user to interrupt, or if(count<record_size) */
@@ -191,9 +197,10 @@ int main(void)
         	mat_egiFFFT(np, wang, NULL, nx, ffx);
 
 		/* update sdy */
-#if 0  /* -----  1. Symmetric spectrum diagram ----- */
+#if 1  /* -----  1. Symmetric spectrum diagram ----- */
 		for(i=0; i<ns; i++) {
 			sdy[i]=240-( mat_uintCompAmp( ffx[i*ng])>>(nexp-1 -5) ); //(nexp-1) );
+
 			/* trim sdy[] */
 			if(sdy[i]<0)
 				sdy[i]=0;

@@ -72,9 +72,12 @@ struct symbol_page
 	uint16_t *data;		/* NOTE: for FT sympage, .data is useless */
 
 	/* alpha data */
-	unsigned char *alpha;	/* NOTE: for FT sympage, .data is useless, only .alpha is available */
+	unsigned char *alpha;	/* NOTE: for FT sympage, .data is useless, only .alpha is available
+				 * Only a refrence to bitmap.buffer.
+				 * ftsympg.alpha  = slot->bitmap.buffer;
+				 */
 
-	/* maximum number of symbols in this page, start from 0 */
+	/* maximum index number of symbols in this page, start from 0 */
 	int  maxnum; /* maxnum+1 = total number,
 		      * NOT applicable for FT page.
  		      */
@@ -82,9 +85,10 @@ struct symbol_page
 	/* total symbol number for  each row, each row has 240 pixels in a raw img page. */
 	int sqrow; /* for raw img page */
 
-	/*same height for all symbols in a page */
-	int symheight; /* For FT page, taken set_font height as in FT_Set_Pixel_Sizes(),
-                          rather than bitmap.rows */
+	/* same height for all symbols in a page */
+	int symheight; /* For FT page, taken set_font height as in FT_Set_Pixel_Sizes(), rather than bitmap.rows
+			* ftsympg.symheight = slot->bitmap.rows;
+			*/
 
 	/* use symb_index to locate a symbol in mem, and get its width */
 	//struct symbol_index *symindex; /* symb_index[x], x is the corresponding code number of the symbol, like ASCII code */
@@ -96,8 +100,9 @@ struct symbol_page
 	int *symwidth; /* in pixel, symbol width may be different, while height MUST be the same
 			* Not applicable for FT page
 			*/
-	int ftwidth;	/* For FT page only, which holds only one character
-			 * taken as slot->advance.x;
+	int ftwidth;	/* For FT page only, which holds only one character,
+			 * ftsympg.ftwidth = slot->bitmap.width, NOT as advanceX = slot->advance.x>>6 !
+			 * advanceX >= ftwidth.
 			 */
 
 	/* !!!!! following not used, if symbol encoded from 0, you can use array index number as code number.

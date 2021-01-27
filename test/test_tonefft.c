@@ -38,7 +38,7 @@ static pthread_t	pthread_play;
 /*-------------------------------------
   A thread to play tone data in buff[]
  -------------------------------------*/
-static void *tone_play(void *arg)
+static void tone_play(void *arg)
 {
 	int ret;
 
@@ -171,12 +171,20 @@ int main(void)
 	clear_screen(&gv_fb_dev,WEGI_COLOR_BLACK);
 	//draw_line(&gv_fb_dev, 0, 240, 239, 240);
 
+#if 0
+int     FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, const unsigned char *pstr,
+                               unsigned int pixpl,  unsigned int lines,  unsigned int gap,
+                               int x0, int y0,
+                               int fontcolor, int transpcolor, int opaque,
+                               int *cnt, int *lnleft, int* penx, int* peny );
+#endif
 	/* put a tab */
         FTsymbol_uft8strings_writeFB(&gv_fb_dev, egi_appfonts.regular,  /* FBdev, fontface */
                                      20, 20, (unsigned char *)"FFT音频演示",               /* fw,fh, pstr */
-                                     240, 1,  0,           /* pixpl, lines, gap */
+                                     240, 1,  0,           	/* pixpl, lines, gap */
                                      55, 270,                      /* x0,y0, */
-                                     WEGI_COLOR_YELLOW, -1, -1);   /* fontcolor, stranscolor,opaque */
+                                     WEGI_COLOR_YELLOW, -1, 255,   /* fontcolor, stranscolor,opaque */
+				     NULL, NULL, NULL, NULL );
 
 
 	/* create a thread to play tone */

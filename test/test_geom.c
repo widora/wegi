@@ -166,6 +166,7 @@ while(1) {
 	int xc=160,yc=120;
 	int x1,x2,y1,y2;
 	int tmp[4]={3, 180-3, 93,180-93};
+	bool antialias_on=true;
 
         /* Check whether lookup table fp16_cos[] and fp16_sin[] is generated */
         if( fp16_sin[30] == 0) {
@@ -189,15 +190,16 @@ while(1) {
 
 		printf("i=%d: line (%d,%d)-(%d,%d) \n", i,x1,y1,x2,y2);
 
-		gv_fb_dev.antialias_on=true;
-		fbset_color(egi_color_random(color_medium));
+		gv_fb_dev.antialias_on=antialias_on;
+		fbset_color(egi_color_random(color_deep));
 		draw_line(&gv_fb_dev, x1,y1, x2,y2);	/* Note: LCD coord sys! */
 		gv_fb_dev.antialias_on=false;
 
 		fb_render(&gv_fb_dev);
 	}
 
-	sleep(3);
+	antialias_on=!antialias_on;
+	sleep(5);
 }
 
 	fb_render(&gv_fb_dev);

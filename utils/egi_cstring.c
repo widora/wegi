@@ -5,6 +5,11 @@ published by the Free Software Foundation.
 
 Char and String Functions
 
+Journal
+2021-01-24:
+	1. Add cstr_hash_string().
+
+
 Midas Zhou
 ------------------------------------------------------------------*/
 #include <stdio.h>
@@ -1956,4 +1961,38 @@ int cstr_getSecFrom_ChnUft8TimeStr(const char *src, time_t *tp)
 }
 
 
+/*------------------------------------------------------------
+A simple way to calculate hash value of a string.
+Refrence: https://cp-algorithms.com/string/string-hashing.html
 
+hash(s)=s[0]+s[1]*p+s[2]*p^2+s[3]*p^3+....+s[n-1]*p^(n-1)  mod M
+Where: p=251;		( ASCII: 0 - 255, as unsigned char )
+       M=10^9+9; 	( int range: -2147483648 ~ +2147483647)
+
+@pch: Pointer to a string.
+@mod: Modulus, if 0, take default as 1e9+9
+
+Return: Hash value of the string.
+------------------------------------------------------------*/
+long long int cstr_hash_string(const unsigned char *pch, int mod)
+{
+	const int p=251;
+	long long int hash=0;
+	long long int pw=1;
+
+	if(pch==NULL)
+		return 0;
+
+	if(mod==0)
+		mod=1e9+9;
+
+	while( *pch ) {
+		hash=(hash+((*pch)+1)*pw);
+		//printf("pch=%d, pw=%lld, hash=%lld, mod=%d\n", *pch, pw, hash, mod);
+		hash=hash%mod;
+		pw=(pw*p)%mod;
+		pch++;
+	}
+
+	return hash;
+}

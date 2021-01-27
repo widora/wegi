@@ -54,6 +54,31 @@ int main(int argc, char **argv)
   	}
 
 
+#if 1 /* ---------- TEST: EGI_FONT_BUFFER  --------------- */
+	EGI_FONT_BUFFER *fontbuff;
+
+  while(1) {
+
+//	fontbuff=FTsymbol_create_fontBuffer(egi_sysfonts.regular, 20,20, , 5000); /*  face, fw,  fh, wchar_t unistart, size_t size */
+	fontbuff=FTsymbol_create_fontBuffer(egi_sysfonts.regular, 20,20, 0x4E00, 21000); /*  face, fw,  fh, wchar_t unistart, size_t size */
+	if(fontbuff) {
+		printf("Font buffer size=%zd!\n", fontbuff->size);
+	}
+
+	/* You MUST NOT release it in real application, as sysfont is referred by fontbuff! */
+//        FTsymbol_release_allfonts();
+
+//        fb_filo_flush(&gv_fb_dev); /* Flush FB filo if necessary */
+//        release_fbdev(&gv_fb_dev);
+
+	FTsymbol_free_fontBuffer(&fontbuff);
+
+	sleep(5);
+  }
+
+	exit(0);
+#endif
+
         printf("init_fbdev()...\n");
         if( init_fbdev(&gv_fb_dev) )            /* init sys FB */
                 return -1;

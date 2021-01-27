@@ -27,6 +27,17 @@ int main( int  argc,   char**  argv )
 
 
 
+#if 1 /////////  cstr_hash_string() //////////
+char buff[1024];
+
+while( fgets(buff, sizeof(buff)-1, stdin)!=NULL ) {
+	printf("String HASH: %lld\n", cstr_hash_string((UFT8_PCHAR)buff));
+}
+
+exit(0);
+#endif
+
+
 #if 0  //////////  egi_count_file_lines(const char *fpath) ///////////
 
 if(argc<2)

@@ -65,5 +65,6 @@ char* 	cstr_parse_html_tag(const char* str_html, const char *tag, char **content
 int 	cstr_extract_ChnUft8TimeStr(const char *src, char *buff, int bufflen);
 int 	cstr_getSecFrom_ChnUft8TimeStr(const char *src,time_t *tp);
 
+long long int cstr_hash_string(const unsigned char *pch, int mod);
 
 #endif

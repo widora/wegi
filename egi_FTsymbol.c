@@ -9,6 +9,11 @@ Note:
 
 2. TODO: Font size class.
 
+Jurnal:
+2021-01-27:
+	1. Add  FTsymbol_create_fontBuffer() and  FTsymbol_free_fontBuffer().
+
+
 Midas Zhou
 -------------------------------------------------------------------*/
 #include "egi_log.h"
@@ -16,11 +21,12 @@ Midas Zhou
 #include "egi_symbol.h"
 #include "egi_cstring.h"
 #include "egi_utils.h"
+#include <arpa/inet.h>
+#include <ctype.h>
 #include <freetype2/ft2build.h>
 #include <freetype2/ftglyph.h>
 #include <freetype2/ftadvanc.h>
-#include <arpa/inet.h>
-#include <ctype.h>
+#include FT_FREETYPE_H
 
 //#include FT_FREETYPE_H
 
@@ -176,7 +182,7 @@ Initialize FT library and load faces.
 
 Note:
 1. You shall avoid to load all fonts in main process,
-it will slow down fork() process significantly.
+   it will slow down fork() process significantly.
 2.  When a new face is created (FT_New_Face or FT_Open_Face), the
 the library looks for a Unicode charmap within the list and
 automatically activates it. Or use FT_Select_Charmap to manually
@@ -224,9 +230,10 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
 //		goto FT_FAIL;
 		ret=2;
         }
-	else
-        	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] REGULAR font file '%s'.",
- 							__func__, symlib->ftname, symlib->fpath_regular);
+	else {
+        	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] REGULAR font file '%s', type face has %s kerning value.",
+					__func__, symlib->ftname, symlib->fpath_regular, FT_HAS_KERNING(symlib->regular) ? " ":"NO" );
+	}
 
 	/* 3. create face object: Light */
         error = FT_New_Face( symlib->library, symlib->fpath_light, 0, &symlib->light );
@@ -242,9 +249,10 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
 //		goto FT_FAIL;
 		ret=4;
         }
-	else
-        	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] LIGHT font file '%s'.",
-						 	__func__, symlib->ftname, symlib->fpath_light);
+	else {
+        	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] LIGHT font file '%s', type face has %s kerning value.",
+				 	__func__, symlib->ftname, symlib->fpath_light, FT_HAS_KERNING(symlib->light) ? " ":"NO" );
+	}
 
 	/* 4. create face object: Bold */
         error = FT_New_Face( symlib->library, symlib->fpath_bold, 0, &symlib->bold );
@@ -260,9 +268,10 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
 //		goto FT_FAIL;
 		ret=6;
         }
-	else
-        	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] BOLD font file '%s'.",
-							__func__, symlib->ftname,symlib->fpath_bold);
+	else {
+        	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] BOLD font file '%s', type face has %s kerning value.",
+						__func__, symlib->ftname,symlib->fpath_bold, FT_HAS_KERNING(symlib->bold) ? " ":"NO");
+	}
 
 	/* 5. create face object: Special */
         error = FT_New_Face( symlib->library, symlib->fpath_special, 0, &symlib->special );
@@ -278,9 +287,10 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
 //		goto FT_FAIL;
 		ret=8;
         }
-	else
-        	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] SPECIAL font file '%s'.\n",
-							__func__, symlib->ftname, symlib->fpath_special);
+	else {
+        	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] SPECIAL font file '%s', type face has %s kerning value.",
+					__func__, symlib->ftname, symlib->fpath_special, FT_HAS_KERNING(symlib->special) ? " ":"NO");
+	}
 
 	return ret;
 
@@ -900,7 +910,7 @@ inline int FTsymbol_uft8string_getAdvances(FT_Face face, int fw, int fh, const u
 
 
 /*---------------------------------------------------------------------------------------------
-TODO: test
+TODO: self_cooked width, test
 Put all advance values of given chars to buffer. and return
 the pointer.
 
@@ -1009,7 +1019,7 @@ void FTsymbol_unicode_print(wchar_t wcode)
    FTsymbol_cooked_charWidth() is called for self_defined charWidth for some unprintable symbols.
 3. Xleft will be subtrated by slot->advance.x first, then check, and write data to FB only if
    Xleft >=0. However, if bitmap data is NULL for the input unicode, xleft will NOT be changed.
-4. Doundary box is defined as bbox_W=MAX(advanceX,bitmap.width) bbox_H=fh.
+4. Boundary box is defined as bbox_W=MAX(advanceX,bitmap.width) bbox_H=fh.
 5. CJK wchars may extrude the BBOX a little, and ASCII alphabets will extrude more, especially for
    'j','g',..etc, so keep enough gap between lines.
 6. Or to get symheight just as in symbol_load_asciis_from_fontfile() as BBOX_H. However it's maybe
@@ -1149,7 +1159,7 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 	else
 #endif
 
-	/* Note: Even the wcode has no bitmap (ftsympg.alpha==NULL), it's advance value may NOT be zero!
+	/* Note: Even the wcode has no bitmap (ftsympg.alpha==NULL), its advance value may NOT be zero!
 	 *	Example: wcode==32(SPACE), and wcode==160.
 	 */
 
@@ -1163,8 +1173,6 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 		/* reduce xleft */
 		*xleft -= bbox_W;
 	}
-
-
 
 	/* If NO space left, do NOT writeFB then. */
 	if( *xleft < 0 )
@@ -1379,6 +1387,14 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 	if( pixpl==0 || lines==0 || pstr==NULL )
 		return -1;
 
+#if 0	/* Check knerning */
+	if( FT_HAS_KERNING(face) )
+		printf("OK, face has kerning!\n");
+	else
+		printf("Face has NO knering!\n");
+#endif
+
+	/* Init vars */
 	px=x0;
 	py=y0;
 	xleft=pixpl;
@@ -1581,4 +1597,129 @@ int  FTsymbol_uft8strings_pixlen( FT_Face face, int fw, int fh, const unsigned c
 	} /* end while() */
 
 	return (1<<30)-xleft;
+}
+
+
+/*---------------------------------------------------------------------------------
+Create a EGI_FONT_BUFFER holding glyph data of a group of characters represented by
+a series of UNICODES.
+
+@FT_Face	Typeface.
+		!!! It MUST be a ref. to a facetype of already loaded sys EGI_FONTS
+@fw,fh		Expected font width/height, in pixels.
+@unistart	A unicode, as start of the character group.
+@size:		Size of the character group, total number of characters buffered.
+
+Note:
+1. A wchar may have no image data! however may still have advance value.
+2. FTsymbol_cooked_charWidth() is NOT applied here!
+
+Return:
+	A pointer to an EGI_FONT_BUFFER		OK
+	NULL					Fails
+----------------------------------------------------------------------------------*/
+EGI_FONT_BUFFER* FTsymbol_create_fontBuffer(FT_Face face, int fw, int fh, wchar_t unistart, size_t size)
+{
+	EGI_FONT_BUFFER *fontbuff;
+  	FT_Error      error;
+	size_t i;
+	int	alphasize;
+
+	/* Check input data */
+	if(face==NULL) {
+		printf("%s: input FT_Face is NULL!\n",__func__);
+		return NULL;
+	}
+	if( fw <=0 || fh <=0 ) {
+		printf("%s: input font size invalid!\n",__func__);
+		return NULL;
+	}
+
+	/* Allocate EGI_FONT_BUFFER */
+	fontbuff=calloc(1, sizeof(EGI_FONT_BUFFER));
+	if(fontbuff==NULL) {
+		printf("%s: Fail to calloc fontbuff!\n",__func__);
+		return NULL;
+	}
+
+	/* Allocate fontbuff->fontdata */
+	fontbuff->fontdata=calloc(size, sizeof(typeof(*fontbuff->fontdata)));
+	if(fontbuff->fontdata==NULL) {
+		printf("%s: Fail to calloc fontbuFF->fontdata!\n",__func__);
+		free(fontbuff);
+		return NULL;
+	}
+
+	/* set character size in pixels */
+	error = FT_Set_Pixel_Sizes(face, fw, fh);
+	if(error) {
+		printf("%s: FT_Set_Pixel_Sizes() fails!\n",__func__);
+		free(fontbuff->fontdata);
+		free(fontbuff);
+		return NULL;
+	}
+
+	/* Load character and render glyph one by one, buffer to fontbuff. */
+	for(i=0; i<size; i++) {
+
+		/* Load char and render, old data in face->glyph will be cleared */
+    		error = FT_Load_Char( face, unistart+i, FT_LOAD_RENDER );
+	    	if (error) {
+			printf("%s: FT_Load_Char() fails! with i=%zd\n",__func__, size);
+			FTsymbol_free_fontBuffer(&fontbuff);
+			return NULL;
+		}
+
+		/* Buffer data */
+		fontbuff->fontdata[i].symheight	=face->glyph->bitmap.rows;    /* fh >= bitmap.rows! */
+		fontbuff->fontdata[i].ftwidth	=face->glyph->bitmap.width;    /* ftwidth <= (slot->advance.x>>6) */
+		fontbuff->fontdata[i].advanceX	=(face->glyph->advance.x)>>6;
+		fontbuff->fontdata[i].delX 	=face->glyph->bitmap_left;
+		fontbuff->fontdata[i].delY 	=fh-face->glyph->bitmap_top;
+
+		/* Allocat alpha and copy bitmap data */
+		if( face->glyph->bitmap.buffer != NULL ) {
+			alphasize=(fontbuff->fontdata[i].symheight) * (fontbuff->fontdata[i].ftwidth) *sizeof(EGI_8BIT_ALPHA);
+			fontbuff->fontdata[i].alpha=calloc(1, alphasize);
+			if(fontbuff->fontdata[i].alpha==NULL) {
+				printf("%s: Fail to calloc fontdata[%zd].alpha!\n", __func__, i);
+				FTsymbol_free_fontBuffer(&fontbuff);
+				return NULL;
+			}
+			memcpy(fontbuff->fontdata[i].alpha, face->glyph->bitmap.buffer, alphasize);
+		}
+		/* ELSE: The wchar has NO bitmap! */
+
+	}
+
+	/* Assign other parameters */
+	fontbuff->face=face;
+	fontbuff->fw=fw;
+	fontbuff->fh=fh;
+	fontbuff->unistart=unistart;
+	fontbuff->size=size;
+
+	return fontbuff;
+}
+
+
+/*--------------------------------
+Free an EGI_FONT_BUFFER.
+--------------------------------*/
+void FTsymbol_free_fontBuffer(EGI_FONT_BUFFER **fontbuff)
+{
+	int i;
+
+	if(fontbuff==NULL || *fontbuff==NULL)
+		return;
+
+	/* Free all alpha data */
+	for(i=0; i < (*fontbuff)->size; i++)
+		free((*fontbuff)->fontdata[i].alpha);
+
+	/* Free all fontdata */
+	free((*fontbuff)->fontdata);
+
+	free(*fontbuff);
+	*fontbuff=NULL;
 }

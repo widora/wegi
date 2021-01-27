@@ -799,7 +799,7 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
         }
 }
 
-#else /////////////////// With anti-aliasing effect /////////////////////
+#else ///////////////////  With anti-aliasing effect  /////////////////////
 
 /*----------------------------------------------------
 Draw a simple line, with anti_aliasing effect.
@@ -808,7 +808,9 @@ Note:
 1. If a spline is drawn by many short lines, and each line
 is so short, that slope/aslope MAY be unfortuantely be
 deminished. ???!!
-
+2. Consider GAMMA correction for color blend, in general?
+3. Only lines with slope/aslop >2 (0-30Deg, 60-90Deg) will be
+   treated with anti_aliasing measure.
 
 ------------------------------------------------------*/
 void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
@@ -825,7 +827,7 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 	int tmp,tmpx,tmpy;
 
 	/* Extend pixel alphas */
-	EGI_8BIT_ALPHA alphas[3]={120,80,60}; /* 150,100,80 */
+	EGI_8BIT_ALPHA alphas[4]={65,45,32,25}; //{70, 40, 30, 20}; //{120,80,60};
 
 	/* Turn on pixcolor */
 	if( dev->antialias_on ) {
@@ -853,11 +855,11 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 
 	if(tekxx!=0)
 		slope=abs(roundf(1.0*tekyy/tekxx));
-	else
+	else  /* A straight line */
 		slope=1000000;
 	if(tekyy!=0)
 		aslope=abs(roundf(1.0*tekxx/tekyy));
-	else
+	else  /* A straight line */
 		aslope=1000000;
 
 	/* Slope effective, more extend pixel.. */
@@ -886,20 +888,24 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 
 					/* Extend pixel */
 					dev->pixalpha=alphas[1];
-					if(slope>2) {  /* Nearby_parallel to Y axis */
+					if(slope>1) {  /* Nearby_parallel to Y axis */
 						draw_dot(dev,i,k-1);	/* Extend -Y */
 						if(slope_on) {		/* Entend -Y again! */
 							dev->pixalpha=alphas[2];
 							draw_dot(dev,i,k-2);
+							dev->pixalpha=alphas[3];
+							draw_dot(dev,i,k-3);
 						}
 					}
-					else if(aslope>2)  { /* Nearby_parallel to X axis */
+					else if(aslope>1)  { /* Nearby_parallel to X axis */
 						//draw_dot(dev, i-1,k);   /* Extend -X */
 						draw_dot(dev, i+1,k);    /* Extend +X */
 						if(slope_on) {		/* Extend X again! */
 							dev->pixalpha=alphas[2];
 							//draw_dot(dev,i-2, k); /* Extend -X */
 							draw_dot(dev,i+2,k);    /* Extend +X */
+							dev->pixalpha=alphas[3];
+							draw_dot(dev,i+3,k);    /* Extend +X */
 						}
 					}
 				}
@@ -911,26 +917,30 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 
 					/* Extend pixel */
 					dev->pixalpha=alphas[1];
-					if(slope>2) {  /* Nearby_parallel to Y axis */
+					if(slope>1) {  /* Nearby_parallel to Y axis */
 						draw_dot(dev,i,k+1);	/* Extend +Y */
 						if(slope_on) {		/* Entend +Y again! */
 							dev->pixalpha=alphas[2];
 							draw_dot(dev,i,k+2);
+							dev->pixalpha=alphas[3];
+							draw_dot(dev,i,k+3);
 						}
 					}
-					else if(aslope>2) { /* Nearby_parallel to X axis */
+					else if(aslope>1) { /* Nearby_parallel to X axis */
 						//draw_dot(dev, i+1,k);   /* Extend +X */
 						draw_dot(dev, i-1,k);   /* Extend -X */
 						if(slope_on) {		/* Extend X again! */
 							dev->pixalpha=alphas[2];
 							//draw_dot(dev,i+2, k); /* Extend +X */
 							draw_dot(dev,i-2, k);	/* Extend -X */
+							dev->pixalpha=alphas[3];
+							draw_dot(dev,i-3, k);	/* Extend -X */
 						}
 					}
 				}
 				/* A.3 Draw other dots, where no overlapped/step. */
 				else {
-					dev->pixalpha=225;
+					dev->pixalpha=255;
 		                	draw_dot(dev,i,k);
 				}
 
@@ -957,17 +967,19 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 					/* Extend pixel */
 					dev->pixalpha=alphas[1];
 					/* C.1.1 */
-					if(slope>2) {  /* Nearby_parallel to Y axis */
-						draw_dot(dev,i,k+1);	/* Extend +Y */
+					if(slope>1) {  /* Nearby_parallel to Y axis */
 						//draw_dot(dev,i,k-1);	/* Extend -Y */
+						draw_dot(dev,i,k+1);	/* Extend +Y */
 						if(slope_on) {		/* Entend again! */
 							dev->pixalpha=alphas[2];
-							draw_dot(dev,i,k+2); /* Extend +Y */
 							//draw_dot(dev,i,k-2);   /* Extend -Y */
+							draw_dot(dev,i,k+2);     /* Extend +Y */
+							dev->pixalpha=alphas[3];
+							draw_dot(dev,i,k+3);
 						}
 					}
 					/* C.1.2 */
-					else if(aslope>2) { /* Nearby_parallel to X axis */
+					else if(aslope>1) { /* Nearby_parallel to X axis */
 						//draw_dot(dev, i-1, k);   /* Extend -X */
 						/* ??? !!! */
 						draw_dot(dev, i+1, k);   /* Extend +X */
@@ -975,6 +987,8 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 							dev->pixalpha=alphas[2];
 							//draw_dot(dev,i-2, k); /* Extend -X */
 							draw_dot(dev,i+2, k);   /* Extend +x */
+							dev->pixalpha=alphas[3];
+							draw_dot(dev,i+2,k);
 						}
 					}
 				}
@@ -986,16 +1000,18 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 
 					/* Extend pixel */
 					dev->pixalpha=alphas[1];
-					if(slope>2) {  /* Nearby_parallel to Y axis */
-						draw_dot(dev,i,k-1);	/* Extend -Y */
+					if(slope>1) {  /* Nearby_parallel to Y axis */
 						//draw_dot(dev,i,k+1);	/* Extend +Y */
+						draw_dot(dev,i,k-1);	/* Extend -Y */
 						if(slope_on) {		/* Entend again! */
 							dev->pixalpha=alphas[2];
-							draw_dot(dev,i,k-2); /* Extend -Y */
 							//draw_dot(dev,i,k+2);   /* Extend +Y */
+							draw_dot(dev,i,k-2); /* Extend -Y */
+							dev->pixalpha=alphas[3];
+							draw_dot(dev,i,k-3);
 						}
 					}
-					else if(aslope>2) { /* Nearby_parallel to X axis */
+					else if(aslope>1) { /* Nearby_parallel to X axis */
 						//draw_dot(dev, i+1,k);   /* Extend +X */
 						/* ????? */
 						draw_dot(dev, i-1,k);   /* Extend -X */
@@ -1004,19 +1020,22 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 							dev->pixalpha=alphas[2];
 							//draw_dot(dev,i+2, k);  /* Extend +X */
 							draw_dot(dev,i-2, k);  /* Extend -X */
+							dev->pixalpha=alphas[3];
+							draw_dot(dev,i-3, k);
 						}
 					}
 
 				}
 				/* C.3 Draw other dots */
 				else {
-					dev->pixalpha=225;
+					dev->pixalpha=255;
 		                	draw_dot(dev,i,k);
 				}
 
 			     /* D. ELSE: No anti_aliasing */
-			     } else
+			     } else {
 			      		draw_dot(dev, i, k);
+			     }
 			}
 		}
 		tmp=j;

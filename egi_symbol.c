@@ -850,7 +850,6 @@ inline void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 		opaque=255;
 	}
 
-
 	/* init palpha for non FT symobls */
 	if(sym_page->alpha == NULL) {
 		palpha=255;
@@ -938,7 +937,7 @@ inline void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 			poff=offset+width*i+j; 	/* offset to pixel data */
 
 			if(sym_page->alpha)
-				palpha=*(sym_page->alpha+poff);  	/*  get alpha */
+				palpha=*(sym_page->alpha+poff);  	/*  get pixel alpha */
 
 			/* for FT font sympage, only alpah value, and data is NULL. */
 			if( data==NULL ) {
@@ -1089,7 +1088,6 @@ inline void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 				  // *(uint32_t *)(map+pos)=pargb; /* in pixel, deref. to uint32_t */
 
 				/* Blend manually */
-				//prgb=(*(uint32_t *)(map+pos))&0xFFFFFF; /* Get back color */
 				prgb=(*(uint32_t *)(map+pos))&0xFFFFFF; /* Get back color */
                         	prgb=COLOR_24BITS_BLEND(pargb&0xFFFFFF, prgb, pargb>>24); /* front,back,alpha */
 
@@ -1097,7 +1095,6 @@ inline void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 				//if(lumdev<0)
 				//	pcolor=egi_colorLuma_adjust(xxxx,lumdev);
 
-                               // *((uint32_t *)(map+pos))=prgb+(255<<24); /* 1<<24 */
                                *((uint32_t *)(map+pos))=prgb+(255<<24); /* 1<<24 */
 
 

@@ -168,7 +168,7 @@ inline EGI_16BIT_COLOR egi_16bitColor_blend(int front, int back, int alpha)
 	fa= pow(fa,1.0/gamma);
 	alpha=(unsigned char)(fa*256-0.5);
 
-#elif 1 /* WARNING!!!! Must keep 0 alplha value unchanged, or BLACK bk color will appear !!!
+#elif 1 /* WARNING!!!! Must keep 0 alpha value unchanged, or BLACK bk color will appear !!!
            a simple way to improve sharpness */
 	alpha = alpha*3/2;
         if(alpha>255)

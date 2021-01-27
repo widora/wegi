@@ -1490,7 +1490,7 @@ void execute_shellcmd(void)
 			do {
 				/* !!! WARNING !!!
 				 * 1. If read an incomplete line here, the next parse_shout() may fail
-				 *    in recoginzing UFT-8 wchar OR escape sequence string! so need to read out obuf[] line by line into linebuf[].
+				 *    in recoginzing UFT-8 wchar OR escape sequence string! so need to read out obuf[] rline by rline into linebuf[].
 				 * 2. read(ptyfd) will gulp a chunk of data at one time, and maybe all data for once! then the shell_pid quits!
 				 *    We'll process data in obuf[] line by line then, pick out escape sequence string and parse it.
 				 * 3. Fget(), getline()..can NOT read out from a tty file stream, if it's valid.
