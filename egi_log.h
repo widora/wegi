@@ -47,18 +47,21 @@ enum egi_log_level
 /* --- logger functions --- */
 int egi_push_log(enum egi_log_level log_level, const char *fmt, ...) __attribute__(( format(printf,2,3) ));
 //static void egi_log_thread_write(void);
-int egi_init_log(const char *fpath); //void);
+int egi_init_log(const char *fpath);
 //static int egi_stop_log(void);
 //static int egi_free_logbuff(void)
 int egi_quit_log(void);
 
 
 #ifdef ENABLE_EGI_PLOG
-   /* define egi_plog(), push to log_buff
-    * Let the caller to put FILE and FUNCTION, we can not ensure that two egi_push_log()
+   /* define EGI_PLOG(), push log content to log_buff.
+    * Note:
+    * 1. If log file is NOT open/available and ENABLE_LOGBUFF_PRINT, it only prints out the log string
+    *    and will NOT push/write the log.
+    * 2. Let the caller to put FILE and FUNCTION, we can not ensure that two egi_push_log()
     * will push string to the log buff exactly one after the other,because of concurrency
     * race condition.
-    * A '\n' included in egi_push_log(), so NOT necessary to put it in EGI_PLOG()!
+    * 3. A '\n' included in egi_push_log(), so NOT necessary to put it in EGI_PLOG()!
     * egi_push_log(" From file %s, %s(): \n",__FILE__,__FUNCTION__);
     */
 	#define EGI_PLOG(level, fmt, args...)                 \

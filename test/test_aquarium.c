@@ -73,7 +73,7 @@ int main(int argc, char **argv)
 
   /* Set sys FB mode */
   fb_set_directFB(&gv_fb_dev,false);
-  fb_position_rotate(&gv_fb_dev,3);
+  fb_position_rotate(&gv_fb_dev,0);
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
@@ -82,14 +82,37 @@ int main(int argc, char **argv)
     		  /*-----------------------------------
 		   *            Main Program
     		   -----------------------------------*/
+	int angle;
+	EGI_IMGBUF	*bkimg;
+	EGI_GIF		*clownfish;
+	EGI_GIF		*bigfish;
+	EGI_GIF		*smallfish;
 
-	int angle=0;
-	EGI_IMGBUF 	*bkimg=egi_imgbuf_readfile("/mmc/ocean_water.jpg");
+	const char *fpic_ocean="/mmc/ocean_water.jpg";
+	const char *fgif_clownfish="/mmc/clownfish.gif";
+	const char *fgif_bigfish="/mmc/bigfish.gif";
+	const char *fgif_smallfish="/mmc/smallfish.gif";
 
-	EGI_GIF 	*clownfish=egi_gif_slurpFile("/mmc/clownfish.gif", true);
-	EGI_GIF 	*bigfish=egi_gif_slurpFile("/mmc/bigfish.gif", true);
-	EGI_GIF 	*smallfish=egi_gif_slurpFile("/mmc/smallfish.gif", true);
-	if(clownfish==NULL || bigfish==NULL || smallfish==NULL) exit(1);
+	bkimg=egi_imgbuf_readfile(fpic_ocean);
+	if(bkimg==NULL) {
+		printf("Fail to read '%s'!\n", fpic_ocean);
+		exit(EXIT_FAILURE);
+	}
+	clownfish=egi_gif_slurpFile(fgif_clownfish, true);
+	if(clownfish==NULL) {
+		printf("Fail to slurp gif file '%s'!\n", fgif_clownfish);
+		exit(EXIT_FAILURE);
+	}
+	bigfish=egi_gif_slurpFile(fgif_bigfish, true);
+	if(bigfish==NULL) {
+		printf("Fail to slurp gif file '%s'!\n", fgif_bigfish);
+		exit(EXIT_FAILURE);
+	}
+	smallfish=egi_gif_slurpFile(fgif_smallfish, true);
+	if(smallfish==NULL) {
+		printf("Fail to slurp gif file '%s'!\n", fgif_smallfish);
+		exit(EXIT_FAILURE);
+	}
 
 	EGI_GIF_CONTEXT  clownfish_ctxt= {
 			.fbdev=NULL, 	/* &gv_fb_dev;  write to imgbuf */
@@ -112,17 +135,23 @@ int main(int argc, char **argv)
                                bkimg->width, bkimg->height);    /* winw, winh */
 
 	/* Start thread to loop updating EGI_GIF.Simgbuf */
-        if( egi_gif_runDisplayThread(&clownfish_ctxt) !=0 )
-                     printf("Fail to run thread for clownfish.gif!\n");
-        if( egi_gif_runDisplayThread(&bigfish_ctxt) !=0 )
-                     printf("Fail to run thread for bigfish.gif!\n");
-        if( egi_gif_runDisplayThread(&smallfish_ctxt) !=0 )
-                     printf("Fail to run thread for smallfish.gif!\n");
+        if( egi_gif_runDisplayThread(&clownfish_ctxt) !=0 ) {
+                printf("Fail to run thread for clownfish.gif!\n");
+		exit(EXIT_FAILURE);
+	}
+        if( egi_gif_runDisplayThread(&bigfish_ctxt) !=0 ) {
+		printf("Fail to run thread for bigfish.gif!\n");
+		exit(EXIT_FAILURE);
+	}
+        if( egi_gif_runDisplayThread(&smallfish_ctxt) !=0 ) {
+                printf("Fail to run thread for smallfish.gif!\n");
+		exit(EXIT_FAILURE);
+	}
 
         /* Init FB back_ground buffer page */
         //memcpy(gv_fb_dev.map_buff+gv_fb_dev.screensize, gv_fb_dev.map_bk, gv_fb_dev.screensize);
 	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
-
+	fb_render(&gv_fb_dev);
 
         /* =============   Aquarium Motion Loop   ============= */
 while(1) {
@@ -137,9 +166,9 @@ while(1) {
 	egi_image_rotdisplay( clownfish->Simgbuf, &gv_fb_dev,  angle+100,		 /*  imgbuf, fb_dev, angle */
 				clownfish->Simgbuf->width/2, 160,	320/2, 240/2 );  /* xri,yri,  xrl,yrl */
 
-	while(!bigfish_ctxt.egif->Simgbuf_ready){ printf("---\n"); }; //tm_delayms(5);};
+	//while(!bigfish_ctxt.egif->Simgbuf_ready){ printf("---\n"); }; //tm_delayms(5);};
 	egi_image_rotdisplay( bigfish->Simgbuf, &gv_fb_dev,  angle,			 /*  imgbuf, fb_dev, angle */
-				clownfish->Simgbuf->width/2, 200,	320/2, 240/2 );  /* xri,yri,  xrl,yrl */
+				clownfish->Simgbuf->width/2, 200, 320/2, 240/2 );  /* xri,yri,  xrl,yrl */
 
 	egi_subimg_writeFB( smallfish->Simgbuf, &gv_fb_dev, 0, -1, 0, 100); /* imgbuf, fb_dev, subnum, subcolor, x0, y0 */
 
@@ -148,12 +177,12 @@ while(1) {
                                         35, 35,(const unsigned char *)"EGI AQUARIUM",    /* fw,fh, pstr */
                                         320, 1, 0,                                  /* pixpl, lines, gap */
                                         15, 240-40,                                    /* x0,y0, */
-                                        WEGI_COLOR_WHITE, -1, 120,    /* fontcolor, transcolor,opaque */
+                                        WEGI_COLOR_WHITE, -1, 130,    /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
 
 	/* Render to screen */
 	fb_render(&gv_fb_dev);
-
+//	exit(1);
 	tm_delayms(20);
 
 }/* end While() */

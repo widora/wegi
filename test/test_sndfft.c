@@ -9,9 +9,10 @@ Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
 #include <stdio.h>
+#include <alsa/asoundlib.h>
 #include "egi_common.h"
-#include "egi_pcm.h"
 #include "egi_FTsymbol.h"
+#include "egi_math.h"
 
 int main(void)
 {
@@ -19,15 +20,15 @@ int main(void)
 	int ret;
 
 	/* for FFT, nexp+aexp Max. 21 */
-	unsigned int 	nexp=10; 	// 10
+	unsigned int 	nexp=10;
 	unsigned int 	np=1<<nexp;  	/* input element number for FFT */
-	unsigned int 	aexp=11;   	/* 11 MAX Amp=1<<aexp */
+	unsigned int 	aexp=11;   	/* 11 MAX Amp=2^12-1 */
 	int		*nx;
 	EGI_FCOMPLEX 	*ffx;  		/* FFT result */
         EGI_FCOMPLEX 	*wang; 		/* unit phase angle factor */
-	unsigned int 	ns=1<<5;//6;   	/* points for spectrum diagram */
+	unsigned int 	ns=1<<5;//6;   	/* Points for spectrum diagram */
 	unsigned int    avg;
-	int		ng=np/ns;	/* each ns covers ng numbers of np */
+	int		ng=np/ns;	/* each ns covers ng numbers of np. ng=2^5, when fs=8k, sampling points=1024, fgap=8Hz*ng=256Hz */
 	int		step;
 	int 		sdx[64];//ns	/* displaying points  */
 	int 		sdy[64];
@@ -52,7 +53,7 @@ int main(void)
 	}
         wang=mat_CompFFTAng(np); /*  phase angle */
 
-        /* for pcm capture */
+        /* For pcm capture */
         snd_pcm_t *play_handle;
 	snd_pcm_t *rec_handle;
         int 	nchanl=1;   			/* number of channles */
@@ -60,19 +61,21 @@ int main(void)
         int 	bits_per_sample=16;
         int 	frame_size=2;               	/*bytes per frame, for 1 channel, format S16_LE */
         int 	rec_srate=8000; //44100;//8000 	/* HZ,  output sample rate from capture */
-	/* if rec_srate != play_srate, crack... */
+
+	/* If rec_srate != play_srate, crack... */
 	int 	play_srate=8000;		/* HZ,  input sample rate for playback */
         bool 	enable_resample=true;      	/* whether to enable soft resample */
-	/* adjust latency to a suitable value,according to CAPTURE/PLAYBACK period_size */
-        int 	rec_latency=5000; //500000;    /* required overall latency in us */
-        int 	play_latency=150000; //500000;   /* required overall latency in us */
+
+	/* Adjust latency to a suitable value,according to CAPTURE/PLAYBACK period_size */
+        int 	rec_latency=5000; //500000;     /* required overall latency in us */
+        int 	play_latency=150000; //500000;  /* required overall latency in us */
         //snd_pcm_uframes_t period_size;  	/* max numbers of frames that HW can hanle each time */
-        /* for CAPTURE, period_size=1536 frames, while for PLAYBACK: 278 frames */
-        snd_pcm_uframes_t chunk_frames=np; //1024; 	/*in frame, expected frames for readi/writei each time */
+
+        /* For CAPTURE, period_size=1536 frames, while for PLAYBACK: 278 frames */
+        snd_pcm_uframes_t chunk_frames=np; //1024; 	/* in frame, expected frames for readi/writei each time */
         int chunk_size;                 	/* =frame_size*chunk_frames */
+	int16_t buff[1024*2];			/* 1024*2 frames, each frame 2 bytes, try to read out all! */
 
-
-	int16_t buff[1024];
 #if 0
 	int16_t *buff;				/* chunk_frames, int16_t for S16 */
 	buff=calloc(np, sizeof(int16_t));       /* for 1 channel,FORMAT S16 */
@@ -110,7 +113,6 @@ int main(void)
         fb_set_directFB(&gv_fb_dev,true);
         fb_position_rotate(&gv_fb_dev,1);
 
-
         /* open pcm captrue device */
         if( snd_pcm_open(&rec_handle, "plughw:0,0", SND_PCM_STREAM_CAPTURE, 0) <0 ) {
                 printf("Fail to open pcm captrue device!\n");
@@ -125,6 +127,7 @@ int main(void)
                 return -2;
         }
 
+#if 0
         /* open pcm play device */
         if( snd_pcm_open(&play_handle, "default", SND_PCM_STREAM_PLAYBACK, 0) <0 ) {
                 printf("Fail to open pcm play device!\n");
@@ -138,18 +141,18 @@ int main(void)
                 snd_pcm_close(play_handle);
                 return -2;
         }
+#endif
 
-        /* adjust record volume, or to call ALSA API */
+        /* Adjust record volume, or to call ALSA API */
         system("amixer -D hw:0 set Capture 85%");
         system("amixer -D hw:0 set 'ADC PCM' 85%");
 
-	/* clear screen */
+	/* Clear screen */
 	clear_screen(&gv_fb_dev,WEGI_COLOR_BLACK);
 	draw_line(&gv_fb_dev, 0, 240, 239, 240);
 	fbset_color(WEGI_COLOR_CYAN);
 
-
-	/* put a tab */
+	/* Put a tab */
         FTsymbol_uft8strings_writeFB(&gv_fb_dev, egi_sysfonts.regular,  /* FBdev, fontface */
                                      25, 25, (UFT8_PCHAR)"FFT DEMO",             /* fw,fh, pstr */
                                      240, 1,  0,           	     /* pixpl, lines, gap */
@@ -158,13 +161,11 @@ int main(void)
 				     NULL, NULL, NULL, NULL);
 
         printf("Start recording and playing ...\n");
-        while(1) /* let user to interrupt, or if(count<record_size) */
+        while(1) /* Let user to interrupt, or if(count<record_size) */
         {
-//		printf(" --- \n");
-
                 /* snd_pcm_sframes_t snd_pcm_readi (snd_pcm_t pcm, void buffer, snd_pcm_uframes_t size) */
 		/* return number of frames, for 1 chan, 1 frame=size of a sample (S16_Le)  */
-                ret=snd_pcm_readi(rec_handle, buff, chunk_frames);
+                ret=snd_pcm_readi(rec_handle, buff, 2048); //chunk_frames);
                 if(ret == -EPIPE ) {
                         /* EPIPE for overrun */
                         printf("Overrun occurs during capture, try to recover...\n");
@@ -177,7 +178,8 @@ int main(void)
                         continue; /* carry on anyway */
                 }
                 /* CAUTION: short read may cause trouble! Let it carry on though. */
-                else if(ret != chunk_frames) {
+                //else if(ret != chunk_frames) {
+                else if(ret < chunk_frames) {
                       printf("snd_pcm_readi: read end or short read ocuurs! get only %d of %ld expected frame",
                                                                                 ret, chunk_frames);
                         /* pad 0 to chunk_frames */
@@ -186,20 +188,19 @@ int main(void)
                         }
                 }
 
-
 #if 1	/* <<<<<<<<<<<<<<<<<<<   FFT  >>>>>>>>>>>>>>>>>>>> */
-		/* convert PCM buff[] to FFT nx[] */
+		/* Convert PCM buff[] to FFT nx[] */
 		for(i=0; i<np; i++) {
-			nx[i]=buff[i]>>4;  /* trim amplitude to Max 2^11 */
+			nx[i]=buff[i]>>4;  /* trim amplitude to Max 2^12-1 */
 		}
 
 		/* ---  Run FFT with INT nx[]  --- */
         	mat_egiFFFT(np, wang, NULL, nx, ffx);
 
-		/* update sdy */
+		/* Update sdy */
 #if 1  /* -----  1. Symmetric spectrum diagram ----- */
 		for(i=0; i<ns; i++) {
-			sdy[i]=240-( mat_uintCompAmp( ffx[i*ng])>>(nexp-1 -5) ); //(nexp-1) );
+			sdy[i]=240-( mat_uintCompAmp(ffx[i*ng])>>(nexp-1 -5) ); /* -5, shrink to 2^(-5) */
 
 			/* trim sdy[] */
 			if(sdy[i]<0)
@@ -208,12 +209,12 @@ int main(void)
 
 #else  /* -----  2. Normal spectrum diagram ----- */
 		step=ng>>1;
-		for(i=0; i<ns; i++) {		     /* fs=8k, 1024 elements, resolution 8Hz, ng=4 */
-		  #if 1 /* direct calculation */
+		for(i=0; i<ns; i++) {		     /* fs=8k, 1024 elements, resolution 8Hz, ng=2^5 */
+		  #if 1 /* Direct calculation, Amp=FFT_A/(NN/2)  */
 			sdy[i]=240-( mat_uintCompAmp( ffx[i*(ng>>1)])>>(nexp-1 -3) ); //(nexp-1) );
 			//sdy[i]=240-( mat_uint32Log2( mat_uintCompAmp(ffx[i*(ng>>1)]) )<<3  );
 
-		  #else  /* average */
+		  #else  /* Average */
 			/* get average Amp */
 			avg=0;
 			for( j=0; j< step; j++ ) {
@@ -228,7 +229,15 @@ int main(void)
 		}
 #endif
 
-		/* draw spectrum */
+	        /* Apply 4 points average filter for sdy[], to smooth spectrum diagram, so it looks better! */
+        	for(i=0; i<ns-(4-1); i++) {
+                	for(j=0; j<(4-1); j++)
+                        	sdy[i] += sdy[i+j];
+		        sdy[i]>>=2;
+        	}
+
+
+		/* Draw spectrum */
 	        fb_filo_flush(&gv_fb_dev); /* flush and restore old FB pixel data */
         	fb_filo_on(&gv_fb_dev);    /* start collecting old FB pixel data */
 
@@ -236,6 +245,9 @@ int main(void)
 			//draw_dot(&gv_fb_dev,sdx[i],240-sdy[i]);
 			draw_line(&gv_fb_dev,sdx[i], sdy[i], sdx[i+1],sdy[i+1]);
 		}
+
+
+
 	        fb_filo_off(&gv_fb_dev); /* turn off filo */
 
 #endif 	/* <<<<<<<<<<<<<<<<<<<   FFT END  >>>>>>>>>>>>>>>>>>>> */
@@ -257,6 +269,7 @@ int main(void)
 										ret, chunk_frames);
 	        }
 #endif
+
 
 	}
 

@@ -153,7 +153,7 @@ static void GifQprintf(char *Format, ...);
 static void PrintGifError(int ErrorCode);
 static void egi_gif_FreeSavedImages(SavedImage **psimg, int ImageCount);
 
-inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_IMGBUF *Simgbuf, int Disposal_Mode,
+inline static void egi_gif_rasterWriteFB( FBDEV *fbdev, EGI_IMGBUF *Simgbuf, int Disposal_Mode,   / img_mutex lock /
                                    int xp, int yp, int xw, int yw, int winw, int winh,
                                    int BWidth, int BHeight, int offx, int offy,
                                    ColorMapObject *ColorMap, GifByteType *buffer,
@@ -175,7 +175,7 @@ void	  egi_gif_free(EGI_GIF **egif);
 //                                             int User_DisposalMode, int User_TransColor,int User_BkgColor,
 //                                             int xp, int yp, int xw, int yw, int winw, int winh );
 
-void 	  egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt );
+void 	  egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt );		/* img_mutex lock */
 int 	  egi_gif_runDisplayThread(EGI_GIF_CONTEXT *gif_ctxt);
 int 	  egi_gif_stopDisplayThread(EGI_GIF *egif);
 

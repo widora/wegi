@@ -267,7 +267,9 @@ inline EGI_FCOMPLEX mat_CompDiv(EGI_FCOMPLEX a, EGI_FCOMPLEX b)
 work out the amplitude(modulus) of a complex, in float type.
 Check also: int mat_intCompAmp( EGI_FCOMPLEX a )
 
-Limit:  a.real MAX. 2^16. (for DIVEXP=15)
+Limit:  a.real MAX. 2^16   for DIVEXP=15
+		    2^18   for DIVEXP=13
+		    2^20   for DIVEXP=11
 ---------------------------------------------------------*/
 float mat_floatCompAmp( EGI_FCOMPLEX a )
 {
@@ -307,6 +309,7 @@ float mat_floatCompAmp( EGI_FCOMPLEX a )
 		     example: Consider Max Amplitude value:
 				Amp_Max: 1<<12;  FFT point number: 1<<5
 				Limit: Amp_Max*(np/2) : 12+(5-1)=16; when MATH_DIVEXP=16-1=15
+				(Amp_Max + MATH_DIVEXP = 31)
 				 ( or Amp_Max: 1<<10; FFT point number: 1<<7 )
 				  result |X|^2:	   16*2+div15= 47 > Max29 for sqrtu32()
 						   18*2+div13= 49 > Max29
@@ -334,7 +337,7 @@ float mat_floatCompAmp( EGI_FCOMPLEX a )
 
 //	return ( mat_fp16_sqrtu32( (c.num>>(18+1) ) ) >>16 )*(1<<(18/2-14/2)); /* MAX. amp=2^12 +2^10 */
 //	uamp=mat_fp16_sqrtu32( c.num>>(18+1) )<<(18/2-14/2);
-	uamp=mat_fp16_sqrtu32( c.num>>(47+(15-MATH_DIVEXP)-29 +1))<<((47+(15-MATH_DIVEXP)-29)/2-MATH_DIVEXP/2);
+	uamp=mat_fp16_sqrtu32(c.num>>(47+(15-MATH_DIVEXP)-29 +1)) << ((47+(15-MATH_DIVEXP)-29)/2-MATH_DIVEXP/2);
 
 //	uamp= ( mat_fp16_sqrtu32( (uint32_t)(c.num>>(28+1)) ) >>16 )*(1<<(18/2-14/2));  /* preshift 18 */
 
@@ -476,7 +479,7 @@ Parameter:
         np=1, result is 0!
 	np=0, free all intermediate arrays!
 	Note:
-	1. All intermediat variable arrays(ffodd,ffeve,ffnin) are set as static, so if next
+	1. All intermediate variable arrays(ffodd,ffeve,ffnin) are set as static, so if next
 	input np is the same, they need NOT to allocate again!
 	2. If exp. of input np is changed, then above arrays will be re_allocated.
 	3. Only when input np=0, all intermediate variable arrays will be freed then.
@@ -494,14 +497,14 @@ Note:
 3. Use real and imaginery part of ffx[] to get phase angle(relative to cosine!!!):
    atan(ffx[].real/ffx[].imag),
 4. !!!--- Cal overflow ---!!!
-   Expected amplitude:      MSB. 1<<N 	( 1<<(N+1)-1 )
-   expected sampling point: 1<<M
+   Expected amplitude:       MSB. 1<<N 	( 1<<(N+1)-1 )  Max. Value: 2^(N+1)-1
+   expected sampling points: 1<<M
    Taken: N+M-1=16  to incorporate with mat_floatCompAmp()
          OR N+M-1=16+(15-MATH_DIVEXP) --> N+M=17+(15-MATH_DIVEXP) [ MATH_DIVEXP MUST be odd!]
 
    Example:     when MATH_DIVEXP = 15   LIMIT: Amp_Max*(np/2) is 17bits;
                 we may take Amp_Max: (1<<(12+1))-1;  FFT point number: 1<<5:
-		  (NOTE: 12 is the highes significant bit for amplitude )
+		  (NOTE: 12 is the highest significant bit for amplitude )
 
                 when MATH_DIVEXP = 11   LIMIT: Amp_Max*(np/2) is 22bits;
                 we may take Amp_Max: (1<<(11+1))-1;  FFT point number: 1<<10:
@@ -726,7 +729,7 @@ void mat_create_fpAtanTab(void)
 Fix point square root for uint32_t, the result is <<16 shifted, so you need to shift
 >>16 back after call to get the right answer.
 
-Limit input x <= 2^29    //4294967296(2^32)   4.2949673*10^9
+Limit input x <= 2^30-1    //4294967296(2^32)   4.2949673*10^9
 
 
 Original Source:
@@ -1032,10 +1035,8 @@ void mat_pointrotate_fpSQMap(int n, int angle, EGI_POINT centxy, EGI_POINT *SQMa
 }
 
 
-
-
 /*----------------------- Annulus Mapping: revert rotation (fixed point)  ------------------
-generate a rotation lookup map for a annulus shape image block
+Generate a rotation lookup map for an annulus shape image block.
 
 1. rotation center is the center of the square area.
 2. The square side length must be in form of 2n+1, so the center is just at the middle of

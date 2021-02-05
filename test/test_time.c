@@ -12,7 +12,7 @@ https://github.com/widora/wegi
 #include <stdlib.h>
 #include <unistd.h>
 #include <egi_timer.h>
-
+#include <time.h>
 
 /*----------------------------
 	    Main()
@@ -20,7 +20,93 @@ https://github.com/widora/wegi
 int main(int argc, char **argv)
 {
 
-#if 1 /* TEST: EGI_CLOCK    ---------- */
+#if 1 /* TEST: CLOCK_BOOTTIME  --------*/
+
+/***
+
+ <uapi/linux/time.h>
+ * The IDs of the various system clocks (for POSIX.1b interval timers):
+
+#define CLOCK_REALTIME                  0
+#define CLOCK_MONOTONIC                 1
+#define CLOCK_PROCESS_CPUTIME_ID        2
+#define CLOCK_THREAD_CPUTIME_ID         3
+#define CLOCK_MONOTONIC_RAW             4
+#define CLOCK_REALTIME_COARSE           5
+#define CLOCK_MONOTONIC_COARSE          6
+#define CLOCK_BOOTTIME                  7
+#define CLOCK_REALTIME_ALARM            8
+#define CLOCK_BOOTTIME_ALARM            9
+#define CLOCK_SGI_CYCLE                 10      // Hardware specific
+#define CLOCK_TAI                       11
+
+#define MAX_CLOCKS                      16
+#define CLOCKS_MASK                     (CLOCK_REALTIME | CLOCK_MONOTONIC)
+#define CLOCKS_MONO                     CLOCK_MONOTONIC
+
+
+
+  struct timeval {
+	time_t      tv_sec;     // seconds
+	suseconds_t tv_usec;    // microseconds
+  };
+
+  struct timespec {
+	time_t   tv_sec;        // seconds
+	long     tv_nsec;       // nanoseconds
+  };
+
+***/
+
+
+struct timespec tp;
+
+       #ifdef _POSIX_SOURCE
+           printf("_POSIX_SOURCE defined\n");
+       #endif
+
+       #ifdef _POSIX_C_SOURCE
+           printf("_POSIX_C_SOURCE defined: %ldL\n", (long) _POSIX_C_SOURCE);
+       #endif
+
+       #ifdef _ISOC99_SOURCE
+           printf("_ISOC99_SOURCE defined\n");
+       #endif
+
+       #ifdef _ISOC11_SOURCE
+           printf("_ISOC11_SOURCE defined\n");
+       #endif
+
+       #ifdef _XOPEN_SOURCE
+           printf("_XOPEN_SOURCE defined: %d\n", _XOPEN_SOURCE);
+       #endif
+
+
+clock_getres(CLOCK_REALTIME, &tp);
+printf("Clock resolution:  %ld.%ld second.\n", tp.tv_sec, tp.tv_nsec);
+
+
+do {
+	if( clock_gettime(CLOCK_REALTIME, &tp)!= 0 )
+		perror("clock_gettime");
+	else
+		printf("Clock realtime:		%ld.%ld\n", tp.tv_sec, tp.tv_nsec);
+
+	if( clock_gettime(5, &tp) == 0 )  /* CLOCK_REALTIME_COARSE */
+		printf("Clock realtime coarse:	%ld.%ld\n", tp.tv_sec, tp.tv_nsec);
+
+	if( clock_gettime(CLOCK_MONOTONIC, &tp)==0 )
+		printf("Clock monotonic:	%ld.%ld\n", tp.tv_sec, tp.tv_nsec);
+
+	if( clock_gettime(7, &tp) == 0 )  /* CLOCK_BOOTTIME */
+		printf("Clock boottime:  	%ld.%ld\n", tp.tv_sec, tp.tv_nsec);
+
+}while(0);
+
+#endif
+
+
+#if 0 /* TEST: EGI_CLOCK    ---------- */
 int i,n,tm;
 long cost;
 long total;

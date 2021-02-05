@@ -43,6 +43,7 @@ Note:
 2.1 Command 'ps': Can NOT display a complete line on LOCAL CONSOLE! ---OK, erase '\n'
 2.2 Command 'ls(ps..) | more', sh: more: not found!  But | tai,head,grep is OK!
 2.3 Command less,more
+2.4 Compound command will run at once, Example 'dmesg && date'
 
 TODO:
 1. Charmap fontcolor. ---OK
@@ -394,6 +395,14 @@ MAIN_START:
 
 	/* DIY Blinking cursor */
 	chmap->draw_cursor=draw_ecursor;
+
+
+	/////////////////    TEST: EGI_FONT_BUFF   ///////////////////
+	if( argc >1 ) {
+		printf("Start to buffer up fonts...\n");
+	  	egi_fontbuffer=FTsymbol_create_fontBuffer(egi_sysfonts.regular, fw, fh, 0, 255);  /* face, fw, fh, unistart, size */
+	  	//egi_fontbuffer=FTsymbol_create_fontBuffer(egi_sysfonts.regular, fw, fh, 0x4E00, 21000);  /* face, fw, fh, unistart, size */
+	}
 
 	/* NO: Load file to chmap */
 
@@ -1779,6 +1788,8 @@ void parse_shellout(char* pstr)
 						break;
 
 					/* Xterm color: 0-7   TOO DARK!!!!
+				         *      0-black;  1-red;      2-green;  3-yellow;
+				         *      4-blue;   5-magenta;  6-cyan;   7-white
 					 * BLACK(0,0,0)
 					 * Maroon(128,0,0), Green(0,128,0), Olive(128,128,0),
         	              		 * Navy(0,0,128), Purple(128,0,128), Teal(0,128,128),
@@ -1789,6 +1800,7 @@ void parse_shellout(char* pstr)
 						break;
 					case 31: case 32: case 33: case 34: case 35:
 					case 36:
+					// ---pstr: ^[[32m[    0.000000] ^[[0m^[[1mZone ranges:^[[0m^M  xxxx
 						chmap->precolor=egi_256color_code(atoi(param)-30 +8);
 						break;
 					case 37:

@@ -416,6 +416,9 @@ Note:
 1. tm_cost will be cleared if prevous status
    is ECLOCK_STATUS_STOP.
 
+TODO: To compare with
+	int clock_gettime(clockid_t clk_id, struct timespec *tp);
+
 Return:
 	0	OK
 	<0	Fails

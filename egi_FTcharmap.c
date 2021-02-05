@@ -127,6 +127,13 @@ Journal:
 2021-1-18.
 	1. Add  FTcharmap_shrink_dlines().
 	2. Modify FTcharmap_create() and FTcharmap_uft8strings_writeFB() to embed/add chmap->face.
+2021-1-28.
+	1. Modify FTcharmap_insert_string_nolock(): if(strsize<=0), DO NOT reset chmap->precolor=-1;
+	   want to keep the value for next use. Example: XTERM use escape sequence code to set color
+	   , and no string followed,  ^[[32m[    0.000000] ^[[0m^[[1mZone ranges:^[[0m^M
+	   For FTcharmap_insert_char(), case of chsize<=0 is ruled out!
+	2. FTcharmap_uft8strings_writeFB(): Check FTsymbol_glyph_buffered(), and access egi_fontbuffer
+	   to quickly extract advanceX.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -971,6 +978,13 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
                         }
 		    	/* No self_cooked width, With bitmap */
 		    	else {
+
+//////////  TEST: EGI_FONT_BUFF //////////////
+			    /* If the font is buffered in egi_fontbuffer */
+			    if( FTsymbol_glyph_buffered(face, fw, wcstr[0]) ) {
+					xleft -= egi_fontbuffer->fontdata[ wcstr[0]-egi_fontbuffer->unistart ].advanceX;
+			    } else {
+
 		        	/* set character size in pixels before calling FT_Get_Advances()! */
         			error = FT_Set_Pixel_Sizes(face, fw, fh);
 			        if(error)
@@ -985,6 +999,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
                 			printf("%s: Fail to call FT_Get_Advances().\n",__func__);
 	                	else
         	                	xleft -= advance>>16;
+			    }
 		  	}
 		}
 		else /* fb_dev is NOT NULL, TODO: fake fb_dev to NULL */
@@ -1014,7 +1029,6 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 			else
 				FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, wcstr[0], &xleft,
 								 px, py, fontcolor, transpcolor, opaque );
-
 
 		}
 
@@ -3283,7 +3297,9 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
 				printf("%s: Fail to insert char color band at EOF!\n",__func__);
 			}
 
-			chmap->precolor=-1; /* reset */
+			/* If strsize<=0,  BandMap unchanged! So keep the value! */
+			if(strsize>0)
+				chmap->precolor=-1; /* reset */
 		}
 		/* 5. Update hlmarkColorMap */
 		if( chmap->hlmarkColorMap!=NULL ) {
@@ -3297,7 +3313,9 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
 				printf("%s: Fail to insert highlight color band at EOF!\n",__func__);
 			}
 
-			chmap->precolor=-1; /* reset */
+			/* If strsize<=0,  BandMap unchanged! So keep the value! */
+			if(strsize>0)
+				chmap->precolor=-1; /* reset */
 		}
 
 	}
@@ -3331,7 +3349,9 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
 				printf("%s: Fail to insert char color band not at EOF!\n",__func__);
 			}
 
-			chmap->precolor=-1; /* reset */
+			/* If strsize<=0,  BandMap unchanged! So keep the value! */
+			if(strsize<=0)
+				chmap->precolor=-1; /* reset */
 		}
 
 		/* 5. Update charColorMap accordingly */
@@ -3350,7 +3370,9 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
 				printf("%s: Fail to insert highlight color band not at EOF!\n",__func__);
 			}
 
-			chmap->precolor=-1; /* reset */
+			/* If strsize<=0,  BandMap unchanged! So keep the value! */
+			if(strsize<=0)
+				chmap->precolor=-1; /* reset */
 		}
 
 	}
@@ -3463,10 +3485,10 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
         }
 	if(ch==NULL)
 		return -1;
-	if( ch[0]=='\0' )
+	if( ch[0]=='\0' )  /* This also included in cstr_charlen_uft8() */
 		return -1;
 
-	/* Verify pch */
+	/* Verify pch, if ch[0]==0, then chsize=0! */
 	chsize=cstr_charlen_uft8((const unsigned char *)ch);
 	if(chsize<0) {
                 printf("%s: unrecognizable UFT-8 char!\n", __func__);
@@ -4479,7 +4501,7 @@ int FTcharmap_cut_to_syspad( EGI_FTCHAR_MAP *chmap )
 
 
 /*--------------------------------------------------------------
-Copy selected content(words/prases) in charmap to a file.
+Copy selected content(words/phrases) in charmap to a file.
 If the file dose NOT exist, then create it first. New content are
 writen/appended to the end of the file.
 If words/phrases already exists in the file, then ignores.
@@ -4487,6 +4509,7 @@ If words/phrases already exists in the file, then ignores.
 No mutex_lock applied!
 
 Return:
+	1	Word/phrase already exists.
 	0	OK
 	<0	Fail
 -----------------------------------------------------------------*/
@@ -4525,7 +4548,7 @@ int FTcharmap_save_words( EGI_FTCHAR_MAP *chmap, const char *fpath )
 	/* Search if the words exists */
 	if( egi_search_str_in_file(fpath, 0, words) >= 0 ) {
 		printf("%s: Words exists!\n",__func__);
-		return -4;
+		return 1;
 	}
 
 	/* Save/Append to a file */

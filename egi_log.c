@@ -41,7 +41,14 @@ TODO:
 6. A rush of (big) data writing may cause SD card unmount ????
 
 
+Jurnal:
+2021-01-31:
+     1. Modify egi_push_log(): if log file is NOT open/available, it just prints out the log string
+	and then returns.
+
+
 Midas Zhou
+midaszhou@yahoo.com
 -----------------------------------------------------------------------------------------------*/
 #include <stdio.h>
 #include <stdlib.h>
@@ -66,7 +73,6 @@ volatile static int log_buff_count; /* count number, or number of the first avai
 volatile static bool log_is_running; /* log_buff_mutex lock */
 //static bool write_thread_running;
 
-
 /*-----------------------------------------------------------------
 Convert enum egi_log_level to string
 ----------------------------------------------------------------*/
@@ -88,6 +94,9 @@ static inline const char *egi_loglv_to_string(enum egi_log_level log_level)
 }
 
 /*---------------------------------------------------------------------------------------
+Push log string into log buffer, or directly into log file, depending on log level. If log
+file is NOT open/available, it just prints out the log string and then returns.
+
 1. For high level log(>LOGLV_WARN),it will be written directly to log file with nobuffer.
 2. Otherwise, push log string to log_buff[] and wait for write_thread to
    write to log file later.
@@ -205,6 +214,10 @@ int egi_push_log(enum egi_log_level log_level, const char *fmt, ...)
 	printf("%s",strlog); /* no '/n', Let log caller to decide return token */
 #endif
 	va_end(arg); /* ----- end of extracting extended parameters ... */
+
+	/* If log file is NOT open/availbale, return then. */
+	if(egi_log_fp==NULL)
+		return 0;
 
 #if 0///////////////////////////////////////////////////////////////////////////////////
 	///////   FOR HIGHT LEVEL LOG:  write directly to log file //////

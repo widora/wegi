@@ -23,7 +23,7 @@ extern int fp16_cos[360];
 /* EGI fixed point / complex number */
 typedef struct {
 int64_t         num;	/* divident */
-int	        div;	/* divisor, 2 exponent taken 16*/
+int	        div;	/* divisor, 2 exponent taken 16 */
 } EGI_FVAL;
 
 typedef struct {
@@ -49,7 +49,7 @@ EGI_FVAL       imag;	/* imaginery part */
 #define MAT_FCPVAL_INT(r,i)  ( (EGI_FCOMPLEX){ MAT_FVAL_INT(r), MAT_FVAL(i) } )
 
 /* complex phase angle factor
- @n:	m*(2*PI)/N  nth phase angle
+ @n:	n*(2*PI)/N  nth phase angle
  @N:	Total parts of a circle(2*PI).
 */
 #define MAT_CPANGLE(n, N)  ( MAT_FCPVAL( cos(2.0*n*MATH_PI/N), -sin(2.0*n*MATH_PI/N) ) )

@@ -20,6 +20,7 @@ midaszhou@yahoo.com
 #include "egi_FTsymbol.h"
 #include "egi_utils.h"
 #include "egi_cstring.h"
+#include "egi_iwinfo.h"
 
 void print_help(const char* cmd)
 {
@@ -31,6 +32,7 @@ void parse_apinfo(char *info, int index);
 void draw_bkg(void);
 void FBwrite_total(int total);
 void FBwrite_tip(void);
+void draw_cpuload(void);
 
 int blpx=22;		/* Base line left point XY */
 int blpy=240-8;
@@ -163,6 +165,7 @@ while(1) {
         nbuf=0;
 	index=0;
         do {
+
 		/* Check remaining space of obuf[] */
                 if(0==sizeof(obuf)-nbuf-1) {
 	        	/* TODO: memgrow obuf */
@@ -214,7 +217,10 @@ while(1) {
 
 			/* Parse result line. */
 			printf("Result: %s", linebuf);
-			if(index==0) draw_bkg();
+			if(index==0) {
+				draw_bkg();
+				draw_cpuload();
+			}
 			parse_apinfo(linebuf, index++);
 		}
 
@@ -470,4 +476,42 @@ void FBwrite_tip(void)
                        	                100, 100,         		  /* x0,y0, */
        	                      	        WEGI_COLOR_WHITE, -1, 200,        /* fontcolor, transcolor,opaque */
                                        	NULL, NULL, NULL, NULL);      	  /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+}
+
+
+void draw_cpuload(void)
+{
+	int i;
+	static EGI_POINT pts[17]={0};
+	int st=sizeof(pts)/sizeof(pts[0]);	/* Size of vload[] */
+        float avgload[3]={0};
+
+
+        /* Get average load */
+        if( iw_read_cpuload( avgload )!=0 ) {
+        	printf("Fail to read avgload!\n");
+        }
+        else {
+        	/* Shift vload/pts values */
+                memmove( pts+1, pts, (st-1)*sizeof(EGI_POINT));
+
+                /* Update pts.Y as vload */
+                pts[0].y=blpy-avgload[0]*(10*20)/5.0;   /* Set Max of avg is 5, as 100%, pixel 10*20 */
+		if( pts[0].y < (blpy-10*20) )
+			pts[0].y=blpy-10*20;  /* Limit */
+        }
+
+	/* Re_assign  pts.X */
+	for(i=0; i<st; i++)
+		pts[i].x=i*20;
+	/* The last pts */
+	pts[16].x=320-1;
+
+	/* Draw spline of CPU load */
+	gv_fb_dev.antialias_on=true;
+	draw_spline(&gv_fb_dev, st, pts, 2, 1);
+	gv_fb_dev.antialias_on=false;
+
+	draw_filled_spline(&gv_fb_dev, st, pts, 2, 1, blpy, WEGI_COLOR_RED, 60); /* baseY, color, alpha */
+
 }

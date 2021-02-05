@@ -7,12 +7,14 @@ Note:
 1. FreeType 2 is licensed under FTL/GPLv3 or GPLv2.
    Based on freetype-2.5.5
 
-2. TODO: Font size class.
+2. TODO: Font size class, ratio of fw/fh to be fixed!
+	NOW: font width(fw) is regarded as font size.
 
 Jurnal:
 2021-01-27:
 	1. Add  FTsymbol_create_fontBuffer() and  FTsymbol_free_fontBuffer().
-
+2021-01-28:
+	1.FTsymbol_unicode_writeFB(), add EGI_FONT_BUFFER to speed up.
 
 Midas Zhou
 -------------------------------------------------------------------*/
@@ -28,13 +30,13 @@ Midas Zhou
 #include <freetype2/ftadvanc.h>
 #include FT_FREETYPE_H
 
-//#include FT_FREETYPE_H
-
 /* <<<<<<<<<<<<<<<<<<   FreeType Fonts  >>>>>>>>>>>>>>>>>>>>>>*/
 
 EGI_SYMPAGE sympg_ascii={0}; 	/* default  LiberationMono-Regular */
+
 EGI_FONTS  egi_sysfonts = {.ftname="sysfonts",};
 EGI_FONTS  egi_appfonts = {.ftname="appfonts",};
+EGI_FONT_BUFFER *egi_fontbuffer;
 
 static float  factor_TabWidth=3.0;	/* TabWidth/Font_Width */
 static float  factor_SpaceWidth=1.0;	/* SpaceWidth/FontWidth */
@@ -1076,6 +1078,49 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 		return;
 	}
 
+#if 1 /* ----------------    TEST: EGI_FONT_BUFFER  -------------------- */
+	EGI_WCHAR_GLYPH *wchar_glyph;
+if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
+	wchar_glyph=egi_fontbuffer->fontdata +(wcode-egi_fontbuffer->unistart);
+
+	//printf(" --- Wchar glyph is buffered! ---\n");
+
+	/* Get glyph data from font buffer */
+        ftsympg.alpha     =  wchar_glyph->alpha; 	/* Ref. only */
+        ftsympg.symheight =  wchar_glyph->symheight;
+        ftsympg.ftwidth   =  wchar_glyph->ftwidth;
+	delX		  =  wchar_glyph->delX;
+	delY		  =  wchar_glyph->delY;
+	advanceX	  =  wchar_glyph->advanceX;
+
+        /* Check only when xleft is NOT NULL */
+        if( xleft != NULL )
+        {
+	        /* Check if the wcode has re_defined width, those wcodes are assumed to have no bitmap.*/
+        	sdw=FTsymbol_cooked_charWidth(wcode, fw);
+	        if( sdw >=0 )  {
+        	        *xleft -= sdw;
+                	return;         /* Ignore bitmap */
+	        }
+        	else  {
+                	/* reduce xleft */
+	                *xleft -= advanceX;
+        	}
+
+	        /* If NO space left, do NOT writeFB then. */
+        	if( *xleft < 0 )
+                	return;
+	}
+
+        /* write to FB,  symcode =0, whatever  */
+        if(fb_dev != NULL) {
+                symbol_writeFB(fb_dev, &ftsympg, fontcolor, transpcolor, x0+delX, y0+delY, 0, opaque);
+        }
+
+	return;
+}
+#endif /* ----- END USE EGI_FONT_BUFFER ----- */
+
 	/* set character size in pixels */
 	error = FT_Set_Pixel_Sizes(face, fw, fh);
    	/* OR set character size in 26.6 fractional points, and resolution in dpi
@@ -1722,4 +1767,23 @@ void FTsymbol_free_fontBuffer(EGI_FONT_BUFFER **fontbuff)
 
 	free(*fontbuff);
 	*fontbuff=NULL;
+}
+
+/*----------------------------------------------------
+To check whether the font is buffered!
+
+@face:   Typeface
+@fsize:  Font size, here as font width!
+@wcode:  As unicode of the wchar.
+-----------------------------------------------------*/
+inline bool FTsymbol_glyph_buffered(FT_Face face, int fsize, wchar_t wcode)
+{
+
+	if( !( egi_fontbuffer && egi_fontbuffer->face == face && egi_fontbuffer->fw == fsize ) )
+		return false;
+
+	if( !( wcode >= egi_fontbuffer->unistart && wcode < egi_fontbuffer->unistart+egi_fontbuffer->size ) )
+		return false;
+
+	return true;
 }

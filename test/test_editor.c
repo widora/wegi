@@ -361,7 +361,7 @@ MAIN_START:
 	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,	 /* txtsize,  x0, y0  */
 //		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
 	  		tlns*lndis, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin, /*  height, width, offx, offy */
-			CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis,   	 /* mapsize, lines, pixpl, lndis */
+			egi_sysfonts.regular, CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis,   	 /* typeface, mapsize, lines, pixpl, lndis */
 			WEGI_COLOR_WHITE, WEGI_COLOR_BLACK, true, true );  /*  bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 
@@ -1083,8 +1083,7 @@ static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny)
 	int ret;
 
        	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,          	   /* FBdev, charmap*/
-                                           egi_sysfonts.regular, fw, fh,   /* fontface, fw,fh */
-	                                   //color, -1, 255,      	   /* fontcolor, transcolor,opaque */
+                                           fw, fh,   /* fontface, fw,fh */
 	                                   -1, 255,      	   	   /* transcolor,opaque */
                                            NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
@@ -1602,6 +1601,7 @@ Exectue command for selected right_click menu
 ------------------------------------------------*/
 static void RCMenu_execute(enum RCMenu_Command RCMenu_Command_ID)
 {
+	int ret;
 	EGI_16BIT_COLOR color;
 
 	if(RCMenu_Command_ID<0)
@@ -1610,7 +1610,15 @@ static void RCMenu_execute(enum RCMenu_Command RCMenu_Command_ID)
 	switch(RCMenu_Command_ID) {
 		case RCMENU_COMMAND_SAVEWORDS:
 			printf("RCMENU_COMMAND_SAVEWORDS\n");
-			FTcharmap_save_words(chmap, PINYIN_NEW_WORDS_FPATH);
+			ret=FTcharmap_save_words(chmap, PINYIN_NEW_WORDS_FPATH);
+			if(ret==1)
+				draw_msgbox(&gv_fb_dev, 50, 50, 240, "这个词组已经保存过了！" );
+			else if(ret==0)
+				draw_msgbox(&gv_fb_dev, 50, 50, 240, "词组已经保存！需要重新加载后方可加入到EGI输入法" );
+			else
+				draw_msgbox(&gv_fb_dev, 50, 50, 240, "词组保存失败！" );
+			fb_render(&gv_fb_dev);
+			sleep(1);
 			break;
 		case RCMENU_COMMAND_COPY:
 			printf("RCMENU_COMMAND_COPY\n");

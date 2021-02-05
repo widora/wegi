@@ -155,7 +155,6 @@ while(1) {
 				clownfish->Simgbuf->width/2, 200,	    /* xri,yri */
 				gv_fb_dev.vinfo.xres/2,gv_fb_dev.vinfo.yres/2 );  /* xrl,yrl */
 
-	while(!bigfish_ctxt.egif->Simgbuf_ready){ printf("---\n"); }; //tm_delayms(5);};
 	egi_image_rotdisplay( bigfish->Simgbuf, &gv_fb_dev,  angle/g,			 /*  imgbuf, fb_dev, angle */
 				clownfish->Simgbuf->width/2, 240,
 				gv_fb_dev.vinfo.xres/2,gv_fb_dev.vinfo.yres/2 );  /* xrl,yrl */

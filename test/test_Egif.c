@@ -180,7 +180,7 @@ int main(int argc, char **argv)
 	while(1) {
 	 	memcpy(gv_fb_dev.map_bk, gv_fb_dev.map_buff+gv_fb_dev.screensize, gv_fb_dev.screensize);
 		/* fpath, bool Silent_Mode, bool ImgTransp_ON, int *ImageCount, int nloop, bool *sigstop */
-		 egi_gif_playFile(fpath, false, true, NULL, -1, NULL);
+		egi_gif_playFile(fpath, false, true, NULL, -1, NULL);
 		exit(1);
 	}
 #endif
