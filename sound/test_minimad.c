@@ -194,7 +194,7 @@ int main(int argc, char *argv[])
   /* Prepare vol 启动系统声音调整设备 */
   egi_getset_pcm_volume(NULL,NULL);
 
-  /* Open pcm captrue device 打开PCM播放设备 */
+  /* Open pcm playback device 打开PCM播放设备 */
   if( snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0) <0 ) {  /* SND_PCM_NONBLOCK,SND_PCM_ASYNC */
   	printf("Fail to open PCM playback device!\n");
         return 1;

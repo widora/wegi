@@ -41,7 +41,7 @@ int 	cstr_squeeze_string(char *buff, int size, char spot);
 int	cstr_clear_unprintChars(char *buff, int size);
 int	cstr_clear_controlChars(char *buff, int size);
 char* 	cstr_dup_repextname(char *fpath, char *new_extname);
-char* 	cstr_split_nstr(char *str, char *split, unsigned n);
+char* 	cstr_split_nstr(const char *str, const char *split, unsigned n);
 char* 	cstr_trim_space(char *buf);
 int 	cstr_copy_line(const char *src, char *dest, size_t size);
 int 	cstr_charlen_uft8(const unsigned char *cp);

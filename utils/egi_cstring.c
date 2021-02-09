@@ -8,9 +8,11 @@ Char and String Functions
 Journal
 2021-01-24:
 	1. Add cstr_hash_string().
-
+2021-02-09:
+	1. Modify cstr_split_nstr().
 
 Midas Zhou
+midaszhou@yahoo.com
 ------------------------------------------------------------------*/
 #include <stdio.h>
 #include <string.h>
@@ -326,29 +328,41 @@ split:  split char (or string).
 n:	the n_th split
 	if n=0, then return split=str;
 
-Example str:"data,12.23,94,343.43"
+Note:
+1. Example str:"data,12.23,94,343.43"
 	split=",", n=2 (from 0...)
 	then get pointer to '9',
+2. If "data,23,34,,,34"
+	split=",", n=4
+	then get pointer to ','??
 
 Return:
 	pointer	to a char	OK, spaces trimed.
         NULL			Fail, or not found.
 ----------------------------------------------------------*/
-char * cstr_split_nstr(char *str, char *split, unsigned n)
+char * cstr_split_nstr(const char *str, const char *split, unsigned n)
 {
 	int i;
 	char *pt;
+	int slen;
 
 	if(str==NULL || split==NULL)
 		return NULL;
 
-	if(n==0)return str;
+	pt=(char *)str;
 
-	pt=str;
+	if(n==0)return pt;
+
+	slen=strlen(split);
+
 	for(i=1;i<=n;i++) {
 		pt=strstr(pt,split);
 		if(pt==NULL)return NULL;
-		pt=pt+1;
+		//pt=pt+1;
+		if( strlen(pt) >= slen )
+			pt += slen;
+		else
+			return NULL;
 	}
 
 	return pt;

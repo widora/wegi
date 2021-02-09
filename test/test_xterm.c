@@ -66,7 +66,7 @@ TODO:
 13. 'clear' command in a shell scprit will erase the first output line from shell_pid.
 
 Jurnal:
-2021-010-18:
+2021-10-18:
 	1. Add FTcharmap_shrink_dlines().
 	2. Add draw_ecursor().
 

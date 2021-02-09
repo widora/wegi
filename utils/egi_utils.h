@@ -30,8 +30,10 @@ midaszhou@yahoo.com
 typedef struct {
 	int 		fd;	/* File descriptor */
 	off_t 		fsize;  /* Size of file */
+	int 		prot;   /* PROT_READ,PROT_WRITE,... OR | */
+	int 		flags;  /* MAP_PRIVATE, MAP_SHARED,... OR | */
 	char		*fp;	/* Protected */
-	off_t		off;	/* Current offset, editable. */
+	off_t		off;	/* Current offset, editable. init as 0. */
 } EGI_FILEMMAP;
 EGI_FILEMMAP *egi_fmap_create(const char *fpath, off_t resize, int prot, int flag);
 int egi_fmap_msync(EGI_FILEMMAP* fmap);
@@ -53,6 +55,7 @@ int 		egi_copy_to_file( const char *fpath, const unsigned char *pstr, size_t siz
 int 		egi_copy_to_syspad(const unsigned char *pstr, size_t size);
 int 		egi_copy_from_syspad(unsigned char *pstr);
 
+/* Utils functions */
 void 	egi_free_char(char **p);
 int 	egi_mem_grow(void **ptr, size_t old_size, size_t more_size);
 int 	egi_search_str_in_file(const char *fpath, size_t off, const char *pstr);

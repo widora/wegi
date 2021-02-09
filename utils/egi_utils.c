@@ -5,6 +5,10 @@ published by the Free Software Foundation.
 
 Utility functions, mem.
 
+Jurnal
+2021-02-05:
+	1. Modify egi_fmap_resize(): Must re_mmap after resize the fiel.
+
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -148,8 +152,13 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize, int prot, int fl
 
 	/* FOR PRO_READ/MAP_PRIVATE only!:
    	 * Actually we can close(fd) now, instead of closing it in egi_fmap_free().
-	 * Anyway, leave it to egi_fmap_free()..
+	 * Anyway, leave it to egi_fmap_free().. NOPE also for egi_fmap_resize()!
 	 */
+
+	/* Assign prot and flags */
+	fmap->prot=prot;
+	fmap->flags=flags;
+
 
 END_FUNC:
         /* Munmap file */
@@ -178,12 +187,26 @@ int egi_fmap_resize(EGI_FILEMMAP* fmap, off_t resize)
 	if(fmap==NULL || fmap->fp==NULL)
 		return -1;
 
+        /* Munmap file */
+        if( munmap(fmap->fp,fmap->fsize) !=0 ) {
+        	printf("%s: Fail to munmap fd=%d. Err'%s'!\n",__func__, fmap->fd, strerror(errno));
+		return -1;
+	}
+	fmap->fp=NULL;
+
+	/* Resize file */
         if( ftruncate(fmap->fd, resize) !=0 ) {
                 printf("%s: ftruncate fails. ERR:%s\n", __func__, strerror(errno));
 		return -2;
         }
-
         fmap->fsize=resize;
+
+        /* Re_mmap the file */
+        fmap->fp=mmap(NULL, fmap->fsize, fmap->prot, fmap->flags, fmap->fd, 0);
+        if(fmap->fp==MAP_FAILED) {
+                        printf("%s: Fail to re_mmap the file. ERR:%s\n", __func__, strerror(errno));
+			return -3;
+        }
 
 	return 0;
 }

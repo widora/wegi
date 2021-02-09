@@ -22,7 +22,8 @@ Jurnal
 	1. draw_dot(): Use var. pix_color instead of fb_color to store blended color value.
 		       fb_color is FB sys color value!
 	2. draw_line(): extend pixel/alpha as for anti_aliasing.
-
+2021-2-9:
+	1. Add draw_triangle().
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -1961,6 +1962,27 @@ void draw_pcircle(FBDEV *dev, int x0, int y0, int r, unsigned int w)
 	}
 	draw_pline(dev,points,np+1,w);
 
+}
+
+
+/*-------------------------------------------------
+Draw a a triangle.
+
+@points:  A pointer to 3 EGI_POINTs / Or an array;
+
+Midas Zhou
+-------------------------------------------------*/
+void draw_triangle(FBDEV *dev, EGI_POINT *points)
+{
+	if(points==NULL)
+		return;
+
+	int i;
+
+	for(i=0; i<3; i++) {
+		 draw_line(dev, points[i].x, points[i].y,
+				points[(i+1)%3].x, points[(i+1)%3].y );
+	}
 }
 
 

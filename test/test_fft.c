@@ -145,7 +145,7 @@ exit(0);
 	}
 #else		/* INT type nx[] */
 	/*---------------------------------
-	(Note: Result in difference if Amp with different frequence value, the higher frequency, the bigger deviation. )
+	(Note: Result in difference if Amp with different frequence value )
 	Input Amp        Result Amp (typical)
 		1	        0
 		2               1

@@ -84,6 +84,7 @@ void 	draw_warc(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang, unsig
 void 	draw_filled_pieSlice(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang );
 void 	draw_circle(FBDEV *dev, int x, int y, int r);
 void 	draw_pcircle(FBDEV *dev, int x0, int y0, int r, unsigned int w);
+void 	draw_triangle(FBDEV *dev, EGI_POINT *points);
 void 	draw_filled_triangle(FBDEV *dev, EGI_POINT *points);
 void 	draw_filled_annulus(FBDEV *dev, int x0, int y0, int r, unsigned int w);
 void 	draw_filled_circle(FBDEV *dev, int x, int y, int r);

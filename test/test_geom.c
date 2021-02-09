@@ -18,7 +18,7 @@ Midas Zhou
 #include "egi_math.h"
 #include "egi_common.h"
 #include "egi_FTsymbol.h"
-
+#include "egi_timer.h"
 
 const wchar_t *wslogan=L"EGI:  孵化在OpenWrt_Widora上                 一款小小小开源UI";
 void display_slogan(void)
@@ -135,13 +135,39 @@ int main(int argc, char ** argv)
 
 
 
-#if 0  /* <<<<<<<<<<<<<<  3. test draw triangle  <<<<<<<<<<<<<<<*/
-
-	EGI_BOX box={ {0,0},{600,800}}; //239,319}};
+#if 1  /* <<<<<<<<<<<<<<  3. test draw triangle  <<<<<<<<<<<<<<<*/
+	int i;
+	int j, k; /* j -- pixlen moved, 0 from right most, k -- triangles drawn before putting slagon */
+	int count;
+//	EGI_BOX box={ {0,0},{600-1,800-1}};
+	EGI_BOX box={ {0-50,0-50},{320-1,240-1}};
 	EGI_BOX tri_box;
 	EGI_POINT pts[3]={ {50,50}, {100,100}, {75, 90}};
+	bool antialias_on=true;
+	EGI_CLOCK eclock={0};
+	const UFT8_PCHAR slogan=(UFT8_PCHAR)"'技术需要沉淀，成长需要痛苦，成功需要坚持，敬仰需要奉献！'";
+	int fw=30;
+	int fh=30;
+	int pixlen=FTsymbol_uft8strings_pixlen(egi_appfonts.regular, fw, fh, slogan);
 
+	//fb_set_directFB(&gv_fb_dev,true);
+
+	//fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
+
+	fbset_color(WEGI_COLOR_BLACK);
+	draw_filled_rect(&gv_fb_dev, 0,0,320-1,240-1);
+
+	count=0;
+	j=0; k=0;
+	egi_clock_start(&eclock);
 while(1) {
+
+	if( egi_clock_peekCostUsec(&eclock)>=1000000 ) {
+		printf("Draw speed: %d triangles per second.\n", count);
+		egi_clock_stop(&eclock);
+		egi_clock_start(&eclock);
+		count=0;
+	}
 
 	egi_randp_inbox(&tri_box.startxy, &box);
 	tri_box.endxy.x=tri_box.startxy.x+100;
@@ -153,14 +179,63 @@ while(1) {
         color=egi_color_random(color_all);
 	fbset_color(color);
 	draw_filled_triangle(&gv_fb_dev, pts);
-	//usleep(5000);
-	//tm_delayms(75);
+
+	gv_fb_dev.antialias_on=true;
+	draw_triangle(&gv_fb_dev, pts);
+	gv_fb_dev.antialias_on=false;
+
+	//fb_render(&gv_fb_dev);
+
+	/* Put slagon */
+	if(k>5){
+		fb_copy_FBbuffer(&gv_fb_dev,FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);
+
+        	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
+                	                        fw, fh,(const UFT8_PCHAR)slogan,  /* fw,fh, pstr */
+                        	                3200, 1, 0,                       /* pixpl, lines, fgap */
+                                	        320-j, 110,                 /* x0,y0, */
+                                        	WEGI_COLOR_WHITE, -1, 255,        /* fontcolor, transcolor,opaque */
+	                                        NULL, NULL, NULL, NULL);          /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+#if 1
+		if( j > 320 + pixlen ) {
+			j=j-pixlen-320/2;
+			/* Redraw, since above writeFB is invisiable */
+	        	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
+        	        	                        fw, fh,(const UFT8_PCHAR)slogan,  /* fw,fh, pstr */
+                	        	                3200, 1, 0,                       /* pixpl, lines, fgap */
+                        	        	        320-j, 110,                 /* x0,y0, */
+                                	        	WEGI_COLOR_WHITE, -1, 255,        /* fontcolor, transcolor,opaque */
+	                                	        NULL, NULL, NULL, NULL);          /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+		}
+		else if( j > 320/2 + pixlen ) {
+	        	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
+        	        	                        fw, fh,(const UFT8_PCHAR)slogan,  /* fw,fh, pstr */
+                	        	                3200, 1, 0,                       /* pixpl, lines, fgap */
+                        	        	        320-(j-pixlen-320/2), 110,                 /* x0,y0, */
+                                	        	WEGI_COLOR_WHITE, -1, 255,        /* fontcolor, transcolor,opaque */
+	                                	        NULL, NULL, NULL, NULL);          /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+
+		}
+
+#endif
+
+		fb_render(&gv_fb_dev);
+		//usleep(60000);
+		tm_delayms(50);
+		k=0;
+
+		fb_copy_FBbuffer(&gv_fb_dev,FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
+	}
+
+	count++;
+	j+=1;
+	k++;
 }
 	return 0;
 #endif
 
 
-#if 1  /* <<<<<<<<<<<<<<  test anti_aliasing effect  <<<<<<<<<<<<<<<*/
+#if 0  /* <<<<<<<<<<<<<<  test anti_aliasing effect  <<<<<<<<<<<<<<<*/
 	int i,k;
 	int r=200;//75,180
 	int xc=160,yc=120;

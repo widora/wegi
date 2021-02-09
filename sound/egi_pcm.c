@@ -71,7 +71,13 @@ Note:
 TODO:
 1. To play PCM data with format other than SND_PCM_FORMAT_S16_LE.
 
+Jurnal:
+	1. Modify egi_play_pcm_buff():  param (void** buffer) to (void* buffer)
+	2. Modify egi_pcmhnd_playBuff(): param (void** buffer) to (void* buffer)
+
+
 Midas Zhou
+midaszhou@yahoo.com
 -------------------------------------------------------------------*/
 #include <stdint.h>
 #include <alsa/asoundlib.h>
@@ -85,7 +91,6 @@ Midas Zhou
 #include "egi_debug.h"
 #include "egi_timer.h"
 #include "egi_cstring.h"
-
 
 /* --- For system PCM PLAY/CAPTURE -- */
 static snd_pcm_t *g_ffpcm_handle;	/* for PCM playback */
@@ -216,7 +221,7 @@ PCM access mode MUST have been set properly in open_pcm_device().
 @nf     	number of frames
 
 ------------------------------------------------------------------------*/
-void  egi_play_pcm_buff(void ** buffer, int nf)
+void  egi_play_pcm_buff(void * buffer, int nf)
 {
 	int rc;
 
@@ -259,16 +264,16 @@ Return:
 #	>0    OK
 #	<0   fails
 --------------------------------------------------------------------*/
-void  egi_pcmhnd_playBuff(snd_pcm_t *pcm_handle, bool Interleaved, void ** buffer, int nf)
+void  egi_pcmhnd_playBuff(snd_pcm_t *pcm_handle, bool Interleaved, void *buffer, int nf)
 {
 	int rc;
 
 	/* write interleaved frame data */
 	if(Interleaved)
-	        rc=snd_pcm_writei(pcm_handle,buffer,(snd_pcm_uframes_t)nf );
+	        rc=snd_pcm_writei(pcm_handle, buffer, (snd_pcm_uframes_t)nf );
 	/* write noninterleaved frame data */
 	else
-       	        rc=snd_pcm_writen(pcm_handle, buffer,(snd_pcm_uframes_t)nf ); //write to hw to playback
+       	        rc=snd_pcm_writen(pcm_handle, buffer, (snd_pcm_uframes_t)nf ); //write to hw to playback
         if (rc == -EPIPE)
         {
             /* EPIPE means underrun */

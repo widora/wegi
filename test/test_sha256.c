@@ -104,15 +104,17 @@ int main(int argc, char **argv)
 	//printf("Input: %s\n", input);
 
  do {  /*----------------- LOOP TEST ---------------- */
-	printf("\t--- k=%d ---\n", k++);
-	printf("Start hashing...\n");
+//	printf("\t--- k=%d ---\n", k++);
+//	printf("Start hashing...\n");
 	egi_clock_start(&eclock);
         mat_sha256_digest(input, len, NULL, NULL, hv, digest);
 	egi_clock_stop(&eclock);
-	printf("File: '%s', size: %dBs, Hash digest: %s\n", fpath, len, digest);
-	printf("Cost time: %ldus\n", egi_clock_readCostUsec(&eclock));
+//	printf("File: '%s', size: %dBs, Hash digest: %s\n", fpath, len, digest);
+//	printf("Cost time: %ldus\n", egi_clock_readCostUsec(&eclock));
 
  } while(--nloops); /* END:Loop test */
+
+	printf("%s\n", digest);
 
 	/* Free */
 	egi_fmap_free(&fmap);

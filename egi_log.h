@@ -11,10 +11,11 @@ Midas Zhou
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #define EGI_LOGFILE_PATH "/mmc/egi_log"	/* default */
 
-#define ENABLE_LOGBUFF_PRINT 	/* enable to print log buff content */
+//#define ENABLE_LOGBUFF_PRINT 	/* enable to print log buff content, replaced by log_is_silent */
 
 #define EGI_LOG_MAX_BUFFITEMS	128 	/* MAX. number of log buff items */
 #define EGI_LOG_MAX_ITEMLEN	512 //256 	/* Max length for each log string item */
@@ -45,6 +46,7 @@ enum egi_log_level
 
 
 /* --- logger functions --- */
+void egi_log_silent(bool enable);
 int egi_push_log(enum egi_log_level log_level, const char *fmt, ...) __attribute__(( format(printf,2,3) ));
 //static void egi_log_thread_write(void);
 int egi_init_log(const char *fpath);
@@ -56,7 +58,7 @@ int egi_quit_log(void);
 #ifdef ENABLE_EGI_PLOG
    /* define EGI_PLOG(), push log content to log_buff.
     * Note:
-    * 1. If log file is NOT open/available and ENABLE_LOGBUFF_PRINT, it only prints out the log string
+    * 1. If log file is NOT open/available and log_is_silent==false, it only prints out the log string
     *    and will NOT push/write the log.
     * 2. Let the caller to put FILE and FUNCTION, we can not ensure that two egi_push_log()
     * will push string to the log buff exactly one after the other,because of concurrency

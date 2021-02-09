@@ -45,7 +45,8 @@ Jurnal:
 2021-01-31:
      1. Modify egi_push_log(): if log file is NOT open/available, it just prints out the log string
 	and then returns.
-
+2021-02-05:
+     1. Replace ENABLE_LOGBUFF_PRINT with static bool log_is_silent;
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -69,9 +70,18 @@ static pthread_mutex_t log_buff_mutex;
 static FILE *egi_log_fp; /* log_buff_mutex lock */
 static unsigned char **log_buff;  /* log_buff_mutex lock */
 /* !!! WARNING !!! use volatile to disable compiler optimization to avoid mutex_lock failure */
-volatile static int log_buff_count; /* count number, or number of the first available log buff,log_buffer_mutex lock */
-volatile static bool log_is_running; /* log_buff_mutex lock */
+volatile static int  log_buff_count; 	/* count number, or number of the first available log buff,log_buffer_mutex lock */
+volatile static bool log_is_running; 	/* log_buff_mutex lock */
+volatile static bool log_is_silent;  	/* If true, DO NOT print log string to stdout! */
 //static bool write_thread_running;
+
+/*-----------------------------------------------
+If enbable, then DO NOT print log string to stdout!
+------------------------------------------------*/
+void egi_log_silent(bool enable)
+{
+	log_is_silent=enable;
+}
 
 /*-----------------------------------------------------------------
 Convert enum egi_log_level to string
@@ -158,6 +168,10 @@ int egi_push_log(enum egi_log_level log_level, const char *fmt, ...)
 	struct tm *tm;
 	int tmlen;
 
+	/* Check log _fp and _silent setup */
+	if(egi_log_fp==NULL && log_is_silent )
+                return 0;
+
 	/* get extended parameters */
 	va_list arg;
 	va_start(arg,fmt);/* ----- start of extracting extended parameters to arg ... */
@@ -209,10 +223,12 @@ int egi_push_log(enum egi_log_level log_level, const char *fmt, ...)
 		fprintf(stderr, "\e[31m %s  ---- WARNING: log message truncated! ---\e[0m\n",__func__);
 	snprintf(strlog+tmlen, EGI_LOG_MAX_ITEMLEN-tmlen-1, "%s\n", attrReset); /* -1 for /0 */
 
-#ifdef ENABLE_LOGBUFF_PRINT
-	//printf("EGI_Logger: %s",strlog);
-	printf("%s",strlog); /* no '/n', Let log caller to decide return token */
-#endif
+//#ifdef ENABLE_LOGBUFF_PRINT
+	if(!log_is_silent) {
+		//printf("EGI_Logger: %s",strlog);
+		printf("%s",strlog); /* no '/n', Let log caller to decide return token */
+	}
+//#endif
 	va_end(arg); /* ----- end of extracting extended parameters ... */
 
 	/* If log file is NOT open/availbale, return then. */

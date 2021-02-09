@@ -79,7 +79,7 @@ typedef enum _snd_pcm_format {
 int	egi_prepare_pcm_device(unsigned int nchan, unsigned int srate, bool bl_interleaved);
 int 	egi_pcm_period_size(void);
 void 	egi_close_pcm_device(void);
-void 	egi_play_pcm_buff(void** buffer, int nf);
+void 	egi_play_pcm_buff(void* buffer, int nf);
 int  	egi_getset_pcm_volume(int *pvol, int *percnt);
 int 	egi_adjust_pcm_volume(int vdelt);
 
@@ -88,7 +88,7 @@ snd_pcm_t*  egi_open_playback_device( const char *dev_name, snd_pcm_format_t sfo
 				      bool soft_resample, unsigned int nchanl, unsigned int srate, unsigned int latency );
 int 	egi_pcmhnd_setParams( snd_pcm_t *pcm_handle, snd_pcm_format_t sformat, snd_pcm_access_t access_type,
                                unsigned int nchanl, unsigned int srate);
-void  	egi_pcmhnd_playBuff(snd_pcm_t *pcm_handle, bool Interleaved, void ** buffer, int nf);
+void  	egi_pcmhnd_playBuff(snd_pcm_t *pcm_handle, bool Interleaved, void * buffer, int nf);
 
 
 /* --- EGI_PCMBUF functions --- */

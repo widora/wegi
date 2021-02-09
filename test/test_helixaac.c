@@ -45,10 +45,23 @@ int main(int argc, char **argv)
 	int percent;
 	char ch;
 
+	/***  AAC Header: profile
+	 * 0. AAC Main
+	 * 1. AAC LC(Low Complexity)
+	 * 2. AAC SSR(Scalable Sample Rate)
+	 * 3. AAC LTP(Long Term Prediction)  --- For HelixAAC, it's reserved!
+	*/
+	const char strprofile[][16]={ "AAC Main", "AAC LC", "AAC SSR", "AAC LTP" };
+
 	/* input/output file */
 	char *fin_path=argv[1];
 	char *fout_path=argv[2];
 
+	/* Allocate buffer for decoded PCM data */
+	/* A typical raw AAC frame includes 1024 samples
+  	   aac_pub/aacdec.h:		#define AAC_MAX_NSAMPS          1024
+	  libhelix-aac/aaccommon.h:	#define NSAMPS_LONG		1024
+         */
   	pout=(int16_t *)calloc(1, 1024*2*nchanl*sizeof(int16_t)); /* MAX. for 2 channels,  assume SBR enbaled */
   	if(pout==NULL) {
 		printf("Fail to calloc pout!");
@@ -92,7 +105,7 @@ RADIO_LOOP:
 	else if(access("/tmp/b.stream",R_OK)==0)
 		fin_path="/tmp/b.stream";
 	else {
-		printf("\rConnecting...    "); fflush(stdout);
+		printf("\rConnecting...  "); fflush(stdout);
 		usleep(500000);
 		goto RADIO_LOOP;
 	}
@@ -182,6 +195,8 @@ RADIO_LOOP:
 		if(err==0) {
 			//printf("AACDecode: %lld bytes of aac data decoded.\n", fmap_aac->fsize-bytesLeft );
 			AACGetLastFrameInfo(aacDec, &aacFrameInfo);
+
+
 #if 0
 			printf(" sampRateOut\t%d\n sampRateCore\t%d\n",
 				aacFrameInfo.sampRateOut, aacFrameInfo.sampRateCore);
@@ -196,8 +211,10 @@ RADIO_LOOP:
 			if(!pcmdev_ready || nchanl != aacFrameInfo.nChans || samplerate!=aacFrameInfo.sampRateOut )
 			{
 				printf("\n--- Helix AAC FP Decoder ---\n");
-				printf(" bitRate\t%d\n nChans\t\t%d\n sampRateCore\t%d\n",
-					aacFrameInfo.bitRate, aacFrameInfo.nChans, aacFrameInfo.sampRateCore );
+				printf(" profile\t%s\n",
+					strprofile[aacFrameInfo.profile] );
+				printf(" nChans\t\t%d\n sampRateCore\t%d\n",
+					aacFrameInfo.nChans, aacFrameInfo.sampRateCore );
 				printf(" sampRateOut\t%d\n bitsPerSample\t%d\n outputSamps\t%d\n",
 					aacFrameInfo.sampRateOut, aacFrameInfo.bitsPerSample, aacFrameInfo.outputSamps );
 //				printf(" profile\t%d\n tnsUsed\t%d\n pnsUsed\t%d\n",
