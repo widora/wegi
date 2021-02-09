@@ -6,9 +6,15 @@ published by the Free Software Foundation.
 		A libcurl http helper
 Refer to:  https://curl.haxx.se/libcurl/c/
 
+Jurnal
+2021-02-09:
+	1. https_easy_download(): Add input param 'int opt' to replace
+           definition of SKIP_xxx_VERIFICATION.
+
 Midas Zhou
 ---------------------------------------------------------------*/
 #include <stdio.h>
+#include <unistd.h>
 #include <errno.h>
 #include <string.h>
 #include <curl/curl.h>
@@ -70,7 +76,7 @@ int https_curl_request(const char *request, char *reply_buff, void *data,
 	EGI_PLOG(LOGLV_CRITICAL, "%s: Try [%d]th curl_easy_perform()... ", __func__, i);
 	/* Perform the request, res will get the return code */
 	if(CURLE_OK != curl_easy_perform(curl) ) {
-		printf("%s: curl_easy_perform() failed: %s\n", __func__, curl_easy_strerror(res));
+		printf("%s: curl_easy_perform() failed! Err'%s'\n", __func__, curl_easy_strerror(res));
 		ret=-2;
 		tm_delayms(200);
 		goto CURL_CLEANUP; //continue; /* retry ... */
@@ -124,10 +130,13 @@ CURL_CLEANUP:
 
 /*----------------------------------------------------------------------------
 			HTTPS request by libcurl
+Note:
+1. You must have installed ca-certificates before call curl https, or
+   define SKIP_PEER/HOSTNAME_VERIFICATION to use http instead.
+2. The caller MAY need to remove file_save file in case https_easy_download fails!
+   OR the file will remain!
 
-Note: You must have installed ca-certificates before call curl https, or
-      define SKIP_PEER/HOSTNAME_VERIFICATION to use http instead.
-
+@opt:			Http options, Use '|' to combine. See below.
 @file_url:		file url for downloading.
 @file_save:		file path for saving received file.
 @data:			TODO: if any more data needed
@@ -139,7 +148,7 @@ Return:
 	0	ok
 	<0	fails
 -------------------------------------------------------------------------------*/
-int https_easy_download(const char *file_url, const char *file_save,   void *data,
+int https_easy_download(int opt, const char *file_url, const char *file_save,   void *data,
 							      curlget_callback_t write_callback )
 {
 	int i;
@@ -157,7 +166,7 @@ int https_easy_download(const char *file_url, const char *file_save,   void *dat
 	/* Open file for saving file */
 	fp=fopen(file_save,"wb");
 	if(fp==NULL) {
-		EGI_PLOG(LOGLV_ERROR,"%s: open file %s: %s", __func__, file_save, strerror(errno));
+		EGI_PLOG(LOGLV_ERROR,"%s: open file '%s' Err'%s'", __func__, file_save, strerror(errno));
 		return -1;
 	}
 
@@ -192,23 +201,25 @@ int https_easy_download(const char *file_url, const char *file_save,   void *dat
 	/* set write_callback to write/save received data  */
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
 
-#ifdef SKIP_PEER_VERIFICATION
-	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-#endif
-#ifdef SKIP_HOSTNAME_VERIFICATION
-	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-#endif
+	/* Param opt set */
+	if(HTTPS_SKIP_PEER_VERIFICATION & opt)
+		curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+	if(HTTPS_SKIP_HOSTNAME_VERIFICATION & opt)
+		curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
 	//curl_easy_setopt(curl, CURLOPT_CAINFO, "ca-bundle.crt");
 
 	/* Set data destination for write_callback */
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
 
-
 	EGI_PLOG(LOGLV_CRITICAL, "%s: Try [%d]th curl_easy_perform()... ", __func__, i);
 	/* Perform the request, res will get the return code */
 	res = curl_easy_perform(curl);
 	if(res != CURLE_OK) {
-		EGI_PLOG(LOGLV_ERROR,"%s: curl_easy_perform() failed: %s", __func__, curl_easy_strerror(res));
+		if(res ==  CURLE_URL_MALFORMAT ) /* Seems this will NOT trigger curl_easy_strerror(res) */
+			EGI_PLOG(LOGLV_ERROR,"%s: curl_easy_perform() failed because of URL malformat!", __func__);
+		else
+			EGI_PLOG(LOGLV_ERROR,"%s: res=%d, curl_easy_perform() failed! Err'%s'", __func__, res, curl_easy_strerror(res));
 		ret=-3;
 		tm_delayms(200);
 		goto CURL_CLEANUP; //continue; /* retry ... */

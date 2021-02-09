@@ -11,8 +11,12 @@ Midas Zhou
 #include <curl/curl.h>
 
 /*  erase '__' to use http instead */
-#define __SKIP_PEER_VERIFICATION
-#define __SKIP_HOSTNAME_VERIFICATION
+//#define SKIP_PEER_VERIFICATION
+//#define SKIP_HOSTNAME_VERIFICATION
+
+/* Https Options */
+#define HTTPS_SKIP_PEER_VERIFICATION            (1<<0)
+#define HTTPS_SKIP_HOSTNAME_VERIFICATION        (1<<1)
 
 #define CURL_RETDATA_BUFF_SIZE  (512*1024)  /* CURL RETURNED DATA BUFFER SIZE */
 
@@ -37,7 +41,7 @@ int https_curl_request(const char *request, char *reply_buff, void *data,
 							curlget_callback_t get_callback);
 
 
-int https_easy_download(const char *file_url, const char *file_save,   void *data,
+int https_easy_download(int opt, const char *file_url, const char *file_save,   void *data,
                                                         curlget_callback_t write_callback );
 
 #endif
