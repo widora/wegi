@@ -112,6 +112,7 @@ egi_shmem.c	share memory helper functions
 egi_https.c	curl https API
 egi_iwinfo.c	wifi info. extraction
 egi_inet.c	TCP/UDP util module
+egi_unet.c	UNIX domain socket module for local IPC.
 egi_aes.c	AES encryption module.
 
 egi_matrix.c    A matrix operation lib
