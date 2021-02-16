@@ -8,6 +8,10 @@ A simple graphical Wifi Scanner.
 Usage:
 	./test_wifiscan
 
+Note:
+1. Sometimes, 'aps' command results in several APs, and have to
+   reboot OP. (Power supply?)
+
 Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/

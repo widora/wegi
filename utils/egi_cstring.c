@@ -323,6 +323,8 @@ Get pointer to the first char after Nth split char. content
 of original string NOT changed.
 Instead, you may use strtok().
 
+TODO: TEST 
+
 str:	source string.
 split:  split char (or string).
 n:	the n_th split

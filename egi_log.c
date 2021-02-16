@@ -26,7 +26,11 @@ Try to write a thread_safe log system. :))))
 
 Note:
 1. log_buff_mutex will not be destroyed after egi_quit_log().
-2. Log items are not written sorted by time, because of buff FILO and thread operation.
+2. Log items are not sorted by time, because of buff FILO and thread operation.
+   Example: A LOGLV_CRITICAL item will be written directly to the log file.
+ 	    A LOGLV_INFO item will first push into log_buff[].
+	    So even INFO happens before CRITICAL, it may appears behind CRITICAL in the log file!
+
 3. Give log string a '/n' and makes fprint flush immediately.
 
 TODO:

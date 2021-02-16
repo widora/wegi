@@ -14,7 +14,9 @@ midaszhou@yahoo.com
 #include <string.h>
 #include <egi_https.h>
 #include <egi_timer.h>
+#include <egi_log.h>
 
+int curl_nwrite;
 size_t curl_callback(void *ptr, size_t size, size_t nmemb, void *userp);
 void parse_m3u8list(char *strm3u);
 char aacLastURL[1024];  /* The last URL of downloaded AAC file */
@@ -27,9 +29,16 @@ int main(int argc, char **argv)
 /* TODO test */
 //	cstr_split_nstr(strm3u, split, )
 
-	/* For http */
-	tm_start_egitick();
+	/* Start egi log */
+  	if(egi_init_log("/mmc/test_http.log") != 0) {
+                printf("Fail to init logger,quit.\n");
+                return -1;
+  	}
+	EGI_PLOG(LOGLV_INFO,"%s: Start logging...", argv[0]);
 
+	/* For http */
+	printf("start egitick...\n");
+	tm_start_egitick();
 
 	/* prepare GET request string */
         memset(strRequest,0,sizeof(strRequest));
@@ -38,16 +47,25 @@ int main(int argc, char **argv)
 
 while(1) {
 	/* Https GET request */
-        if( https_curl_request(strRequest, buff, NULL, curl_callback)!=0 ) {
-		printf("Fail to call https_curl_request()!");
-		exit(EXIT_FAILURE);
+	EGI_PLOG(LOGLV_INFO,"Start https curl request...");
+        if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION,
+				strRequest, buff, NULL, curl_callback) !=0 )
+	{
+		EGI_PLOG(LOGLV_ERROR, "Fail to call https_curl_request()! try again...");
+		/* Try again */
+		sleep(1);
+		continue;
+		EGI_PLOG(LOGLV_ERROR, "Try https_curl_request() again...");
+		//exit(EXIT_FAILURE);
 	}
         printf("        --- Http GET Reply ---\n %s\n",buff);
 
 	/* Parse content */
+	EGI_PLOG(LOGLV_INFO,"Start parse m3u8list...");
 	parse_m3u8list(buff);
 
-	sleep(2);
+	/* Sleep of TARGETDURATION */
+	sleep(7/2);
 }
 
 	exit(EXIT_SUCCESS);
@@ -75,9 +93,16 @@ size_t download_callback(void *ptr, size_t size, size_t nmemb, void *stream)
 {
        size_t written;
 
-        written = fwrite(ptr, size, nmemb, (FILE *)stream);
+        written = fwrite(ptr, size,  nmemb, (FILE *)stream);
         //printf("%s: written size=%zd\n",__func__, written);
 
+	if(written<0) {
+		EGI_PLOG(LOGLV_ERROR,"xxxxx  Curl callback:  fwrite error!  written<0!  xxxxx");
+		written=0;
+	}
+	curl_nwrite += written;
+
+	EGI_PLOG(LOGLV_CRITICAL," curl_nwritten=%d ", curl_nwrite);
         return written;
 }
 
@@ -92,50 +117,84 @@ void parse_m3u8list(char *strm3u)
 	int k;
 	const char *delim="\r\n";
 	char *ps;
+	char aacURL[1024]={0};
 
 	/* Get m3u8 params: VERSION,TARGETDURATION,SEQUENCE,EXTINF .....  */
-
 
 	/* Parse AAC URL List */
         ps=strtok(strm3u, delim);
         for(k=0; ps!=NULL; k++) {
-		if( strstr(ps,"aac")!=NULL ) {
+		if( strstr(ps,"aac") && strstr(ps,"//") ) {
+			EGI_PLOG(LOGLV_INFO, "AAC URL: '%s'.",ps);
+
+			/* Get right URL for AAC file */
+			memset(aacURL,0,sizeof(aacURL));
+			if( strstr(ps,"http:")==NULL ) {
+				strcat(aacURL, "http:");
+				strncat(aacURL, ps, sizeof(aacURL)-1-strlen("http:"));
+			}
+			else {
+				strncat(aacURL, ps, sizeof(aacURL)-1);
+			}
 
 			/* 1. Check and download a.stream */
-			if( access("/tmp/a.stream",F_OK)!=0 && strcmp(ps, aacLastURL) > 0) {
+			if( access("/tmp/a.stream",F_OK)!=0 && strcmp(aacURL, aacLastURL) > 0) {
 				/* Download AAC */
-				printf("Downloading AAC from: %s\n",  ps);
+				curl_nwrite=0;
+				EGI_PLOG(LOGLV_INFO, "Downloading a.stream AAC from: %s",  aacURL);
 		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION,
-							 ps, "/tmp/a.stream", NULL, download_callback) !=0 )
+							 aacURL, "/tmp/a.stream", NULL, download_callback) !=0 )
 				{
-                        		printf("Fail to easy_download a.stream from '%s'.\n", ps);
+                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download a.stream from '%s'.", aacURL);
 					remove("/tmp/a.stream");
+					EGI_PLOG(LOGLV_INFO, "Finsh remove /tmp/a.stream.");
 				} else {
 					/* Update aacLastURL */
-					printf("Ok, a.stream updated!\n");
-					strncpy( aacLastURL, ps, sizeof(aacLastURL)-1 );
+					EGI_PLOG(LOGLV_INFO, "Ok, a.stream updated! curl_nwrite=%d", curl_nwrite);
+					strncpy( aacLastURL, aacURL, sizeof(aacLastURL)-1 );
 				}
 			}
 
 			/* 2. Check and download b.stream */
-			else if( access("/tmp/b.stream",F_OK)!=0 && strcmp(ps, aacLastURL) > 0) {
+			else if( access("/tmp/b.stream",F_OK)!=0 && strcmp(aacURL, aacLastURL) > 0) {
 				/* Download AAC */
-				printf("Downloading AAC from: %s\n",  ps);
+				curl_nwrite=0;
+				EGI_PLOG(LOGLV_INFO, "Downloading b.stream AAC from: %s",  aacURL);
 		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION,
-							 ps, "/tmp/b.stream", NULL, download_callback) !=0 )
+							 aacURL, "/tmp/b.stream", NULL, download_callback) !=0 )
 				{
-                        		printf("Fail to easy_download b.stream from '%s'.\n", ps);
+                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download b.stream from '%s'.", aacURL);
 					remove("/tmp/b.stream");
+					EGI_PLOG(LOGLV_INFO, "Finsh remove /tmp/b.stream.");
 				} else {
 					/* Update aacLastURL */
-					printf("OK, b.stream updated!\n");
-					strncpy( aacLastURL, ps, sizeof(aacLastURL)-1 );
+					EGI_PLOG(LOGLV_INFO, "Ok, b.stream updated! curl_nwrite=%d", curl_nwrite);
+					strncpy( aacLastURL, aacURL, sizeof(aacLastURL)-1 );
 				}
 			}
-			/* 3. Both OK */
+			/* 3.!!! Sometimes URL time stamp skips and  is NOT consistent with former one, strcmp() will fail!???  */
+			else if( access("/tmp/a.stream",F_OK)!=0  && access("/tmp/b.stream",F_OK)!=0 ) {
+				/* Download AAC */
+				curl_nwrite=0;
+				EGI_PLOG(LOGLV_ERROR, "Case 3: Downloading a.stream AAC from: %s",  aacURL);
+		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION,
+							 aacURL, "/tmp/a.stream", NULL, download_callback) !=0 )
+				{
+                        		EGI_PLOG(LOGLV_ERROR, "Case 3: Fail to easy_download a.stream from '%s'.", aacURL);
+					remove("/tmp/a.stream");
+					EGI_PLOG(LOGLV_INFO, "Case 3: Finsh remove /tmp/a.stream.");
+				} else {
+					/* Update aacLastURL */
+					EGI_PLOG(LOGLV_INFO, "Ok, a.stream updated! curl_nwrite=%d", curl_nwrite);
+					strncpy( aacLastURL, aacURL, sizeof(aacLastURL)-1 );
+				}
+			}
+			/* 4. Both OK */
 			else
 				printf("a.stream and b.stream both available!\n");
 		}
+
 		ps=strtok(NULL, delim);
+
 	}
 }

@@ -8,7 +8,10 @@ Utility functions, mem.
 Jurnal
 2021-02-05:
 	1. Modify egi_fmap_resize(): Must re_mmap after resize the fiel.
-
+2021-02-09:
+	1. egi_fmap_create(): To fail if file size is 0!
+2021-02-13:
+	1. egi_fmap_create(): Add flock(,LOCK_EX) during mmaping.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -29,7 +32,7 @@ midaszhou@yahoo.com
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <libgen.h>
-
+#include <sys/file.h>
 
 
 /*---------------------------------
@@ -118,6 +121,12 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize, int prot, int fl
                 return NULL;
         }
 
+        /* Get advisory lock */
+        if( flock(fmap->fd,LOCK_EX) !=0 ) {
+                EGI_PLOG(LOGLV_ERROR, "%s: Fail to flock '%s', Err'%s'.", __func__, fpath, strerror(errno));
+                /* Go on .. */
+        }
+
         /* Obtain file stat */
         if( fstat(fmap->fd, &sb)<0 ) {
                 printf("%s: Fail call fstat for file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
@@ -126,9 +135,13 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize, int prot, int fl
 
 	/* Check size */
         fmap->fsize=sb.st_size;
-	//if( fmap->fsize <= 0) {
+	if( fmap->fsize <= 0 ) {
+		printf("%s: file size is 0! Fail to mmap '%s'!\n", __func__, fpath);
+		goto END_FUNC;
+	}
+
 	if( resize>0 ) {
-		//goto END_FUNC;
+		/* Resize the file */
 		if( ftruncate(fmap->fd, resize) !=0 ) {
 	                printf("%s: ftruncate '%s' fails. ERR:%s\n", __func__, fpath, strerror(errno));
         	        goto END_FUNC;
@@ -161,10 +174,16 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize, int prot, int fl
 
 
 END_FUNC:
+        /* Unlock, advisory locks only */
+        if( flock(fmap->fd,LOCK_UN) !=0 ) {
+                printf("%s: Fail to un_flock '%s', Err'%s'\n.", __func__, fpath, strerror(errno));
+                /* Go on .. */
+        }
+
         /* Munmap file */
         if( fmap->fp==NULL || fmap->fp==MAP_FAILED ) {
 	        if( close(fmap->fd) !=0 )
-        	        printf("%s: Fail to close file '%s'. ERR:%s!\n",__func__, fpath, strerror(errno));
+        	        printf("%s: Fail to close file '%s'. ERR:%s!\n", __func__, fpath, strerror(errno));
 		free(fmap);
 		return NULL;
 	}

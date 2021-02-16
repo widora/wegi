@@ -37,7 +37,7 @@ typedef size_t (* curlget_callback_t)(void *ptr, size_t size, size_t nmemb, void
 	}
 */
 
-int https_curl_request(const char *request, char *reply_buff, void *data,
+int https_curl_request(int opt, const char *request, char *reply_buff, void *data,
 							curlget_callback_t get_callback);
 
 

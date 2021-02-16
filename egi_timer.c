@@ -32,7 +32,7 @@ Midas Zhou
 -----------------------------------------------------------------*/
 #include <signal.h>
 #include <sys/time.h>
-#include <sys/timeb.h>;
+#include <sys/timeb.h>
 #include <time.h>
 #include <stdio.h>
 #include <unistd.h> /* usleep */
@@ -43,7 +43,7 @@ Midas Zhou
 #include "egi_fbgeom.h"
 #include "dict.h"
 
-#define EGI_ENABLE_TICK  0	/* Tick alarm signal may conflic with other app thread! */
+#define EGI_ENABLE_TICK  0	/* Tick alarm signal may conflic with other app thread! OR curl? */
 
 struct itimerval tm_val, tm_oval;
 
@@ -279,12 +279,11 @@ if ms<0, return.
 -----------------------------------------*/
 void tm_delayms(unsigned long ms)
 {
-	unsigned int nticks;
-	long long unsigned int tm_now;
-
 	if(ms==0) return;
 
 #if EGI_ENABLE_TICK
+	unsigned int nticks;
+	long long unsigned int tm_now;
 
 	if(ms < TM_TICK_INTERVAL/1000)
 		nticks=TM_TICK_INTERVAL/1000;
@@ -534,7 +533,7 @@ Return:
 int egi_clock_pause(EGI_CLOCK *eclock)
 {
 	int ret=0;
-	suseconds_t dus;
+//	suseconds_t dus;
 
 	/* Check status */
 	if(eclock==NULL)

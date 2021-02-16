@@ -157,6 +157,15 @@ NOTE:
 TODO:
 1. Auto. reconnect.
 
+
+Jurnal:
+2021-02-16:
+	1. inet_destroy_tcpServer(): close sessions[i].csFD.
+	2. inet_create_udpServer(): close(userv->sockfd) when fails.
+	   inet_create_udpClient(): close(uclit->sockfd) when fails.
+	   inet_create_tcpServer(): close(userv->sockfd) when fails.
+	   inet_create_tcpClient(): close(uclit->sockfd) when fails.
+
 Midas Zhou
 midaszhou@yahoo.com
 --------------------------------------------------------------------------*/
@@ -1565,6 +1574,7 @@ EGI_UDP_SERV* inet_create_udpServer(const char *strIP, unsigned short port, int 
 		return NULL;
 
 	/*--------------- domain ---------------------------
+	AF_UNIX, AF_LOCAL   Local communication
        	AF_INET             IPv4 Internet protocols
        	AF_INET6            IPv6 Internet protocols
        	AF_IPX              IPX - Novell protocols
@@ -1604,6 +1614,7 @@ EGI_UDP_SERV* inet_create_udpServer(const char *strIP, unsigned short port, int 
 	/* 3. Bind socket with sockaddr(Assign sockaddr to socekt) */
 	if( bind(userv->sockfd,(struct sockaddr *)&(userv->addrSERV), sizeof(userv->addrSERV)) < 0) {
 		printf("%s: Fail to bind sockaddr, Err'%s'\n", __func__, strerror(errno));
+		close(userv->sockfd);
 		free(userv);
 		return NULL;
 	}
@@ -1611,11 +1622,13 @@ EGI_UDP_SERV* inet_create_udpServer(const char *strIP, unsigned short port, int 
         /* 4. Set default SND/RCV timeout,  recvfrom() and sendto() can set flag MSG_DONTWAIT. */
         if( setsockopt(userv->sockfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout)) <0 ) {
                 printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
+		close(userv->sockfd);
 		free(userv);
 		return NULL;
         }
         if( setsockopt(userv->sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) <0 ) {
                 printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
+		close(userv->sockfd);
 		free(userv);
 		return NULL;
         }
@@ -1956,11 +1969,13 @@ EGI_UDP_CLIT* inet_create_udpClient(const char *servIP, unsigned short servPort,
         /* 3. Set default SND/RCV timeout,   recvfrom() and sendto() can set flag MSG_DONTWAIT. */
         if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout)) <0 ) {
                 printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
+		close(uclit->sockfd);
 		free(uclit);
 		return NULL;
         }
         if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout)) <0 ) {
                 printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
+		close(uclit->sockfd);
 		free(uclit);
 		return NULL;
         }
@@ -2324,7 +2339,7 @@ EGI_TCP_SERV* inet_create_tcpServer(const char *strIP, unsigned short port, int 
 	domain=AF_INET;
 	#endif
 
-	/* Create TCP socket fd */
+	/* 1. Create TCP socket fd */
 	userv->sockfd=socket(domain, SOCK_STREAM|SOCK_CLOEXEC, 0);
 	if(userv->sockfd<0) {
 		printf("%s: Fail to create stream socket, '%s'\n", __func__, strerror(errno));
@@ -2343,6 +2358,7 @@ EGI_TCP_SERV* inet_create_tcpServer(const char *strIP, unsigned short port, int 
 	/* 3. Bind socket with sockaddr(Assign sockaddr to socekt) */
 	if( bind(userv->sockfd,(struct sockaddr *)&(userv->addrSERV), sizeof(userv->addrSERV)) < 0) {
 		printf("%s: Fail to bind sockaddr, Err'%s'\n", __func__, strerror(errno));
+		close(userv->sockfd);
 		free(userv);
 		return NULL;
 	}
@@ -2356,11 +2372,13 @@ EGI_TCP_SERV* inet_create_tcpServer(const char *strIP, unsigned short port, int 
 	userv->rcvtimeout.tv_sec=rcvtimeo;
         if( setsockopt(userv->sockfd, SOL_SOCKET, SO_SNDTIMEO, (void *)&(userv->sndtimeout), sizeof(userv->sndtimeout)) <0 ) {
                 printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
+		close(userv->sockfd);
 		free(userv);
 		return NULL;
         }
         if( setsockopt(userv->sockfd, SOL_SOCKET, SO_RCVTIMEO, (void *)&(userv->rcvtimeout), sizeof(userv->rcvtimeout)) <0 ) {
                 printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
+		close(userv->sockfd);
 		free(userv);
 		return NULL;
         }
@@ -2390,6 +2408,7 @@ Return:
 --------------------------------------------*/
 int inet_destroy_tcpServer(EGI_TCP_SERV **userv)
 {
+	int i;
 	if(userv==NULL || *userv==NULL)
 		return 0;
 
@@ -2400,6 +2419,12 @@ int inet_destroy_tcpServer(EGI_TCP_SERV **userv)
                 printf("%s: Fail to close datagram socket, Err'%s'\n", __func__, strerror(errno));
 		return -1;
 	}
+
+        /* Close session fd */
+        for(i=0; i<EGI_MAX_TCP_CLIENTS; i++) {
+                if( (*userv)->sessions[i].alive==true )
+                        close((*userv)->sessions[i].csFD);
+        }
 
 	/* Free mem */
 	free(*userv);
@@ -2913,11 +2938,13 @@ EGI_TCP_CLIT* inet_create_tcpClient(const char *servIP, unsigned short servPort,
 	uclit->rcvtimeout.tv_sec=rcvtimeo;
         if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_SNDTIMEO, (void *)&(uclit->sndtimeout), sizeof(uclit->sndtimeout)) <0 ) {
                 //printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
+		close(uclit->sockfd);
 		free(uclit);
 		return NULL;
         }
         if( setsockopt(uclit->sockfd, SOL_SOCKET, SO_RCVTIMEO, (void *)&(uclit->rcvtimeout), sizeof(uclit->rcvtimeout)) <0 ) {
                 //printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
+		close(uclit->sockfd);
 		free(uclit);
 		return NULL;
         }
@@ -2948,6 +2975,7 @@ EGI_TCP_CLIT* inet_create_tcpClient(const char *servIP, unsigned short servPort,
 	/* 4. Connect to the server */
 	if( connect(uclit->sockfd, (struct sockaddr *)&uclit->addrSERV, sizeof(struct sockaddr)) <0 ) {
                 printf("%s: Fail to connect() to the server, Err'%s'\n", __func__, strerror(errno));
+		close(uclit->sockfd);
 		free(uclit);
 		return NULL;
 	}

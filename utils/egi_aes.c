@@ -259,6 +259,9 @@ Add round key to the state.
 @state:	    Pointer to state.
 @keywords[Nb*(Nr+1)]:   All round keys, in words.
 
+Return:
+	0	Ok
+	<0	Fails
 --------------------------------------------------------------*/
 int aes_AddRoundKey(uint8_t Nr, uint8_t Nk, uint8_t round, uint8_t *state, const uint32_t *keywords)
 {
@@ -268,7 +271,7 @@ int aes_AddRoundKey(uint8_t Nr, uint8_t Nk, uint8_t round, uint8_t *state, const
 
 	for(k=0; k<4*4; k++)
 		//state[k] = ( keywords[round*4+k%4]>>((3-k/4)*8) &0xFF )^state[k];
-		state[k] = ( keywords[ (round<<2) +k&0x3 ]>>((3-(k>>2))<<3) &0xFF )^state[k];
+		state[k] = ( keywords[ (round<<2) +(k&0x3) ]>>((3-(k>>2))<<3) &0xFF )^state[k];
 
 	return 0;
 }

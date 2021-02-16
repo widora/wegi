@@ -7,6 +7,14 @@ Test libhelixaac
 
   Helix Fixed-point HE-AAC decoder ---  www.helixcommunity.org
 
+To make a simple m3u8 radio player:
+	test_heliaac.c 	---> radio_aacdeode
+	test_http.c	---> http_aac
+
+
+Note:
+1. Only support 2 channels NOW.
+
 Midas Zhou
 midaszhou@yahoo.com
 -------------------------------------------------------------------*/
@@ -14,7 +22,8 @@ midaszhou@yahoo.com
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <aacdec.h>
+//#include <aacdec.h>
+#include <aaccommon.h>
 #include <egi_utils.h>
 #include <egi_pcm.h>
 #include <egi_input.h>
@@ -24,8 +33,9 @@ int main(int argc, char **argv)
 {
 	int err;
 	HAACDecoder aacDec;
+	AACDecInfo *aacDecInfo;
 	AACFrameInfo aacFrameInfo={0};
-	bool ENABLE_AAC_SBR=true; /* Special band replication */
+	bool enableSBR; /* Special band replication */
 
 	int bytesLeft;
 	int nchanl=2;
@@ -68,6 +78,14 @@ int main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 
+#if 1   /* Start egi log */
+        if(egi_init_log("/mmc/test_helixaac.log") != 0) {
+                printf("Fail to init logger,quit.\n");
+                return -1;
+        }
+        EGI_PLOG(LOGLV_TEST,"%s: Start logging...", argv[0]);
+#endif
+
 	/* Log silent */
 	egi_log_silent(true);
 
@@ -92,31 +110,39 @@ int main(int argc, char **argv)
 	else
 		printf("Succeed to init aacDec!\n");
 
+	/* AACDecInfo */
+	aacDecInfo = (AACDecInfo *)aacDec;
+
 ///////////// --- TEST: RADIO --- /////////////
 printf("\nAAC RADIO Player\n");
 fout_path=NULL;
 RADIO_LOOP:
 
-	egi_fmap_free(&fmap_aac);
-//	AACFlushCodec(aacDec);
+	//egi_fmap_free(&fmap_aac);  /* Before remove ... */
 
-	if(access("/tmp/a.stream",R_OK)==0)
+	/* AACFlushCodec(aacDec); Not necessary */
+
+	if(access("/tmp/a.stream",R_OK)==0)  /* ??? F_OK: can NOT ensure the file is complete !??? */
 		fin_path="/tmp/a.stream";
 	else if(access("/tmp/b.stream",R_OK)==0)
 		fin_path="/tmp/b.stream";
 	else {
 		printf("\rConnecting...  "); fflush(stdout);
+		EGI_PLOG(LOGLV_INFO,"No downloaded stream file, wait...");
 		usleep(500000);
 		goto RADIO_LOOP;
 	}
 
 	/* Mmap aac input file */
-	fmap_aac=egi_fmap_create(fin_path, 0, PROT_READ, MAP_PRIVATE);
+	EGI_PLOG(LOGLV_INFO, "Start to wait for flock and create fmap_aac for '%s'!", fin_path);
+	fmap_aac=egi_fmap_create(fin_path, 0, PROT_READ, MAP_SHARED);
 	if(fmap_aac==NULL) {
-		printf("Fail to create fmap_aac for '%s'!\n", argv[1]);
-		exit(EXIT_FAILURE);
+		EGI_PLOG(LOGLV_ERROR, "Fail to create fmap_aac for '%s'!", fin_path);
+		//exit(EXIT_FAILURE);
+		usleep(100000);
+		goto RADIO_LOOP;
 	}
-	//printf("fmap_aac for '%s' created!\n", argv[1]);
+	EGI_PLOG(LOGLV_INFO, "Finish creating fmap_aac for '%s', fsize=%lld!", fin_path,fmap_aac->fsize);
 
 	/* Get pointer to AAC data */
 	pin=(unsigned char *)fmap_aac->fp;
@@ -132,6 +158,7 @@ RADIO_LOOP:
 		printf("fmap_pcm with fisze=%lld for '%s' created!\n", fmap_pcm->fsize,argv[2]);
 	}
 
+	EGI_PLOG(LOGLV_INFO, "Start to AACDecode() fmap_aac with size=%d Bs", bytesLeft);
 	while(bytesLeft>0) {
 		//printf("bytesLeft=%d\n", bytesLeft);
 
@@ -167,7 +194,7 @@ RADIO_LOOP:
 					else {
 						pin +=npass;
 						bytesLeft -= npass;
-						//AACFlushCodec(aacDec);
+						/* AACFlushCodec(aacDec); Not necessary */
 					}
 				}
 				break;
@@ -184,7 +211,7 @@ RADIO_LOOP:
 					else {
 						pin +=npass;
 						bytesLeft -= npass;
-						//AACFlushCodec(aacDec);
+						/* AACFlushCodec(aacDec); Not necessary */
 					}
 				}
 				break;
@@ -192,20 +219,9 @@ RADIO_LOOP:
 
 		/* int AACDecode(HAACDecoder hAACDecoder, unsigned char **inbuf, int *bytesLeft, short *outbuf) */
 		err=AACDecode(aacDec, &pin, &bytesLeft, pout);
-		if(err==0) {
-			//printf("AACDecode: %lld bytes of aac data decoded.\n", fmap_aac->fsize-bytesLeft );
+		if(err==ERR_AAC_NONE) {
+			//EGI_PLOG(LOGLV_INFO, "AACDecode: %lld bytes of aac data decoded.\n", fmap_aac->fsize-bytesLeft );
 			AACGetLastFrameInfo(aacDec, &aacFrameInfo);
-
-
-#if 0
-			printf(" sampRateOut\t%d\n sampRateCore\t%d\n",
-				aacFrameInfo.sampRateOut, aacFrameInfo.sampRateCore);
-			printf(" profile\t%d\n tnsUsed\t%d\n pnsUsed\t%d\n",
-				aacFrameInfo.profile,  aacFrameInfo.tnsUsed,  aacFrameInfo.pnsUsed );
-			printf("bitRate=%d, nChans=%d, sampRateCore=%d, sampRateOut=%d, bitsPerSample=%d, outputSamps=%d\n",
-							aacFrameInfo.bitRate, aacFrameInfo.nChans, aacFrameInfo.sampRateCore,
-							aacFrameInfo.sampRateOut, aacFrameInfo.bitsPerSample, aacFrameInfo.outputSamps );
-#endif
 
 			/* Sep parameters for pcm_hanle, Assume format as SND_PCM_FORMAT_S16_LE, */
 			if(!pcmdev_ready || nchanl != aacFrameInfo.nChans || samplerate!=aacFrameInfo.sampRateOut )
@@ -215,26 +231,58 @@ RADIO_LOOP:
 					strprofile[aacFrameInfo.profile] );
 				printf(" nChans\t\t%d\n sampRateCore\t%d\n",
 					aacFrameInfo.nChans, aacFrameInfo.sampRateCore );
-				printf(" sampRateOut\t%d\n bitsPerSample\t%d\n outputSamps\t%d\n",
+				printf(" sampRateOut\t%d\n bitsPerSample\t%d\n outputSamps\t%d\n",  /* outputSamps=nchan*frames */
 					aacFrameInfo.sampRateOut, aacFrameInfo.bitsPerSample, aacFrameInfo.outputSamps );
 //				printf(" profile\t%d\n tnsUsed\t%d\n pnsUsed\t%d\n",
 //					aacFrameInfo.profile,  aacFrameInfo.tnsUsed,  aacFrameInfo.pnsUsed );
 				printf("----------------------------\n");
 
+				/* In AACGetLastFrameInfo():
+		                 * aacFrameInfo->sampRateOut =   aacDecInfo->sampRate * (aacDecInfo->sbrEnabled ? 2 : 1);
+                		 * aacFrameInfo->bitsPerSample = 16;
+		                 * aacFrameInfo->outputSamps =   aacDecInfo->nChans * AAC_MAX_NSAMPS * (aacDecInfo->sbrEnabled ? 2 : 1);
+				 * AAC file format:
+	        			AAC_FF_Unknown = 0,
+				        AAC_FF_ADTS = 1,
+				        AAC_FF_ADIF = 2,
+				        AAC_FF_RAW =  3
+				 */
+
 				/* Assign nchanl and samplerate */
 				nchanl= aacFrameInfo.nChans;
 				samplerate=aacFrameInfo.sampRateOut;
 
+				/* Reset pcm_handle params */
+				snd_pcm_drain(pcm_handle);   /* NO USE?? To drain( finish playing) remained old data, before reset params! */
+		 EGI_PLOG(LOGLV_WARN, "Reset params for pcm_handle: nchanl=%d, format=%d, frameCount=%d,sampRateCore=%d, sampRateOut=%d, SBR=%s",
+						nchanl, aacDecInfo->format,  aacDecInfo->frameCount,
+						aacFrameInfo.sampRateCore,aacFrameInfo.sampRateOut, aacDecInfo->sbrEnabled?"Yes":"No");
 			        if( egi_pcmhnd_setParams(pcm_handle, SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, nchanl, samplerate) <0 ) {
-        			        printf("Fail to set params for PCM playback handle.!\n");
+        			        EGI_PLOG(LOGLV_ERROR, "Fail to set params for PCM playback handle.!\n");
 	        		} else {
                 			pcmdev_ready=true;
 		        	}
+				/* TODO: When  samplerate changes, it needs to call snd_pcm_prepare() ??? */
+				// snd_pcm_prepare(pcm_handle); /* MUST put after setParams! otherwise it will fail setParams()! */
   			}
 
-			/* Playback */
-	        	if(pcmdev_ready)
-		              egi_pcmhnd_playBuff(pcm_handle, true, pout, ENABLE_AAC_SBR?2048:1024);
+/*** NOTE. Log before segmentation fault:
+[2021-02-16 12:40:08] [LOGLV_WARN] Reset params for pcm_handle: nchanl=2, sampRateCore=24000, sampRateOut=24000, SBR=No
+[2021-02-16 12:40:08] [LOGLV_CRITICAL] SBR is disabled
+[2021-02-16 12:40:08] [LOGLV_WARN] Reset params for pcm_handle: nchanl=2, sampRateCore=24000, sampRateOut=48000, SBR=Yes
+[2021-02-16 12:40:08] [LOGLV_CRITICAL] SBR is enabled
+*/
+			/* Check SBR */
+			if( enableSBR != aacDecInfo->sbrEnabled ) {
+				enableSBR=aacDecInfo->sbrEnabled;
+				EGI_PLOG(LOGLV_CRITICAL, "SBR is %s. frameCount=%d,  bytesLeft: %lld/%lld",
+						enableSBR?"enabled":"disabled", aacDecInfo->frameCount, fmap_aac->fsize-bytesLeft,fmap_aac->fsize);
+			}
+
+			/* Playback. 2048 OR 1024 frames.   TODO: sbrEnabled may change?? */
+	        	if(pcmdev_ready) {
+		        	egi_pcmhnd_playBuff(pcm_handle, true, pout, aacDecInfo->sbrEnabled?2048:1024); // ENABLE_AAC_SBR?2048:1024);
+			}
 
 			printf("\r%lld/%lld",fmap_aac->fsize-bytesLeft,fmap_aac->fsize); fflush(stdout);
 
@@ -257,14 +305,18 @@ RADIO_LOOP:
 			}
 		}
 		else if(err==ERR_AAC_INDATA_UNDERFLOW) {
-			printf("ERR_AAC_INDATA_UNDERFLOW!\n");
-			continue;
+			EGI_PLOG(LOGLV_WARN, "ERR_AAC_INDATA_UNDERFLOW! bytesLeft=%d \n", bytesLeft);
+			if(fout_path)
+				egi_fmap_free(&fmap_pcm);
+			goto RADIO_LOOP;
+			//continue;
 		}
 		else if(err==ERR_AAC_INVALID_ADTS_HEADER ) {
+			EGI_PLOG(LOGLV_WARN, "ERR_AAC_INVALID_ADTS_HEADER! bytesLeft=%d \n", bytesLeft);
 			/* try to synch again, trysyn_len MUST NOT be too small!!! */
 			int trysyn_len=256;
 			if(bytesLeft > trysyn_len) {
-				printf("Try synch...\n");
+				EGI_PLOG(LOGLV_INFO, "Try synch...\n");
 				npass=AACFindSyncWord(pin, trysyn_len);
 				//printf("npass=%d\n",npass);
 				if(npass<=0) {  /* TODO ??? ==0 also fails!?? */
@@ -276,7 +328,7 @@ RADIO_LOOP:
 					//printf("npass=%d\n", npass);
 					pin +=npass;
 					bytesLeft -= npass;
-					//AACFlushCodec(aacDec);
+					/* AACFlushCodec(aacDec); Not necessary */
 					continue;
 				}
 			}
@@ -284,27 +336,34 @@ RADIO_LOOP:
 				goto END_PROG;
 		}
 		else {
-			printf("err=%d\n", err);
-			//printf("Unrecognizable acc file!\n");
-			continue;
-			//exit(1);
+			EGI_PLOG(LOGLV_WARN, "AAC ERR=%d, ", err);
+			break; /* Break while()! or it may do while() forever as bytesLeft may not be changed! */
+			//continue;
 		}
 	}
 
 	//printf("\nFinish decoding, %d bytes left!\n", bytesLeft);
 
 ///////////// --- TEST: RADIO --- /////////////
-if(remove(fin_path)!=0) {
-  printf("Fail to remove '%s'.\n",fin_path);
-}
-goto RADIO_LOOP;
+
+	/* Free fmap_aac and close its file before remove() operation!??? */
+	egi_fmap_free(&fmap_aac);
+
+	if(remove(fin_path)!=0)
+		EGI_PLOG(LOGLV_ERROR, "Fail to remove '%s'.",fin_path);
+	else
+		EGI_PLOG(LOGLV_INFO, "OK, '%s' removed!", fin_path);
+
+  	goto RADIO_LOOP;
 
 
 END_PROG:
+	EGI_PLOG(LOGLV_CRITICAL,"--- ENG_PROG ---");
 	/* Free source */
 	AACFreeDecoder(aacDec);
 	egi_fmap_free(&fmap_aac);
-	egi_fmap_free(&fmap_pcm);
+	if(fout_path)
+		egi_fmap_free(&fmap_pcm);
 
   	/* Close pcm handle */
   	snd_pcm_close(pcm_handle);

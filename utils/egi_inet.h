@@ -249,7 +249,7 @@ typedef struct egi_tcp_server_session {
 
 	pthread_t 	csthread;		 /* C/S session thread */
 	int		cmd;			 /* Commad to session handler, NOW: 1 to end routine. */
-}EGI_TCP_SERV_SESSION;  /* At server side */
+} EGI_TCP_SERV_SESSION;  /* At server side */
 
 
 /* FOR TEST ONLY ---------------------------------------------------- */

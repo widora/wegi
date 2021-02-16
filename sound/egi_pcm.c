@@ -278,8 +278,8 @@ void  egi_pcmhnd_playBuff(snd_pcm_t *pcm_handle, bool Interleaved, void *buffer,
         {
             /* EPIPE means underrun */
             //fprintf(stderr,"snd_pcm_writen() or snd_pcm_writei(): underrun occurred\n");
-            EGI_PDEBUG(DBG_PCM,"[%lld]: snd_pcm_writen() or snd_pcm_writei(): underrun occurred\n",
-            						tm_get_tmstampms() );
+            EGI_PLOG(LOGLV_ERROR,"%s: snd_pcm_writen() or snd_pcm_writei(): underrun occurred",
+			            						__func__);
 	    snd_pcm_prepare(pcm_handle);
         }
 	else if(rc<0)
@@ -640,10 +640,13 @@ int egi_adjust_pcm_volume(int vdelt)
 /*---------------------------------------------------------------------------------
 Set params for PCM handler.
 
+Note:
+1. TBD&TODO: snd_pcm_drain() remaining data before reset params !???
+
 @pcm_handle:		PCM PLAYBACK handler.
 @sformat:	 	Sample format, Example: SND_PCM_FORMAT_S16_LE
 @access_type:		PCM access type, Exmple: SND_PCM_ACCESS_RW_INTERLEAVED
-@soft_resample:		0 = disallow alsa-lib resample stream, 1 = allow resampling
+//@soft_resample:		0 = disallow alsa-lib resample stream, 1 = allow resampling
 @nchanl:		Number of channels
 @srate:		 	Sample rate
 @latency:		required overall latency in us

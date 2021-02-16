@@ -42,7 +42,7 @@ enum egi_log_level
 #define DEFAULT_LOG_LEVELS   (LOGLV_NONE|LOGLV_TEST|LOGLV_INFO|LOGLV_WARN|LOGLV_ERROR|LOGLV_CRITICAL|LOGLV_ASSERT)
 
 /* Only log level gets threshold(>=) that will be written to log file directly, without putting to buffer */
-#define LOGLV_NOBUFF_THRESHOLD		LOGLV_WARN
+#define LOGLV_NOBUFF_THRESHOLD		LOGLV_INFO  //LOGLV_WARN  
 
 
 /* --- logger functions --- */

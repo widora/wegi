@@ -10,13 +10,22 @@ Jurnal
 2021-02-09:
 	1. https_easy_download(): Add input param 'int opt' to replace
            definition of SKIP_xxx_VERIFICATION.
+2021-02-10:
+	1. https_curl_request(): Add input param 'int opt' to replace
+           definition of SKIP_xxx_VERIFICATION.
+2021-02-13:
+	1. https_easy_download(): Add flock(,LOCK_EX) during downloading...
+	   			  Add fsync() after fwrite() all data!
+				  Add truncate() if filesize not right.
 
 Midas Zhou
----------------------------------------------------------------*/
+midaszhou@yahoo.com
+--------------------------------------------------------------------*/
 #include <stdio.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <sys/file.h>
 #include <curl/curl.h>
 #include "egi_https.h"
 #include "egi_log.h"
@@ -39,7 +48,7 @@ Return:
 	0	ok
 	<0	fails
 --------------------------------------------------------------------------------*/
-int https_curl_request(const char *request, char *reply_buff, void *data,
+int https_curl_request(int opt, const char *request, char *reply_buff, void *data,
 								curlget_callback_t get_callback)
 {
 	int i;
@@ -48,7 +57,7 @@ int https_curl_request(const char *request, char *reply_buff, void *data,
   	CURLcode res=CURLE_OK;
 	double doubleinfo=0;
 
- /* Try Max. 3 sessions */
+ /* Try Max. 3 sessions. TODO: tm_delay() not accurate, delay time too short!  */
  for(i=0; i<3; i++)
  {
 	/* init curl */
@@ -66,19 +75,21 @@ int https_curl_request(const char *request, char *reply_buff, void *data,
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, EGI_CURL_TIMEOUT);	 /* set timeout */
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_callback);     /* set write_callback */
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, reply_buff); 		 /* set data dest for write_callback */
-#ifdef SKIP_PEER_VERIFICATION
-	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-#endif
-#ifdef SKIP_HOSTNAME_VERIFICATION
-	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-#endif
 
-	EGI_PLOG(LOGLV_CRITICAL, "%s: Try [%d]th curl_easy_perform()... ", __func__, i);
+	/* Param opt set */
+	if(HTTPS_SKIP_PEER_VERIFICATION & opt)
+		curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+	if(HTTPS_SKIP_HOSTNAME_VERIFICATION & opt)
+		curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
 	/* Perform the request, res will get the return code */
+	EGI_PLOG(LOGLV_CRITICAL, "%s: Try [%d]th curl_easy_perform()... ", __func__, i);
 	if(CURLE_OK != curl_easy_perform(curl) ) {
 		printf("%s: curl_easy_perform() failed! Err'%s'\n", __func__, curl_easy_strerror(res));
 		ret=-2;
+		printf("%s: tm_delayms..\n",__func__);
 		tm_delayms(200);
+		printf("%s: try again...\n",__func__);
 		goto CURL_CLEANUP; //continue; /* retry ... */
 	}
 
@@ -122,6 +133,8 @@ CURL_CLEANUP:
 
  } /* End: try Max.3 times */
 
+	if(ret!=0 && i==3)
+		EGI_PLOG(LOGLV_ERROR,"%s: Fail after try %d times!", __func__, i);
 
 	return ret;
 }
@@ -166,9 +179,16 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 	/* Open file for saving file */
 	fp=fopen(file_save,"wb");
 	if(fp==NULL) {
-		EGI_PLOG(LOGLV_ERROR,"%s: open file '%s' Err'%s'", __func__, file_save, strerror(errno));
+		EGI_PLOG(LOGLV_ERROR,"%s: open file '%s', Err'%s'", __func__, file_save, strerror(errno));
 		return -1;
 	}
+
+	/* Put lock, advisory locks only. TODO: it doesn't work???  */
+	if( flock(fileno(fp),LOCK_EX) !=0 ) {
+		EGI_PLOG(LOGLV_ERROR,"%s: Fail to flock '%s', Err'%s'", __func__, file_save, strerror(errno));
+		/* Go on .. */
+	}
+
 
  /* Try Max. 3 sessions */
  for(i=0; i<3; i++)
@@ -229,7 +249,7 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 	 ***  Note: curl_easy_perform() may result in CURLE_OK, but curl_easy_getinfo() may still fail!
 	 */
 	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &doubleinfo) ) {
-		printf("%s: CURLINFO_CONTENT_LENGTH_DOWNLOAD = %.0f \n", __func__, doubleinfo);
+		//printf("%s: CURLINFO_CONTENT_LENGTH_DOWNLOAD = %.0f \n", __func__, doubleinfo);
 		if( (int)doubleinfo > CURL_RETDATA_BUFF_SIZE )
 		{
 		  EGI_PLOG(LOGLV_ERROR,"%s: Curl download content length=%d > CURL_RETDATA_BUFF_SIZE!",
@@ -244,8 +264,10 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 			tm_delayms(200);
 			goto CURL_CLEANUP; //continue; /* retry ... */
 		}
-		//else
-		//  	break; 	/* ----- OK! End Session ----- */
+		else {
+		  	EGI_PLOG(LOGLV_CRITICAL,"%s: Curl download content length =%d!",  __func__, (int)doubleinfo);
+		  	break; 	/* ----- OK! End Session ----- */
+		}
 	}
 	else {	/* Getinfo fails */
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to easy getinfo CURLINFO_CONTENT_LENGTH_DOWNLOAD!", __func__);
@@ -255,20 +277,65 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 	}
 
 CURL_CLEANUP:
+	/* If succeeds --- OK --- */
+	if(ret==0)
+		break;
+
 	/* Always cleanup */
 	curl_easy_cleanup(curl);
   	curl_global_cleanup();
 
-	/* if succeeds --- OK --- */
-	if(ret==0)
-		break;
 
  } /* End: try Max.3 times */
 
 
 CURL_FAIL:
+
+	/* Make sure to flush metadata!! */
+	if( fsync(fileno(fp)) !=0 ) {
+		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
+	}
+
+	/*** Check date length again.
+	 *  1. fstat()/stat() MAY get shorter filesize sometime!!! curl BUG?
+	 *  2. However, written bytes sumup in write_callback function seems all OK!
+	 */
+        struct stat     sb;
+
+        //if( fstat(fileno(fp), &sb)<0 ) {
+        if( stat(file_save, &sb)<0 ) {
+                EGI_PLOG(LOGLV_ERROR, "%s: Fail call stat() for file '%s'. ERR:%s\n", __func__, file_save, strerror(errno));
+        } else {
+		if( sb.st_size != (int)doubleinfo ) {
+			EGI_PLOG(LOGLV_ERROR,"%s: File size(%lld) is NOT same as curl downloaded size(%d)!",
+									__func__, sb.st_size, (int)doubleinfo);
+
+			/* Resize/truncate to the same as curl downloaded size, If it's shorter, then to be paddled with 0! */
+			if( truncate(file_save, (int)doubleinfo )!=0 ) {
+				EGI_PLOG(LOGLV_ERROR, "%s: Fail to truncate file size to the same as download size!",__func__);
+			}
+
+		}
+		else
+			EGI_PLOG(LOGLV_CRITICAL,"%s: File size(%lld) is same as curl downloaded size(%d)!",
+									__func__, sb.st_size, (int)doubleinfo);
+	}
+
+	/* Unlock, advisory locks only */
+	if( flock(fileno(fp),LOCK_UN) !=0 ) {
+		EGI_PLOG(LOGLV_ERROR,"%s: Fail to un_flock '%s', Err'%s'", __func__, file_save, strerror(errno));
+		/* Go on .. */
+	}
+
 	/* Close file */
-	fclose(fp);
+	if(fclose(fp)!=0)
+		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fclose '%s', Err'%s'", __func__, file_save, strerror(errno));
+
+	/* Clean up after close file ??? */
+	if(ret==0) {
+		curl_easy_cleanup(curl);
+  		curl_global_cleanup();
+	}
 
 	return ret;
 }
