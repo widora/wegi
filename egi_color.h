@@ -23,6 +23,7 @@ Midas Zhou
 /* color definition */
 typedef uint16_t		EGI_16BIT_COLOR;
 typedef uint32_t		EGI_24BIT_COLOR;
+typedef uint32_t		EGI_32BIT_COLOR;
 typedef unsigned char		EGI_8BIT_ALPHA;
 typedef struct egi_hsv_color	EGI_HSV_COLOR;
 typedef struct egi_color_band 	EGI_COLOR_BAND;

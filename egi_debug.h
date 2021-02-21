@@ -3,7 +3,12 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+Journal:
+2021-02-18:
+	1. Add egi_dperr() and egi_dpstd().
+
 Midas Zhou
+midaszhou@yahoo.com
 -------------------------------------------------------------------*/
 
 #ifndef __EGI_DEBUG_H__
@@ -61,6 +66,27 @@ Midas Zhou
 #endif
 
 
+/* --- egi_printf() to replace printf() and make blank ---- */
+#if 1
+ #define egi_printf(flags, fmt, args...)			\
+	do {						\
+		fprintf(stderr,fmt, ## args);	\
+	} while(0)
+#else
+ #define egi_printf(flags, fmt, args...)
+#endif
+
+
+/* Print to stderr and stdout */
+#define egi_dperr(fmt, args...)			\
+	do {						\
+		fprintf(stderr,"%s(): "fmt" Err'%s'.\n",__func__, ## args, strerror(errno)); 	\
+	} while(0)
+
+#define egi_dpstd(fmt, args...)			\
+	do {						\
+		fprintf(stdout,"%s(): "fmt, __func__, ## args); 	\
+	} while(0)
 
 
 #endif

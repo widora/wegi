@@ -38,6 +38,7 @@ int main(int argc, char **argv)
 	bool enableSBR; /* Special band replication */
 
 	int bytesLeft;
+	size_t checksize;
 	int nchanl=2;
 	unsigned char *pin=NULL;	/* Pointer to input aac data */
 	int16_t *pout;			/* MAX. for 2 channels,  assume SBR enbaled */
@@ -120,7 +121,8 @@ RADIO_LOOP:
 
 	//egi_fmap_free(&fmap_aac);  /* Before remove ... */
 
-	/* AACFlushCodec(aacDec); Not necessary */
+	/* Flush codec before a new session */
+	AACFlushCodec(aacDec); /* Not necessary? */
 
 	if(access("/tmp/a.stream",R_OK)==0)  /* ??? F_OK: can NOT ensure the file is complete !??? */
 		fin_path="/tmp/a.stream";
@@ -147,6 +149,7 @@ RADIO_LOOP:
 	/* Get pointer to AAC data */
 	pin=(unsigned char *)fmap_aac->fp;
 	bytesLeft=fmap_aac->fsize;
+	checksize=fmap_aac->fsize;
 
 	/* Mmap output PCM file */
 	if(fout_path) {
@@ -262,6 +265,8 @@ RADIO_LOOP:
 	        		} else {
                 			pcmdev_ready=true;
 		        	}
+				/* Need to flush Codec when SBR/sampRateOut changes ?? */
+				AACFlushCodec(aacDec);
 				/* TODO: When  samplerate changes, it needs to call snd_pcm_prepare() ??? */
 				// snd_pcm_prepare(pcm_handle); /* MUST put after setParams! otherwise it will fail setParams()! */
   			}
@@ -275,7 +280,7 @@ RADIO_LOOP:
 			/* Check SBR */
 			if( enableSBR != aacDecInfo->sbrEnabled ) {
 				enableSBR=aacDecInfo->sbrEnabled;
-				EGI_PLOG(LOGLV_CRITICAL, "SBR is %s. frameCount=%d,  bytesLeft: %lld/%lld",
+				EGI_PLOG(LOGLV_CRITICAL, "SBR is %s. frameCount=%d,  bytesDecoded: %lld/%lld",
 						enableSBR?"enabled":"disabled", aacDecInfo->frameCount, fmap_aac->fsize-bytesLeft,fmap_aac->fsize);
 			}
 
@@ -285,6 +290,7 @@ RADIO_LOOP:
 			}
 
 			printf("\r%lld/%lld",fmap_aac->fsize-bytesLeft,fmap_aac->fsize); fflush(stdout);
+			EGI_PLOG(LOGLV_INFO,"##%lld/%lld",fmap_aac->fsize-bytesLeft,fmap_aac->fsize);
 
 			/* Save PCM data to file */
 			if(fout_path) {
@@ -308,37 +314,46 @@ RADIO_LOOP:
 			EGI_PLOG(LOGLV_WARN, "ERR_AAC_INDATA_UNDERFLOW! bytesLeft=%d \n", bytesLeft);
 			if(fout_path)
 				egi_fmap_free(&fmap_pcm);
-			goto RADIO_LOOP;
+			goto END_SESSION;
+			//goto RADIO_LOOP;
 			//continue;
 		}
 		else if(err==ERR_AAC_INVALID_ADTS_HEADER ) {
-			EGI_PLOG(LOGLV_WARN, "ERR_AAC_INVALID_ADTS_HEADER! bytesLeft=%d \n", bytesLeft);
-			/* try to synch again, trysyn_len MUST NOT be too small!!! */
 			int trysyn_len=256;
+
+			EGI_PLOG(LOGLV_WARN, "ERR_AAC_INVALID_ADTS_HEADER! bytesLeft=%d, trysyn_len=%d \n", bytesLeft, trysyn_len);
+
+			/* TODO: try to synch again, trysyn_len MUST NOT be too small!!! */
+
+			/* Flush codec */
+			AACFlushCodec(aacDec);
+
 			if(bytesLeft > trysyn_len) {
 				EGI_PLOG(LOGLV_INFO, "Try synch...\n");
 				npass=AACFindSyncWord(pin, trysyn_len);
 				//printf("npass=%d\n",npass);
-				if(npass<=0) {  /* TODO ??? ==0 also fails!?? */
-					printf("Fail to AACFindSyncWord!\n");
+				if(npass <= 0) {  /* TODO ??? ==0 also fails!?? */
+					EGI_PLOG(LOGLV_CRITICAL,"Fail to AACFindSyncWord!\n");
 					pin +=trysyn_len;
 					bytesLeft -=trysyn_len;
+					continue;
 				}
 				else {
+					EGI_PLOG(LOGLV_CRITICAL,"Succeed to AACFindSyncWord! npass=%d\n", npass);
 					//printf("npass=%d\n", npass);
 					pin +=npass;
 					bytesLeft -= npass;
-					/* AACFlushCodec(aacDec); Not necessary */
 					continue;
 				}
 			}
-			else
-				goto END_PROG;
+			else {
+				goto END_SESSION;
+			}
 		}
 		else {
 			EGI_PLOG(LOGLV_WARN, "AAC ERR=%d, ", err);
 			break; /* Break while()! or it may do while() forever as bytesLeft may not be changed! */
-			//continue;
+			/* Break and start a new session */
 		}
 	}
 
@@ -346,9 +361,41 @@ RADIO_LOOP:
 
 ///////////// --- TEST: RADIO --- /////////////
 
+END_SESSION:  /* End current radio aac seq file session */
 	/* Free fmap_aac and close its file before remove() operation!??? */
-	egi_fmap_free(&fmap_aac);
+	if( (err=egi_fmap_free(&fmap_aac)) !=0) {
+		EGI_PLOG(LOGLV_ERROR, "Fail to free fmap_aac! err=%d.", err);
+	}
 
+	/* TEST: Re_check filesize again, if first mmap get wrong filesize! */
+	/* Cause  */
+	if(fin_path!=NULL) {
+		int fd;
+		struct stat sb;
+
+	        /* Open file */
+        	fd=open(fin_path, O_RDONLY);
+		if(fd<0) {
+			EGI_PLOG(LOGLV_ERROR, "Fail to open '%s'.", fin_path);
+		}
+		else {
+		        /* Obtain file stat */
+        		if( fstat(fd, &sb)<0 ) {
+                		EGI_PLOG(LOGLV_ERROR, "Fail call fstat for file '%s'. Err'%s'.",fin_path, strerror(errno));
+        		}
+			else {
+				/* Check size */
+				if( checksize != sb.st_size )
+					EGI_PLOG(LOGLV_ERROR, "Recheck fsize fails! checksize=%d, sb.st_size=%llu",
+												checksize, sb.st_size);
+			}
+
+			/* Close file */
+			close(fd);
+		}
+	}
+
+	/* Remove file */
 	if(remove(fin_path)!=0)
 		EGI_PLOG(LOGLV_ERROR, "Fail to remove '%s'.",fin_path);
 	else

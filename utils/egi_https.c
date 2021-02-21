@@ -146,7 +146,9 @@ CURL_CLEANUP:
 Note:
 1. You must have installed ca-certificates before call curl https, or
    define SKIP_PEER/HOSTNAME_VERIFICATION to use http instead.
-2. The caller MAY need to remove file_save file in case https_easy_download fails!
+
+2. Filesize of fila_save will be truncated to 0 if it fails!
+   The caller MAY need to remove file_save file in case https_easy_download fails!
    OR the file will remain!
 
 @opt:			Http options, Use '|' to combine. See below.
@@ -189,8 +191,7 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 		/* Go on .. */
 	}
 
-
- /* Try Max. 3 sessions */
+ /* Try Max. 3 times */
  for(i=0; i<3; i++)
  {
 	/* init curl */
@@ -245,6 +246,9 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 		goto CURL_CLEANUP; //continue; /* retry ... */
 	}
 
+	/* NOW: CURLE_OK, reset ret! */
+	ret=0;
+
 	/* 				--- Check session info. ---
 	 ***  Note: curl_easy_perform() may result in CURLE_OK, but curl_easy_getinfo() may still fail!
 	 */
@@ -277,27 +281,40 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 	}
 
 CURL_CLEANUP:
-	/* If succeeds --- OK --- */
+	/* If succeeds, break loop! */
 	if(ret==0)
 		break;
 
-	/* Always cleanup */
+	/* Always cleanup before loop back to init curl */
 	curl_easy_cleanup(curl);
   	curl_global_cleanup();
 
-
  } /* End: try Max.3 times */
 
+	/* Check result, If it fails, truncate filesize to 0 before quit!  */
+	if(ret!=0) {
+		EGI_PLOG(LOGLV_ERROR, "%s: Download fails, re_truncate file size to 0...",__func__);
 
-CURL_FAIL:
+		/* Resize/truncate filesize to 0! */
+		if( truncate(file_save, 0)!=0 ) {
+			EGI_PLOG(LOGLV_ERROR, "%s: [download fails] Fail to truncate file size to 0!",__func__);
+		}
 
-	/* Make sure to flush metadata!! */
+		/* Make sure to flush metadata again! */
+		if( fsync(fileno(fp)) !=0 ) {
+			EGI_PLOG(LOGLV_ERROR,"%s: [download fails] Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
+		}
+
+		goto CURL_FAIL;
+	}
+
+	/* Make sure to flush metadata before recheck file size! necessary? */
 	if( fsync(fileno(fp)) !=0 ) {
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 	}
 
-	/*** Check date length again.
-	 *  1. fstat()/stat() MAY get shorter filesize sometime!!! curl BUG?
+	/*** Check date length again. and try to adjust it.
+	 *  1. fstat()/stat() MAY get shorter/longer filesize sometime!!! curl BUG?
 	 *  2. However, written bytes sumup in write_callback function seems all OK!
 	 */
         struct stat     sb;
@@ -306,8 +323,10 @@ CURL_FAIL:
         if( stat(file_save, &sb)<0 ) {
                 EGI_PLOG(LOGLV_ERROR, "%s: Fail call stat() for file '%s'. ERR:%s\n", __func__, file_save, strerror(errno));
         } else {
+		/* !!! WARNING !!!    [st_size > doubleinfo] OR [st_size < doubleinfo], all possible! */
+		//if( sb.st_size != (int)doubleinfo ) {
 		if( sb.st_size != (int)doubleinfo ) {
-			EGI_PLOG(LOGLV_ERROR,"%s: File size(%lld) is NOT same as curl downloaded size(%d)!",
+			EGI_PLOG(LOGLV_ERROR,"%s: stat file size(%lld) is NOT same as curl downloaded size(%d)! try adjust...",
 									__func__, sb.st_size, (int)doubleinfo);
 
 			/* Resize/truncate to the same as curl downloaded size, If it's shorter, then to be paddled with 0! */
@@ -315,11 +334,18 @@ CURL_FAIL:
 				EGI_PLOG(LOGLV_ERROR, "%s: Fail to truncate file size to the same as download size!",__func__);
 			}
 
+			/* Make sure to flush metadata again! */
+			if( fsync(fileno(fp)) !=0 ) {
+				EGI_PLOG(LOGLV_ERROR,"%s: Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
+			}
 		}
 		else
 			EGI_PLOG(LOGLV_CRITICAL,"%s: File size(%lld) is same as curl downloaded size(%d)!",
 									__func__, sb.st_size, (int)doubleinfo);
 	}
+
+
+CURL_FAIL:
 
 	/* Unlock, advisory locks only */
 	if( flock(fileno(fp),LOCK_UN) !=0 ) {
@@ -331,8 +357,8 @@ CURL_FAIL:
 	if(fclose(fp)!=0)
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fclose '%s', Err'%s'", __func__, file_save, strerror(errno));
 
-	/* Clean up after close file ??? */
-	if(ret==0) {
+	/* Clean up */
+	if(curl!=NULL) {
 		curl_easy_cleanup(curl);
   		curl_global_cleanup();
 	}

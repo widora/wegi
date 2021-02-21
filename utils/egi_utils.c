@@ -113,7 +113,7 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize, int prot, int fl
 	if(fmap==NULL)
 		return NULL;
 
-        /* Open text file */
+        /* Open file */
         fmap->fd=open(fpath, O_CREAT|O_RDWR, S_IRUSR|S_IWUSR);
         if(fmap->fd<0) {
                 printf("%s: Fail to open input file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));

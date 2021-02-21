@@ -3,6 +3,8 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+SURFMAN, SURFUSER
+
 Note:
 1. A simple AF_UNIX local communication module.
 2. All functions based on UNIX domain sockets!
@@ -48,7 +50,8 @@ Note:
 Jurnal:
 2021-02-17/18:
 	1. Add EGI_RING, EGI_SURFACE concept test functions.
-
+2021-02-21:
+	1. Spin off EGI_SURFACE functions.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -66,6 +69,7 @@ midaszhou@yahoo.com
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
+#include <sys/select.h>
 
 #include "egi_unet.h"
 #include "egi_timer.h"
@@ -135,7 +139,7 @@ EGI_USERV* unet_create_Userver(const char *svrpath)
 	}
 
 	/* 6. Set backlog */
-	userv->backlog=MAX_UNET_BACKLOG;
+	userv->backlog=USERV_MAX_BACKLOG;
 
 	/* 7. Start listen/accept thread */
 	if( pthread_create(&userv->acpthread, NULL, (void *)userv_listen_thread, userv) !=0 ) {
@@ -171,14 +175,10 @@ END_FUNC: /* Fails */
 
 /*---------------- A thread function -------------
 Start EGI_USERV listen and accept thread.
-Disconnected clients will NOT be deteced here!
+Disconnected clients will NOT be detected here!
 
 @arg	Pointer to an EGI_USERV.
-
-Return:
-	0	OK
-	<0	Fails
------------------------------------------------*/
+------------------------------------------------*/
 static void* userv_listen_thread(void *arg)
 {
 	int i;
@@ -205,7 +205,7 @@ static void* userv_listen_thread(void *arg)
 		/* 2.1 Re_count clients, and get an available userv->sessions[] for next new client. */
 		userv->ccnt=0;
 		index=-1;
-		for(i=0; i<MAX_UNET_CLIENTS; i++) {
+		for(i=0; i<USERV_MAX_CLIENTS; i++) {
 			if( index<0 && userv->sessions[i].alive==false )
 				index=i;  /* availble index for next session */
 			if( userv->sessions[i].alive==true )
@@ -215,8 +215,8 @@ static void* userv_listen_thread(void *arg)
 
 		/* 2.1 Check Max. clients */
 		if(index<0) {
-			//printf("%s: Clients number hits Max. limit of %d!\n",__func__, MAX_UNET_CLIENTS);
-			egi_dpstd("Clients number hits Max. limit of %d!\n", MAX_UNET_CLIENTS);
+			//printf("%s: Clients number hits Max. limit of %d!\n",__func__, USERV_MAX_CLIENTS);
+			egi_dpstd("Clients number hits Max. limit of %d!\n", USERV_MAX_CLIENTS);
 			tm_delayms(500);
 			continue;
 		}
@@ -263,6 +263,10 @@ static void* userv_listen_thread(void *arg)
 		userv->sessions[index].csFD=csfd;
 		userv->sessions[index].addrCLIT=addrCLIT;
 		userv->sessions[index].alive=true;
+		userv->ccnt++;
+
+		//egi_dpstd("session[%d] starts with csFD=%d\n", index, csfd);
+       		egi_dpstd("\t\t\t----- (+)userv->sessions[%d], ccnt=%d -----\n", index, userv->ccnt);
 	}
 
 	/* End thread */
@@ -299,7 +303,7 @@ int unet_destroy_Userver(EGI_USERV **userv )
         /* Make sure all sessions/clients have been safely closed/disconnected! */
 
 	/* Close session fd */
-        for(i=0; i<MAX_UNET_CLIENTS; i++) {
+        for(i=0; i<USERV_MAX_CLIENTS; i++) {
 	        if( (*userv)->sessions[i].alive==true ) {
 			close((*userv)->sessions[i].csFD);
 		}
@@ -422,7 +426,7 @@ int unet_sendmsg(int sockfd,  struct msghdr *msg)
 	nsnd=sendmsg(sockfd, msg, MSG_NOSIGNAL); /* MSG_NOWAIT */
 	if(nsnd>0) {
 		//printf("%s: OK, sendmsg() %d bytes!\n", __func__, nsnd);
-		egi_dpstd("OK, sendmsg() %d bytes!\n",nsnd);
+//		egi_dpstd("OK, sendmsg() %d bytes!\n",nsnd);
 	}
 	else if(nsnd==0) {
 		//printf("%s: nsnd=0! for sendmsg()!\n", __func__);
@@ -485,11 +489,11 @@ int unet_recvmsg(int sockfd,  struct msghdr *msg)
 	nrcv=recvmsg(sockfd, msg, MSG_WAITALL); /* MSG_CMSG_CLOEXEC,  MSG_NOWAIT */
 	if(nrcv>0) {
 		//printf("%s: OK, recvmsg() %d bytes!\n", __func__, nrcv);
-		egi_dpstd("OK, recvmsg() %d bytes!\n", nrcv);
+//		egi_dpstd("OK, recvmsg() %d bytes!\n", nrcv);
 	}
 	else if(nrcv==0) {
 		//printf("%s: nrcv=0! counter peer quits the session!\n", __func__);
-		egi_dpstd("nrcv=0! counter peer quits the session!\n");
+//		egi_dpstd("nrcv=0! counter peer quits the session!\n");
 	}
 	else { /* nsnd < 0 */
 	        switch(errno) {
@@ -515,188 +519,3 @@ int unet_recvmsg(int sockfd,  struct msghdr *msg)
 }
 
 
-	////////////////////////////  EGI SURFACE  ////////////////////////////////////
-
-/*--------------------------------------------------------
-Create an anonymous file(as anonymous memory) and ftruncate
-its size.
-
-@name:	  Name of the anonymous file.
-@memsize: Inital size of the file
-
-Reutrn:
-	>0	OK, the file descriptor that refers to the
-		anonymous memory.
-	<0	Fails
---------------------------------------------------------*/
-int egi_create_memfd(const char *name, size_t memsize)
-{
-	int memfd;
-
-        /* Create memfd, the file descriptor is open with (O_RDWR) and O_LARGEFILE. */
-	// memfd=memfd_create(name,0);
-        memfd=syscall(SYS_memfd_create, name, 0); /* MFD_ALLOW_SEALING , MFD_CLOEXEC */
-        if(memfd<0) {
-                egi_dperr("Fail to create memfd!");
-		return -1;
-        }
-
-        if( ftruncate(memfd, memsize) <0 ) {
-		egi_dperr("ftruncate");
-		close(memfd);
-		return -2;
-	}
-//      fsync(memfd);
-
-	return memfd;
-}
-
-/*-------------------------------------------------
-Mmap fd to get pointer to an EGI_SURFACE
-
-@memfd:   A file descriptor created by memfd_create.
-
-Reutrn:
-	A pointer to EGI_SURFACE	OK
-	NULL				Fails
---------------------------------------------------*/
-EGI_SURFACE *egi_mmap_surface(int memfd)
-{
-	EGI_SURFACE *eface=NULL;
-        struct stat sb;
-
-        if (fstat(memfd, &sb)<0) {
-                //printf("%s: fstat Err'%s'.\n", __func__, strerror(errno));
-		egi_dperr("fstat");
-                return NULL;
-        }
-
-        eface=mmap(NULL, sb.st_size, PROT_READ|PROT_WRITE, MAP_SHARED, memfd, 0);
-        if(eface==MAP_FAILED) {
-                //printf("%s: Fail to mmap memfd! Err'%s'.\n", __func__, strerror(errno));
-		egi_dperr("Fail to mmap memfd!");
-                return NULL;
-        }
-
-	return eface;
-}
-
-/*------------------------------------------
-Unmap an EGI_SURFACE.
-
-@eface:  Pointer to EGI_SURFACE.
-
-Return:
-	0	OK
-	<0	Fails
-------------------------------------------*/
-int egi_munmap_surface(EGI_SURFACE **eface)
-{
-	if(eface==NULL|| (*eface)==NULL)
-		return 0;
-
-	if(eface==MAP_FAILED)
-		return 0;
-
-        /* Unmap surface */
-        if( munmap(*eface, (*eface)->memsize)!=0 ) {
-        	//printf("%s: Fail to unmap eface!\n",__func__);
-		egi_dperr("Fail to unmap eface!");
-		return -1;
-	}
-
-	return 0;
-}
-
-/*---------------------------------------------------------
-Request an EGI_SURFACE from the SERV
-DO NOT forget to munmap it after use!
-
-@sockfd    A valid UNIX SOCK_STREAM type socket.
-	   Assume to be BLOCKING type.
-@x0,y0	   Initial origin of the surface.
-@w,h	   Width and height of a surface.
-@pixsize   Pixel size. as of 16bits/24bits/32bits color.
-	   sizeof(EGI_16BIT_COLOR)
-
-Return:
-	A pointer to EGI_SURFACE	OK
-	NULL				Fails
-----------------------------------------------------------*/
-EGI_SURFACE *ering_request_surface(int sockfd, int x0, int y0, int w, int h, int pixsize)
-{
-	EGI_SURFACE *eface;
-
-	struct msghdr msg={0};
-	struct cmsghdr *cmsg;
-	int data[16]={0};
-	struct iovec iov={.iov_base=data, .iov_len=sizeof(data) };
-	int memfd;
-
-	/* 1. Preare request params, put in data[] */
-	memset(data,0,sizeof(data));
-	data[0]=ERING_REQUEST_ESURFACE;
-	data[1]=x0; data[2]=y0;
-	data[3]=w;  data[4]=h;
-	data[5]=pixsize;
-
-	/* 2. MSG iov data  */
-	msg.msg_iov=&iov;  /* iov holds data */
-	msg.msg_iovlen=1;
-
-	/* 3. Send msg to server */
-	if( unet_sendmsg(sockfd, &msg) <=0 ) {
-		//printf("%s: unet_sendmsg() fails!\n", __func__);
-		egi_dpstd("unet_sendmsg() fails!\n");
-		return NULL;
-	}
-
-	/* 4. Prepare MSG buffer, to receive memfd */
-	union {
-	  /* Wrapped in a union in ordert o ensure it's suitably aligned */
-		char buf[CMSG_SPACE(sizeof(memfd))]; /* CMSG_SPACE(): space with header and required alignment. */
-		struct cmsghdr align;
-	} u;
-        msg.msg_control = u.buf;
-        msg.msg_controllen = sizeof(u.buf);
-
-	/* 5. Wait to receive msg */
-	//printf("%s: Request msg sent out, wait for reply...\n", __func__);
-	egi_dpstd("Request msg sent out, wait for reply...\n");
-	if( unet_recvmsg(sockfd, &msg) <=0 ) {
-		//printf("%s: unet_recvmsg() fails!\n", __func__);
-		egi_dpstd("unet_recvmsg() fails!\n");
-		return NULL;
-	}
-
-	/* 6. Check request result */
-	if( data[0]!=ERING_RESULT_OK ) {
-		//printf("%s: Request fails!\n",__func__);
-		egi_dpstd("Request fails!");
-		return NULL;
-	}
-
-	/* 7. Get returned memfd */
-	cmsg = CMSG_FIRSTHDR(&msg);
-	memfd = *(int *)CMSG_DATA(cmsg);
-	//memcpy(&memfd, (int *)CMSG_DATA(cmsg), n*sizeof(int));
-
-	//printf("%s: get memfd=%d\n",__func__, memfd);
-	egi_dpstd("get memfd=%d\n", memfd);
-
-  	/* 8. Mmap memfd to get pointer to EGI_SURFACE */
-	eface=egi_mmap_surface(memfd);
-	if(eface==NULL) {
-		close(memfd);
-		return NULL;
-	}
-
-	/* 9. Close memfd */
-	if(close(memfd)<0) {
-		//printf("Fail to close memfd, Err'%s'.!\n", strerror(errno));
-		egi_dperr("Fail to close memfd.");
-	}
-
-	/* OK */
-	return eface;
-}

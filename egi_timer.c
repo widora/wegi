@@ -101,7 +101,6 @@ void tm_get_strtime(char *tmbuf)
  Get local time string in form of:
  		H:M:S.ms 	(in 24hours)
  The caller must ensure enough space for tmbuf.
-
 ---------------------------------------------*/
 void tm_get_strtime2(char *tmbuf, const char *appen)
 {

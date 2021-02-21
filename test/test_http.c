@@ -176,7 +176,7 @@ void parse_m3u8list(char *strm3u)
 			else if( access("/tmp/a.stream",F_OK)!=0  && access("/tmp/b.stream",F_OK)!=0 ) {
 				/* Download AAC */
 				curl_nwrite=0;
-				EGI_PLOG(LOGLV_ERROR, "Case 3: Downloading a.stream AAC from: %s",  aacURL);
+				EGI_PLOG(LOGLV_ERROR, "Case 3: a.stream & b.stream both missing! downloading a.stream AAC from: %s",  aacURL);
 		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION,
 							 aacURL, "/tmp/a.stream", NULL, download_callback) !=0 )
 				{
