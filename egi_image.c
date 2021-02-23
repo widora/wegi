@@ -7,6 +7,10 @@ NOTE: Try not to use EGI_PDEBUG() here!
 
 EGI_IMGBUF functions
 
+Jurnal
+2021-02-22:
+	1. Modify egi_imgbuf_resetColorAlpha().
+
 Midas Zhou
 midaszhou@yahoo.com
 -------------------------------------------------------------------*/
@@ -25,6 +29,7 @@ typedef struct fbdev FBDEV; /* Just a declaration, referring to definition in eg
 
 /*--------------------------------------------
    	   Allocate an EGI_IMGBUF
+Allocate an EGI_IMGBUF and init img_mutex.
 ---------------------------------------------*/
 EGI_IMGBUF *egi_imgbuf_alloc(void) //new(void)
 {
@@ -3070,8 +3075,9 @@ int egi_subimg_writeFB(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subindex,
 
 /*-----------------------------------------------------------------
 		        Reset Color and Alpha value
-@color:		16bit color value. if <0 ingore.
-@alpah:		8bit alpha value.  if <0 ingore.
+
+@color:		16bit color value. If <0 ingore it.
+@alpah:		8bit alpha value.  If <0 ingore it.
 
 Return:
 	0	OK
@@ -3081,36 +3087,39 @@ int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha )
 {
 	int i;
 
-	if( egi_imgbuf==NULL || egi_imgbuf->alpha==NULL )
+	if( egi_imgbuf==NULL || egi_imgbuf->imgbuf==NULL )
 		return -1;
 
-#if 0 	/* get mutex lock */
+#if 0 	/* Get mutex lock */
 	if( pthread_mutex_lock(&egi_imgbuf->img_mutex)!=0 ){
 		printf("%s: Fail to lock image mutex!\n",__func__);
 		return -2;
 	}
 #endif
 
-	/* limit */
+	/* Limit */
 	if(color>0xFFFF) color=0xFFFF;
 	if(alpha>0xFF) alpha=0xFF;
 
-	if(alpha>=0 && color>=0) {
+	/* Case 1: Reset COLOR + ALPHA */
+	if( ( alpha>=0 && egi_imgbuf->alpha != NULL ) && color>=0 ) {
 		for(i=0; i< egi_imgbuf->height*egi_imgbuf->width; i++) {
 			egi_imgbuf->alpha[i]=alpha;
 			egi_imgbuf->imgbuf[i]=color;
 		}
 	}
-	else if(alpha>=0) {
+	/* Case 2: Reset ALPHA only */
+	else if( alpha>=0 && (egi_imgbuf->alpha != NULL) ) {
 		for(i=0; i< egi_imgbuf->height*egi_imgbuf->width; i++)
 			egi_imgbuf->alpha[i]=alpha;
 	}
+	/* Case 3: Reset COLOR only */
 	else if( color>=0 ) {
 		for(i=0; i< egi_imgbuf->height*egi_imgbuf->width; i++)
 			egi_imgbuf->imgbuf[i]=color;
 	}
 
-#if 0  	/* put mutex lock  */
+#if 0  	/* Put mutex lock  */
   	pthread_mutex_unlock(&egi_imgbuf->img_mutex);
 #endif
 	return 0;

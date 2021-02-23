@@ -1704,7 +1704,8 @@ int draw_filled_rect2(FBDEV *dev, uint16_t color, int x1,int y1,int x2,int y2)
 	{
 		for(j=xl;j<=xr;j++)
 		{
-			fb_color=color;
+			//fb_color=color;
+			fbset_color2(dev, color);
 			/* TODO: dev->pixcolor_on */
                 	draw_dot(dev,j,i); /* ignore range check */
 		}

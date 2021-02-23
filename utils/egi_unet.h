@@ -20,7 +20,8 @@ midaszhou@yahoo.com
 typedef struct egi_unet_server_session EGI_USERV_SESSION;
 struct egi_unet_server_session {
         int             sessionID;               /* ID, ref. index of EGI_USERV_SESSION.sessions[], NOT as sequence number! */
-        int             csFD;                    /* C/S session fd, <=0 invalid. */
+        int             csFD;                    /* C/S session fd, <=0 invalid.
+						  * Reset to 0 when session ends. */
         struct          sockaddr_un addrCLIT;    /* Client address */
         bool            alive;                   /* flag on, if active/living, ?? race condition possible! check csFD. */
         int             cmd;                     /* Commad to session handler, NOW: 1 to end routine. */

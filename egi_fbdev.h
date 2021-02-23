@@ -12,6 +12,7 @@ Referring to: http://blog.chinaunix.net/uid-22666248-id-285417.html
 
 
 Modified and appended by: Midas Zhou
+midaszhou@yahoo.com
 -----------------------------------------------------------------------------*/
 #ifndef __EGI_FBDEV_H__
 #define __EGI_FBDEV_H__
@@ -35,9 +36,15 @@ Modified and appended by: Midas Zhou
 
 #define FBDEV_BUFFER_PAGES 3	/* Max FB buffer pages */
 
+/*** NOTE:
+ *   1. FBDEV is considered to be statically allocated!
+ *   2. (.fbfd <=0) is deemed as an uninitialized FBDEV.
+ */
 typedef struct fbdev{
 	const char*	devname;	/* FB device name, if NULL, use default "/dev/fb0" */
-        int 		fbfd; 		/* FB device file descriptor, open "dev/fbx" */
+        int 		fbfd; 		/* FB device file descriptor, open "dev/fbx"
+					 * If <=0, as an uninitialized FBDEV.
+					 */
 
         bool 		virt;           /* 1. TRUE: virtural fbdev, it maps to an EGI_IMGBUF
 	                                 *   and fbfd will be ineffective.
@@ -48,13 +55,15 @@ typedef struct fbdev{
                                 	 */
 
         struct 		fb_var_screeninfo vinfo;  /* !!! WARNING !!!
-						   *  vinfo.line_length/bytes_per_pixel may NOT equals vinfo.xres
+						   *  vinfo.line_length/bytes_per_pixel may NOT equal vinfo.xres
 						   *  In some case, line_length/bytes_per_pixel > xres, because of LCD size limit,
 						   *  not of controller RAM limit!
 						   *  But in all functions we assume xres==info.line_length/bytes_per_pixel, so lookt it over
 						   *  if problem arises.
 						   */
         struct 		fb_fix_screeninfo finfo;
+
+	int		*zbuff;		/* Pixel depth, for totally xres*yres pixels. NOW: integer type, ( TODO: float type) */
 
         unsigned long 	screensize;	/* in bytes */
 					/* TODO: To hook up map_fb and map_buff[] with EGI_IMGBUFs */

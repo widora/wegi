@@ -86,6 +86,8 @@ int main(int argc, char **argv)
  else {
 
 	EGI_UCLIT *uclit;
+	EGI_IMGBUF *imgbuf;
+
 
     while(1) { /////////// LOOP TEST ///////////////
 
@@ -102,7 +104,7 @@ int main(int argc, char **argv)
 	/* ering request surface */
 	EGI_SURFACE *eface=NULL;
 	eface=ering_request_surface( uclit->sockfd, mat_random_range(320/2), mat_random_range(240/2),
-					   80+mat_random_range(320/2), 60+mat_random_range(240/2), sizeof(EGI_16BIT_COLOR));
+					   80+mat_random_range(320/2), 60+mat_random_range(240/2), SURF_RGB565); //_A8);
 	if(eface==NULL) {
 		//exit(EXIT_FAILURE);
 		/* Hold on for a while for surfman to ... */
@@ -112,13 +114,37 @@ int main(int argc, char **argv)
 		continue;
 	}
 
+	/* Allocate an EGI_IMGBUF */
+	imgbuf=egi_imgbuf_alloc();
+	if(imgbuf==NULL)
+		exit(EXIT_FAILURE);
+
+	/* Map surface data to imgbuf */
+	imgbuf->width = eface->width;
+	imgbuf->height = eface->height;
+	imgbuf->imgbuf = (EGI_16BIT_COLOR *)eface->color; /* SURF_RGB565 ! */
+        if(eface->off_alpha >0 )
+        	imgbuf->alpha = (EGI_8BIT_ALPHA *)(eface+eface->off_alpha);
+        else
+                imgbuf->alpha = NULL;
+
+	/* Set color */
+	egi_imgbuf_resetColorAlpha(imgbuf, egi_color_random(color_all), -1); /* Reset color only */
+
 	/* Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
 	printf("Memsize: %uBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
-			eface->memsize, eface->width, eface->height, eface->pixsize, eface->x0, eface->y0);
+			eface->memsize, eface->width, eface->height, surf_get_pixsize(eface->colorType), eface->x0, eface->y0);
 
 	/* hold */
-	usleep(10000);
+	sleep(1);
+	//usleep(10000);
+
+	/* Unlink to surface data */
+	imgbuf->imgbuf=NULL;
+	imgbuf->alpha=NULL;
+	/* Free imgbuf */
+	egi_imgbuf_free2(&imgbuf);
 
 	/* Unmap surface */
 	egi_munmap_surface(&eface);

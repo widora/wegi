@@ -3,7 +3,12 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+Journal
+2021-02-22:
+	1. init_fbdev(): Add zbuff.
+
 Midas Zhou
+midaszhou@yahoo.com
 -------------------------------------------------------------------*/
 #include "egi.h"
 #include "egi_timer.h"
@@ -25,7 +30,8 @@ Midas Zhou
 FBDEV   gv_fb_dev={ .devname="/dev/fb0", .fbfd=-1,  }; //__attribute__(( visibility ("hidden") )) ;
 
 /*-------------------------------------
-Initiate a FB device.
+Initialize a FB device.
+
 Return:
         0       OK
         <0      Fails
@@ -33,26 +39,26 @@ Return:
 int init_fbdev(FBDEV *fb_dev)
 {
 //	int i;
-	int bytes_per_pixel;
+//	int bytes_per_pixel;
 
         if(fb_dev->fbfd > 0) {
-            fprintf(stderr,"%s: Input FBDEV already open!\n",__func__);
+	    egi_dpstd("Input FBDEV already open!\n");
             return -1;
         }
 	if(fb_dev->devname==NULL) {
-            fprintf(stderr,"%s: Input FBDEV name is invalid!\n",__func__);
+	    egi_dpstd("Input FBDEV name is invalid!\n");
 	    return -1;
 	}
 
         //fb_dev->fbfd=open(WEGI_FBDEV_NAME,O_RDWR|O_CLOEXEC);
         fb_dev->fbfd=open(fb_dev->devname,O_RDWR|O_CLOEXEC);
         if(fb_dev<0) {
-          printf("Open /dev/fb0: %s\n",strerror(errno));
-          return -1;
+	    egi_dperr("Open dev '%s'", fb_dev->devname);
+            return -1;
         }
 
-
-        printf("%s:Framebuffer device opened successfully.\n",__func__);
+	/* Get FBDEV Info */
+	egi_dpstd("Framebuffer device opened successfully.\n");
         ioctl(fb_dev->fbfd,FBIOGET_FSCREENINFO,&(fb_dev->finfo));
         ioctl(fb_dev->fbfd,FBIOGET_VSCREENINFO,&(fb_dev->vinfo));
 
@@ -60,23 +66,33 @@ int init_fbdev(FBDEV *fb_dev)
         //fb_dev->screensize=fb_dev->vinfo.xres*fb_dev->vinfo.yres*(fb_dev->vinfo.bits_per_pixel>>3); /* >>3 /8 */
         fb_dev->screensize=fb_dev->finfo.line_length*fb_dev->vinfo.yres; /* >>3 /8 */
 
+	/* Calloc zbuff */
+	fb_dev->zbuff=calloc(1, (fb_dev->vinfo.xres)*(fb_dev->vinfo.yres)*sizeof(typeof(*fb_dev->zbuff)));
+	if(fb_dev->zbuff==NULL) {
+		egi_dperr("Fail to calloc zbuff!");
+                close(fb_dev->fbfd); fb_dev->fbfd=-1;
+		return -2;
+	}
+
         /* mmap FB */
         fb_dev->map_fb=(unsigned char *)mmap(NULL,fb_dev->screensize,PROT_READ|PROT_WRITE, MAP_SHARED,
                                                                                         fb_dev->fbfd, 0);
         if(fb_dev->map_fb==MAP_FAILED) {
-                printf("Fail to mmap FB: %s\n", strerror(errno));
-                close(fb_dev->fbfd);
+		egi_dperr("Fail to mmap map_fb!");
+		free(fb_dev->zbuff);
+                close(fb_dev->fbfd); fb_dev->fbfd=-1;
                 return -2;
         }
 
-	/* ---- mmap back mem, map_bk ---- */
+	/* mmap back mem, map_bk */
 	#if defined(ENABLE_BACK_BUFFER) || defined(LETS_NOTE)
 	fb_dev->map_buff=(unsigned char *)mmap(NULL,fb_dev->screensize*FBDEV_BUFFER_PAGES, PROT_READ|PROT_WRITE,
 									MAP_SHARED|MAP_ANONYMOUS, -1, 0);
 	if(fb_dev->map_buff==MAP_FAILED) {
-                printf("Fail to mmap back mem map_buff for FB: %s\n", strerror(errno));
+		egi_dperr("Fail to mmap map_buff!");
                 munmap(fb_dev->map_fb,fb_dev->screensize);
-                close(fb_dev->fbfd);
+		free(fb_dev->zbuff);
+                close(fb_dev->fbfd); fb_dev->fbfd=-1;
                 return -2;
 	}
 	fb_dev->npg=0;	/* init current back buffer page number */
@@ -90,10 +106,10 @@ int init_fbdev(FBDEV *fb_dev)
 	//fb_dev->npg=0;
 	//fb_dev->map_bk=fb_dev->map_buff;
 
-	/* reset virtual FB, as EGI_IMGBUF */
+	/* Reset virtual FB, as EGI_IMGBUF */
 	fb_dev->virt_fb=NULL;
 
-	/* reset pos_rotate */
+	/* Reset pos_rotate */
 	fb_dev->pos_rotate=0;
         fb_dev->pos_xres=fb_dev->vinfo.xres;
         fb_dev->pos_yres=fb_dev->vinfo.yres;
@@ -102,25 +118,27 @@ int init_fbdev(FBDEV *fb_dev)
 	if( fb_dev->finfo.line_length/(fb_dev->vinfo.bits_per_pixel>>3) != fb_dev->vinfo.xres )
 	{
 	 	  fprintf(stderr,"\n\e[38;5;196;48;5;0m WARNING: vinfo.xres != finfo.line_length/bytes_per_pixel. \e[0m\n");
+	 	  //egi_dperr("\n\e[38;5;196;48;5;0m WARNING: vinfo.xres != finfo.line_length/bytes_per_pixel. \e[0m");
 	}
 
-        /* reset pixcolor and pixalpha */
+        /* Reset pixcolor and pixalpha */
 	fb_dev->pixcolor_on=false;
         fb_dev->pixcolor=(30<<11)|(10<<5)|10;
         fb_dev->pixalpha=255;
 
-        /* init fb_filo */
+        /* Init fb_filo */
         fb_dev->filo_on=0;
         fb_dev->fb_filo=egi_malloc_filo(1<<13, sizeof(FBPIX), FILO_AUTO_DOUBLE);//|FILO_AUTO_HALVE
         if(fb_dev->fb_filo==NULL) {
-                printf("%s: Fail to malloc FB FILO!\n",__func__);
-                munmap(fb_dev->map_fb,fb_dev->screensize);
-                munmap(fb_dev->map_buff,fb_dev->screensize*FBDEV_BUFFER_PAGES);
-                close(fb_dev->fbfd);
+                egi_dpstd("Fail to malloc FB FILO!\n");
+                munmap(fb_dev->map_fb, fb_dev->screensize);
+                munmap(fb_dev->map_buff, fb_dev->screensize*FBDEV_BUFFER_PAGES);
+		free(fb_dev->zbuff);
+                close(fb_dev->fbfd); fb_dev->fbfd=-1;
                 return -3;
         }
 
-        /* assign fb box */
+        /* Assign gv_fb_box */
 	if(fb_dev==&gv_fb_dev) {
 	        gv_fb_box.startxy.x=0;
         	gv_fb_box.startxy.y=0;
@@ -133,7 +151,6 @@ int init_fbdev(FBDEV *fb_dev)
 //		fb_dev->buffer[i]=NULL;
 //	}
 
-
 #if 1
 //      printf("init_dev successfully. fb_dev->map_fb=%p\n",fb_dev->map_fb);
 	printf("\e[38;5;34;48;5;0m");
@@ -144,33 +161,48 @@ int init_fbdev(FBDEV *fb_dev)
         printf(" xoffset: %d,  yoffset: %d \n", fb_dev->vinfo.xoffset, fb_dev->vinfo.yoffset);
         printf(" screensize: %ld bytes\n", fb_dev->screensize);
         printf(" Total buffer pages: %d\n", FBDEV_BUFFER_PAGES);
+	printf(" Zbuffer: ON\n");
         printf(" ------------  EGi  ------------\n\n");
 	printf("\e[0m\n");
 #endif
+
         return 0;
 }
 
-/*-------------------------
-Release FB and free map
---------------------------*/
+/*---------------------------------------------------
+ Release FB and free map
+
+Note:
+1. Input FBDEV is considered as statically allocated.
+   All members MUST be properly initialized and hold
+   valid memory space.
+
+----------------------------------------------------*/
 void release_fbdev(FBDEV *dev)
 {
-//	int i;
-
-        if(!dev || !dev->map_fb)
+        if( !dev || !dev->map_fb )
                 return;
 
-	/* free FILO, reset fb_filo to NULL inside */
-        egi_free_filo(dev->fb_filo);
+	/* Free FILO, reset fb_filo to NULL inside */
+        egi_filo_free(&dev->fb_filo);
 
-	/* unmap FB */
-        if( munmap(dev->map_fb,dev->screensize) != 0)
-		printf("Fail to unmap FB: %s\n", strerror(errno));
+	/* Unmap FB */
+        if( munmap(dev->map_fb, dev->screensize) != 0) {
+		egi_dperr("unmap dev->map_fb");
+	}
+	dev->map_fb=NULL;
 
-	/* unmap FB back memory */
-        if( munmap(dev->map_buff,dev->screensize*FBDEV_BUFFER_PAGES) !=0 )
-		printf("Fail to unmap back mem for FB: %s\n", strerror(errno));
+	/* Unmap FB back memory */
+        if( munmap(dev->map_buff,dev->screensize*FBDEV_BUFFER_PAGES) !=0 ) {
+		egi_dperr("unmap dev->map_buff");
+	}
+	dev->map_buff=NULL;
 
+	/* Free zbuff */
+	free(dev->zbuff);
+	dev->zbuff=NULL;
+
+	/* Close fbfd */
         close(dev->fbfd);
         dev->fbfd=-1;
 }

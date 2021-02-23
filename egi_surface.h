@@ -15,6 +15,7 @@ midaszhou@yahoo.com
 #include <sys/un.h>
 #include <sys/socket.h>
 #include "egi_unet.h"
+#include "egi_fbdev.h"
 
 /*** Note
  *  Openwrt has no wrapper function of memfd_create() in the C library.
@@ -34,6 +35,20 @@ typedef struct egi_surface 		EGI_SURFACE;
 typedef struct egi_surface_manager	EGI_SURFMAN;
 //typedef struct egi_surface_user	EGI_SURFUSER;
 
+
+/* Surface color data type */
+typedef enum surf_color_type		SURF_COLOR_TYPE;
+/* !!! WARNING !!! To keep consistent with static int surf_colortype_pixsize[] */
+enum surf_color_type {
+	SURF_RGB565	=0,	/* (NOW: As default) No alpha data:  surf->color[] */
+	SURF_RGB565_A8	=1,	/* Independent alpah data, 8bits for each pixel:  surf->color[] + surf->alpah[] */
+	SURF_RGB888	=2,
+	SURF_RGB888_A8	=3,
+	SURF_RGBA8888	=4,	/* With integrated alpha data: surf->color[] */
+	SURF_COLOR_MAX 	=5,     /*  This is also as end token, see surf_get_pixsize() */
+};
+
+
 /*** 			--- EGI_SURMAN ---
  * 1. When an EGI_SURMAN is created, there are 2 threads running for routine jobs.
  *    1.1 userv_listen_thread:
@@ -44,30 +59,41 @@ typedef struct egi_surface_manager	EGI_SURFMAN;
  *
  */
 struct egi_surface_manager {
+	/* 1. Surface user manager */
 	EGI_USERV	*userv;		/* A userver, to accept clients
 					 * Each userv->sessions[] stands for a surface user (surfuser).
 					 * One surface user may register more than 1 surface.
 					 */
-	/* ----( EGI_USERV )---
-         * 1. Userv->sessions[] to be accepted/added by userv_listen_thread(void *userv);
-	 * 2. Userv->sessions[] to be retired by surfman_request_process_thread(void *surfman);
-	 */
+		/* ----( EGI_USERV )---
+        	 * 1.1 Userv->sessions[] to be accepted/added by userv_listen_thread(void *userv);
+		 * 1.2 Userv->sessions[] to be retired by surfman_request_process_thread(void *surfman);
+		 */
 
-        int              cmd;           /* cmd to surfman, NOW: 1 to end acpthread! */
+        int              cmd;           /* cmd to surfman, NOW: 1 to end acpthread & renderThread! */
 
-        /* Surfman request processing: create and register surfaces.  */
+        /* 2. Surfman request processing: create and register surfaces.  */
 	pthread_t		repthread;	/* Request_processing thread */
         bool                    repthread_on;   /*  rpthread IS running! */
         int                     scnt;           /* Active/nonNULL surfaces counter */
 
 #define SURFMAN_MAX_SURFACES	8	/* TODO:  A list to manage all surfaces */
-	EGI_SURFACE		*surfaces[SURFMAN_MAX_SURFACES];
+	EGI_SURFACE		*surfaces[SURFMAN_MAX_SURFACES];  /* It's sorted in ascending order of their zseq values! */
+	// const	EGI_SURFACE		*pslist[SURFMAN_MAX_SURFACES];	/* Only a reference */
+	pthread_mutex_t 	 surfman_mutex; /* 1. If there's a thread accessing surfaces[i], it MUST NOT be freed/unregistered!
+						 *    To lock/unlock for each surface!
+						 *    TBD&TODO: One mutex lock for each surface?
+						 */
 
-	/* TODO: To relate sessions[] with surfaces[], so when session ends, surfaces to be unregistered.
-	 *	 OK, NOW see: surfman_unregister_surfuser();
+	/*  Relate sessions[] with surfaces[], so when session ends, surfaces to be unregistered.
+	 *  OK, NOW see: surfman_unregister_surfuser();
 	 */
 
-	/* Surface render process */
+	/* 3. Surface render process */
+	FBDEV 		fbdev;			/* Init .devname = gv_fb_dev.devname */
+	pthread_t	renderThread;	  /* Render processing thread */
+	bool		renderThread_on;  /* renderThread is running */
+
+
 };
 
 /***  			--- EGI_SURFACE ---
@@ -80,13 +106,15 @@ struct egi_surface_manager {
  * TODO:
  *   1. If surface memfds does NOT reach the surface user, or keep inactive for a long time.
  *	check and remove it.
- *   2. Surfman data protection from Surfusre!
+ *   2. Surfman data protection from Surfuser!
  */
 struct egi_surface {
 	unsigned int	id;		/* [Surfman RW]: surface ID, NOW as index of the surfman->surfaces[] */
 	int		csFD;		/* [Surfman RW]: surf_userID, as of sessionID of userv->session[sessionID]. */
 
-	int 		zseq;		/* Sequence as of zbuffer */
+	int 		zseq;		/* Sequence as of zbuffer, =0 for BackGround. For active surface: 1,2,3,4...
+					 * Bigger value is to be rendered ahead of smaller one.
+					 */
 
 	int		memfd;		/* [Surfman RW]: memfd as of the Surfman!
 					 * File descriptor of the anonymous file that allocates memory space for the surface
@@ -101,15 +129,19 @@ struct egi_surface {
         /* Fixed params, only surfman can modify/update upon the APP request. */
         int             width;		/* [Surfman] */
         int             height;		/* [Surfman] */
-        int             pixsize;        /* [Surfman]
-					 * sizeof EGI_16BIT_COLOR (default), EGI_24BIT_COLOR ...
+
+	SURF_COLOR_TYPE colorType;	/* [Surfman] */
+//      int             pixsize;        /* [Surfman] */
+					 /* sizeof EGI_16BIT_COLOR (default), EGI_24BIT_COLOR ...
 					 * + sizeof alpha
 					 * Include or exclude alpha value.
 					 */
 
-	/* TODO&TDB: Necessary ??? */
-        size_t          off_color;      /* Offset to color data */
-        size_t          off_alpha;      /* Offset to alpah data
+	/*  Denpend on colorType. */
+        int          off_color;      /* Offset to color data
+				      * NOW: No use! Access directly to pointer surface->color[]
+				      */
+        int          off_alpha;      /* Offset to alpah data, ONLY if applicable.
 					 * If 0: No alpha data. OR alpha included in color
 					 */
 
@@ -118,10 +150,10 @@ struct egi_surface {
         int             y0;
 
         /* Variable data, for APP to write */
-        unsigned char   data[];		/*  [Surfuser] wirte, [Surfman] read. */
+        unsigned char   color[];		/*  [Surfuser] wirte, [Surfman] read. */
         /** Followed by:
-         * unsigned char  colors[];
-         * EGI_8BIT_ALPHA alpha[];
+         *   colors[];
+         *   alpha[];  ( If applicable )
          */
 };
 
@@ -138,22 +170,32 @@ enum ering_result_type {
 };
 
 /* Functions for   --- EGI_SURFACE ---   */
+int surf_get_pixsize(SURF_COLOR_TYPE colorType);
+
 int egi_create_memfd(const char *name, size_t memsize);
 EGI_SURFACE *egi_mmap_surface(int memfd); 		/* mmap(memfd) to get surface pointer */
 int egi_munmap_surface(EGI_SURFACE **eface);		/* unmap(surface) */
 
+int surface_compare_zseq(const EGI_SURFACE *eface1, const EGI_SURFACE *eface2);
+void surface_insertSort_zseq(EGI_SURFACE **surfaces, int n);
+/* TODO: surface_quickSort_zseq() */
+
 /* Functions for   --- EGI_SURFMAN ---   */
-EGI_SURFMAN *egi_create_surfman(const char *svrpath);
-int egi_destroy_surfman(EGI_SURFMAN **surfman);
+EGI_SURFMAN *egi_create_surfman(const char *svrpath);	/* surfman_mutex, */
+int egi_destroy_surfman(EGI_SURFMAN **surfman);		/* surfman_mutex, */
 
-int surfman_register_surface(EGI_SURFMAN *surfman, int userID, int x0, int y0, int w, int h, int pixsize); /* ret index of surfman->surfaces[] */
-int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID );
+int surfman_register_surface( EGI_SURFMAN *surfman, int userID,		/* surfman_mutex, sort zseq, */
+			      int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType); /* ret index of surfman->surfaces[] */
+int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID );	/* surfman_mutex, sort zseq, */
 
-//static void* surfman_request_process_thread(void *surfman);
-int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID);
+// static void* surfman_request_process_thread(void *surfman);
+int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID);	/* surfman_mutex, sort zseq, */
+
+// static void * surfman_render_thread(void *surfman);			/* surfman_mutex */
+
 
 /* Functions for   --- EGI_RING ---   */
-EGI_SURFACE *ering_request_surface(int sockfd, int x0, int y0, int w, int h, int pixsize);
+EGI_SURFACE *ering_request_surface(int sockfd, int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType);
 
 
 #endif

@@ -17,6 +17,9 @@ Jurnal
 	1. https_easy_download(): Add flock(,LOCK_EX) during downloading...
 	   			  Add fsync() after fwrite() all data!
 				  Add truncate() if filesize not right.
+2021-02-21:
+	1. https_easy_download(): Re_truncate file to 0 if download fails.
+
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -172,7 +175,7 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
   	CURLcode res;
 	double doubleinfo=0;
 	FILE *fp;	/* FILE to save received data */
-
+	int sizedown;
 
 	/* check input */
 	if(file_url==NULL || file_save==NULL)
@@ -237,8 +240,11 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 	/* Perform the request, res will get the return code */
 	res = curl_easy_perform(curl);
 	if(res != CURLE_OK) {
-		if(res ==  CURLE_URL_MALFORMAT ) /* Seems this will NOT trigger curl_easy_strerror(res) */
+		/* Check Curl config: #ifdef CURL_DISABLE_VERBOSE_STRINGS! */
+		if(res ==  CURLE_URL_MALFORMAT )
 			EGI_PLOG(LOGLV_ERROR,"%s: curl_easy_perform() failed because of URL malformat!", __func__);
+		else if( res == CURLE_OPERATION_TIMEDOUT )  /* res==28 */
+			EGI_PLOG(LOGLV_ERROR,"%s: curl_easy_perform() Timeout!", __func__);
 		else
 			EGI_PLOG(LOGLV_ERROR,"%s: res=%d, curl_easy_perform() failed! Err'%s'", __func__, res, curl_easy_strerror(res));
 		ret=-3;
@@ -250,8 +256,17 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 	ret=0;
 
 	/* 				--- Check session info. ---
-	 ***  Note: curl_easy_perform() may result in CURLE_OK, but curl_easy_getinfo() may still fail!
+	 *** Note:
+	 *   1. curl_easy_perform() may result in CURLE_OK, but curl_easy_getinfo() may still fail!
+	 *   2. Testing results: CURLINFO_SIZE_DOWNLOAD and CURLINFO_CONTENT_LENGTH_DOWNLOAD get the same doubleinfo!
 	 */
+	/* TEST: CURLINFO_SIZE_DOWNLOAD */
+	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD, &doubleinfo) ) {
+		  	EGI_PLOG(LOGLV_CRITICAL,"%s: Curlinfo_size_download=%d!",  __func__, (int)doubleinfo);
+			sizedown=(int)doubleinfo;
+	}
+
+	/* CURLINFO_CONTENT_LENGTH_DOWNLOAD */
 	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &doubleinfo) ) {
 		//printf("%s: CURLINFO_CONTENT_LENGTH_DOWNLOAD = %.0f \n", __func__, doubleinfo);
 		if( (int)doubleinfo > CURL_RETDATA_BUFF_SIZE )
@@ -270,7 +285,7 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 		}
 		else {
 		  	EGI_PLOG(LOGLV_CRITICAL,"%s: Curl download content length =%d!",  __func__, (int)doubleinfo);
-		  	break; 	/* ----- OK! End Session ----- */
+		  	break; 	/* ----- OK ----- */
 		}
 	}
 	else {	/* Getinfo fails */
@@ -308,14 +323,16 @@ CURL_CLEANUP:
 		goto CURL_FAIL;
 	}
 
+	/* NOW: ret==0 */
+
 	/* Make sure to flush metadata before recheck file size! necessary? */
 	if( fsync(fileno(fp)) !=0 ) {
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 	}
 
 	/*** Check date length again. and try to adjust it.
-	 *  1. fstat()/stat() MAY get shorter/longer filesize sometime!!! curl BUG?
-	 *  2. However, written bytes sumup in write_callback function seems all OK!
+	 *  1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, curl BUG?
+	 *  2. However, written bytes sum_up in write_callback function gets same as stat file size!
 	 */
         struct stat     sb;
 
@@ -324,23 +341,41 @@ CURL_CLEANUP:
                 EGI_PLOG(LOGLV_ERROR, "%s: Fail call stat() for file '%s'. ERR:%s\n", __func__, file_save, strerror(errno));
         } else {
 		/* !!! WARNING !!!    [st_size > doubleinfo] OR [st_size < doubleinfo], all possible! */
-		//if( sb.st_size != (int)doubleinfo ) {
+
 		if( sb.st_size != (int)doubleinfo ) {
-			EGI_PLOG(LOGLV_ERROR,"%s: stat file size(%lld) is NOT same as curl downloaded size(%d)! try adjust...",
+
+	#if 0 ////////   A. Try to adjust final file size according to doubleinfo   ////////////////
+			EGI_PLOG(LOGLV_ERROR,"%s: stat file size(%lld) is NOT same as content length downloaded (%d)! Try adjust...",
 									__func__, sb.st_size, (int)doubleinfo);
 
 			/* Resize/truncate to the same as curl downloaded size, If it's shorter, then to be paddled with 0! */
 			if( truncate(file_save, (int)doubleinfo )!=0 ) {
-				EGI_PLOG(LOGLV_ERROR, "%s: Fail to truncate file size to the same as download size!",__func__);
+				EGI_PLOG(LOGLV_ERROR, "%s: [fsize error] Fail to truncate file size to the same as download size!",__func__);
 			}
 
 			/* Make sure to flush metadata again! */
 			if( fsync(fileno(fp)) !=0 ) {
-				EGI_PLOG(LOGLV_ERROR,"%s: Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
+				EGI_PLOG(LOGLV_ERROR,"%s: [fsize error] Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 			}
+
+	#else  /////////  B. Just let it fail! Resize file_save to 0!   ///////////////
+			EGI_PLOG(LOGLV_ERROR,"%s: stat file size(%lld) is NOT same as content length downloaded size(%d)! sizedown(%d). Fails.",
+									__func__, sb.st_size, (int)doubleinfo, sizedown);
+			ret=-10;
+			/* Resize/truncate filesize to 0! */
+			if( truncate(file_save, 0)!=0 ) {
+				EGI_PLOG(LOGLV_ERROR, "%s: [fsize error] Fail to truncate file size to 0!",__func__);
+			}
+			/* Make sure to flush metadata again! */
+			if( fsync(fileno(fp)) !=0 ) {
+				EGI_PLOG(LOGLV_ERROR,"%s: [fsize error] Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
+			}
+	#endif  /////////////////////
+
 		}
+		/* (sb.st_size == (int)doubleinfo) */
 		else
-			EGI_PLOG(LOGLV_CRITICAL,"%s: File size(%lld) is same as curl downloaded size(%d)!",
+			EGI_PLOG(LOGLV_CRITICAL,"%s: File size(%lld) is same as content length downloaded size(%d)!",
 									__func__, sb.st_size, (int)doubleinfo);
 	}
 

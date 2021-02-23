@@ -306,6 +306,9 @@ int unet_destroy_Userver(EGI_USERV **userv )
         for(i=0; i<USERV_MAX_CLIENTS; i++) {
 	        if( (*userv)->sessions[i].alive==true ) {
 			close((*userv)->sessions[i].csFD);
+			/* Reset token */
+			(*userv)->sessions[i].csFD=0;
+			(*userv)->sessions[i].alive=false;
 		}
 	}
 
