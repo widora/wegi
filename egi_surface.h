@@ -33,7 +33,7 @@ int unet_destroy_Uclient(EGI_UCLIT **uclit ) *  and NOT include head file  <sys/
 
 typedef struct egi_surface 		EGI_SURFACE;
 typedef struct egi_surface_manager	EGI_SURFMAN;
-//typedef struct egi_surface_user	EGI_SURFUSER;
+typedef struct egi_surface_user		EGI_SURFUSER;
 
 
 /* Surface color data type */
@@ -49,7 +49,19 @@ enum surf_color_type {
 };
 
 
-/*** 			--- EGI_SURMAN ---
+/*** 			--- EGI_SURFUSER ---
+ */
+struct egi_surface_user {
+	EGI_UCLIT 	*uclit;		/* A uclient to EGI_SURFMAN's userver. */
+	EGI_SURFACE	*surface;	/* A surface registered in  EGI_SURFMAN */
+	FBDEV  		vfbdev;		/* Virtual FBDEV, statically allocated. */
+	EGI_IMGBUF 	*imgbuf;	/* imgbuf for vfbdev;
+					 * Link it to surface->color[] data to virtual FBDEV */
+};
+
+
+/*** 			--- EGI_SURFMAN ---
+ *
  * 1. When an EGI_SURMAN is created, there are 2 threads running for routine jobs.
  *    1.1 userv_listen_thread:
  *	  1.1.1 To accept and add surfusers.
@@ -89,7 +101,7 @@ struct egi_surface_manager {
 	 */
 
 	/* 3. Surface render process */
-	FBDEV 		fbdev;			/* Init .devname = gv_fb_dev.devname */
+	FBDEV 		fbdev;		  /* Init .devname = gv_fb_dev.devname, statically allocated. */
 	pthread_t	renderThread;	  /* Render processing thread */
 	bool		renderThread_on;  /* renderThread is running */
 
@@ -109,16 +121,27 @@ struct egi_surface_manager {
  *   2. Surfman data protection from Surfuser!
  */
 struct egi_surface {
-	unsigned int	id;		/* [Surfman RW]: surface ID, NOW as index of the surfman->surfaces[] */
+	unsigned int	id;		/* [Surfman RW]: surface ID, NOW as index of the surfman->surfaces[]
+					 * !!! --- Volatile value --- !!!
+					 * 1. It's volatile! as surfman->surfaces[] to is being sorted when a new
+					 *    surface is registered/unregistered! Use memfd instead to locate the surface.
+					 */
+//	const char 	name[];
+
 	int		csFD;		/* [Surfman RW]: surf_userID, as of sessionID of userv->session[sessionID]. */
 
-	int 		zseq;		/* Sequence as of zbuffer, =0 for BackGround. For active surface: 1,2,3,4...
-					 * Bigger value is to be rendered ahead of smaller one.
+	int 		zseq;		/* 1. Sequence as of zbuffer, =0 for BackGround. For active surface: 1,2,3,4...
+					 *    Each surface has a unique zseq, and all zseqs are in serial.
+					 * 2. Surface with bigger zseq to be rendered ahead of smaller one.
+					 * 3. To update when surfman->surfaces[] add/delete a surface, and keep Max_zseq = surfman.scnt!
+					 *    The latest registered/added surface always holds the Max_zseq.
 					 */
 
-	int		memfd;		/* [Surfman RW]: memfd as of the Surfman!
-					 * File descriptor of the anonymous file that allocates memory space for the surface
-					 * To be closed by surfman_unregister_surface()
+	int		memfd;		/* [Surfman RW]: memfd as of the Surfman! Keep until egi_destroy_surfman().
+					 * 1. The surfuser's corresponding memfd is deleted after it mmaps to get the surface pointer.
+					 * 2. File descriptor of the anonymous file that allocates memory space for the surface
+					 *    To be closed by surfman_unregister_surface()
+					 * 3. A unique value for each surface!
 					 */
 	size_t		memsize;	/* [Surfman RW]: in bytes, Total memory allocated for the struct */
 
@@ -167,7 +190,7 @@ enum ering_result_type {
         ERING_RESULT_OK         =0,
         ERING_RESULT_ERR        =1,
 	ERING_MAX_LIMIT		=2,  	/* Surfaces/... Max limit */
-};
+z};
 
 /* Functions for   --- EGI_SURFACE ---   */
 int surf_get_pixsize(SURF_COLOR_TYPE colorType);
@@ -177,8 +200,14 @@ EGI_SURFACE *egi_mmap_surface(int memfd); 		/* mmap(memfd) to get surface pointe
 int egi_munmap_surface(EGI_SURFACE **eface);		/* unmap(surface) */
 
 int surface_compare_zseq(const EGI_SURFACE *eface1, const EGI_SURFACE *eface2);
-void surface_insertSort_zseq(EGI_SURFACE **surfaces, int n);
+void surface_insertSort_zseq(EGI_SURFACE **surfaces, int n); /* Re_assign all surface->id AND surface->zseq */
+/* If the function is applied for quickSort, then above re_assignment  MUST NOT be included */
 /* TODO: surface_quickSort_zseq() */
+
+
+/* Functions for   --- EGI_SURFUSER ---   */
+EGI_SURFUSER *egi_register_surfuser( const char *svrpath, int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType );
+int egi_unregister_surfuser(EGI_SURFUSER **surfuser);
 
 /* Functions for   --- EGI_SURFMAN ---   */
 EGI_SURFMAN *egi_create_surfman(const char *svrpath);	/* surfman_mutex, */

@@ -20,7 +20,9 @@ https://github.com/widora/wegi
 #include "egi_color.h"
 #include "egi_debug.h"
 #include "egi_math.h"
+#include "egi_FTsymbol.h"
 #include "egi_surface.h"
+
 
 #define ERING_PATH "/tmp/surfman_test"
 
@@ -46,7 +48,6 @@ int main(int argc, char **argv)
 	}
 
 
-#if 1   //////////////    TEST: ering request     /////////////////
 
  /* ---------- As EGI_SURFMAN ( The Server ) --------- */
 
@@ -84,52 +85,52 @@ int main(int argc, char **argv)
 
  /* ---------- As EGI_SURFACE Application ( The client ) --------- */
  else {
+	/*** NOTE:
+	 *	1.  The second eface MAY be registered just BEFORE the first eface is unregistered.
+	 */
+	EGI_SURFUSER	*surfuser=NULL;
 
-	EGI_UCLIT *uclit;
-	EGI_IMGBUF *imgbuf;
+	FBDEV 		*vfbdev=NULL;	/* Only a ref. to surfman->vfbdev  */
+	EGI_IMGBUF 	*imgbuf=NULL;	/* Only a ref. to surfman->imgbuf */
+	EGI_SURFACE	*eface=NULL;	/* Only a ref. to surfman->surface */
+
+        /* Load freetype fonts */
+        printf("FTsymbol_load_sysfonts()...\n");
+        if(FTsymbol_load_sysfonts() !=0) {
+                printf("Fail to load FT sysfonts, quit.\n");
+                return -1;
+        }
 
 
     while(1) { /////////// LOOP TEST ///////////////
 
-	/* Link to ering */
-	uclit=unet_create_Uclient(ERING_PATH);
-	if(uclit==NULL) {
-		sleep(1);
-		//exit(EXIT_FAILURE);
-		continue;
-	}
-	else
-		printf("Succeed to create uclit to '%s'!\n", ERING_PATH);
-
-	/* ering request surface */
-	EGI_SURFACE *eface=NULL;
-	eface=ering_request_surface( uclit->sockfd, mat_random_range(320/2), mat_random_range(240/2),
-					   80+mat_random_range(320/2), 60+mat_random_range(240/2), SURF_RGB565); //_A8);
-	if(eface==NULL) {
-		//exit(EXIT_FAILURE);
-		/* Hold on for a while for surfman to ... */
-		sleep(1);
-
-		unet_destroy_Uclient(&uclit);
+	/* Create a surfuser */
+	surfuser=egi_register_surfuser(ERING_PATH, mat_random_range(320/2), mat_random_range(240/2),
+                                           80+mat_random_range(320/2), 60+mat_random_range(240/2), SURF_RGB565 );
+	if(surfuser==NULL) {
+		usleep(100000);
 		continue;
 	}
 
-	/* Allocate an EGI_IMGBUF */
-	imgbuf=egi_imgbuf_alloc();
-	if(imgbuf==NULL)
-		exit(EXIT_FAILURE);
-
-	/* Map surface data to imgbuf */
-	imgbuf->width = eface->width;
-	imgbuf->height = eface->height;
-	imgbuf->imgbuf = (EGI_16BIT_COLOR *)eface->color; /* SURF_RGB565 ! */
-        if(eface->off_alpha >0 )
-        	imgbuf->alpha = (EGI_8BIT_ALPHA *)(eface+eface->off_alpha);
-        else
-                imgbuf->alpha = NULL;
+	/* Get ref imgbuf and vfbdev */
+	vfbdev=&surfuser->vfbdev;
+	imgbuf=surfuser->imgbuf;
+	eface=surfuser->surface;
 
 	/* Set color */
 	egi_imgbuf_resetColorAlpha(imgbuf, egi_color_random(color_all), -1); /* Reset color only */
+
+	/* Draw a circle */
+	draw_filled_rect2(vfbdev,WEGI_COLOR_DARKGRAY, 0,0, imgbuf->width-1, 30);
+	draw_circle2(vfbdev, imgbuf->width/2, 60, 20, WEGI_COLOR_WHITE);
+
+        /* Put title. */
+        FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, /* FBdev, fontface */
+                                        18, 18,(const UFT8_PCHAR)"EGI Surface",   /* fw,fh, pstr */
+                                        320, 1, 0,                        /* pixpl, lines, fgap */
+                                        5, 5,                         /* x0,y0, */
+                                        WEGI_COLOR_WHITE, -1, 200,        /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);          /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
 
 	/* Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
@@ -140,17 +141,8 @@ int main(int argc, char **argv)
 	sleep(1);
 	//usleep(10000);
 
-	/* Unlink to surface data */
-	imgbuf->imgbuf=NULL;
-	imgbuf->alpha=NULL;
-	/* Free imgbuf */
-	egi_imgbuf_free2(&imgbuf);
-
-	/* Unmap surface */
-	egi_munmap_surface(&eface);
-
-	/* Free uclit */
-	unet_destroy_Uclient(&uclit);
+	/* Unregister and destroy surfuser */
+	egi_unregister_surfuser(&surfuser);
 
 	/* Hold on */
 	usleep(10000);
@@ -159,8 +151,5 @@ int main(int argc, char **argv)
 
 	exit(0);
  }
-
-#endif
-
 
 }
