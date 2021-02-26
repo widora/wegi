@@ -147,7 +147,7 @@ void parse_m3u8list(char *strm3u)
 				{
                         		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download a.stream from '%s'.", aacURL);
 					remove("/tmp/a.stream");
-					EGI_PLOG(LOGLV_INFO, "Finsh remove /tmp/a.stream.");
+					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/a.stream.");
 				} else {
 					/* Update aacLastURL */
 					EGI_PLOG(LOGLV_INFO, "Ok, a.stream updated! curl_nwrite=%d", curl_nwrite);
@@ -165,7 +165,7 @@ void parse_m3u8list(char *strm3u)
 				{
                         		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download b.stream from '%s'.", aacURL);
 					remove("/tmp/b.stream");
-					EGI_PLOG(LOGLV_INFO, "Finsh remove /tmp/b.stream.");
+					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/b.stream.");
 				} else {
 					/* Update aacLastURL */
 					EGI_PLOG(LOGLV_INFO, "Ok, b.stream updated! curl_nwrite=%d", curl_nwrite);

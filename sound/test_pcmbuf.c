@@ -18,9 +18,9 @@ int main(int argc, char** argv)
 {
 
 
-	mallopt(M_MMAP_THRESHOLD,512*1024);
+//	mallopt(M_MMAP_THRESHOLD,512*1024);
 
-#if 0 /* ------------------ LOOP TEST  --------------------- */
+#if 1 /* ------------------ LOOP TEST  --------------------- */
  	EGI_PCMBUF	*pcmbuf=NULL;
 	if(argc<2) {
 		printf("Usage: %s wav_file\n",argv[0]);
@@ -33,7 +33,9 @@ int main(int argc, char** argv)
 			exit(1);
 
 		printf("pcmbuf playback...\n");
-		egi_pcmbuf_playback("default", pcmbuf, 2048);
+	/* const char* dev_name, const EGI_PCMBUF *pcmbuf, int vstep,
+                          unsigned int nf , int nloop, bool *sigstop, bool *sigsynch, bool* sigtrigger */
+		egi_pcmbuf_playback("default", pcmbuf, 0, 2048, 0, NULL, NULL, NULL);
 
 		egi_pcmbuf_free(&pcmbuf);
 
@@ -42,7 +44,7 @@ int main(int argc, char** argv)
 #endif /* ------- END LOOP TEST ------- */
 
 
-#if 1 /* ------------------ THREAD TEST  --------------------- */
+#if 0 /* ------------------ THREAD TEST  --------------------- */
 	int i;
 	EGI_PCMBUF	*pcmbuf[2]={NULL,NULL};
 	pthread_t	thread_pcm[2];
@@ -86,7 +88,10 @@ static void *  thread_play_pcmbuf(void *arg)
      EGI_PCMBUF *pcmbuf=(EGI_PCMBUF *)arg;
 
      while(1) {
-	egi_pcmbuf_playback("default", (const EGI_PCMBUF *)pcmbuf, 512);
+	/* const char* dev_name, const EGI_PCMBUF *pcmbuf, int vstep,
+                          unsigned int nf , int nloop, bool *sigstop, bool *sigsynch, bool* sigtrigger */
+
+	egi_pcmbuf_playback("default", (const EGI_PCMBUF *)pcmbuf, 0, 512, 0, NULL, NULL, NULL);
 	usleep(10000);
      }
 

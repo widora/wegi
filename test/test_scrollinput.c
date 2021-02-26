@@ -32,8 +32,10 @@ midaszhou@yahoo.com
 #define MINUTE_ZONE 	1
 #define SECOND_ZONE 	2
 
-#define PCM_MIXER       "mymixer"
-#define CLICK_SOUND	"/mmc/kaka.wav"  /* a very short piece */
+#define TOUCH_POS	3
+
+#define PCM_MIXER       "default"
+#define CLICK_SOUND	"/mmc/alarm.wav" //kaka.wav"  /* a very short piece */
 
 EGI_PCMBUF *pcmClick;
 bool sigTrigger;
@@ -44,7 +46,7 @@ void refresh_digits(int zone, int xp, int off, EGI_IMGBUF *eimg);
 static void *thread_tick(void *arg)
 {
         /* mpc_dev, pcmbuf, vstep, nf, nloop, bool *sigstop, bool *sigsynch, bool* sigtrigger */
-        egi_pcmbuf_playback(PCM_MIXER, pcmClick, 0, 1024, 0, NULL,  NULL,  &sigTrigger);
+        egi_pcmbuf_playback(PCM_MIXER, pcmClick, 0, 1024*8, 0, NULL,  NULL,  &sigTrigger);
 
 	return (void *)0;
 }
@@ -53,9 +55,10 @@ int main(void)
 {
  /* <<<<<<  EGI general init  >>>>>> */
 
- /* Start sys tick */
+#if 1 /* Start sys tick */
  printf("tm_start_egitick()...\n");
  tm_start_egitick();
+#endif
 
 #if 0
  /* Start egi log */
@@ -89,20 +92,22 @@ int main(void)
 	return -1;
   }
 #endif
+  FTsymbol_set_SpaceWidth(0.5);
 
   /* Initilize sys FBDEV */
   printf("init_fbdev()...\n");
   if(init_fbdev(&gv_fb_dev))
 	return -1;
 
-  /* Start touch read thread */
+#if 1  /* Start touch read thread */
   printf("Start touchread thread...\n");
   if(egi_start_touchread() !=0)
 	return -1;
+#endif
 
    /* Set sys FB mode: default */
    fb_set_directFB(&gv_fb_dev,false);
-   fb_position_rotate(&gv_fb_dev,3);
+   fb_position_rotate(&gv_fb_dev,0);
 
 
  /* <<<<<  End of EGI general init  >>>>>> */
@@ -125,7 +130,7 @@ int main(void)
 	pthread_t threadClick;
 
 	/* load pcm */
-	pcmClick=egi_pcmbuf_readfile("/mmc/kaka.wav");
+	pcmClick=egi_pcmbuf_readfile(CLICK_SOUND);
 	if(pcmClick==NULL)exit(1);
 
 	pthread_create(&threadClick,NULL,(void *)thread_tick,NULL);
@@ -218,6 +223,7 @@ int main(void)
 	/* init TIME displaying */
 	fbwrite_time(1,2,3,xp);
 
+
 	/* Refresh page */
 	fb_page_refresh(&gv_fb_dev,0);
 
@@ -230,10 +236,13 @@ while(1){
 	 * if the pen leaves the screen, start a new round again.
 	 */
         if( egi_touch_getdata(&touch_data) && touch_data.status != released_hold ) {
-		if(touch_data.status == releasing)continue;
+		if(touch_data.status == releasing) {
+			tm_delayms(10);
+			continue;
+		}
 #endif
-
-		egi_touch_fbpos_data(&gv_fb_dev, &touch_data);  /* touch_data change to same coord as of FB */
+		//printf("Raw: x=%d,y=%d \n",touch_data.coord.x, touch_data.coord.y);
+		egi_touch_fbpos_data(&gv_fb_dev, &touch_data, TOUCH_POS);  /* touch_data change to same coord as of FB */
 
 		/* To roll hour band */
 		if(point_inbox(&touch_data.coord, &hour_band)) {
@@ -242,7 +251,7 @@ while(1){
 			mark=hour*60;
 			while( touch_data.status == pressing ||touch_data.status == pressed_hold ) {
 				/* Adjust touch data coord. system to the same as FB pos_rotate.*/
-				egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+				egi_touch_fbpos_data(&gv_fb_dev, &touch_data, TOUCH_POS);
 
 				/* --- Continous Scrolling --- */
 				mark = hour*60-((touch_data.dy*3)>>1);		/* !!! adjust scrolling speed */
@@ -257,10 +266,12 @@ while(1){
 					egi_sleep(1,0,30);
 				}
 				/* To make a sluggish effect */
-				if( mark< tmp*60-20 || mark>tmp*60+20)
+				if( mark< tmp*60-25 || mark>tmp*60+25) {
 					refresh_digits(HOUR_ZONE, xp, mark, vfbimg);
+				}
 				else
 					refresh_digits(HOUR_ZONE, xp, tmp*60, vfbimg);
+
 				while(egi_touch_getdata(&touch_data)==false);
 			}
 			/* reset hour when release touch */
@@ -272,12 +283,17 @@ while(1){
 		/* To roll minute band */
 		else if(point_inbox(&touch_data.coord, &min_band)) {
 			printf("--min--\n");
+			tmp=min;
 			mark=min*60;
 			while( touch_data.status == pressing ||touch_data.status == pressed_hold ) {
-				egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+				egi_touch_fbpos_data(&gv_fb_dev, &touch_data, TOUCH_POS);
+				//printf("x=%d, y=%d, dx=%d, dy=%d,\n",
+				//		touch_data.coord.x, touch_data.coord.y, touch_data.dx, touch_data.dy);
+
                                 mark = min*60-((touch_data.dy*3)>>1);		/* !!! adjust scrolling speed */
 				if(mark<0)mark=0;				/* Limit to 0-59 */
 				else if(mark>59*60)mark=59*60;
+
 				refresh_digits(MINUTE_ZONE, xp, mark, vfbimg);
 				while(egi_touch_getdata(&touch_data)==false);
 			}
@@ -291,7 +307,7 @@ while(1){
 			printf("--sec--\n");
 			mark=sec*60;
 			while( touch_data.status == pressing ||touch_data.status == pressed_hold ) {
-				egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+				egi_touch_fbpos_data(&gv_fb_dev, &touch_data, TOUCH_POS);
                                 mark = sec*60-((touch_data.dy*3)>>1);		/* !!! adjust scrolling speed */
 				if(mark<0)mark=0;				/* Limit to 0-59 */
 				else if(mark>59*60)mark=59*60;
@@ -402,9 +418,12 @@ void refresh_digits(int zone, int xp, int imgoff, EGI_IMGBUF *eimg)
 	/* writFB numbers */
 	egi_imgbuf_windisplay( eimg, &gv_fb_dev, -1,  /* imgbuf, fbdev, subcolor */
 							    /* yw+1 AND winH-1 to fit into height of 60x60 */
-        			0, imgoff, xp+zone*80, 90+1,   /*  xp, yp, xw, yw */
+        		        0, imgoff, xp+zone*80, 90+1,   /*  xp, yp, xw, yw */
                                 60, 60-1 );          	    /*  winW, winH */
-	/* refresh partial FB */
-        fb_lines_refresh(&gv_fb_dev, 0, 320-xp-60-zone*80, 60); /* fbdev, numpg, startln, n */
+
+	/* refresh partial FB, NOT applicable for all FBPOS */
+        // fb_lines_refresh(&gv_fb_dev, 0, 320-xp-60-zone*80, 60); /* fbdev, numpg, startln, n */
+
+	fb_render(&gv_fb_dev);
 
 }

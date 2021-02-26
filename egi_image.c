@@ -24,6 +24,7 @@ midaszhou@yahoo.com
 #include "egi_math.h"
 #include "egi_log.h"
 #include "egi_timer.h"
+#include "egi_debug.h"
 
 typedef struct fbdev FBDEV; /* Just a declaration, referring to definition in egi_fbdev.h */
 
@@ -2373,6 +2374,7 @@ EGI_IMGBUF* egi_imgbuf_rotBlockCopy( EGI_IMGBUF *eimg, EGI_IMGBUF *oimg, int hei
         if( fp16_sin[30] == 0) {
 		printf("%s: Start to create fixed point trigonometric table...\n",__func__);
                 mat_create_fpTrigonTab();
+		egi_dpstd("Finish mat_create_fpTrigonTab().\n");
 	}
 
 	/* Input oimg is NULL */

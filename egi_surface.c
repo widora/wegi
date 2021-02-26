@@ -17,6 +17,8 @@ Jurnal
 	1. Add surface_compare_zseq() and surface_insertSort_zseq().
 2021-02-24:
 	1. Add EGI_SURFUSER, egi_register_surfuser()/egi_unregister_surfuser()
+2021-02-25:
+	1. Add mutex_lock and mutexattr for surface
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -103,63 +105,62 @@ int egi_create_memfd(const char *name, size_t memsize)
 }
 
 /*-------------------------------------------------
-Mmap fd to get pointer to an EGI_SURFACE
+Mmap fd to get pointer to an EGI_SURFSHMEM
 
 Note: memfd NOT close here!
 
 @memfd:   A file descriptor created by memfd_create.
 
 Reutrn:
-	A pointer to EGI_SURFACE	OK
+	A pointer to EGI_SURFSHMEM	OK
 	NULL				Fails
 --------------------------------------------------*/
-EGI_SURFACE *egi_mmap_surface(int memfd)
+EGI_SURFSHMEM *egi_mmap_surfshmem(int memfd)
 {
-	EGI_SURFACE *eface=NULL;
+	EGI_SURFSHMEM *surfshmem=NULL;
         struct stat sb;
 
         if (fstat(memfd, &sb)<0) {
-                //printf("%s: fstat Err'%s'.\n", __func__, strerror(errno));
 		egi_dperr("fstat");
                 return NULL;
         }
 
-        eface=mmap(NULL, sb.st_size, PROT_READ|PROT_WRITE, MAP_SHARED, memfd, 0);
-        if(eface==MAP_FAILED) {
-                //printf("%s: Fail to mmap memfd! Err'%s'.\n", __func__, strerror(errno));
+        surfshmem=mmap(NULL, sb.st_size, PROT_READ|PROT_WRITE, MAP_SHARED, memfd, 0);
+        if(surfshmem==MAP_FAILED) {
 		egi_dperr("Fail to mmap memfd!");
                 return NULL;
         }
 
-	return eface;
+	return surfshmem;
 }
 
-/*------------------------------------------
-Unmap an EGI_SURFACE.
 
-@eface:  Pointer to EGI_SURFACE.
+/*------------------------------------------
+Unmap an EGI_SURFSHMEM.
+
+@eface:  Pointer to EGI_SURFSHMEM.
 
 Return:
 	0	OK
 	<0	Fails
 ------------------------------------------*/
-int egi_munmap_surface(EGI_SURFACE **eface)
+int egi_munmap_surfshmem(EGI_SURFSHMEM **shmem)
 {
-	if(eface==NULL|| (*eface)==NULL)
+	if(shmem==NULL|| (*shmem)==NULL)
 		return 0;
 
-	if( *eface==MAP_FAILED )
+	if( *shmem==MAP_FAILED )
 		return 0;
 
         /* Unmap surface */
-        if( munmap(*eface, (*eface)->memsize)!=0 ) {
+        if( munmap(*shmem, (*shmem)->shmsize)!=0 ) {
         	//printf("%s: Fail to unmap eface!\n",__func__);
 		egi_dperr("Fail to unmap eface!");
 		return -1;
 	}
 
-	/* Reset *eface */
-	*eface = NULL;
+	/* Reset *shmem */
+	*shmem = NULL;
 
 	return 0;
 }
@@ -238,7 +239,7 @@ void surface_insertSort_zseq(EGI_SURFACE **surfaces, int n)
 
 	/* Reset all surface->id as index of surfman->surfaces[], Reset all zseq*/
 	for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {
-		if(surfaces[i]==NULL) {
+		if(surfaces[i]==NULL) {  /* NULL followed by NULL */
 			break;
 		}
 		else {
@@ -270,7 +271,7 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 
 	/* Check input */
 	if( colorType != SURF_RGB565 && colorType != SURF_RGB565_A8 ) {
-		egi_dpstd("NOW Only support colorType SURF_RGB565 AND SURF_RGB565_A8!\n");
+		egi_dpstd("NOW Only support colorType for SURF_RGB565 and SURF_RGB565_A8!\n");
 		return NULL;
 	}
 
@@ -287,32 +288,33 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 		free(surfuser);
 		return NULL;
 	}
+	egi_dpstd("Uclient succeed to connect to '%s'.\n", svrpath);
 
-	/* 3. Request for a surface */
-	surfuser->surface=ering_request_surface( surfuser->uclit->sockfd, x0, y0, w, h, colorType);
-	if(surfuser->surface==NULL) {
+	/* 3. Request for a surface and get shared memory data */
+	surfuser->surfshmem=ering_request_surface( surfuser->uclit->sockfd, x0, y0, w, h, colorType);
+	if(surfuser->surfshmem==NULL) {
 		egi_dpstd("Fail to request surface!\n");
 		unet_destroy_Uclient(&surfuser->uclit);
 		free(surfuser);
 		return NULL;
 	}
 
-	/* 4. Allocate an EGI_IMGBUF */
+	/* 4. Allocate an EGI_IMGBUF, for its vfbdev. */
 	surfuser->imgbuf=egi_imgbuf_alloc();
 	if(surfuser->imgbuf==NULL) {
 		egi_dpstd("Fail to allocate imgbuf!\n");
-		egi_munmap_surface(&surfuser->surface);
+		egi_munmap_surfshmem(&surfuser->surfshmem);
 		unet_destroy_Uclient(&surfuser->uclit);
 		free(surfuser);
 		return NULL;
 	}
 
 	/* 5. Map surface data to imgbuf */
-	surfuser->imgbuf->width = surfuser->surface->width;
-	surfuser->imgbuf->height = surfuser->surface->height;
-	surfuser->imgbuf->imgbuf = (EGI_16BIT_COLOR *)surfuser->surface->color; /* SURF_RGB565 ! */
-        if( surfuser->surface->off_alpha >0 )
-        	surfuser->imgbuf->alpha = (EGI_8BIT_ALPHA *)(surfuser->surface+surfuser->surface->off_alpha);
+	surfuser->imgbuf->width = w;
+	surfuser->imgbuf->height = h;
+	surfuser->imgbuf->imgbuf = (EGI_16BIT_COLOR *)surfuser->surfshmem->color; /* SURF_RGB565 ! */
+        if( surfuser->surfshmem->off_alpha >0 )
+        	surfuser->imgbuf->alpha = (EGI_8BIT_ALPHA *)(surfuser->surfshmem->color+surfuser->surfshmem->off_alpha);
         else
                 surfuser->imgbuf->alpha = NULL;
 
@@ -322,7 +324,7 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 		surfuser->imgbuf->imgbuf=NULL; /* Unlink to surface data before free imgbuf */
 		surfuser->imgbuf->alpha=NULL;
 		egi_imgbuf_free2(&surfuser->imgbuf);
-		egi_munmap_surface(&surfuser->surface);
+		egi_munmap_surfshmem(&surfuser->surfshmem);
 		unet_destroy_Uclient(&surfuser->uclit);
 		free(surfuser);
 		return NULL;
@@ -336,7 +338,7 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 /*---------------------------------------------------------
 Unregister/destory an EGI_SURFUSER.
 
-!!! WARNING !!! Unlink imgbuf data before destory the surfuser.
+!!! WARNING !!! Imgbuf data is unlinked before destory the surfuser.
 
 @surfuser:	Pointer to pointer to an EGI_SURFUSER
 
@@ -360,7 +362,7 @@ int egi_unregister_surfuser(EGI_SURFUSER **surfuser)
 	egi_imgbuf_free2(&(*surfuser)->imgbuf);
 
         /* 3. Unmap surface */
-        if( egi_munmap_surface(&(*surfuser)->surface) !=0 )
+        if( egi_munmap_surfshmem(&(*surfuser)->surfshmem) !=0 )
 		ret = -1;
 
         /* 4. Free uclit */
@@ -377,7 +379,7 @@ int egi_unregister_surfuser(EGI_SURFUSER **surfuser)
 
 /*---------------------------------------------------------
 Request a surface from the Surfman via local socket.
-Return a surface pointer to shared memory space.
+Return a surfshmem pointer to shared memory space.
 
 Note:
 1. It will be BLOCKED while waiting for reply.
@@ -389,15 +391,14 @@ Note:
 @x0,y0	   Initial origin of the surface.
 @w,h	   Width and height of a surface.
 @colorType	Surface color type
-//@pixsize   Pixel size. as of 16bits/24bits/32bits color.
 	   Also including alpha size!
 Return:
-	A pointer to EGI_SURFACE	OK
+	A pointer to EGI_SURFSHEM	OK
 	NULL				Fails
 ----------------------------------------------------------*/
-EGI_SURFACE *ering_request_surface(int sockfd, int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType)
+EGI_SURFSHMEM *ering_request_surface(int sockfd, int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType)
 {
-	EGI_SURFACE *eface;
+	EGI_SURFSHMEM *surfshm=NULL;
 
 	struct msghdr msg={0};
 	struct cmsghdr *cmsg;
@@ -452,6 +453,8 @@ EGI_SURFACE *ering_request_surface(int sockfd, int x0, int y0, int w, int h, SUR
 			case ERING_MAX_LIMIT:
 				egi_dpstd("Request fails for 'ERING_MAX_LIMIT'!\n");
 				break;
+			default:
+				egi_dpstd("Request fails for undefined error!\n");
 		}
 		return NULL;
 	}
@@ -464,20 +467,20 @@ EGI_SURFACE *ering_request_surface(int sockfd, int x0, int y0, int w, int h, SUR
 	egi_dpstd("get memfd=%d\n", memfd);
 
   	/* 8. Mmap memfd to get pointer to EGI_SURFACE */
-	eface=egi_mmap_surface(memfd);
-	if(eface==NULL) {
+	surfshm=egi_mmap_surfshmem(memfd);
+	if(surfshm==NULL) {
 		close(memfd);
 		return NULL;
 	}
 
-	/* 9. Close memfd */
+	/* 9. Close memfd  */
 	if(close(memfd)<0) {
 		//printf("Fail to close memfd, Err'%s'.!\n", strerror(errno));
 		egi_dperr("Fail to close memfd.");
 	}
 
 	/* OK */
-	return eface;
+	return surfshm;
 }
 
 
@@ -495,7 +498,6 @@ Return:
 static void* surfman_request_process_thread(void *arg)
 {
 	int i;  	/* USERV_MAX_CLIENTS */
-//	int k;		/* SURFMAN_MAX_SURFACES */
 	int rfds;
 	int csFD;
 	int maxfd;
@@ -504,9 +506,7 @@ static void* surfman_request_process_thread(void *arg)
 	int nrcv;
 	//int nsnd;
 
-//	int pixsize;
 	int memfd;
-	//size_t memsize;
 	int sfID; /* surface id, as index of surfman->surface[] */
 
 	/* Surface request MSG buffer */
@@ -534,7 +534,7 @@ static void* surfman_request_process_thread(void *arg)
 	tm.tv_sec=0;
 	tm.tv_usec=100000;
 
-	/* Enter routine */
+	/* Enter routine loop */
 	egi_dpstd("Start routine job...\n");
 	surfman->repthread_on=true;
 	while( surfman->cmd != 1 ) {
@@ -564,7 +564,7 @@ static void* surfman_request_process_thread(void *arg)
 		rfds=select(maxfd+1, &set_uclits, NULL, NULL, &tm);
 		/* Case 1: No readbale fds, No request */
 		if(rfds==0) {
-//			egi_dpstd("select() rfd=0!\n");
+			//egi_dpstd("select() rfd=0!\n");
 			usleep(50000);
 			continue;
 		}
@@ -733,7 +733,17 @@ EGI_SURFMAN *egi_create_surfman(const char *svrpath)
         }
 	egi_dpstd("surfman_request_process_thread starts!\n");
 
-	/* 5. Init FBDEV */
+	/* 5. Allocate imgbuf */
+	surfman->imgbuf=egi_imgbuf_alloc();
+	if(surfman->imgbuf==NULL) {
+		egi_dpstd("Fail to allocate imgbfu!\n");
+		/* -------- NOW: use egi_destroy_surfman() aft surfman->repthread, ... */
+		egi_destroy_surfman(&surfman);
+		pthread_mutex_destroy(&surfman->surfman_mutex);
+		return NULL;
+	}
+
+	/* 6. Init FBDEV */
 	surfman->fbdev.devname = gv_fb_dev.devname;  /* USE global FBDEV */
 	if( init_fbdev(&surfman->fbdev) !=0 ) {
 		egi_dpstd("Fail to init_fbdev\n");
@@ -742,7 +752,7 @@ EGI_SURFMAN *egi_create_surfman(const char *svrpath)
 	}
 	egi_dpstd("surfman->fbdev is initialized!\n");
 
-	/* 6. Start surfman_render_thread() */
+	/* 7. Start surfman_render_thread() */
         if( pthread_create(&surfman->renderThread, NULL, (void *)surfman_render_thread, surfman) !=0 ) {
                 egi_dperr("Fail to launch surfman->renderThread to render surfaces!");
 		egi_destroy_surfman(&surfman);
@@ -791,7 +801,11 @@ int egi_destroy_surfman(EGI_SURFMAN **surfman)
 		release_fbdev(&(*surfman)->fbdev);
 	}
 
-	/* 3. Join repthread */
+	/* 3. Free imgbuf */
+	if((*surfman)->imgbuf)
+		egi_imgbuf_free2(&(*surfman)->imgbuf);
+
+	/* 4. Join repthread */
 //	if( (*surfman)->repthread_on ) {  /*  NOPE! If repthread starts but repthread_on not set, it will cause mem leakage then. */
 		(*surfman)->cmd=1; /* CMD to end thread */
 		egi_dpstd("Join repthread...\n");
@@ -802,26 +816,26 @@ int egi_destroy_surfman(EGI_SURFMAN **surfman)
 		}
 //	}
 
-	/* 4. unregister surfusers: close userv->sessions[].csFD and unmap all related surfaces! */
+	/* 5. Unregister surfusers: close userv->sessions[].csFD and unmap all related surfaces! */
 	for(i=0; i<USERV_MAX_CLIENTS; i++) {
 		if( userv->sessions[i].csFD >0 )
 			if( surfman_unregister_surfUser(*surfman, i)<0 )
 				ret = -( (-ret) | (1<<3) );
 	}
 
-	/* 5. Destroy userver */
+	/* 6. Destroy userver */
 	if( unet_destroy_Userver(&userv)!=0 ) {
 		egi_dpstd("Fail to destroy userv!\n");
 		ret += -(1<<4);
 		//Go on...
 	}
 
-	/* 6. Destroy surfman_mutex */
+	/* 7. Destroy surfman_mutex */
         pthread_mutex_unlock(&(*surfman)->surfman_mutex); /* Necessary ??? */
         if(pthread_mutex_destroy(&(*surfman)->surfman_mutex) !=0 )
 		egi_dperr("Fail to destroy surfman_mutex!");
 
-	/* 6. Free self */
+	/* 8. Free self */
 	free( *surfman );
 	*surfman=NULL;
 
@@ -838,8 +852,6 @@ as specified by userID.
 @x0,y0     	Initial origin of the surface.
 @w,h       	Width and height of a surface.
 @colorType	Surface color type
-//@pixsize   	Pixel size. as of 16bits/24bits/32bits color.
-		Also including alpha size!
 
 TODO:
 1. To deal with more colorType.
@@ -851,12 +863,11 @@ Return:
 int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 			      int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType )
 {
-	size_t memsize;
+	size_t shmsize;
 	int memfd;
 	int pixsize;
 	EGI_SURFACE *eface=NULL;
 	int k;
-	int id;
 
 	/* Check input */
 	if(surfman==NULL)
@@ -867,7 +878,7 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 		return -1;
 
         /* Get mutex lock */
-	egi_dpstd("Get mutex lock...\n");
+	egi_dpstd("Get surfman mutex ...\n");
         if(pthread_mutex_lock(&surfman->surfman_mutex) !=0 ) {
                 return -1;
         }
@@ -887,29 +898,59 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 		return -3;
 	}
 
-	/* Get pixel size */
-	pixsize=surf_get_pixsize(colorType);
-
-	/* 2. Create memfd, the file descriptor is open with (O_RDWR) and O_LARGEFILE. */
-	memsize=sizeof(EGI_SURFACE)+w*h*pixsize; /* 1bytes for alpha */
-	memfd=egi_create_memfd("eface_test", memsize);
-	if(memfd<0) {
-		egi_dpstd("Fail to create memfd!\n");
+	/* 2. Allocate EGI_SURFACE */
+	eface=calloc(1, sizeof(EGI_SURFACE));
+	if(eface==NULL) {
+		egi_dperr("Fail to calloc eface!");
 		pthread_mutex_unlock(&surfman->surfman_mutex);
 		return -4;
 	}
 
-	/* 3. Mmap to get an EGI_SURFACE */
-	eface=egi_mmap_surface(memfd);
-	if(eface==NULL) {
-		egi_dpstd("Fail to mmap surface!\n");
-		close(memfd);
+	/* 3. Get pixel size, pixsize also includes alpha byte. */
+	pixsize=surf_get_pixsize(colorType);
+
+	/* 4. Create memfd, the file descriptor is open with (O_RDWR) and O_LARGEFILE. */
+	shmsize=w*h*pixsize; /* pixsize: color+alpha bits. */
+	memfd=egi_create_memfd("surface_shmem", shmsize);
+	if(memfd<0) {
+		egi_dpstd("Fail to create memfd!\n");
+
+		free(eface);
+
 		pthread_mutex_unlock(&surfman->surfman_mutex);
 		return -5;
 	}
+
+	/* 5. Mmap to get an EGI_SURFSHMEM */
+	eface->surfshmem=egi_mmap_surfshmem(memfd);
+	if(eface->surfshmem==NULL) {
+		egi_dpstd("Fail to mmap surface!\n");
+
+		close(memfd);
+		free(eface);
+
+		pthread_mutex_unlock(&surfman->surfman_mutex);
+		return -6;
+	}
 	/* Do NOT close(memfd) here! To be closed by surfman_unregister_surface(). */
 
-	/* 4. Register to surfman->surfaces[],  TODO: Move this item code forward!!!  */
+	/* 6. Init surface mutex_lock */
+	if( pthread_mutexattr_setpshared(&(eface->surfshmem)->mutexattr,PTHREAD_PROCESS_SHARED) !=0 ) {
+		egi_dpstd("Fail to set shared mutexattr!");
+		// GO on anyway...
+	}
+	if(pthread_mutex_init(&eface->surfshmem->mutex_lock, &eface->surfshmem->mutexattr) != 0) {
+                egi_dperr("Fail to initiate mutex_lock.");
+
+		egi_munmap_surfshmem(&eface->surfshmem);
+		close(memfd);
+		free(eface);
+
+		pthread_mutex_unlock(&surfman->surfman_mutex);
+                return -5;
+        }
+
+	/* 7. Register to surfman->surfaces[] */
 	for(k=0; k<SURFMAN_MAX_SURFACES; k++) {
 		if( surfman->surfaces[k]==NULL ) {
 			surfman->surfaces[k]=eface;
@@ -922,58 +963,72 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 	/* Double check */
 	if(k==SURFMAN_MAX_SURFACES) {
 		egi_dpstd("OOOPS! k==SURFMAN_MAX_SURFACES!");
-		egi_munmap_surface(&eface);
+
+        	pthread_mutexattr_destroy(&eface->surfshmem->mutexattr);
+       		pthread_mutex_destroy(&eface->surfshmem->mutex_lock);
+
+		egi_munmap_surfshmem(&eface->surfshmem);
 		close(memfd);
+		free(eface);
+
 		pthread_mutex_unlock(&surfman->surfman_mutex);
 		return -6;
 	}
 
-	/* 5. Assign ID and other members */
+	/* 6. Assign ID and other members */
+	/* 6.1 Surfman part */
 	eface->id=k;		 /* <--- ID */
 	eface->csFD=surfman->userv->sessions[userID].csFD;  /* <--- csFD / surf_userID */
 	eface->memfd=memfd;
-	eface->memsize=memsize;
-	eface->x0=x0;
-	eface->y0=y0;
+	eface->shmsize=shmsize;
 	eface->width=w;
 	eface->height=h;
 	eface->colorType=colorType;
-	//eface->pixsize=pixsize;
-	/* Set zseq as scnt */
-	eface->zseq=surfman->scnt; /* ==scnt, The lastest surface has the biggest zseq!  All surface.zseq >0!  */
 
-	/* 6. Assign Color/Alpha offset */
-	eface->off_color = eface->color - (unsigned char *)eface;
+	/* Set zseq as scnt m this can NOT ensure to bring the surface to top.???  */
+	// eface->zseq=surfman->scnt; /* ==scnt, The lastest surface has the biggest zseq!  All surface.zseq >0!  */
+	/* Set zseq as  SURFMAN_MAX_SURFACES */
+	eface->zseq=SURFMAN_MAX_SURFACES;
+
+	/* 6.2 For surfshmem */
+	eface->surfshmem->shmsize=shmsize;
+	eface->surfshmem->vw=w;
+        eface->surfshmem->vh=h;
+        eface->surfshmem->x0=x0;
+        eface->surfshmem->y0=y0;
+
+	/* 6.3. Assign Color/Alpha offset for shurfshmem */
+	//eface->off_color = eface->color - (unsigned char *)eface;
 	/* For independent ALPHA data */
 	switch( colorType ) {
 		case SURF_RGB565_A8:
-			eface->off_alpha = eface->off_color + 2*eface->width*eface->height;
+			eface->surfshmem->off_alpha =2*w*h;
 			break;
 		case SURF_RGB888_A8:
-			eface->off_alpha = eface->off_color + 3*eface->width*eface->height;
+			eface->surfshmem->off_alpha =3*w*h;
 			break;
 		default: /* =0, NOT independent alpha data */
-			eface->off_alpha =0;
+			eface->surfshmem->off_alpha =0;
 	}
 
-	/* 7. Sort surfman->surfaces[] in acending order of their zseq value */
+	/* 7. Sort surfman->surfaces[] in ascending order of their zseq value */
 	surface_insertSort_zseq(&surfman->surfaces[0], SURFMAN_MAX_SURFACES);
 
 /* TEST: ------------ */
 	egi_dpstd("insertSort zseq: ");
 	for(k=0; k<SURFMAN_MAX_SURFACES; k++)
 		printf(" %d", surfman->surfaces[k] ? surfman->surfaces[k]->zseq : 0);
+	printf("\n");
 
-	/* 8. Get the right id NOW */
-	id=eface->id;
 
 /* ------- <<<  Critical Zone  */
         /* put mutex lock for ineimg */
         pthread_mutex_unlock(&surfman->surfman_mutex);
 
 	/* OK */
-	return id;
+	return eface->id;
 }
+
 
 /*----------------------------------------------------------------
 Unregister/unmap a surface from surfman->surfaces[].
@@ -1008,26 +1063,38 @@ int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID )
 		return -3;
 	}
 
-	/* 1. Close memfd */
-        if(close(surfman->surfaces[surfID]->memfd)<0) {
+	/* Get pointer to the surface */
+	eface=surfman->surfaces[surfID];
+
+  	/* 1. Destroy mutex lock */
+        if( pthread_mutex_lock(&eface->surfshmem->mutex_lock) !=0 )
+                egi_dperr("Fail to unlock mutexattr!");
+        if(pthread_mutexattr_destroy(&eface->surfshmem->mutexattr) !=0 )
+                egi_dperr("Fail to destroy mutexattr!");
+        if(pthread_mutex_destroy(&eface->surfshmem->mutex_lock) !=0 ) /* TODO: Fail to destroy mutex_lock! Err'Success'. */
+                egi_dperr("Fail to destroy mutex_lock!");
+
+	/* 2. Close memfd */
+        if(close(eface->memfd)<0) {
                 egi_dperr("close(memfd)");
 	        pthread_mutex_unlock(&surfman->surfman_mutex);
 		return -4;
 	}
 
-	/* 2. Munmap surface */
-	eface=surfman->surfaces[surfID];
-	if( egi_munmap_surface(&eface) !=0 ) {
-		egi_dpstd("Fail to munamp surface[%d]!\n", surfID);
+	/* 3. Munmap surfshmem */
+	if( egi_munmap_surfshmem(&eface->surfshmem) !=0 ) {
+		egi_dpstd("Fail to munamp surfaces[%d]->surfshmem!\n", surfID);
 	        pthread_mutex_unlock(&surfman->surfman_mutex);
 		return -5;
 	}
+	/* Free surface struct */
+	free(surfman->surfaces[surfID]);
 
-	/* 3. Reset surfman->surfaces and update scnt */
+	/* 4. Reset surfman->surfaces and update scnt */
 	surfman->surfaces[surfID]=NULL; /* !!! */
 	surfman->scnt -=1;
 
-	/* 4. Sort surfman->surfaces[] in acending order of their zseq value */
+	/* 5. Re_sort surfman->surfaces[] in ascending order of their zseq value */
 	surface_insertSort_zseq(&surfman->surfaces[0], SURFMAN_MAX_SURFACES);
 
 /* TEST: ------------ */
@@ -1035,15 +1102,16 @@ int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID )
 		egi_dpstd(" %d", surfman->surfaces[i] ? surfman->surfaces[i]->zseq : 0);
 	printf("\n");
 
-	/* 5. Update surfman data */
+
 	egi_dpstd("\t\t----- (-)surfaces[%d], scnt=%d -----\n", surfID, surfman->scnt);
 
-
+/* ------- <<<  Critical Zone  */
         /* put mutex lock for ineimg */
         pthread_mutex_unlock(&surfman->surfman_mutex);
 
 	return 0;
 }
+
 
 
 /*-------------------------------------------------------------------
@@ -1088,40 +1156,51 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID)
 		return -2;
 	}
 
-	/* 2. unmap all related surfaces */
+	/* 2. Unmap all related surfaces->surfshmem and free surfaces */
 	cnt=0;
 	for(k=0; k<SURFMAN_MAX_SURFACES; k++) {
-		if( surfman->surfaces[k]!=NULL && surfman->surfaces[k]->csFD == csFD ) {
+		/* Get eface as ref. */
+		eface=surfman->surfaces[k];
+		if( eface!=NULL && eface->csFD == csFD ) {
 
 			/* Unregister surfaces, maybe more than 1! */
 		 	/* TODO: Following to be replaced by surfman_unregister_surface() XXX NOPE, double mutex_lock!!! */
 
-			/* Close memfd */
+		  	/* A.1 Destroy mutex lock */
+		        if( pthread_mutex_lock(&eface->surfshmem->mutex_lock) !=0 )
+                		egi_dperr("Fail to unlock mutexattr!");
+		        if(pthread_mutexattr_destroy(&eface->surfshmem->mutexattr) !=0 )
+                		egi_dperr("Fail to destroy mutexattr!");
+		        if(pthread_mutex_destroy(&eface->surfshmem->mutex_lock) !=0 ) /* TODO: Fail to destroy mutex_lock! Err'Success'. */
+                		egi_dperr("Fail to destroy mutex_lock!");
+
+			/* A.2 Close memfd */
 		        if(close(surfman->surfaces[k]->memfd)<0) {
                 		egi_dperr("close(memfd)");
 			        //pthread_mutex_unlock(&surfman->surfman_mutex);
 		                //return -4;  Go on....
         		}
-			/* Unmap related surfaces */
-			eface=surfman->surfaces[k];
-			if( egi_munmap_surface(&eface)==0 ) {
-				/* !!! */
-				surfman->surfaces[k]=NULL;
-				/* Update counter */
-				surfman->scnt -=1;
 
-		        	egi_dpstd("\t\t----- (-)surfaces[%d], scnt=%d -----\n", k, surfman->scnt);
-				cnt++;
-			}
-			else {
+			/* A.3 Unmap and related surfaces */
+			if( egi_munmap_surfshmem(&eface->surfshmem) !=0 ) {
 				egi_dpstd("Fail to unmap surfman->surfaces[%d]!\n", k);
-				//Go on ....
 			}
+			//Else:  Go on ....
+
+			/* A.4 Free surface struct */
+			free(surfman->surfaces[k]);
+			surfman->surfaces[k]=NULL;
+
+			/* A.5 Update surface counter */
+			surfman->scnt -=1;
+		        egi_dpstd("\t\t----- (-)surfaces[%d], scnt=%d -----\n", k, surfman->scnt);
+
+			/* Counter for released surfaces */
+			cnt++;
 		}
 	}
 	if(cnt==0)
 		egi_dpstd("OOOPS! No surface related to surfUser: userv->sessions[%d].\n", sessionID);
-
 
 	/* 3. close csFD */
 	if( close(csFD)!=0 )
@@ -1134,7 +1213,7 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID)
 	surfman->userv->ccnt -= 1;
        	egi_dpstd("\t\t----- (-)userv->sessions[%d], ccnt=%d -----\n", sessionID, surfman->userv->ccnt);
 
-	/* 5. Resort surfman->surfaces[] in acending order of their zseq value */
+	/* 5. Resort surfman->surfaces[] in ascending order of their zseq value */
 	surface_insertSort_zseq(&surfman->surfaces[0], SURFMAN_MAX_SURFACES);
 
 /* ------- <<<  Critical Zone  */
@@ -1144,6 +1223,8 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID)
 	return cnt;
 }
 
+
+
 /*-----------------------------------------------
 Render surfman->surfaces[] one by one, and bring
 them to FB to display.
@@ -1151,102 +1232,107 @@ NOW: only supports SURF_RGB565
 
 TODO: More surfaces[]->colorType support.
 
-
 -----------------------------------------------*/
 static void * surfman_render_thread(void *arg)
 {
 	int i;
 	EGI_IMGBUF *imgbuf=NULL; /* An EGI_IMGBUF to temporarily hold surface color data */
+	EGI_SURFSHMEM *surfshmem=NULL; /* Ref. */
 	EGI_SURFACE *surface=NULL;
 	EGI_SURFMAN *surfman=(EGI_SURFMAN *)arg;
 	if( surfman==NULL )
 		return (void *)-1;
 
-	/* To confirm FBDEV open and available */
+	/* A.1 To confirm FBDEV open and available */
 	if( surfman->fbdev.fbfd <=0 ) {
 		egi_dpstd("Surfman fbdev.fbfd is invalid!\n");
 		return (void *)-2;
 	}
 
-	/* Allocate imgbuf */
+	/* A.2 Allocate imgbuf */
 	imgbuf=egi_imgbuf_alloc();
 	if(imgbuf==NULL) {
 		egi_dpstd("Fail to allocate imgbfu!\n");
-		return (void *)-4;
+		return (void *)-3;
 	}
 
-	/* Routine of rendering registered surfaces */
+	/* A.3 Routine of rendering registered surfaces */
 	surfman->renderThread_on = true;
 	while( surfman->cmd !=1 ) {
-		/* Draw backgroud */
+		/* B.1 Draw backgroud */
 		fb_clear_workBuff(&surfman->fbdev, WEGI_COLOR_GRAY2);
 
-		/* Get surfman_mutex ONE BY ONE!  TODO: TBD */
+		/* B.2 Get surfman_mutex ONE BY ONE!  TODO: TBD */
 	        if(pthread_mutex_lock(&surfman->surfman_mutex) !=0 ) {
 			egi_dperr("Fail to get surfman_mutex!");
-               		usleep(1000);
+               		tm_delayms(5);
 			continue;
        		}
- /* ------ >>>  Critical Zone  */
+ /* ------ >>>  Surfman Critical Zone  */
 
-		/* Draw surfaces: TODO, surface_mutex  */
+		/* B.3 Draw surfaces: TODO, surface_mutex  */
 		//for(i=0; i<SURFMAN_MAX_SURFACES; i++) {
 		/* Traverse from surface with bigger zseqs to smller ones */
 		for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {
 			//egi_dpstd("Draw surfaces[%d]...\n",i);
 
-			/* Check surface availability */
+			/* C.1 Check surface availability */
 			surface = surfman->surfaces[i];
-			/* As surfman->surfaces sorted in ascending order of zseq */
+			/* As surfman->surfaces sorted in ascending order of zseq, NULL followed by NULL. */
 			if( surface == NULL ) {
-			        pthread_mutex_unlock(&surfman->surfman_mutex);
+			        //pthread_mutex_unlock(&surfman->surfman_mutex);
 				break;
 			}
+
+			/* C.2 Get surfshmem as ref. */
+			surfshmem=surface->surfshmem;
 
 	/* TEST: ------------ */
 			printf("surfaces[%d].zseq= %d\n", i, surface->zseq);
 
-			/* Render surface */
-			if( surface !=NULL ) {
-				/* TODO: NOW support SURF_RGB565 only */
-				if( surface->colorType != SURF_RGB565 ) {
-				        //pthread_mutex_unlock(&surfman->surfman_mutex);
-					continue;
-				}
-
-			#if 0	/* TEST: ------ */
-				//egi_dpstd("Draw surfaces[%d]...\n",i);
-				draw_filled_rect2( &surfman->fbdev, egi_256color_code(mat_random_range(255)),
-							surface->x0, surface->y0,
-							surface->x0+surface->width-1, surface->y0+surface->height-1 );
-			        pthread_mutex_unlock(&surfman->surfman_mutex);
+			/* C.2 Get surface mutex_lock */
+		        if(pthread_mutex_lock(&surfshmem->mutex_lock) !=0 ) {
+				egi_dperr("Fail to get mutex_lock for shmem of surface[%d].", i);
 				continue;
-			#endif
+       			}
+	/* ------ >>>  Surfshmem Critical Zone  */
 
-				/* Map surface data to EGI_IMGBUF */
-				imgbuf->width = surface->width;
-				imgbuf->height = surface->height;
-				imgbuf->imgbuf = (EGI_16BIT_COLOR *)surface->color;
-				if(surface->off_alpha >0 )
-					imgbuf->alpha = (EGI_8BIT_ALPHA *)(surface+surface->off_alpha);
-				else
-					imgbuf->alpha = NULL;
-
-				/* writeFB imgbuf */
-				egi_subimg_writeFB(imgbuf, &surfman->fbdev, 0, -1,  surface->x0, surface->y0);
-
+			/* C.3  TODO: NOW support SURF_RGB565 only */
+			if( surface->colorType != SURF_RGB565 ) {
+			        //pthread_mutex_unlock(&surfman->surfman_mutex);
+				continue;
 			}
+
+			/* C.4 Link surface data to EGI_IMGBUF */
+			imgbuf->width = surfshmem->vw; //surface->width;
+			imgbuf->height = surfshmem->vh; //surface->height;
+			imgbuf->imgbuf = (EGI_16BIT_COLOR *)surfshmem->color;
+			if(surfshmem->off_alpha >0 )
+				imgbuf->alpha = (EGI_8BIT_ALPHA *)(surfshmem->color+surfshmem->off_alpha);
+			else
+				imgbuf->alpha = NULL;
+
+			/* C.5 writeFB imgbuf */
+			egi_subimg_writeFB(imgbuf, &surfman->fbdev, 0, -1,  surfshmem->x0, surfshmem->y0);
+
+	/* ------ <<<  Surfshmem Critical Zone  */
+			/* C.6 unlock surfshmem mutex */
+			pthread_mutex_unlock(&surfshmem->mutex_lock);
 
 		} /* END for() traverse all surfaces */
 
-/* ------- <<<  Critical Zone  */
-	        /* put mutex lock for ineimg */
+/* ------- <<<  Surfman Critical Zone  */
+	        /* B.4 put mutex lock for ineimg */
 		pthread_mutex_unlock(&surfman->surfman_mutex);
 
-		/* Render and bring to FB */
+		/* B.5 Render and bring to FB */
 		fb_render(&surfman->fbdev);
-		tm_delayms(200);
+		tm_delayms(50);
 	}
+
+	/* Unlink imgbuf data */
+	imgbuf->imgbuf=NULL;
+	imgbuf->alpha=NULL;
 
 	/* Free imgbuf */
 	egi_imgbuf_free2(&imgbuf);
@@ -1257,3 +1343,35 @@ static void * surfman_render_thread(void *arg)
 	return (void *)0;
 }
 
+#if 0 //xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+
+#if 0
+/*---------------------------------------------------------------
+Write image of a surface to FB.
+
+@surfman	Pointer to an EGI_SURFMAN
+@surface	Pointer to an EGI_SURFACE
+
+----------------------------------------------------------------*/
+int surfman_display_surface(EGI_SURFMAN *surfman, EGI_SURFACE *surface)
+{
+        int i;
+
+        if( surfman==NULL || surface==NULL )
+		return -1;
+
+        /* 1. To confirm FBDEV open and available */
+        if( surfman->fbdev.fbfd <=0 ) {
+                egi_dpstd("Surfman fbdev.fbfd is invalid!\n");
+                return -2;
+        }
+
+	
+
+
+}
+#endif
+
+
+#endif // xxxxxxxxxxxxxxxxxxxxxxxxxx

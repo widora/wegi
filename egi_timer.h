@@ -47,6 +47,7 @@ extern char tm_strbuf[];
 /* functions */
 long long unsigned int tm_get_tmstampms(void);
 /*  SUBSTITUE: size_t strftime(char *s, size_t max, const char *format, const struct tm *tm) */
+/* int ftime(struct timeb *tp): returns the current time as seconds and milliseconds since the Epoch */
 void tm_get_strtime(char *tmbuf);
 void tm_get_strtime2(char *tmbuf, const char *appen);
 void tm_get_strday(char *tmdaybuf);

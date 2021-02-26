@@ -6,7 +6,7 @@ AR= $(STAGING_DIR)/toolchain-mipsel_24kec+dsp_gcc-4.8-linaro_uClibc-0.9.33.2/bin
 
 SRC_PATH = /home/midas-zhou/wegi
 
-APP = recmp3 test_snd test_tone test_recplay
+APP = test_pcmbuf recmp3 test_snd test_tone test_recplay
 #shine_test2
 #autorecord4
 
@@ -52,7 +52,8 @@ test_minimad: test_minimad.c
 -Wl,-Bstatic -lesound -legi -Wl,-Bdynamic -lmad
 
 test_pcmbuf: test_pcmbuf.c
-	$(CC) -o test_pcmbuf test_pcmbuf.c $(CFLAGS) $(LDFLAGS) $(LIBS) -lesound -pthread
+	$(CC) -o test_pcmbuf test_pcmbuf.c $(CFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) -Wl,-Bstatic -lesound -legi \
+-Wl,-Bdynamic
 
 test_snd: test_snd.c
 	$(CC) -o test_snd test_snd.c $(CFLAGS) $(LDFLAGS) $(LIBS) -lesound

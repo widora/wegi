@@ -92,21 +92,23 @@ int main(int argc, char **argv)
 
 	FBDEV 		*vfbdev=NULL;	/* Only a ref. to surfman->vfbdev  */
 	EGI_IMGBUF 	*imgbuf=NULL;	/* Only a ref. to surfman->imgbuf */
-	EGI_SURFACE	*eface=NULL;	/* Only a ref. to surfman->surface */
+	EGI_SURFSHMEM	*surfshmem=NULL;	/* Only a ref. to surfman->surface */
 
-        /* Load freetype fonts */
+	SURF_COLOR_TYPE colorType=SURF_RGB565;
+
+#if 1        /* Load freetype fonts */
         printf("FTsymbol_load_sysfonts()...\n");
         if(FTsymbol_load_sysfonts() !=0) {
                 printf("Fail to load FT sysfonts, quit.\n");
                 return -1;
         }
-
+#endif
 
     while(1) { /////////// LOOP TEST ///////////////
 
 	/* Create a surfuser */
-	surfuser=egi_register_surfuser(ERING_PATH, mat_random_range(320/2), mat_random_range(240/2),
-                                           80+mat_random_range(320/2), 60+mat_random_range(240/2), SURF_RGB565 );
+	surfuser=egi_register_surfuser(ERING_PATH, mat_random_range(320-50)-50, mat_random_range(240-50),
+                                          140+mat_random_range(320/2), 60+mat_random_range(240/2), colorType );
 	if(surfuser==NULL) {
 		usleep(100000);
 		continue;
@@ -115,18 +117,30 @@ int main(int argc, char **argv)
 	/* Get ref imgbuf and vfbdev */
 	vfbdev=&surfuser->vfbdev;
 	imgbuf=surfuser->imgbuf;
-	eface=surfuser->surface;
+	surfshmem=surfuser->surfshmem;
 
 	/* Set color */
 	egi_imgbuf_resetColorAlpha(imgbuf, egi_color_random(color_all), -1); /* Reset color only */
 
-	/* Draw a circle */
+	/* Draw top bar */
 	draw_filled_rect2(vfbdev,WEGI_COLOR_DARKGRAY, 0,0, imgbuf->width-1, 30);
-	draw_circle2(vfbdev, imgbuf->width/2, 60, 20, WEGI_COLOR_WHITE);
+	fbset_color2(vfbdev, WEGI_COLOR_GRAYA);
+#if 0
+	draw_wrect(vfbdev, imgbuf->width-1-(10+16+10+16), 7, imgbuf->width-1-(10+16+10), 5+16-1, 2); /* Max Icon */
+	draw_wline(vfbdev, imgbuf->width-1-(10+16), 15-1, imgbuf->width-1-10, 15-1, 2); /* Mix Icon */
+#else
+	draw_rect(vfbdev, imgbuf->width-1-(10+16+10+16), 7, imgbuf->width-1-(10+16+10), 5+16-1); /* Max Icon */
+	draw_rect(vfbdev, imgbuf->width-1-(10+16+10+16) +1, 7 +1, imgbuf->width-1-(10+16+10) -1, 5+16-1 -1); /* Max Icon */
+	draw_line(vfbdev, imgbuf->width-1-(10+16), 15-1, imgbuf->width-1-10, 15-1); 	/* Mix Icon */
+	draw_line(vfbdev, imgbuf->width-1-(10+16), 15-1 -1, imgbuf->width-1-10, 15-1 -1); 	/* Mix Icon */
+#endif
+
+	/* Draw a circle */
+//	draw_circle2(vfbdev, imgbuf->width/2, 60, 20, WEGI_COLOR_WHITE);
 
         /* Put title. */
         FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, /* FBdev, fontface */
-                                        18, 18,(const UFT8_PCHAR)"EGI Surface",   /* fw,fh, pstr */
+                                        18, 18,(const UFT8_PCHAR)"EGI_SURF",   /* fw,fh, pstr */
                                         320, 1, 0,                        /* pixpl, lines, fgap */
                                         5, 5,                         /* x0,y0, */
                                         WEGI_COLOR_WHITE, -1, 200,        /* fontcolor, transcolor,opaque */
@@ -134,8 +148,8 @@ int main(int argc, char **argv)
 
 	/* Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
-	printf("Memsize: %uBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
-			eface->memsize, eface->width, eface->height, surf_get_pixsize(eface->colorType), eface->x0, eface->y0);
+	printf("Shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
+			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
 	/* hold */
 	sleep(1);

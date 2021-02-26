@@ -248,7 +248,7 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 		else
 			EGI_PLOG(LOGLV_ERROR,"%s: res=%d, curl_easy_perform() failed! Err'%s'", __func__, res, curl_easy_strerror(res));
 		ret=-3;
-		tm_delayms(200);
+		//tm_delayms(200);
 		goto CURL_CLEANUP; //continue; /* retry ... */
 	}
 
@@ -280,7 +280,7 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 		else if( (int)doubleinfo < 0 ) {
 		  	EGI_PLOG(LOGLV_ERROR,"%s: Curl download content length < 0!",  __func__);
 			ret=-5;
-			tm_delayms(200);
+			//tm_delayms(200);
 			goto CURL_CLEANUP; //continue; /* retry ... */
 		}
 		else {
@@ -291,7 +291,7 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 	else {	/* Getinfo fails */
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to easy getinfo CURLINFO_CONTENT_LENGTH_DOWNLOAD!", __func__);
 		ret=-6;
-		tm_delayms(200);
+		//tm_delayms(200);
 		goto CURL_CLEANUP; //continue; /* retry ... */
 	}
 
@@ -300,13 +300,18 @@ CURL_CLEANUP:
 	if(ret==0)
 		break;
 
+	/* If OK, it should NOT carry out following jobs ... */
+	truncate(file_save, 0);
+	rewind(fp);	/* truncate will NOT reset file offset! */
+	tm_delayms(200);
+
 	/* Always cleanup before loop back to init curl */
 	curl_easy_cleanup(curl);
   	curl_global_cleanup();
 
  } /* End: try Max.3 times */
 
-	/* Check result, If it fails, truncate filesize to 0 before quit!  */
+	/* Check result, If it fails, truncate filesize to 0 before quit!    ??? NOT happens!! */
 	if(ret!=0) {
 		EGI_PLOG(LOGLV_ERROR, "%s: Download fails, re_truncate file size to 0...",__func__);
 
@@ -362,6 +367,14 @@ CURL_CLEANUP:
 			EGI_PLOG(LOGLV_ERROR,"%s: stat file size(%lld) is NOT same as content length downloaded size(%d)! sizedown(%d). Fails.",
 									__func__, sb.st_size, (int)doubleinfo, sizedown);
 			ret=-10;
+
+			/* Retry if i<3 ???? re_enter into for() ... OK ???  */
+			if(i<3) {
+							/* Most(all) case: i=0! */
+				EGI_PLOG(LOGLV_CRITICAL,"%s: i=%d, i<3, filesize != sizedown, retry...", __func__, i);
+				goto CURL_CLEANUP; /* To truncate file to 0 and reset offset. */
+			}
+
 			/* Resize/truncate filesize to 0! */
 			if( truncate(file_save, 0)!=0 ) {
 				EGI_PLOG(LOGLV_ERROR, "%s: [fsize error] Fail to truncate file size to 0!",__func__);

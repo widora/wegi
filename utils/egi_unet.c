@@ -147,6 +147,7 @@ EGI_USERV* unet_create_Userver(const char *svrpath)
 		egi_dperr("Fail to launch userv->acpthread!");
 		goto END_FUNC;
 	}
+	egi_dpstd("Userv accept_thread starts...\n");
 
 #if 0	/* DO NOT!!! Detach the thread */
 	if(pthread_detach(userv->acpthread)!=0) {
@@ -200,6 +201,7 @@ static void* userv_listen_thread(void *arg)
 
 	/* 2. Accepting clients ... */
 	userv->acpthread_on=true;
+	egi_dpstd("Start loop of accepting clients...\n");
 	while( userv->cmd !=1 ) {
 
 		/* 2.1 Re_count clients, and get an available userv->sessions[] for next new client. */
@@ -222,7 +224,7 @@ static void* userv_listen_thread(void *arg)
 		}
 
 		/* 2.3 Accept clients */
-		//printf("%s: accept() waiting...\n", __func__);
+		//egi_dpstd("accept() waiting...\n");
 		addrLen=sizeof(addrCLIT);
 	//csfd=accept4(userv->sockfd, (struct sockaddr *)&addrCLIT, &addrLen, SOCK_NONBLOCK|SOCK_CLOEXEC); /* flags for the new open file!!! */
 		csfd=accept(userv->sockfd, (struct sockaddr *)&addrCLIT, &addrLen);

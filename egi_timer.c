@@ -43,7 +43,7 @@ Midas Zhou
 #include "egi_fbgeom.h"
 #include "dict.h"
 
-#define EGI_ENABLE_TICK  0	/* Tick alarm signal may conflic with other app thread! OR curl? */
+#define EGI_ENABLE_TICK  0	/* Tick alarm signal may conflic with .curl? inet/unet? ... */
 
 struct itimerval tm_val, tm_oval;
 

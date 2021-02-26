@@ -30,6 +30,7 @@ midaszhou@yahoo.com
 #include <stdio.h>
 #include "egi_common.h"
 #include "egi_FTsymbol.h"
+#include "egi_input.h"
 
 char imd_getchar(void);
 
@@ -124,7 +125,7 @@ int main(int argc, char** argv)
         if(PortraitMode)
                 fb_position_rotate(&gv_fb_dev,0);
         else
-                fb_position_rotate(&gv_fb_dev,3);
+                fb_position_rotate(&gv_fb_dev, 3);
 	#endif
 
         xres=gv_fb_dev.pos_xres;
@@ -181,6 +182,7 @@ for( i=optind; i<argc; i++) {
 	xp=eimg->width/2;
 	yp=eimg->height/2;
   do {
+		printf("cmdchar=%c\n",cmdchar);
 	switch(cmdchar)
 	{
 		/* ---------------- Parse 'q' ------------------- */
@@ -292,9 +294,9 @@ for( i=optind; i<argc; i++) {
 			break;
 
 		default:
-			printf("cmdchar: %d\n", cmdchar);
+//			printf("cmdchar: %d\n", cmdchar);
 			byte_deep=0;
-			continue;
+//			continue;
 			break;
 	}
 
@@ -409,9 +411,11 @@ Immediatly get a char from terminal input without delay.
 ----------------------------------------------------------------------------------------------*/
 char imd_getchar(void)
 {
+	char c;
+#if 0
 	struct termios old_settings;
 	struct termios new_settings;
-	char c;
+
 
 	tcgetattr(0, &old_settings);
 	new_settings=old_settings;
@@ -420,11 +424,15 @@ char imd_getchar(void)
 	new_settings.c_cc[VMIN]=0; //1;
 	new_settings.c_cc[VTIME]=0;
 	tcsetattr(0, TCSANOW, &new_settings);
+#endif
+	egi_set_termios();
+	c=0;
+	read(STDIN_FILENO,&c, 1);
+	printf("input c=%d\n",c);
 
-	c=getchar();
-	printf("input c=%c\n",c);
+	egi_reset_termios();
 
-	tcsetattr(0, TCSANOW, &old_settings);
+//	tcsetattr(0, TCSANOW, &old_settings);
 
 	return c;
 }

@@ -24,6 +24,9 @@ Jurnal
 	2. draw_line(): extend pixel/alpha as for anti_aliasing.
 2021-2-9:
 	1. Add draw_triangle().
+2021-2-25:
+	1. draw_wrect(), draw_wrect_nc(), draw_wrect()
+	   Draw one additional 1_width line inside the rect...
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -1156,7 +1159,8 @@ void draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 	int xr1,yr1,xr2,yr2;
 
 	/* half width, also as circle rad */
-	int r=w>>1; /* so w=0 and w=1 is the same */
+//	int r=w>>1; /* so w=0 and w=1 is the same */
+	int r=w>1 ? (w-1)/2 : 0;  /* w=0 and w=1 is the same, 1_pixel width line */
 
 	/* x,y, difference */
 	int ydif=y2-y1;
@@ -1213,7 +1217,8 @@ Midas Zhou
 void draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 {
 	/* half width, also as circle rad */
-	int r=w>>1; /* so w=0 and w=1 is the same */
+//	int r=w>>1; /* so w=0 and w=1 is the same */
+	int r=w>1 ? (w-1)/2 : 0;  /* so w=0 and w=1 is the same */
 
 	int i;
 	int xr1,yr1,xr2,yr2;
@@ -1490,10 +1495,21 @@ void draw_wrect(FBDEV *dev,int x1,int y1,int x2,int y2, int w)
 	int yu=(y1<y2?y1:y2);
 	int yd=(y1>y2?y1:y2);
 
+#if 0
 	draw_wline_nc(dev,xl-w/2,yu,xr+w/2,yu,w);
 	draw_wline_nc(dev,xl-w/2,yd,xr+w/2,yd,w);
 	draw_wline_nc(dev,xl,yu-w/2,xl,yd+w/2,w);
 	draw_wline_nc(dev,xr,yu-w/2,xr,yd+w/2,w);
+#endif
+
+	draw_wline_nc(dev,xl-(w-1)/2,yu,xr+(w-1)/2,yu,w);
+	draw_wline_nc(dev,xl-(w-1)/2,yd,xr+(w-1)/2,yd,w);
+	draw_wline_nc(dev,xl,yu-(w-1)/2,xl,yd+(w-1)/2,w);
+	draw_wline_nc(dev,xr,yu-(w-1)/2,xr,yd+(w-1)/2,w);
+
+	/* Draw one additional 1_width line inside */
+	if(w&0x1==0)
+		draw_rect(dev, xl+w/2, yu+w/2, xr-w/2, yd-w/2);
 
 }
 

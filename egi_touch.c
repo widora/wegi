@@ -50,6 +50,7 @@ static bool tok_loopread_nowait;	/* If ture, touch_loopread will run nonstop,
 					 * after last data is read out.
 					 */
 
+
 /*--------------------------------------------------------------
 To check whether it touchs/moves on an EGI_RECTBTN
 
@@ -417,31 +418,35 @@ Note: We suppose that default/HW_set coord sys of FB and TOUCH PAD
 
 @fbdev:		FBDEV
 @touch_data:	Pointer to touch_data, which will be modified.
-@spang:		Rotation angle of screen coord. relative to touch pad coord.
-
+//@spang:		Rotation angle of screen coord. relative to touch pad coord.
+rpos:		Rotation position of screen  coord. relative to touch pad coord.
+		0:	Default position
+		1:      Clockwise 90 deg
+		2:	Clockwise 180 deg
+		3:	Clockwise 270 deg
 return:
 	0	OK
 	<0	Fails
 ----------------------------------------------------------------*/
-int egi_touch_fbpos_data(FBDEV *fbdev, EGI_TOUCH_DATA *touch_data, int spang)
+int egi_touch_fbpos_data(FBDEV *fbdev, EGI_TOUCH_DATA *touch_data, int rpos)
 {
 	int pxres,pyres;  /* upright screen resolutions */
 	int tx,ty;
 	int dx,dy;
-	int rpos;
 
 	if(fbdev==NULL || touch_data==NULL)
 		return -1;
 
 	/* Screen coord. rotation relative to touch pad coord. */
-	rpos=(spang/90)%4;
-	if(rpos<0)rpos+=4;
+	//rpos=(spang/90)%4;
+	rpos = rpos%4;
+	//if(rpos<0)rpos+=4;
 
 	/* Resolution for X and Y direction, as per pos_rotate */
         pxres=fbdev->pos_xres;
         pyres=fbdev->pos_yres;
 
-	/* get original touch data */
+	/* get original/raw touch data */
 	tx=touch_data->coord.x;
 	ty=touch_data->coord.y;
 	dx=touch_data->dx;
