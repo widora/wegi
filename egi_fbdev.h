@@ -63,7 +63,11 @@ typedef struct fbdev{
 						   */
         struct 		fb_fix_screeninfo finfo;
 
-	int		*zbuff;		/* Pixel depth, for totally xres*yres pixels. NOW: integer type, ( TODO: float type) */
+	int		*zbuff;		/* Pixel depth, for totally xres*yres pixels. NOW: integer type, ( TODO: float type)
+					 * Rest all to 0 when clear working buffer.
+					 */
+	bool		zbuff_on;
+	int		pixz;		/* Pixel z value, 0 as bkground layer. */
 
         unsigned long 	screensize;	/* in bytes */
 					/* TODO: To hook up map_fb and map_buff[] with EGI_IMGBUFs */
@@ -173,6 +177,7 @@ void 	fb_copy_FBbuffer(FBDEV *fb_dev,unsigned int from_numpg, unsigned int to_nu
 void 	fb_clear_backBuff(FBDEV *dev, uint32_t color);
 void 	fb_clear_workBuff(FBDEV *fb_dev, EGI_16BIT_COLOR color);
 void 	fb_clear_bkgBuff(FBDEV *fb_dev, EGI_16BIT_COLOR color);
+void 	fb_reset_zbuff(FBDEV *fb_dev);
 void 	fb_clear_mapBuffer(FBDEV *dev, unsigned int numpg, uint16_t color); /* for 16bit color only */
 int 	fb_page_refresh(FBDEV *dev, unsigned int numpg);
 void 	fb_lines_refresh(FBDEV *dev, unsigned int numpg, unsigned int startln, int n);

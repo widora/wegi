@@ -6,6 +6,9 @@ published by the Free Software Foundation.
 Journal
 2021-02-22:
 	1. init_fbdev(): Add zbuff.
+2021-02-28:
+	1. Apply zbuff_on/pixz for FBDEV.
+	2. Add fb_reset_zbuff();
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -556,6 +559,7 @@ void fb_clear_mapBuffer(FBDEV *dev, unsigned int numpg, EGI_16BIT_COLOR color)
 void fb_clear_workBuff(FBDEV *fb_dev, EGI_16BIT_COLOR color)
 {
 	fb_clear_mapBuffer(fb_dev, FBDEV_WORKING_BUFF, color);
+	fb_reset_zbuff(fb_dev);
 }
 
 
@@ -565,6 +569,19 @@ void fb_clear_workBuff(FBDEV *fb_dev, EGI_16BIT_COLOR color)
 void fb_clear_bkgBuff(FBDEV *fb_dev, EGI_16BIT_COLOR color)
 {
 	fb_clear_mapBuffer(fb_dev, FBDEV_BKG_BUFF, color);
+	fb_reset_zbuff(fb_dev);
+}
+
+/*---------------------------------
+Reset zbuff values to zero.
+---------------------------------*/
+void fb_reset_zbuff(FBDEV *fb_dev)
+{
+	unsigned int xres=fb_dev->vinfo.xres;
+	unsigned int yres=fb_dev->vinfo.yres;
+
+	if(fb_dev->zbuff)
+		memset( fb_dev->zbuff, 0, xres*yres*sizeof(typeof(*(fb_dev->zbuff))) );
 }
 
 

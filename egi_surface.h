@@ -53,9 +53,8 @@ enum surf_color_type {
 /*** 			--- An EGI_SURFUSER ---
  */
 struct egi_surface_user {
-	EGI_UCLIT 	*uclit;		/* A uclient to EGI_SURFMAN's userver. */
-	EGI_SURFSHMEM	*surfshmem;	/* Shared memory data in a surface */
-	size_t		memsize;	/* In bytes, size of shmem.  */
+	EGI_UCLIT 	*uclit;		/* A uClient to EGI_SURFMAN's uServer. */
+	EGI_SURFSHMEM	*surfshmem;	/* Shared memory data in a surface, to release by egi_munmap_surfshmem() */
 	FBDEV  		vfbdev;		/* Virtual FBDEV, statically allocated. */
 	EGI_IMGBUF 	*imgbuf;	/* imgbuf for vfbdev;
 					 * Link it to surface->color[] data to virtual FBDEV */
@@ -64,13 +63,14 @@ struct egi_surface_user {
 
 /*** 			--- An EGI_SURFMAN ---
  *
- * 1. When an EGI_SURMAN is created, there are 2 threads running for routine jobs.
+ * 1. When an EGI_SURMAN is created, there are 3 threads running for routine jobs.
  *    1.1 userv_listen_thread:
  *	  1.1.1 To accept and add surfusers.
  *    1.2 surfman_request_process_thread(void *surfman):
  *    	  1.2.1 To create and register surfaces, upon surfuser's request.
  *	  1.2.2 To retire surfuser if it disconnets.
- *
+ *    1.3 surfman_render_thread:
+ *	  1.3.1 To render all surfaces.
  */
 struct egi_surface_manager {
 	/* 1. Surface user manager */
@@ -86,16 +86,15 @@ struct egi_surface_manager {
         int              cmd;           /* cmd to surfman, NOW: 1 to end acpthread & renderThread! */
 
         /* 2. Surfman request processing: create and register surfaces.  */
-	pthread_t		repthread;	/* Request_processing thread */
-        bool                    repthread_on;   /*  rpthread IS running! */
+	pthread_t		repThread;	/* Request_processing thread */
+        bool                    repThread_on;   /*  rpthread IS running! */
         int                     scnt;           /* Active/nonNULL surfaces counter */
 
 #define SURFMAN_MAX_SURFACES	8	/* TODO:  A list to manage all surfaces */
 	EGI_SURFACE		*surfaces[SURFMAN_MAX_SURFACES];  /* It's sorted in ascending order of their zseq values! */
-	// const	EGI_SURFACE		*pslist[SURFMAN_MAX_SURFACES];	/* Only a reference */
+	// const		EGI_SURFACE		*pslist[SURFMAN_MAX_SURFACES];	/* Only a reference */
 	pthread_mutex_t 	 surfman_mutex; /* 1. If there's a thread accessing surfaces[i], it MUST NOT be freed/unregistered!
 						 *    To lock/unlock for each surface!
-						 *    TBD&TODO: One mutex lock for each surface?
 						 */
 
 	/*  Relate sessions[] with surfaces[], so when session ends, surfaces to be unregistered.
@@ -107,7 +106,9 @@ struct egi_surface_manager {
 					   * Draw the imgbuf to the fbdev then.
 					   *  --- NOT Applied yet ---
 					   */
-	FBDEV 		fbdev;		  /* Init .devname = gv_fb_dev.devname, statically allocated. */
+	FBDEV 		fbdev;		  /* Init .devname = gv_fb_dev.devname, statically allocated.
+					   * Zbuff ON.
+				 	   */
 	pthread_t	renderThread;	  /* Render processing thread */
 	bool		renderThread_on;  /* renderThread is running */
 
@@ -125,6 +126,7 @@ struct egi_surface_manager {
  *   1. If surface memfds does NOT reach the surface user, or keep inactive for a long time.
  *	check and remove it.
  *   2. Surfman data protection from Surfuser!  Spin off all private data to a new struct.
+ *      --- OK Surfuser get EGI_SURFSHMEM pointer only
  */
 
 /* ---- Common shared data --- */
@@ -133,14 +135,14 @@ struct egi_surface_shmem {
 					 * EGI_SURFACE also holds the data!
 					 */
 
+	/* Mutex: PTHREAD_PROCESS_SHARED + PTHREAD_MUTEX_ROBUST */
 	pthread_mutexattr_t mutexattr;	/* MUST also in the shared memory */
 	pthread_mutex_t	mutex_lock; 	/* Porcess_shared mutex lock for surface common data. */
-
 	int		usersig;	/* user signal */
 	bool		hidden;		/* True: invisible. */
 
 	/*  Denpend on colorType. */
-//        int          off_color;      // Offset to color data
+//xxx   int          off_color;      // Offset to color data
 				        /* NOW: No use! Access directly to pointer ->color[]
 				        */
 
@@ -151,6 +153,10 @@ struct egi_surface_shmem {
 	int		vw;	  	/* Adjusted surface size */
 	int		vh;
 
+	bool		sync;		/* True: surface image is ready. False: surface image is NOT ready. */
+					/* TODO: More. NOW, only for activate the surface after surface is regitered AND
+					 * image is ready! If NOT, a black(calloc raw memory) image may be brought to FB.
+					 */
         /* Variable paramas, for Surfuser to write */
         int             x0;             /* [Surfuser]: Origin XY, relative to FB/LCD coord. */
         int             y0;
@@ -197,7 +203,7 @@ struct egi_surface {
         int             height;
 
 	SURF_COLOR_TYPE colorType;
-//      int             pixsize;        /* [Surfman] */
+//xxx   int             pixsize;        /* [Surfman] */
 					 /* sizeof EGI_16BIT_COLOR (default), EGI_24BIT_COLOR ...
 					 * + sizeof alpha
 					 * Include or exclude alpha value.
@@ -241,6 +247,7 @@ int egi_destroy_surfman(EGI_SURFMAN **surfman);		/* surfman_mutex, */
 int surfman_register_surface( EGI_SURFMAN *surfman, int userID,		/* surfman_mutex, sort zseq, */
 			      int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType); /* ret index of surfman->surfaces[] */
 int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID );	/* surfman_mutex, sort zseq, */
+int surfman_bringtop_surface(EGI_SURFMAN *surfman, int surfID);		/* surfman_mutex, sort zseq, */
 
 // static void* surfman_request_process_thread(void *surfman);
 int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID);	/* surfman_mutex, sort zseq, */

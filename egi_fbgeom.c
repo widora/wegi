@@ -27,6 +27,8 @@ Jurnal
 2021-2-25:
 	1. draw_wrect(), draw_wrect_nc(), draw_wrect()
 	   Draw one additional 1_width line inside the rect...
+2021-2-28:
+	1. Apply fb_dev->zbuff in draw_dot().
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -460,6 +462,7 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 	int fx=0;
 	int fy=0;
       	long int location=0;
+	long int pixoff;
 	unsigned char* pARGB=NULL; /* For LETS_NOTE */
 	int xres;
 	int yres;
@@ -548,6 +551,15 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 	}
 #endif
 
+   /* Check Z */
+   if( fb_dev->zbuff_on ) {
+	pixoff=fy*xres+fx;
+	if( fb_dev->zbuff[pixoff] > fb_dev->pixz )
+		return 0;
+	else {
+	    fb_dev->zbuff[pixoff]=fb_dev->pixz;
+	}
+   }
 
    /* ---------------- ( for virtual FB :: for 16bit color only NOW!!! ) -------------- */
    if(virt_fb) {

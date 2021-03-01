@@ -854,7 +854,7 @@ int inet_msgdata_send(int sockfd, const EGI_INET_MSGDATA *msgdata)
 
 
 	/* ========================  Signal Handling Functions  ========================== */
-
+				/* NOTE: OR to use egi_procman module */
 
 /*--------------------------------------
 	Signal handlers
@@ -919,7 +919,7 @@ int inet_default_sigAction(void)
 	if( inet_register_sigAction(SIGPIPE,inet_sigpipe_handler)<0 )
 		return -1;
 
-//	if( inet_register_sigAction(SIGINT,inet_sigpipe_handler)<0 )
+//	if( inet_register_sigAction(SIGINT,inet_sigint_handler)<0 )
 //		return -1;
 
 	return 0;

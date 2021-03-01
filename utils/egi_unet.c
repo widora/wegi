@@ -64,6 +64,7 @@ midaszhou@yahoo.com
 #include <sys/un.h>
 #include <sys/socket.h>
 #include <pthread.h>
+#include <signal.h>
 
 /* EGI_SURFACE */
 #include <sys/stat.h>
@@ -76,6 +77,83 @@ midaszhou@yahoo.com
 #include "egi_debug.h"
 
 static void* userv_listen_thread(void *arg);
+
+
+	/* ========================  Signal Handling Functions  ======================== */
+			   /* NOTE: OR to use egi_procman module */
+
+/*--------------------------------------
+	Signal handlers
+----------------------------------------*/
+void unet_signals_handler(int signum)
+{
+	switch(signum) {
+		case SIGPIPE:
+			printf("Catch a SIGPIPPE!\n");
+			break;
+		case SIGINT:
+			printf("Catch a SIGINT!\n");
+			break;
+		default:
+			printf("Catch signum %d\n", signum);
+	}
+
+}
+__attribute__((weak)) void unet_sigpipe_handler(int signum)
+{
+	printf("Catch a SIGPIPE!\n");
+}
+
+__attribute__((weak)) void unet_sigint_handler(int signum)
+{
+	printf("Catch a SIGINT!\n");
+}
+
+
+/*--------------------------------------------------
+Set a signal acition.
+
+@signum:        Signal number.
+@handler:       Handler for the signal
+
+Return:
+        0       Ok
+        <0      Fail
+---------------------------------------------------*/
+int unet_register_sigAction(int signum, void(*handler)(int))
+{
+	struct sigaction sigact;
+
+	// .sa_mask: a  mask of signals which should be blocked during execution of the signal handler
+        sigemptyset(&sigact.sa_mask);
+	// the signal which triggered the handler will be blocked, unless the SA_NODEFER flag is used.
+        //sigact.sa_flags|=SA_NODEFER;
+        sigact.sa_handler=handler;
+        if(sigaction(signum, &sigact, NULL) <0 ){
+                printf("%s: Fail to call sigaction() for signum %d.\n",  __func__, signum);
+                return -1;
+        }
+
+        return 0;
+}
+
+/*-----------------------------
+Set default signal actions.
+------------------------------*/
+int unet_default_sigAction(void)
+{
+	if( unet_register_sigAction(SIGPIPE,unet_sigpipe_handler)<0 )
+		return -1;
+
+//	if( unet_register_sigAction(SIGINT,unet_sigint_handler)<0 )
+//		return -1;
+
+	return 0;
+}
+
+
+	/* ========================  Unet Functions  ========================== */
+
 
 /*-----------------------------------------------------
 1. Create an AF_UNIX socket sever for local communication.
@@ -220,7 +298,12 @@ static void* userv_listen_thread(void *arg)
 			//printf("%s: Clients number hits Max. limit of %d!\n",__func__, USERV_MAX_CLIENTS);
 			egi_dpstd("Clients number hits Max. limit of %d!\n", USERV_MAX_CLIENTS);
 			tm_delayms(500);
-			continue;
+
+			/*** NOTE:
+			 * DO NOT continue to while() here, see following 2.3A, to avoid the thread to occupy all process time.???
+			 * Just a litte better... Can NOT avoid the case.
+			 */
+			// continue;
 		}
 
 		/* 2.3 Accept clients */
@@ -252,6 +335,14 @@ static void* userv_listen_thread(void *arg)
 					/* TODO: End routine if it's a deadly failure!  */
 					continue;  /* ---> whatever, continue to while() */
 			}
+		}
+
+		/* NOW: csfd >0 */
+
+		/* 2.3A If get USERV_MAX_CLIENTS!  */
+		if(index<0) {
+			close(csfd);
+			continue;
 		}
 
 	/*** NOTE:

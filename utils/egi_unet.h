@@ -65,4 +65,12 @@ int unet_destroy_Uclient(EGI_UCLIT **uclit );
 int unet_sendmsg(int sockfd,  struct msghdr *msg);
 int unet_recvmsg(int sockfd,  struct msghdr *msg);
 
+
+/* Signal handle functions */
+void unet_signals_handler(int signum);
+__attribute__((weak)) void unet_sigpipe_handler(int signum);
+__attribute__((weak)) void unet_sigint_handler(int signum);
+int unet_register_sigAction(int signum, void(*handler)(int));
+int unet_default_sigAction(void);
+
 #endif
