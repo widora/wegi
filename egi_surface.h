@@ -17,6 +17,10 @@ midaszhou@yahoo.com
 #include "egi_unet.h"
 #include "egi_fbdev.h"
 
+
+#define ERING_PATH_SURFMAN	"/tmp/.egi/ering_surfman"
+
+
 /*** Note
  *  Openwrt has no wrapper function of memfd_create() in the C library.
 int unet_destroy_Uclient(EGI_UCLIT **uclit ) *  and NOT include head file  <sys/memfd.h>
@@ -102,6 +106,10 @@ struct egi_surface_manager {
 	 */
 
 	/* 3. Surface render process */
+	EGI_IMGBUF	*mcursor;	  /* Mouse cursor imgbuf */
+	int		mx;		  /* Mouse cursor position */
+	int		my;
+
 	EGI_IMGBUF	*imgbuf;	  /* An empty imgbuf struct to temp. link with color/alpha data of a surface
 					   * Draw the imgbuf to the fbdev then.
 					   *  --- NOT Applied yet ---
@@ -111,6 +119,7 @@ struct egi_surface_manager {
 				 	   */
 	pthread_t	renderThread;	  /* Render processing thread */
 	bool		renderThread_on;  /* renderThread is running */
+
 
 
 };
@@ -247,6 +256,7 @@ int egi_destroy_surfman(EGI_SURFMAN **surfman);		/* surfman_mutex, */
 int surfman_register_surface( EGI_SURFMAN *surfman, int userID,		/* surfman_mutex, sort zseq, */
 			      int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType); /* ret index of surfman->surfaces[] */
 int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID );	/* surfman_mutex, sort zseq, */
+int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID);	/* sort zseq, */
 int surfman_bringtop_surface(EGI_SURFMAN *surfman, int surfID);		/* surfman_mutex, sort zseq, */
 
 // static void* surfman_request_process_thread(void *surfman);
@@ -254,6 +264,8 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID);	/* surfman
 
 // static void * surfman_render_thread(void *surfman);			/* surfman_mutex */
 
+int surfman_get_Zseq(EGI_SURFMAN *surfman, int x, int y);
+int surfman_get_surfaceID(EGI_SURFMAN *surfman, int x, int y);
 
 /* Functions for   --- EGI_RING ---   */
 EGI_SURFSHMEM *ering_request_surface(int sockfd, int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType);

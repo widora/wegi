@@ -56,6 +56,7 @@ bool    box_inbox(EGI_BOX* box, EGI_BOX* container);
 bool    box_outbox(EGI_BOX* box, EGI_BOX* container);
 
 EGI_16BIT_COLOR fbget_pixColor(FBDEV *fb_dev, int x, int y);
+int	fbget_zbuff(FBDEV *fb_dev, int x, int y);
 
 ////////////////  Draw function   ///////////////
    /******  NOTE: for 16bit color only!  ******/

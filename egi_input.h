@@ -14,7 +14,7 @@ midaszhou@yahoo.com
 #include <linux/input.h>
 
 typedef struct egi_mouse_status {
-        pthread_mutex_t mutex;      /* mutex lock for imgbuf */
+        pthread_mutex_t mutex;      /* mutex lock */
 
 	/* OR use bitwise to store status */
         bool LeftKeyDown;
@@ -40,7 +40,7 @@ typedef struct egi_mouse_status {
 
 	/* Note: DX,DY,DZ is current increment value, which already added in above mouseX,mouseY,mouseZ
 	 * If we use mouseDX/DY to guide the cursor, the cursor will slip away at four sides of LCD, as Limit Value
-         * applys for mouseX/Y, while mouseDX/DY do NOT has limits!!!
+         * applys for mouseX/Y, while mouseDX/DY do NOT have limits!!!
 	 */
 	int  mouseDX;
 	int  mouseDY;

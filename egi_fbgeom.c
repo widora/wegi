@@ -29,6 +29,8 @@ Jurnal
 	   Draw one additional 1_width line inside the rect...
 2021-2-28:
 	1. Apply fb_dev->zbuff in draw_dot().
+2021-3-3:
+	1. Add fbget_zbuff().
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -434,6 +436,61 @@ EGI_16BIT_COLOR fbget_pixColor(FBDEV *fb_dev, int x, int y)
 	/* Pick from FB mmap */
 	else
 		return *(EGI_16BIT_COLOR *)(fb_dev->map_fb+(fy*xres+fx)*sizeof(EGI_16BIT_COLOR));
+}
+
+
+/*-------------------------------------------------------------------
+Return zbuff value for the given point (x,y) in FBDEV.
+
+@fb_dev:	FBDEV.
+@x,y:		Pixel coordinate value. under FB.pos_rotate coord!
+
+Return:
+	0	Fails or out of range. 	( 0 as for bkground layer.)
+	>=0	Ok.
+
+Midas Zhou
+-------------------------------------------------------------------*/
+int  fbget_zbuff(FBDEV *fb_dev, int x, int y)
+{
+	if(fb_dev==NULL || fb_dev->map_fb==NULL)
+		return 0;
+
+	int  fx=0, fy=0;		/* FB mem space coordinate */
+	int  xres=fb_dev->vinfo.xres;
+        int  yres=fb_dev->vinfo.yres;
+        long int pixoff;
+
+	/* check FB.pos_rotate: Map x,y to fx,fy under default FB coord.
+	 * Note: Here xres/yres is default/HW_set FB x/y resolustion!
+         */
+	switch(fb_dev->pos_rotate) {
+		case 0:			/* FB default position */
+			fx=x;
+			fy=y;
+			break;
+		case 1:			/* Clockwise 90 deg */
+			fx=(xres-1)-y;
+			fy=x;
+			break;
+		case 2:			/* Clockwise 180 deg */
+			fx=(xres-1)-x;
+			fy=(yres-1)-y;
+			break;
+		case 3:			/* Clockwise 270 deg */
+			fx=y;
+			fy=(yres-1)-x;
+			break;
+	}
+
+	/* Check mapped FX FY in default FB */
+	if( fx < 0 || fx > xres-1 ) return 0;
+	if( fy < 0 || fy > yres-1 ) return 0;
+
+	/* Get zbuff */
+	pixoff=fy*xres+fx;
+
+	return fb_dev->zbuff[pixoff];
 }
 
 

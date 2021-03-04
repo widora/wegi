@@ -27,7 +27,12 @@ Jurnal
 	1. Separate EGI_SURFSHMEM from EGI_SURFACE.
 2021-02-27:
 	1. Apply PTHREAD_MUTEX_ROBUST for surfshmem->mutex_lock.
-
+2021-03-2:
+	1. Apply surfman->mcursor.
+2021-03-3:
+	1. Add surfman_get_Zseq().
+	2. Add surfman_get_surfaceID().
+	3. surfman_bringtop_surface_nolock().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -568,7 +573,7 @@ static void* surfman_request_process_thread(void *arg)
 					maxfd=csFD;
 			}
 		}
-		egi_dpstd("maxfd=%d\n", maxfd);
+//		egi_dpstd("maxfd=%d\n", maxfd);
 
 		/* select readable fds, all fds to be NONBLOCKING. */
 		rfds=select(maxfd+1, &set_uclits, NULL, NULL, &tm);
@@ -1154,6 +1159,59 @@ its zseq.
 
 Assume that zseq of surfman->surfaces are sorted in ascending order.
 
+@surfman	Pointer to a pointer to an EGI_SURFMAN.
+@surfID		Index to surfman->surfaces[].
+
+Return:
+	0	OK
+	<0	Fails
+------------------------------------------------------------*/
+int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
+{
+	int i;
+	int tmpz;
+	EGI_SURFACE *tmpface=NULL;
+
+	/* Check input */
+	if(surfman==NULL)
+		return -1;
+	if(surfID <0 || surfID > SURFMAN_MAX_SURFACES-1 )
+		return -2;
+
+	/* Check */
+	if(surfman->surfaces[surfID]==NULL) {
+	        pthread_mutex_unlock(&surfman->surfman_mutex);
+		return -3;
+	}
+
+	/* Set its zseq to Max. of the surfman->surfaces */
+	egi_dpstd("Set surfaces[%d] zseq to %d\n",surfID, surfman->scnt);
+	surfman->surfaces[surfID]->zseq=surfman->scnt;
+	tmpface=surfman->surfaces[surfID];
+
+	/* Decrease zseq of surfaces above surface[surfID] */
+	for(i=surfID+1; i<SURFMAN_MAX_SURFACES; i++) {
+		/* Move down 1 layer */
+		surfman->surfaces[i]->zseq -=1;
+		/* Move down */
+		surfman->surfaces[i-1] = surfman->surfaces[i];
+	}
+
+	/* Set surfaces[surfID] as the top surface */
+	 surfman->surfaces[SURFMAN_MAX_SURFACES-1]=tmpface;
+
+	return 0;
+}
+
+/*-----------------------------------------------------------
+Bring surfman->surfaces[surfID] to the top layer by updating
+its zseq.
+
+Assume that zseq of surfman->surfaces are sorted in ascending order.
+
+@surfman	Pointer to a pointer to an EGI_SURFMAN.
+@surfID		Index to surfman->surfaces[].
+
 Return:
 	0	OK
 	<0	Fails
@@ -1335,6 +1393,51 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID)
 }
 
 
+/*----------------------------------------------------------------
+Return BFDEV.zbuff[] value of the given x,y. It is
+the same as of current surfman.surfaces[].zseq value
+, as ascendingly sorted.
+If (x,y) if out of FB Screen, the it returns zseq of the
+bkground layer.
+
+@surfman	Pointer to a pointer to an EGI_SURFMAN.
+@x,y:           Pixel coordinate value. under FB.pos_rotate coord!
+
+Return:
+        0       Fails or out of range.  ( 0 as for bkground layer.)
+        >=0     Ok.
+-----------------------------------------------------------------*/
+int surfman_get_Zseq(EGI_SURFMAN *surfman, int x, int y)
+{
+	if(surfman==NULL || surfman->fbdev.fbfd<=0 )
+		return 0;
+
+	return fbget_zbuff(&surfman->fbdev, x, y);
+
+}
+
+
+/*----------------------------------------------------------------
+Return surface ID to surfman->surfaces[].
+
+@surfman	Pointer to a pointer to an EGI_SURFMAN.
+@x,y:           Pixel coordinate value. under FB.pos_rotate coord!
+
+Return:
+        <0      BKGround / Out of range / Fails.
+		( zseq=0 as for bkground layer.)
+        >=0     Ok, as index to surfman->surfaces[].
+-----------------------------------------------------------------*/
+int surfman_get_surfaceID(EGI_SURFMAN *surfman, int x, int y)
+{
+	int zseq;
+
+	zseq=fbget_zbuff(&surfman->fbdev, x, y); /* 0 for bkground layer */
+
+	return  zseq>0 ? SURFMAN_MAX_SURFACES -surfman->scnt +zseq -1 : -1;
+}
+
+
 /*-----------------------------------------------
 Render surfman->surfaces[] one by one, and bring
 them to FB to display.
@@ -1370,11 +1473,9 @@ static void * surfman_render_thread(void *arg)
 	/* A.3 Routine of rendering registered surfaces */
 	surfman->renderThread_on = true;
 	while( surfman->cmd !=1 ) {
-		/* B.1 Draw backgroud */
-		fb_clear_workBuff(&surfman->fbdev, WEGI_COLOR_GRAY2); /* zbuff also reset to 0. */
 
-		/* B.2 Get surfman_mutex ONE BY ONE!  TODO: TBD */
-		egi_dpstd("Try surfman mutex lock...\n");
+		/* B.1 Get surfman_mutex ONE BY ONE!  TODO: TBD */
+//		egi_dpstd("Try surfman mutex lock...\n");
 	        if(pthread_mutex_lock(&surfman->surfman_mutex) !=0 ) {
 			egi_dperr("Fail to get surfman_mutex!");
                		tm_delayms(5);
@@ -1382,13 +1483,16 @@ static void * surfman_render_thread(void *arg)
        		}
  /* ------ >>>  Surfman Critical Zone  */
 
+		/* B.2 Draw backgroud */
+		fb_clear_workBuff(&surfman->fbdev, WEGI_COLOR_GRAY2); /* zbuff also reset to 0. */
+
 		/* B.3 Draw and render surfaces */
 		/* NOTE:
 		 * 1. Traverse from surface with bigger zseqs to smaller ones.
  		 *    OR reversed sequence?
 		 * 2. 
 		 */
-		egi_dpstd("Render surfances...\n");
+		//egi_dpstd("Render surfances...\n");
 		for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {
 			//egi_dpstd("Draw surfaces[%d]...\n",i);
 
@@ -1404,7 +1508,7 @@ static void * surfman_render_thread(void *arg)
 			surfshmem=surface->surfshmem;
 
 	/* TEST: ------------ */
-			egi_dpstd("surfaces[%d].zseq= %d\n", i, surface->zseq);
+//			egi_dpstd("surfaces[%d].zseq= %d\n", i, surface->zseq);
 
 			/* C.3 Get surface mutex_lock */
                         mutexret=pthread_mutex_lock(&surfshmem->mutex_lock);
@@ -1462,13 +1566,21 @@ static void * surfman_render_thread(void *arg)
 
 		} /* END for() traverse all surfaces */
 
+		/* B.4 Draw cursor */
+		if(surfman->mcursor) {
+			surfman->fbdev.zbuff_on = false;
+					  /* img, fbdev, subnum,subcolor,x0,y0 */
+			egi_subimg_writeFB(surfman->mcursor, &surfman->fbdev, 0, -1, surfman->mx, surfman->my);
+			surfman->fbdev.zbuff_on = true;
+		}
+
 /* ------- <<<  Surfman Critical Zone  */
-	        /* B.4 put mutex lock for ineimg */
+	        /* B.5 put mutex lock for ineimg */
 		pthread_mutex_unlock(&surfman->surfman_mutex);
 
-		/* B.5 Render and bring to FB */
+		/* B.6 Render and bring to FB */
 		fb_render(&surfman->fbdev);
-		tm_delayms(50);
+		tm_delayms(100);
 	}
 
 	/* A.4 Unlink imgbuf data */

@@ -432,6 +432,10 @@ static void *egi_input_loopread( void* arg )
 		A thread function
 Read mouse input data in loop.
 
+Note:
+1. If gv_fb_dev is NOT initialized! then gv_fb_dev.pos_xres
+   and gv_fb_dev.pos_yres HAVE TO be set manually!
+
 
 TODO:
 1. There is chance that the mice dev MAY miss/omit events!?
@@ -458,6 +462,7 @@ static void *egi_mouse_loopread( void* arg )
 	const char *dev_name="/dev/input/mice";
 	if(arg!=NULL)
 		dev_name=(const char *)arg;
+
 
 	/* Loop input select read */
 	while(1) {
