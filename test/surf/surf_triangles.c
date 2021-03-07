@@ -204,7 +204,7 @@ int main(int argc, char **argv)
 /* ------ <<<  Surface shmem Critical Zone  */
                 pthread_mutex_unlock(&surfshmem->mutex_lock);
 
-		//tm_delayms(5);
+		tm_delayms(50);
 	}
 
 	/* Unregister and destroy surfuser */

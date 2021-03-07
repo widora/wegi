@@ -73,4 +73,27 @@ __attribute__((weak)) void unet_sigint_handler(int signum);
 int unet_register_sigAction(int signum, void(*handler)(int));
 int unet_default_sigAction(void);
 
+
+typedef struct ering_msg_data ERING_MSG;
+struct ering_msg_data {
+        struct msghdr   *msghead;
+             /*** struct msghdr {
+                        void         *msg_name;       // optional address
+                       //used on an unconnected socket to specify the target address for a datagram
+                       socklen_t     msg_namelen;    // size of address
+                       struct iovec *msg_iov;        // scatter/gather array, writev(), readv()
+                       size_t        msg_iovlen;     // # elements in msg_iov
+                       void         *msg_control;    // ancillary data, see below
+                       size_t        msg_controllen; // ancillary data buffer len
+                       int           msg_flags;      // flags (unused)
+                  }
+             ***/
+
+	int			type;	/* Type of data: msg_iov[0] */
+        unsigned char           *data;  /* Data: msg_iov[1] */
+};
+
+ERING_MSG* ering_msg_init(size_t datasize);
+void ering_msg_free(ERING_MSG **emsg);
+
 #endif

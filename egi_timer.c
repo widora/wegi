@@ -23,6 +23,22 @@ uapi/asm-generic/posix_types.h:40:typedef  __kernel_long_t	__kernel_suseconds_t;
 uapi/asm-generic/posix_types.h:14:typedef long		__kernel_long_t;
 
 
+3. Conversion for 'struct time_t' AND 'struct tm':
+   struct tm *localtime(const time_t *timep);
+   time_t mktime(struct tm *tm);
+   struct tm {
+          int tm_sec;     Seconds (0-60)
+          int tm_min;     Minutes (0-59)
+          int tm_hour;    Hours (0-23)
+          int tm_mday;    Day of the month (1-31)
+          int tm_mon;     Month (0-11)
+          int tm_year;    Year - 1900
+          int tm_wday;    Day of the week (0-6, Sunday = 0)
+          int tm_yday;    Day in the year (0-365, 1 Jan = 0)
+          int tm_isdst;   Daylight saving time
+    };
+4. double difftime(time_t time1, time_t time0);
+
 
 TODO:
 	--- Critical ---
@@ -41,6 +57,7 @@ Midas Zhou
 #include "egi_timer.h"
 #include "egi_symbol.h"
 #include "egi_fbgeom.h"
+#include "egi_debug.h"
 #include "dict.h"
 
 #define EGI_ENABLE_TICK  0	/* Tick alarm signal may conflic with .curl? inet/unet? ... */
@@ -401,7 +418,7 @@ void egi_sleep(unsigned char fd, unsigned int s, unsigned int ms)
 
 	do{
 		err=select(fd+1,NULL,NULL,NULL,&tmval); /* wait until timeout */
-		if(err<0)printf("%s: err<0\n",__func__);
+		if(err<0)egi_dperr("select error!");
 	}while( err < 0 && errno==EINTR ); 	      /* Ingore any signal */
 
 #endif

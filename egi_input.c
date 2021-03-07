@@ -659,9 +659,12 @@ static void *egi_mouse_loopread( void* arg )
 
 			/* Call back */
 			if(mouse_callback!=NULL) {
-				/* If callback trapped here, then cmd_end_loopread_mouse signal will NOT be responded! */
+				/* If callback trapped here, then cmd_end_loopread_mouse signal will NOT be responded!
+				 * mostauts.request is set in the callback!
+				 */
 				mouse_callback(mouse_data, sizeof(mouse_data), &mostatus);
 			}
+
 
 			#if 0 /* --- TEST ----  */
 			/* Parse mouse data */
@@ -672,6 +675,10 @@ static void *egi_mouse_loopread( void* arg )
 						(mouse_data[3]&0x80) ? mouse_data[3]-256 : mouse_data[3]   /* dz, 2's complement */
 					);
 			#endif
+
+			/* Wait for event request to be proceed, TODO: use pthread_cond_wait() instead. */
+			while( egi_mouse_checkRequest(&mostatus) && !mostatus.cmd_end_loopread_mouse ) { tm_delayms(10); };
+
 		}
 	}
 

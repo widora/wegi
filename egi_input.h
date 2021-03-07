@@ -13,6 +13,9 @@ midaszhou@yahoo.com
 #include <stdbool.h>
 #include <linux/input.h>
 
+/*** NOTE:
+ *	1. Pointer memeber is NOT allowed! see ERING_MSG for mouse status.
+ */
 typedef struct egi_mouse_status {
         pthread_mutex_t mutex;      /* mutex lock */
 
@@ -34,7 +37,7 @@ typedef struct egi_mouse_status {
 
 	bool KeysIdle;	/* All keys are uphold */
 
-        int  mouseX;
+        int  mouseX;	/* Of FB_POS */
         int  mouseY;
         int  mouseZ;
 

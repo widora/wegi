@@ -110,6 +110,7 @@ struct egi_surface_manager {
 	int		mx;		  /* Mouse cursor position */
 	int		my;
 
+	EGI_IMGBUF	*bkgimg;	  /* back ground image, as wall paper. */
 	EGI_IMGBUF	*imgbuf;	  /* An empty imgbuf struct to temp. link with color/alpha data of a surface
 					   * Draw the imgbuf to the fbdev then.
 					   *  --- NOT Applied yet ---
@@ -226,6 +227,13 @@ enum ering_request_type {
         ERING_REQUEST_ESURFACE  =2,  /* Params: int x0, int y0, int w, int h, int pixsize */
 };
 
+enum ering_msg_type {
+	ERING_SURFMAN_ERR	=0,
+	ERING_SURFACE_BRINGTOP	=1, /* Surfman bring/retire client surface to/from the top */
+	ERING_SURFACE_RETIRETOP =2,
+	ERING_MOUSE_STATUS	=3,
+};
+
 enum ering_result_type {
         ERING_RESULT_OK         =0,
         ERING_RESULT_ERR        =1,
@@ -264,8 +272,8 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID);	/* surfman
 
 // static void * surfman_render_thread(void *surfman);			/* surfman_mutex */
 
-int surfman_get_Zseq(EGI_SURFMAN *surfman, int x, int y);
-int surfman_get_surfaceID(EGI_SURFMAN *surfman, int x, int y);
+int surfman_xyget_Zseq(EGI_SURFMAN *surfman, int x, int y);
+int surfman_xyget_surfaceID(EGI_SURFMAN *surfman, int x, int y);
 
 /* Functions for   --- EGI_RING ---   */
 EGI_SURFSHMEM *ering_request_surface(int sockfd, int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType);

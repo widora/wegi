@@ -30,8 +30,8 @@ Jurnal
 2021-03-2:
 	1. Apply surfman->mcursor.
 2021-03-3:
-	1. Add surfman_get_Zseq().
-	2. Add surfman_get_surfaceID().
+	1. Add surfman_xyget_Zseq().
+	2. Add surfman_xyget_surfaceID().
 	3. surfman_bringtop_surface_nolock().
 
 Midas Zhou
@@ -547,7 +547,7 @@ static void* surfman_request_process_thread(void *arg)
 
 	/* Set select wait timeout */
 	tm.tv_sec=0;
-	tm.tv_usec=100000;
+	tm.tv_usec=500000;
 
 	/* Enter routine loop */
 	egi_dpstd("Start routine job...\n");
@@ -580,7 +580,7 @@ static void* surfman_request_process_thread(void *arg)
 		/* Case 1: No readbale fds, No request */
 		if(rfds==0) {
 			//egi_dpstd("select() rfd=0!\n");
-			usleep(50000);
+			//usleep(50000);
 			continue;
 		}
 		/* Case 2: Error occurs */
@@ -1180,8 +1180,13 @@ int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
 
 	/* Check */
 	if(surfman->surfaces[surfID]==NULL) {
-	        pthread_mutex_unlock(&surfman->surfman_mutex);
+	        //pthread_mutex_unlock(&surfman->surfman_mutex);
 		return -3;
+	}
+
+	/* If already at top */
+	if(surfman->surfaces[surfID]->zseq==surfman->scnt) {
+		return 0;
 	}
 
 	/* Set its zseq to Max. of the surfman->surfaces */
@@ -1199,6 +1204,7 @@ int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
 
 	/* Set surfaces[surfID] as the top surface */
 	 surfman->surfaces[SURFMAN_MAX_SURFACES-1]=tmpface;
+
 
 	return 0;
 }
@@ -1407,7 +1413,7 @@ Return:
         0       Fails or out of range.  ( 0 as for bkground layer.)
         >=0     Ok.
 -----------------------------------------------------------------*/
-int surfman_get_Zseq(EGI_SURFMAN *surfman, int x, int y)
+int surfman_xyget_Zseq(EGI_SURFMAN *surfman, int x, int y)
 {
 	if(surfman==NULL || surfman->fbdev.fbfd<=0 )
 		return 0;
@@ -1428,7 +1434,7 @@ Return:
 		( zseq=0 as for bkground layer.)
         >=0     Ok, as index to surfman->surfaces[].
 -----------------------------------------------------------------*/
-int surfman_get_surfaceID(EGI_SURFMAN *surfman, int x, int y)
+int surfman_xyget_surfaceID(EGI_SURFMAN *surfman, int x, int y)
 {
 	int zseq;
 
@@ -1483,17 +1489,26 @@ static void * surfman_render_thread(void *arg)
        		}
  /* ------ >>>  Surfman Critical Zone  */
 
-		/* B.2 Draw backgroud */
-		fb_clear_workBuff(&surfman->fbdev, WEGI_COLOR_GRAY2); /* zbuff also reset to 0. */
+		/* B.2 Draw backgroud, and zbuff values all reset to 0. */
+		//fb_clear_workBuff(&surfman->fbdev, WEGI_COLOR_GRAY2);
+		fb_reset_zbuff(&surfman->fbdev);
+
+#if 0		/* Set wallpaper: Here OR at end. */
+		if(surfman->bkgimg) {
+			surfman->fbdev.pixz=0;
+			egi_subimg_writeFB(surfman->bkgimg, &surfman->fbdev, 0, -1, 0, 0);
+		}
+#endif
 
 		/* B.3 Draw and render surfaces */
 		/* NOTE:
 		 * 1. Traverse from surface with bigger zseqs to smaller ones.
  		 *    OR reversed sequence?
-		 * 2. 
+		 * 2. ALPHA effect need a right render sequence!
 		 */
 		//egi_dpstd("Render surfances...\n");
-		for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {
+		for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {  /* From top layer to bkground */
+		//for(i=0; i<SURFMAN_MAX_SURFACES; i++) {	      /* From bkground to top layer */
 			//egi_dpstd("Draw surfaces[%d]...\n",i);
 
 			/* C.1 Check surface availability */
@@ -1539,8 +1554,9 @@ static void * surfman_render_thread(void *arg)
 				continue; /* To traverse surfaces */
 			}
 
-			/* C.4  TODO: NOW support SURF_RGB565 only */
-			if( surface->colorType != SURF_RGB565 ) {
+			/* C.4  TODO: NOW support SURF_RGB565 and SURF_RGB565_A8 only */
+			if( surface->colorType != SURF_RGB565 && surface->colorType != SURF_RGB565_A8 ) {
+				egi_dpstd("Unsupported colorType!\n");
 			        pthread_mutex_unlock(&surfshmem->mutex_lock);
 				continue; /* To traverse surfaces */
 			}
@@ -1566,7 +1582,13 @@ static void * surfman_render_thread(void *arg)
 
 		} /* END for() traverse all surfaces */
 
-		/* B.4 Draw cursor */
+#if 1		/* B.X Draw Wall paper, Here OR at begin */
+		if(surfman->bkgimg) {
+			surfman->fbdev.pixz=0;
+			egi_subimg_writeFB(surfman->bkgimg, &surfman->fbdev, 0, -1, 0, 0);
+		}
+#endif
+		/* B.4 Draw cursor, always at top. */
 		if(surfman->mcursor) {
 			surfman->fbdev.zbuff_on = false;
 					  /* img, fbdev, subnum,subcolor,x0,y0 */

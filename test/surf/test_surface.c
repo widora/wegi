@@ -222,7 +222,7 @@ int main(int argc, char **argv)
 
     while( !sigQuit ) { /////////// LOOP TEST ///////////////
 
-	/* Create a surfuser */
+	/* 1. Register/Create a surfuser */
 	if( sw!=0 && sh!=0) {
 		surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, sw, sh, colorType );
 	}
@@ -234,7 +234,7 @@ int main(int argc, char **argv)
 		continue;
 	}
 
-	/* Get ref imgbuf and vfbdev */
+	/* 2. Get ref. imgbuf and vfbdev */
 	vfbdev=&surfuser->vfbdev;
 	imgbuf=surfuser->imgbuf;
 	surfshmem=surfuser->surfshmem;
@@ -277,6 +277,7 @@ int main(int argc, char **argv)
 
 	/* Activate image */
 	surfshmem->sync=true;
+
 /* ------ <<<  Surface shmem Critical Zone  */
                 pthread_mutex_unlock(&surfshmem->mutex_lock);
 
@@ -284,6 +285,48 @@ int main(int argc, char **argv)
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
 	printf("Shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
+
+
+#if 1 /* TEST: ERING_MSG ---------- */
+int nrec;
+ERING_MSG *emsg=NULL;
+EGI_MOUSE_STATUS *mouse_status;
+while(1) {
+	/* Init EMSG */
+	emsg=ering_msg_init(sizeof(EGI_MOUSE_STATUS));
+	if(emsg==NULL) exit(EXIT_FAILURE);
+
+	/* Waiting for msg from SURFMAN */
+        egi_dpstd("Waiting in recvmsg...\n");
+        nrecv=unet_recvmsg( surfuser->uclit->sockfd, emsg->msghead);
+	if(nrecv<0)
+                egi_dpstd("unet_recvmsg() fails!\n");
+		continue;
+        }
+	else if(nrecv==0)
+		exit(EXIT_FAILURE);
+
+        /* Parse result */
+        switch(emsg->type) {
+               case ERING_SURFACE_BRINGTOP:
+                        egi_dpstd("Surface is brought to top!\n");
+                        break;
+               case ERING_SURFACE_RETIRETOP:
+                        egi_dpstd("Surface is retired from top!\n");
+                        break;
+	       case ERING_MOUSE_STATUS:
+			mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
+			egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
+			break;
+               default:
+                        egi_dpstd("Undefined MSG from the SURFMAN! data[0]=%d\n", emsg->data[0]);
+        }
+
+	/* Free EMSG */
+	ering_msg_free(&emsg);
+}
+#endif /* TEST : END --- */
+
 
 	/* hold */
 	while(1) {

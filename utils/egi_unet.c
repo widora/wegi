@@ -47,11 +47,15 @@ Note:
        unsigned char *CMSG_DATA(struct cmsghdr *cmsg);
 
 
-Jurnal:
+Journal:
 2021-02-17/18:
 	1. Add EGI_RING, EGI_SURFACE concept test functions.
 2021-02-21:
 	1. Spin off EGI_SURFACE functions.
+2021-03-5:
+	1. unet_create_Userver(): change userv->sockfd=socket() from NONBLOCK to BLOCK type.
+2021-03-7:
+	1. Add: ERING_MSG, ering_msg_init(), ering_msg_free().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -176,7 +180,8 @@ EGI_USERV* unet_create_Userver(const char *svrpath)
                 return NULL;
 
 	/* 2. Create socket  */
-	userv->sockfd = socket(AF_UNIX, SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC, 0);
+	//userv->sockfd = socket(AF_UNIX, SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC, 0);
+	userv->sockfd = socket(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC, 0);
 	if(userv->sockfd <0) {
 		//printf("%s: Fail to create socket! Err'%s'.\n", __func__, strerror(errno));
 		egi_dperr("Fail to create socket!");
@@ -317,6 +322,7 @@ static void* userv_listen_thread(void *arg)
                                 case EWOULDBLOCK:
                                 #endif
 				case EAGAIN:
+					egi_dperr("EWOULDBLOCK or EAGAIN");
 					tm_delayms(10); /* if NONBLOCKING */
 					continue;  /* ---> continue to while() */
 					break;
@@ -509,7 +515,7 @@ Send out msg through a AF_UNIX socket.
 
 Return:
 	>0	OK, the number of bytes sent.
-		DO NOT include ancillary(msg_control) data length!
+		It excludes ancillary(msg_control) data length!
 	<0	Fails
 ----------------------------------------------------------------*/
 int unet_sendmsg(int sockfd,  struct msghdr *msg)
@@ -584,12 +590,10 @@ int unet_recvmsg(int sockfd,  struct msghdr *msg)
 	/* MSG_WAITALL: Wait all data, but still may fail? see man */
 	nrcv=recvmsg(sockfd, msg, MSG_WAITALL); /* MSG_CMSG_CLOEXEC,  MSG_NOWAIT */
 	if(nrcv>0) {
-		//printf("%s: OK, recvmsg() %d bytes!\n", __func__, nrcv);
-//		egi_dpstd("OK, recvmsg() %d bytes!\n", nrcv);
+		egi_dpstd("OK, recvmsg() %d bytes!\n", nrcv);
 	}
 	else if(nrcv==0) {
-		//printf("%s: nrcv=0! counter peer quits the session!\n", __func__);
-//		egi_dpstd("nrcv=0! counter peer quits the session!\n");
+		egi_dperr("nrcv=0! counter peer quits the session!");
 	}
 	else { /* nsnd < 0 */
 	        switch(errno) {
@@ -599,6 +603,12 @@ int unet_recvmsg(int sockfd,  struct msghdr *msg)
                         case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
                         	//printf("%s: Err'%s'.\n", __func__, strerror(errno));
 				egi_dperr("Eagain/EwouldBlock");
+				break;
+			case EBADF:
+				egi_dperr("EBADF");
+				break;
+			case ENOTCONN:
+				egi_dperr("ENOTCONN");
 				break;
 			default:
 				//printf("%s: Err'%s'.\n", __func__, strerror(errno));
@@ -615,3 +625,108 @@ int unet_recvmsg(int sockfd,  struct msghdr *msg)
 }
 
 
+/*--------------------------------------------
+Create and init an ERING_MSG.
+
+@datasize:	data size of emsg->data
+
+Return:
+	Pointer to ERING_MSG	Ok
+	NULL			Fails
+----------------------------------------------*/
+ERING_MSG* ering_msg_init(size_t datasize)
+{
+
+#if 0 ///////
+        struct msghdr {
+               void         *msg_name;       // optional address
+               //used on an unconnected socket to specify the target address for a datagram
+               socklen_t     msg_namelen;    // size of address
+               struct iovec *msg_iov;        // scatter/gather array, writev(), readv()
+               size_t        msg_iovlen;     // # elements in msg_iov
+               void         *msg_control;    // ancillary data, see below
+               size_t        msg_controllen; // ancillary data buffer len
+               int           msg_flags;      // flags (unused)
+           };
+
+        struct msghdr msg={0};
+        struct cmsghdr *cmsg;
+        int data[16]={0};
+        struct iovec iov={.iov_base=data, .iov_len=sizeof(data) };
+
+        /* MSG iov data  */
+        msg.msg_iov=&iov;  /* iov holds data */
+        msg.msg_iovlen=1;
+
+#endif //////////////
+
+	ERING_MSG *emsg=NULL;
+
+	emsg=calloc(1, sizeof(ERING_MSG));
+	if(emsg==NULL)
+		return NULL;
+
+	/* Calloc msghead */
+	emsg->msghead=calloc(1, sizeof(struct msghdr));
+	if(emsg->msghead==NULL) {
+		free(emsg);
+		return NULL;
+	}
+
+	/* Calloc 2*iovec */
+	emsg->msghead->msg_iov=calloc(2, sizeof(struct iovec));
+	if(emsg->msghead->msg_iov==NULL) {
+		free(emsg->msghead);
+		free(emsg);
+		return NULL;
+	}
+
+	/* Calloc  data */
+	emsg->data=calloc(1, datasize);
+	if(emsg->data==NULL) {
+		free(emsg->msghead->msg_iov);
+		free(emsg->msghead);
+		free(emsg);
+		return NULL;
+	}
+
+	/* Assign msg_iov[] */
+	emsg->msghead->msg_iov[0].iov_base=&emsg->type;
+	emsg->msghead->msg_iov[0].iov_len=sizeof(emsg->type);
+
+	emsg->msghead->msg_iov[1].iov_base=emsg->data;
+	emsg->msghead->msg_iov[1].iov_len=datasize;
+
+	emsg->msghead->msg_iovlen=2;
+
+	/* OK */
+	return emsg;
+}
+
+
+/*----------------------------------------------
+Free an ERING_MSG.
+
+@datalen:	data length in INT,  NOT size!!!
+
+Return:
+	Pointer to ERING_MSG	Ok
+	NULL			Fails
+----------------------------------------------*/
+void ering_msg_free(ERING_MSG **emsg)
+{
+	if(emsg==NULL || *emsg==NULL)
+		return;
+
+	/* Free data */
+	free((*emsg)->data);
+
+	/* Free iovec */
+	free((*emsg)->msghead->msg_iov);
+
+	/* Free msghead and emsg */
+	free((*emsg)->msghead);
+	free(*emsg);
+
+	*emsg=NULL;
+}
