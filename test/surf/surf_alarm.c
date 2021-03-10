@@ -61,10 +61,10 @@ int main(int argc, char **argv)
 
 	time_t tnow;
 	time_t tset;
-        struct tm tm;
+        struct tm tm,tdm;
 	int det=-5;
 
-	char *strTask;
+	char *strTask="EGI ALARM!";
 	char *strTime;
 	int fw,fh;
 	int fgap;
@@ -92,14 +92,27 @@ int main(int argc, char **argv)
                         case 't':	/* Set Alarm time */
 				strTime=optarg;
 				printf("strTime:%s\n",strTime);
-				tnow=time(NULL); /* Fill in year/month/day ...*/
-				localtime_r(&tnow, &tm);
-				if( strptime(optarg, "%Y-%m-%d %H:%M:%S", &tm)==NULL) {  /* %T Equivalent to %H:%M:%S. */
-					printf("Error, Please input time format H:M:S! \n");
+				if( strstr(strTime, "-") ) {
+				   if( strptime(optarg, "%Y-%m-%d %H:%M:%S", &tm)==NULL) {  /* %T Equivalent to %H:%M:%S. */
+					printf("Error, Please input time with format Y-m-d H:M:S! \n");
 					exit(EXIT_FAILURE);
+				   }
+				}
+				else {
+				   tnow=time(NULL); /* Fill in year/month/day ...*/
+				   localtime_r(&tnow, &tm);
+				   /* Get H:M:S */
+				   if( strptime(optarg, "%H:%M:%S", &tdm)==NULL) {  /* %T Equivalent to %H:%M:%S. */
+					printf("Error, Please input time with format H:M:S! \n");
+					exit(EXIT_FAILURE);
+				   }
+				   /* Put H:M:S */
+				   tm.tm_hour=tdm.tm_hour;
+				   tm.tm_min=tdm.tm_min;
+				   tm.tm_sec=tdm.tm_sec;
 				}
 				tset=mktime(&tm);
-				printf("tset:%d\n",tset);
+				printf("tset:%d\n",(int)tset);
                                 break;
                         case 'h':
                                 printf("%s: [-hsc]\n", argv[0]);
@@ -143,6 +156,7 @@ int main(int argc, char **argv)
         if(pcmAlarm==NULL)exit(1);
 
 	/* Time ticking */
+	printf("Timer is working...\n");
 	do {
 		tm_delayms(100);
 		tnow=time(NULL);
@@ -225,9 +239,8 @@ int main(int argc, char **argv)
 	/* Loop */
 	while(!sigQuit) {
 
-
                 /* Get surface mutex_lock */
-                if( pthread_mutex_lock(&surfshmem->mutex_lock) !=0 ) {
+                if( pthread_mutex_lock(&surfshmem->shmem_mutex) !=0 ) {
                           egi_dperr("Fail to get mutex_lock for surface.");
 			  tm_delayms(10);
                           continue;
@@ -245,7 +258,7 @@ int main(int argc, char **argv)
         	surfshmem->sync=true;
 
 /* ------ <<<  Surface shmem Critical Zone  */
-		pthread_mutex_unlock(&surfshmem->mutex_lock);
+		pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
 
 		tm_delayms(200);

@@ -33,6 +33,11 @@ TODO:
 4.  symbol linear enlarge and shrink.
 5. To read FBDE vinfo to get all screen/fb parameters as in fblines.c, it's improper in other source files.
 
+Journal:
+2021-03-10:
+	1. symbol_writeFB(): Add check zbuff.
+
+
 Midas Zhou
 midaszhou@yahoo.com
 ----------------------------------------------------------------------------*/
@@ -935,6 +940,16 @@ inline void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 			pos=mapy*xres+mapx; 	/* in pixel, LCD fb mem position */
 			//pos=mapy*(fb_dev->finfo.line_length>>3)+mapx;
 			poff=offset+width*i+j; 	/* offset to pixel data */
+
+		        /* Check Z */
+   		        if( fb_dev->zbuff_on ) {
+		             //pixoff=fy*xres+fx;
+		             if( fb_dev->zbuff[pos] > fb_dev->pixz )
+		                continue;
+		             else {
+		             	fb_dev->zbuff[pos]=fb_dev->pixz;
+		             }
+		        }
 
 			if(sym_page->alpha)
 				palpha=*(sym_page->alpha+poff);  	/*  get pixel alpha */

@@ -74,26 +74,56 @@ int unet_register_sigAction(int signum, void(*handler)(int));
 int unet_default_sigAction(void);
 
 
+/* ----------	ERING MSG and Functions ---------- */
+
+#define ERING_MSG_DATALEN	128	/* In bytes, Fixed length of data in ERING_MSG. for stream data stransfer. */
+
+enum ering_request_type {
+        ERING_REQUEST_NONE      =0,
+        ERING_REQUEST_EINPUT    =1,
+        ERING_REQUEST_ESURFACE  =2,  /* Params: int x0, int y0, int w, int h, int pixsize */
+};
+
+enum ering_msg_type {
+        ERING_SURFMAN_ERR       =0,
+        ERING_SURFACE_BRINGTOP  =1, /* Surfman bring/retire client surface to/from the top */
+        ERING_SURFACE_RETIRETOP =2,
+        ERING_MOUSE_STATUS      =3,
+};
+
+enum ering_result_type {
+        ERING_RESULT_OK         =0,
+        ERING_RESULT_ERR        =1,
+        ERING_MAX_LIMIT         =2,     /* Surfaces/... Max limit */
+};
+
+
 typedef struct ering_msg_data ERING_MSG;
 struct ering_msg_data {
         struct msghdr   *msghead;
              /*** struct msghdr {
-                        void         *msg_name;       // optional address
+                        void         *msg_name;      --- optional address
                        //used on an unconnected socket to specify the target address for a datagram
-                       socklen_t     msg_namelen;    // size of address
-                       struct iovec *msg_iov;        // scatter/gather array, writev(), readv()
-                       size_t        msg_iovlen;     // # elements in msg_iov
-                       void         *msg_control;    // ancillary data, see below
-                       size_t        msg_controllen; // ancillary data buffer len
-                       int           msg_flags;      // flags (unused)
+                       socklen_t     msg_namelen;    --- size of address
+                       struct iovec *msg_iov;        --- scatter/gather array, writev(), readv()
+						         msg_iov[].iov_base AND msg_iov[].iov_len MAY be adjusted.
+						     TO be allocated in ering_msg_init().
+                       size_t        msg_iovlen;     --- elements in msg_iov
+                       void         *msg_control;    --- ancillary data, see below
+                       size_t        msg_controllen; --- ancillary data buffer len
+                       int           msg_flags;      --- flags (unused)
                   }
              ***/
 
-	int			type;	/* Type of data: msg_iov[0] */
-        unsigned char           *data;  /* Data: msg_iov[1] */
+	int			type;		/* Type of data: Map to msg_iov[0] */
+        unsigned char           *data;  	/* Data: Map to msg_iov[1]
+						 * Data length is fixed as ERING_MSG_DATALEN.
+						 */
 };
 
-ERING_MSG* ering_msg_init(size_t datasize);
-void ering_msg_free(ERING_MSG **emsg);
+ERING_MSG* ering_msg_init(void);
+void 	ering_msg_free(ERING_MSG **emsg);
+int 	ering_msg_send(int sockfd, ERING_MSG *emsg,  int msg_type, const void *data,  size_t len);
+int 	ering_msg_recv(int sockfd, ERING_MSG *emsg);
 
 #endif

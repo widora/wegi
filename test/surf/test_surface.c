@@ -26,6 +26,19 @@ https://github.com/widora/wegi
 #include "egi_procman.h"
 #include "egi_input.h"
 
+/* For SURFMAN */
+EGI_SURFMAN 	*surfman;
+
+
+/* For SURFUSER */
+EGI_SURFUSER	*surfuser;
+FBDEV 		*vfbdev;	/* Only a ref. to &surfuser->vfbdev  */
+EGI_IMGBUF 	*imgbuf;	/* Only a ref. to surfuser->imgbuf */
+EGI_SURFSHMEM	*surfshmem;	/* Only a ref. to surfuser->surfshmem */
+SURF_COLOR_TYPE colorType=SURF_RGB565;
+
+void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
+
 
 static int sigQuit;
 
@@ -50,7 +63,6 @@ int main(int argc, char **argv)
 	int sw=0,sh=0; /* Width and Height of the surface */
 	int x0=0,y0=0; /* Origin coord of the surface */
 
-	EGI_SURFMAN *surfman;
 
 #if 0	/* Start EGI log */
         if(egi_init_log("/mmc/test_surfman.log") != 0) {
@@ -58,6 +70,14 @@ int main(int argc, char **argv)
                 exit(EXIT_FAILURE);
         }
         EGI_PLOG(LOGLV_INFO,"%s: Start logging...", argv[0]);
+#endif
+
+#if 1        /* Load freetype fonts */
+        printf("FTsymbol_load_sysfonts()...\n");
+        if(FTsymbol_load_sysfonts() !=0) {
+                printf("Fail to load FT sysfonts, quit.\n");
+                return -1;
+        }
 #endif
 
         /* Parse input option */
@@ -95,6 +115,8 @@ int main(int argc, char **argv)
 
         /* Set termI/O 设置终端为直接读取单个字符方式 */
         egi_set_termios();
+
+
 
     while(1) { /////////// LOOP TEST ///////////////
 
@@ -195,26 +217,14 @@ int main(int argc, char **argv)
 	exit(0);
  }
 
+
  /* ---------- As EGI_SURFACE Application ( The client ) --------- */
  else {
 	/*** NOTE:
 	 *	1.  The second eface MAY be registered just BEFORE the first eface is unregistered.
 	 */
-	EGI_SURFUSER	*surfuser=NULL;
 
-	FBDEV 		*vfbdev=NULL;	/* Only a ref. to surfman->vfbdev  */
-	EGI_IMGBUF 	*imgbuf=NULL;	/* Only a ref. to surfman->imgbuf */
-	EGI_SURFSHMEM	*surfshmem=NULL;	/* Only a ref. to surfman->surface */
 
-	SURF_COLOR_TYPE colorType=SURF_RGB565;
-
-#if 1        /* Load freetype fonts */
-        printf("FTsymbol_load_sysfonts()...\n");
-        if(FTsymbol_load_sysfonts() !=0) {
-                printf("Fail to load FT sysfonts, quit.\n");
-                return -1;
-        }
-#endif
 
 	/* Set signal handler */
 //	egi_common_sigAction(SIGINT, signal_handler);
@@ -240,7 +250,7 @@ int main(int argc, char **argv)
 	surfshmem=surfuser->surfshmem;
 
         /* Get surface mutex_lock */
-        if( pthread_mutex_lock(&surfshmem->mutex_lock) !=0 ) {
+        if( pthread_mutex_lock(&surfshmem->shmem_mutex) !=0 ) {
         	egi_dperr("Fail to get mutex_lock for surface.");
                 tm_delayms(10);
                 continue;
@@ -279,7 +289,7 @@ int main(int argc, char **argv)
 	surfshmem->sync=true;
 
 /* ------ <<<  Surface shmem Critical Zone  */
-                pthread_mutex_unlock(&surfshmem->mutex_lock);
+                pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
 	/* Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
@@ -288,18 +298,19 @@ int main(int argc, char **argv)
 
 
 #if 1 /* TEST: ERING_MSG ---------- */
-int nrec;
+int nrecv;
 ERING_MSG *emsg=NULL;
 EGI_MOUSE_STATUS *mouse_status;
 while(1) {
 	/* Init EMSG */
-	emsg=ering_msg_init(sizeof(EGI_MOUSE_STATUS));
+	emsg=ering_msg_init();
 	if(emsg==NULL) exit(EXIT_FAILURE);
 
 	/* Waiting for msg from SURFMAN */
         egi_dpstd("Waiting in recvmsg...\n");
-        nrecv=unet_recvmsg( surfuser->uclit->sockfd, emsg->msghead);
-	if(nrecv<0)
+	nrecv=ering_msg_recv(surfuser->uclit->sockfd, emsg);
+        //nrecv=unet_recvmsg( surfuser->uclit->sockfd, emsg->msghead);
+	if(nrecv<0) {
                 egi_dpstd("unet_recvmsg() fails!\n");
 		continue;
         }
@@ -317,6 +328,8 @@ while(1) {
 	       case ERING_MOUSE_STATUS:
 			mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
 			egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
+			/* Parse mouse event */
+			surfuser_parse_mouse_event(surfuser,mouse_status);
 			break;
                default:
                         egi_dpstd("Undefined MSG from the SURFMAN! data[0]=%d\n", emsg->data[0]);
@@ -350,4 +363,31 @@ while(1) {
 }
 
 
+/*--------------------------------------
+Parse mouse event and take actions.
 
+@surfuser:   Pointer to EGI_SURFUSER.
+@pmostat:    Pointer to EGI_MOUSE_STATUS
+
+-----------------------------------------*/
+void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
+{
+	FBDEV           *vfbdev;
+	EGI_IMGBUF      *imgbuf;
+	EGI_SURFSHMEM   *surfshmem;
+
+	if(surfuser==NULL || pmostat==NULL)
+		return;
+
+	/* Get referene */
+        vfbdev=&surfuser->vfbdev;
+        imgbuf=surfuser->imgbuf;
+        surfshmem=surfuser->surfshmem;
+
+	/* Parse mouse event */
+	/* Click under surface top bar */
+	if( pmostat->LeftKeyDown && pmostat->mouseY-surfshmem->y0 > 30) {
+        	fbset_color2(vfbdev, egi_color_random(color_all));
+		draw_filled_circle(vfbdev, pmostat->mouseX-surfshmem->x0, pmostat->mouseY-surfshmem->y0, 10);
+	}
+}

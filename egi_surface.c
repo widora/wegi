@@ -12,6 +12,11 @@ TODO:
 1. Abrupt break of a surfuser will force surfman_request_process_thread()
    and surfman_render_thread() to quit!!!
    --- OK, Apply PTHREAD_MUTEX_ROBUST.
+2. Check sync/need_refresh token of each surface before rendering, skip
+   it if the surface image is not updated, thus may help surfman cutdown rendering time.
+   However, mouse cursor has to be refreshed directly on the working buffer.
+   since hardware does NOT support 2_layer frame buffer, working buffer
+   need redraw be the mouse cursor....
 
 Jurnal
 2021-02-22:
@@ -26,13 +31,15 @@ Jurnal
 2021-02-26:
 	1. Separate EGI_SURFSHMEM from EGI_SURFACE.
 2021-02-27:
-	1. Apply PTHREAD_MUTEX_ROBUST for surfshmem->mutex_lock.
+	1. Apply PTHREAD_MUTEX_ROBUST for surfshmem->shmem_mutex.
 2021-03-2:
 	1. Apply surfman->mcursor.
 2021-03-3:
 	1. Add surfman_xyget_Zseq().
 	2. Add surfman_xyget_surfaceID().
 	3. surfman_bringtop_surface_nolock().
+2021-03-10:
+	1. Test Minimize/Maxmize surfaces.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -55,6 +62,7 @@ midaszhou@yahoo.com
 #include "egi_fbgeom.h"
 #include "egi_image.h"
 #include "egi_math.h"
+#include "egi_FTsymbol.h"
 
 static void* surfman_request_process_thread(void *surfman);
 static void * surfman_render_thread(void *surfman);
@@ -140,7 +148,7 @@ EGI_SURFSHMEM *egi_mmap_surfshmem(int memfd)
                 return NULL;
         }
 
-        surfshmem=mmap(NULL, sb.st_size, PROT_READ|PROT_WRITE, MAP_SHARED, memfd, 0);
+        surfshmem=mmap(NULL, sb.st_size, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_SHARED, memfd, 0);
         if(surfshmem==MAP_FAILED) {
 		egi_dperr("Fail to mmap memfd!");
                 return NULL;
@@ -573,9 +581,12 @@ static void* surfman_request_process_thread(void *arg)
 					maxfd=csFD;
 			}
 		}
-//		egi_dpstd("maxfd=%d\n", maxfd);
 
 		/* select readable fds, all fds to be NONBLOCKING. */
+//		egi_dpstd("Select maxfd=%d\n", maxfd);
+
+		tm.tv_sec=0;
+		tm.tv_usec=500000;
 		rfds=select(maxfd+1, &set_uclits, NULL, NULL, &tm);
 		/* Case 1: No readbale fds, No request */
 		if(rfds==0) {
@@ -952,7 +963,7 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 	/* Do NOT close(memfd) here! To be closed by surfman_unregister_surface(). */
 
 	/* 6. Init surface mutex_lock */
-	if( pthread_mutexattr_setpshared(&(eface->surfshmem)->mutexattr,PTHREAD_PROCESS_SHARED) !=0 ) {
+	if( pthread_mutexattr_setpshared(&(eface->surfshmem)->mutexattr, PTHREAD_PROCESS_SHARED) !=0 ) {
 		egi_dpstd("Fail to set shared mutexattr!");
 		// GO on anyway...
 	}
@@ -963,7 +974,7 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
          */
 	if( pthread_mutexattr_setrobust(&(eface->surfshmem)->mutexattr,PTHREAD_MUTEX_ROBUST) !=0 ) {
 	}
-	if(pthread_mutex_init(&eface->surfshmem->mutex_lock, &eface->surfshmem->mutexattr) != 0) {
+	if(pthread_mutex_init(&eface->surfshmem->shmem_mutex, &eface->surfshmem->mutexattr) != 0) {
                 egi_dperr("Fail to initiate mutex_lock.");
 
 		egi_munmap_surfshmem(&eface->surfshmem);
@@ -989,7 +1000,7 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 		egi_dpstd("OOOPS! k==SURFMAN_MAX_SURFACES!");
 
         	pthread_mutexattr_destroy(&eface->surfshmem->mutexattr);
-       		pthread_mutex_destroy(&eface->surfshmem->mutex_lock);
+       		pthread_mutex_destroy(&eface->surfshmem->shmem_mutex);
 
 		egi_munmap_surfshmem(&eface->surfshmem);
 		close(memfd);
@@ -1093,11 +1104,11 @@ int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID )
 
   	/* 1. Destroy mutex lock */
 	/* 1.1 Get mutex lock, Not necessary here?? */
-	mutexret=pthread_mutex_lock(&eface->surfshmem->mutex_lock);
+	mutexret=pthread_mutex_lock(&eface->surfshmem->shmem_mutex);
 	if( mutexret ==EOWNERDEAD ) {
 		egi_dperr("Shmem mutex owner is dead, try to make mutex consistent...!");
 		EGI_PLOG(LOGLV_CRITICAL, "%s:Shmem mutex owner is dead, try to make mutex consistent...", __func__);
-		if( pthread_mutex_consistent(&eface->surfshmem->mutex_lock) !=0 ) {
+		if( pthread_mutex_consistent(&eface->surfshmem->shmem_mutex) !=0 ) {
 			egi_dperr("Fail to make a robust mutex consistent!");
 			EGI_PLOG(LOGLV_ERROR, "%s: Fail to make a robust mutex consistent!", __func__);
 		}
@@ -1111,7 +1122,7 @@ int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID )
 
         if(pthread_mutexattr_destroy(&eface->surfshmem->mutexattr) !=0 )
                 egi_dperr("Fail to destroy mutexattr!");
-        if(pthread_mutex_destroy(&eface->surfshmem->mutex_lock) !=0 ) /* TODO: Fail to destroy mutex_lock! Err'Success'. */
+        if(pthread_mutex_destroy(&eface->surfshmem->shmem_mutex) !=0 ) /* TODO: Fail to destroy mutex_lock! Err'Success'. */
                 egi_dperr("Fail to destroy mutex_lock!");
 
 	/* 2. Close memfd */
@@ -1157,7 +1168,7 @@ int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID )
 Bring surfman->surfaces[surfID] to the top layer by updating
 its zseq.
 
-Assume that zseq of surfman->surfaces are sorted in ascending order.
+Assume that zseq of input surfman->surfaces are sorted in ascending order.
 
 @surfman	Pointer to a pointer to an EGI_SURFMAN.
 @surfID		Index to surfman->surfaces[].
@@ -1332,10 +1343,10 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID)
 
 		  	/* A.1 Destroy mutex lock */
 			/* A.1.1 Get mutex lock, Not necessary here?? */
-			mutexret=pthread_mutex_lock(&eface->surfshmem->mutex_lock);
+			mutexret=pthread_mutex_lock(&eface->surfshmem->shmem_mutex);
 			if( mutexret ==EOWNERDEAD ) {
 				egi_dperr("Shmem mutex owner is dead, try to make mutex consistent...!");
-				if( pthread_mutex_consistent(&eface->surfshmem->mutex_lock) !=0 )
+				if( pthread_mutex_consistent(&eface->surfshmem->shmem_mutex) !=0 )
 					egi_dperr("Fail to make a robust mutex consistent!");
 				else
 					egi_dpstd("Succeed to make mutex consistent!");
@@ -1346,7 +1357,7 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID)
 		        if(pthread_mutexattr_destroy(&eface->surfshmem->mutexattr) !=0 )
                 		egi_dperr("Fail to destroy mutexattr!");
 			/* A.1.3 destroy mutex */
-		        if(pthread_mutex_destroy(&eface->surfshmem->mutex_lock) !=0 ) /* TODO: Fail to destroy mutex_lock! Err'Success'. */
+		        if(pthread_mutex_destroy(&eface->surfshmem->shmem_mutex) !=0 ) /* TODO: Fail to destroy mutex_lock! Err'Success'. */
                 		egi_dperr("Fail to destroy mutex_lock!");
 
 			/* A.2 Close memfd */
@@ -1481,9 +1492,11 @@ static void * surfman_render_thread(void *arg)
 	while( surfman->cmd !=1 ) {
 
 		/* B.1 Get surfman_mutex ONE BY ONE!  TODO: TBD */
-//		egi_dpstd("Try surfman mutex lock...\n");
+		//egi_dpstd("Try surfman mutex lock...\n");
+		/* TODO: pthread_mutex_lock() will DEADLOACK here!  Conflict with test_surfman.c ??? */
 	        if(pthread_mutex_lock(&surfman->surfman_mutex) !=0 ) {
-			egi_dperr("Fail to get surfman_mutex!");
+	        //if(pthread_mutex_trylock(&surfman->surfman_mutex) !=0 ) {
+			egi_dperr("Fail to get surfman_mutex!"); /* Err'Inappropriate ioctl for device'. */
                		tm_delayms(5);
 			continue;
        		}
@@ -1500,15 +1513,21 @@ static void * surfman_render_thread(void *arg)
 		}
 #endif
 
+		/* B.2A Clear minsurfaces */
+		//memset(surfman->minsurfaces, 0, SURFMAN_MAX_SURFACES*sizeof(typeof(surfman->minsurfaces)));
+		for(i=0; i<SURFMAN_MAX_SURFACES; i++)
+			surfman->minsurfaces[i]=NULL;
+		surfman->mincnt=0;
+
 		/* B.3 Draw and render surfaces */
 		/* NOTE:
 		 * 1. Traverse from surface with bigger zseqs to smaller ones.
  		 *    OR reversed sequence?
 		 * 2. ALPHA effect need a right render sequence!
 		 */
-		//egi_dpstd("Render surfances...\n");
-		for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {  /* From top layer to bkground */
-		//for(i=0; i<SURFMAN_MAX_SURFACES; i++) {	      /* From bkground to top layer */
+		//egi_dpstd("Render surfaces...\n");
+		for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {  	     /* From top layer to bkground */
+		//for(i=0; i<SURFMAN_MAX_SURFACES; i++) {	     /* From bkground to top layer */
 			//egi_dpstd("Draw surfaces[%d]...\n",i);
 
 			/* C.1 Check surface availability */
@@ -1518,20 +1537,25 @@ static void * surfman_render_thread(void *arg)
 				//break;
 				continue;  /* To traverse surfaces */
 			}
+//			egi_dpstd("surfaces[%d].zseq= %d\n", i, surface->zseq);
+
+			/* C.1A Check status_minimized */
+			if( surface->status == SURFACE_STATUS_MINIMIZED ) {
+				surfman->minsurfaces[surfman->mincnt]=surface;
+				surfman->mincnt++;
+				continue;
+			}
 
 			/* C.2 Get surfshmem as ref. */
 			surfshmem=surface->surfshmem;
 
-	/* TEST: ------------ */
-//			egi_dpstd("surfaces[%d].zseq= %d\n", i, surface->zseq);
-
 			/* C.3 Get surface mutex_lock */
-                        mutexret=pthread_mutex_lock(&surfshmem->mutex_lock);
-                        if( mutexret ==EOWNERDEAD ) {
+                        mutexret=pthread_mutex_lock(&surfshmem->shmem_mutex);
+                        if( mutexret==EOWNERDEAD ) {
                                 egi_dperr("Shmem mutex of surface[%d]'s owner is dead, try to make mutex consistent...!", i);
 				EGI_PLOG(LOGLV_CRITICAL, "%s: Shmem mutex of surface[%d]'s owner is dead, try to make mutex consistent.",
 														__func__, i);
-                                if( pthread_mutex_consistent(&surfshmem->mutex_lock) !=0 ) {
+                                if( pthread_mutex_consistent(&surfshmem->shmem_mutex) !=0 ) {
                                         egi_dperr("Fail to make a robust mutex consistent!");
 					EGI_PLOG(LOGLV_CRITICAL, "%s: Fail to make a robust mutex consistent!", __func__);
 					//Go on ....
@@ -1545,19 +1569,18 @@ static void * surfman_render_thread(void *arg)
 				egi_dperr("Fail to get mutex_lock for shmem of surface[%d].", i);
 				continue;  /* To traverse surfaces */
        			}
-
 	/* ------ >>>  Surfshmem Critical Zone  */
 
 			/* Check sync, TODO more for sync. */
 			if( surfshmem->sync==false ) {
-				pthread_mutex_unlock(&surfshmem->mutex_lock);
+				pthread_mutex_unlock(&surfshmem->shmem_mutex);
 				continue; /* To traverse surfaces */
 			}
 
 			/* C.4  TODO: NOW support SURF_RGB565 and SURF_RGB565_A8 only */
 			if( surface->colorType != SURF_RGB565 && surface->colorType != SURF_RGB565_A8 ) {
 				egi_dpstd("Unsupported colorType!\n");
-			        pthread_mutex_unlock(&surfshmem->mutex_lock);
+			        pthread_mutex_unlock(&surfshmem->shmem_mutex);
 				continue; /* To traverse surfaces */
 			}
 
@@ -1578,16 +1601,42 @@ static void * surfman_render_thread(void *arg)
 
 	/* ------ <<<  Surfshmem Critical Zone  */
 			/* C.8 unlock surfshmem mutex */
-			pthread_mutex_unlock(&surfshmem->mutex_lock);
+			pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
 		} /* END for() traverse all surfaces */
 
-#if 1		/* B.X Draw Wall paper, Here OR at begin */
+		/* B.X Draw Wall paper, Here OR at begin */
 		if(surfman->bkgimg) {
 			surfman->fbdev.pixz=0;
 			egi_subimg_writeFB(surfman->bkgimg, &surfman->fbdev, 0, -1, 0, 0);
 		}
-#endif
+
+		/* B.XX Draw minimized surfaces */
+		int MiniBarWidth=120;
+		surfman->fbdev.pixz=0; /* All minimized surfaces zseq==0! */
+		for(i=0; i < surfman->mincnt; i++) {
+			#if 0
+			fbset_color2(&surfman->fbdev, WEGI_COLOR_GRAY);
+			draw_filled_rect(&surfman->fbdev, 0, i*30, MiniBarWidth-1, (i+1)*30);
+			fbset_color2(&surfman->fbdev, WEGI_COLOR_BLACK);
+			draw_rect(&surfman->fbdev, 0, i*30, MiniBarWidth-1, (i+1)*30);
+			#endif
+			draw_blend_filled_rect(&surfman->fbdev,0, i*30, MiniBarWidth-1, (i+1)*30, /* fbdev, int x1, int y1, int x2, int y2, */
+                                                WEGI_COLOR_DARKGRAY, 160);
+
+			fbset_color2(&surfman->fbdev, WEGI_COLOR_GRAYB);
+			draw_wline(&surfman->fbdev, 0, (i+1)*30, MiniBarWidth-1, (i+1)*30, 2);
+
+			/* TODO Write Surface Name */
+		        FTsymbol_uft8strings_writeFB(&surfman->fbdev, egi_sysfonts.regular, /* FBdev, fontface */
+                                       18, 18,(const UFT8_PCHAR)"EGI_SURF",   /* fw,fh, pstr */
+                                       MiniBarWidth, 1, 0,     	              /* pixpl, lines, fgap */
+                                       10, i*30+2,	                 /* x0,y0, */
+                                       WEGI_COLOR_WHITE, -1, 160,        /* fontcolor, transcolor,opaque */
+                                       NULL, NULL, NULL, NULL);          /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+
+		}
+
 		/* B.4 Draw cursor, always at top. */
 		if(surfman->mcursor) {
 			surfman->fbdev.zbuff_on = false;
@@ -1597,7 +1646,7 @@ static void * surfman_render_thread(void *arg)
 		}
 
 /* ------- <<<  Surfman Critical Zone  */
-	        /* B.5 put mutex lock for ineimg */
+	        /* B.5 put mutex lock */
 		pthread_mutex_unlock(&surfman->surfman_mutex);
 
 		/* B.6 Render and bring to FB */

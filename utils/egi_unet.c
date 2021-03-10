@@ -56,6 +56,11 @@ Journal:
 	1. unet_create_Userver(): change userv->sockfd=socket() from NONBLOCK to BLOCK type.
 2021-03-7:
 	1. Add: ERING_MSG, ering_msg_init(), ering_msg_free().
+2021-03-8:
+	1. Add: ering_msg_send(), ering_msg_recv();
+2021-03-9:
+	1. unet_sendmsg()/ering_msg_send(): Add flag MSG_DONTWAIT to make it NON_BLOCKING.
+	   
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -510,7 +515,7 @@ int unet_destroy_Uclient(EGI_UCLIT **uclit )
 Send out msg through a AF_UNIX socket.
 
 @sockfd  A valid UNIX SOCK_STREAM type socket.
-	 Assume to be BLOCKING type.
+	 xxxx NOPE!  Assume to be BLOCKING type.
 @msg	 Pointer to MSG.
 
 Return:
@@ -525,7 +530,7 @@ int unet_sendmsg(int sockfd,  struct msghdr *msg)
 		return -1;
 
 	/* Send MSG */
-	nsnd=sendmsg(sockfd, msg, MSG_NOSIGNAL); /* MSG_NOWAIT */
+	nsnd=sendmsg(sockfd, msg, MSG_NOSIGNAL|MSG_DONTWAIT);
 	if(nsnd>0) {
 		//printf("%s: OK, sendmsg() %d bytes!\n", __func__, nsnd);
 //		egi_dpstd("OK, sendmsg() %d bytes!\n",nsnd);
@@ -617,9 +622,10 @@ int unet_recvmsg(int sockfd,  struct msghdr *msg)
 	}
 
 	/* Check msg->msg_flags */
-	if( msg->msg_flags != 0 )
+	if( msg->msg_flags != 0 ) {
 		//printf("%s: msg_flags=%d, the MSG is incomplete!\n",__func__, msg->msg_flags);
 		egi_dpstd("msg_flags=%d, the MSG is incomplete!\n", msg->msg_flags);
+	}
 
 	return nrcv;
 }
@@ -628,13 +634,15 @@ int unet_recvmsg(int sockfd,  struct msghdr *msg)
 /*--------------------------------------------
 Create and init an ERING_MSG.
 
-@datasize:	data size of emsg->data
+emsg->data length is fixed to be ERING_MSG_DATALEN.
+//@capacity:   Allocated space size of emsg->data.
+
 
 Return:
 	Pointer to ERING_MSG	Ok
 	NULL			Fails
 ----------------------------------------------*/
-ERING_MSG* ering_msg_init(size_t datasize)
+ERING_MSG* ering_msg_init(void)
 {
 
 #if 0 ///////
@@ -662,18 +670,19 @@ ERING_MSG* ering_msg_init(size_t datasize)
 
 	ERING_MSG *emsg=NULL;
 
+	/* 1. Calloc ERING_MSG */
 	emsg=calloc(1, sizeof(ERING_MSG));
 	if(emsg==NULL)
 		return NULL;
 
-	/* Calloc msghead */
+	/* 2. Calloc msghead */
 	emsg->msghead=calloc(1, sizeof(struct msghdr));
 	if(emsg->msghead==NULL) {
 		free(emsg);
 		return NULL;
 	}
 
-	/* Calloc 2*iovec */
+	/* 3. Calloc 2*iovec */
 	emsg->msghead->msg_iov=calloc(2, sizeof(struct iovec));
 	if(emsg->msghead->msg_iov==NULL) {
 		free(emsg->msghead);
@@ -681,8 +690,8 @@ ERING_MSG* ering_msg_init(size_t datasize)
 		return NULL;
 	}
 
-	/* Calloc  data */
-	emsg->data=calloc(1, datasize);
+	/* 4. Calloc  data, fixed data length.  */
+	emsg->data=calloc(1, ERING_MSG_DATALEN);
 	if(emsg->data==NULL) {
 		free(emsg->msghead->msg_iov);
 		free(emsg->msghead);
@@ -690,14 +699,19 @@ ERING_MSG* ering_msg_init(size_t datasize)
 		return NULL;
 	}
 
-	/* Assign msg_iov[] */
+	/* 5. Assign msghead memebers */
+
+	/* 5.1 MSG IOVECs: [0]TYPE, [1]DATA */
+	emsg->msghead->msg_iovlen=2;
+
+	/* 5.2 MSG TYPE */
 	emsg->msghead->msg_iov[0].iov_base=&emsg->type;
 	emsg->msghead->msg_iov[0].iov_len=sizeof(emsg->type);
 
-	emsg->msghead->msg_iov[1].iov_base=emsg->data;
-	emsg->msghead->msg_iov[1].iov_len=datasize;
+	/* 5.3 MSG DATA */
+	emsg->msghead->msg_iov[1].iov_base=emsg->data;		/* MAY be temp. adjusted to acutual input data pointer. */
+	emsg->msghead->msg_iov[1].iov_len=ERING_MSG_DATALEN;	/* Fixed */
 
-	emsg->msghead->msg_iovlen=2;
 
 	/* OK */
 	return emsg;
@@ -729,4 +743,91 @@ void ering_msg_free(ERING_MSG **emsg)
 	free(*emsg);
 
 	*emsg=NULL;
+}
+
+
+/*--------------------------------------------------------------------------
+Send out ERING_MSG through an AF_UNIX socket.
+
+@sockfd  	A valid UNIX SOCK_STREAM type socket.
+	 	Assume to be BLOCKING type.
+@emsg	 	Pointer to ERING_MSG.
+@msg_type    	Msg type.
+@data	 	Palyload data in ERING_MSG data, as per MSG type.
+@len	 	In bytes, lenght of payload data. (Limit: ERING_MSG_DATALEN)
+
+Return:
+	>0	OK, the number of bytes sent.
+		It excludes ancillary(msg_control) data length!
+	<0	Fails
+--------------------------------------------------------------------------*/
+int ering_msg_send(int sockfd, ERING_MSG *emsg,  int msg_type, const void *data,  size_t len)
+{
+	int ret=0;
+	void *tmp;
+
+	if(emsg==NULL)
+		return -1;
+
+	/* 1. Check size, Too big may make recv_end data outflow. */
+	if(len > ERING_MSG_DATALEN) {
+		egi_dpstd("Input payload data length (%d) out of capacity (%d)!\n", len, ERING_MSG_DATALEN);
+		return -2;
+	}
+
+	/* 2. Msg type */
+	emsg->type=msg_type;
+
+	/* 3. Copy payload data, OR temp. refer to data?? */
+#if 0	/* REFER */
+	tmp=emsg->msghead->msg_iov[1].iov_base;
+	emsg->msghead->msg_iov[1].iov_base=data;
+#else   /* COPY */
+	memcpy(emsg->data, data, len);
+#endif
+	emsg->msghead->msg_iov[1].iov_len=ERING_MSG_DATALEN; /* Fixed data length as for data stream transfer. */
+
+	/* 5. Send msg */
+	ret=unet_sendmsg(sockfd,  emsg->msghead);
+
+	/* 6. Reset msg_iov[1].iov_base */
+#if 0   /* REFER */
+	emsg->msghead->msg_iov[1].iov_base=tmp;
+#endif
+
+	/* OK */
+	return ret;
+}
+
+
+/*--------------------------------------------------------------------
+Receive ERING_MSG through an AF_UNIX socket.
+(The Caller should also check msg->msg_flags.)
+
+@sockfd  A valid UNIX SOCK_STREAM type socket.
+	 Assume to be BLOCKING type.
+@emsg	 Pointer to ERING_MSG.
+
+Return:
+	>0	OK, the number of bytes received.
+		DO NOT include ancillary(msg_control) data length!
+	=0	Counter peer quits.
+	<0	Fails
+---------------------------------------------------------------------*/
+int ering_msg_recv(int sockfd, ERING_MSG *emsg)
+{
+	int ret;
+
+	if(emsg==NULL)
+		return -1;
+
+	/* ALWAYS fixed msg_iov[1].iov_len */
+	//emsg->msghead->msg_iov[1].iov_len=ERING_MSG_DATALEN;
+
+	/* Receive msg */
+	ret=unet_recvmsg(sockfd,  emsg->msghead);
+
+	/* Check emsg->msghead->msg_flags */
+
+	return ret;
 }

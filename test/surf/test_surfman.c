@@ -3,6 +3,14 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+Note:
+1. Before access to surfman->surfaces[x], make sure that there
+   are surfaces registered in the surfman. If there is NO surface
+   available, it will certainly cause segmentation fault!
+2. If the SURFUSER do NOT receive ERING MSG, then it MAY cause some
+   problem any msg piled up in the kernel space? --'Resource temporarily unavailable'.
+
+
 TODO:
 1. Surfman_render_thread DO NOT sync with mouse click_pick operation.
    Surfman render mouse position MAY NOT be current mouseXY, which
@@ -26,7 +34,7 @@ https://github.com/widora/wegi
 #include "egi_input.h"
 
 #define MCURSOR_ICON_PATH 	"/mmc/mcursor.png"
-#define SURFMAN_BKGIMG_PATH	"/mmc/linux.jpg"
+#define SURFMAN_BKGIMG_PATH	"/mmc/egidesk.jpg"  // "/mmc/linux.jpg"
 
 static EGI_MOUSE_STATUS mostat;
 static EGI_MOUSE_STATUS *pmostat;
@@ -70,6 +78,14 @@ int main(int argc, char **argv)
         EGI_PLOG(LOGLV_INFO,"%s: Start logging...", argv[0]);
 #endif
 
+#if 1   /* Load freetype fonts */
+        printf("FTsymbol_load_sysfonts()...\n");
+        if(FTsymbol_load_sysfonts() !=0) {
+                printf("Fail to load FT sysfonts, quit.\n");
+                return -1;
+        }
+#endif
+
         /* Parse input option */
         while( (opt=getopt(argc,argv,"hscS:p:"))!=-1 ) {
                 switch(opt) {
@@ -84,7 +100,7 @@ int main(int argc, char **argv)
 
 	/* Create an ERING_MSG */
 	printf("Create an ERING_MSG, sizeof(EGI_MOUSE_STATUS)=%d ....\n", sizeof(EGI_MOUSE_STATUS));
-        ERING_MSG *emsg=ering_msg_init(sizeof(EGI_MOUSE_STATUS));
+        ERING_MSG *emsg=ering_msg_init();
         if(emsg==NULL) exit(EXIT_FAILURE);
 
 	/* 1. Create an EGI surface manager */
@@ -131,6 +147,7 @@ int main(int argc, char **argv)
 		}
 		else {
 			switch(ch) {
+				/* TEST--------: Move surface, surfman_mutex ignored. !!!! scnt>0 !!! */
 				case 'a':
 					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->x0 -=10;
 					break;
@@ -143,6 +160,32 @@ int main(int argc, char **argv)
 				case 's':
 					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->y0 +=10;
 					break;
+				/* TEST--------: Minimize / Maximize surfaces */
+				case 'n':
+					pthread_mutex_lock(&surfman->surfman_mutex);
+
+					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->status=SURFACE_STATUS_MINIMIZED;
+					/* Set zseq to bkground */
+					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->zseq=0;
+					/* Since zseq changed, CAN NOT use surfman_bringtop_surface! */
+					/* XXX surfman_bringtop_surface_nolock(surfman, SURFMAN_MAX_SURFACES-2); */
+					surface_insertSort_zseq(&surfman->surfaces[0], SURFMAN_MAX_SURFACES);
+
+					pthread_mutex_unlock(&surfman->surfman_mutex);
+					break;
+				case 'm':
+					pthread_mutex_lock(&surfman->surfman_mutex);
+					if(surfman->minsurfaces[0]) {
+						surfman->minsurfaces[0]->status=SURFACE_STATUS_NORMAL;
+						/* Set zseq to bkground */
+						surfman->minsurfaces[0]->zseq=SURFMAN_MAX_SURFACES;
+						/* Since zseq changed, CAN NOT use surfman_bringtop_surface! */
+						/* surfman_bringtop_surface_nolock(surfman, SURFMAN_MAX_SURFACES-2); */
+						surface_insertSort_zseq(&surfman->surfaces[0], SURFMAN_MAX_SURFACES);
+					}
+					pthread_mutex_unlock(&surfman->surfman_mutex);
+					break;
+
 				default:
 					break;
 			}
@@ -152,20 +195,18 @@ int main(int argc, char **argv)
 	        if( egi_mouse_getRequest(pmostat) ) {  /* Apply pmostat->mutex_lock */
 
 			/* 0. Send mouse_status to the TOP surface */
-			void *ptmp=emsg->data;
-			emsg->type=ERING_MOUSE_STATUS;
-
-			/* Copy mouse data */
-			memcpy(emsg->data, pmostat, sizeof(EGI_MOUSE_STATUS));
 
 			pthread_mutex_lock(&surfman->surfman_mutex);
 	/* ------ >>>  Surfman Critical Zone  */
 
-			if(surfman->scnt) {
-
-			        if( unet_sendmsg( surfman->surfaces[SURFMAN_MAX_SURFACES-1]->csFD, emsg->msghead) <=0 ) {
-				                egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");
+			if(surfman->scnt) {  /* Only if have surface registered */
+				/* Note: ering_msg_send() is BLOCKING type, if Surfuser DO NOT recv the msg, it will blocked here! */
+				//printf("ering msg send...\n");
+				if( ering_msg_send( surfman->surfaces[SURFMAN_MAX_SURFACES-1]->csFD,
+						    emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS)) <=0 ) {
+					egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");
 				}
+				//printf("ering msg send OK!\n");
 			}
 
 	/* ------ <<<  Surfman Critical Zone  */
@@ -242,18 +283,19 @@ Hold surface
                         	lastY=pmostat->mouseY;
 
 	                }
-        	        /* 2. LeftKeyDownHold: To pan image */
+        	        /* 2. LeftKeyDownHold: To move surface */
                 	else if(pmostat->LeftKeyDownHold) {
                         	/* Note: As mouseDX/DY already added into mouseX/Y, and mouseX/Y have Limit Value also.
 	                         * If use mouseDX/DY, the cursor will slip away at four sides of LCD, as Limit Value applys for mouseX/Y,
         	                 * while mouseDX/DY do NOT has limits!!!
                 	         * We need to retrive DX/DY from previous mouseX/Y.
                         	 */
-
+				printf("LeftKeyDH mutex lock..."); fflush(stdout);
 				pthread_mutex_lock(&surfman->surfman_mutex);
+				printf("LeftKeyDH lock OK\n");
 	 /* ------ >>>  Surfman Critical Zone  */
 
-  			   if(surface_downhold) {
+  			   if(surface_downhold && surfman->scnt ) {  /* Only if have surface registered! */
 				printf("Hold surface\n");
 				/* Downhold surface is always on the top layer */
 				surfID=SURFMAN_MAX_SURFACES-1;
@@ -375,8 +417,6 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
         pmostat->request = true;  	/* !!! NOT mutex_locked */
 
 
-
-
 /*  --- <<<  Critical Zone  */
         /* Put mutex lock */
         pthread_mutex_unlock(&mostatus->mutex);
@@ -394,9 +434,7 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
 		-Leftkey DownHold!
 		Hold surface
 		...
-
          */
-
 }
 
 

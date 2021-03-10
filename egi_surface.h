@@ -95,7 +95,9 @@ struct egi_surface_manager {
         int                     scnt;           /* Active/nonNULL surfaces counter */
 
 #define SURFMAN_MAX_SURFACES	8	/* TODO:  A list to manage all surfaces */
-	EGI_SURFACE		*surfaces[SURFMAN_MAX_SURFACES];  /* It's sorted in ascending order of their zseq values! */
+	EGI_SURFACE		*surfaces[SURFMAN_MAX_SURFACES];  /* Pointers to surfaces
+								   * Sorted in ascending order of their zseq values!
+								   */
 	// const		EGI_SURFACE		*pslist[SURFMAN_MAX_SURFACES];	/* Only a reference */
 	pthread_mutex_t 	 surfman_mutex; /* 1. If there's a thread accessing surfaces[i], it MUST NOT be freed/unregistered!
 						 *    To lock/unlock for each surface!
@@ -104,6 +106,12 @@ struct egi_surface_manager {
 	/*  Relate sessions[] with surfaces[], so when session ends, surfaces to be unregistered.
 	 *  OK, NOW see: surfman_unregister_surfuser();
 	 */
+
+	EGI_SURFACE	*minsurfaces[SURFMAN_MAX_SURFACES];	/* Pointers to minimized surfaces
+								 * 1. Push sequence: from [0] to  [SURFMAN_MAX_SURFACES]
+								 * 2. It's updated each time before surfman renders surfaces[].
+								 */
+	int		 mincnt;				/* Counter of minimized surfaces */
 
 	/* 3. Surface render process */
 	EGI_IMGBUF	*mcursor;	  /* Mouse cursor imgbuf */
@@ -121,8 +129,6 @@ struct egi_surface_manager {
 	pthread_t	renderThread;	  /* Render processing thread */
 	bool		renderThread_on;  /* renderThread is running */
 
-
-
 };
 
 /***  			--- EGI_SURFACE ---
@@ -139,7 +145,7 @@ struct egi_surface_manager {
  *      --- OK Surfuser get EGI_SURFSHMEM pointer only
  */
 
-/* ---- Common shared data --- */
+/* --- A surface commonly shared data : mostly for the SURFUSER --- */
 struct egi_surface_shmem {
 	size_t		shmsize;	/* Total memory allocated for the shmem
 					 * EGI_SURFACE also holds the data!
@@ -147,7 +153,9 @@ struct egi_surface_shmem {
 
 	/* Mutex: PTHREAD_PROCESS_SHARED + PTHREAD_MUTEX_ROBUST */
 	pthread_mutexattr_t mutexattr;	/* MUST also in the shared memory */
-	pthread_mutex_t	mutex_lock; 	/* Porcess_shared mutex lock for surface common data. */
+	pthread_mutex_t	shmem_mutex; 	/* Porcess_shared mutex lock for surface common data. */
+
+
 	int		usersig;	/* user signal */
 	bool		hidden;		/* True: invisible. */
 
@@ -209,7 +217,7 @@ struct egi_surface {
 					 */
 
         /* Fixed params, only surfman can modify/update upon the APP request? */
-        int             width;
+        int             width;		/* As MAX size of a surface */
         int             height;
 
 	SURF_COLOR_TYPE colorType;
@@ -218,9 +226,21 @@ struct egi_surface {
 					 * + sizeof alpha
 					 * Include or exclude alpha value.
 					 */
+	int		status;		/* Surface status */
+
+
+	/* Commonly shared data, mostly for the SURFUSER */
 	EGI_SURFSHMEM	*surfshmem;	/* memfd_created memory, call egi_munmap_surfshmem() to unmap/release. */
 };
 
+enum surface_status {
+	SURFACE_STATUS_NORMAL	  =1,
+	SURFACE_STATUS_MINIMIZED  =2,
+	SURFACE_STATUS_MAXIMIZED  =3,
+};
+
+
+#if  0 /* NOTE: Following move to egi_unet.h */
 enum ering_request_type {
         ERING_REQUEST_NONE      =0,
         ERING_REQUEST_EINPUT    =1,
@@ -238,7 +258,9 @@ enum ering_result_type {
         ERING_RESULT_OK         =0,
         ERING_RESULT_ERR        =1,
 	ERING_MAX_LIMIT		=2,  	/* Surfaces/... Max limit */
-z};
+};
+#endif /* END */
+
 
 /* Functions for   --- EGI_SURFACE ---   */
 int surf_get_pixsize(SURF_COLOR_TYPE colorType);
@@ -269,7 +291,6 @@ int surfman_bringtop_surface(EGI_SURFMAN *surfman, int surfID);		/* surfman_mute
 
 // static void* surfman_request_process_thread(void *surfman);
 int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID);	/* surfman_mutex, sort zseq, */
-
 // static void * surfman_render_thread(void *surfman);			/* surfman_mutex */
 
 int surfman_xyget_Zseq(EGI_SURFMAN *surfman, int x, int y);

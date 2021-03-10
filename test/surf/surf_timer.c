@@ -149,11 +149,13 @@ int main(int argc, char **argv)
            	}
 
                 /* Get surface mutex_lock */
-                if( pthread_mutex_lock(&surfshmem->mutex_lock) !=0 ) {
+		printf("Mutex lock...");fflush(stdout);
+                if( pthread_mutex_lock(&surfshmem->shmem_mutex) !=0 ) {
                           egi_dperr("Fail to get mutex_lock for surface.");
 			  tm_delayms(10);
                           continue;
                 }
+		printf("OK\n");
 /* ------ >>>  Surface shmem Critical Zone  */
 
 		/* Clear pad */
@@ -180,11 +182,11 @@ int main(int argc, char **argv)
 		else if( surfshmem->y0 > 240-80 ) det=-det;
 #endif
 
-	        /* Activate image */
+	        /* Activate/Synch image */
         	surfshmem->sync=true;
 
 /* ------ <<<  Surface shmem Critical Zone  */
-		pthread_mutex_unlock(&surfshmem->mutex_lock);
+		pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
 		tm_delayms(100);
 	}
