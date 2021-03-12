@@ -3,22 +3,74 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-A module for SURFACE, SURFMAN, SURFUSER.
+A module for SURFACE, SURFUSER, SURFMAN.
+
+			----- Definition -----
+
+SURFACE:   An imgbuf and relevant image data allocated for an application.
+	   It defines an area for interface of (image) displaying and (mouse) interacting.
+	   At SURFUSER side, it gets only SURFSHMEM part of the SURFACE.
+
+SURFUSER:  The owner of a SURFACE, an uclient to SURFMAN. (TODO: It MAY hold
+	   several SURFACEs).
+	   However it can only access SURFSHMEM part of the SURFACE, as
+	   a way to protect private data for the SURFMAN.
+
+SURFMAN:   The manager of all SURFACEs and SURFUSERs, for rendering surface
+	   imgbufs to FB, and communicating with surfusers. It totally contorl
+	   data of all SURFACEs.
+
+			----- Routine Process ----
+SURFUSER:
+  1. Register a SURFUSER (with a SURFACE) to SURFMAN by calling egi_register_surfuser(),
+     via ERING_PATH_SURFMAN.
+  2. Add (more) SURFACEs to a registered SURFUSER by calling ering_request_surface(),
+     via connected UNIX type sockfd.
+  3. Receive ERING message from the SURFMAN by calling ering_msg_recv(BLOCKED),
+     via connected UNIX type sockfd. < Mouse/Keyboard data >
+  4. Do routine jobs, update image data to SURFSHMEM and synchronize with SURFMAN.
+
+SURFMAN:
+  1. Create a SURFMAN by calling egi_create_surfman(), which initializes envs with:
+     1.1 Establish ERING_PATH_SURFMAN for ERING.
+     1.2 Initilize/mmap FB device.
+  2. When an EGI_SURMAN is created, there are 3 threads running for routine jobs.
+     2.1 userv_listen_thread(): To accept connection from SURFUER uclint, and save to
+	 a session list.
+     2.2 surfman_request_process_thread(void *surfman): Listen to SURFUSERs by select().
+         2.2.1 Upon SURFUSER's request, to create and register SURFACEs.
+         2.2.2 Retire/unregister SURFUSER if it disconnets from ERING.
+     2.3 surfman_render_thread():
+         2.3.1 To render all surfaces/mouse/menus to FB.
+	 2.3.2 Synchronize with all SURFUSER(SURFSHMEM).
+  3. Main thread of the SURFMAN.
+     3.1 Scan mouse and keyboard input, and parse it.
+     3.2 Update mouse position, as for surfman ->mx,my.
+     3.3 Adjust SURFACE rendering sequence, bring a SURFACE to top by mouse clicking.
+     3.4 Minimize/Maximize/Close SURFACEs. (by mouse clicking)
+     3.5 Send mouse status to SURFUSER of the current top(focused) surface.
+     3.6 Send keyboard input to SURFUSER of the current top(focused) surface.
+     3.7 Move SURFACEs by mouse dragging. (OR by SURFUSER?)
+
 
 Note:
 1. Anonymous shared memory leakage/not_freed??  Busybox: ipcs ipcrm
 
 TODO:
-1. Abrupt break of a surfuser will force surfman_request_process_thread()
+1. XXX Abrupt break of a surfuser will force surfman_request_process_thread()
    and surfman_render_thread() to quit!!!
    --- OK, Apply PTHREAD_MUTEX_ROBUST.
+
 2. Check sync/need_refresh token of each surface before rendering, skip
    it if the surface image is not updated, thus may help surfman cutdown rendering time.
    However, mouse cursor has to be refreshed directly on the working buffer.
    since hardware does NOT support 2_layer frame buffer, working buffer
    need redraw be the mouse cursor....
 
-Jurnal
+3. XXX The last SURFUSER's register request has exactly 50% chance to fail with unet_recvmsg() errno=131 Err'Connection reset by peer'.
+   ---OK
+
+Journal
 2021-02-22:
 	1. Add surfman_render_thread().
 	2. Apply surfman_mutex.
@@ -39,7 +91,15 @@ Jurnal
 	2. Add surfman_xyget_surfaceID().
 	3. surfman_bringtop_surface_nolock().
 2021-03-10:
-	1. Test Minimize/Maxmize surfaces.
+	1. Test Minimize/Maximize surfaces.
+	2. surfman_bringtop_surface_nolock(): Update surfaces[]->id!
+2021-03-11:
+	1. Definition and description of SURFACE, SURFUSER, SURFMAN.
+	2. Put SURFACE name to leftside minibar menu. (struct memeber surfnam[] for SURFSHMEM)
+	3. Mouse click on leftside minibar to bring the SURFACE to TOP layer.
+	   (Add struct memeber IndexMpMinSurf for SURFMAN)
+2021-03-12:
+	1. Add EGI_SURFBTN: egi_surfbtn_create(), egi_surfbtn_free().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -260,13 +320,13 @@ void surface_insertSort_zseq(EGI_SURFACE **surfaces, int n)
 	for(i=0; i< SURFMAN_MAX_SURFACES; i++)
 		if(surfaces[i]) maxzseq++;
 
-	/* Reset all surface->id as index of surfman->surfaces[], Reset all zseq*/
+	/* Reset all surface->id as index of surfman->surfaces[], Reset all zseq */
 	for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {
 		if(surfaces[i]==NULL) {  /* NULL followed by NULL */
 			break;
 		}
 		else {
-			surfaces[i]->id=i;
+			surfaces[i]->id=i;  /* Reset index of surfman->surfaces[] as ascending order */
 			surfaces[i]->zseq = maxzseq--;
 		}
 	}
@@ -1164,9 +1224,10 @@ int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID )
 }
 
 
-/*-----------------------------------------------------------
-Bring surfman->surfaces[surfID] to the top layer by updating
-its zseq.
+/*-------------------------------------------------------------------
+1. Bring surfman->surfaces[surfID] to the top layer by updating
+   its zseq and its id!
+2. Reset its STATUS to NORMAL.
 
 Assume that zseq of input surfman->surfaces are sorted in ascending order.
 
@@ -1176,7 +1237,7 @@ Assume that zseq of input surfman->surfaces are sorted in ascending order.
 Return:
 	0	OK
 	<0	Fails
-------------------------------------------------------------*/
+-------------------------------------------------------------------*/
 int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
 {
 	int i;
@@ -1195,6 +1256,9 @@ int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
 		return -3;
 	}
 
+	/* Reset Status to normal, if it's minimized. */
+	surfman->surfaces[surfID]->status=SURFACE_STATUS_NORMAL;
+
 	/* If already at top */
 	if(surfman->surfaces[surfID]->zseq==surfman->scnt) {
 		return 0;
@@ -1211,11 +1275,13 @@ int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
 		surfman->surfaces[i]->zseq -=1;
 		/* Move down */
 		surfman->surfaces[i-1] = surfman->surfaces[i];
+		/* Reset id as index */
+		surfman->surfaces[i-1]->id=i-1;
 	}
 
 	/* Set surfaces[surfID] as the top surface */
-	 surfman->surfaces[SURFMAN_MAX_SURFACES-1]=tmpface;
-
+	surfman->surfaces[SURFMAN_MAX_SURFACES-1]=tmpface;
+	surfman->surfaces[SURFMAN_MAX_SURFACES-1]->id=SURFMAN_MAX_SURFACES-1; /* Reset is */
 
 	return 0;
 }
@@ -1235,15 +1301,17 @@ Return:
 ------------------------------------------------------------*/
 int surfman_bringtop_surface(EGI_SURFMAN *surfman, int surfID)
 {
-	int i;
-	int tmpz;
-	EGI_SURFACE *tmpface=NULL;
+	int ret;
+
+//	int i;
+//	int tmpz;
+//	EGI_SURFACE *tmpface=NULL;
 
 	/* Check input */
 	if(surfman==NULL)
 		return -1;
-	if(surfID <0 || surfID > SURFMAN_MAX_SURFACES-1 )
-		return -2;
+//	if(surfID <0 || surfID > SURFMAN_MAX_SURFACES-1 )
+//		return -2;
 
         /* Get mutex lock */
         if(pthread_mutex_lock(&surfman->surfman_mutex) !=0 ) {
@@ -1251,6 +1319,9 @@ int surfman_bringtop_surface(EGI_SURFMAN *surfman, int surfID)
         }
  /* ------ >>>  Critical Zone  */
 
+	ret=surfman_bringtop_surface_nolock(surfman, surfID);
+
+#if 0 //////////// Replaced by surfman_bringtop_surface_nolock() /////
 	/* Check */
 	if(surfman->surfaces[surfID]==NULL) {
 	        pthread_mutex_unlock(&surfman->surfman_mutex);
@@ -1268,16 +1339,21 @@ int surfman_bringtop_surface(EGI_SURFMAN *surfman, int surfID)
 		surfman->surfaces[i]->zseq -=1;
 		/* Move down */
 		surfman->surfaces[i-1] = surfman->surfaces[i];
+		/* Reset id as index */
+		surfman->surfaces[i-1]->id=i-1;
 	}
 
 	/* Set surfaces[surfID] as the top surface */
 	 surfman->surfaces[SURFMAN_MAX_SURFACES-1]=tmpface;
+	surfman->surfaces[SURFMAN_MAX_SURFACES-1]->id=SURFMAN_MAX_SURFACES-1; /* Reset is */
+
+#endif /////////////////////
 
 /* ------- <<<  Critical Zone  */
         /* put mutex lock for ineimg */
         pthread_mutex_unlock(&surfman->surfman_mutex);
 
-	return 0;
+	return ret;
 }
 
 
@@ -1455,8 +1531,38 @@ int surfman_xyget_surfaceID(EGI_SURFMAN *surfman, int x, int y)
 }
 
 
+/*----------------------------------------------------------------
+Return index of a surfman->surfaces[], which appears at the top of
+the desk, Not necessary to has biggest zseq! also consider STATUS.
+
+Assume all surfman->surfaces in ascending order, as ascendingly sorted.
+
+@surfman	Pointer to a pointer to an EGI_SURFMAN.
+
+Return:
+        <0      Fails, OR no surface at display.
+        >=0     Ok.
+-----------------------------------------------------------------*/
+int surfman_get_TopDispSurfaceID(EGI_SURFMAN *surfman)
+{
+	int i;
+
+	if(surfman==NULL || surfman->scnt<1)
+		return -1;
+
+	for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {
+		if(surfman->surfaces[i]==NULL)
+			return -2;;
+		if(surfman->surfaces[i]->status !=SURFACE_STATUS_MINIMIZED )
+			return i;
+	}
+
+	return -3;
+}
+
+
 /*-----------------------------------------------
-Render surfman->surfaces[] one by one, and bring
+wRender surfman->surfaces[] one by one, and bring
 them to FB to display.
 NOW: only supports SURF_RGB565
 
@@ -1471,6 +1577,11 @@ static void * surfman_render_thread(void *arg)
 	EGI_SURFSHMEM *surfshmem=NULL; /* Ref. */
 	EGI_SURFACE *surface=NULL;
 	EGI_SURFMAN *surfman=(EGI_SURFMAN *)arg;
+	char *pstr;
+
+	int MiniBarWidth=120; /* Left side minibar menu */
+	int MiniBarHeight=30;
+
 	if( surfman==NULL )
 		return (void *)-1;
 
@@ -1493,7 +1604,6 @@ static void * surfman_render_thread(void *arg)
 
 		/* B.1 Get surfman_mutex ONE BY ONE!  TODO: TBD */
 		//egi_dpstd("Try surfman mutex lock...\n");
-		/* TODO: pthread_mutex_lock() will DEADLOACK here!  Conflict with test_surfman.c ??? */
 	        if(pthread_mutex_lock(&surfman->surfman_mutex) !=0 ) {
 	        //if(pthread_mutex_trylock(&surfman->surfman_mutex) !=0 ) {
 			egi_dperr("Fail to get surfman_mutex!"); /* Err'Inappropriate ioctl for device'. */
@@ -1612,32 +1722,50 @@ static void * surfman_render_thread(void *arg)
 		}
 
 		/* B.XX Draw minimized surfaces */
-		int MiniBarWidth=120;
-		surfman->fbdev.pixz=0; /* All minimized surfaces zseq==0! */
+		surfman->fbdev.pixz=0; /* All minimized surfaces drawn just overlap bkground! */
+		surfman->IndexMpMinSurf = -1;  /* Assume mouse NOT on minibar menu */
 		for(i=0; i < surfman->mincnt; i++) {
+
+			/* Get ref. to surfshmem */
+			surfshmem=surfman->minsurfaces[i]->surfshmem;
+
+			/* Check whether the mouse is on the minibar menu */
+			if( surfman->mx < MiniBarWidth && surfman->my < surfman->mincnt*MiniBarHeight ) {
+				if( surfman_xyget_Zseq(surfman, surfman->mx, surfman->my)==0 ) /* Mouse on pixz=0 level */
+					surfman->IndexMpMinSurf=surfman->my/MiniBarHeight;
+			}
+
+			/* Draw MiniBar Menu */
 			#if 0
 			fbset_color2(&surfman->fbdev, WEGI_COLOR_GRAY);
-			draw_filled_rect(&surfman->fbdev, 0, i*30, MiniBarWidth-1, (i+1)*30);
+			draw_filled_rect(&surfman->fbdev, 0, i*MiniBarHeight, MiniBarWidth-1, (i+1)*MiniBarHeight);
 			fbset_color2(&surfman->fbdev, WEGI_COLOR_BLACK);
-			draw_rect(&surfman->fbdev, 0, i*30, MiniBarWidth-1, (i+1)*30);
+			draw_rect(&surfman->fbdev, 0, i*MiniBarHeight, MiniBarWidth-1, (i+1)*MiniBarHeight);
 			#endif
-			draw_blend_filled_rect(&surfman->fbdev,0, i*30, MiniBarWidth-1, (i+1)*30, /* fbdev, int x1, int y1, int x2, int y2, */
-                                                WEGI_COLOR_DARKGRAY, 160);
+
+			draw_blend_filled_rect(&surfman->fbdev,0, i*MiniBarHeight, MiniBarWidth-1, (i+1)*MiniBarHeight,
+					/* Set color for mouse pointed minibar menu */
+	                                 i== surfman->IndexMpMinSurf ? WEGI_COLOR_DARKRED:WEGI_COLOR_DARKGRAY, 160);
 
 			fbset_color2(&surfman->fbdev, WEGI_COLOR_GRAYB);
-			draw_wline(&surfman->fbdev, 0, (i+1)*30, MiniBarWidth-1, (i+1)*30, 2);
+			draw_wline(&surfman->fbdev, 0, (i+1)*MiniBarHeight, MiniBarWidth-1, (i+1)*MiniBarHeight, 2);
 
-			/* TODO Write Surface Name */
+
+			/* Write surface Name on MiniBar Menu */
+			if(surfshmem->surfname)
+				pstr=surfshmem->surfname;
+			else
+				pstr="EGI_SURF";
+
 		        FTsymbol_uft8strings_writeFB(&surfman->fbdev, egi_sysfonts.regular, /* FBdev, fontface */
-                                       18, 18,(const UFT8_PCHAR)"EGI_SURF",   /* fw,fh, pstr */
-                                       MiniBarWidth, 1, 0,     	              /* pixpl, lines, fgap */
-                                       10, i*30+2,	                 /* x0,y0, */
+                                       18, 18,(const UFT8_PCHAR)pstr,    /* fw,fh, pstr */
+                                       MiniBarWidth-10-5, 1, 0,     	         /* pixpl, lines, fgap */
+                                       10, i*30+5,	                 /* x0,y0, */
                                        WEGI_COLOR_WHITE, -1, 160,        /* fontcolor, transcolor,opaque */
                                        NULL, NULL, NULL, NULL);          /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
-
 		}
 
-		/* B.4 Draw cursor, always at top. */
+		/* B.4 Draw cursor, disable zbuff and always make it at top. */
 		if(surfman->mcursor) {
 			surfman->fbdev.zbuff_on = false;
 					  /* img, fbdev, subnum,subcolor,x0,y0 */
@@ -1695,3 +1823,85 @@ int surfman_display_surface(EGI_SURFMAN *surfman, EGI_SURFACE *surface)
 #endif
 
 
+/*---------------------------------------------------------------
+Create an EGI_SURFBTN and blockcopy its imgbuf from input imgbuf.
+
+@imgbuf		An EGI_IMGBUF holds image icons.
+@xi,yi		Button image origin relative to above imgbuf.
+@x0,y0		Button origin relative to surface imgbuf.
+@w,h		Width and height of the button image.
+
+Return:
+	A pointer to EGI_SURFBTN	ok
+	NULL				Fails
+----------------------------------------------------------------*/
+EGI_SURFBTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h)
+{
+	EGI_SURFBTN	*sbtn=NULL;
+
+	if(imgbuf==NULL)
+		return NULL;
+
+	/* w/h check inside egi_image functions */
+	//if(w<1 || h<1)
+	//	return NULL;
+
+	/* Calloc SURFBTN */
+	sbtn=calloc(1, sizeof(EGI_SURFBTN));
+	if(sbtn==NULL)
+		return NULL;
+
+	/* To copy a block from imgbuf as button image */
+	sbtn->imgbuf=egi_imgbuf_blockCopy(imgbuf, xi, yi, h, w);
+	if(sbtn->imgbuf==NULL) {
+		free(sbtn);
+		return NULL;
+	}
+
+	/* Assign members */
+	sbtn->x0=x0;
+	sbtn->y0=y0;
+
+	return sbtn;
+}
+
+
+/*---------------------------------------
+	Free an EGI_SURFBTN.
+---------------------------------------*/
+void egi_surfbtn_free(EGI_SURFBTN **sbtn)
+{
+	if(sbtn==NULL || *sbtn==NULL)
+		return;
+
+	/* Free imgbuf */
+	egi_imgbuf_free((*sbtn)->imgbuf);
+
+	/* Free struct */
+	free(*sbtn);
+
+	*sbtn=NULL;
+}
+
+
+/*---------------------------------------
+Check if point (x,y) in on the SURFBTN.
+
+@sbtn	EGI_SURFBTN
+@x,y	Point coordinate, relative to SURFACE!
+
+Return:
+	True or False.
+----------------------------------------*/
+inline bool egi_point_on_surfbtn(EGI_SURFBTN *sbtn, int x, int y)
+{
+	if(sbtn==NULL || sbtn->imgbuf==NULL)
+		return false;
+
+	if( x < sbtn->x0 || x > sbtn->x0 + sbtn->imgbuf->width )
+		return false;
+	if( y < sbtn->y0 || y > sbtn->y0 + sbtn->imgbuf->height )
+		return false;
+
+	return true;
+}

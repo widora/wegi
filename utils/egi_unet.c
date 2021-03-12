@@ -60,7 +60,8 @@ Journal:
 	1. Add: ering_msg_send(), ering_msg_recv();
 2021-03-9:
 	1. unet_sendmsg()/ering_msg_send(): Add flag MSG_DONTWAIT to make it NON_BLOCKING.
-	   
+2021-03-10:
+	1. userv_listen_thread(): Move checking_available_slot after calling_accept().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -292,18 +293,21 @@ static void* userv_listen_thread(void *arg)
 	egi_dpstd("Start loop of accepting clients...\n");
 	while( userv->cmd !=1 ) {
 
+#if 0 ///////////////// MOVE BACKWARD //////////////
 		/* 2.1 Re_count clients, and get an available userv->sessions[] for next new client. */
 		userv->ccnt=0;
 		index=-1;
 		for(i=0; i<USERV_MAX_CLIENTS; i++) {
+			/* 2.1.1 Find a slot in userv->sessions[] */
 			if( index<0 && userv->sessions[i].alive==false )
 				index=i;  /* availble index for next session */
+			/* 2.1.2 Re_count clients */
 			if( userv->sessions[i].alive==true )
 				userv->ccnt++;
 		}
 		//printf("%s: Recount active sessions, userv->ccnt=%d\n", __func__, userv->ccnt);
 
-		/* 2.1 Check Max. clients */
+		/* 2.2 Check Max. clients */
 		if(index<0) {
 			//printf("%s: Clients number hits Max. limit of %d!\n",__func__, USERV_MAX_CLIENTS);
 			egi_dpstd("Clients number hits Max. limit of %d!\n", USERV_MAX_CLIENTS);
@@ -315,6 +319,8 @@ static void* userv_listen_thread(void *arg)
 			 */
 			// continue;
 		}
+#endif //////////////////////////
+
 
 		/* 2.3 Accept clients */
 		//egi_dpstd("accept() waiting...\n");
@@ -349,6 +355,34 @@ static void* userv_listen_thread(void *arg)
 		}
 
 		/* NOW: csfd >0 */
+
+#if 1
+		/* 2.1 Re_count clients, and get an available userv->sessions[] for next new client. */
+		userv->ccnt=0;
+		index=-1;
+		for(i=0; i<USERV_MAX_CLIENTS; i++) {
+			/* 2.1.1 Find a slot in userv->sessions[] */
+			if( index<0 && userv->sessions[i].alive==false )
+				index=i;  /* availble index for next session */
+			/* 2.1.2 Re_count clients */
+			if( userv->sessions[i].alive==true )
+				userv->ccnt++;
+		}
+		//printf("%s: Recount active sessions, userv->ccnt=%d\n", __func__, userv->ccnt);
+
+		/* 2.2 Check Max. clients */
+		if(index<0) {
+			//printf("%s: Clients number hits Max. limit of %d!\n",__func__, USERV_MAX_CLIENTS);
+			egi_dpstd("Clients number hits Max. limit of %d!\n", USERV_MAX_CLIENTS);
+			tm_delayms(500);
+
+			/*** NOTE:
+			 * DO NOT continue to while() here, see following 2.3A, to avoid the thread to occupy all process time.???
+			 * Just a litte better... Can NOT avoid the case.
+			 */
+			// continue;
+		}
+#endif
 
 		/* 2.3A If get USERV_MAX_CLIENTS!  */
 		if(index<0) {
@@ -606,18 +640,56 @@ int unet_recvmsg(int sockfd,  struct msghdr *msg)
                 	case EWOULDBLOCK:
                         #endif
                         case EAGAIN:  //EWOULDBLOCK, for datastream it woudl block */
-                        	//printf("%s: Err'%s'.\n", __func__, strerror(errno));
 				egi_dperr("Eagain/EwouldBlock");
 				break;
 			case EBADF:
 				egi_dperr("EBADF");
 				break;
-			case ENOTCONN:
-				egi_dperr("ENOTCONN");
+			case ECONNREFUSED:
+				egi_dperr("ECONNREFUSED");
 				break;
+			case EFAULT:
+				egi_dperr("EFAULT");
+				break;
+			case EINTR:
+				egi_dperr("EINTR");
+				break;
+			case EINVAL:
+				egi_dperr("EINVAL");
+                                break;
+			case ENOMEM:
+                                egi_dperr("ENOMEM");
+                                break;
+			case ENOTCONN:
+                                egi_dperr("ENOTCONN");
+                                break;
+			case ENOTSOCK:
+                                egi_dperr("ENOTCONN");
+                                break;
+			/* Case errno==131: Err'Connection reset by peer'. */
+
+/*-----------------------------
+       ECONNREFUSED
+              A remote host refused to allow the network connection (typically because it is not running the requested service).
+
+       EFAULT The receive buffer pointer(s) point outside the process's address space.
+
+       EINTR  The receive was interrupted by delivery of a signal before any data were available; see signal(7).
+
+       EINVAL Invalid argument passed.
+
+       ENOMEM Could not allocate memory for recvmsg().
+
+       ENOTCONN
+              The socket is associated with a connection-oriented protocol and has not been connected (see connect(2) and accept(2)).
+
+       ENOTSOCK
+              The file descriptor sockfd does not refer to a socket.
+
+------------------------*/
+
 			default:
-				//printf("%s: Err'%s'.\n", __func__, strerror(errno));
-				egi_dperr("recvmsg fails");
+				egi_dperr("recvmsg fails, errno=%d. ", errno);  /* errno=131 Err'Connection reset by peer'. */
 		}
 	}
 

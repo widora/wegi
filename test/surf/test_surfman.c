@@ -3,6 +3,13 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+Usage:
+1. Press 0-7 to bring indexed SURFACE to top.
+   Keep pressing 0 to traverse all SURFACEs.
+3. Press 'N' to minimize current top SURFACE.
+4. Press 'M' to maximize current top SURFACE.
+5. Press 'a','d','w','s' to move SURFACE LEFT,RIGHT,UP,DOWN respectively.
+
 Note:
 1. Before access to surfman->surfaces[x], make sure that there
    are surfaces registered in the surfman. If there is NO surface
@@ -16,6 +23,12 @@ TODO:
    Surfman render mouse position MAY NOT be current mouseXY, which
    appears as visual picking error.  Draw mark.
 2. CPU schedule time for each thread MAY be heavely biased.
+
+
+Journal
+2021-03-11:
+	1. If mouse clicks on leftside minibar menu, then bring the SURFACE
+	   to TOP layer.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -64,6 +77,7 @@ int main(int argc, char **argv)
 //	int ret;
 	int k;
 	int ch;
+	int surfID;
 
 	int opt;
 //	int sw=0,sh=0; /* Width and Height of the surface */
@@ -135,7 +149,7 @@ int main(int argc, char **argv)
 		/* Switch the top surface */
                 ch=0;
                 read(STDIN_FILENO, &ch,1);
-		if(ch >'0' && ch < '9' ) {  /* 1,2,3...9 */
+		if(ch >='0' && ch < '8' ) {  /* 1,2,3...9 */
 			printf("surfman->scnt=%d \n", surfman->scnt);
 			printf("ch: '%c'(%d)\n",ch, ch);
 			k=ch-0x30;
@@ -143,7 +157,6 @@ int main(int argc, char **argv)
 				 printf("Try to set surface %d top...\n", k);
 				 surfman_bringtop_surface(surfman, k);
 			}
-
 		}
 		else {
 			switch(ch) {
@@ -160,29 +173,41 @@ int main(int argc, char **argv)
 				case 's':
 					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->y0 +=10;
 					break;
+
 				/* TEST--------: Minimize / Maximize surfaces */
-				case 'n':
+				case 'n': /* Minimize the surface */
+					printf("Minimize surface.\n");
 					pthread_mutex_lock(&surfman->surfman_mutex);
 
-					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->status=SURFACE_STATUS_MINIMIZED;
-					/* Set zseq to bkground */
-					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->zseq=0;
-					/* Since zseq changed, CAN NOT use surfman_bringtop_surface! */
-					/* XXX surfman_bringtop_surface_nolock(surfman, SURFMAN_MAX_SURFACES-2); */
-					surface_insertSort_zseq(&surfman->surfaces[0], SURFMAN_MAX_SURFACES);
+					/* If all surface minimized */
+					if(surfman->scnt == surfman->mincnt) {
+						pthread_mutex_unlock(&surfman->surfman_mutex);
+						break;
+					}
+
+					/* Get index of current toplayer surface */
+					surfID=surfman_get_TopDispSurfaceID(surfman);
+					if(surfID<0) {
+						pthread_mutex_unlock(&surfman->surfman_mutex);
+						break;
+					}
+
+					/* Change status */
+					surfman->surfaces[surfID]->status=SURFACE_STATUS_MINIMIZED;
 
 					pthread_mutex_unlock(&surfman->surfman_mutex);
 					break;
-				case 'm':
+
+				case 'm': /* Maximize the surface */
+					printf("Maximize surface.\n");
 					pthread_mutex_lock(&surfman->surfman_mutex);
+
 					if(surfman->minsurfaces[0]) {
 						surfman->minsurfaces[0]->status=SURFACE_STATUS_NORMAL;
-						/* Set zseq to bkground */
-						surfman->minsurfaces[0]->zseq=SURFMAN_MAX_SURFACES;
-						/* Since zseq changed, CAN NOT use surfman_bringtop_surface! */
-						/* surfman_bringtop_surface_nolock(surfman, SURFMAN_MAX_SURFACES-2); */
-						surface_insertSort_zseq(&surfman->surfaces[0], SURFMAN_MAX_SURFACES);
+						/* Bring to TOP */
+						surfman_bringtop_surface_nolock(surfman, surfman->minsurfaces[0]->id);
 					}
+
 					pthread_mutex_unlock(&surfman->surfman_mutex);
 					break;
 
@@ -249,11 +274,12 @@ Hold surface
 
 
 				pthread_mutex_lock(&surfman->surfman_mutex);
-	 /* ------ >>>  Surfman Critical Zone  */
+		 /* ------ >>>  Surfman Critical Zone  */
 
                                 surfman->mx  = pmostat->mouseX;
                                 surfman->my  = pmostat->mouseY;
 
+				/* A. Check if it clicks on any SURFACEs. */
 				zseq=surfman_xyget_Zseq(surfman, surfman->mx, surfman->my);
 				printf("Picked zseq=%d\n", zseq);
 
@@ -265,7 +291,6 @@ Hold surface
 
 					/* Bring picked surface to TOP layer */
 					surfman_bringtop_surface_nolock(surfman, surfID);
-
 					/* Send msg to the surface */
 					emsg->type=ERING_SURFACE_BRINGTOP;
 				        if( unet_sendmsg( surfman->surfaces[SURFMAN_MAX_SURFACES-1]->csFD, emsg->msghead) <=0 ) {
@@ -273,9 +298,18 @@ Hold surface
 					}
 
 				}
+				/* B. Check if it clicks on leftside minibar menu, IndexMpMinSurf is set by surfman_render_thread(). */
+				else if ( surfman->IndexMpMinSurf >= 0 ) {
+					/* Bring mouse clicked minisurface to TOP layer */
+					surfman_bringtop_surface_nolock(surfman, surfman->minsurfaces[surfman->IndexMpMinSurf]->id);
+					/* Send msg to the surface */
+					emsg->type=ERING_SURFACE_BRINGTOP;
+				        if( unet_sendmsg( surfman->surfaces[SURFMAN_MAX_SURFACES-1]->csFD, emsg->msghead) <=0 ) {
+					                egi_dpstd("Fail to sednmsg ERING_SURFACE_BRINGTOP!\n");
+					}
+				}
 
-
-	 /* ------ <<<  Surfman Critical Zone  */
+		 /* ------ <<<  Surfman Critical Zone  */
 				pthread_mutex_unlock(&surfman->surfman_mutex);
 
 				/* Rest lastX/Y, to compare with next mouseX/Y to get deviation. */
@@ -290,25 +324,25 @@ Hold surface
         	                 * while mouseDX/DY do NOT has limits!!!
                 	         * We need to retrive DX/DY from previous mouseX/Y.
                         	 */
-				printf("LeftKeyDH mutex lock..."); fflush(stdout);
+				//printf("LeftKeyDH mutex lock..."); fflush(stdout);
 				pthread_mutex_lock(&surfman->surfman_mutex);
-				printf("LeftKeyDH lock OK\n");
-	 /* ------ >>>  Surfman Critical Zone  */
+				//printf("LeftKeyDH lock OK\n");
+		/* ------ >>>  Surfman Critical Zone  */
 
-  			   if(surface_downhold && surfman->scnt ) {  /* Only if have surface registered! */
-				printf("Hold surface\n");
-				/* Downhold surface is always on the top layer */
-				surfID=SURFMAN_MAX_SURFACES-1;
+  			   	if(surface_downhold && surfman->scnt ) {  /* Only if have surface registered! */
+					printf("Hold surface\n");
+					/* Downhold surface is always on the top layer */
+					surfID=SURFMAN_MAX_SURFACES-1;
 
-				/* Update surface x0,y0 */
-	                        surfman->surfaces[surfID]->surfshmem->x0  += (pmostat->mouseX-lastX); /* Delt x0 */
-        	       	        surfman->surfaces[surfID]->surfshmem->y0  += (pmostat->mouseY-lastY); /* Delt y0 */
+					/* Update surface x0,y0 */
+	                	        surfman->surfaces[surfID]->surfshmem->x0  += (pmostat->mouseX-lastX); /* Delt x0 */
+        	       	        	surfman->surfaces[surfID]->surfshmem->y0  += (pmostat->mouseY-lastY); /* Delt y0 */
 
-			   }/* End surface_downhold */
-			   else {
-				printf("Hold non\n");
+				}/* End surface_downhold */
+				   else {
+					printf("Hold non\n");
 
-			   }
+			   	}
 				/* Whatever, update mouse position always. */
                                 //surfman->mx  += (pmostat->mouseX-lastX); /* Delt x0 */
                                 //surfman->my  += (pmostat->mouseY-lastY); /* Delt y0 */
@@ -319,7 +353,7 @@ Hold surface
 				//printf("dx,dy: (%d,%d)\n", pmostat->mouseX-lastX, pmostat->mouseY-lastY);
 				//printf("mx,my: (%d,%d)\n", surfman->mx, surfman->my);
 
-	 /* ------ <<<  Surfman Critical Zone  */
+	 	/* ------ <<<  Surfman Critical Zone  */
 				pthread_mutex_unlock(&surfman->surfman_mutex);
 
                         	/* update lastX,Y */
@@ -335,27 +369,25 @@ Hold surface
 				}
 
 				pthread_mutex_lock(&surfman->surfman_mutex);
-	 /* ------ >>>  Surfman Critical Zone  */
+		 /* ------ >>>  Surfman Critical Zone  */
 
 				surfman->mx = pmostat->mouseX;
 				surfman->my = pmostat->mouseY;
 
-	 /* ------ <<<  Surfman Critical Zone  */
+		 /* ------ <<<  Surfman Critical Zone  */
 				pthread_mutex_unlock(&surfman->surfman_mutex);
-
 			}
 			/* 4. Update mouseXY to surfman */
 			else {
 
 				pthread_mutex_lock(&surfman->surfman_mutex);
-	 /* ------ >>>  Surfman Critical Zone  */
+		 /* ------ >>>  Surfman Critical Zone  */
 
                                 surfman->mx  = pmostat->mouseX;
                                 surfman->my  = pmostat->mouseY;
 
-	 /* ------ <<<  Surfman Critical Zone  */
+		 /* ------ <<<  Surfman Critical Zone  */
 				pthread_mutex_unlock(&surfman->surfman_mutex);
-
 			}
 
 			/* Put request */

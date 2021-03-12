@@ -176,6 +176,9 @@ int main(int argc, char **argv)
 	printf("shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
+        /* Assign name to the surface */
+        strncpy(surfshmem->surfname, "定时提醒", SURFNAME_MAX-1);
+
 	/* Set BK color */
 	//egi_imgbuf_resetColorAlpha(imgbuf, WEGI_COLOR_LTYELLOW, 255); /* Reset color only */
 	/* CCFFFF(LTblue), FF99FF,FFCCFF(LTpink), FFFF99(LTyellow) */

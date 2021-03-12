@@ -39,7 +39,7 @@ typedef struct egi_surface 		EGI_SURFACE;
 typedef struct egi_surface_shmem 	EGI_SURFSHMEM;
 typedef struct egi_surface_manager	EGI_SURFMAN;
 typedef struct egi_surface_user		EGI_SURFUSER;
-
+typedef struct egi_surface_button	EGI_SURFBTN;
 
 /* Surface color data type */
 typedef enum surf_color_type		SURF_COLOR_TYPE;
@@ -53,12 +53,25 @@ enum surf_color_type {
 	SURF_COLOR_MAX 	=5,     /*  This is also as end token, see surf_get_pixsize() */
 };
 
+/***
+			--- An EGI_SURFACE_BUTTON ---
+ 1. A simple button on surface.
+*/
+struct egi_surface_button {
+	int		x0;
+	int		y0;
+	EGI_IMGBUF	*imgbuf; /* To hold image */
+};
+EGI_SURFBTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h);
+void egi_surfbtn_free(EGI_SURFBTN **sbtn);
+bool egi_point_on_surfbtn(EGI_SURFBTN *sbtn, int x, int y);
 
 /*** 			--- An EGI_SURFUSER ---
  */
 struct egi_surface_user {
 	EGI_UCLIT 	*uclit;		/* A uClient to EGI_SURFMAN's uServer. */
 	EGI_SURFSHMEM	*surfshmem;	/* Shared memory data in a surface, to release by egi_munmap_surfshmem() */
+					/* TODO: More than 1 SURFACEs for a SURFUSER */
 	FBDEV  		vfbdev;		/* Virtual FBDEV, statically allocated. */
 	EGI_IMGBUF 	*imgbuf;	/* imgbuf for vfbdev;
 					 * Link it to surface->color[] data to virtual FBDEV */
@@ -95,6 +108,10 @@ struct egi_surface_manager {
         int                     scnt;           /* Active/nonNULL surfaces counter */
 
 #define SURFMAN_MAX_SURFACES	8	/* TODO:  A list to manage all surfaces */
+					/* Note:  Define USERV_MAX_CLIENTS (8+1)!  >8 !!!
+					 *        Then recvmsg() can pass 9th request to surfman, who can reply
+					 *        request fails for 'ERING_MAX_LIMIT'!
+					 */
 	EGI_SURFACE		*surfaces[SURFMAN_MAX_SURFACES];  /* Pointers to surfaces
 								   * Sorted in ascending order of their zseq values!
 								   */
@@ -111,7 +128,8 @@ struct egi_surface_manager {
 								 * 1. Push sequence: from [0] to  [SURFMAN_MAX_SURFACES]
 								 * 2. It's updated each time before surfman renders surfaces[].
 								 */
-	int		 mincnt;				/* Counter of minimized surfaces */
+	int		mincnt;				/* Counter of minimized surfaces */
+	int		IndexMpMinSurf;   /* Index of mouse pointed minsurfaces[], <0 NOT ON minibar! */
 
 	/* 3. Surface render process */
 	EGI_IMGBUF	*mcursor;	  /* Mouse cursor imgbuf */
@@ -147,6 +165,10 @@ struct egi_surface_manager {
 
 /* --- A surface commonly shared data : mostly for the SURFUSER --- */
 struct egi_surface_shmem {
+
+	#define SURFNAME_MAX	256
+	char		surfname[SURFNAME_MAX];	 /* Name of the surface/application, which MAY be appeared on the surface top */
+
 	size_t		shmsize;	/* Total memory allocated for the shmem
 					 * EGI_SURFACE also holds the data!
 					 */
@@ -194,6 +216,7 @@ struct egi_surface {
 					 * !!! --- Volatile value --- !!!
 					 * 1. It's volatile! as surfman->surfaces[] to is being sorted when a new
 					 *    surface is registered/unregistered! Use memfd instead to locate the surface.
+				         * 2. MUST update id accordingly as sequence/index of surfman->surfaces[] changes!
 					 */
 //	const char 	name[];
 
@@ -204,6 +227,7 @@ struct egi_surface {
 					 * 2. Surface with bigger zseq to be rendered ahead of smaller one.
 					 * 3. To update when surfman->surfaces[] add/delete a surface, and keep Max_zseq = surfman.scnt!
 					 *    The latest registered/added surface always holds the Max_zseq.
+					 * 4. ALL AWYAS keep surfman->surfaces[]->zseq in ascending order!
 					 */
 
 	int		memfd;		/* memfd for shmem of shurfshmem.  Keep until egi_destroy_surfman().
@@ -295,6 +319,7 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID);	/* surfman
 
 int surfman_xyget_Zseq(EGI_SURFMAN *surfman, int x, int y);
 int surfman_xyget_surfaceID(EGI_SURFMAN *surfman, int x, int y);
+int surfman_get_TopDispSurfaceID(EGI_SURFMAN *surfman);
 
 /* Functions for   --- EGI_RING ---   */
 EGI_SURFSHMEM *ering_request_surface(int sockfd, int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType);

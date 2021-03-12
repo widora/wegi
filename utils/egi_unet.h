@@ -15,9 +15,12 @@ midaszhou@yahoo.com
 #include <sys/un.h>
 #include <sys/socket.h>
 
+typedef struct egi_unet_server_session  EGI_USERV_SESSION;
+typedef struct egi_unix_server 		EGI_USERV;
+typedef struct egi_unix_client 		EGI_UCLIT;
+typedef struct ering_msg_data 		ERING_MSG;
 
 /* EGI_USERV_SESSION */
-typedef struct egi_unet_server_session EGI_USERV_SESSION;
 struct egi_unet_server_session {
         int             sessionID;               /* ID, ref. index of EGI_USERV_SESSION.sessions[], NOT as sequence number! */
         int             csFD;                    /* C/S session fd, <=0 invalid.
@@ -27,14 +30,12 @@ struct egi_unet_server_session {
         int             cmd;                     /* Commad to session handler, NOW: 1 to end routine. */
 };  /* At server side */
 
-
 /* EGI_USERV */
-typedef struct egi_unix_server EGI_USERV;
 struct egi_unix_server {
         int                     sockfd;		/* accept fd, NONBLOCK */
         struct sockaddr_un      addrSERV;       /* Self address */
 
-#define USERV_MAX_BACKLOG        16
+#define USERV_MAX_BACKLOG       16
         int                     backlog;        /* BACKLOG for accept(), init. in inet_create_Userver() as MAX_UNET_BACKLOG */
         int                     cmd;            /* NOW: 1 to end acpthread! */
 
@@ -44,12 +45,12 @@ struct egi_unix_server {
 
 	/* TODO: mutex_lock for ccnt/sessions[] */
         int                     ccnt;           /* Clients/Sessions counter */
-#define USERV_MAX_CLIENTS     	8		/* TODO: a list to manage all client */
+#define USERV_MAX_CLIENTS     	(8+1)		/* TODO: a list to manage all client */
+						/* NOTE: To be bigger than SURFMAN_MAX_SURFACES! */
         EGI_USERV_SESSION       sessions[USERV_MAX_CLIENTS];  	/* Sessions */
 };
 
 /* EGI_UCLIT */
-typedef struct egi_unix_client EGI_UCLIT;
 struct egi_unix_client {
         int                     sockfd;
         struct sockaddr_un      addrSERV;
@@ -97,8 +98,7 @@ enum ering_result_type {
         ERING_MAX_LIMIT         =2,     /* Surfaces/... Max limit */
 };
 
-
-typedef struct ering_msg_data ERING_MSG;
+/* ERING_MSG */
 struct ering_msg_data {
         struct msghdr   *msghead;
              /*** struct msghdr {
