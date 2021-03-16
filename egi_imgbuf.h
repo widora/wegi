@@ -42,7 +42,7 @@ typedef struct
 	int 		submax;	 	/* max index of subimg,
 					 * >=0, Max. index as for subimgs[index].
 					 */
-	unsigned char 	*alpha;    	/* 8bit, alpha channel value, if applicable: alpha=0,100%backcolor, alpha=1, 100% frontcolor */
+	EGI_8BIT_ALPHA 	*alpha;    	/* 8bit, alpha channel value, if applicable: alpha=0,100%backcolor, alpha=1, 100% frontcolor */
 
 #if 0   /* Now it is applied in EGI_GIF */
     	bool            imgbuf_ready;       /* To indicate that imgbuf data is ready!

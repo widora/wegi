@@ -30,6 +30,20 @@ Journal
 	1. If mouse clicks on leftside minibar menu, then bring the SURFACE
 	   to TOP layer.
 
+2021-03-16:
+	1. Move codes of 'sending mostat to the TOP surface' to the end
+	   of mouse event processing. To avoid the surfuser to change
+	   surface STATU before surfman finish its processing.
+	2. If mouse Click is to bring a surface to TOP, then we shall end mouse
+	   event processing after that, without sending mostat to the surface!
+	   (Otherwise, one click CAN bring a surface to TOP, AND min/max/close
+	    it simutaneouly! even ....)
+	   TODO: If click and keep downhold on a SURFBTN_MIN, then after minimize
+	   the surface, the mostat will be passed on to the next TOP surface! and
+	   trigger its LeftKeyDownHold event, usullay move the surface to
+	   the last position RELATIVE to the mouse mx/my!
+	   Same for MAX/CLOSE!
+
 Midas Zhou
 midaszhou@yahoo.com
 https://github.com/widora/wegi
@@ -75,13 +89,13 @@ void signal_handler(int signo)
 int main(int argc, char **argv)
 {
 //	int ret;
-	int k;
+	int j,k;
 	int ch;
 	int surfID;
 
 	int opt;
 //	int sw=0,sh=0; /* Width and Height of the surface */
-	int x0=0,y0=0; /* Origin coord of the surface */
+//	int x0=0,y0=0; /* Origin coord of the surface */
 
 
 #if 0	/* Start EGI log */
@@ -150,13 +164,27 @@ int main(int argc, char **argv)
                 ch=0;
                 read(STDIN_FILENO, &ch,1);
 		if(ch >='0' && ch < '8' ) {  /* 1,2,3...9 */
+			pthread_mutex_lock(&surfman->surfman_mutex);
+	/* ------ >>>  Surfman Critical Zone  */
+
 			printf("surfman->scnt=%d \n", surfman->scnt);
 			printf("ch: '%c'(%d)\n",ch, ch);
 			k=ch-0x30;
 			if( k < SURFMAN_MAX_SURFACES ) {
+				/*** NOTE:
+				 * Input k as sequence number of all registered surfaces.
+				 * However, surfman->surfaces[] sorted in ascending Zseq order, some surfaces[]
+				 * are NULL if surfman->scn < SURFMAN_MAX_SURFACES!
+				 * So need to transfer k to actual index of surfman->surfaces[].
+				 */
+				 k=SURFMAN_MAX_SURFACES-surfman->scnt +k;
 				 printf("Try to set surface %d top...\n", k);
-				 surfman_bringtop_surface(surfman, k);
+				 //surfman_bringtop_surface(surfman, k);
+				 surfman_bringtop_surface_nolock(surfman, k);
 			}
+
+	/* ------ <<<  Surfman Critical Zone  */
+			pthread_mutex_unlock(&surfman->surfman_mutex);
 		}
 		else {
 			switch(ch) {
@@ -178,6 +206,7 @@ int main(int argc, char **argv)
 				case 'n': /* Minimize the surface */
 					printf("Minimize surface.\n");
 					pthread_mutex_lock(&surfman->surfman_mutex);
+			/* ------ >>>  Surfman Critical Zone  */
 
 					/* If all surface minimized */
 					if(surfman->scnt == surfman->mincnt) {
@@ -193,8 +222,10 @@ int main(int argc, char **argv)
 					}
 
 					/* Change status */
-					surfman->surfaces[surfID]->status=SURFACE_STATUS_MINIMIZED;
+					//surfman->surfaces[surfID]->status=SURFACE_STATUS_MINIMIZED;
+					surfman->surfaces[surfID]->surfshmem->status=SURFACE_STATUS_MINIMIZED;
 
+			/* ------ <<<  Surfman Critical Zone  */
 					pthread_mutex_unlock(&surfman->surfman_mutex);
 					break;
 
@@ -203,7 +234,8 @@ int main(int argc, char **argv)
 					pthread_mutex_lock(&surfman->surfman_mutex);
 
 					if(surfman->minsurfaces[0]) {
-						surfman->minsurfaces[0]->status=SURFACE_STATUS_NORMAL;
+						//surfman->minsurfaces[0]->status=SURFACE_STATUS_NORMAL;
+						surfman->minsurfaces[0]->surfshmem->status=SURFACE_STATUS_NORMAL;
 						/* Bring to TOP */
 						surfman_bringtop_surface_nolock(surfman, surfman->minsurfaces[0]->id);
 					}
@@ -216,27 +248,40 @@ int main(int argc, char **argv)
 			}
 		}
 
-		/* W2. Mouse event */
+		/* W2. Mouse event process */
 	        if( egi_mouse_getRequest(pmostat) ) {  /* Apply pmostat->mutex_lock */
 
-			/* 0. Send mouse_status to the TOP surface */
+#if 0 	/* Move to the last of W2 */	/* 0. Send mouse_status to the TOP(focused) surface */
 
 			pthread_mutex_lock(&surfman->surfman_mutex);
 	/* ------ >>>  Surfman Critical Zone  */
 
 			if(surfman->scnt) {  /* Only if have surface registered */
-				/* Note: ering_msg_send() is BLOCKING type, if Surfuser DO NOT recv the msg, it will blocked here! */
-				//printf("ering msg send...\n");
-				if( ering_msg_send( surfman->surfaces[SURFMAN_MAX_SURFACES-1]->csFD,
-						    emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS)) <=0 ) {
-					egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");
+				/*** NOTE:
+				 *   1. If current surfaces[SURFMAN_MAX_SURFACES-1] is minimized by SURFUSER! then we have
+				 *      to pick next top surface on the desk, NOT in the minibar menu!
+				 *      OR the minimized surface will keep receiving mostat !!!!
+				 *   2. NOT call surfman_bringtop_surface_nolock(), Let it keeps its zseq!
+				 */
+				for(j=0; j < surfman->scnt; j++) {
+					if( surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->surfshmem->status != SURFACE_STATUS_MINIMIZED ) {
+				/* Note: ering_msg_send() is BLOCKING type, if Surfuser DO NOT recv the msg, it will be blocked here! */
+						//printf("ering msg send...\n");
+						if( ering_msg_send( surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->csFD,
+							emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS) ) <=0 ) {
+							egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");
+						}
+						//printf("ering msg send OK!\n");
+
+						break;
+					}
 				}
-				//printf("ering msg send OK!\n");
 			}
 
 	/* ------ <<<  Surfman Critical Zone  */
 			pthread_mutex_unlock(&surfman->surfman_mutex);
 
+#endif /* END send mostat */
 
 	                /* 1. LeftKeyDown: To bring the surface to top, to save current mouseXY */
         	        if(!surface_downhold && pmostat->LeftKeyDown) {
@@ -286,9 +331,24 @@ Hold surface
 				surfID=surfman_xyget_surfaceID(surfman, surfman->mx, surfman->my );
 				printf("surfID=%d\n",surfID);
 
-				if(surfID>=0) { /* <0 as bkground */
+				/* NOTE: Sending mostat to the top surface MUST be carried out at last!!
+				 * OR following errors may arise:
+				 * If it clicks on a surface SURFBTN_MIN, the surfuser may have changed surface STATUS before
+				 * following operation! AND MAY ALSO before surfman render the updated surface image/minibar!
+				 * The surface is displayed on desk while its STAUTS is minimized acutually!
+				 */
+				/* IF: clicked surface already on TOP layer. !!! Excluding minimized surfaces !!! */
+				// xxx if(surfID==SURFMAN_MAX_SURFACES-1) {
+				int topID=surfman_get_TopDispSurfaceID(surfman);
+				printf("topID=%d\n",topID);
+				if( surfID==surfman_get_TopDispSurfaceID(surfman) ) {
+					printf("Already TOP!\n");
 					surface_downhold=true;
-
+				}
+				/* Else: If clicked surface is NOT current top surface. */
+				else if(surfID>=0) { /* <0 as bkground */
+					surface_downhold=true;
+					printf("Bring surfID %d to TOP\n", surfID);
 					/* Bring picked surface to TOP layer */
 					surfman_bringtop_surface_nolock(surfman, surfID);
 					/* Send msg to the surface */
@@ -297,8 +357,15 @@ Hold surface
 					                egi_dpstd("Fail to sednmsg ERING_SURFACE_BRINGTOP!\n");
 					}
 
+					/* Here, we end mouse event processing without sending mostat to the surface! */
+		 /* ------ <<<  Surfman Critical Zone  */
+					pthread_mutex_unlock(&surfman->surfman_mutex);
+					goto END_MOUSE_EVENT;
+
 				}
-				/* B. Check if it clicks on leftside minibar menu, IndexMpMinSurf is set by surfman_render_thread(). */
+				/* B. surfID<0: Check if it clicks on leftside minibar menu, Check IndexMpMinSurf, which is set by
+				      surfman_render_thread() based on surfmap->mx,my
+				 */
 				else if ( surfman->IndexMpMinSurf >= 0 ) {
 					/* Bring mouse clicked minisurface to TOP layer */
 					surfman_bringtop_surface_nolock(surfman, surfman->minsurfaces[surfman->IndexMpMinSurf]->id);
@@ -317,7 +384,7 @@ Hold surface
                         	lastY=pmostat->mouseY;
 
 	                }
-        	        /* 2. LeftKeyDownHold: To move surface */
+        	        /* 2. LeftKeyDownHold */
                 	else if(pmostat->LeftKeyDownHold) {
                         	/* Note: As mouseDX/DY already added into mouseX/Y, and mouseX/Y have Limit Value also.
 	                         * If use mouseDX/DY, the cursor will slip away at four sides of LCD, as Limit Value applys for mouseX/Y,
@@ -329,7 +396,9 @@ Hold surface
 				//printf("LeftKeyDH lock OK\n");
 		/* ------ >>>  Surfman Critical Zone  */
 
-  			   	if(surface_downhold && surfman->scnt ) {  /* Only if have surface registered! */
+#if 0 /*  SURFUSER's job to move surface */ 
+
+			   	if(surface_downhold && surfman->scnt ) {  /* Only if have surface registered! */
 					printf("Hold surface\n");
 					/* Downhold surface is always on the top layer */
 					surfID=SURFMAN_MAX_SURFACES-1;
@@ -343,6 +412,8 @@ Hold surface
 					printf("Hold non\n");
 
 			   	}
+#endif /* END: move surface */
+
 				/* Whatever, update mouse position always. */
                                 //surfman->mx  += (pmostat->mouseX-lastX); /* Delt x0 */
                                 //surfman->my  += (pmostat->mouseY-lastY); /* Delt y0 */
@@ -390,11 +461,45 @@ Hold surface
 				pthread_mutex_unlock(&surfman->surfman_mutex);
 			}
 
+
+#if 1			/* 5. At last send mouse_status to the TOP(focused) surface */
+
+			pthread_mutex_lock(&surfman->surfman_mutex);
+	/* ------ >>>  Surfman Critical Zone  */
+
+			if(surfman->scnt) {  /* Only if have surface registered */
+				/*** NOTE:
+				 *   1. If current surfaces[SURFMAN_MAX_SURFACES-1] is minimized by SURFUSER! then we have
+				 *      to pick next top surface on the desk, NOT in the minibar menu!
+				 *      OR the minimized surface will keep receiving mostat !!!!
+				 *   2. NOT call surfman_bringtop_surface_nolock(), Let it keeps its zseq!
+				 */
+				for(j=0; j < surfman->scnt; j++) {
+					if( surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->surfshmem->status != SURFACE_STATUS_MINIMIZED ) {
+				/* Note: ering_msg_send() is BLOCKING type, if Surfuser DO NOT recv the msg, it will be blocked here! */
+						//printf("ering msg send...\n");
+						if( ering_msg_send( surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->csFD,
+							emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS) ) <=0 ) {
+							egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");
+						}
+						//printf("ering msg send OK!\n");
+
+						break;
+					}
+				}
+			}
+
+	/* ------ <<<  Surfman Critical Zone  */
+			pthread_mutex_unlock(&surfman->surfman_mutex);
+
+#endif /* END send mostat */
+
+END_MOUSE_EVENT:
 			/* Put request */
 			egi_mouse_putRequest(pmostat);
                 }
 
-		usleep(100000);
+		tm_delayms(5);
    	} /* End while() */
 
 	/* Free SURFMAN */

@@ -436,7 +436,7 @@ EGI_IMGBUF *egi_imgbuf_blockCopy( const EGI_IMGBUF *ineimg,
 	if( ineimg==NULL || ineimg->imgbuf==NULL )
 		return NULL;
 
-	/* create a new imgbuf */
+	/* create a new imgbuf, h/w check inside. */
 	outeimg=egi_imgbuf_create( height, width, 255, 0); /* default alpha 255 */
 	if(outeimg==NULL) {
 		printf("%s: Fail to create outeimg!\n",__func__);

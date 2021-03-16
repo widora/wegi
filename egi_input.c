@@ -85,6 +85,15 @@ Byte 4:	          0        0       5th_Btn  4th_Btn  		Z_Movement(Bit0-3)
 SETUP MAGIC:  { 0xf3, 200, 0xf3, 200, 0xf3, 80 }
 
 
+Journal
+2021-03-14:
+	1. egi_mouse_loopread(): When select() time out, instead of return and wait,
+	   go on to calculate mostatus with sustained data of mouse_data[0] &= 0x0F.
+	   So that if the mouse keeps idle after a click (in such case, no data from the
+           input event after the click), the loopread can still generate mostatus! For example,
+	   to deduce a LeftKeyDownHold status after the click.
+
+
 Midas Zhou
 midaszhou@yahoo.com
 --------------------------------------------------------------------------------------*/
@@ -428,8 +437,8 @@ static void *egi_input_loopread( void* arg )
 }
 
 
-/*------------------------------------------------------
-		A thread function
+/*--------------------------------------------------------
+		  A thread function
 Read mouse input data in loop.
 
 Note:
@@ -496,8 +505,8 @@ static void *egi_mouse_loopread( void* arg )
 		/* To select fd */
 		FD_ZERO(&rfds);
 		FD_SET( mouse_fd, &rfds);
-		tmval.tv_sec=1;
-		tmval.tv_usec=0;
+		tmval.tv_sec=0;
+		tmval.tv_usec=50000;
 
 		retval=select( mouse_fd+1, &rfds, NULL, NULL, &tmval );
 		if(retval<0) {
@@ -506,10 +515,17 @@ static void *egi_mouse_loopread( void* arg )
 		}
 		else if(retval==0) {
 			//printf("Time out\n");
-			continue;
+			/* Keep status, clear Movement */
+			/* EXAMPLE: If previous status is Click down. .....HOLD */
+			mouse_data[0] &= 0x0F;
+			mouse_data[1]=0;
+			mouse_data[2]=0;
+			mouse_data[3]=0;
+			//continue; GO ON ....
 		}
+
 		/* Read input fd and trigger callback */
-		if(FD_ISSET(mouse_fd, &rfds)) {
+		if( retval>0 && FD_ISSET(mouse_fd, &rfds) ) {
 			retval=read(mouse_fd, mouse_data, sizeof(mouse_data));
 
 			/* For /dev/input/eventX and /dev/input/mouseX, ENODEV means device is offline.
@@ -533,9 +549,13 @@ static void *egi_mouse_loopread( void* arg )
 				continue;
 			}
 
-			/* Get mostatus mutex lock */
-		        if( pthread_mutex_lock(&mostatus.mutex) !=0 )
-				printf("%s: Fail to mutex lock mostatus.mutex!\n",__func__);
+		}  /* END FD_ISSET */
+
+		/* NOW: retval>0 OR TIME_OUT */
+
+		/* Get mostatus mutex lock */
+	        if( pthread_mutex_lock(&mostatus.mutex) !=0 )
+			printf("%s: Fail to mutex lock mostatus.mutex!\n",__func__);
 /*  --- >>>  Critical Zone  */
 
 			/* ------ Cal. mouse status/data --------- */
@@ -651,35 +671,32 @@ static void *egi_mouse_loopread( void* arg )
 		        /* 8. Renew old mouse data */
 		        memcpy(old_mouse_data, mouse_data, sizeof(old_mouse_data));
 
-			/* ------ END: Cal. mouse status/data --------- */
+		/* ------ END: Cal. mouse status/data --------- */
 
 /*  --- <<<  Critical Zone  */
-		  	/* Put mutex lock */
-			pthread_mutex_unlock(&mostatus.mutex);
+	  	/* Put mutex lock */
+		pthread_mutex_unlock(&mostatus.mutex);
 
-			/* Call back */
-			if(mouse_callback!=NULL) {
-				/* If callback trapped here, then cmd_end_loopread_mouse signal will NOT be responded!
-				 * mostauts.request is set in the callback!
-				 */
-				mouse_callback(mouse_data, sizeof(mouse_data), &mostatus);
-			}
-
-
-			#if 0 /* --- TEST ----  */
-			/* Parse mouse data */
-    			printf("Left:%d, Right:%d, Middle:%d,  dx=%d, dy=%d, (wheel)dz=%d\n",
-						mouse_data[0]&0x1, (mouse_data[0]&0x2) > 0, (mouse_data[0]&0x4) > 0,   /* 3 KEYL L.R.M */
-						(mouse_data[0]&0x10) ? mouse_data[1]-256 : mouse_data[1],  /* dx */
-						(mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2],  /* dy */
-						(mouse_data[3]&0x80) ? mouse_data[3]-256 : mouse_data[3]   /* dz, 2's complement */
-					);
-			#endif
-
-			/* Wait for event request to be proceed, TODO: use pthread_cond_wait() instead. */
-			while( egi_mouse_checkRequest(&mostatus) && !mostatus.cmd_end_loopread_mouse ) { tm_delayms(10); };
-
+		/* Call back */
+		if(mouse_callback!=NULL) {
+			/* If callback trapped here, then cmd_end_loopread_mouse signal will NOT be responded!
+			 * mostauts.request is set in the callback!
+			 */
+			mouse_callback(mouse_data, sizeof(mouse_data), &mostatus);
 		}
+
+		#if 0 /* --- TEST ----  */
+		/* Parse mouse data */
+		printf("Left:%d, Right:%d, Middle:%d,  dx=%d, dy=%d, (wheel)dz=%d\n",
+				mouse_data[0]&0x1, (mouse_data[0]&0x2) > 0, (mouse_data[0]&0x4) > 0,   /* 3 KEYL L.R.M */
+				(mouse_data[0]&0x10) ? mouse_data[1]-256 : mouse_data[1],  /* dx */
+				(mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2],  /* dy */
+					(mouse_data[3]&0x80) ? mouse_data[3]-256 : mouse_data[3]   /* dz, 2's complement */
+				);
+		#endif
+
+		/* Wait for event request to be proceed, TODO: use pthread_cond_wait() instead. */
+		while( egi_mouse_checkRequest(&mostatus) && !mostatus.cmd_end_loopread_mouse ) { tm_delayms(5); };
 	}
 
 	close(mouse_fd);

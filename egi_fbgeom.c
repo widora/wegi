@@ -31,6 +31,8 @@ Jurnal
 	1. Apply fb_dev->zbuff in draw_dot().
 2021-3-3:
 	1. Add fbget_zbuff().
+2021-3-12:
+	1. Apply fb_dev->pixcolor for virtual FBDEV.
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -52,9 +54,15 @@ midaszhou@yahoo.com
 /* global variale */
 EGI_BOX gv_fb_box;
 
-/* default color set */
-static uint16_t fb_color=(30<<11)|(10<<5)|10;  //r(5)g(6)b(5)   /* For 16bpp */
+/* Default color set.
+ * Note:
+ * 1. fb_color and fb_rgb are volatile! They may be changed by draw_dot() and other functions!
+ *
+ */
+static uint16_t fb_color=(30<<11)|(10<<5)|10;  //r(5)g(6)b(5)   /* For 16bpp,  */
+#ifdef LETS_NOTE
 static uint32_t fb_rgb=0x0000ff;				/* For 24/32 bpp */
+#endif
 
 /* default usleep time after each draw_point() */
 static unsigned int fb_drawdot_usleep;
@@ -520,7 +528,9 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 	int fy=0;
       	long int location=0;
 	long int pixoff;
+	#ifdef LETS_NOTE
 	unsigned char* pARGB=NULL; /* For LETS_NOTE */
+	#endif
 	int xres;
 	int yres;
 	FBPIX fpix;
@@ -638,15 +648,27 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
          *                     virt_fb->imgbuf[location], virt_fb->alpha[location]);
 	 */
 	if(fb_dev->pixalpha==255) {	/* if 100% front color */
-	        virt_fb->imgbuf[location]=fb_color;
+		if(fb_dev->pixcolor_on)
+		        virt_fb->imgbuf[location]=fb_dev->pixcolor;
+		else
+		        virt_fb->imgbuf[location]=fb_color;
 	}
 	/* otherwise, blend with original color, back alpha value ignored!!! */
 	else {
-		/* NOTE: back color alpha value all deemed as 255,  */
-		fb_color=COLOR_16BITS_BLEND(  fb_color,			     /* Front color */
-					      virt_fb->imgbuf[location],     /* Back color */
-					      fb_dev->pixalpha );	     /* Alpha value */
-	        virt_fb->imgbuf[location]=fb_color;
+		if(fb_dev->pixcolor_on) {
+			/* NOTE: back color alpha value all deemed as 255,  */
+			fb_color=COLOR_16BITS_BLEND(  fb_dev->pixcolor,		     /* Front color */
+						      virt_fb->imgbuf[location],     /* Back color */
+						      fb_dev->pixalpha );	     /* Alpha value */
+		        virt_fb->imgbuf[location]=fb_color;
+		}
+		else {
+			/* NOTE: back color alpha value all deemed as 255,  */
+			fb_color=COLOR_16BITS_BLEND(  fb_color,			     /* Front color */
+						      virt_fb->imgbuf[location],     /* Back color */
+						      fb_dev->pixalpha );	     /* Alpha value */
+		        virt_fb->imgbuf[location]=fb_color;
+		}
 	}
 
         /* if VIRT FB has alpha data */
@@ -1235,6 +1257,34 @@ void draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 	int ydif=y2-y1;
 	int xdif=x2-x1;
 
+	/* If Horizontal straight line */
+	if( ydif == 0 ) {
+		for(i=0; i<=r; i++) {
+			/* Up Half */
+			draw_line(dev, x1, y1+i, x2, y1+i);
+			/* Low Half */
+			if(i)
+			  draw_line(dev, x1, y1-i, x2, y1-i);
+		}
+		/* Add 1 more line at Low Half if w is even. */
+		if( (w&0x1)==0 )
+			draw_line(dev, x1, y1-r-1, x2, y1-r-1);
+	}
+	/* If Vertial straight line */
+	else if( xdif==0 ) {
+		for(i=0; i<=r; i++) {
+			/* Left Half */
+			draw_line(dev, x1-i, y1, x1-i, y2);
+			/* Right Half */
+			if(i)
+			  draw_line(dev, x1+i, y1, x1+i, y2);
+		}
+		/* Add 1 more line at Right Half if w is even. */
+		if( (w&0x1)==0 )
+			draw_line(dev, x1+r+1, y1, x1+r+1, y2);
+	}
+
+
         int32_t fp16_len = mat_fp16_sqrtu32(ydif*ydif+xdif*xdif);
 
 	/* if x1,y1 x2,y2 the same point */
@@ -1243,11 +1293,10 @@ void draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 		return;
 	}
 
-   if(fp16_len !=0 )
-   {
+   if(fp16_len !=0 ) {
+
 	/* draw multiple lines  */
-	for(i=0;i<=r;i++)
-	{
+	for(i=0;i<=r;i++) {
 		/* draw UP_HALF multiple lines  */
 		xr1=x1-(i*ydif<<16)/fp16_len;
 		yr1=y1+(i*xdif<<16)/fp16_len;
@@ -1264,9 +1313,12 @@ void draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 
 		draw_line(dev,xr1,yr1,xr2,yr2);
 	}
+
    } /* end of len !=0, if len=0, the two points are the same position */
 
 }
+
+
 
 
 /*--------------------------------------------------------------------
@@ -1295,6 +1347,33 @@ void draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 	/* x,y, difference */
 	int ydif=y2-y1;
 	int xdif=x2-x1;
+
+	/* If Horizontal straight line */
+	if( ydif == 0 ) {
+		for(i=0; i<=r; i++) {
+			/* Up Half */
+			draw_line(dev, x1, y1+i, x2, y1+i);
+			/* Low Half */
+			if(i)
+			  draw_line(dev, x1, y1-i, x2, y1-i);
+		}
+		/* Add 1 more line at Low Half if w is even. */
+		if( (w&0x1)==0 )
+			draw_line(dev, x1, y1-r-1, x2, y1-r-1);
+	}
+	/* If Vertial straight line */
+	else if( xdif==0 ) {
+		for(i=0; i<=r; i++) {
+			/* Left Half */
+			draw_line(dev, x1-i, y1, x1-i, y2);
+			/* Right Half */
+			if(i)
+			  draw_line(dev, x1+i, y1, x1+i, y2);
+		}
+		/* Add 1 more line at Right Half if w is even. */
+		if( (w&0x1)==0 )
+			draw_line(dev, x1+r+1, y1, x1+r+1, y2);
+	}
 
         int32_t fp16_len = mat_fp16_sqrtu32(ydif*ydif+xdif*xdif);
 
@@ -1577,10 +1656,11 @@ void draw_wrect(FBDEV *dev,int x1,int y1,int x2,int y2, int w)
 	draw_wline_nc(dev,xr,yu-(w-1)/2,xr,yd+(w-1)/2,w);
 
 	/* Draw one additional 1_width line inside */
-	if(w&0x1==0)
-		draw_rect(dev, xl+w/2, yu+w/2, xr-w/2, yd-w/2);
+//	if((w&0x1)==0)
+//		draw_rect(dev, xl+w/2, yu+w/2, xr-w/2, yd-w/2);
 
 }
+
 
 /*--------------------------------------------------
 Draw an rectangle with pline
@@ -2326,8 +2406,10 @@ void draw_blend_filled_circle( FBDEV *dev, int x, int y, int r,
 	int xres=fb_dev->vinfo.xres;
 	int yres=fb_dev->vinfo.yres;
 	int tmpx,tmpy;
-	uint32_t argb;	/* for LETS_NOTE */
 	unsigned char *map=NULL; /* the pointer to map FB or back buffer */
+	#ifdef LETS_NOTE
+	uint32_t argb;	/* for LETS_NOTE */
+	#endif
 
 	/* check buf */
 	if(buf==NULL)
@@ -2511,8 +2593,10 @@ void draw_blend_filled_circle( FBDEV *dev, int x, int y, int r,
 	int xres=fb_dev->vinfo.xres;
 	int yres=fb_dev->vinfo.yres;
 	int tmpx,tmpy;
-	uint32_t argb;	/* for LETS_NOTE */
 	unsigned char *map=NULL; /* the pointer to map FB or back buffer */
+	#ifdef LETS_NOTE
+	uint32_t argb;	/* for LETS_NOTE */
+	#endif
 
 	/* check buf */
 	if(buf==NULL)
@@ -3949,7 +4033,7 @@ int draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsig
 	int	m;			/* m=mp-1 */
 	float	*LN=NULL;		/* Dimension: deg+1 */
 	float 	u;			/* Interpolation vu */
-	float   tmp;
+//	float   tmp;
 	float 	ustep;
 	int 	n=np-1;
 	float 	xs=0,ys=0,xe=0,ye=0;	/* start,end x,y */

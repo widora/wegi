@@ -100,6 +100,15 @@ Journal
 	   (Add struct memeber IndexMpMinSurf for SURFMAN)
 2021-03-12:
 	1. Add EGI_SURFBTN: egi_surfbtn_create(), egi_surfbtn_free().
+	2. Add egi_point_on_surfbtn()
+2021-03-13:
+	1. Move surface->status to surface->surfshmem->status, so SURFUSER can access.
+2021-03-15:
+	1. surfman_render_thread(): If surface status is downhold, then draw a rim to highlight it.
+2021-03-16:
+	1. Add maxW,maxH for EGI_SURFSHMEM, and add them to following functions
+	   as input paramters:
+	   egi_register_surfuser(), surfman_register_surface(), ering_request_surface()
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -340,7 +349,8 @@ TODO: NOW, Support ColorType SURF_RGB565 and SURF_RGB565_A8.
 
 @svrpath:	Path to an EGI_SURFMAN.
 @x0,y0:		Surface position relative to FB
-@w,h:		Surface width and height
+@maxW,maxH:	Max. Surface width and height
+@w,h:		Default surface width and height.
 @colorType:	Surface color data type
 
 Return:
@@ -348,7 +358,7 @@ Return:
 	NULL				Fails
 -------------------------------------------------------------*/
 EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
-				   int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType )
+				   int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType )
 {
 	EGI_SURFUSER *surfuser;
 
@@ -357,6 +367,10 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 		egi_dpstd("NOW Only support colorType for SURF_RGB565 and SURF_RGB565_A8!\n");
 		return NULL;
 	}
+	if(w<1 || h<1)
+		return NULL;
+	if(maxW<w) maxW=w;
+	if(maxH<h) maxH=h;
 
 	/* 1. Calloc surfuser */
 	surfuser=calloc(1, sizeof(EGI_SURFUSER));
@@ -374,7 +388,7 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 	egi_dpstd("Uclient succeed to connect to '%s'.\n", svrpath);
 
 	/* 3. Request for a surface and get shared memory data */
-	surfuser->surfshmem=ering_request_surface( surfuser->uclit->sockfd, x0, y0, w, h, colorType);
+	surfuser->surfshmem=ering_request_surface( surfuser->uclit->sockfd, x0, y0, maxW, maxH, w, h, colorType);
 	if(surfuser->surfshmem==NULL) {
 		egi_dpstd("Fail to request surface!\n");
 		unet_destroy_Uclient(&surfuser->uclit);
@@ -393,7 +407,7 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 	}
 
 	/* 5. Map surface data to imgbuf */
-	surfuser->imgbuf->width = w;
+	surfuser->imgbuf->width = w;	/* Default surface size */
 	surfuser->imgbuf->height = h;
 	surfuser->imgbuf->imgbuf = (EGI_16BIT_COLOR *)surfuser->surfshmem->color; /* SURF_RGB565 ! */
         if( surfuser->surfshmem->off_alpha >0 )
@@ -412,6 +426,9 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 		free(surfuser);
 		return NULL;
 	}
+
+	/* xxxx 7. Init first 3 surfuser->surfbtns[] as for CLOSE/MIN/MAX */
+
 
 	/* OK */
 	return surfuser;
@@ -472,14 +489,15 @@ Note:
 	   to an EGI_SURFACE server.
 	   Assume to be BLOCKING type.
 @x0,y0	   Initial origin of the surface.
-@w,h	   Width and height of a surface.
+@maxW,maxH Max. surface size.
+@w,h	   Default width and height of a surface.
 @colorType	Surface color type
 	   Also including alpha size!
 Return:
 	A pointer to EGI_SURFSHEM	OK
 	NULL				Fails
 ----------------------------------------------------------*/
-EGI_SURFSHMEM *ering_request_surface(int sockfd, int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType)
+EGI_SURFSHMEM *ering_request_surface(int sockfd, int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType)
 {
 	EGI_SURFSHMEM *surfshm=NULL;
 
@@ -492,13 +510,21 @@ EGI_SURFSHMEM *ering_request_surface(int sockfd, int x0, int y0, int w, int h, S
 	/* Check input */
 	if( w<1 || h<1 )
 		return NULL;
+	if(maxW<w) maxW=w;
+	if(maxH<h) maxH=h;
 
-	/* 1. Prepare request params, put in data[] */
+	/* 1. Prepare request params, put in data[]
+         * Request data[] content:
+         * data[0]:ering_request_type,
+         * data[1]:x0, data[2]:y0,
+         * data[3]:maxW, data[4]:maxH, data[5]:width, data[6]:height, data[7]:colorTYpe
+         */
 	memset(data,0,sizeof(data));
 	data[0]=ERING_REQUEST_ESURFACE;
-	data[1]=x0; data[2]=y0;
-	data[3]=w;  data[4]=h;
-	data[5]=colorType;
+	data[1]=x0; 	data[2]=y0;
+	data[3]=maxW;  	data[4]=maxH;
+	data[5]=w;  	data[6]=h;
+	data[7]=colorType;
 
 	/* 2. MSG iov data  */
 	msg.msg_iov=&iov;  /* iov holds data */
@@ -595,7 +621,12 @@ static void* surfman_request_process_thread(void *arg)
 	/* Surface request MSG buffer */
 	struct msghdr msg={0};
 	struct cmsghdr *cmsg;
-	int data[16]={0};     /* data[0]:ering_request_type, data[1]:x0, data[2]:y0, data[3]:width, data[4]:height, data[5]:colorTYpe */
+	/*** Request data[] content:
+	 * data[0]:ering_request_type,
+   	 * data[1]:x0, data[2]:y0,
+	 * data[3]:maxW, data[4]:maxH, data[5]:width, data[6]:height, data[7]:colorTYpe
+	 */
+	int data[16]={0};
 	struct iovec iov={.iov_base=&data, .iov_len=sizeof(data) };
 
 	/* Prepare MSG_control buffer: msg.msg_control = u.buf */
@@ -703,14 +734,19 @@ static void* surfman_request_process_thread(void *arg)
 						else {
 
   /* >>>--- Register an EGI_SURFACE  ------- */
-	if( data[5]> SURF_COLOR_MAX-1 )
+	if( data[7]> SURF_COLOR_MAX-1 )
 		egi_dpstd(" !!! WARNING !!! Surface color type out of range!\n");
 
-	egi_dpstd("Request for an surface of %dx%dx%dBpp, origin at (%d,%d)\n",
-			data[3], data[4], surf_get_pixsize(data[5]), data[1], data[2]);		/* W,H,pixsize, x0,y0 */
+	egi_dpstd("Request for an surface of Max.%dx%dx%dBpp, origin at (%d,%d). \n",
+			data[3], data[4], surf_get_pixsize(data[7]), data[1], data[2]);		/* W,H,pixsize, x0,y0 */
 
-	/* Register an surface to surfman */
-	sfID=surfman_register_surface( surfman, i, data[1], data[2], data[3], data[4], data[5] ); /* surfman, userID, x0, y0, w, h, colorType */
+	/* Register a surface to surfman
+         *Request data[] content:
+         * data[0]:ering_request_type,
+         * data[1]:x0, data[2]:y0,
+         * data[3]:maxW, data[4]:maxH, data[5]:width, data[6]:height, data[7]:colorTYpe
+         */
+	sfID=surfman_register_surface( surfman, i, data[1], data[2], data[3], data[4], data[5], data[6], data[7] );
 	if(sfID<0) {
 		egi_dpstd("surfman_register_surface() fails!\n");
 		if(surfman->scnt==SURFMAN_MAX_SURFACES)
@@ -938,7 +974,8 @@ as specified by userID.
 @surfman	Pointer to a pointer to an EGI_SURFMAN.
 @userID		SurfuserID == SessionID of related surfman->userv->session[].
 @x0,y0     	Initial origin of the surface.
-@w,h       	Width and height of a surface.
+@maxW,maxH     	Max. width and height of a surface.
+@w,h		Default width and height of a surface.
 @colorType	Surface color type
 
 TODO:
@@ -949,7 +986,7 @@ Return:
 	<0	Fails
 ----------------------------------------------------------------------*/
 int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
-			      int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType )
+			      int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType )
 {
 	size_t shmsize;
 	int memfd;
@@ -964,6 +1001,8 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 		return -1;
 	if( w<1 || h<1 )
 		return -1;
+	if(maxW<w) maxW=w;
+	if(maxH<h) maxH=h;
 
         /* Get mutex lock */
 	egi_dpstd("Get surfman mutex ...\n");
@@ -998,7 +1037,7 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 	pixsize=surf_get_pixsize(colorType);
 
 	/* 4. Create memfd, the file descriptor is open with (O_RDWR) and O_LARGEFILE. */
-	shmsize=sizeof(EGI_SURFSHMEM)+w*h*pixsize; /* pixsize: color+alpha bits. */
+	shmsize=sizeof(EGI_SURFSHMEM)+maxW*maxH*pixsize; /* pixsize: color+alpha bits. */
 	memfd=egi_create_memfd("surface_shmem", shmsize);
 	if(memfd<0) {
 		egi_dpstd("Fail to create memfd!\n");
@@ -1076,8 +1115,8 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 	eface->csFD=surfman->userv->sessions[userID].csFD;  /* <--- csFD / surf_userID */
 	eface->memfd=memfd;
 	eface->shmsize=shmsize;
-	eface->width=w;
-	eface->height=h;
+	eface->width=maxW;	/* Max size of surface, for surfshmem allocation */
+	eface->height=maxH;
 	eface->colorType=colorType;
 
 	/* Set zseq as scnt m this can NOT ensure to bring the surface to top.???  */
@@ -1087,7 +1126,9 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 
 	/* 6.2 For surfshmem */
 	eface->surfshmem->shmsize=shmsize;
-	eface->surfshmem->vw=w;
+	eface->surfshmem->maxW=maxW;   /* As fixed Max. Width and Height */
+	eface->surfshmem->maxH=maxH;
+	eface->surfshmem->vw=w;  	/* Default size, to be adjusted by SURFUSER */
         eface->surfshmem->vh=h;
         eface->surfshmem->x0=x0;
         eface->surfshmem->y0=y0;
@@ -1097,10 +1138,10 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 	/* For independent ALPHA data */
 	switch( colorType ) {
 		case SURF_RGB565_A8:
-			eface->surfshmem->off_alpha =2*w*h;
+			eface->surfshmem->off_alpha =2*maxW*maxH;
 			break;
 		case SURF_RGB888_A8:
-			eface->surfshmem->off_alpha =3*w*h;
+			eface->surfshmem->off_alpha =3*maxW*maxH;
 			break;
 		default: /* =0, NOT independent alpha data */
 			eface->surfshmem->off_alpha =0;
@@ -1252,12 +1293,12 @@ int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
 
 	/* Check */
 	if(surfman->surfaces[surfID]==NULL) {
-	        //pthread_mutex_unlock(&surfman->surfman_mutex);
 		return -3;
 	}
 
 	/* Reset Status to normal, if it's minimized. */
-	surfman->surfaces[surfID]->status=SURFACE_STATUS_NORMAL;
+	//surfman->surfaces[surfID]->status=SURFACE_STATUS_NORMAL;
+	surfman->surfaces[surfID]->surfshmem->status=SURFACE_STATUS_NORMAL;
 
 	/* If already at top */
 	if(surfman->surfaces[surfID]->zseq==surfman->scnt) {
@@ -1478,6 +1519,10 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID)
 	/* 5. Resort surfman->surfaces[] in ascending order of their zseq value */
 	surface_insertSort_zseq(&surfman->surfaces[0], SURFMAN_MAX_SURFACES);
 
+	/* Bring the max Zseq surface to top layer. */
+//	if(surfman->surfaces[SURFMAN_MAX_SURFACES-1])
+//		surfman_bringtop_surface_nolock(surfman, int surfID);
+
 /* ------- <<<  Critical Zone  */
         /* put mutex lock for ineimg */
         pthread_mutex_unlock(&surfman->surfman_mutex);
@@ -1533,7 +1578,8 @@ int surfman_xyget_surfaceID(EGI_SURFMAN *surfman, int x, int y)
 
 /*----------------------------------------------------------------
 Return index of a surfman->surfaces[], which appears at the top of
-the desk, Not necessary to has biggest zseq! also consider STATUS.
+the desk, Not necessary to has biggest zseq!
+Also consider STATUS and minimized surfaces are NOT counted in.
 
 Assume all surfman->surfaces in ascending order, as ascendingly sorted.
 
@@ -1550,13 +1596,32 @@ int surfman_get_TopDispSurfaceID(EGI_SURFMAN *surfman)
 	if(surfman==NULL || surfman->scnt<1)
 		return -1;
 
-	for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {
-		if(surfman->surfaces[i]==NULL)
+#if 1	/* Assume surfaces[] are sorted in ascending order of zseq! */
+	for(i=0; i < surfman->scnt; i++) {
+
+		/* In case sorting error! */
+		if(surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]==NULL)
 			return -2;;
-		if(surfman->surfaces[i]->status !=SURFACE_STATUS_MINIMIZED )
-			return i;
+
+		//egi_dpstd("surfaces[%d] status=%d\n", SURFMAN_MAX_SURFACES-1-i,
+		//		surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]->surfshmem->status );
+        	if( surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]->surfshmem->status != SURFACE_STATUS_MINIMIZED )
+			return SURFMAN_MAX_SURFACES-1-i;
 	}
 
+#else
+	for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {
+
+		/* In case sorting error! */
+		if(surfman->surfaces[i]==NULL) {
+			return -2;;
+		}
+
+		//if(surfman->surfaces[i]->status !=SURFACE_STATUS_MINIMIZED )
+		if(surfman->surfaces[i]->surfshmem->status !=SURFACE_STATUS_MINIMIZED )
+			return i;
+	}
+#endif
 	return -3;
 }
 
@@ -1650,7 +1715,8 @@ static void * surfman_render_thread(void *arg)
 //			egi_dpstd("surfaces[%d].zseq= %d\n", i, surface->zseq);
 
 			/* C.1A Check status_minimized */
-			if( surface->status == SURFACE_STATUS_MINIMIZED ) {
+			//if( surface->status == SURFACE_STATUS_MINIMIZED ) {
+			if( surface->surfshmem->status == SURFACE_STATUS_MINIMIZED ) {
 				surfman->minsurfaces[surfman->mincnt]=surface;
 				surfman->mincnt++;
 				continue;
@@ -1677,6 +1743,12 @@ static void * surfman_render_thread(void *arg)
                         }
                         else if(mutexret!=0) {
 				egi_dperr("Fail to get mutex_lock for shmem of surface[%d].", i);
+        /* Register a surface to surfman
+         *Request data[] content:
+         * data[0]:ering_request_type,
+         * data[1]:x0, data[2]:y0,
+         * data[3]:maxW, data[4]:maxH, data[5]:width, data[6]:height, data[7]:colorTYpe
+         */
 				continue;  /* To traverse surfaces */
        			}
 	/* ------ >>>  Surfshmem Critical Zone  */
@@ -1709,6 +1781,13 @@ static void * surfman_render_thread(void *arg)
 			/* C.7 writeFB imgbuf */
 			egi_subimg_writeFB(imgbuf, &surfman->fbdev, 0, -1,  surfshmem->x0, surfshmem->y0);
 
+			/* C.7A. If status downhold, draw a rim to highlight it. */
+			if(surfshmem->status == SURFACE_STATUS_DOWNHOLD) {
+				fbset_color2(&surfman->fbdev, WEGI_COLOR_GRAY);
+				draw_wrect( &surfman->fbdev, surfshmem->x0, surfshmem->y0 ,
+					    surfshmem->x0+surfshmem->vw-1, surfshmem->y0+surfshmem->vh-1, 2); //w=2
+			}
+
 	/* ------ <<<  Surfshmem Critical Zone  */
 			/* C.8 unlock surfshmem mutex */
 			pthread_mutex_unlock(&surfshmem->shmem_mutex);
@@ -1722,14 +1801,14 @@ static void * surfman_render_thread(void *arg)
 		}
 
 		/* B.XX Draw minimized surfaces */
-		surfman->fbdev.pixz=0; /* All minimized surfaces drawn just overlap bkground! */
-		surfman->IndexMpMinSurf = -1;  /* Assume mouse NOT on minibar menu */
+		surfman->fbdev.pixz=0; 		/* All minimized surfaces drawn just overlap bkground! */
+		surfman->IndexMpMinSurf = -1;   /* Assume mouse NOT on minibar menu */
 		for(i=0; i < surfman->mincnt; i++) {
 
 			/* Get ref. to surfshmem */
 			surfshmem=surfman->minsurfaces[i]->surfshmem;
 
-			/* Check whether the mouse is on the minibar menu */
+			/* Check whether the mouse is on the left minibar menu */
 			if( surfman->mx < MiniBarWidth && surfman->my < surfman->mincnt*MiniBarHeight ) {
 				if( surfman_xyget_Zseq(surfman, surfman->mx, surfman->my)==0 ) /* Mouse on pixz=0 level */
 					surfman->IndexMpMinSurf=surfman->my/MiniBarHeight;

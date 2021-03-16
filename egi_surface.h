@@ -58,23 +58,33 @@ enum surf_color_type {
  1. A simple button on surface.
 */
 struct egi_surface_button {
-	int		x0;
+	int		x0;	/* Button position relative to SURFACE */
 	int		y0;
 	EGI_IMGBUF	*imgbuf; /* To hold image */
 };
+
 EGI_SURFBTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h);
 void egi_surfbtn_free(EGI_SURFBTN **sbtn);
 bool egi_point_on_surfbtn(EGI_SURFBTN *sbtn, int x, int y);
 
+enum surf_button_ids {
+        SURFBTN_CLOSE           = 0,
+        SURFBTN_MINIMIZE        = 1,
+        SURFBTN_MAXIMIZE        = 2,
+        /* More slef-defined IDs */
+};
+
+
 /*** 			--- An EGI_SURFUSER ---
  */
 struct egi_surface_user {
-	EGI_UCLIT 	*uclit;		/* A uClient to EGI_SURFMAN's uServer. */
-	EGI_SURFSHMEM	*surfshmem;	/* Shared memory data in a surface, to release by egi_munmap_surfshmem() */
-					/* TODO: More than 1 SURFACEs for a SURFUSER */
-	FBDEV  		vfbdev;		/* Virtual FBDEV, statically allocated. */
-	EGI_IMGBUF 	*imgbuf;	/* imgbuf for vfbdev;
-					 * Link it to surface->color[] data to virtual FBDEV */
+	EGI_UCLIT 	*uclit;			/* A uClient to EGI_SURFMAN's uServer. */
+	EGI_SURFSHMEM	*surfshmem;		/* Shared memory data in a surface, to release by egi_munmap_surfshmem() */
+						/* TODO: More than 1 SURFACEs for a SURFUSER ???! */
+
+	FBDEV  		vfbdev;			/* Virtual FBDEV, statically allocated. */
+	EGI_IMGBUF 	*imgbuf;		/* imgbuf for vfbdev;
+					 	 * Link it to surface->color[] data to virtual FBDEV */
 };
 
 
@@ -177,20 +187,26 @@ struct egi_surface_shmem {
 	pthread_mutexattr_t mutexattr;	/* MUST also in the shared memory */
 	pthread_mutex_t	shmem_mutex; 	/* Porcess_shared mutex lock for surface common data. */
 
-
+	int		status;		/* Surface status, CAN SET OR READ.
+					 * 1. SURFMAN and SURFUSER CAN set the status.
+					 * 2. surfman_render_thread will read the status!
+					 */
 	int		usersig;	/* user signal */
 	bool		hidden;		/* True: invisible. */
+	bool		downhold;	/* If the surface is hold down */
 
 	/*  Denpend on colorType. */
 //xxx   int          off_color;      // Offset to color data
 				        /* NOW: No use! Access directly to pointer ->color[]
 				        */
 
-        int          off_alpha;      /* Offset to alpah data, ONLY if applicable.
+        int          off_alpha;      	/* Offset to alpah data, ONLY if applicable.
 					 * If 0: No alpha data. OR alpha included in color
 					 */
+	int		maxW;		/* Fixed Max surface size, width and height. Same as egi_surface.width and heigth */
+	int		maxH;
 
-	int		vw;	  	/* Adjusted surface size */
+	int		vw;	  	/* Adjusted surface size, To be limited within [fw,fh] */
 	int		vh;
 
 	bool		sync;		/* True: surface image is ready. False: surface image is NOT ready. */
@@ -241,7 +257,7 @@ struct egi_surface {
 					 */
 
         /* Fixed params, only surfman can modify/update upon the APP request? */
-        int             width;		/* As MAX size of a surface */
+        int             width;		/* As MAX size of a surface, with mem space alloced in surfshmem. */
         int             height;
 
 	SURF_COLOR_TYPE colorType;
@@ -250,8 +266,11 @@ struct egi_surface {
 					 * + sizeof alpha
 					 * Include or exclude alpha value.
 					 */
-	int		status;		/* Surface status */
 
+//	int		status;		/* Surface status, CAN SET OR READ. */
+					/* 1. SURFMAN and SURFUSER CAN set the status.
+					 * 2. surfman_render_thread will read the status!
+					 */
 
 	/* Commonly shared data, mostly for the SURFUSER */
 	EGI_SURFSHMEM	*surfshmem;	/* memfd_created memory, call egi_munmap_surfshmem() to unmap/release. */
@@ -261,6 +280,7 @@ enum surface_status {
 	SURFACE_STATUS_NORMAL	  =1,
 	SURFACE_STATUS_MINIMIZED  =2,
 	SURFACE_STATUS_MAXIMIZED  =3,
+	SURFACE_STATUS_DOWNHOLD   =4,  	/* Downhold by mouse */
 };
 
 
@@ -300,7 +320,7 @@ void surface_insertSort_zseq(EGI_SURFACE **surfaces, int n); /* Re_assign all su
 
 
 /* Functions for   --- EGI_SURFUSER ---   */
-EGI_SURFUSER *egi_register_surfuser( const char *svrpath, int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType );
+EGI_SURFUSER *egi_register_surfuser( const char *svrpath, int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType );
 int egi_unregister_surfuser(EGI_SURFUSER **surfuser);
 
 /* Functions for   --- EGI_SURFMAN ---   */
@@ -308,7 +328,7 @@ EGI_SURFMAN *egi_create_surfman(const char *svrpath);	/* surfman_mutex, */
 int egi_destroy_surfman(EGI_SURFMAN **surfman);		/* surfman_mutex, */
 
 int surfman_register_surface( EGI_SURFMAN *surfman, int userID,		/* surfman_mutex, sort zseq, */
-			      int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType); /* ret index of surfman->surfaces[] */
+			      int x0, int y0, int MaxW, int MaxH, int w, int h, SURF_COLOR_TYPE colorType); /* ret index of surfman->surfaces[] */
 int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID );	/* surfman_mutex, sort zseq, */
 int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID);	/* sort zseq, */
 int surfman_bringtop_surface(EGI_SURFMAN *surfman, int surfID);		/* surfman_mutex, sort zseq, */
@@ -322,7 +342,7 @@ int surfman_xyget_surfaceID(EGI_SURFMAN *surfman, int x, int y);
 int surfman_get_TopDispSurfaceID(EGI_SURFMAN *surfman);
 
 /* Functions for   --- EGI_RING ---   */
-EGI_SURFSHMEM *ering_request_surface(int sockfd, int x0, int y0, int w, int h, SURF_COLOR_TYPE colorType);
+EGI_SURFSHMEM *ering_request_surface(int sockfd, int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType);
 
 
 #endif
