@@ -9,6 +9,8 @@ Journal
 2021-02-28:
 	1. Apply zbuff_on/pixz for FBDEV.
 	2. Add fb_reset_zbuff();
+2021-03-17:
+	1. Add reinit_virt_fbdev().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -304,6 +306,8 @@ int fb_set_screenPos(FBDEV *fb_dev, unsigned int xres, unsigned int yres)
 
 /*--------------------------------------------------
 Initiate a virtual FB device with an EGI_IMGBUF
+, which is only a ref. pointer and will NOT be freed
+in release_virt_fbdev().
 
 Return:
         0       OK
@@ -311,9 +315,7 @@ Return:
 ---------------------------------------------------*/
 int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg)
 {
-//	int i;
-
-	/* check input data */
+	/* Check input data */
 	if( eimg==NULL || eimg->imgbuf==NULL || eimg->width<=0 || eimg->height<=0 ) {
 		printf("%s: Input EGI_IMGBUF is invalid!\n",__func__);
 		return -1;
@@ -323,10 +325,10 @@ int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg)
 	 * NULL is OK
 	 */
 
-	/* set virt */
+	/* Set virt */
 	fb_dev->virt=true;
 
-	/* disable FB parmas */
+	/* Disable FB parmas */
 	fb_dev->fbfd=-1;
 	fb_dev->map_fb=NULL;
 	fb_dev->fb_filo=NULL;
@@ -335,12 +337,12 @@ int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg)
 	/* reset virtual FB, as EGI_IMGBUF */
 	fb_dev->virt_fb=eimg;
 
-        /* reset pixcolor and pixalpha */
+        /* Reset pixcolor and pixalpha */
 	fb_dev->pixcolor_on=false;
         fb_dev->pixcolor=(30<<11)|(10<<5)|10;
         fb_dev->pixalpha=255;
 
-	/* set params for virt FB */
+	/* Set params for virt FB */
 	fb_dev->vinfo.bits_per_pixel=16;
 	fb_dev->finfo.line_length=eimg->width*2;
 	fb_dev->vinfo.xres=eimg->width;
@@ -349,12 +351,12 @@ int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg)
 	fb_dev->vinfo.yoffset=0;
 	fb_dev->screensize=eimg->height*eimg->width;
 
-	/* reset pos_rotate */
+	/* Reset pos_rotate */
 	fb_dev->pos_rotate=0;
 	fb_dev->pos_xres=fb_dev->vinfo.xres;
 	fb_dev->pos_yres=fb_dev->vinfo.yres;
 
-	/* clear buffer */
+	/* Clear buffer */
 //	for(i=0; i<FBDEV_BUFFER_PAGES; i++) {
 //		fb_dev->buffer[i]=NULL;
 //	}
@@ -382,6 +384,21 @@ void release_virt_fbdev(FBDEV *dev)
 	dev->virt_fb=NULL;
 }
 
+
+/*--------------------------------------------------
+Re_initilize a virtual FBDEV.
+
+Return:
+        0       OK
+        <0      Fails
+---------------------------------------------------*/
+int reinit_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg)
+{
+	//release_virt_fbdev(fb_dev);
+
+	/* It's reenterable */
+	return init_virt_fbdev(fb_dev, eimg);
+}
 
 
 /*-----------------------------------------------------------

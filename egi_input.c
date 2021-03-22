@@ -93,6 +93,12 @@ Journal
            input event after the click), the loopread can still generate mostatus! For example,
 	   to deduce a LeftKeyDownHold status after the click.
 
+	TODO: it continue generating mostatu at idle time.....
+
+2021-03-18:
+	1. egi_mouse_loopread(): Adjust mostatus.DX/DY as per mostatus.mouseX/mouseY variation,
+	   with consideration of mouse movement limit at four sides.
+
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -648,21 +654,27 @@ static void *egi_mouse_loopread( void* arg )
 
 	        	/* 5. Get mouse X */
 			mostatus.mouseDX = (mouse_data[0]&0x10) ? mouse_data[1]-256 : mouse_data[1];
+			tmp=mostatus.mouseX;
 	        	mostatus.mouseX += mostatus.mouseDX;
         		if( mostatus.mouseX > gv_fb_dev.pos_xres -5)
 		                mostatus.mouseX=gv_fb_dev.pos_xres -5;
 		        else if( mostatus.mouseX<0)
 		                mostatus.mouseX=0;
+			/* Adjust DX accordingly! */
+			mostatus.mouseDX = mostatus.mouseX-tmp;
 
 		        /* 6. Get mouse Y: Notice LCD Y direction!  Minus for down movement, Plus for up movement!
 		         * !!! For eventX: Minus for up movement, Plus for down movement!
 		         */
 			mostatus.mouseDY = -( (mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2] );
+			tmp=mostatus.mouseY;
 		        mostatus.mouseY +=mostatus.mouseDY;
 		        if( mostatus.mouseY > gv_fb_dev.pos_yres -5)
                 		mostatus.mouseY=gv_fb_dev.pos_yres -5;
 		        else if(mostatus.mouseY<0)
                 		mostatus.mouseY=0;
+			/* Adjust DY accordingly! */
+			mostatus.mouseDY = mostatus.mouseY-tmp;
 
 		        /* 7. Get mouse Z */
 			mostatus.mouseDZ = (mouse_data[3]&0x80) ? mouse_data[3]-256 : mouse_data[3] ;
