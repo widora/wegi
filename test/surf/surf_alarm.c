@@ -206,8 +206,8 @@ int main(int argc, char **argv)
                                         18, 18,(const UFT8_PCHAR)"X _ O   Timer Alarm",   /* fw,fh, pstr */
                                         320, 1, 0,                 	/* pixpl, lines, fgap */
                                         14, 5,                         	/* x0,y0, */
-		                        WEGI_COLOR_ORANGE, -1, 255,      /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL);        /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+		                        WEGI_COLOR_ORANGE, -1, 255,     /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
 	/* Set_Time */
        	FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, 	/* FBdev, fontface */
@@ -215,7 +215,7 @@ int main(int argc, char **argv)
                        	                sw-30, ln, fgap,          	     /* pixpl, lines, fgap */
                                	        15, 30+fgap,                 	     /* x0,y0, */
                                        	WEGI_COLOR_BLACK, -1, 255,           /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL);             /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                                        NULL, NULL, NULL, NULL);             /* int *cnt, int *lnleft, int* penx, int* peny */
 
 	/* Task description */
        	FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, 	/* FBdev, fontface */
@@ -223,7 +223,7 @@ int main(int argc, char **argv)
                        	                sw-30, ln, fgap,          	     /* pixpl, lines, fgap */
                                	        15, 30+fgap+fh+fgap,                 /* x0,y0, */
                                        	WEGI_COLOR_BLACK, -1, 255,           /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL);             /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                                        NULL, NULL, NULL, NULL);             /* int *cnt, int *lnleft, int* penx, int* peny */
 
 	/* Create SURFBTNs by blockcopy SURFACE image. */
 	sbtns[SURFBTN_CLOSE]=egi_surfbtn_create(surfimg,     10,0,      10,0,      18, 30); /* (imgbuf, xi, yi, x0, y0, w, h) */

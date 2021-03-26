@@ -36,7 +36,8 @@ TODO:
 Journal:
 2021-03-10:
 	1. symbol_writeFB(): Add check zbuff.
-
+2021-03-25:
+	1. symbol_writeFB(): Add zpos for zbuff[].
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -781,6 +782,7 @@ inline void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 	int i,j;
 	FBPIX fpix;
 	long int pos; /* offset position in fb map */
+	long int zpos; /* for zbuff[] pos */
 	int xres;
 	int yres;
 	int mapx=0,mapy=0; /* if need ROLLBACK effect,then map x0,y0 to LCD coordinate range when they're out of range*/
@@ -855,7 +857,7 @@ inline void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 		opaque=255;
 	}
 
-	/* init palpha for non FT symobls */
+	/* Init palpha for non FT symobls */
 	if(sym_page->alpha == NULL) {
 		palpha=255;
 		pargb=255<<24; /* For LETS_NOTE */
@@ -936,18 +938,18 @@ inline void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 #endif
 
 			/*x(i,j),y(i,j) mapped to LCD(xy),
-				however, pos may also be out of FB screensize  */
+				however, pos may also be out of FB screensize ? */
 			pos=mapy*xres+mapx; 	/* in pixel, LCD fb mem position */
 			//pos=mapy*(fb_dev->finfo.line_length>>3)+mapx;
 			poff=offset+width*i+j; 	/* offset to pixel data */
 
 		        /* Check Z */
    		        if( fb_dev->zbuff_on ) {
-		             //pixoff=fy*xres+fx;
-		             if( fb_dev->zbuff[pos] > fb_dev->pixz )
+		             zpos=mapy*fb_dev->vinfo.xres+mapx;
+		             if( fb_dev->zbuff[zpos] > fb_dev->pixz )
 		                continue;
 		             else {
-		             	fb_dev->zbuff[pos]=fb_dev->pixz;
+		             	fb_dev->zbuff[zpos]=fb_dev->pixz;
 		             }
 		        }
 

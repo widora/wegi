@@ -14,7 +14,7 @@ Note:
 1. SURFMAN routine:
    1.1 Parse keyboard input:  Shortcut key functions.
    1.2 Parse Mouse event:     LeftKeyDown to pick TOP surface.
-   1.2 Ering keystat and mostat to the TOP surface.
+   1.3 Ering keystat and mostat to the TOP surface.
 2. Before access to surfman->surfaces[x], make sure that there
    are surfaces registered in the surfman. If there is NO surface
    available, it will certainly cause segmentation fault!
@@ -97,10 +97,16 @@ https://github.com/widora/wegi
 #include "egi_procman.h"
 #include "egi_input.h"
 
-#define MCURSOR_NORMAL 	"/mmc/mcursor.png"
-#define MCURSOR_GRAB 	"/mmc/mgrab.png"
+#ifdef LETS_NOTE
+        #define MCURSOR_NORMAL	"/home/midas-zhou/egi/mcursor.png"
+        #define MCURSOR_GRAB     "/home/midas-zhou/egi/mgrab.png"
+	#define SURFMAN_BKGIMG_PATH	"/home/midas-zhou/egi/egidesk.png"
+#else
+   	#define MCURSOR_NORMAL 	"/mmc/mcursor.png"
+   	#define MCURSOR_GRAB 	"/mmc/mgrab.png"
+	#define SURFMAN_BKGIMG_PATH	"/mmc/egidesk.jpg"  // "/mmc/linux.jpg"
+#endif
 
-#define SURFMAN_BKGIMG_PATH	"/mmc/egidesk.jpg"  // "/mmc/linux.jpg"
 
 static EGI_MOUSE_STATUS mostat;
 static EGI_MOUSE_STATUS *pmostat;
@@ -167,7 +173,7 @@ int main(int argc, char **argv)
 //  	tm_start_egitick();
 
 	/* Create an ERING_MSG */
-	printf("Create an ERING_MSG, sizeof(EGI_MOUSE_STATUS)=%d ....\n", sizeof(EGI_MOUSE_STATUS));
+	printf("Create an ERING_MSG, sizeof(EGI_MOUSE_STATUS)=%lu ....\n", sizeof(EGI_MOUSE_STATUS));
         ERING_MSG *emsg=ering_msg_init();
         if(emsg==NULL) exit(EXIT_FAILURE);
 
@@ -204,7 +210,10 @@ int main(int argc, char **argv)
 		/* W.1  Keyboard event */
 		/* Switch the top surface */
                 ch=0;
-                read(STDIN_FILENO, &ch,1);
+                if( read(STDIN_FILENO, &ch,1) <0 ) {
+			egi_dperr("Fail to read STDIN");
+			ch=0;
+		}
 		if(ch >='0' && ch < '8' ) {  /* 1,2,3...9 */
 			pthread_mutex_lock(&surfman->surfman_mutex);
 	/* ------ >>>  Surfman Critical Zone  */
@@ -316,11 +325,13 @@ int main(int argc, char **argv)
 				 * 2. The surface is displayed on desk while its STAUTS is already MINIMIZED acutually!
 				 * 3. A surface may be brought to TOP by resorting zseq, after other surface quits.
 				 */
+
 				/* IF: clicked surface already on TOP layer. ( Minimized surfaces NOT considered! ) */
 				// xxx if(surfID==SURFMAN_MAX_SURFACES-1) {
 				int topID=surfman_get_TopDispSurfaceID(surfman);
 				printf("topID=%d\n",topID);
-				if( surfID==surfman_get_TopDispSurfaceID(surfman) ) {
+				/* !!! Exclude surfID <0 && surfman_get_TopDispSurfaceID() <0 */
+				if( surfID >=0 && surfID==surfman_get_TopDispSurfaceID(surfman) ) {
 					surface_downhold=true;
 
 					/* If A surface is brought to TOP by resorting zseq, after other surface quits.
@@ -359,6 +370,7 @@ int main(int argc, char **argv)
 				 #endif /* CANCELED */
 
 					/* Here, we end mouse event processing without sending mostat to the surface! */
+
 		 /* ------ <<<  Surfman Critical Zone  */
 					pthread_mutex_unlock(&surfman->surfman_mutex);
 					goto END_MOUSE_EVENT;
@@ -394,7 +406,9 @@ int main(int argc, char **argv)
 #endif
 
 	                }
-        	        /* 2. LeftKeyDownHold */
+
+#if 0 /////////////* Case 2,3:  NOT necessary anymore *//////////////////
+			/* 2. LeftKeyDownHold */
                 	else if(pmostat->LeftKeyDownHold) {
                         	/* Note: As mouseDX/DY already added into mouseX/Y, and mouseX/Y have Limit Value also.
 	                         * If use mouseDX/DY, the cursor will slip away at four sides of LCD, as Limit Value applys for mouseX/Y,
@@ -406,7 +420,7 @@ int main(int argc, char **argv)
 				//printf("LeftKeyDH lock OK\n");
 		/* ------ >>>  Surfman Critical Zone  */
 
-#if 0 /* NOW: It's SURFUSER's job to move surface */
+    #if 0 /* NOW: It's SURFUSER's job to move surface */
 
 			   	if(surface_downhold && surfman->scnt ) {  /* Only if have surface registered! */
 					printf("Hold surface\n");
@@ -422,7 +436,7 @@ int main(int argc, char **argv)
 					printf("Hold non\n");
 
 			   	}
-#endif /* END: move surface */
+    #endif /* END: move surface */
 
 				/* Whatever, update mouse position always. */
                                 //surfman->mx  += (pmostat->mouseX-lastX); /* Delt x0 */
@@ -442,6 +456,7 @@ int main(int argc, char **argv)
 
 				//usleep(5000);
 			}
+
 			/* 3. LeftKeyUp: to release current downhold surface */
 			else if(pmostat->LeftKeyUp ) {
 				if(surface_downhold) {
@@ -458,6 +473,8 @@ int main(int argc, char **argv)
 		 /* ------ <<<  Surfman Critical Zone  */
 				pthread_mutex_unlock(&surfman->surfman_mutex);
 			}
+#endif ////////  END 2.3.  ///////////////////
+
 			/* 4. Update mouseXY to surfman */
 			else {
 
@@ -509,7 +526,7 @@ int main(int argc, char **argv)
 	/* ------ <<<  Surfman Critical Zone  */
 			pthread_mutex_unlock(&surfman->surfman_mutex);
 
-#endif /* END send mostat */
+#endif /* END 5. send mostat */
 
 END_MOUSE_EVENT:
 			/* Reset lastX/Y, to compare with next mouseX/Y to get deviation. */
@@ -548,12 +565,6 @@ Callback runs in MouseRead thread.
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus)
 {
 
-#if 0        /* Check mouse Left Key status */
-	if( mostatus->LeftKeyDown ) {
-		printf("LeftKeyDown!\n");
-	}
-#endif
-
 	/* Wait until last mouse_event_request is cleared --- In loopread_mous thread, after mouse_callback */
 //        while( egi_mouse_checkRequest(mostatus) && !mostatus->cmd_end_loopread_mouse ) { usleep(2000); };
 
@@ -581,8 +592,8 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
         pthread_mutex_unlock(&mostatus->mutex);
 
 	/* NOTE:
-	 * It goes to mouse event select again,  and when mouse_loopread thread reads next mouse even BEFORE
-	 * the main thread locks/pares  above passed mostatus, it will MISS it!
+	 * It goes to mouse event select again,  and when mouse_loopread thread reads next mouse BEFORE
+	 * main thread locks/pares above passed mostatus, it will MISS it then!
 	 * Example: Leftkey_Up event is missed and next Leftkey_DownHold is parsed.
 		...
 		-Leftkey DownHold!

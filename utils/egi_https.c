@@ -19,6 +19,8 @@ Jurnal
 				  Add truncate() if filesize not right.
 2021-02-21:
 	1. https_easy_download(): Re_truncate file to 0 if download fails.
+2021-03-23:
+	1. Reset curl to NULL after curl_easy_cleanup(curl) !!!
 
 
 Midas Zhou
@@ -34,7 +36,7 @@ midaszhou@yahoo.com
 #include "egi_log.h"
 #include "egi_timer.h"
 
-#define EGI_CURL_TIMEOUT	5   /* in seconds */
+#define EGI_CURL_TIMEOUT	15   /* in seconds */
 
 /*------------------------------------------------------------------------------
 			HTTPS request by libcurl
@@ -128,6 +130,7 @@ int https_curl_request(int opt, const char *request, char *reply_buff, void *dat
 CURL_CLEANUP:
 	/* always cleanup */
 	curl_easy_cleanup(curl);
+	curl=NULL;
   	curl_global_cleanup();
 
 	/* if succeeds --- OK --- */
@@ -149,12 +152,15 @@ CURL_CLEANUP:
 Note:
 1. You must have installed ca-certificates before call curl https, or
    define SKIP_PEER/HOSTNAME_VERIFICATION to use http instead.
-
-2. Filesize of fila_save will be truncated to 0 if it fails!
+2. --- !!! WARNING !!! ---
+   Filesize of fila_save will be truncated to 0 if it fails!
    The caller MAY need to remove file_save file in case https_easy_download fails!
    OR the file will remain!
 
-@opt:			Http options, Use '|' to combine. See below.
+@opt:			Http options, Use '|' to combine.
+			HTTPS_SKIP_PEER_VERIFICATION
+			HTTPS_SKIP_HOSTNAME_VERIFICATION
+
 @file_url:		file url for downloading.
 @file_save:		file path for saving received file.
 @data:			TODO: if any more data needed
@@ -171,7 +177,7 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 {
 	int i;
 	int ret=0;
-  	CURL *curl;
+  	CURL *curl=NULL;
   	CURLcode res;
 	double doubleinfo=0;
 	FILE *fp;	/* FILE to save received data */
@@ -307,9 +313,10 @@ CURL_CLEANUP:
 
 	/* Always cleanup before loop back to init curl */
 	curl_easy_cleanup(curl);
+	curl=NULL; /* OR curl_easy_cleanup() will crash at last! */
   	curl_global_cleanup();
-
  } /* End: try Max.3 times */
+
 
 	/* Check result, If it fails, truncate filesize to 0 before quit!    ??? NOT happens!! */
 	if(ret!=0) {
@@ -336,7 +343,7 @@ CURL_CLEANUP:
 	}
 
 	/*** Check date length again. and try to adjust it.
-	 *  1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, curl BUG?
+	 *  1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
 	 *  2. However, written bytes sum_up in write_callback function gets same as stat file size!
 	 */
         struct stat     sb;
@@ -372,7 +379,7 @@ CURL_CLEANUP:
 			if(i<3) {
 							/* Most(all) case: i=0! */
 				EGI_PLOG(LOGLV_CRITICAL,"%s: i=%d, i<3, filesize != sizedown, retry...", __func__, i);
-				goto CURL_CLEANUP; /* To truncate file to 0 and reset offset. */
+				goto CURL_CLEANUP; 	/* To truncate file to 0 and reset offset. */
 			}
 
 			/* Resize/truncate filesize to 0! */
@@ -406,7 +413,7 @@ CURL_FAIL:
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fclose '%s', Err'%s'", __func__, file_save, strerror(errno));
 
 	/* Clean up */
-	if(curl!=NULL) {
+	if(curl != NULL) {
 		curl_easy_cleanup(curl);
   		curl_global_cleanup();
 	}

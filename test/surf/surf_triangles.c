@@ -140,7 +140,7 @@ int main(int argc, char **argv)
                                         320, 1, 0,                 	/* pixpl, lines, fgap */
                                         5, 5,                         	/* x0,y0, */
 		                        WEGI_COLOR_WHITE, -1, 200,      /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL);        /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                                        NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
 	/* Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
@@ -187,7 +187,7 @@ int main(int argc, char **argv)
                                         320, 1, 0,                 	/* pixpl, lines, fgap */
                                         5, 5,                         	/* x0,y0, */
 		                        WEGI_COLOR_WHITE, -1, 200,      /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL);        /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                                        NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
 #endif
 

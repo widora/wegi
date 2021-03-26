@@ -629,7 +629,7 @@ int unet_recvmsg(int sockfd,  struct msghdr *msg)
 	/* MSG_WAITALL: Wait all data, but still may fail? see man */
 	nrcv=recvmsg(sockfd, msg, MSG_WAITALL); /* MSG_CMSG_CLOEXEC,  MSG_NOWAIT */
 	if(nrcv>0) {
-		egi_dpstd("OK, recvmsg() %d bytes!\n", nrcv);
+//		egi_dpstd("OK, recvmsg() %d bytes!\n", nrcv);
 	}
 	else if(nrcv==0) {
 		egi_dperr("nrcv=0! counter peer quits the session!");

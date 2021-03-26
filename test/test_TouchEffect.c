@@ -3,7 +3,6 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-A simple CAD example, to draw line, circle and sketch.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -14,6 +13,7 @@ midaszhou@yahoo.com
 #include <egi_pcm.h>
 
 #define USE_EFFECT_MASK
+#define TOUCH_POS       3
 
 /* --- Define Buttons --- */
 #define MAX_BTNS	12
@@ -87,7 +87,7 @@ int main(int argc, char **argv)
 
   /* Set sys FB mode */
   fb_set_directFB(&gv_fb_dev,false);
-  fb_position_rotate(&gv_fb_dev,3);
+  fb_position_rotate(&gv_fb_dev,0);
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
@@ -97,7 +97,6 @@ int main(int argc, char **argv)
     		   -----------------------------------*/
 
 	int i,j;
-	char strtmp[128];
 	EGI_TOUCH_DATA	touch_data;
 
 	int icons_w=74;
@@ -182,7 +181,7 @@ int main(int argc, char **argv)
 	                continue;
 
       		/* Touch_data converted to the same coord as of FB */
-        	egi_touch_fbpos_data(&gv_fb_dev, &touch_data);
+        	egi_touch_fbpos_data(&gv_fb_dev, &touch_data, 3);
 
 	        /* Check if touched any of the buttons */
         	for(j=0; j<MAX_BTNS; j++) {
@@ -252,7 +251,6 @@ For all buttons
 ------------------------------*/
 static void btn_react(EGI_RECTBTN *btn)
 {
-	int i;
         EGI_TOUCH_DATA touch;
 
 #if 1	/* --- 1. For Bounce_Back button --- */
@@ -279,7 +277,7 @@ static void btn_react(EGI_RECTBTN *btn)
        	do{
                	tm_delayms(50);
                 while(!egi_touch_getdata(&touch));
-       	        egi_touch_fbpos_data(&gv_fb_dev, &touch);
+       	        egi_touch_fbpos_data(&gv_fb_dev, &touch, TOUCH_POS);
         }
        	while( egi_touch_on_rectBTN(&touch, btn) );
         #endif
@@ -293,6 +291,8 @@ static void btn_react(EGI_RECTBTN *btn)
 
 
 #if 0	/*  --- 2. For Switch/Toggle Buttons --- */
+	int i;
+
         /* Toggle status: Only switch to press_down */
 	if(!btn->pressed) {
         	btn->pressed=true;

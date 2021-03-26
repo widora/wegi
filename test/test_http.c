@@ -5,6 +5,9 @@ published by the Free Software Foundation.
 
 An example to parse and download AAC m3u8 file.
 
+TODO:
+1. For some m3u8 address, it sometimes exits accidently when calling https_easy_download().
+
 Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
@@ -36,7 +39,7 @@ int main(int argc, char **argv)
   	}
 	EGI_PLOG(LOGLV_INFO,"%s: Start logging...", argv[0]);
 
-	/* For http */
+	/* For http,  conflict with curl?? */
 	printf("start egitick...\n");
 	tm_start_egitick();
 
@@ -191,9 +194,10 @@ void parse_m3u8list(char *strm3u)
 			}
 			/* 4. Both OK */
 			else
-				printf("a.stream and b.stream both available!\n");
+				EGI_PLOG(LOGLV_CRITICAL, "a.stream and b.stream both available!\n");
 		}
 
+		/* Get next URL */
 		ps=strtok(NULL, delim);
 
 	}

@@ -15,6 +15,7 @@ midaszhou@yahoo.com
 #define __EGI_DEBUG_H__
 
 #include <stdio.h>
+#include <errno.h>
 
 //#define EGI_DEBUG
 

@@ -65,6 +65,7 @@ typedef struct fbdev{
 
 	int		*zbuff;		/* Pixel depth, for totally xres*yres pixels. NOW: integer type, ( TODO: float type)
 					 * Rest all to 0 when clear working buffer.
+					 * CAVEAT: zbuff[] allocated without considering vinfo.line_length/bytes_per_pixel!
 					 */
 	bool		zbuff_on;
 	int		pixz;		/* Pixel z value, 0 as bkground layer. */
@@ -132,6 +133,7 @@ typedef struct fbdev{
 					 */
 
 	int		pos_xres;	/* Resolution for X and Y direction, as per pos_rotate */
+					/* CAVEAT: confusion with fb_dev->finfo.line_length! */
 	int		pos_yres;
 
 	/* pthread_mutex_t fbmap_lock; */

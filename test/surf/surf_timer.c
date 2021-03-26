@@ -38,19 +38,9 @@ static FBDEV 		*vfbdev=NULL;		/* Only a ref. to surfuser->vfbdev  */
 static EGI_IMGBUF 	*surfimg=NULL;		/* Only a ref. to surfuser->imgbuf */
 static SURF_COLOR_TYPE colorType=SURF_RGB565;   /* surfuser->vfbdev color type */
 
-//EGI_SURFBTN	*sbtns[3];  /* MIN,MAX,CLOSE */
-//static int 	mpbtn=-1;   /* Mouse_pointed button index, <0 None! */
-
-pthread_t       thread_EringRoutine;    /* SURFUSER ERING routine */
 void 		*surfuser_ering_routine(void *args);
 
-void 		surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
-
-/* Define an empty resize function(to be called by surfsuer_parse_mouse_event) to ignore */
-void surfuser_resize_surface(EGI_SURFUSER *surfuser, int w, int h)
-{
-
-};
+//void 		surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 
 
 static int sigQuit;
@@ -121,15 +111,24 @@ int main(int argc, char **argv)
 	surfimg=surfuser->imgbuf;
 	surfshmem=surfuser->surfshmem;
 
-	/* Assign functions */
-//	surfshmem->resize_surface = surfuser_resize_surface;
+        /* Get surface mutex_lock */
+        if( pthread_mutex_lock(&surfshmem->shmem_mutex) !=0 ) {
+                egi_dperr("Fail to get mutex_lock for surface.");
+                exit(EXIT_FAILURE);
+        }
+/* ------ >>>  Surface shmem Critical Zone  */
+
+	/* Assign OP functions, connect with CLOSE/MIN./MAX. buttons. */
+	surfshmem->minimize_surface = surfuser_minimize_surface; /* Surface module default functions */
+	surfshmem->close_surface = surfuser_close_surface;
 
         /* Assign name to the surface */
         strncpy(surfshmem->surfname, "时间", SURFNAME_MAX-1);
 
-	/* Set BK color */
-	egi_imgbuf_resetColorAlpha(surfimg, WEGI_COLOR_DARKBLUE, -1); /* Reset color only */
-	/* Top bar */
+	/* Set BKG color */
+	surfshmem->bkgcolor=WEGI_COLOR_DARKBLUE;
+	egi_imgbuf_resetColorAlpha(surfimg, surfshmem->bkgcolor, -1); /* Reset color only */
+	/* Draw top bar */
 	draw_filled_rect2(vfbdev,WEGI_COLOR_GRAY5, 0, 0, surfimg->width-1, 30);
 
 #if 0	/* Max/Min icons */
@@ -146,7 +145,7 @@ int main(int argc, char **argv)
                                         320, 1, 0,                 	/* pixpl, lines, fgap */
                                         5, 5,                         	/* x0,y0, */
 		                        WEGI_COLOR_WHITE, -1, 200,      /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL);        /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                                        NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
         /* Draw outline rim */
         fbset_color2(vfbdev, WEGI_COLOR_GRAY);
@@ -163,13 +162,17 @@ int main(int argc, char **argv)
 	surfshmem->sbtns[SURFBTN_MAXIMIZE]=egi_surfbtn_create(surfimg,    5+18*2,0, 5+18*2,0, 18, 30);
 
 	/* Start Ering routine */
-	if( pthread_create(&thread_EringRoutine, NULL, surfuser_ering_routine, surfuser) !=0 ) {
+	if( pthread_create(&surfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, surfuser) !=0 ) {
 		printf("Fail to launch thread_EringRoutine!\n");
 		exit(EXIT_FAILURE);
 	}
 
-	/* Loop */
-	while(!sigQuit) {
+/* ------ <<<  Surface shmem Critical Zone  */
+                pthread_mutex_unlock(&surfshmem->shmem_mutex);
+
+
+	/* ----- Main Loop ----- */
+	while( surfshmem->usersig !=1 ) {
 		/* Get time */
 		t = time(NULL);
            	tmp = localtime(&t);
@@ -194,17 +197,17 @@ int main(int argc, char **argv)
 	        /* Update time */
         	FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, /* FBdev, fontface */
                 	                        18, 18, (const UFT8_PCHAR)asctime(tmp),   /* fw,fh, pstr */
-                        	                320, 1, 0,                        /* pixpl, lines, fgap */
-                                	        15, 40,                         /* x0,y0, */
-                                        	WEGI_COLOR_ORANGE, -1, 255,        /* fontcolor, transcolor,opaque */
-	                                        NULL, NULL, NULL, NULL);          /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                        	                320, 1, 0,                      /* pixpl, lines, fgap */
+                                	        15, 40,                       	/* x0,y0, */
+                                        	WEGI_COLOR_ORANGE, -1, 255,     /* fontcolor, transcolor,opaque */
+	                                        NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
         	FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, 	/* FBdev, fontface */
                 	                        24, 24, (const UFT8_PCHAR)"时间你好！",   /* fw,fh, pstr */
-                        	                320, 1, 0,                        /* pixpl, lines, fgap */
+                        	                320, 1, 0,                      /* pixpl, lines, fgap */
                                 	        80, 67,                         /* x0,y0, */
-                                        	WEGI_COLOR_ORANGE, -1, 255,        /* fontcolor, transcolor,opaque */
-	                                        NULL, NULL, NULL, NULL);          /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                                        	WEGI_COLOR_ORANGE, -1, 255,     /* fontcolor, transcolor,opaque */
+	                                        NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
 	        /* Draw outline rim */
         	fbset_color2(vfbdev, WEGI_COLOR_GRAY);
@@ -223,6 +226,13 @@ int main(int argc, char **argv)
 	for(i=0; i<3; i++)
 		egi_surfbtn_free(&surfshmem->sbtns[i]);
 
+        /* Join ering_routine  */
+   	// surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
+        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	/* Make sure mutex unlocked in pthread if any! */
+        if( pthread_join(surfshmem->thread_eringRoutine, NULL)!=0 )
+                egi_dperr("Fail to join eringRoutine");
+
 	/* Unregister and destroy surfuser */
 	egi_unregister_surfuser(&surfuser);
 
@@ -235,16 +245,22 @@ int main(int argc, char **argv)
 ------------------------------------*/
 void *surfuser_ering_routine(void *args)
 {
+        EGI_SURFUSER *surfuser=NULL;
 	ERING_MSG *emsg=NULL;
 	EGI_MOUSE_STATUS *mouse_status;
 	int nrecv;
+
+        /* Get surfuser pointer */
+        surfuser=(EGI_SURFUSER *)args;
+        if(surfuser==NULL)
+                return (void *)-1;
 
 	/* Init ERING_MSG */
 	emsg=ering_msg_init();
 	if(emsg==NULL)
 		return (void *)-1;
 
-	while(1) {
+	while( surfuser->surfshmem->usersig !=1 ) {
 		/* 1. Waiting for msg from SURFMAN */
 	        //egi_dpstd("Waiting in recvmsg...\n");
 		nrecv=ering_msg_recv(surfuser->uclit->sockfd, emsg);
@@ -280,6 +296,7 @@ void *surfuser_ering_routine(void *args)
 	/* Free EMSG */
 	ering_msg_free(&emsg);
 
+	egi_dpstd("Exit thread!\n");
 	return (void *)0;
 }
 

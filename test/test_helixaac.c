@@ -140,6 +140,13 @@ RADIO_LOOP:
 	fmap_aac=egi_fmap_create(fin_path, 0, PROT_READ, MAP_SHARED);
 	if(fmap_aac==NULL) {
 		EGI_PLOG(LOGLV_ERROR, "Fail to create fmap_aac for '%s'!", fin_path);
+
+	        /* 'test_http.c' MAY also access the file, Remove the file anyway, maybe 0 length. */
+        	if(remove(fin_path)!=0)
+                	EGI_PLOG(LOGLV_ERROR, "Fail to remove '%s'.",fin_path);
+        	else
+                	EGI_PLOG(LOGLV_INFO, "OK, '%s' removed!", fin_path);
+
 		//exit(EXIT_FAILURE);
 		usleep(100000);
 		goto RADIO_LOOP;
@@ -400,6 +407,7 @@ END_SESSION:  /* End current radio aac seq file session */
 		EGI_PLOG(LOGLV_ERROR, "Fail to remove '%s'.",fin_path);
 	else
 		EGI_PLOG(LOGLV_INFO, "OK, '%s' removed!", fin_path);
+
 
   	goto RADIO_LOOP;
 

@@ -393,6 +393,7 @@ void fbclear_bkBuff(FBDEV *fb_dev, uint16_t color)
 
 /*-------------------------------------------------------------------
 Return indicated pixel color value in EGI_16BIT_COLOR.
+		--- FOR 16BIT COLOR FB ---
 
 @fb_dev:	FB under consideration
 @x,y:		Pixel coordinate value. under FB.pos_rotate coord!

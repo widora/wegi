@@ -20,6 +20,9 @@ midaszhou@yahoo.com
 
 #define ERING_PATH_SURFMAN	"/tmp/.egi/ering_surfman"
 
+/* Surface Appearance Geom */
+#define         SURF_TOPBAR_WIDTH       30
+
 
 /*** Note
  *  Openwrt has no wrapper function of memfd_create() in the C library.
@@ -61,6 +64,12 @@ struct egi_surface_button {
 	int		x0;	/* Button position relative to SURFACE */
 	int		y0;
 	EGI_IMGBUF	*imgbuf; /* To hold image */
+
+	/* Reactions / Operations */
+	// On_Touch:
+	// On_Click:
+	// On_dblClick:
+
 };
 
 EGI_SURFBTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h);
@@ -83,13 +92,16 @@ struct egi_surface_user {
 	EGI_SURFSHMEM	*surfshmem;		/* Shared memory data in a surface, to release by egi_munmap_surfshmem() */
 
 						/* TODO: More than 1 SURFACEs for a SURFUSER ???!
-						 * means more surfshmem. ( and vfbdev? imgbuf?)
-						 * This will complicate ering_msg_send() to each surface.
+						 * 	1. means more surfshmem. ( and vfbdev? imgbuf?)
+						 * 	2. This will complicate ering_msg_send() to each surface.
 						 */
 
 	FBDEV  		vfbdev;			/* Virtual FBDEV, statically allocated. */
-	EGI_IMGBUF 	*imgbuf;		/* imgbuf for vfbdev;
-					 	 * Link it to surface->color[] data to virtual FBDEV */
+	EGI_IMGBUF 	*imgbuf;		/* Imgbuf as linked to virtual FBDEV.
+						 * 1. Only allocate a EGI_IMGBUF struct.
+						 * 2. Its color/alpha data only a ref. pointer to surfshmem->color[]
+						 * 3. Its width/height to be adjusted with surface resize/redraw operation.
+						 */
 };
 
 
@@ -105,7 +117,7 @@ struct egi_surface_user {
  *	  1.3.1 To render all surfaces.
  *
  * 2. The SURFMAN manages all mouse icons(imgbufs)! SURFSHMEM applys a certain mouse icon by setting its ref ID.
- * 2. The SURFMAN controls and dispatchs mouse data.
+ * 3. The SURFMAN controls and dispatchs mouse data, always to the TOP surface only.
  *
  */
 struct egi_surface_manager {
@@ -132,7 +144,9 @@ struct egi_surface_manager {
 					 *        request fails for 'ERING_MAX_LIMIT'!
 					 */
 	EGI_SURFACE		*surfaces[SURFMAN_MAX_SURFACES];  /* Pointers to surfaces
-								   * Sorted in ascending order of their zseq values!
+								   * Always keep in ascending order of their zseq values!
+								   * whenever: 1. register OR unregister a surface.
+								   *	       2. bring OR retire a surface to/from TOP layer.
 								   */
 	// const		EGI_SURFACE		*pslist[SURFMAN_MAX_SURFACES];	/* Only a reference */
 	pthread_mutex_t 	 surfman_mutex; /* 1. If there's a thread accessing surfaces[i], it MUST NOT be freed/unregistered!
@@ -167,15 +181,17 @@ struct egi_surface_manager {
 				 	   */
 	pthread_t	renderThread;	  /* Render processing thread */
 	bool		renderThread_on;  /* renderThread is running */
-
 };
 
 /***  			--- EGI_SURFACE ---
- *   1. Mem space of the struct shall be allocated together.
- *   2. A surface pointer is create by mmap() memfd, it must use munmap() to free it.
- *   3. Normally, NO pointer member is allowed.
+ *   1. Space of SURFSHMEM is a chunk of anonymous shared memory created by the SURFMAN, who then
+ *	ering the correspoinding memfd to the SURFUSER. ( Ref. create_memfd() )
+ *   2. Since a SURFSHMEM pointer is created by mmap() memfd, it must use munmap() to free it.
+ *   3. Normally, NO pointer member is allowed. ---OK, for SURFSUER use only.
  *   4. An EGI_SURFACE is to be created, and rendered to FB by EGI_SURFMAN.
- *   5. Pixel data of an EGI_SURFACE is to be updated by an EGI_SURFACE application.
+ *   5. Pixel data of an EGI_SURFACE is to be updated by a SURFUSER.
+ *   6. Most members of SURFSHMEM shall be updated ONLY by the SURFUSER, espcially pointers!
+ *	The SURFMAN only initilize some common param memebers of SURFSHMEM.
  *
  * TODO:
  *   1. If surface memfds does NOT reach the surface user, or keep inactive for a long time.
@@ -192,6 +208,7 @@ struct egi_surface_shmem {
 
 	size_t		shmsize;	/* Total memory allocated for the shmem
 					 * EGI_SURFACE also holds the data!
+					 * For unmap shmem.
 					 */
 
 	/* Mutex: PTHREAD_PROCESS_SHARED + PTHREAD_MUTEX_ROBUST */
@@ -203,14 +220,15 @@ struct egi_surface_shmem {
 					 * 2. surfman_render_thread will read the status!
 					 */
 
-	int		usersig;	/* user signal */
+	pthread_t       thread_eringRoutine;    /* SURFUSER ERING routine */
+	int		usersig;	/* user signal: NOW 1 as quit surface ERING routine. */
 
 	bool		hidden;		/* True: invisible. */
-	bool		downhold;	/* If the surface is hold down */
+	bool		downhold;	/* If the surface is hold down ... XXX no use? */
 
 //	bool		syncAtop;	/* */
 	bool		sync;		/* True: surface image is ready. False: surface image is NOT ready. */
-					/* TODO: More. NOW, only for activate the surface after surface is regitered AND
+					/* TODO: More. NOW, only for activate the surface after surface is registered AND
 					 * image is ready! If NOT, a black(calloc raw memory) image may be brought to FB.
 					 */
 
@@ -221,7 +239,8 @@ struct egi_surface_shmem {
 	int		maxW;		/* Fixed Max surface size, width and height. Same as egi_surface.width and heigth */
 	int		maxH;
 					/* Note: If surface is MAXIMIZED, vw/vh keeps the same!
-					 * and SURFMAN will use registered width/height to render the surface. */
+					 * SURFMAN will use registered width/height (mem alloc params) to render the surface.
+					 */
 
 	int		vw;	  	/* Adjusted surface size, To be limited within [1 maxW] and [1 maxH]*/
 	int		vh;		/* SURFMAN will use this to render surface image */
@@ -239,14 +258,32 @@ struct egi_surface_shmem {
 	int		nw;
 	int		nh;
 
-	/* Buttons on topbar */
-	EGI_SURFBTN     *sbtns[3];      /* MINIMIZE, MAXIMIZE, CLOSE */
+	/* Default buttons on topbar */
+	EGI_SURFBTN     *sbtns[3];      /* MINIMIZE, MAXIMIZE, CLOSE. If NULL, ignore.  */
 					/* NOW to be allocated/released by SURFUSER */
-	int		mpbtn;		/* Mouse touched buttons, as index of sbtns[] */
+	int		mpbtn;		/* Index of mouse touched buttons, as index of sbtns[]
+					 * <0 invalid.
+					 */
 
-	/* Functions */
-	void (*resize_surface)(EGI_SURFUSER *surfuser, int w, int h);
-
+	/*** Surface Operations: All by SURFUSER.
+	 *   1. They are just pointers, MAY be initilized with default OP functions.
+	 *   2. Usually, at least resize_surface() should be redefined and tailor_made for the application.
+	 */
+	/* 1. Move */
+		// Just modify (x0,y0)
+		void (*move_surface)(EGI_SURFUSER *surfuser, int x0, int y0);
+	/* 2. Resize: When surface resizes, shall redraw all elemets in the surface accordingly. */
+		void (*redraw_surface)(EGI_SURFUSER *surfuser, int w, int h);
+	/* 3. Maximize */
+		// Just call resize() with given w/h
+		void (*maximize_surface)(EGI_SURFUSER *surfuser);
+	/* 4. Normalize */
+		void (*normalize_surface)(EGI_SURFUSER *surfuser);
+	/* 5. Minimize */
+		// Put surface to Minibar Menu.
+		void (*minimize_surface)(EGI_SURFUSER *surfuser);
+	/* 6. Close */
+		void (*close_surface)(EGI_SURFUSER **surfuser);
 
 	/* Surface default color, as backgroud */
 	EGI_16BIT_COLOR	bkgcolor;
@@ -257,7 +294,7 @@ struct egi_surface_shmem {
 				        */
 
         int          off_alpha;      	/* Offset to alpah data, ONLY if applicable.
-					 * If 0: No alpha data. OR alpha included in color
+					 * If 0: No alpha data. OR alpha data included in color, SURF_RGBA8888 etc.
 					 */
 
 
@@ -301,8 +338,9 @@ struct egi_surface {
 					 *    To be closed by surfman_unregister_surface()
 					 * 3. A unique value for each surface!
 					 */
-	size_t		shmsize;	/* in bytes, Total memory allocated for the struct
+	size_t		shmsize;	/* in bytes, Total memory allocated for surfshmem.
 					 * EGI_SURFSHMEM also holds the data!
+					 * For unmap shmem.
 					 */
 
         /* Fixed params, only surfman can modify/update upon the APP request? */
@@ -321,7 +359,7 @@ struct egi_surface {
 					 * 2. surfman_render_thread will read the status!
 					 */
 
-	/* Commonly shared data, mostly for the SURFUSER */
+	/* Commonly shared data, operated by the SURFUSER mostly. */
 	EGI_SURFSHMEM	*surfshmem;	/* memfd_created memory, call egi_munmap_surfshmem() to unmap/release. */
 };
 
@@ -374,7 +412,14 @@ void surface_insertSort_zseq(EGI_SURFACE **surfaces, int n); /* Re_assign all su
 /* Functions for   --- EGI_SURFUSER ---   */
 EGI_SURFUSER *egi_register_surfuser( const char *svrpath, int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType );
 int egi_unregister_surfuser(EGI_SURFUSER **surfuser);
-__attribute__((weak)) void surfuser_resize_surface(EGI_SURFUSER *surfuser, int w, int h);
+
+	/* Default surface operations */
+__attribute__((weak)) void surfuser_move_surface(EGI_SURFUSER *surfuser, int x0, int y0);
+__attribute__((weak)) void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h);
+__attribute__((weak)) void surfuser_maximize_surface(EGI_SURFUSER *surfuser);
+__attribute__((weak)) void surfuser_normalize_surface(EGI_SURFUSER *surfuser);
+__attribute__((weak)) void surfuser_minimize_surface(EGI_SURFUSER *surfuser);
+__attribute__((weak)) void surfuser_close_surface(EGI_SURFUSER **surfuser);
 __attribute__((weak)) void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 
 /* Functions for   --- EGI_SURFMAN ---   */
