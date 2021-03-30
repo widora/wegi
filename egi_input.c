@@ -98,6 +98,8 @@ Journal
 2021-03-18:
 	1. egi_mouse_loopread(): Adjust mostatus.DX/DY as per mostatus.mouseX/mouseY variation,
 	   with consideration of mouse movement limit at four sides.
+2021-03-26:
+	1. egi_mouse_loopread(): Add var. status_sustain to check if idle DOWNHOLD happens when select() returns 0.
 
 
 Midas Zhou
@@ -467,7 +469,7 @@ static void *egi_mouse_loopread( void* arg )
 	int retval;
 	int tmp;
         unsigned char old_mouse_data[4]={0};
-
+	bool status_sustain=false;
         int status=0;/* 0b00(0): Released_hold
                         0b01(1): Key Down / Raising edge
                         0b10(2): Key Up / Falling edge
@@ -521,14 +523,22 @@ static void *egi_mouse_loopread( void* arg )
 		}
 		else if(retval==0) {
 			//printf("Time out\n");
-			/* Keep status, clear Movement */
-			/* EXAMPLE: If previous status is Click down. .....HOLD */
-			mouse_data[0] &= 0x0F;
-			mouse_data[1]=0;
-			mouse_data[2]=0;
-			mouse_data[3]=0;
-			//continue; GO ON ....
+			if(status_sustain==false) {  /* Check if its DOWNHOLD idle */
+				/* Keep status, clear Movement */
+				/* EXAMPLE: If previous status is Click down. .....HOLD */
+				mouse_data[0] &= 0x0F;
+				mouse_data[1]=0;
+				mouse_data[2]=0;
+				mouse_data[3]=0;
+
+				status_sustain=true;
+				//continue; GO ON ....
+			}
+			else  /* Sustained status: DOWNHOLD etc. */
+				continue;
 		}
+		/* Reset, status is changing. */
+		status_sustain=false;
 
 		/* Read input fd and trigger callback */
 		if( retval>0 && FD_ISSET(mouse_fd, &rfds) ) {

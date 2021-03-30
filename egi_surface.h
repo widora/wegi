@@ -21,7 +21,7 @@ midaszhou@yahoo.com
 #define ERING_PATH_SURFMAN	"/tmp/.egi/ering_surfman"
 
 /* Surface Appearance Geom */
-#define         SURF_TOPBAR_WIDTH       30
+#define         SURF_TOPBAR_HEIGHT       30
 
 
 /*** Note
@@ -76,22 +76,26 @@ EGI_SURFBTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int 
 void egi_surfbtn_free(EGI_SURFBTN **sbtn);
 bool egi_point_on_surfbtn(EGI_SURFBTN *sbtn, int x, int y);
 
-/* SURFBTN IDs */
+#if 0  /* SURFBTN IDs --->  Index of SURFSHMEM->sbtns[] */
 enum surf_button_ids {
         SURFBTN_CLOSE           = 0,
         SURFBTN_MINIMIZE        = 1,
         SURFBTN_MAXIMIZE        = 2,
         /* More slef-defined IDs */
 };
+#endif /////////////////
 
 
 /*** 			--- An EGI_SURFUSER ---
+ * 1. When an EGI_SURFUSER is created together with an EGI_SURFACE(EGI_SURFSHMEM), there is 1 ering thread:
+ *    1.1 surfshmem->thread_eringRoutine: Loop calling ering_msg_recv() to receive MSG from SURFMAN.
+ *	  Those MSG includes and kstat/mstat.
  */
 struct egi_surface_user {
 	EGI_UCLIT 	*uclit;			/* A uClient to EGI_SURFMAN's uServer. */
-	EGI_SURFSHMEM	*surfshmem;		/* Shared memory data in a surface, to release by egi_munmap_surfshmem() */
-
-						/* TODO: More than 1 SURFACEs for a SURFUSER ???!
+	EGI_SURFSHMEM	*surfshmem;		/* Shared memory data in a surface, to release by egi_munmap_surfshmem()
+						 * Include surfshmem->thread_eringRoutine.
+						 * TODO: More than 1 SURFACEs for a SURFUSER ???!
 						 * 	1. means more surfshmem. ( and vfbdev? imgbuf?)
 						 * 	2. This will complicate ering_msg_send() to each surface.
 						 */
@@ -167,6 +171,9 @@ struct egi_surface_manager {
 	/* 3. Surface render process */
 	EGI_IMGBUF	*mcursor;	  /* Mouse cursor imgbuf -- NORMAL */
 	EGI_IMGBUF	*mgrab;		  /* Mouse cursor --- GRAB */
+					  /** NOTE:
+					   * 1. Mouse cursor type is determined by SURFACE_STATUS_xxx (NORMAL, DOWNHOLD, SIZEADJUST...etc)
+					   */
 					  /* TODO: An imgbuf array for cursor icons. All mouse imgbufs are managed by SURFMAN. */
 	int		mx;		  /* Mouse cursor position */
 	int		my;
@@ -215,10 +222,12 @@ struct egi_surface_shmem {
 	pthread_mutexattr_t mutexattr;	/* MUST also in the shared memory */
 	pthread_mutex_t	shmem_mutex; 	/* Porcess_shared mutex lock for surface common data. */
 
-	int		status;		/* Surface status, CAN SET OR READ.
+	int		status;		/* Surface status, CAN SET OR READ:
+					 * Usually: MAXIMIZED, MINMIZED,NORMAL,
 					 * 1. SURFMAN and SURFUSER CAN set the status.
 					 * 2. surfman_render_thread will read the status!
 					 */
+	uint32_t	flags;
 
 	pthread_t       thread_eringRoutine;    /* SURFUSER ERING routine */
 	int		usersig;	/* user signal: NOW 1 as quit surface ERING routine. */
@@ -258,16 +267,26 @@ struct egi_surface_shmem {
 	int		nw;
 	int		nh;
 
-	/* Default buttons on topbar */
-	EGI_SURFBTN     *sbtns[3];      /* MINIMIZE, MAXIMIZE, CLOSE. If NULL, ignore.  */
-					/* NOW to be allocated/released by SURFUSER */
+	/* Default buttons on topbar: CLOSE/MINIMIZE/MAXIMIZE */
+#define TOPBTN_CLOSE	(1<<0)
+#define TOPBTN_MIN	(1<<1)
+#define TOPBTN_MAX	(1<<2)
+
+#define TOPBTN_CLOSE_INDEX	0 	/* WARNGING: same order as surfshmem->mpbtn */
+#define TOPBTN_MIN_INDEX	1
+#define TOPBTN_MAX_INDEX	2
+
+	EGI_SURFBTN     *sbtns[3];      /* CLOSE/MIN/MAX.  If NULL, ignore. same order as surfshmem->mpbtn */
+					/* NOW to be allocated/released by SURFUSER
+					 * see in surfuser_firstdraw_surface() to create them accd. to 'topbtns'.
+					 */
 	int		mpbtn;		/* Index of mouse touched buttons, as index of sbtns[]
 					 * <0 invalid.
 					 */
 
 	/*** Surface Operations: All by SURFUSER.
 	 *   1. They are just pointers, MAY be initilized with default OP functions.
-	 *   2. Usually, at least resize_surface() should be redefined and tailor_made for the application.
+	 *   2. Usually, at least redraw_surface() should be redefined and tailor_made for the application.
 	 */
 	/* 1. Move */
 		// Just modify (x0,y0)
@@ -373,6 +392,14 @@ enum surface_status {
 	SURFACE_STATUS_DOWNADJUST	=7,
 };
 
+enum surface_flags {
+
+	SURFACE_FLAG_DOWNHOLD   	=(1<<0),  	/* Downhold by mouse, SURFMAN readonly */
+	SURFACE_FLAG_MEVENT   		=(1<<1),  	/* SURFMAN set, SURFUSER reset after finishing parsing the MEVENT */
+	SURFACE_FLAG_KEVENT   		=(1<<2),  	/* SURFMAN set, SURFUSER reset after finishing parsing the KEVENT */
+
+};
+
 
 #if  0 /* NOTE: Following move to egi_unet.h */
 enum ering_request_type {
@@ -414,6 +441,7 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath, int x0, int y0, int ma
 int egi_unregister_surfuser(EGI_SURFUSER **surfuser);
 
 	/* Default surface operations */
+__attribute__((weak)) void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns);
 __attribute__((weak)) void surfuser_move_surface(EGI_SURFUSER *surfuser, int x0, int y0);
 __attribute__((weak)) void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h);
 __attribute__((weak)) void surfuser_maximize_surface(EGI_SURFUSER *surfuser);

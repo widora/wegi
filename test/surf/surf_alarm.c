@@ -33,8 +33,8 @@ https://github.com/widora/wegi
 
 #define PCM_MIXER       	"default"
 #define ALARM_SOUND_PATH   	"/mmc/alarm.wav"  /* a very short piece */
-EGI_PCMBUF *pcmAlarm;
-bool	sigstop;
+
+EGI_PCMBUF 	*pcmAlarm;
 
 EGI_SURFUSER	*surfuser=NULL;
 EGI_SURFSHMEM	*surfshmem=NULL;	   /* Only a ref. to surfuser->surfshmem */
@@ -42,23 +42,14 @@ FBDEV 		*vfbdev=NULL;		   /* Only a ref. to surfuser->vfbdev  */
 EGI_IMGBUF 	*surfimg=NULL;		   /* Only a ref. to surfuser->imgbuf */
 SURF_COLOR_TYPE colorType=SURF_RGB565_A8;  /* surfuser->vfbdev color type */
 
-EGI_SURFBTN	*sbtns[3];  /* MIN,MAX,CLOSE */
-static int 	mpbtn=-1;   /* Mouse_pointed button index, <0 None! */
-
-pthread_t       thread_EringRoutine;    /* SURFUSER ERING routine */
 void 		*surfuser_ering_routine(void *args);
-void 		surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
-
-
-static int sigQuit;
+void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns);
 
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
 {
         if(signo==SIGINT) {
                 egi_dpstd("SIGINT to quit the process!\n");
-//              sigQuit=1;
-//		pthread_mutex_unlock(&surfshmem->mutex_lock);
 		exit(0);
         }
 }
@@ -66,6 +57,7 @@ void signal_handler(int signo)
 
 int main(int argc, char **argv)
 {
+	int i;
 	int opt;
         char *delim=",";
         char saveargs[128];
@@ -74,7 +66,6 @@ int main(int argc, char **argv)
 	time_t tnow;
 	time_t tset;
         struct tm tm,tdm;
-	int det=-5;
 
 	char *strTask="EGI ALARM!";
 	char *strTime;
@@ -162,7 +153,7 @@ int main(int argc, char **argv)
         pcmAlarm=egi_pcmbuf_readfile(ALARM_SOUND_PATH);
         if(pcmAlarm==NULL)exit(1);
 
-	/* Time ticking */
+	/* Time ticking.... */
 	printf("Timer is working...\n");
 	do {
 		tm_delayms(100);
@@ -171,7 +162,7 @@ int main(int argc, char **argv)
 	while( difftime(tset, tnow)>0 );
 
 	/* 1. Create a surfuser */
-	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, 320,240, sw, sh, colorType);
+	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, sw,sh, sw, sh, colorType); /* Fixed size */
 	if(surfuser==NULL)
 		exit(EXIT_FAILURE);
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
@@ -180,44 +171,28 @@ int main(int argc, char **argv)
 	vfbdev=&surfuser->vfbdev;
 	surfimg=surfuser->imgbuf;
 	surfshmem=surfuser->surfshmem;
-	printf("shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
-			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
-        /* Assign name to the surface */
+        /* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons. */
+        surfshmem->minimize_surface     = surfuser_minimize_surface;    /* Surface module default functions */
+        surfshmem->close_surface        = surfuser_close_surface;
+     	// Disable size_adjust: surfshmem->redraw_surface       =  surfuser_redraw_surface;
+        surfshmem->maximize_surface     = surfuser_maximize_surface;    /* Need redraw */
+        surfshmem->normalize_surface    = surfuser_normalize_surface;   /* Need redraw */
+
+        /* 4. Assign name to the surface */
         strncpy(surfshmem->surfname, "定时提醒", SURFNAME_MAX-1);
 
-	/* Set BK color */
-	/* CCFFFF(LTblue), FF99FF,FFCCFF(LTpink), FFFF99(LTyellow) */
-	egi_imgbuf_resetColorAlpha(surfimg, COLOR_RGB_TO16BITS(0xFF,0xFF,0x99), 255); /* Reset color only */
+        /* 5. First draw surface */
+        surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN); /* Default firstdraw operation */
 
-	/* Top bar */
-	draw_filled_rect2(vfbdev,WEGI_COLOR_GRAY5, 0, 0, surfimg->width-1, 30);
-
-	int rad=10;
-	egi_imgbuf_setFrame(surfimg, frame_round_rect, -1, 1, &rad);
-
-	/* AFTER setFrame: black edge */
-	fbset_color2(vfbdev, WEGI_COLOR_BLACK);
-	draw_roundcorner_wrect(vfbdev, 0, 0, surfimg->width-1, surfimg->height-1, 10, 1);
-
-	/* Write words and strings */
-        /* Surface Title */
-        FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, 		/* FBdev, fontface */
-                                        18, 18,(const UFT8_PCHAR)"X _ O   Timer Alarm",   /* fw,fh, pstr */
-                                        320, 1, 0,                 	/* pixpl, lines, fgap */
-                                        14, 5,                         	/* x0,y0, */
-		                        WEGI_COLOR_ORANGE, -1, 255,     /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
-
-	/* Set_Time */
+	/* Write set_time */
        	FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, 	/* FBdev, fontface */
                	                        fw, fh, (const UFT8_PCHAR)strTime,   /* fw,fh, pstr */
                        	                sw-30, ln, fgap,          	     /* pixpl, lines, fgap */
                                	        15, 30+fgap,                 	     /* x0,y0, */
                                        	WEGI_COLOR_BLACK, -1, 255,           /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);             /* int *cnt, int *lnleft, int* penx, int* peny */
-
-	/* Task description */
+	/* Write task description */
        	FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, 	/* FBdev, fontface */
                	                        fw, fh, (const UFT8_PCHAR)strTask,   /* fw,fh, pstr */
                        	                sw-30, ln, fgap,          	     /* pixpl, lines, fgap */
@@ -225,13 +200,11 @@ int main(int argc, char **argv)
                                        	WEGI_COLOR_BLACK, -1, 255,           /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);             /* int *cnt, int *lnleft, int* penx, int* peny */
 
-	/* Create SURFBTNs by blockcopy SURFACE image. */
-	sbtns[SURFBTN_CLOSE]=egi_surfbtn_create(surfimg,     10,0,      10,0,      18, 30); /* (imgbuf, xi, yi, x0, y0, w, h) */
-	sbtns[SURFBTN_MINIMIZE]=egi_surfbtn_create(surfimg,  12+18,0,   12+18,0,   18, 30);
-	sbtns[SURFBTN_MAXIMIZE]=egi_surfbtn_create(surfimg,  14+18*2,0, 14+18*2,0, 18, 30);
+	printf("shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
+			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
-	/* Start Ering routine */
-	if( pthread_create(&thread_EringRoutine, NULL, surfuser_ering_routine, surfuser) !=0 ) {
+	/* 5. Start Ering routine */
+	if( pthread_create(&surfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, surfuser) !=0 ) {
 		printf("Fail to launch thread_EringRoutine!\n");
 		exit(EXIT_FAILURE);
 	}
@@ -241,10 +214,10 @@ int main(int argc, char **argv)
 
 	/* Play sound */
         /* mpc_dev, pcmbuf, vstep, nf, nloop, bool *sigstop, bool *sigsynch, bool* sigtrigger */
-        egi_pcmbuf_playback(PCM_MIXER, pcmAlarm, 0, 1024, 0, &sigstop,  NULL, NULL);
+        egi_pcmbuf_playback(PCM_MIXER, pcmAlarm, 0, 1024, 0, (bool *)&surfshmem->usersig,  NULL, NULL);
 
 	/* Loop */
-	while(!sigQuit) {
+	while( surfshmem->usersig != 1 ) {
 
                 /* Get surface mutex_lock */
                 if( pthread_mutex_lock(&surfshmem->shmem_mutex) !=0 ) {
@@ -254,27 +227,35 @@ int main(int argc, char **argv)
                 }
 /* ------ >>>  Surface shmem Critical Zone  */
 
-
-#if 0		/* Move surfaces */
-		surfshmem->y0 += det;
-		if( surfshmem->y0 < 10) det=-det;
-		else if( surfshmem->y0 > 240-80 ) det=-det;
-#endif
-
 	        /* Activate image */
         	surfshmem->sync=true;
 
 /* ------ <<<  Surface shmem Critical Zone  */
 		pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
-
 		tm_delayms(200);
 	}
 
-	/* Unregister and destroy surfuser */
-	egi_unregister_surfuser(&surfuser);
+        /* Free SURFBTNs */
+        for(i=0; i<3; i++)
+                egi_surfbtn_free(&surfshmem->sbtns[i]);
 
-	exit(0);
+        /* Join ering_routine  */
+        // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
+        printf("Cancel thread...\n");
+        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+        /* Make sure mutex unlocked in pthread if any! */
+        printf("Joint thread_eringRoutine...\n");
+        if( pthread_join(surfshmem->thread_eringRoutine, NULL)!=0 )
+                egi_dperr("Fail to join eringRoutine");
+
+        /* Unregister and destroy surfuser */
+        printf("Unregister surfuser...\n");
+        if( egi_unregister_surfuser(&surfuser)!=0 )
+                egi_dpstd("Fail to unregister surfuser!\n");
+
+        printf("Exit OK!\n");
+        exit(0);
 }
 
 
@@ -292,7 +273,7 @@ void *surfuser_ering_routine(void *args)
 	if(emsg==NULL)
 		return (void *)-1;
 
-	while(1) {
+	while( surfuser->surfshmem->usersig !=1 ) {
 		/* 1. Waiting for msg from SURFMAN */
 	        //egi_dpstd("Waiting in recvmsg...\n");
 		nrecv=ering_msg_recv(surfuser->uclit->sockfd, emsg);
@@ -314,167 +295,126 @@ void *surfuser_ering_routine(void *args)
                         	break;
 		       case ERING_MOUSE_STATUS:
 				mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
-				egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
+				//egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
 				/* Parse mouse event */
 				surfuser_parse_mouse_event(surfuser,mouse_status);
+                                /* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent */
+                                surfuser->surfshmem->flags &= (~SURFACE_FLAG_MEVENT);
 				break;
 	               default:
         	                egi_dpstd("Undefined MSG from the SURFMAN! data[0]=%d\n", emsg->data[0]);
         	}
-
 	}
 
 	/* Free EMSG */
 	ering_msg_free(&emsg);
 
+        egi_dpstd("Exit thread.\n");
 	return (void *)0;
 }
 
 
-/*-------------  For SURFUSER  -------------------
-Parse mouse event and take actions.
+/*----------------- Re-define firstdraw  ---------------------
+Draw the surface at first time.
+Create SURFBTNs by blockcopy SURFACE image.
 
-Called by surfuser_input_routine()
-
-@surfuser:   Pointer to EGI_SURFUSER.
-@pmostat:    Pointer to EGI_MOUSE_STATUS
-
------------------------------------------------*/
-void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
+@surfuser:	Pointer to EGI_SURFUSER.
+@topbtns:	Buttons on top bar, optional.
+		TOPBTN_CLOSE | TOPBTN_MIN | TOPBTN_MAX.
+		0 No buttons on topbar.
+------------------------------------------------------------*/
+void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns)
 {
-	int i;
-	bool	mouseOnBtn; /* Mouse on button */
-	static int lastX, lastY;
-
-	FBDEV           *vfbdev;
-	//EGI_IMGBUF      *imgbuf;
-	EGI_SURFSHMEM   *surfshmem;
-
-	if(surfuser==NULL || pmostat==NULL)
+	if(surfuser==NULL || surfuser->surfshmem==NULL)
 		return;
 
-	/* 1. Get reference pointer */
-        vfbdev=&surfuser->vfbdev;
-        //imgbuf=surfuser->imgbuf;
-        surfshmem=surfuser->surfshmem;
-
-	/* 2. Check if mouse on SURFBTNs */
-	for(i=0; i<3; i++) {
-		/* Check mouse_on_button */
-		mouseOnBtn=egi_point_on_surfbtn( sbtns[i], pmostat->mouseX -surfuser->surfshmem->x0,
-								pmostat->mouseY -surfuser->surfshmem->y0 );
-		#if 0 /* TEST: --------- */
-		if(mouseOnBtn)
-			printf(">>> Touch SURFBTN: %d\n", i);
-		else
-			printf("<<<< \n");
-		#endif
-
-		/* Mouse on a SURFBTN: Set mpbtn */
-		if( mpbtn != i && mouseOnBtn ) {  /* XXX mpbtn <0 ! */
-			/* In case mouse move from a nearby SURFBTN, restore its image. */
-			if(mpbtn>=0) {
-				egi_subimg_writeFB(sbtns[mpbtn]->imgbuf, &surfuser->vfbdev, 0, -1, sbtns[mpbtn]->x0, sbtns[mpbtn]->y0);
-			}
-
-		#if 0	/* Draw a square on the newly touched SURFBTN */
-			fbset_color2(&surfuser->vfbdev, WEGI_COLOR_DARKRED);
-			draw_rect(&surfuser->vfbdev, sbtns[i]->x0, sbtns[i]->y0,
-				     sbtns[i]->x0+sbtns[i]->imgbuf->width-1,sbtns[i]->y0+sbtns[i]->imgbuf->height-1);
-		#else
-                        draw_blend_filled_rect(&surfuser->vfbdev, sbtns[i]->x0, sbtns[i]->y0,
-						sbtns[i]->x0+sbtns[i]->imgbuf->width-1,sbtns[i]->y0+sbtns[i]->imgbuf->height-1,
-						WEGI_COLOR_WHITE, 120);
-		#endif
-
-			/* Set mpbtn */
-			mpbtn=i;
-
-			/* Break for() */
-			break;
-		}
-		/* Mouse leaves SURFBTN: Clear mpbtn */
-		else if( mpbtn == i && !mouseOnBtn ) {  /* XXX mpbtn >=0!  */
-
-			/* Draw/Restor original image */
-			egi_subimg_writeFB(sbtns[mpbtn]->imgbuf, &surfuser->vfbdev, 0, -1, sbtns[mpbtn]->x0, sbtns[mpbtn]->y0);
-
-			/* Clear mpbtn */
-			mpbtn=-1;
-
-			break;
-		}
-		/* Already on BUTTON, sustain... */
-		else if( mpbtn == i && mouseOnBtn) {
-			break;
-		}
-	}
-
-	/* 3. If click OR?? released on SURFBTNs */
-	if( pmostat->LeftKeyDown ) {
-	//if( pmostat->LeftKeyUp ) {
-		switch(mpbtn) {
-			case SURFBTN_CLOSE:
-				exit(0);
-				break;
-			case SURFBTN_MINIMIZE:
-				/* Restor to original image */
-				egi_subimg_writeFB(sbtns[mpbtn]->imgbuf, &surfuser->vfbdev, 0, -1, sbtns[mpbtn]->x0, sbtns[mpbtn]->y0);
-
-				/* Set status to be SURFACE_STATUS_MINIMIZED */
-				surfuser->surfshmem->status=SURFACE_STATUS_MINIMIZED;
-
-				/* Sound OFF*/
-				sigstop=true;
-
-				break;
-			case SURFBTN_MAXIMIZE:
-				break;
-		}
-
-                 /* Rest lastX/Y, to compare with next mouseX/Y to get deviation. */
-                 lastX=pmostat->mouseX;
-                 lastY=pmostat->mouseY;
-	}
-
-        /* 4. LeftKeyDownHold: To move surface */
-        if( pmostat->LeftKeyDownHold ) {
-        	/* Note: As mouseDX/DY already added into mouseX/Y, and mouseX/Y have Limit Value also.
-                 * If use mouseDX/DY, the cursor will slip away at four sides of LCD, as Limit Value applys for mouseX/Y,
-                 * while mouseDX/DY do NOT has limits!!!
-                 * We need to retrive DX/DY from previous mouseX/Y.
-                 */
-        	pthread_mutex_lock(&surfshmem->shmem_mutex);
+//     		pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surfman Critical Zone  */
-		if( lastX > surfshmem->x0 && lastX < surfshmem->x0+surfshmem->vw
-				          && lastY > surfshmem->y0 && lastY < surfshmem->y0+30 ) /* TopBarWidth 30 */
-		{
-			/* Update surface x0,y0 */
-			surfshmem->x0 += (pmostat->mouseX-lastX); /* Delt x0 */
-			surfshmem->y0 += (pmostat->mouseY-lastY); /* Delt y0 */
 
-			/* Set status DOWNHOLD */
-			surfshmem->status = SURFACE_STATUS_DOWNHOLD;
-		}
-/* ------ <<<  Surface shmem Critical Zone  */
-        	pthread_mutex_unlock(&surfshmem->shmem_mutex);
+	/* 0. Ref. pointers */
+	FBDEV  *vfbdev=&surfuser->vfbdev;
+	EGI_IMGBUF *surfimg=surfuser->imgbuf;
+        EGI_SURFSHMEM *surfshmem=surfuser->surfshmem;
 
-                /* update lastX,Y */
-		lastX=pmostat->mouseX; lastY=pmostat->mouseY;
+	/* Size limit */
+	if( surfshmem->vw > surfshmem->maxW )
+		surfshmem->vw=surfshmem->maxW;
+
+	if( surfshmem->vh > surfshmem->maxH )
+		surfshmem->vh=surfshmem->maxH;
+
+	/* 1. Set BK color */
+	/* CCFFFF(LTblue), FF99FF,FFCCFF(LTpink), FFFF99(LTyellow) */
+	egi_imgbuf_resetColorAlpha(surfimg, COLOR_RGB_TO16BITS(0xFF,0xFF,0x99), 255); /* Reset color only */
+
+	/* 2. Draw top bar */
+	draw_filled_rect2(vfbdev,WEGI_COLOR_GRAY5, 0, 0, surfimg->width-1, SURF_TOPBAR_HEIGHT-1);
+
+
+        /* 3. Draw CLOSE/MIN/MAX Btns */
+
+	/* Put btn Chars */
+	int i;
+	char btnchar[8]={0};
+	int  nbs=0;
+
+	/* Put icon char in order of 'X_O' */
+	if( topbtns&TOPBTN_CLOSE ) {
+		strcat(btnchar,"X");
+		nbs++;
 	}
-	else {
-        	pthread_mutex_lock(&surfshmem->shmem_mutex);
-
-		/* Restore status NORMAL */
-		if( surfshmem->status == SURFACE_STATUS_DOWNHOLD )
-			surfshmem->status = SURFACE_STATUS_NORMAL;
-
-        	pthread_mutex_unlock(&surfshmem->shmem_mutex);
+	if( topbtns&TOPBTN_MIN ) {
+		strcat(btnchar,"_");
+		nbs++;
+	}
+	if( topbtns&TOPBTN_MAX ) {
+		strcat(btnchar,"O");
+		nbs++;
 	}
 
-	/* 5. If click on surface work area. */
-	if( pmostat->LeftKeyDown && pmostat->mouseY-surfshmem->y0 > 30) {
-        	fbset_color2(vfbdev, egi_color_random(color_all));
-		draw_filled_circle(vfbdev, pmostat->mouseX-surfshmem->x0, pmostat->mouseY-surfshmem->y0, 10);
+	/* Draw Char as icon */
+	for(i=nbs; i>0; i--) {
+		/* Font face: SourceHanSansSC-Normal */
+		FTsymbol_unicode_writeFB( vfbdev, egi_sysfonts.regular,	/* FBdev, fontface */
+					  18, 18, btnchar[i-1],   	/* fw,fh, pstr */
+					  NULL, surfimg->width-20*(nbs-i+1), 5,	/* *xlef, x0,y0 */
+					  WEGI_COLOR_WHITE, -1, 200    /* fontcolor, transcolor, opaque */
+					);
 	}
+
+        /* 4. Put surface name/title on topbar */
+        FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, 	  /* FBdev, fontface */
+                                        18, 18, (const UFT8_PCHAR) surfshmem->surfname, /* fw,fh, pstr */
+                                        320, 1, 0,                        /* pixpl, lines, fgap */
+                                        5, 5,                             /* x0,y0, */
+                                        WEGI_COLOR_WHITE, -1, 200,        /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
+
+        /* 5. Set Alpha Frame and Draw outline rim */
+	int rad=10;
+	egi_imgbuf_setFrame(surfimg, frame_round_rect, -1, 1, &rad);
+	/* AFTER setFrame: black rim. */
+	fbset_color2(vfbdev, WEGI_COLOR_BLACK);
+	draw_roundcorner_wrect(vfbdev, 0, 0, surfimg->width-1, surfimg->height-1, rad, 1);
+
+        /* 6. Create SURFBTNs by blockcopy SURFACE image, after first_drawing the surface! */
+        int xs=surfimg->width-20*nbs -3;
+	i=0;
+	/* By the order of 'X_O' */
+	if( topbtns&TOPBTN_CLOSE ) {
+		surfshmem->sbtns[TOPBTN_CLOSE_INDEX]=egi_surfbtn_create(surfimg,  xs,0+1,    xs,0+1,  18, 30-1);
+									/* (imgbuf, xi, yi, x0, y0, w, h) */
+		i++;
+	}
+	if( topbtns&TOPBTN_MIN ) {
+	        surfshmem->sbtns[TOPBTN_MIN_INDEX]=egi_surfbtn_create(surfimg,  xs+i*20,0+1,  xs+i*20,0+1,   18, 30-1);
+		i++;
+	}
+	if( topbtns&TOPBTN_MAX )
+	        surfshmem->sbtns[TOPBTN_MAX_INDEX]=egi_surfbtn_create(surfimg,  xs+i*20,0+1,  xs+i*20,0+1, 18, 30-1);
+
+//       	pthread_mutex_unlock(&surfshmem->shmem_mutex);
+/* <<< ------  Surfman Critical Zone  */
+
 }
+

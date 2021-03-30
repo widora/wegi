@@ -118,50 +118,23 @@ int main(int argc, char **argv)
         }
 /* ------ >>>  Surface shmem Critical Zone  */
 
-	/* Assign OP functions, connect with CLOSE/MIN./MAX. buttons. */
+	/* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons. */
 	surfshmem->minimize_surface = surfuser_minimize_surface; /* Surface module default functions */
 	surfshmem->close_surface = surfuser_close_surface;
 
-        /* Assign name to the surface */
+        /* 4. Assign name to the surface */
         strncpy(surfshmem->surfname, "时间", SURFNAME_MAX-1);
 
-	/* Set BKG color */
-	surfshmem->bkgcolor=WEGI_COLOR_DARKBLUE;
-	egi_imgbuf_resetColorAlpha(surfimg, surfshmem->bkgcolor, -1); /* Reset color only */
-	/* Draw top bar */
-	draw_filled_rect2(vfbdev,WEGI_COLOR_GRAY5, 0, 0, surfimg->width-1, 30);
+        /* 5. First draw surface */
+        surfshmem->bkgcolor=WEGI_COLOR_DARKBLUE; /* OR default BLACK */
+        surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN); /* Default firstdraw operation */
 
-#if 0	/* Max/Min icons */
-	fbset_color2(vfbdev, WEGI_COLOR_GRAYA);
-        draw_rect(vfbdev, surfimg->width-1-(10+16+10+16), 7, surfimg->width-1-(10+16+10), 5+16-1); /* Max Icon */
-        draw_rect(vfbdev, surfimg->width-1-(10+16+10+16) +1, 7 +1, surfimg->width-1-(10+16+10) -1, 5+16-1 -1); /* Max Icon */
-        draw_line(vfbdev, surfimg->width-1-(10+16), 15-1, surfimg->width-1-10, 15-1);     /* Mix Icon */
-        draw_line(vfbdev, surfimg->width-1-(10+16), 15-1 -1, surfimg->width-1-10, 15-1 -1);       /* Mix Icon */
-#endif
-
-        /* Put Title + X_O */
-        FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, 		/* FBdev, fontface */
-                                        18, 18,(const UFT8_PCHAR)"X _ O    EGI Timer",   /* fw,fh, pstr */
-                                        320, 1, 0,                 	/* pixpl, lines, fgap */
-                                        5, 5,                         	/* x0,y0, */
-		                        WEGI_COLOR_WHITE, -1, 200,      /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
-
-        /* Draw outline rim */
-        fbset_color2(vfbdev, WEGI_COLOR_GRAY);
-        draw_rect(vfbdev, 0,0, surfshmem->vw-1, surfshmem->vh-1);
-
-	/* Test EGI_SURFACE */
+	/* 6. Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
 	printf("shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
-	/* Create SURFBTNs by blockcopy SURFACE image. */
-	surfshmem->sbtns[SURFBTN_CLOSE]=egi_surfbtn_create(surfimg,  2,0, 	   2,0,	    18, 30); /* (imgbuf, xi, yi, x0, y0, w, h) */
-	surfshmem->sbtns[SURFBTN_MINIMIZE]=egi_surfbtn_create(surfimg,    2+18,0,   2+18,0,   18, 30);
-	surfshmem->sbtns[SURFBTN_MAXIMIZE]=egi_surfbtn_create(surfimg,    5+18*2,0, 5+18*2,0, 18, 30);
-
-	/* Start Ering routine */
+	/* 7. Start Ering routine */
 	if( pthread_create(&surfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, surfuser) !=0 ) {
 		printf("Fail to launch thread_EringRoutine!\n");
 		exit(EXIT_FAILURE);
@@ -269,8 +242,10 @@ void *surfuser_ering_routine(void *args)
 			continue;
         	}
 		/* SURFMAN disconnects */
-		else if(nrecv==0)
+		else if(nrecv==0) {
+			egi_dperr("ering_msg_recv() nrecv==0!");
 			exit(EXIT_FAILURE);
+		}
 
 	        /* 2. Parse ering messag */
         	switch(emsg->type) {
@@ -283,9 +258,12 @@ void *surfuser_ering_routine(void *args)
                         	break;
 		       case ERING_MOUSE_STATUS:
 				mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
-				egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
+				//egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
 				/* Parse mouse event */
 				surfuser_parse_mouse_event(surfuser,mouse_status);
+                                /* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent */
+                                surfuser->surfshmem->flags &= (~SURFACE_FLAG_MEVENT);
+
 				break;
 	               default:
         	                egi_dpstd("Undefined MSG from the SURFMAN! data[0]=%d\n", emsg->data[0]);
@@ -296,7 +274,7 @@ void *surfuser_ering_routine(void *args)
 	/* Free EMSG */
 	ering_msg_free(&emsg);
 
-	egi_dpstd("Exit thread!\n");
+	egi_dpstd("Exit thread.\n");
 	return (void *)0;
 }
 

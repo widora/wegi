@@ -511,14 +511,22 @@ int main(int argc, char **argv)
 				for(j=0; j < surfman->scnt; j++) {
 					if( surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->surfshmem->status != SURFACE_STATUS_MINIMIZED ) {
 		/* Note: ering_msg_send() is BLOCKING type, if Surfuser DO NOT recv the msg, it will be blocked here!?  OR to kernel buffer. */
-						//printf("ering msg send...\n");
+
+					    /* Only if MEVENT is 0! as the SURFUSER finish parsing last MEVENT. */
+					    if ( !(surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->surfshmem->flags & SURFACE_FLAG_MEVENT) ) {
+						/* Set MEVENT first */
+						surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->surfshmem->flags |= SURFACE_FLAG_MEVENT;
+						/* Send MEVENT then */
+						//printf("ering msg pmostat...\n");
 						if( ering_msg_send( surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->csFD,
 							emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS) ) <=0 ) {
 							egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");
 						}
 						//printf("ering msg send OK!\n");
+					    }
 
-						break;
+					    /* Break. Only send to the TOP surface. */
+					    break;
 					}
 				}
 			}

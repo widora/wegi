@@ -54,7 +54,7 @@ void            *surfuser_ering_routine(void *surfuser);
 void my_redraw_surface(EGI_SURFUSER *surfuser, int w, int h);
 
 /* For text */
-const char *fpath="/mmc/xyj.txt";
+const char *fpath="/mmc/hlm.txt";
 EGI_FILEMMAP *fmap;
 UFT8_PCHAR ptxt;
 int fw=18;
@@ -169,71 +169,30 @@ int main(int argc, char **argv)
         surfshmem->close_surface 	= surfuser_close_surface;
 
 	/* 3. Give a name for the surface. */
-	pname="西游记";
+	pname="红楼梦";
 	if(pname)
 		strncpy(surfshmem->surfname, pname, SURFNAME_MAX-1);
 	else
 		pname="EGI_SURF";
 
-	/* 4. Draw surface */
-	/* 4.1 Set BKG color */
-	surfshmem->bkgcolor=WEGI_COLOR_DARKBLUE; //egi_color_random(color_all);
-	egi_imgbuf_resetColorAlpha(surfimg, surfshmem->bkgcolor, -1); /* Reset color only */
-
-	/* 4.2 Draw top bar */
-	draw_filled_rect2(vfbdev,WEGI_COLOR_GRAY5, 0,0, surfimg->width-1, 30);
-
-	/* 4.3 Draw CLOSE/MIN/MAX Btns */
-	#if 0 /* Geom ICON */
-	fbset_color2(vfbdev, WEGI_COLOR_WHITE);
-	draw_wrect(vfbdev, surfimg->width-1-(10+16), 12, surfimg->width-1-10, 12+15-1, 2); /* Max Icon */
-	draw_wline_nc(vfbdev, surfimg->width-1-2*(10+16), 12+15-1, surfimg->width-1-(10+16+10), 12+15-1, 2); /* Min Icon */
-
-	draw_wline(vfbdev, surfimg->width-1-3*(10+16), 12, surfimg->width-1-(3*(10+16)-16), 12+15-1, 2); /* Close Icon */
-	draw_wline(vfbdev, surfimg->width-1-3*(10+16), 12+15-1, surfimg->width-1-(3*(10+16)-16), 12, 2); /* Close Icon */
-	#else /* FTsymbol ICON */
-        FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular,       /* FBdev, fontface */
-                                        18, 18,(const UFT8_PCHAR)"X _ O",   /* fw,fh, pstr */
-                                        320, 1, 0,                      /* pixpl, lines, fgap */
-                                        surfimg->width-20*3, 5,         /* x0,y0, */
-                                        WEGI_COLOR_WHITE, -1, 200,      /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
-	#endif
-
-        /* 4.4 Put surface name/title. */
-        FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, /* FBdev, fontface */
-                                        18, 18,(const UFT8_PCHAR)pname,   /* fw,fh, pstr */
-                                        320, 1, 0,                        /* pixpl, lines, fgap */
-                                        5, 5,                         	  /* x0,y0, */
-                                        WEGI_COLOR_WHITE, -1, 200,    	/* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
-
-	/* 4.5 Draw outline rim */
-	fbset_color2(vfbdev, WEGI_COLOR_GRAY); //BLACK);
-	draw_rect(vfbdev, 0,0, surfshmem->vw-1, surfshmem->vh-1);
-
+        /* 4. First draw surface */
+        surfshmem->bkgcolor=egi_color_random(color_all); /* OR default BLACK */
+        surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MAX|TOPBTN_MIN); /* Default firstdraw operation */
 
 	/* Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
 	printf("Shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
-	/* 5. Create SURFBTNs by blockcopy SURFACE image, after drawing the surface! */
-	int xs=surfimg->width-65;
-	surfshmem->sbtns[SURFBTN_CLOSE]=egi_surfbtn_create(surfimg,     xs+2,0+1,      xs+2,0+1,      18, 30-1); /* (imgbuf, xi, yi, x0, y0, w, h) */
-	surfshmem->sbtns[SURFBTN_MINIMIZE]=egi_surfbtn_create(surfimg,  xs+2+18,0+1,   xs+2+18,0+1,   18, 30-1);
-	surfshmem->sbtns[SURFBTN_MAXIMIZE]=egi_surfbtn_create(surfimg,  xs+5+18*2,0+1, xs+5+18*2,0+1, 18, 30-1);
-
-	/* 6. Write text */
-
+	/* 5. Write text on surface */
         FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular,   /* FBdev, fontface */
                                         fw, fh, ptxt,   		/* fw,fh, pstr */
-                                        surfimg->width-10, (surfimg->height-SURF_TOPBAR_WIDTH-10)/(fh+fgap), fgap,  /* pixpl, lines, fgap */
-                                        5, SURF_TOPBAR_WIDTH+5,         /* x0,y0, */
+                                        surfimg->width-10, (surfimg->height-SURF_TOPBAR_HEIGHT-10)/(fh+fgap)+1, fgap,  /* pixpl, lines, fgap */
+                                        5, SURF_TOPBAR_HEIGHT+5,         /* x0,y0, */
                                         WEGI_COLOR_ORANGE, -1, 255,  /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
-	/* 7. Start Ering routine */
+	/* 6. Start Ering routine */
 	if( pthread_create(&surfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, surfuser) !=0 ) {
 		printf("Fail to launch thread_EringRoutine!\n");
 		exit(EXIT_FAILURE);
@@ -255,6 +214,15 @@ int main(int argc, char **argv)
         /* Free SURFBTNs */
         for(i=0; i<3; i++)
                 egi_surfbtn_free(&surfshmem->sbtns[i]);
+
+        /* Join ering_routine  */
+        // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
+        printf("Cancel thread...\n");
+        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+        /* Make sure mutex unlocked in pthread if any! */
+        printf("Joint thread_eringRoutine...\n");
+        if( pthread_join(surfshmem->thread_eringRoutine, NULL)!=0 )
+                egi_dperr("Fail to join eringRoutine");
 
 	/* Unregister and destroy surfuser */
 	if( egi_unregister_surfuser(&surfuser)!=0 )
@@ -318,6 +286,9 @@ void *surfuser_ering_routine(void *args)
 //				egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
 				/* Parse mouse event */
 				surfuser_parse_mouse_event(surfuser,mouse_status);
+                                /* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent */
+                                surfuser->surfshmem->flags &= (~SURFACE_FLAG_MEVENT);
+
 				break;
 	               default:
         	                egi_dpstd("Undefined MSG from the SURFMAN! data[0]=%d\n", emsg->data[0]);
@@ -346,8 +317,8 @@ void my_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
 	/* Rewrite txt */
         FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular,   /* FBdev, fontface */
                                         fw, fh, ptxt,   		/* fw,fh, pstr */
-                                        w-10, (h-SURF_TOPBAR_WIDTH-10)/(fh+fgap), fgap,  /* pixpl, lines, fgap */
-                                        5, SURF_TOPBAR_WIDTH+5,         /* x0,y0, */
+                                        w-10, (h-SURF_TOPBAR_HEIGHT-10)/(fh+fgap) +1, fgap,  /* pixpl, lines, fgap */
+                                        5, SURF_TOPBAR_HEIGHT+5,         /* x0,y0, */
                                         WEGI_COLOR_ORANGE, -1, 255,  /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
 }
