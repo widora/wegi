@@ -23,6 +23,7 @@ Midas Zhou
 #include "egi_symbol.h"
 #include "egi_cstring.h"
 #include "egi_utils.h"
+#include "egi_debug.h"
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <freetype2/ft2build.h>
@@ -1139,7 +1140,7 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 	/* Load char and render, old data in face->glyph will be cleared */
     	error = FT_Load_Char( face, wcode, FT_LOAD_RENDER );
     	if (error) {
-		printf("%s: FT_Load_Char() fails!\n",__func__);
+		egi_dperr("FT_Load_Char() fails! wcode=0x%04X\n", wcode);
 		return;
 	}
 

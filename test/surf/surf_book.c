@@ -184,6 +184,10 @@ int main(int argc, char **argv)
 	printf("Shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
+	/* TEST: draw line */
+	fbset_color2(vfbdev, WEGI_COLOR_ORANGE);
+	draw_wline(vfbdev, 10, 40, surfshmem->vw-10,surfshmem->vh-10,1);
+
 	/* 5. Write text on surface */
         FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular,   /* FBdev, fontface */
                                         fw, fh, ptxt,   		/* fw,fh, pstr */
@@ -207,7 +211,7 @@ int main(int argc, char **argv)
 	/* Main loop */
 	while( surfshmem->usersig != 1 ) {
 
-		sleep(5);
+		sleep(1);
 
 	}
 

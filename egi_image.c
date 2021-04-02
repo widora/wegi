@@ -479,9 +479,14 @@ EGI_IMGBUF *egi_imgbuf_blockCopy( const EGI_IMGBUF *ineimg,
 /*---------------------------------------------------------------------
 Copy a block from an EGI_IMGBUF and paste it to another one.
 
+
 Note:
 1. If destimg has alpha values,then copy it also. while if original
    destimg dose not has alpha space, then allocate it first.
+
+			!!! WARNING !!!
+        It MAY allocate memory space for destimg->alpha!
+
 2. The destination image and srouce image may be the same.
 
 @destimg:  	The destination EGI_IMGBUF.
@@ -492,8 +497,9 @@ Note:
 		      egi_16bitColor_blend(), where only destimg->alpha
 		      takes effect, and alpha value of srcimg (if it has)
 		      will not be changed.
+		False: Copied pixels will replace old pixels, with colors
+		      and alphas (if srcimg has alphas.)
 
-		False: Copied pixels will replace old pixels.
 @xd, yd:	Block left top point coord relative to destimg.
 @xs, ys:	Block left top point coord relative to srcimg.
 @bw:   		Width of the copying block
@@ -512,6 +518,10 @@ int  egi_imgbuf_copyBlock( EGI_IMGBUF *destimg, const EGI_IMGBUF *srcimg, bool b
 	//int srcimg_size;
 	int pos_dest;		/* offset position  */
 	int pos_src;
+
+	/* TEST: ----- */
+	egi_dpstd("destimg(W%dxH%d), srcimg(W%dxH%d), bw*bh(%dx%d) (xd,yd)(%d,%d), (xs,ys)(%d,%d) \n",
+			destimg->width, destimg->height, srcimg->width, srcimg->height, bw, bh, xd,yd, xs,ys);
 
 	/* Check input */
         if( destimg==NULL || destimg->imgbuf==NULL || srcimg==NULL || srcimg->imgbuf==NULL )
@@ -537,8 +547,9 @@ int  egi_imgbuf_copyBlock( EGI_IMGBUF *destimg, const EGI_IMGBUF *srcimg, bool b
 	//srcimg_size=srcimg->height*srcimg->width;
 	destimg_size=destimg->height*destimg->width;
 
-	/* If srcimg has alpha values while destimg dose not, then allocate and memset with 255 */
+#if 1	/* If srcimg has alpha values while destimg dose not, then allocate and memset with 255 */
 	if( srcimg->alpha != NULL && destimg->alpha == NULL ) {
+		egi_dpstd("Allocate alpha for destimg!\n");
 		destimg->alpha=calloc(1, destimg_size*sizeof(EGI_8BIT_ALPHA));
 		if(destimg->alpha==NULL) {
 			printf("%s: Fail to calloc destimg->alpha!\n",__func__);
@@ -546,9 +557,11 @@ int  egi_imgbuf_copyBlock( EGI_IMGBUF *destimg, const EGI_IMGBUF *srcimg, bool b
 		}
 		memset(destimg->alpha, 255, destimg_size*sizeof(EGI_8BIT_ALPHA));
 	}
+#endif
 
 	/* Copy pixels */
 	for(i=0; i<bh; i++) {
+		//printf("i=%d dw=%d,dh=%d\n",i, destimg->width, destimg->height);
 		for(j=0; j<bw; j++) {
 			/* If pixel coord. out of srcimg */
 			if( xs+j < 0 || ys+i <0 )
@@ -569,7 +582,7 @@ int  egi_imgbuf_copyBlock( EGI_IMGBUF *destimg, const EGI_IMGBUF *srcimg, bool b
 			pos_dest=(yd+i)*destimg->width+xd +j;
 
 			/* copy color and alpha data */
-			if( blendON && srcimg->alpha ) { /* If need to blend together */
+			if( blendON && srcimg->alpha && destimg->alpha ) { /* If need to blend together */
 				destimg->imgbuf[pos_dest]=egi_16bitColor_blend( srcimg->imgbuf[pos_src],
 										destimg->imgbuf[pos_dest], srcimg->alpha[pos_src]);
 				/* Alpha values of destimg NOT changes */

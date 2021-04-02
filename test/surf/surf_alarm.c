@@ -180,7 +180,8 @@ int main(int argc, char **argv)
         surfshmem->normalize_surface    = surfuser_normalize_surface;   /* Need redraw */
 
         /* 4. Assign name to the surface */
-        strncpy(surfshmem->surfname, "定时提醒", SURFNAME_MAX-1);
+        //strncpy(surfshmem->surfname, "定时提醒", SURFNAME_MAX-1);
+        strncpy(surfshmem->surfname, strTask, SURFNAME_MAX-1);
 
         /* 5. First draw surface */
         surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN); /* Default firstdraw operation */

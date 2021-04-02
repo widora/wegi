@@ -110,7 +110,7 @@ Journal
 	3. Mouse click on leftside minibar to bring the SURFACE to TOP layer.
 	   (Add struct memeber IndexMpMinSurf for SURFMAN)
 2021-03-12:
-	1. Add EGI_SURFBTN: egi_surfbtn_create(), egi_surfbtn_free().
+	1. Add ESURF_BTN: egi_surfbtn_create(), egi_surfbtn_free().
 	2. Add egi_point_on_surfbtn()
 2021-03-13:
 	1. Move surface->status to surface->surfshmem->status, so SURFUSER can access.
@@ -145,6 +145,9 @@ Journal
 	    Use (mouseX/Y-lastX/Y) instead of mouseDX/DY for adjust_size to avoid slip away.
 	 2. SURFACE_FLAG_MEVENT:  SRUFMAN set, SURFUSER reset.
 	    Try to suspend ering mostat while SURFUSER is busy parsing last mostat.
+2021-04-02:
+	 1. Rename EGI_SURFBTN to ESURF_BTN.
+	 2. Add: ESURF_BOX, ESURF_TICKBOX and their funcs.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -615,7 +618,7 @@ EGI_SURFSHMEM *ering_request_surface(int sockfd, int x0, int y0, int maxW, int m
 				egi_dpstd("Request fails for 'ERING_MAX_LIMIT'!\n");
 				break;
 			default:
-				egi_dpstd("Request fails for undefined error!\n");
+				egi_dpstd("Request fails for undefined error! data[0]=%d\n", data[0]);
 		}
 		return NULL;
 	}
@@ -841,6 +844,17 @@ static void* surfman_request_process_thread(void *arg)
 		egi_dpstd("unet_sendmsg() fails!\n");
 		surfman_unregister_surface( surfman, sfID ); /* unregister the surface */
 		// TODO: ... suspend or destroy the surface ...
+/*** Sometimes fail to reply to surface user:
+...
+surfman_register_surface():             ----- (+)surfaces[0], scnt=5 -----
+surfman_register_surface(): insertSort zseq:  0 0 0 1 2 3 4 5
+surfman_request_process_thread(): surfman->Surface[7] registered!
+unet_sendmsg(): Epipe Err'Broken pipe'.	  <--------- XXX
+surfman_request_process_thread(): unet_sendmsg() fails!
+surfman_unregister_surface():  0surfman_unregister_surface():  0surfman_unregister_surface():  0surfman_unregister_surface():  0surfman_unregister_surface():  1surfman_unregister_surface():  2surfman_unregister_surface():  3surfman_unregister_surface():  4
+surfman_unregister_surface():           ----- (-)surfaces[7], scnt=4 -----
+....
+*/
 	}
     /* >>>--- END Reply to surfuser --- */
 
@@ -2022,22 +2036,122 @@ int surfman_display_surface(EGI_SURFMAN *surfman, EGI_SURFACE *surface)
 }
 #endif
 
+//////////////////  SURFACE Control Box   /////////////////
 
 /*---------------------------------------------------------------
-Create an EGI_SURFBTN and blockcopy its imgbuf from input imgbuf.
+Create an ESURF_BOX and blockcopy its imgbuf from input imgbuf.
 
 @imgbuf		An EGI_IMGBUF holds image icons.
-@xi,yi		Button image origin relative to above imgbuf.
-@x0,y0		Button origin relative to surface imgbuf.
+@xi,yi		Box image origin relative to its continer.
+@x0,y0		Box origin relative to its container.
 @w,h		Width and height of the button image.
 
 Return:
-	A pointer to EGI_SURFBTN	ok
+	A pointer to ESURF_BOX	ok
 	NULL				Fails
 ----------------------------------------------------------------*/
-EGI_SURFBTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h)
+ESURF_BOX *egi_surfBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h)
 {
-	EGI_SURFBTN	*sbtn=NULL;
+	ESURF_BOX   *box=NULL;
+
+	if(imgbuf==NULL)
+		return NULL;
+
+	/* w/h check inside egi_image functions */
+	//if(w<1 || h<1)
+	//	return NULL;
+
+	/* Calloc SURFBOX */
+	box=calloc(1, sizeof(ESURF_BOX));
+	if(box==NULL)
+		return NULL;
+
+	/* To copy a block from imgbuf as box image */
+	box->imgbuf=egi_imgbuf_blockCopy(imgbuf, xi, yi, h, w);
+	if(box->imgbuf==NULL) {
+		free(box);
+		return NULL;
+	}
+
+	/* Assign members */
+	box->x0=x0;
+	box->y0=y0;
+
+	return box;
+}
+
+/*---------------------------------------
+	Free an ESURF_BOX.
+---------------------------------------*/
+void egi_surfBox_free(ESURF_BOX **box)
+{
+	if(box==NULL || *box==NULL)
+		return;
+
+	/* Free imgbuf */
+	egi_imgbuf_free((*box)->imgbuf);
+
+	/* Free struct */
+	free(*box);
+
+	*box=NULL;
+}
+
+/*-------------------------------------------------
+Check if point (x,y) in on the SURFBOX.
+
+@box	pointer to ESURF_BOX
+@x,y	Point coordinate, relative to its contaier!
+
+Return:
+	True or False.
+-------------------------------------------------*/
+inline bool egi_point_on_surfBox(const ESURF_BOX *box, int x, int y)
+{
+	if( box==NULL || box->imgbuf==NULL )
+		return false;
+
+	if( x < box->x0 || x > box->x0 + box->imgbuf->width -1 )
+		return false;
+	if( y < box->y0 || y > box->y0 + box->imgbuf->height -1 )
+		return false;
+
+	return true;
+}
+
+/*-----------------------------------------
+Display an ESURF_BOX on the FBDEV.
+
+@fbdev:		Pointer to FBDEV
+@box:		Pointer to ESURF_BOX
+@cx0,cy0:	Its container origin x0,y0
+
+-----------------------------------------*/
+void egi_surfBox_display(FBDEV *fbdev, const ESURF_BOX *box,  int cx0, int cy0)
+{
+	if( box==NULL || fbdev==NULL )
+		return;
+
+	egi_subimg_writeFB(box->imgbuf, fbdev, 0, -1, cx0+box->x0, cy0+box->y0); /* imgbuf, fb, subnum, subcolor, x0,y0 */
+
+}
+
+
+/*---------------------------------------------------------------
+Create an ESURF_BTN and blockcopy its imgbuf from input imgbuf.
+
+@imgbuf		An EGI_IMGBUF holds image icons.
+@xi,yi		Button image origin relative to its container.
+@x0,y0		Button origin relative to its container.
+@w,h		Width and height of the button image.
+
+Return:
+	A pointer to ESURF_BTN	ok
+	NULL				Fails
+----------------------------------------------------------------*/
+ESURF_BTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h)
+{
+	ESURF_BTN	*sbtn=NULL;
 
 	if(imgbuf==NULL)
 		return NULL;
@@ -2047,7 +2161,7 @@ EGI_SURFBTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int 
 	//	return NULL;
 
 	/* Calloc SURFBTN */
-	sbtn=calloc(1, sizeof(EGI_SURFBTN));
+	sbtn=calloc(1, sizeof(ESURF_BTN));
 	if(sbtn==NULL)
 		return NULL;
 
@@ -2067,9 +2181,9 @@ EGI_SURFBTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int 
 
 
 /*---------------------------------------
-	Free an EGI_SURFBTN.
+	Free an ESURF_BTN.
 ---------------------------------------*/
-void egi_surfbtn_free(EGI_SURFBTN **sbtn)
+void egi_surfbtn_free(ESURF_BTN **sbtn)
 {
 	if(sbtn==NULL || *sbtn==NULL)
 		return;
@@ -2083,17 +2197,16 @@ void egi_surfbtn_free(EGI_SURFBTN **sbtn)
 	*sbtn=NULL;
 }
 
-
 /*---------------------------------------
 Check if point (x,y) in on the SURFBTN.
 
-@sbtn	EGI_SURFBTN
-@x,y	Point coordinate, relative to SURFACE!
+@sbtn	pointer to ESURF_BTN
+@x,y	Point coordinate, relative to its contaier!
 
 Return:
 	True or False.
 ----------------------------------------*/
-inline bool egi_point_on_surfbtn(EGI_SURFBTN *sbtn, int x, int y)
+inline bool egi_point_on_surfbtn(const ESURF_BTN *sbtn, int x, int y)
 {
 	if( sbtn==NULL || sbtn->imgbuf==NULL )
 		return false;
@@ -2106,6 +2219,115 @@ inline bool egi_point_on_surfbtn(EGI_SURFBTN *sbtn, int x, int y)
 	return true;
 }
 
+
+/*---------------------------------------------------------------
+Create an ESURF_TICKBOX and blockcopy its imgbuf from input imgbuf.
+Only  tbox->imgbuf_unticked is filled. imgbuf_ticked to be filled
+during  XXX_firstdraw_XXX().
+
+TODO: NOW only square type.
+
+@imgbuf		An EGI_IMGBUF holds image icons.
+@xi,yi		TICKBOX image origin relative to its container.
+@x0,y0		TICKBOX origin relative to its container.
+@w,h		Width and height of the tickbox.
+
+Return:
+	A pointer to ESURF_BTN	ok
+	NULL				Fails
+----------------------------------------------------------------*/
+ESURF_TICKBOX *egi_surfTickBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h)
+{
+	ESURF_TICKBOX *tbox=NULL;
+
+	if(imgbuf==NULL)
+		return NULL;
+
+	/* w/h check inside egi_image functions */
+	//if(w<1 || h<1)
+	//	return NULL;
+
+	/* Calloc SURFBTN */
+	tbox=calloc(1, sizeof(ESURF_TICKBOX));
+	if(tbox==NULL)
+		return NULL;
+
+	/* To copy a block from imgbuf as image for unticked box */
+	tbox->imgbuf_unticked=egi_imgbuf_blockCopy(imgbuf, xi, yi, h, w);
+	if(tbox->imgbuf_unticked==NULL) {
+		free(tbox);
+		return NULL;
+	}
+
+	/* tbox->imgbuf_unticked to be filled in XXX_firstdraw_XXX() */
+
+	/* Assign members */
+	tbox->x0=x0;
+	tbox->y0=y0;
+	tbox->ticked=false;
+
+	return tbox;
+}
+
+/*---------------------------------------
+	Free an ESURF_TICKBOX.
+---------------------------------------*/
+void egi_surfTickBox_free(ESURF_TICKBOX **tbox)
+{
+	if(tbox==NULL || *tbox==NULL)
+		return;
+
+	/* Free imgbuf */
+	egi_imgbuf_free((*tbox)->imgbuf_unticked);
+	egi_imgbuf_free((*tbox)->imgbuf_ticked);
+
+	/* Free struct */
+	free(*tbox);
+
+	*tbox=NULL;
+}
+
+/*-------------------------------------------
+Check whether point (x,y) in on the TICKBOX.
+
+@tbox	pointer to ESURF_TICKBOX
+@x,y	Point coordinate, relative to it contianer.
+
+Return:
+	True or False.
+--------------------------------------------*/
+inline bool egi_point_on_surfTickBox(const ESURF_TICKBOX *tbox, int x, int y)
+{
+	if( tbox==NULL || tbox->imgbuf_unticked==NULL )
+		return false;
+
+	if( x < tbox->x0 || x > tbox->x0 + tbox->imgbuf_unticked->width -1 )
+		return false;
+	if( y < tbox->y0 || y > tbox->y0 + tbox->imgbuf_unticked->height -1 )
+		return false;
+
+	return true;
+}
+
+/*-----------------------------------------
+Display an ESURF_TICKBOX on the FBDEV.
+
+@fbdev:		Pointer to FBDEV
+@tbox:		Pointer to ESURF_TICKBOX
+@cx0,cy0:	Its container origin x0,y0
+
+-----------------------------------------*/
+void egi_surfTickBox_display(FBDEV *fbdev, const ESURF_TICKBOX *tbox,  int cx0, int cy0)
+{
+	if( tbox==NULL || fbdev==NULL )
+		return;
+
+	if(tbox->ticked)
+							/* imgbuf, fb, subnum, subcolor, x0,y0 */
+		egi_subimg_writeFB(tbox->imgbuf_ticked, fbdev, 0, -1, cx0+tbox->x0, cy0+tbox->y0);
+	else
+		egi_subimg_writeFB(tbox->imgbuf_unticked, fbdev, 0, -1, cx0+tbox->x0, cy0+tbox->y0);
+}
 
 
 	/* =======================     Functions for SURFUSER    ====================  */
@@ -2129,7 +2351,7 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 	FBDEV           *vfbdev;
 	//EGI_IMGBUF      *imgbuf;
 	EGI_SURFSHMEM   *surfshmem;
-	EGI_SURFBTN	*sbtns[3];
+	ESURF_BTN	*sbtns[3];
 
 	if(surfuser==NULL || pmostat==NULL)
 		return;
@@ -2584,7 +2806,7 @@ void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
 	FBDEV  *vfbdev=&surfuser->vfbdev;
 	EGI_IMGBUF *surfimg=surfuser->imgbuf;
         EGI_SURFSHMEM *surfshmem=surfuser->surfshmem;
-	EGI_SURFBTN *sbtns[3];
+	ESURF_BTN *sbtns[3];
 	nbs=0;
 	for(i=0; i<3; i++) {
 		sbtns[i]=surfshmem->sbtns[i];
@@ -2593,10 +2815,16 @@ void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
 	}
 
 	/* 3. Adjust surfimg width and height, BUT not its memspace. */
+//        pthread_mutex_lock(&surfimg->img_mutex);
+/* ------ >>>  Surface shmem Critical Zone  */
+
 	surfimg->width=w;
 	surfimg->height=h;
 
-	/* 4. Reinit virtual FBDEV */
+/* ------ <<<  Surface shmem Critical Zone  */
+//         pthread_mutex_unlock(&surfimg->img_mutex);
+
+	/* 4. Reinit virtual FBDEV, with updated w/h of the surfimg. */
 	reinit_virt_fbdev(vfbdev, surfimg);
 
 	/* 5. Adjust surfshmem param vw/vh */
@@ -2615,14 +2843,15 @@ void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
 	fbset_color2(vfbdev, WEGI_COLOR_GRAY); //BLACK);
 	draw_rect(vfbdev, 0,0, surfshmem->vw-1, surfshmem->vh-1);
 
-        /* 6.3 Put surface name/title. */
+#if 1   /* 6.3 Put surface name/title. */
+	//egi_dpstd("Put name\n");
         FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, /* FBdev, fontface */
                                         18, 18,(const UFT8_PCHAR)surfshmem->surfname,   /* fw,fh, pstr */
                                         320, 1, 0,                        /* pixpl, lines, fgap */
-                                        5, 5,                         /* x0,y0, */
+                                        5, 5,                         	  /* x0,y0, */
                                         WEGI_COLOR_WHITE, -1, 200,        /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
-
+#endif
 
 	/* 6.5 Redraw topbar SURFBTNs: CLOSE/MIN/MAX. Also refer to surfuser_firstdraw_surface(), case 6. */
 	/* Assume btn imgbuf already set */
@@ -2729,7 +2958,7 @@ void surfuser_minimize_surface(EGI_SURFUSER *surfuser)
         if(surfuser==NULL || surfuser->surfshmem==NULL)
                 return;
 
-	EGI_SURFBTN *sbtnMIN=surfuser->surfshmem->sbtns[TOPBTN_MIN_INDEX];
+	ESURF_BTN *sbtnMIN=surfuser->surfshmem->sbtns[TOPBTN_MIN_INDEX];
 
         /* Restore to original sbtn image. OR next time when brought to TOP, old btn image keeps! */
 	if(sbtnMIN)

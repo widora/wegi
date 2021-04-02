@@ -6,7 +6,7 @@ published by the Free Software Foundation.
 A simple graphical Wifi Scanner.
 
 Usage:
-	./test_wifiscan
+	./surf_wifiscan
 
 Note:
 1. Sometimes, 'aps' command results in several APs, and have to
@@ -250,6 +250,8 @@ while(1) {
 
 END_PROG:
 
+
+
         /* <<<<<  EGI general release >>>>> */
         printf("FTsymbol_release_allfonts()...\n");
         FTsymbol_release_allfonts();
@@ -376,10 +378,10 @@ void parse_apinfo(char *info, int index)
 	int pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.regular, fw, fh, ssid);
         FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, /* FBdev, fontface */
                                         fw, fh,(const UFT8_PCHAR)ssid,    /* fw,fh, pstr */
-                                        320, 1, 0,      		 /* pixpl, lines, fgap */
-                                        px_cf-pixlen/2, py_cf-fw-2,        /* x0,y0, */
-                                        color, -1, 255,                  /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                                        320, 1, 0,      		/* pixpl, lines, fgap */
+                                        px_cf-pixlen/2, py_cf-fw-2,    	/* x0,y0, */
+                                        color, -1, 255,                 /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);      	/* int *cnt, int *lnleft, int* penx, int* peny */
 }
 
 
@@ -417,7 +419,7 @@ void draw_bkg(void)
                	                        320, 1, 0,      		  /* pixpl, lines, fgap */
                        	                10, -2,         /* x0,y0, */
        	                      	        WEGI_COLOR_BLACK, -1, 255,        /* fontcolor, transcolor,opaque */
-                                       	NULL, NULL, NULL, NULL);      	  /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                                       	NULL, NULL, NULL, NULL);      	  /* int *cnt, int *lnleft, int* penx, int* peny */
 
 	/* Draw lower banner */
 	fbset_color(WEGI_COLOR_GRAY);
@@ -445,10 +447,10 @@ void draw_bkg(void)
 		sprintf(percent,"%d",10*i);
 	        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, /* FBdev, fontface */
         	                                fw, fh,(const UFT8_PCHAR)percent,    /* fw,fh, pstr */
-                	                        320, 1, 0,      		 /* pixpl, lines, fgap */
-                        	                320-20, blpy-fh-i*pps*10,          /* x0,y0, */
-         	                      	        WEGI_COLOR_WHITE, -1, 255,       /* fontcolor, transcolor,opaque */
-	                                       	NULL, NULL, NULL, NULL);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                	                        320, 1, 0,      		/* pixpl, lines, fgap */
+                        	                320-20, blpy-fh-i*pps*10,       /* x0,y0, */
+         	                      	        WEGI_COLOR_WHITE, -1, 255,      /* fontcolor, transcolor,opaque */
+	                                       	NULL, NULL, NULL, NULL);     	/* int *cnt, int *lnleft, int* penx, int* peny */
 	}
 }
 
@@ -465,7 +467,7 @@ void FBwrite_total(int total)
                	                        320, 1, 0,      		  /* pixpl, lines, fgap */
                        	                320-100, -2,         /* x0,y0, */
        	                      	        WEGI_COLOR_BLACK, -1, 255,        /* fontcolor, transcolor,opaque */
-                                       	NULL, NULL, NULL, NULL);      	  /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                                       	NULL, NULL, NULL, NULL);      	  /* int *cnt, int *lnleft, int* penx, int* peny */
 }
 
 /*------------------------
@@ -479,7 +481,7 @@ void FBwrite_tip(void)
                	                        320, 1, 0,      		  /* pixpl, lines, fgap */
                        	                100, 100,         		  /* x0,y0, */
        	                      	        WEGI_COLOR_WHITE, -1, 200,        /* fontcolor, transcolor,opaque */
-                                       	NULL, NULL, NULL, NULL);      	  /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                                       	NULL, NULL, NULL, NULL);      	  /* int *cnt, int *lnleft, int* penx, int* peny */
 }
 
 

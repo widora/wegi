@@ -65,6 +65,7 @@ typedef struct fbdev{
 
 	int		*zbuff;		/* Pixel depth, for totally xres*yres pixels. NOW: integer type, ( TODO: float type)
 					 * Rest all to 0 when clear working buffer.
+					 * NOT for virt FB.
 					 * CAVEAT: zbuff[] allocated without considering vinfo.line_length/bytes_per_pixel!
 					 */
 	bool		zbuff_on;
@@ -97,14 +98,19 @@ typedef struct fbdev{
 	unsigned int	npg;		/* index of back buffer page, Now npg=0 or 1, maybe 2  */
 
 
-	EGI_IMGBUF	*virt_fb;	/* virtual FB data as an EGI_IMGBUF
-					 * Ownership of the imgbuf will NOT be taken from the caller, that
-					 * means FB will never try to free it, whatever.
+	EGI_IMGBUF	*virt_fb;	/* virtual FB data as an EGI_IMGBUF */
+	bool		vimg_owner;	/* Ownership of virt_fb imgbuf.
+					 * True:  FBDEV has the ownership, usually imgbuf is created/allocated during init_virt_fbdev().
+				 	 *	  and virt_fb will be released when release_virt_fbdev().
+					 * False: Usually the imgbuf is created/allocated by the caller, and FBDEV will NOT
+					 * 	  try to free it when release_virt_fbdev().
 					 */
 
 	bool		antialias_on;	/* Carry out anti-aliasing functions */
 
-	bool		pixcolor_on;	/* default/init as off, If ture: draw_dot() use pixcolor, else: draw_dot() use fb_color. */
+	bool		pixcolor_on;	/* default/init as off, If ture: draw_dot() use pixcolor, else: draw_dot() use fb_color.
+					 * Usually to set pixcolor_on immediately after init_(virt_)fbdev.
+					 */
 	uint16_t 	pixcolor;	/* pixel color */
 	unsigned char	pixalpha;	/* pixel alpha value in use, 0: 100% bkcolor, 255: 100% frontcolor */
 	bool		pixalpha_hold;  /* Normally, pixalpha will be reset to 255 after each draw_dot() operation
@@ -170,6 +176,7 @@ void    release_fbdev(FBDEV *dev);
 //int 	fb_set_screenPos(FBDEV *fb_dev, unsigned int xres, unsigned int yres);
 
 int 	init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg);
+int 	init_virt_fbdev2(FBDEV *fb_dev, int xres, int yres, int alpha, EGI_16BIT_COLOR color);
 void	release_virt_fbdev(FBDEV *dev);
 int	reinit_virt_fbdev(FBDEV *dev, EGI_IMGBUF *eimg);
 void 	fb_shift_buffPage(FBDEV *fb_dev, unsigned int numpg);

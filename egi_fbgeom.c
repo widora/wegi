@@ -33,6 +33,15 @@ Jurnal
 	1. Add fbget_zbuff().
 2021-3-12:
 	1. Apply fb_dev->pixcolor for virtual FBDEV.
+2021-3-30:
+	1. draw_line(antialias): Comment 'dev->pixcolor_on=true' at start and
+	   'dev->pixcolor_on=false' at end, for there's NO color in the func params.
+	   Just let caller to set/reset it.
+	2. draw_dot(): if(virt_fb){}: Use pix_color instead of fb_color to store blended color value.
+				      fb_color is FB sys color value!
+
+2021-04-1:
+	1.draw_filled_spline(): save FBDEV.pixcolor_on, and restore it later.
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -655,24 +664,25 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 		        virt_fb->imgbuf[location]=fb_color;
 	}
 	/* otherwise, blend with original color, back alpha value ignored!!! */
-	else {
+	else if( fb_dev->pixalpha!=0 ) {
 		if(fb_dev->pixcolor_on) {
 			/* NOTE: back color alpha value all deemed as 255,  */
-			fb_color=COLOR_16BITS_BLEND(  fb_dev->pixcolor,		     /* Front color */
+			// XXX fb_color=COLOR_16BITS_BLEND(  fb_dev->pixcolor,		     /* Front color */
+			pix_color=COLOR_16BITS_BLEND(  fb_dev->pixcolor,		     /* Front color */
 						      virt_fb->imgbuf[location],     /* Back color */
 						      fb_dev->pixalpha );	     /* Alpha value */
-		        virt_fb->imgbuf[location]=fb_color;
+		        virt_fb->imgbuf[location]=pix_color;
 		}
 		else {
 			/* NOTE: back color alpha value all deemed as 255,  */
-			fb_color=COLOR_16BITS_BLEND(  fb_color,			     /* Front color */
+			pix_color=COLOR_16BITS_BLEND(  fb_color,			     /* Front color */
 						      virt_fb->imgbuf[location],     /* Back color */
 						      fb_dev->pixalpha );	     /* Alpha value */
-		        virt_fb->imgbuf[location]=fb_color;
+		        virt_fb->imgbuf[location]=pix_color;
 		}
 	}
 
-        /* if VIRT FB has alpha data */
+        /* if VIRT FB has alpha data. TODO: Apply egi_16bitColor_blend2() */
 	if(virt_fb->alpha) {
 		/* sum up alpha value */
 	        sumalpha=virt_fb->alpha[location]+fb_dev->pixalpha;
@@ -925,11 +935,8 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 	/* Extend pixel alphas */
 	EGI_8BIT_ALPHA alphas[4]={65,45,32,25}; //{70, 40, 30, 20}; //{120,80,60};
 
-	/* Turn on pixcolor */
+	/* Turn on pixalpha_hold */
 	if( dev->antialias_on ) {
-		//dev->pixcolor_on=true;
-		//dev->pixcolor=fb_color;
-		/* Use fb_color */
 		dev->pixalpha_hold=true;
 	}
 
@@ -1151,9 +1158,8 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 	   }
 	}
 
-        /* Turn off FBDEV pixcolor and pixalpha_hold */
+        /* Turn off FBDEV pixalpha_hold */
 	if( dev->antialias_on ) {
-		dev->pixcolor_on=false;
         	dev->pixalpha_hold=false;
 	        dev->pixalpha=255;
 	}
@@ -3411,6 +3417,7 @@ int draw_filled_spline( FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsig
 	float dx=0.0;			/* dx=(x-xi) */
 	int step;
 	int kn;
+	bool save_pixcolor_on;
 
 	/* check np */
 	if(np<2)
@@ -3514,6 +3521,7 @@ int draw_filled_spline( FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsig
 
 
         /* turn on FBDEV pixcolor and pixalpha_hold */
+	save_pixcolor_on=fbdev->pixcolor_on;
         fbdev->pixcolor_on=true;
         fbdev->pixcolor=color;
         fbdev->pixalpha_hold=true;
@@ -3568,7 +3576,7 @@ int draw_filled_spline( FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsig
 	}
 
         /* turn off FBDEV pixcolor and pixalpha_hold */
-        fbdev->pixcolor_on=false;
+      	fbdev->pixcolor_on=save_pixcolor_on;
         fbdev->pixalpha_hold=false;
         fbdev->pixalpha=255;
 

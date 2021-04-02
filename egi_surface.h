@@ -14,6 +14,7 @@ midaszhou@yahoo.com
 #include <stdbool.h>
 #include <sys/un.h>
 #include <sys/socket.h>
+#include "egi.h"
 #include "egi_unet.h"
 #include "egi_fbdev.h"
 #include "egi_input.h"
@@ -42,7 +43,10 @@ typedef struct egi_surface 		EGI_SURFACE;
 typedef struct egi_surface_shmem 	EGI_SURFSHMEM;
 typedef struct egi_surface_manager	EGI_SURFMAN;
 typedef struct egi_surface_user		EGI_SURFUSER;
-typedef struct egi_surface_button	EGI_SURFBTN;
+
+typedef struct egi_surface_box		ESURF_BOX;
+typedef struct egi_surface_button	ESURF_BTN;    //EGI_SURFBTN;
+typedef struct egi_surface_tickbox	ESURF_TICKBOX;
 
 /* Surface color data type */
 typedef enum surf_color_type		SURF_COLOR_TYPE;
@@ -56,12 +60,13 @@ enum surf_color_type {
 	SURF_COLOR_MAX 	=5,     /*  This is also as end token, see surf_get_pixsize() */
 };
 
+
 /***
-			--- An EGI_SURFACE_BUTTON ---
- 1. A simple button on surface.
+			--- An EGI_SURFACE_BOX ---
+ 1. A simple box on surface.
 */
-struct egi_surface_button {
-	int		x0;	/* Button position relative to SURFACE */
+struct egi_surface_box {
+	int		x0;	/* Origin position relative to its container */
 	int		y0;
 	EGI_IMGBUF	*imgbuf; /* To hold image */
 
@@ -70,11 +75,53 @@ struct egi_surface_button {
 	// On_Click:
 	// On_dblClick:
 
+	unsigned char data[];
 };
+ESURF_BOX *egi_surfBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h);
+void egi_surfBox_free(ESURF_BOX **box);
+inline bool egi_point_on_surfBox(const ESURF_BOX *box, int x, int y);
+void egi_surfBox_display(FBDEV *fbdev, const ESURF_BOX *box,  int cx0, int cy0);
 
-EGI_SURFBTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h);
-void egi_surfbtn_free(EGI_SURFBTN **sbtn);
-bool egi_point_on_surfbtn(EGI_SURFBTN *sbtn, int x, int y);
+/***
+			--- An EGI_SURFACE_BUTTON ---
+ 1. A simple button on surface.
+*/
+struct egi_surface_button {
+	int		x0;	/* Origin position relative to its container */
+	int		y0;
+	EGI_IMGBUF	*imgbuf; /* To hold image */
+
+	EGI_IMGBUF	*imgbuf_pressed;
+	bool		pressed;
+	/* Reactions / Operations */
+	// On_Touch:
+	// On_Click:
+	// On_dblClick:
+};
+ESURF_BTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h);
+void egi_surfbtn_free(ESURF_BTN **sbtn);
+bool egi_point_on_surfbtn(const ESURF_BTN *sbtn, int x, int y);
+
+
+/***
+			--- An EGI_SURFACE_TICKBOX ---
+ 1. A simple TickBox on surface.
+*/
+struct egi_surface_tickbox {
+	int		x0;	/* Origin position relative to its container */
+	int		y0;
+	EGI_IMGBUF	*imgbuf_unticked;  /* BOX size included */
+
+	EGI_IMGBUF	*imgbuf_ticked;	   /* To create based on imgbuf_unticked */
+	bool		ticked;
+
+	/* Reactions / Operations */
+	// On_Click:
+};
+ESURF_TICKBOX *egi_surfTickBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h);
+void egi_surfTickBox_free(ESURF_TICKBOX **tbox);
+bool egi_point_on_surfTickBox(const ESURF_TICKBOX *tbox, int x, int y);
+void egi_surfTickBox_display(FBDEV *fbdev, const ESURF_TICKBOX *tbox,  int cx0, int cy0);
 
 #if 0  /* SURFBTN IDs --->  Index of SURFSHMEM->sbtns[] */
 enum surf_button_ids {
@@ -105,6 +152,7 @@ struct egi_surface_user {
 						 * 1. Only allocate a EGI_IMGBUF struct.
 						 * 2. Its color/alpha data only a ref. pointer to surfshmem->color[]
 						 * 3. Its width/height to be adjusted with surface resize/redraw operation.
+						 *    But not its already allcated memory.
 						 */
 };
 
@@ -276,7 +324,7 @@ struct egi_surface_shmem {
 #define TOPBTN_MIN_INDEX	1
 #define TOPBTN_MAX_INDEX	2
 
-	EGI_SURFBTN     *sbtns[3];      /* CLOSE/MIN/MAX.  If NULL, ignore. same order as surfshmem->mpbtn */
+	ESURF_BTN     *sbtns[3];      /* CLOSE/MIN/MAX.  If NULL, ignore. same order as surfshmem->mpbtn */
 					/* NOW to be allocated/released by SURFUSER
 					 * see in surfuser_firstdraw_surface() to create them accd. to 'topbtns'.
 					 */
