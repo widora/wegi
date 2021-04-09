@@ -778,7 +778,7 @@ ERING_MSG* ering_msg_init(void)
 
 	/* 5.2 MSG TYPE */
 	emsg->msghead->msg_iov[0].iov_base=&emsg->type;
-	emsg->msghead->msg_iov[0].iov_len=sizeof(emsg->type);
+	emsg->msghead->msg_iov[0].iov_len=sizeof(typeof(emsg->type));
 
 	/* 5.3 MSG DATA */
 	emsg->msghead->msg_iov[1].iov_base=emsg->data;		/* MAY be temp. adjusted to acutual input data pointer. */

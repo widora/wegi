@@ -73,14 +73,6 @@ https://github.com/widora/wegi
 
 #define LOOP_TEST	0	/* Surface birdth and death loop test */
 
-#ifdef LETS_NOTE
-	#define SURF_MAXW	800
-	#define SURF_MAXH	600
-#else
-	#define SURF_MAXW	320
-	#define SURF_MAXH	240
-#endif
-
 /* For SURFUSER */
 EGI_SURFUSER     *surfuser=NULL;
 EGI_SURFSHMEM    *surfshmem=NULL;        /* Only a ref. to surfuser->surfshmem */

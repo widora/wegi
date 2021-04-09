@@ -11,7 +11,7 @@ Example:
 	./test_tcpfile -s -p 8765 -k 688888		( As server )
 	./test_tcpfile -c -a 192.168.9.9 -p 8765	( As client )
 
-	( Use test_garph.c to show net interface traffic speed )
+	( Use test_graph.c to show net interface traffic speed )
 
 Note:
 1. A TCP client (as a file receiver) provokes higher CPU Load, than a TCP server does (as file provider),

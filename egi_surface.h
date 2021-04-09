@@ -18,11 +18,20 @@ midaszhou@yahoo.com
 #include "egi_unet.h"
 #include "egi_fbdev.h"
 #include "egi_input.h"
+#include "egi_surfcontrols.h"
 
 #define ERING_PATH_SURFMAN	"/tmp/.egi/ering_surfman"
 
 /* Surface Appearance Geom */
 #define         SURF_TOPBAR_HEIGHT       30
+
+#ifdef LETS_NOTE
+        #define SURF_MAXW       800
+        #define SURF_MAXH       600
+#else
+        #define SURF_MAXW       320
+        #define SURF_MAXH       240
+#endif
 
 
 /*** Note
@@ -39,14 +48,10 @@ int unet_destroy_Uclient(EGI_UCLIT **uclit ) *  and NOT include head file  <sys/
  #define MFD_ALLOW_SEALING       0x0002U
 #endif
 
-typedef struct egi_surface 		EGI_SURFACE;
-typedef struct egi_surface_shmem 	EGI_SURFSHMEM;
+typedef struct egi_surface 		EGI_SURFACE;	/* Data of a SURFACE, for SURFMAN */
+typedef struct egi_surface_shmem 	EGI_SURFSHMEM;  /* Shared data in a SURFACE, for SURFUSER. */
 typedef struct egi_surface_manager	EGI_SURFMAN;
 typedef struct egi_surface_user		EGI_SURFUSER;
-
-typedef struct egi_surface_box		ESURF_BOX;
-typedef struct egi_surface_button	ESURF_BTN;    //EGI_SURFBTN;
-typedef struct egi_surface_tickbox	ESURF_TICKBOX;
 
 /* Surface color data type */
 typedef enum surf_color_type		SURF_COLOR_TYPE;
@@ -59,69 +64,6 @@ enum surf_color_type {
 	SURF_RGBA8888	=4,	/* With integrated alpha data: surf->color[] */
 	SURF_COLOR_MAX 	=5,     /*  This is also as end token, see surf_get_pixsize() */
 };
-
-
-/***
-			--- An EGI_SURFACE_BOX ---
- 1. A simple box on surface.
-*/
-struct egi_surface_box {
-	int		x0;	/* Origin position relative to its container */
-	int		y0;
-	EGI_IMGBUF	*imgbuf; /* To hold image */
-
-	/* Reactions / Operations */
-	// On_Touch:
-	// On_Click:
-	// On_dblClick:
-
-	unsigned char data[];
-};
-ESURF_BOX *egi_surfBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h);
-void egi_surfBox_free(ESURF_BOX **box);
-inline bool egi_point_on_surfBox(const ESURF_BOX *box, int x, int y);
-void egi_surfBox_display(FBDEV *fbdev, const ESURF_BOX *box,  int cx0, int cy0);
-
-/***
-			--- An EGI_SURFACE_BUTTON ---
- 1. A simple button on surface.
-*/
-struct egi_surface_button {
-	int		x0;	/* Origin position relative to its container */
-	int		y0;
-	EGI_IMGBUF	*imgbuf; /* To hold image */
-
-	EGI_IMGBUF	*imgbuf_pressed;
-	bool		pressed;
-	/* Reactions / Operations */
-	// On_Touch:
-	// On_Click:
-	// On_dblClick:
-};
-ESURF_BTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h);
-void egi_surfbtn_free(ESURF_BTN **sbtn);
-bool egi_point_on_surfbtn(const ESURF_BTN *sbtn, int x, int y);
-
-
-/***
-			--- An EGI_SURFACE_TICKBOX ---
- 1. A simple TickBox on surface.
-*/
-struct egi_surface_tickbox {
-	int		x0;	/* Origin position relative to its container */
-	int		y0;
-	EGI_IMGBUF	*imgbuf_unticked;  /* BOX size included */
-
-	EGI_IMGBUF	*imgbuf_ticked;	   /* To create based on imgbuf_unticked */
-	bool		ticked;
-
-	/* Reactions / Operations */
-	// On_Click:
-};
-ESURF_TICKBOX *egi_surfTickBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h);
-void egi_surfTickBox_free(ESURF_TICKBOX **tbox);
-bool egi_point_on_surfTickBox(const ESURF_TICKBOX *tbox, int x, int y);
-void egi_surfTickBox_display(FBDEV *fbdev, const ESURF_TICKBOX *tbox,  int cx0, int cy0);
 
 #if 0  /* SURFBTN IDs --->  Index of SURFSHMEM->sbtns[] */
 enum surf_button_ids {
@@ -342,7 +284,7 @@ struct egi_surface_shmem {
 	/* 2. Resize: When surface resizes, shall redraw all elemets in the surface accordingly. */
 		void (*redraw_surface)(EGI_SURFUSER *surfuser, int w, int h);
 	/* 3. Maximize */
-		// Just call resize() with given w/h
+		// Just call redraw() with given w/h
 		void (*maximize_surface)(EGI_SURFUSER *surfuser);
 	/* 4. Normalize */
 		void (*normalize_surface)(EGI_SURFUSER *surfuser);
@@ -351,6 +293,12 @@ struct egi_surface_shmem {
 		void (*minimize_surface)(EGI_SURFUSER *surfuser);
 	/* 6. Close */
 		void (*close_surface)(EGI_SURFUSER **surfuser);
+
+	/* Call backs */
+	/* 1. Mouse Event callback */
+	void (*user_mouse_event)(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
+	// void (*user_keybd_event)(EGI_SURFUSER *surfuser, xxx ;
+
 
 	/* Surface default color, as backgroud */
 	EGI_16BIT_COLOR	bkgcolor;
@@ -364,9 +312,8 @@ struct egi_surface_shmem {
 					 * If 0: No alpha data. OR alpha data included in color, SURF_RGBA8888 etc.
 					 */
 
-
 	/* At last: Imgbuf color data */
-        unsigned char   color[];	/*  [Surfuser] wirte, [Surfman] read. */
+        unsigned char   color[];	/*  [Surfuser] write, [Surfman] read. */
         /** Followed by: ( see surfman_register_surface() to get off_alpha;
          *   colors[];
          *   alpha[];  ( If applicable )
@@ -480,7 +427,7 @@ int egi_munmap_surfshmem(EGI_SURFSHMEM **shmem);	/* unmap(surfshmem) */
 
 int surface_compare_zseq(const EGI_SURFACE *eface1, const EGI_SURFACE *eface2);
 void surface_insertSort_zseq(EGI_SURFACE **surfaces, int n); /* Re_assign all surface->id AND surface->zseq */
-/* If the function is applied for quickSort, then above re_assignment  MUST NOT be included */
+/* If the function is applied for quickSort, then above re_assignment MUST NOT be included */
 /* TODO: surface_quickSort_zseq() */
 
 
@@ -496,7 +443,9 @@ __attribute__((weak)) void surfuser_maximize_surface(EGI_SURFUSER *surfuser);
 __attribute__((weak)) void surfuser_normalize_surface(EGI_SURFUSER *surfuser);
 __attribute__((weak)) void surfuser_minimize_surface(EGI_SURFUSER *surfuser);
 __attribute__((weak)) void surfuser_close_surface(EGI_SURFUSER **surfuser);
-__attribute__((weak)) void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
+__attribute__((weak)) void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex */
+
+bool egi_point_on_surface(const EGI_SURFSHMEM *surfshmem, int x, int y); /* in work_area, NOT include frame_area */
 
 /* Functions for   --- EGI_SURFMAN ---   */
 EGI_SURFMAN *egi_create_surfman(const char *svrpath);	/* surfman_mutex, */

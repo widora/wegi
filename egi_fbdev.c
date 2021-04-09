@@ -13,6 +13,11 @@ Journal
 	1. Add reinit_virt_fbdev().
 2021-03-31:
 	1. Add init_virt_fbdev2(fb_dev, xres, yres, alpha, color).
+2021-04-04:
+	1. Add member VFrameImg for virtual FBDEV
+	   and accordingly revise following functions:
+	   init_virt_fbdev(), init_virt_fbdev2(), release_virt_fbdev(), reinit_virt_fbdev()
+	   int vfb_render().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -117,6 +122,7 @@ int init_fbdev(FBDEV *fb_dev)
 
 	/* Reset virtual FB, as EGI_IMGBUF */
 	fb_dev->virt_fb=NULL;
+	fb_dev->VFrameImg=NULL;
 
 	/* Reset pos_rotate */
 	fb_dev->pos_rotate=0;
@@ -192,6 +198,10 @@ void release_fbdev(FBDEV *dev)
 {
         if( !dev || !dev->map_fb )
                 return;
+	if( dev->virt ) {
+		egi_dpstd("It's a virtual FBDEV! Call release_virt_fbdev() instead!\n");
+		return;
+	}
 
 	/* Free FILO, reset fb_filo to NULL inside */
         egi_filo_free(&dev->fb_filo);
@@ -311,23 +321,39 @@ int fb_set_screenPos(FBDEV *fb_dev, unsigned int xres, unsigned int yres)
 /*--------------------------------------------------
 Initiate a virtual FB device with an EGI_IMGBUF
 , which is only a ref. pointer and will NOT be freed
-in release_virt_fbdev().
+in release_virt_fbdev(), except explicitly set fb_dev->vimg_owner=true.
 
 !!! WARING !!! Caller clear fb_dev first.
 
-@dev:   Pointer to statically allocated FBDEV.
-@eimg:  Pointer to an EGI_IMGBUF.
+@dev:   	Pointer to statically allocated FBDEV.
+@fbimg:  	Pointer to an EGI_IMGBUF, as fb_dev->virt_fb.
+		MUST NOT be NULL!
+@FramImg:	Pointer to an EGI_IMGBUF, as fb_dev->VFrameImg.
+		MAY be NULL.
 
 Return:
         0       OK
         <0      Fails
 ---------------------------------------------------*/
-int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg)
+int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *fbimg, EGI_IMGBUF *FrameImg)
 {
 	/* Check input data */
-	if( eimg==NULL || eimg->imgbuf==NULL || eimg->width<=0 || eimg->height<=0 ) {
-		printf("%s: Input EGI_IMGBUF is invalid!\n",__func__);
+	if( fbimg==NULL || fbimg->imgbuf==NULL || fbimg->width<=0 || fbimg->height<=0 ) {
+		egi_dpstd("Input fbimg is invalid!\n");
 		return -1;
+	}
+
+	/* Check FrameImg */
+	if( FrameImg ) {
+		if( FrameImg->imgbuf==NULL || FrameImg->width<=0 || FrameImg->height<=0 ) {
+			egi_dpstd("Input FrameImg is invalid!\n");
+			return -1;
+		}
+		/* Compare size with fbimg */
+		if( fbimg->width != FrameImg->width || fbimg->height != FrameImg->height ) {
+			egi_dpstd("Input FrameImg is invalid!\n");
+			return -1;
+		}
 	}
 
 	/* check alpha
@@ -348,8 +374,9 @@ int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg)
 	fb_dev->zbuff_on=false;
 
 	/* reset virtual FB, as EGI_IMGBUF */
-	fb_dev->virt_fb=eimg;
-	/* XXX fb_dev->img_owner=false; 
+	fb_dev->virt_fb=fbimg;
+	fb_dev->VFrameImg=FrameImg;
+	/* XXX fb_dev->img_owner=false;
 	 * NOTE: Since fb_dev is a static FBDEV, just let the caller set it before calling this function,
 	 * 	 see in init_virt_fbdev2(); thus it can print vimg_owner together with other paramters here.
 	 */
@@ -361,12 +388,12 @@ int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg)
 
 	/* Set params for virt FB */
 	fb_dev->vinfo.bits_per_pixel=16;
-	fb_dev->finfo.line_length=eimg->width*2;
-	fb_dev->vinfo.xres=eimg->width;
-	fb_dev->vinfo.yres=eimg->height;
+	fb_dev->finfo.line_length=fbimg->width*2;
+	fb_dev->vinfo.xres=fbimg->width;
+	fb_dev->vinfo.yres=fbimg->height;
 	fb_dev->vinfo.xoffset=0;
 	fb_dev->vinfo.yoffset=0;
-	fb_dev->screensize=eimg->height*eimg->width;
+	fb_dev->screensize=fbimg->height*fbimg->width;
 
 	/* Reset pos_rotate */
 	fb_dev->pos_rotate=0;
@@ -385,6 +412,7 @@ int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg)
         printf(" xres: %d pixels, yres: %d pixels \n", 	fb_dev->vinfo.xres, fb_dev->vinfo.yres);
         printf(" xoffset: %d,  yoffset: %d \n", 	fb_dev->vinfo.xoffset, fb_dev->vinfo.yoffset);
         printf(" screensize: %ld bytes\n", 		fb_dev->screensize);
+        printf(" VFrameImg:	%s\n",			(fb_dev->VFrameImg!=NULL)?"Yes":"No");
         printf(" Vimg_owner:	%s\n",			fb_dev->vimg_owner?"True":"False");
         printf(" ----------------------------\n\n");
 #endif
@@ -394,8 +422,8 @@ int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg)
 
 
 /*--------------------------------------------------
-Initiate a virtual FB device by creating an EGI_IMGBUF
-as fb_dev->virt_fb.
+Initiate a virtual FB device by creating EGI_IMGBUFs
+as fb_dev->virt_fb, and fb_dev->VFrameImg.
 
 @dev:     Pointer to statically allocated FBDEV.
 @xres:    Width of virt_fb pointed IMGBUF.
@@ -410,7 +438,8 @@ Return:
 ---------------------------------------------------*/
 int init_virt_fbdev2(FBDEV *fb_dev, int xres, int yres, int alpha, EGI_16BIT_COLOR color)
 {
-	EGI_IMGBUF *eimg=NULL;
+	EGI_IMGBUF *fbimg=NULL;
+	EGI_IMGBUF *FrameImg=NULL;
 
 	/* Check input */
 	if( xres<=0 || yres<=0 )
@@ -420,26 +449,40 @@ int init_virt_fbdev2(FBDEV *fb_dev, int xres, int yres, int alpha, EGI_16BIT_COL
 	if(alpha>255)
 		alpha=255;
 
-	/* Create eimg */
+	/* Create fbimg */
 	if(alpha<0)
-		eimg=egi_imgbuf_createWithoutAlpha( yres, xres, color);
+		fbimg=egi_imgbuf_createWithoutAlpha( yres, xres, color);
 	else
-		eimg=egi_imgbuf_create( yres, xres, (unsigned char)alpha, color);
+		fbimg=egi_imgbuf_create( yres, xres, (unsigned char)alpha, color);
 
-	if(eimg==NULL) {
-		egi_dpstd("Fail to create eimg!\n");
+	if(fbimg==NULL) {
+		egi_dpstd("Fail to create fbimg!\n");
 		return -2;
 	}
+
+	/* Create FrameImg */
+	if(alpha<0)
+		FrameImg=egi_imgbuf_createWithoutAlpha( yres, xres, color);
+	else
+		FrameImg=egi_imgbuf_create( yres, xres, (unsigned char)alpha, color);
+
+	if(FrameImg==NULL) {
+		egi_dpstd("Fail to create FrameImg!\n");
+		egi_imgbuf_free2(&fbimg);
+		return -3;
+	}
+
 
 	/*** Set Ownership of virt_fb pointed IMGBUF
 	 * NOTE: set it before init_virt_fbdev() to let print the information in init_virt_fbdev()! */
 	fb_dev->vimg_owner=true;
 
-	/* Init virt fbdev with eimg */
-	if( init_virt_fbdev(fb_dev, eimg)<0 ) {
+	/* Init virt fbdev with fbimg and FrameImg */
+	if( init_virt_fbdev(fb_dev, fbimg, FrameImg)<0 ) {
 		egi_dpstd("Fail to init fbdev!\n");
-		egi_imgbuf_free2(&eimg);
-		return -3;
+		egi_imgbuf_free2(&fbimg);
+		egi_imgbuf_free2(&FrameImg);
+		return -4;
 	}
 
 	return 0;
@@ -454,10 +497,13 @@ void release_virt_fbdev(FBDEV *dev)
 {
 	dev->virt=false;
 
-	if(dev->vimg_owner)
+	if(dev->vimg_owner) {
 		egi_imgbuf_free2(&dev->virt_fb);
+		egi_imgbuf_free2(&dev->VFrameImg);
+	}
 
 	dev->virt_fb=NULL;
+	dev->VFrameImg=NULL;
 }
 
 
@@ -472,18 +518,18 @@ Return:
         0       OK
         <0      Fails
 --------------------------------------------------------*/
-int reinit_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg)
+int reinit_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *fbimg, EGI_IMGBUF *FrameImg)
 {
 	/* If fb_dev is the Owner of virt_fb, then abort. */
 	if(fb_dev->vimg_owner) {
-		egi_dpstd("FBDEV owns the virt_fb IMGBUF!\n");
+		egi_dpstd("FBDEV owns the virt_fb IMGBUF! Can NOT reintialize it!\n");
 		return -1;
 	}
 
 	//release_virt_fbdev(fb_dev);
 
 	/* It's reenterable */
-	return init_virt_fbdev(fb_dev, eimg);
+	return init_virt_fbdev(fb_dev, fbimg, FrameImg);
 }
 
 
@@ -963,6 +1009,41 @@ int fb_render(FBDEV *dev)
 
 	/* Refresh FB mmap data */
 	fb_page_refresh(dev, FBDEV_WORKING_BUFF);  /* Input data check inside */
+
+	return 0;
+}
+
+
+/*---------------------------------------------
+Render virtual FBDEV, NOW just copy completed
+FBDEV.virt_fb to FBDEV.VFrameImg.
+
+Return:
+	0	OK
+	<0	Fails
+
+Midas Zhou
+---------------------------------------------*/
+int vfb_render(FBDEV *dev)
+{
+	int ret;
+
+	if(dev->virt==false) {
+		egi_dpstd("It's NOT virtual FBDEV!\n");
+		return -1;
+	}
+	if( dev->VFrameImg==NULL ) {
+		egi_dpstd("VFrameImg is NULL!\n");
+		return -2;
+	}
+
+        /* Copy virt_fb to VFrameImg */
+        ret=egi_imgbuf_copyBlock( dev->VFrameImg, dev->virt_fb, false,   /* dest, src, blend_on */
+                              dev->virt_fb->width, dev->virt_fb->height, 0, 0, 0, 0);    /* bw, bh, xd, yd, xs,ys */
+	if(ret<0) {
+		egi_dpstd("Fail to call egi_imgbuf_copyBlock!\n");
+		return -3;
+	}
 
 	return 0;
 }

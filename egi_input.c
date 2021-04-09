@@ -100,11 +100,16 @@ Journal
 	   with consideration of mouse movement limit at four sides.
 2021-03-26:
 	1. egi_mouse_loopread(): Add var. status_sustain to check if idle DOWNHOLD happens when select() returns 0.
-
-
+2021-04-03:
+	1. egi_mouse_loopread():
+		1.A. Reset mostatus.RightKeyDownHold=false if status=0b00.
+	 	1.B. Clear mouse_data after set mouse type to Intellimouse.
+		1.C. Case 2 0b01: mostatus.RightKeyDownHold=true --modified to--> mostatus.RightKeyDownHold=false
+		1.D. Case 2 0b10: mostatus.LeftKeyDownHold=false --modified to-->  mostatus.RightKeyDownHold=false;
 Midas Zhou
 midaszhou@yahoo.com
 --------------------------------------------------------------------------------------*/
+#include "egi_debug.h"
 #include "egi_input.h"
 #include "egi_timer.h"
 #include "egi_fbdev.h"
@@ -507,6 +512,8 @@ static void *egi_mouse_loopread( void* arg )
 					/* Read out reply to discard  */
 					read( mouse_fd, mouse_data, sizeof(mouse_data));
 				}
+				/* Clear mouse_data! */
+				memset(mouse_data,0,sizeof(mouse_data));
 			}
 		}
 
@@ -614,25 +621,28 @@ static void *egi_mouse_loopread( void* arg )
         	        	case 0b01:
 	        	                mostatus.RightKeyDown=true;
         	        	        mostatus.RightKeyUpHold=false;
-                	        //	printf("-Rightkey Down!\n");
+        	        	        mostatus.RightKeyDownHold=false;
+                	        	printf("-Rightkey Down!\n");
                         		break;
 		                case 0b10:
 	        	                mostatus.RightKeyUp=true;
         	        	        mostatus.RightKeyDown=false;
-        	        	        mostatus.LeftKeyDownHold=false;
-                	        //	printf("-Rightkey Up!\n");
+        	        	        mostatus.RightKeyDownHold=false;
+                	        	printf("-Rightkey Up!\n");
 	                	        break;
 	        	        case 0b11:
         	        	        mostatus.RightKeyDownHold=true;
 		                        mostatus.RightKeyDown=false;
-		                        //printf(" ---Rightkey DownHold!\n");
+		                        printf(" ---Rightkey DownHold!\n");
                 		        break;
 		                default:  /* 0b00: UpHold */
                 		        mostatus.RightKeyUpHold=true;
 					mostatus.RightKeyUp=false;
                 		        mostatus.RightKeyDown=false;
+					mostatus.RightKeyDownHold=false;
 		                        break;
         		}
+
 		        /* 3. Renew status for Mid Key */
         		status=((old_mouse_data[0]&0x4)>>1) + ((mouse_data[0]&0x4)>>2);
 	        	switch( status ) {
@@ -704,6 +714,7 @@ static void *egi_mouse_loopread( void* arg )
 			/* If callback trapped here, then cmd_end_loopread_mouse signal will NOT be responded!
 			 * mostauts.request is set in the callback!
 			 */
+			egi_dpstd("RKDHold=%s\n", mostatus.RightKeyDownHold ? "TRUE" : "FALSE" );
 			mouse_callback(mouse_data, sizeof(mouse_data), &mostatus);
 		}
 

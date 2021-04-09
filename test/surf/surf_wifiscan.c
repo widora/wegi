@@ -8,14 +8,19 @@ A simple graphical Wifi Scanner.
 Usage:
 	./surf_wifiscan
 
+Mouse RightClick to turn ON/OFF RCMenu, the graph will react after a
+while.
+
 Note:
 1. Sometimes, 'aps' command results in several APs, and have to
    reboot OP. (Power supply?)
 
 Journal
-2021-04-1:
+2021-04-01:
 	1. Apply pixcolor_on=true for workfb.
 	2. sysfont FOR SURFSYS, appfont for APP.
+2021-04-03:
+	1. Add TickBox in RightClickMenu.
 
 
 Midas Zhou
@@ -26,6 +31,7 @@ midaszhou@yahoo.com
 #include <errno.h>
 #include <pty.h>
 #include <sys/wait.h>
+#include "egi_timer.h"
 #include "egi_log.h"
 #include "egi_FTsymbol.h"
 #include "egi_utils.h"
@@ -38,7 +44,8 @@ midaszhou@yahoo.com
 EGI_SURFUSER     *surfuser=NULL;
 EGI_SURFSHMEM    *surfshmem=NULL;        /* Only a ref. to surfuser->surfshmem */
 FBDEV            *vfbdev=NULL;           /* Only a ref. to &surfuser->vfbdev,
-					    TODO: If defines a working FBDEV, then not necessary?  */
+					  * TODO: If defines a working FBDEV, then not necessary?
+					  */
 EGI_IMGBUF       *surfimg=NULL;          /* Only a ref. to surfuser->imgbuf */
 SURF_COLOR_TYPE  colorType=SURF_RGB565;  /* surfuser->vfbdev color type */
 EGI_16BIT_COLOR  bkgcolor;
@@ -48,15 +55,26 @@ FBDEV            workfb;           /* Working Virt FBDEV. Sizeof work area in th
 EGI_IMGBUF	 *workimg=NULL;
 
 /* For RightClick Box */
+/** NOTE:
+ *	1. RCMenu is drawn directly to surface vfbdev, while wifi curves drawn to workfb first,
+ *	   then copy to surface vfbdev.
+ */
+bool		RCMenu_ON;
 ESURF_BOX	*RCBox;		/* RightClick Box */
-ESURF_TICKBOX	*TickBox[2];	/* TickBox on RCBox */
-
+ESURF_TICKBOX	*TickBox[3];	/* TickBox on RCBox. [0] CPU LOAD [1] WIFI SIGNAL [2] WIFI RATE */
+bool		display_curve[3];
+enum {
+	CURVE_CPU_LOAD 		=0,
+	CURVE_WIFI_SIGNAL 	=1,
+	CURVE_WIFI_RATE		=2,
+};
 
 /* Ering Routine */
 void  *surfuser_ering_routine(void *surfuser);
 
 /* Surface OP functions */
 void my_redraw_surface(EGI_SURFUSER *surfuser, int w, int h);
+void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 
 void print_help(const char* cmd)
 {
@@ -72,10 +90,10 @@ void draw_cpuload(FBDEV *fbdev);
 void update_surfimg(void);
 
 int firstdraw_RCBox(FBDEV *vfb);
-void draw_RCBox(FBDEV *vfb, int offx, int offy);
+void draw_RCBox(FBDEV *vfb, int cx0, int cy0);
 
 int blpx=22;		/* Base line left point XY */
-int blpy=240-30-8;
+int blpy=(240-30)-8;
 int fw=12;
 int fh=12;
 
@@ -193,9 +211,10 @@ int main(int argc, char** argv)
         surfshmem->maximize_surface     = surfuser_maximize_surface;    /* Need redraw */
         surfshmem->normalize_surface    = surfuser_normalize_surface;   /* Need redraw */
         surfshmem->close_surface        = surfuser_close_surface;
+	surfshmem->user_mouse_event	= my_mouse_event;
 
         /* 4. Give a name for the surface. */
-        surfname="Wifi扫描仪";
+        surfname="WiFi扫描仪";
         if(surfname)
                 strncpy(surfshmem->surfname, surfname, SURFNAME_MAX-1);
         else
@@ -203,10 +222,11 @@ int main(int argc, char** argv)
 
 	/* Create RCBox and TickBoxes on it */
 	firstdraw_RCBox(&workfb);
-	TickBox[0]->ticked=true;
-	TickBox[1]->ticked=false;
+	TickBox[CURVE_CPU_LOAD]->ticked=false;
+	TickBox[CURVE_WIFI_SIGNAL]->ticked=false;
+	TickBox[CURVE_WIFI_RATE]->ticked=false;
 
-        /* 4. First draw surface */
+        /* 5. First draw surface */
         //surfshmem->bkgcolor= WEGI_COLOR_DARKGRAY1; /* OR default BLACK */
         surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN|TOPBTN_MAX); /* Default firstdraw operation */
 
@@ -240,9 +260,25 @@ while( surfshmem->usersig != 1 ) {
 
 	EGI_PLOG(LOGLV_TEST,"Start to forkpty...");
 
-	/* W1. Create a pty shell to execute aps */
+	index=0;
+
+	/* W1. Draw BKG */
+	draw_bkg(&workfb);
+
+	/* W2. Draw CPULOAD */
+	if(display_curve[CURVE_CPU_LOAD])
+		draw_cpuload(&workfb);
+
+	if( !display_curve[CURVE_WIFI_SIGNAL]) {
+		sleep(1);
+		//tm_delayms(100);
+		//usleep(20000);
+		goto END_APSCAN;
+	}
+
+	/* W3. Create a pty shell to execute aps */
 	shpid=forkpty(&ptyfd, ptyname, NULL, NULL);
-        /* W2: Child process to execute shell command */
+        /* W4: Child process to execute shell command */
 	if( shpid==0) {
 		/* Widora aps RETURN Examples:
 		 *  ( -- Ch  SSID              BSSID               Security               Signal(%)W-Mode  ExtCH  NT WPS DPID -- )
@@ -265,10 +301,10 @@ while( surfshmem->usersig != 1 ) {
 	printf("ptyname: %s\n",ptyname);
 	EGI_PLOG(LOGLV_TEST,"Start to read aps results and parse data...");
 
-	/* W3: Parent process to get execl() result */
+
+	/* W5: Parent process to get execl() result */
         bzero(obuf,sizeof(obuf));
         nbuf=0;
-	index=0;
         do {
 		/* Check remaining space of obuf[] */
                 if(0==sizeof(obuf)-nbuf-1) {
@@ -319,35 +355,43 @@ while( surfshmem->usersig != 1 ) {
                         nbuf -= linesize;
                         obuf[nbuf]='\0';
 
-			/* Parse result line. */
-			printf("Result: %s", linebuf);
-			if(index==0) {
-				draw_bkg(&workfb);
-				draw_cpuload(&workfb);
-			}
+			/* Parse result line. parse and draw wifi signal curves. */
+			printf("Result: '%s'", linebuf);
 			parse_apinfo(linebuf, index++);
+
 		}
 
 	} while( nread>=0 || nbuf>0 );
 
+
 	/* Put total number of APs */
 	FBwrite_total(&workfb, index);
 
-	/* Draw RCBox */
-	draw_RCBox(&workfb, 50, 50);
+END_APSCAN:
+
+	pthread_mutex_lock(&workfb.VFrameImg->img_mutex);
+/* ------ >>>  workfb.virt_fb Critical Zone  */
+
+	/* Render VBF. Save to VFrameImg */
+	vfb_render(&workfb);
+
+	pthread_mutex_unlock(&workfb.VFrameImg->img_mutex);;
+/* ------ <<<  workfb.virt_fb Critical Zone  */
 
 	/* Update surfuser IMGBUF, by copying workfb IMGBUF to surfuser->imgbuf */
-	update_surfimg();
+	update_surfimg();  /* Also update RCMenu */
 
-	/* Close and release */
-	close(ptyfd);
-	/* waitpid */
-	retpid=waitpid(shpid, &status, 0);
-	EGI_PLOG(LOGLV_CRITICAL, "waitpid get retpid=%d", retpid);
-	if(WIFEXITED(status))
-		EGI_PLOG(LOGLV_CRITICAL, "Child %d exited normally!", shpid);
-	else
-		EGI_PLOG(LOGLV_CRITICAL, "Child %d is abnormal!", shpid);
+	/* Close and release ptyfd */
+	if( display_curve[CURVE_WIFI_SIGNAL] ) {
+		close(ptyfd);
+		/* waitpid */
+		retpid=waitpid(shpid, &status, 0);
+		EGI_PLOG(LOGLV_CRITICAL, "waitpid get retpid=%d", retpid);
+		if(WIFEXITED(status))
+			EGI_PLOG(LOGLV_CRITICAL, "Child %d exited normally!", shpid);
+		else
+			EGI_PLOG(LOGLV_CRITICAL, "Child %d is abnormal!", shpid);
+	}
 
 } /* END LOOP */
 
@@ -432,10 +476,12 @@ void *surfuser_ering_routine(void *args)
                         	break;
 		       case ERING_MOUSE_STATUS:
 				mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
+				if(mouse_status->RightKeyDownHold)
+                			printf(" -- RightKeyDownHold!\n");
 				//egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
 				/* Parse mouse event */
 				surfuser_parse_mouse_event(surfuser,mouse_status);  /* mutex_lock */
-				/* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent */
+				/* Always reset MEVENT after parsing, to let SURFMAN continue to ering mouse event */
 				surfuser->surfshmem->flags &= (~SURFACE_FLAG_MEVENT);
 				break;
 	               default:
@@ -451,14 +497,14 @@ void *surfuser_ering_routine(void *args)
 	return (void *)0;
 }
 
-/*--------------------------------
-Parse AP information, draw curve.
+/*-----------------------------------------------
+Parse AP information, draw signal strength curve.
 
 Ch  SSID     BSSID               Security               Signal(%)W-Mode  ExtCH  NT WPS DPID
 ------------------------------------------------------------------------------------------
 12  Chinaw   55:55:55:55:55:55   WPA1PSKWPA2PSK/AES     81       11b/g/n BELOW  In YES
 
---------------------------------*/
+-----------------------------------------------*/
 void parse_apinfo(char *info, int index)
 {
 	UFT8_CHAR ssid[256]={0}; /* SSID */
@@ -472,12 +518,23 @@ void parse_apinfo(char *info, int index)
 	int py_cf;	/* Cetral Freq. Mark coordinate Y */
 	EGI_POINT pts[3];
 
+	/* The first 3 words[] of info[]: Channel, SSID, BSSID */
+	int len;
+	char *pt=NULL, *pt2=NULL;
+	char info_CHANNEL[16];
+	char info_SSID[512];
+	char info_copy[512]; /* Copy of info. */
+
 	printf("parse_apinfo...\n");
+
+	/* Copy info, for anonymouse SSID */
+	strncpy(info_copy,info, sizeof(info_copy)-1);
 
 	/* sss */
 	if(index>30)
 		EGI_PLOG(LOGLV_CRITICAL, "Info[%d]: %s", index, info);
 
+START_PARSE:
 	/* Defaule mode HT20 */
 	bw=20;
 
@@ -486,9 +543,11 @@ void parse_apinfo(char *info, int index)
         for(k=0; ps!=NULL; k++) {
 		switch(k) {
 			case 0:	/* Channel */
+				strncpy(info_CHANNEL, ps, sizeof(info_CHANNEL)-1);
 				ch=atoi(ps);
 				break;
-			case 1: /* SSID */
+			case 1: /* SSID,  (BSSID if anonymous AP) */
+				strncpy(info_SSID, ps, sizeof(info_SSID)-2); /* -1 for BLANK, -1 for EOF */
 				strncpy((char *)ssid, ps, sizeof(ssid)-1);
 				break;
 			case 2: /* BSSID */
@@ -513,10 +572,39 @@ void parse_apinfo(char *info, int index)
 		ps=strtok(NULL, delim);
 	}
 
-	/* Avoid uncomplete info, example hidden SSID. */
-	printf("k=%d\n",k);
-	if(k<10) /* including LN token, 10 items in each info string. */
+	/*** Assume with anonymous SSID:
+	 *	Ch  SSID     BSSID               Security            Signal(%)  W-Mode  ExtCH  NT WPS DPID
+	 *	---------------------------------------------------------------------------------------
+	 *	12           55:55:55:55:55:55   WPA1PSKWPA2PSK/AES  81         11b/g/n BELOW  In YES
+	 */
+	if(k==9) {
+		egi_dpstd("AP with anonymouse SSID\n");
+		/* NOW ino_SSID[] is acutally stored with BSSID */
+
+		/* Check space */
+		len=strlen(info_SSID);
+		if( strlen(info)+len+1 +1 > sizeof(info_copy) ) {
+			egi_dpstd("NOT enough space in info_copy[]!\n");
+			return;
+		}
+		info_SSID[len]=' ';		/* Insert a BLANK */
+
+		/* Make BSSID as SSID */
+		pt=strstr(info_copy, " ") +1; 	/* pointer to content aft. first BLANK */
+		pt2=cstr_trim_space(pt); 	/* skip/trim spaces */
+		memmove(pt+len+1, pt2, strlen(pt2)); /* make space for inserting BSSID */
+		memcpy(pt, info_SSID, len+1);	/* Insert BSSID at SSID position, +1 for a BLANK */
+		egi_dpstd("----- Refined anonymouse AP info:\n %s\n", info_copy);
+
+		/* Reset info */
+		info=info_copy;
+		goto START_PARSE;
+	}
+	/* Avoid uncomplete info, drop it. */
+	else if(k<9) {  /* including LN token, 10 items in each info string. */
+		egi_dpstd("Uncomplete info,  k=%d\n",k);
 		return;
+	}
 
 	/* Draw channel */
 
@@ -574,9 +662,9 @@ void parse_apinfo(char *info, int index)
 }
 
 
-/*------------------
-Draw back ground
--------------------*/
+/*------------------------
+Draw back ground on workfb.
+-------------------------*/
 void draw_bkg(FBDEV *fbdev)
 {
 	int i,j;
@@ -593,7 +681,8 @@ void draw_bkg(FBDEV *fbdev)
                         	fbset_color2(fbdev, WEGI_COLOR_DARKGRAY);
                         else
                         	fbset_color2(fbdev, WEGI_COLOR_DARKGRAY1);
-                        draw_filled_rect(fbdev, j*sq, i*sq , (j+1)*sq-1, (i+1)*sq-1 );
+                        //draw_filled_rect(fbdev, j*sq, i*sq , (j+1)*sq-1, (i+1)*sq-1 );
+                        draw_filled_rect(fbdev, j*sq, blpy-i*sq , (j+1)*sq-1, blpy-(i+1)*sq+1 );
                 }
         }
 
@@ -698,9 +787,9 @@ void draw_cpuload(FBDEV *fbdev)
 
 	/* Draw spline of CPU load */
 	fbset_color2(fbdev, WEGI_COLOR_RED);
-	workfb.antialias_on=true;
+	fbdev->antialias_on=true;
 	draw_spline(fbdev, st, pts, 2, 1);
-	workfb.antialias_on=false;
+	fbdev->antialias_on=false;
 
 	draw_filled_spline(fbdev, st, pts, 2, 1, blpy, WEGI_COLOR_RED, 60); /* baseY, color, alpha */
 
@@ -722,20 +811,24 @@ by copying workfb IMGBUF.
 --------------------------------*/
 void update_surfimg(void)
 {
+	printf("Update surfimg...\n");
+
         /* Get surface mutex_lock */
         if( pthread_mutex_lock(&surfshmem->shmem_mutex) !=0 )
                 egi_dperr("Fail to get mutex_lock for surface.");
 /* ------ >>>  Surface shmem Critical Zone  */
 
-#if 1	/* Copy workfb IMGBUF to  surfuser->imgbuf */
-	printf("update surfimg copyBlock\n");
+	/* Copy workfb IMGBUF to  surfuser->imgbuf */
 	egi_imgbuf_copyBlock( surfimg, workfb.virt_fb, false,	/* dest, src, blend_on */
                               surfimg->width-2, surfimg->height-SURF_TOPBAR_HEIGHT-1, 1, SURF_TOPBAR_HEIGHT, 0, 0);    /* bw, bh, xd, yd, xs,ys */
 			      //workfb.virt_fb->width, workfb.virt_fb->height, 1, SURF_TOPBAR_HEIGHT, 0, 0); 	/* bw, bh, xd, yd, xs,ys */
-#endif
+
+	/* Draw RCBox direct to surfimg(vfbdev), (cx0,cy0)=(0,0) */
+	if(RCMenu_ON)
+		draw_RCBox(vfbdev, 0, 0);
 
 /* ------ <<<  Surface shmem Critical Zone  */
-                pthread_mutex_unlock(&surfshmem->shmem_mutex);
+        pthread_mutex_unlock(&surfshmem->shmem_mutex);
 }
 
 
@@ -750,12 +843,13 @@ void my_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
         /* Redraw default function first */
         surfuser_redraw_surface(surfuser, w, h); /* imgbuf w,h updated */
 
-#if 1     /* Copy workfb IMGBUF to  surfuser->imgbuf */
-	printf("redraw copyBlock\n");
-        egi_imgbuf_copyBlock( surfimg, workfb.virt_fb, false,   /* dest, src, blend_on */
+        /* Copy workfb IMGBUF to  surfuser->imgbuf */
+        egi_imgbuf_copyBlock( surfimg, workfb.VFrameImg, false,   /* dest, src, blend_on */
                               surfimg->width-2, surfimg->height-SURF_TOPBAR_HEIGHT-1, 1, SURF_TOPBAR_HEIGHT, 0, 0);    /* bw, bh, xd, yd, xs,ys */
-	printf("redraw copyBlock OK!\n");
-#endif
+
+	/* Draw RCBox direct to surfimg(vfbdev), (cx0,cy0)=(0,0) */
+	if(RCMenu_ON)
+		draw_RCBox(vfbdev, 0, 0);
 
 }
 
@@ -768,11 +862,12 @@ Return:
 --------------------------------------*/
 int firstdraw_RCBox(FBDEV *vfb)
 {
-	int bw=130;     /* RCBOX size */
-	int bh=30*2;
 
 	int tw=18;	/* TickBox size */
 	int th=18;
+
+	int bw=130;     /* RCBOX size */
+	int bh=tw*3+8*4;
 
 	int i;
 
@@ -790,7 +885,7 @@ int firstdraw_RCBox(FBDEV *vfb)
 
 	/* Write Tip */
         FTsymbol_uft8strings_writeFB(   vfb, egi_appfonts.regular, 		/* FBdev, fontface */
-       	                                15, 15,(const UFT8_PCHAR)"CPU负载", 	/* fw,fh, pstr */
+       	                                15, 15,(const UFT8_PCHAR)"CPU负荷", 	/* fw,fh, pstr */
                	                        bw, 1, 0,      			/* pixpl, lines, fgap */
                        	                5+tw+15, 8,  			/* x0,y0, */
        	                      	        WEGI_COLOR_WHITE, -1, 255,    	/* fontcolor, transcolor,opaque */
@@ -799,9 +894,17 @@ int firstdraw_RCBox(FBDEV *vfb)
         FTsymbol_uft8strings_writeFB(   vfb, egi_appfonts.regular, 		/* FBdev, fontface */
        	                                15, 15,(const UFT8_PCHAR)"WIFI信号", 	/* fw,fh, pstr */
                	                        bw, 1, 0,      			/* pixpl, lines, fgap */
-                       	                5+tw+15, 8+(th+8),  			/* x0,y0, */
+                       	                5+tw+15, th+8*2,  			/* x0,y0, */
        	                      	        WEGI_COLOR_WHITE, -1, 255,    	/* fontcolor, transcolor,opaque */
                                        	NULL, NULL, NULL, NULL);      	/* int *cnt, int *lnleft, int* penx, int* peny */
+
+        FTsymbol_uft8strings_writeFB(   vfb, egi_appfonts.regular, 		/* FBdev, fontface */
+       	                                15, 15,(const UFT8_PCHAR)"WIFI流量", 	/* fw,fh, pstr */
+               	                        bw, 1, 0,      			/* pixpl, lines, fgap */
+                       	                5+tw+15, 2*th+8*3,  			/* x0,y0, */
+       	                      	        WEGI_COLOR_WHITE, -1, 255,    	/* fontcolor, transcolor,opaque */
+                                       	NULL, NULL, NULL, NULL);      	/* int *cnt, int *lnleft, int* penx, int* peny */
+
 
 	/* Create RCBox */
 	RCBox=egi_surfBox_create(vfb->virt_fb, 0,0, 0,0, bw, bh);	/* xi,yi, x0, y0, w, h */
@@ -815,7 +918,7 @@ int firstdraw_RCBox(FBDEV *vfb)
 	draw_rect(vfb,0,0, tw-1, th-1);
 
 	/* Create TickBox with unticked imgbuf */
-	for(i=0; i<2; i++) {
+	for(i=0; i<3; i++) {
 		TickBox[i]=egi_surfTickBox_create(vfb->virt_fb, 0,0, 10, (th+8)*i+8, tw, th);	/* xi,yi, x0, y0, w, h */
 		if(TickBox[i]==NULL) {
 			egi_dpstd("Fail to create TickBox[%d].\n",i);
@@ -828,7 +931,7 @@ int firstdraw_RCBox(FBDEV *vfb)
 	draw_filled_rect(vfb, tw/4, th/4,  tw*3/4, th*3/4);
 
 	/* Create TickBox->imgbuf_ticked */
-	for(i=0; i<2; i++) {
+	for(i=0; i<3; i++) {
 	        /* To copy a block from imgbuf as image for unticked box */
        		TickBox[i]->imgbuf_ticked=egi_imgbuf_blockCopy(vfb->virt_fb, 0,0, tw, th); /* fb, xi, yi, h, w */
        		if(TickBox[i]->imgbuf_unticked==NULL) {
@@ -841,12 +944,77 @@ int firstdraw_RCBox(FBDEV *vfb)
 }
 
 
-/*--------------------------------------
+/*-------------------------------------------------
 Draw RCBox and TickBoxes[]
---------------------------------------*/
-void draw_RCBox(FBDEV *vfb, int offx, int offy)
+@cx0,cy0: RCBox's container origin relative to vfb.
+	  If container is VFB, then (cx0,cy0)=(0,0).
+--------------------------------------------------*/
+void draw_RCBox(FBDEV *vfb, int cx0, int cy0)
 {
-	egi_surfBox_display(vfb, RCBox, offx, offy);
-	egi_surfTickBox_display(vfb, TickBox[0], offx, offy);
-	egi_surfTickBox_display(vfb, TickBox[1], offx, offy);
+	egi_surfBox_display(vfb, RCBox, cx0, cy0);
+	egi_surfTickBox_display(vfb, TickBox[0], RCBox->x0, RCBox->y0);
+	egi_surfTickBox_display(vfb, TickBox[1], RCBox->x0, RCBox->y0);
+	egi_surfTickBox_display(vfb, TickBox[2], RCBox->x0, RCBox->y0);
+}
+
+
+/*--------------------------------------------------------------
+		Mouse Event Callback
+	     (shmem_mutex locked!)
+
+1. It's a callback function called in surfuser_parse_mouse_event().
+2. pmostat is for whole desk range.
+
+---------------------------------------------------------------*/
+void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
+{
+	int i;
+
+	/* 1. RightClick to turn on/off RCMenu */
+	if( pmostat->RightKeyDown
+	    && egi_point_on_surface(surfshmem, pmostat->mouseX, pmostat->mouseY) ) {
+
+		/* Toggle RCMenu */
+		RCMenu_ON=!RCMenu_ON;
+
+		if(RCMenu_ON) {
+			/* Update position for RCBox, relative to surfshmem */
+			RCBox->x0=pmostat->mouseX -surfshmem->x0;
+			RCBox->y0=pmostat->mouseY -surfshmem->y0;
+
+			/* Draw RCBox direct to surfimg(vfbdev), (cx0,cy0)=(0,0) */
+			draw_RCBox(vfbdev, 0, 0);
+		}
+		else {
+			/* Copy workfb->VFrameImg to surfuser->imgbuf. (Without RCBox) */
+			pthread_mutex_lock(&workfb.VFrameImg->img_mutex);
+	/* ------ >>>  workfb.VFrameImg Critical Zone  */
+
+        		egi_imgbuf_copyBlock( surfimg, workfb.VFrameImg, false,   /* dest, src, blend_on,  bw, bh, xd, yd, xs,ys */
+                		              surfimg->width-2, surfimg->height-SURF_TOPBAR_HEIGHT-1, 1, SURF_TOPBAR_HEIGHT, 0, 0);
+
+			pthread_mutex_unlock(&workfb.VFrameImg->img_mutex);
+	/* ------ <<<  workfb.VFrameImg Critical Zone  */
+		}
+
+	}
+	/* 2. LeftClick to tick/untick TickBox[]. */
+	else if(pmostat->LeftKeyDown) {
+		/* Tick box SELECTION */
+		if(RCMenu_ON) {
+			for(i=0; i<3; i++) {				/* X,Y relative to its container. RCBox relative to surfimg */
+				if( egi_point_on_surfTickBox( TickBox[i], pmostat->mouseX -surfshmem->x0 -RCBox->x0,
+							       pmostat->mouseY -surfshmem->y0 -RCBox->y0 ) ) {
+
+					TickBox[i]->ticked = !TickBox[i]->ticked;
+					display_curve[i]=TickBox[i]->ticked;
+
+					/* Draw to surfshmem */
+					draw_RCBox(vfbdev, 0,0);
+				}
+			}
+		}
+	}
+	/* 3. OTher mevent */
+
 }

@@ -517,7 +517,7 @@ int main(int argc, char **argv)
 						/* Set MEVENT first */
 						surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->surfshmem->flags |= SURFACE_FLAG_MEVENT;
 						/* Send MEVENT then */
-						//printf("ering msg pmostat...\n");
+						//printf("ering msg pmostat  RKDHold=%s\n", pmostat->RightKeyDownHold ? "TRUE" : "FALSE" );
 						if( ering_msg_send( surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->csFD,
 							emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS) ) <=0 ) {
 							egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");

@@ -42,6 +42,13 @@ Jurnal
 
 2021-04-1:
 	1.draw_filled_spline(): save FBDEV.pixcolor_on, and restore it later.
+2021-04-2:
+	1. draw_blend_filled_roundcorner_rect() draw_blend_filled_rect()
+	   draw_blend_filled_annulus() draw_blend_filled_circle():
+	   Save FBDEV.pixcolor_on, and restore it later.
+	2. draw_filled_spline(): fbset_color() replaced by fbset_color2().
+	   draw_circle2() draw_filled_annulus2() draw_filled_circle2():
+	   fbset_color() replaced by fbset_color2() to use pixcolor.
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -1757,6 +1764,7 @@ int draw_blend_filled_roundcorner_rect( FBDEV *dev,int x1,int y1,int x2,int y2, 
 {
 	int i;
 	int s;
+	bool save_pixcolor_on;
 
 	/* sort min and max x,y */
 	int xl=(x1<x2?x1:x2);
@@ -1770,6 +1778,7 @@ int draw_blend_filled_roundcorner_rect( FBDEV *dev,int x1,int y1,int x2,int y2, 
 	if( r > (yd-yu)/2 ) r=(yd-yu)/2;
 
         /* turn on FBDEV pixcolor and pixalpha_hold */
+	save_pixcolor_on=dev->pixcolor_on;
         dev->pixcolor_on=true;
         dev->pixcolor=color;
         dev->pixalpha_hold=true;
@@ -1799,7 +1808,7 @@ int draw_blend_filled_roundcorner_rect( FBDEV *dev,int x1,int y1,int x2,int y2, 
 	}
 
         /* turn off FBDEV pixcolor and pixalpha_hold */
-        dev->pixcolor_on=false;
+        dev->pixcolor_on=save_pixcolor_on;
         dev->pixalpha_hold=false;
         dev->pixalpha=255;
 
@@ -1826,10 +1835,13 @@ Midas Zhou
 void draw_blend_filled_rect( FBDEV *dev, int x1, int y1, int x2, int y2,
 			     	EGI_16BIT_COLOR color, uint8_t alpha )
 {
+	bool save_pixcolor_on;
+
         if(dev==NULL)
                 return;
 
         /* turn on FBDEV pixcolor and pixalpha_hold */
+	save_pixcolor_on=dev->pixcolor_on;
         dev->pixcolor_on=true;
         dev->pixcolor=color;
         dev->pixalpha_hold=true;
@@ -1838,7 +1850,7 @@ void draw_blend_filled_rect( FBDEV *dev, int x1, int y1, int x2, int y2,
 	draw_filled_rect(dev,x1,y1,x2,y2);
 
         /* turn off FBDEV pixcolor and pixalpha_hold */
-	dev->pixcolor_on=false;
+	dev->pixcolor_on=save_pixcolor_on;
 	dev->pixalpha_hold=false;
 	dev->pixalpha=255;
 }
@@ -2312,10 +2324,13 @@ Midas Zhou
 void draw_blend_filled_annulus( FBDEV *dev, int x0, int y0, int r, unsigned int w,
 			 	EGI_16BIT_COLOR color, uint8_t alpha )
 {
+	bool save_pixcolor_on;
+
 	if(dev==NULL)
 		return;
 
 	/* turn on FBDEV pixcolor and pixalpha_hold */
+	save_pixcolor_on=dev->pixcolor_on;
 	dev->pixcolor_on=true;
 	dev->pixcolor=color;
 	dev->pixalpha_hold=true;
@@ -2324,7 +2339,7 @@ void draw_blend_filled_annulus( FBDEV *dev, int x0, int y0, int r, unsigned int 
 	draw_filled_annulus( dev, x0, y0, r, w);
 
 	/* turn off FBDEV pixcolor and pixalpha_hold */
-	dev->pixcolor_on=false;
+	dev->pixcolor_on=save_pixcolor_on;
 	dev->pixalpha_hold=false;
 	dev->pixalpha=255;
 }
@@ -2368,10 +2383,13 @@ Midas Zhou
 void draw_blend_filled_circle( FBDEV *dev, int x, int y, int r,
 			       EGI_16BIT_COLOR color, uint8_t alpha )
 {
+	bool save_pixcolor_on;
+
 	if(dev==NULL)
 		return;
 
 	/* turn on FBDEV pixcolor and pixalpha_hold */
+	save_pixcolor_on=dev->pixcolor_on;
 	dev->pixcolor_on=true;
 	dev->pixcolor=color;
 	dev->pixalpha_hold=true;
@@ -2380,7 +2398,7 @@ void draw_blend_filled_circle( FBDEV *dev, int x, int y, int r,
 	draw_filled_circle( dev, x, y, r);
 
 	/* turn off FBDEV pixcolor and pixalpha_hold */
-	dev->pixcolor_on=false;
+	dev->pixcolor_on=save_pixcolor_on;
 	dev->pixalpha_hold=false;
 	dev->pixalpha=255;
 }
@@ -3188,17 +3206,17 @@ Midas Zhou
 -----------------------------------------------*/
 void draw_circle2(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR color)
 {
-	fbset_color(color);
+	fbset_color2(dev, color);
 	draw_circle(dev, x,y, r);
 }
 void draw_filled_annulus2(FBDEV *dev, int x0, int y0, int r, unsigned int w, EGI_16BIT_COLOR color)
 {
-	fbset_color(color);
+	fbset_color2(dev, color);
 	draw_filled_annulus(dev, x0, y0, r,  w);
 }
 void draw_filled_circle2(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR color)
 {
-	fbset_color(color);
+	fbset_color2(dev, color);
 	draw_filled_circle(dev, x, y,r);
 }
 
@@ -3563,7 +3581,7 @@ int draw_filled_spline( FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsig
 			else
 				tek=tekyy/tekxx;
 
-			fbset_color(color);
+			fbset_color2(fbdev,color);
 			for(kn=roundf(xs); kn<=roundf(xe); kn++) {
 				ky=roundf(1.0*ys+(1.0*kn-xs)*tek);
 				draw_line(fbdev, kn, ky, kn, baseY);

@@ -98,8 +98,9 @@ typedef struct fbdev{
 	unsigned int	npg;		/* index of back buffer page, Now npg=0 or 1, maybe 2  */
 
 
-	EGI_IMGBUF	*virt_fb;	/* virtual FB data as an EGI_IMGBUF */
-	bool		vimg_owner;	/* Ownership of virt_fb imgbuf.
+	EGI_IMGBUF	*virt_fb;	/* virtual FB, as an EGI_IMGBUF */
+	EGI_IMGBUF	*VFrameImg;	/* To hold a Virtual Frame IMGBUF. as result of a completed frame. render resutl.*/
+	bool		vimg_owner;	/* Ownership of virt_fb(imgbuf) and VFrameImg.
 					 * True:  FBDEV has the ownership, usually imgbuf is created/allocated during init_virt_fbdev().
 				 	 *	  and virt_fb will be released when release_virt_fbdev().
 					 * False: Usually the imgbuf is created/allocated by the caller, and FBDEV will NOT
@@ -175,10 +176,10 @@ void    release_fbdev(FBDEV *dev);
 //int 	fb_set_screenVinfo(FBDEV *fb_dev, struct fb_var_screeninfo *old_vinfo, const struct fb_var_screeninfo *new_vinfo);
 //int 	fb_set_screenPos(FBDEV *fb_dev, unsigned int xres, unsigned int yres);
 
-int 	init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *eimg);
+int 	init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *fbimg, EGI_IMGBUF *FrameImg);
 int 	init_virt_fbdev2(FBDEV *fb_dev, int xres, int yres, int alpha, EGI_16BIT_COLOR color);
 void	release_virt_fbdev(FBDEV *dev);
-int	reinit_virt_fbdev(FBDEV *dev, EGI_IMGBUF *eimg);
+int	reinit_virt_fbdev(FBDEV *dev, EGI_IMGBUF *fbimg, EGI_IMGBUF *FrameImg);
 void 	fb_shift_buffPage(FBDEV *fb_dev, unsigned int numpg);
 void 	fb_set_directFB(FBDEV *fb_dev, bool directFB);
 int 	fb_get_FBmode(FBDEV *fb_dev);
@@ -192,6 +193,7 @@ void 	fb_clear_mapBuffer(FBDEV *dev, unsigned int numpg, uint16_t color); /* for
 int 	fb_page_refresh(FBDEV *dev, unsigned int numpg);
 void 	fb_lines_refresh(FBDEV *dev, unsigned int numpg, unsigned int startln, int n);
 int	fb_render(FBDEV *dev);
+int	vfb_render(FBDEV *dev);
 int 	fb_page_saveToBuff(FBDEV *dev, unsigned int buffNum);
 int 	fb_page_restoreFromBuff(FBDEV *dev, unsigned int buffNum);
 int 	fb_page_refresh_flyin(FBDEV *dev, int speed);
