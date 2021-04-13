@@ -90,6 +90,8 @@ TODO:
 5. If a SURFUSER do NOT release its shmem_mutex, then SURFMAN's surfman_render_thread will be BLOCKED!
    Each SURFSUER MAY need a workFB? as a VFrameImg in a virtual FBDEV.
 
+6. If a frame of a SURFUSER vfbdev lives with very short time, it may be skipped by surfman_render_thread().
+   (sync)
 
 Journal
 2021-02-22:

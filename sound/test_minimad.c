@@ -42,6 +42,10 @@
 	'>'	Fast forward		快进
 	'<'	Fast backward		快退
 
+ Journal:
+ 2021-04-12:
+        1. mad_flow output(): correct nchannels and samplerate.
+
  Midas Zhou
  midaszhou@yahoo.com
  -------------------------------------------------------------------------------
@@ -53,6 +57,12 @@
  Layer_II     1152        1152          1152
  Layer_III    1152         576           576
 
+enum mad_mode {
+  MAD_MODE_SINGLE_CHANNEL = 0,          // single channel
+  MAD_MODE_DUAL_CHANNEL   = 1,          // dual channel
+  MAD_MODE_JOINT_STEREO   = 2,          // joint (MS/intensity) stereo
+  MAD_MODE_STEREO         = 3           /// normal LR stereo
+};
 
 struct mad_header {
   enum mad_layer layer;                 // audio layer (1, 2, or 3)
@@ -221,7 +231,7 @@ for(i=0; i<files; i++) {
 	poff=0;
 
   	/* Mmap input file 映射当前文件 */
-	fmap=egi_fmap_create(argv[i+1]);
+	fmap=egi_fmap_create(argv[i+1], 0, PROT_READ, MAP_PRIVATE);
 	if(fmap==NULL) return 1;
 	fsize=fmap->fsize;
 
@@ -257,6 +267,8 @@ for(i=0; i<files; i++) {
   	egi_fmap_free(&fmap);
 	egi_filo_free(&filo_headpos);
 }
+
+  printf("Finishing playing all MP3 files!\n");
 
   /* Close pcm handle 关闭PCM播放设备 */
   snd_pcm_close(pcm_handle);
@@ -363,24 +375,60 @@ static inline signed int scale(mad_fixed_t sample)
  * This is the output callback function. It is called after each frame of
  * MPEG audio data has been completely decoded. The purpose of this callback
  * is to output (or play) the decoded PCM audio.
- */
+ *
+ *** NOTE:
+ *      1. The first header_cnt MAY NOT be 1, as it's NOT compelete then!
+ *      2. nchannels and samplerate MAY chages for the first serveral frames!! WHY?
 
+header_cnt:4, flags:0x50C0, mode: Single channel, nchanls=1, sample_rate=11025, nsamples=384
+header_cnt:7, flags:0x0043, mode: Joint Stereo, nchanls=2, sample_rate=44100, nsamples=1152
+header_cnt:8, flags:0x0043, mode: Joint Stereo, nchanls=2, sample_rate=44100, nsamples=1152
+
+        3. header->flags !!!  is NOT correct here !!! , assume (header->flags&0x1)==1 as complete frame.
+ --- correct in header() ---
+Header flags: 0x50C8
+Header flags: 0x0048
+Header flags: 0x00C8
+Header flags: 0x0048
+ --- wrong here in output() ---
+header_cnt:4, flags:0x50C0, mode: Single channel, nchanls=1, sample_rate=11025, nsamples=384
+header_cnt:7, flags:0x0043, mode: Joint Stereo, nchanls=2, sample_rate=44100, nsamples=1152
+header_cnt:9, flags:0x00C3, mode: Joint Stereo, nchanls=2, sample_rate=44100, nsamples=1152
+header_cnt:10, flags:0x0043, mode: Joint Stereo, nchanls=2, sample_rate=44100, nsamples=1152
+*/
 static enum mad_flow output(void *data, struct mad_header const *header, struct mad_pcm *pcm)
 {
   unsigned int i,k;
-  unsigned int nchannels, nsamples, samplerate;
+  unsigned int nchannels=2, nsamples, samplerate;
   mad_fixed_t const *left_ch, *right_ch;
 
   /*　声道数　采样率　PCM数据 */
   /* pcm->samplerate contains the sampling frequency */
-  nchannels = pcm->channels;
+  /* NOTE: nchannels and samplerate MAY chages for the first serveral frames. see below. */
+  //nchannels = pcm->channels;
+  //samplerate= pcm->samplerate;
   left_ch   = pcm->samples[0];
   right_ch  = pcm->samples[1];
   nsamples  = pcm->length;
-  samplerate= pcm->samplerate;
 
   /* 为PCM播放设备设置相应参数 */
-  /* Sep parameters for pcm_hanle */
+  if( !pcmdev_ready && header->flags&0x1 ) {  /* assume (header->flags&0x1)==1 as start of complete frame */
+        /* Update nchannles and samplerate */
+        nchannels=pcm->channels; //MAD_NCHANNELS(header);
+        samplerate= pcm->samplerate;
+
+        /* NOTE: nchannels/samplerate from the first frame header MAY BE wrong!!! */
+        printf("header_cnt:%lu, flags:0x%04X, mode: %s, nchanls=%d, sample_rate=%d, nsamples=%d\n",
+                        header_cnt, header->flags, mad_mode_str[header->mode], nchannels, samplerate, nsamples);
+        if( egi_pcmhnd_setParams(pcm_handle, SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, nchannels, samplerate) <0 ) {
+                printf("Fail to set params for PCM playback handle.!\n");
+        } else {
+                //printf("EGI set pcm params successfully!\n");
+                pcmdev_ready=true;
+        }
+  }
+
+#if 0 /////// /* Sep parameters for pcm_hanle */
   if(!pcmdev_ready) {
 	//printf("nchanls=%d, sample_rate=%d\n", nchannels, samplerate);
 	if( egi_pcmhnd_setParams(pcm_handle, SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, nchannels, samplerate) <0 ) {
@@ -390,22 +438,24 @@ static enum mad_flow output(void *data, struct mad_header const *header, struct 
 		pcmdev_ready=true;
 	}
   }
+#endif
 
-  /* 转换成S16L格式 */
-  /* Realloc data for S16 */
-  data_s16l=(int16_t *)realloc(data_s16l, nchannels*nsamples*2);
-  if(data_s16l==NULL)
-	exit(1);
-  /* Scale to S16L */
-  for(k=0,i=0; i<nsamples; i++) {
-	data_s16l[k++]=scale(*(left_ch+i));		/* Left */
-	if(nchannels==2)
-		data_s16l[k++]=scale(*(right_ch+i));	/* Right */
+  if(pcmdev_ready) {
+  	  /* 转换成S16L格式 */
+	  /* Realloc data for S16 */
+	  data_s16l=(int16_t *)realloc(data_s16l, nchannels*nsamples*2);
+	  if(data_s16l==NULL)
+		exit(1);
+	  /* Scale to S16L */
+	  for(k=0,i=0; i<nsamples; i++) {
+		data_s16l[k++]=scale(*(left_ch+i));		/* Left */
+		if(nchannels==2)
+			data_s16l[k++]=scale(*(right_ch+i));	/* Right */
+	  }
+
+	  /* Playback 播放PCM数据 */
+	  egi_pcmhnd_playBuff(pcm_handle, true, (void *)data_s16l, nsamples);
   }
-
-  /* Playback 播放PCM数据 */
-  if(pcmdev_ready)
-	    egi_pcmhnd_playBuff(pcm_handle, true, (void *)data_s16l, nsamples);
 
   return MAD_FLOW_CONTINUE;
 }
@@ -596,7 +646,7 @@ int decode(unsigned char const *start, unsigned long length)
   return result;
 }
 
-/* MP3前处理解码函数:	初开始化解码器并执行解码．　这里作为前处理，将帧头位置和时间推入FILO索引
+/* MP3前处理解码函数:  初开始化解码器并执行解码．　这里作为前处理，将帧头位置和时间推入FILO索引
    Preprocess decoding. Read frame headers and fill into FILO.
  */
 static int decode_preprocess(unsigned char const *start, unsigned long length)
@@ -612,8 +662,8 @@ static int decode_preprocess(unsigned char const *start, unsigned long length)
 
   /* configure input, output, and error functions */
   mad_decoder_init(&decoder, &buffer,
-                   input_all, header_preprocess /* header */, 0 /* filter */, 0, /* output */
-                   0,/* error */ 0 /* message */);
+                   input_all, header_preprocess /* header */, 0 /* filter */, 0 /* output */,
+                   0 /* error */, 0 /* message */);
 
   /* start decoding */
   result = mad_decoder_run(&decoder, MAD_DECODER_MODE_SYNC);

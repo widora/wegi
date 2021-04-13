@@ -161,6 +161,8 @@ void egi_surfbtn_free(ESURF_BTN **sbtn)
 
 	/* Free imgbuf */
 	egi_imgbuf_free((*sbtn)->imgbuf);
+	egi_imgbuf_free((*sbtn)->imgbuf_effect);
+	egi_imgbuf_free((*sbtn)->imgbuf_pressed);
 
 	/* Free struct */
 	free(*sbtn);

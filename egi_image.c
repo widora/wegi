@@ -519,9 +519,10 @@ int  egi_imgbuf_copyBlock( EGI_IMGBUF *destimg, const EGI_IMGBUF *srcimg, bool b
 	int pos_dest;		/* offset position  */
 	int pos_src;
 
-	/* TEST: ----- */
+#if 0	/* TEST: ----- */
 	egi_dpstd("destimg(W%dxH%d), srcimg(W%dxH%d), bw*bh(%dx%d) (xd,yd)(%d,%d), (xs,ys)(%d,%d) \n",
 			destimg->width, destimg->height, srcimg->width, srcimg->height, bw, bh, xd,yd, xs,ys);
+#endif
 
 	/* Check input */
         if( destimg==NULL || destimg->imgbuf==NULL || srcimg==NULL || srcimg->imgbuf==NULL )

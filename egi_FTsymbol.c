@@ -1420,7 +1420,7 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 	int count;		/* number of character written to FB*/
 	int px,py;		/* bitmap insertion origin(BBOX left top), relative to FB */
 	const unsigned char *p=pstr;
-        int xleft; 	/* available pixels remainded in current line */
+        int xleft; 		/* available pixels remainded in current line */
         unsigned int ln; 	/* lines used */
  	wchar_t wcstr[1];
 
@@ -1515,7 +1515,7 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 
 	} /* end while() */
 
-	/* if finishing writing whole strings, ln++ to get written lines, as ln index from 0 */
+	/* If finish writing whole strings, ln++ to get written lines, as ln index from 0 */
 	if(*pstr)   /* To rule out NULL input */
 		ln++;
 

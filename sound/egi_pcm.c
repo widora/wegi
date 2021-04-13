@@ -616,7 +616,7 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 /*---------------------------------------------------
 Step up/down pcm volume to range [0 100]
 
-@vdelt adjusting value for volume
+@vdelt:  adjusting value for volume.
 
 return
 	0	OK
