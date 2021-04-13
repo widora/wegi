@@ -3,7 +3,36 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-	EGI SURFACE version of madplay.
+	EGI_SURF graphic version of madplay.
+
+Usage:
+	1. Play control
+		BTN_PREV:  Click to play previous MP3 file.
+		BTN_PLAY:  Click to toggle Play/Pause
+		BTN_NEXT:  Click to play next MP3 file.
+	2. Volume control:
+		BTN_VOLUME: Move mouse onto the button and roll middle key to adjust volume.
+	3. Menu control:
+		TODO:
+
+Note:
+1. Quit process:
+   1.1 Click on TOPBTN_CLOSE to set usersig=1.
+   1.2 mad_flow header() check *pUserSig==1 and returns MAD_FLOW_STOP
+       to quit current decoding session.
+   2.3 main loop checks usersig==1, then break loop and release all
+       sources before it ends program.
+
+Journal:
+2021-04-10:
+	1. Add minimad codes for MP3 decoding and playing.
+2021-04-11:
+	1. Add lab_passtime, lab_mp3name.
+2021-04-12:
+	1. mad_flow output(): correct nchannels and samplerate.
+	2. Add menus[].
+2021-04-13:
+	1. Add BTN_VOLUME for SYS volume control.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -26,6 +55,9 @@ https://github.com/widora/wegi
 #include "egi_procman.h"
 #include "egi_input.h"
 
+#include "surf_madplay.h"
+
+#define DEFAULT_MP3_PATH "/mmc/music/\*.mp3"
 
 /* For SURFUSER */
 EGI_SURFUSER     *surfuser=NULL;
@@ -35,22 +67,46 @@ EGI_IMGBUF       *surfimg=NULL;          /* Only a ref. to surfuser->imgbuf */
 SURF_COLOR_TYPE  colorType=SURF_RGB565;  /* surfuser->vfbdev color type */
 EGI_16BIT_COLOR  bkgcolor;
 
+//int		*pUserSig;		/* Pointer to surfshmem->usersig, in "surf_madplay.h" */
+
 /* For SURF Buttons */
 EGI_IMGBUF *icons_normal;
 EGI_IMGBUF *icons_effect;
+EGI_IMGBUF *icons_pressed;
 
 enum {
 	BTN_PREV 	=0,
 	BTN_PLAY	=1,
 	BTN_NEXT	=2,
-	BTN_PAUSE	=3,
+	BTN_VOLUME	=3,
 	BTN_MAX		=4, /* <--- Limit */
 };
 ESURF_BTN  * btns[BTN_MAX];
-int btnW=50;
+ESURF_BTN  * btn_pause; /* Swap with BTN_PLAY */
+ESURF_BTN  * btn_tmp;
+int btnW=50;		/* Button size, same as original icon size. */
 int btnH=50;
 bool mouseOnBtn;
-int mpbtn=-1;	/* Index of mouse touched button */
+int mpbtn=-1;	/* Index of mouse touched button, <0 invalid. */
+
+/* SURF Menus */
+const char *menu_names[] = { "File", "Option", "Help"};
+enum {
+	MENU_FILE	=0,
+	MENU_OPTION	=1,
+	MENU_HELP	=2,
+	MENU_MAX	=3, /* <--- Limit */
+};
+ESURF_BOX	*menus[MENU_MAX];
+int menuW;	/* var. */
+int menuH=24;
+bool mouseOnMenu;
+int mpmenu=-1;	/* Index of mouse touched menu, <0 invalid */
+
+
+/* ESURF Lables */
+ESURF_BOX *lab_passtime; /* Label for passage of playing time. */
+ESURF_BOX *lab_mp3name;  /* Label for MP3 file name. */
 
 /* ERING routine */
 void            *surfuser_ering_routine(void *args);
@@ -58,6 +114,10 @@ void            *surfuser_ering_routine(void *args);
 /* Apply SURFACE module default function */
 // void  surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex */
 void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
+
+void draw_PassTime(long intus); /* Passage of playing time */
+void draw_mp3name(char *name);  /* MP3 file name */
+
 
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
@@ -76,9 +136,18 @@ int main(int argc, char **argv)
 	int sw=0,sh=0; /* Width and Height of the surface */
 	int x0=0,y0=0; /* Origin coord of the surface */
 	char *pname=NULL;
+	int files;
+
+  	if (argc <2 ) {
+		printf("Please provide MP3 fpath!\n");
+		//printf("No path provided, use default path '%s'.\n", DEFAULT_MP3_PATH);
+                exit(EXIT_FAILURE);
+	}
+  	files=argc-1;
+
 
 #if 0	/* Start EGI log */
-        if(egi_init_log("/mmc/test_surfman.log") != 0) {
+        if(egi_init_log("/mmc/surf_madplay.log") != 0) {
                 printf("Fail to init logger, quit.\n");
                 exit(EXIT_FAILURE);
         }
@@ -96,8 +165,8 @@ int main(int argc, char **argv)
 	/* Set signal handler */
 //	egi_common_sigAction(SIGINT, signal_handler);
 
-	/* Load Icons */
-	icons_normal=egi_imgbuf_readfile("/mmc/gray_icons_normal.png");
+	/* Load Noraml Icons */
+	icons_normal=egi_imgbuf_readfile("/mmc/gray_icons_normal_block.png");
 	if( egi_imgbuf_setSubImgs(icons_normal, 12*5)!=0 ) {
 		printf("Fail to setSubImgs for icons_normal!\n");
 		exit(EXIT_FAILURE);
@@ -111,7 +180,8 @@ int main(int argc, char **argv)
 		icons_normal->subimgs[i*12+j].h= 50;
 	}
 
-	icons_effect=egi_imgbuf_readfile("/mmc/gray_icons_effect.png");
+	/* Load Effect Icons */
+	icons_effect=egi_imgbuf_readfile("/mmc/gray_icons_effect_block.png");
 	if( egi_imgbuf_setSubImgs(icons_effect, 12*5)!=0 ) {
 		printf("Fail to setSubImgs for icons_effect!\n");
 		exit(EXIT_FAILURE);
@@ -125,19 +195,52 @@ int main(int argc, char **argv)
 		icons_effect->subimgs[i*12+j].h= btnH;
 	}
 
-	/* Create buttons: ( imgbuf, xi, yi, x0, y0, w, h ) */
-	btns[BTN_PREV]=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+4*73.5, 1+22, SURF_TOPBAR_HEIGHT+10, btnW, btnH);
-	btns[BTN_PLAY]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+3*73.5, 1+22*2+50, SURF_TOPBAR_HEIGHT+10, btnW, btnH);
-	btns[BTN_NEXT]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+4*73.5, 1+22*3+50*2, SURF_TOPBAR_HEIGHT+10, btnW, btnH);
-	/* Set imgbuf_effect */
-	btns[BTN_PREV]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+7*75.5, 145+4*73.5, btnW, btnH); /* inimg, px, py, height, width */
-	btns[BTN_PLAY]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+6*75.5, 145+3*73.5, btnW, btnH); /* inimg, px, py, height, width */
-	btns[BTN_NEXT]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+6*75.5, 145+4*73.5, btnW, btnH); /* inimg, px, py, height, width */
-	/* imgbuf_pressed use mask */
+	/* Load Pressed Icons */
+	icons_pressed=egi_imgbuf_readfile("/mmc/gray_icons_bright.png");
+	if( egi_imgbuf_setSubImgs(icons_pressed, 12*5)!=0 ) {
+		printf("Fail to setSubImgs for icons_pressed!\n");
+		exit(EXIT_FAILURE);
+	}
+	/* Set subimgs */
+	for( i=0; i<5; i++ )
+	   for(j=0; j<12; j++) {
+		icons_pressed->subimgs[i*12+j].x0= 25+j*75.5;		/* 25 Left_margin, 75.5 Hdis */
+		icons_pressed->subimgs[i*12+j].y0= 145+i*73.5;		/* 73.5 Vdis */
+		icons_pressed->subimgs[i*12+j].w= btnW;			/* 50x50 */
+		icons_pressed->subimgs[i*12+j].h= btnH;
+	}
+
+	/* Create controls buttons: ( imgbuf, xi, yi, x0, y0, w, h ) */
+	#if 0 /* 3 buttons arrangement */
+	btns[BTN_PREV]=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+4*73.5, 1+22, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_PLAY]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+3*73.5, 1+22*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btn_pause=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+3*73.5, 1+22*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_NEXT]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+4*73.5, 1+22*3+50*2, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	#else /* 4 buttons arrangement */
+	btns[BTN_PREV]=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+4*73.5, 1+7, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_PLAY]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+3*73.5, 1+7*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btn_pause=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+3*73.5, 1+7*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_NEXT]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+4*73.5, 1+7*3+50*2, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_VOLUME]=egi_surfbtn_create(icons_normal, 25+10*75.5, 145+4*73.5, 1+7*4+50*3, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	#endif
+
+	/* Set imgbuf_effect: egi_imgbuf_blockCopy(inimg, px, py, height, width) */
+	btns[BTN_PREV]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+7*75.5, 145+4*73.5, btnW, btnH);
+	btns[BTN_PLAY]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+6*75.5, 145+3*73.5, btnW, btnH);
+	btn_pause->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+7*75.5, 145+3*73.5, btnW, btnH);
+	btns[BTN_NEXT]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+6*75.5, 145+4*73.5, btnW, btnH);
+	btns[BTN_VOLUME]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+10*75.5, 145+4*73.5, btnW, btnH);
+
+	/* imgbuf_pressed, OR use mask: egi_imgbuf_blockCopy(inimg, px, py, height, width) */
+	btns[BTN_PREV]->imgbuf_pressed = egi_imgbuf_blockCopy(icons_pressed, 25+7*75.5, 145+4*73.5, btnW, btnH);
+	btns[BTN_PLAY]->imgbuf_pressed = egi_imgbuf_blockCopy(icons_pressed, 25+6*75.5, 145+3*73.5, btnW, btnH);
+	btn_pause->imgbuf_pressed = egi_imgbuf_blockCopy(icons_pressed, 25+7*75.5, 145+3*73.5, btnW, btnH);
+	btns[BTN_NEXT]->imgbuf_pressed = egi_imgbuf_blockCopy(icons_pressed, 25+6*75.5, 145+4*73.5, btnW, btnH);
+
 
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
-	x0=0;y0=0;	sw=240; sh=160;
+	x0=0;y0=0;	sw=240; sh=170;
 	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, sw, sh, sw, sh, colorType ); /* Fixed size */
 	if(surfuser==NULL) {
 		printf("Fail to register surfuser!\n");
@@ -162,8 +265,9 @@ int main(int argc, char **argv)
 	//surfshmem->maximize_surface 	= surfuser_maximize_surface;   	/* Need resize */
 	//surfshmem->normalize_surface 	= surfuser_normalize_surface; 	/* Need resize */
         surfshmem->close_surface 	= surfuser_close_surface;
-
 	surfshmem->user_mouse_event	= my_mouse_event;
+
+	pUserSig = &surfshmem->usersig;
 
 	/* 4. Name for the surface. */
 	pname="MadPlayer";
@@ -173,10 +277,40 @@ int main(int argc, char **argv)
 	surfshmem->bkgcolor=WEGI_COLOR_DARKGRAY; /* OR default BLACK */
 	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN); /* Default firstdraw operation */
 
-	/* Draw btns */
+	/* 6. Draw top menus */
+	//fbset_color2(vfbdev, WEGI_COLOR_GRAYA);
+	fbset_color2(vfbdev, WEGI_COLOR_DARKBLUE); //FIREBRICK);
+	draw_filled_rect(vfbdev, 1, SURF_TOPBAR_HEIGHT+1, vfbdev->virt_fb->width-2, SURF_TOPBAR_HEIGHT+1+menuH -1);
+	int penx; int startx;
+	penx=1+10;
+	for(i=0; i<MENU_MAX; i++) {
+		startx=penx;
+		FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.regular,   	/* FBdev, fontface */
+               		                  18, 18, (UFT8_PCHAR)menu_names[i],	/* fw,fh, pstr */
+                       		          100, 1, 0,         			/* pixpl, lines, fgap */
+                               		  startx, SURF_TOPBAR_HEIGHT+1,		/* x0,y0, */
+	                                  //WEGI_COLOR_BLACK, -1, 255,     	/* fontcolor, transcolor,opaque */
+	                                  WEGI_COLOR_GRAYC, -1, 200,     	/* fontcolor, transcolor,opaque */
+       		                          NULL, NULL, &penx, NULL);        	/* int *cnt, int *lnleft, int* penx, int* peny */
+
+		/* Create menu/buttons  BTN_FILE, BNT_OPTION, BTN_HELP  (imgbuf, xi, yi,  x0, y0, w, h) */
+		menus[i]=egi_surfBox_create(surfimg, startx-(10), SURF_TOPBAR_HEIGHT+1,  /* 1+10, name offset from box size */
+						     startx-(10), SURF_TOPBAR_HEIGHT+1, (penx+20)-startx, menuH);
+		penx +=20; /* As gap between 2 menu names */
+	}
+
+	/* 7. Create Lables */
+	/* Create ESURF_BOX lab_mp3name */
+	lab_mp3name=egi_surfBox_create(surfimg, 15, SURF_TOPBAR_HEIGHT+20+10, 15, SURF_TOPBAR_HEIGHT+20+10, 200, 20); /* imgbuf, xi, yi,  x0, y0, w, h */
+	/* Create ESURF_BOX lab_passtime */
+	lab_passtime=egi_surfBox_create(surfimg, 42, 142, 42, 142, 180, 20); /* imgbuf, xi, yi,  x0, y0, w, h */
+
+
+	/* First draw btns */
         egi_subimg_writeFB(btns[BTN_PREV]->imgbuf, vfbdev, 0, -1, btns[BTN_PREV]->x0, btns[BTN_PREV]->y0);
         egi_subimg_writeFB(btns[BTN_PLAY]->imgbuf, vfbdev, 0, -1, btns[BTN_PLAY]->x0, btns[BTN_PLAY]->y0);
         egi_subimg_writeFB(btns[BTN_NEXT]->imgbuf, vfbdev, 0, -1, btns[BTN_NEXT]->x0, btns[BTN_NEXT]->y0);
+        egi_subimg_writeFB(btns[BTN_VOLUME]->imgbuf, vfbdev, 0, -1, btns[BTN_VOLUME]->x0, btns[BTN_VOLUME]->y0);
 
 	/* Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
@@ -197,11 +331,103 @@ int main(int argc, char **argv)
                 pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
 
-	/* Main loop */
-	while( surfshmem->usersig != 1 ) {
-		tm_delayms(100);
-		//sleep(1);
+  	/* MAD_0: Set termI/O 设置终端为直接读取单个字符方式 */
+  	egi_set_termios();
+
+	/* MAD_1: Prepare vol 启动系统声音调整设备 */
+  	egi_getset_pcm_volume(NULL,NULL);
+
+  	/* MAD_2: Open pcm playback device 打开PCM播放设备 */
+  	if( snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0) <0 ) {  /* SND_PCM_NONBLOCK,SND_PCM_ASYNC */
+        	printf("Fail to open PCM playback device!\n");
+	        return 1;
+  	}
+
+
+ /* ====== Main Loop ====== */
+ while( surfshmem->usersig != 1 ) {
+
+   /* Play all files 逐个播放MP3文件 */
+   for(i=0; i<files; i++) {
+
+while(madSTAT==STAT_PAUSE) {
+       if(madCMD==CMD_PLAY)
+		break;
+       if( surfshmem->usersig==1 )
+		break;
+	usleep(100000);
+};
+
+        /* MAD_: Init filo 建立一个FILO用于存放MP3 HEADER　*/
+        filo_headpos=egi_malloc_filo(1024, sizeof(MP3_HEADER_POS), FILOMEM_AUTO_DOUBLE);
+        if(filo_headpos==NULL) {
+                printf("Fail to malloc headpos FILO!\n");
+                exit(EXIT_FAILURE);
+        }
+
+        /* MAD_: Reset 重置参数 */
+        duration_frac=0;
+        duration_sec=0;
+        timelapse_frac=0;
+        timelapse_sec=0;
+        header_cnt=0;
+        pcmparam_ready=false;
+        pcmdev_ready=false;
+        poff=0;
+
+        /* MAD_: Mmap input file 映射当前MP3文件 */
+madSTAT=STAT_LOAD;
+	draw_mp3name(basename(argv[i+1]));
+	snprintf(strPassTime, sizeof(strPassTime), "Loading...");
+	draw_PassTime(0);
+
+        mp3_fmap=egi_fmap_create(argv[i+1], 0, PROT_READ, MAP_PRIVATE);
+        if(mp3_fmap==NULL) return 1;
+        fsize=mp3_fmap->fsize;
+
+        /* MAD_: To fill filo_headpos and calculation time duration. */
+        decode_preprocess((const unsigned char *)mp3_fmap->fp, mp3_fmap->fsize);
+
+        /* MAD_	: Calculate duration 计算总时长 */
+        duration=(1.0*duration_frac/MAD_TIMER_RESOLUTION) + duration_sec;
+        printf("\rDuration: %.1f seconds\n", duration);
+        durHour=duration/3600; durMin=(duration-durHour*3600)/60;
+        durfSec=duration-durHour*3600-durMin*60;
+
+        /* MAD_ : Decoding 解码播放 */
+madSTAT=STAT_PLAY;
+        printf(" Start playing...\n %s\n size=%lldk\n", argv[i+1], mp3_fmap->fsize>>10);
+        mp3_decode((const unsigned char *)mp3_fmap->fp, mp3_fmap->fsize);
+
+        /* MAD_ : Release source 释放相关资源　*/
+        free(data_s16l); data_s16l=NULL;
+        egi_fmap_free(&mp3_fmap);
+        egi_filo_free(&filo_headpos);
+
+	/* MAD_ : Parse command, after decode() quits at CMD_PREV/NEXT */
+	if( madCMD == CMD_PREV ) {
+        	if(i==0) i=-1;
+                else i-=2;
+		madCMD=CMD_NONE;
 	}
+	else if( madCMD==CMD_NEXT ) { /* If CMD_NEXT, just go through. */
+		madCMD=CMD_NONE;
+	}
+
+	/* MAD_ : Check usersig to quit */
+	if( surfshmem->usersig==1 )
+		break;
+
+   } /* End for() */
+
+ } /* END main_loop */
+
+	/* MAD_FREE: */
+	/* Close pcm handle */
+  	snd_pcm_close(pcm_handle);
+  	/* Reset termI/O */
+  	egi_reset_termios();
+
 
         /* Free SURFBTNs */
         for(i=0; i<3; i++)
@@ -303,7 +529,16 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 {
         int i;
 
-        /* 1. !!!FIRST:  Check if mouse touches any button */
+	/* --------- Rule out mouse postion out of workarea -------- */
+	#if 0 /* NOTE: MAYBE you DO NOT need it! */
+	if( pmostat->mouseX < surfshmem->x0 || pmostat->mouseX > surfshmem->y0+surfshmem->vw -1
+	    ||  pmostat->mouseY < surfshmem->y0 || pmostat->mouseY > surfshmem->y0+surfshmem->vh -1
+	  )
+		return;
+	#endif
+
+        /* 1. !!!FIRST:  Check if mouse hovers over any button */
+	/* TODO: Rule out range box of contorl buttons */
 	for(i=0; i<BTN_MAX; i++) {
                 /* A. Check mouse_on_button */
                 if( btns[i] ) {
@@ -313,7 +548,7 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 //		else
 //			continue;
 
-                #if 1 /* TEST: --------- */
+                #if 0 /* TEST: --------- */
                 if(mouseOnBtn)
                         printf(">>> Touch btns[%d].\n", i);
                 #endif
@@ -333,7 +568,6 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
         	                		btns[i]->x0+btns[i]->imgbuf->width-1,btns[i]->y0+btns[i]->imgbuf->height-1,
                 	                	WEGI_COLOR_BLUE, 100);
 			   #else /* imgbuf_effect */
-				printf("Draw effect\n");
 				egi_subimg_writeFB(btns[i]->imgbuf_effect, vfbdev,
                                                 0, -1, btns[i]->x0, btns[i]->y0);
 			   #endif
@@ -367,14 +601,73 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 
 	/* NOW: mpbtn updated */
 
+	/* 1.A Check if mouse hovers over any muenu */
+	if( !mouseOnBtn ) {
+		for(i=0; i<MENU_MAX; i++) {
+	                /* A. Check mouse_on_menu */
+                	mouseOnMenu=egi_point_on_surfBox( menus[i], pmostat->mouseX -surfuser->surfshmem->x0,
+                                                                	pmostat->mouseY -surfuser->surfshmem->y0 );
+
+			/* B. If the mouse just moves onto a menu */
+		        if(  mouseOnMenu && mpmenu != i ) {
+				egi_dpstd("Touch a MENU mpmenu=%d, i=%d\n", mpmenu, i);
+                		/* B.1 In case mouse move from a nearby menu, restore its image. */
+		                if( mpmenu>=0 ) {
+        		        	egi_subimg_writeFB(menus[mpmenu]->imgbuf, vfbdev,
+	        	        	        	0, -1, menus[mpmenu]->x0, menus[mpmenu]->y0);
+                		}
+	                        /* B.2 Put effect on the newly touched SURFBTN */
+			   	#if 1 /* Mask */
+	                	draw_blend_filled_rect(vfbdev, menus[i]->x0, menus[i]->y0,
+        	                			menus[i]->x0+menus[i]->imgbuf->width-1,menus[i]->y0+menus[i]->imgbuf->height-1,
+                	                		WEGI_COLOR_WHITE, 100);
+				#else /* imgbuf_effect */
+				egi_subimg_writeFB(menus[i]->imgbuf_effect, vfbdev,
+                	                               0, -1, menus[i]->x0, menus[i]->y0);
+				#endif
+
+        	                /* B.3 Update mpmenu */
+                	        mpmenu=i;
+
+                        	/* B.4 Break for() */
+	                        break;
+        	 	}
+                	/* C. If the mouse leaves a menu: Clear mpmenu */
+	                else if( !mouseOnMenu && mpmenu == i ) {
+
+        	                /* C.1 Draw/Restor original image */
+                	        egi_subimg_writeFB(menus[mpmenu]->imgbuf, vfbdev, 0, -1, menus[mpmenu]->x0, menus[mpmenu]->y0);
+
+                        	/* C.2 Reset pressed and Clear mpbtn */
+				//menus[mpmenu]->pressed=false;
+        	                mpmenu=-1;
+
+                	        /* C.3 Break for() */
+                        	break;
+	                }
+        	        /* D. Still on the menu, sustain... */
+                	else if( mouseOnBtn && mpmenu == i ) {
+                        	break;
+	                }
+
+		} /* EDN for(menus) */
+
+	}
+
+
         /* 2. If LeftKeyDown(Click) on buttons */
         if( pmostat->LeftKeyDown && mouseOnBtn ) {
                 egi_dpstd("LeftKeyDown mpbtn=%d\n", mpbtn);
 
-		/* Same effect: Put mask */
-		draw_blend_filled_rect(vfbdev, btns[mpbtn]->x0, btns[mpbtn]->y0,
-        		btns[mpbtn]->x0+btns[mpbtn]->imgbuf->width-1,btns[mpbtn]->y0+btns[mpbtn]->imgbuf->height-1,
-                	WEGI_COLOR_DARKGRAY, 150);
+		if(mpbtn != BTN_PLAY) {
+		    	#if 1   /* Same effect: Put mask */
+			draw_blend_filled_rect(vfbdev, btns[mpbtn]->x0 +1, btns[mpbtn]->y0 +1,
+        			btns[mpbtn]->x0+btns[mpbtn]->imgbuf->width-1 -1, btns[mpbtn]->y0+btns[mpbtn]->imgbuf->height-1 -1,
+                		WEGI_COLOR_DARKGRAY, 160);
+		    	#else /* Apply imgbuf_effect */
+			egi_subimg_writeFB(btns[mpbtn]->imgbuf_pressed, vfbdev, 0, -1, btns[mpbtn]->x0, btns[mpbtn]->y0);
+		    	#endif
+		}
 
 		/* Set pressed */
 		btns[mpbtn]->pressed=true;
@@ -382,21 +675,165 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
                 /* If any SURFBTN is touched, do reaction! */
                 switch(mpbtn) {
                         case BTN_PREV:
+				madCMD=CMD_PREV;
+
+				/* If current it's in STAT_PAUSE, then changes to STAT_PLAY, and switch BTN_PLAY. */
+				if(madSTAT==STAT_PAUSE) {
+					/* Toggle btn_play/btn_pause, and update btn image */
+					btn_tmp=btns[BTN_PLAY];
+					btns[BTN_PLAY]=btn_pause;
+					btn_pause=btn_tmp;
+					egi_subimg_writeFB(btns[BTN_PLAY]->imgbuf, vfbdev,
+								0, -1, btns[BTN_PLAY]->x0, btns[BTN_PLAY]->y0);
+				}
+
 				break;
 			case BTN_PLAY:
+				/* Skip when loading */
+				if(madSTAT==STAT_LOAD)
+					break;
+
+				/* Toggle btn_play/btn_pause */
+				btn_tmp=btns[BTN_PLAY];
+				btns[BTN_PLAY]=btn_pause;
+				btn_pause=btn_tmp;
+
+				/* Swith MAD COMMAND, madSTAT set in mad_flow header(). */
+				if(madSTAT==STAT_PLAY) {
+					madCMD=CMD_PAUSE;
+				}
+				else if(madSTAT==STAT_PAUSE) {
+					madCMD=CMD_PLAY;
+				}
+
+				/* Draw new pressed button */
+			        #if 1 /* Normal btn image + rim OR igmbuf_effect */
+				egi_subimg_writeFB(btns[mpbtn]->imgbuf_effect, vfbdev, 0, -1, btns[mpbtn]->x0, btns[mpbtn]->y0);
+				//egi_subimg_writeFB(btns[mpbtn]->imgbuf, vfbdev, 0, -1, btns[mpbtn]->x0, btns[mpbtn]->y0);
+				//draw_blend_filled_rect(vfbdev, btns[mpbtn]->x0 +1, btns[mpbtn]->y0 +1,
+        			//	btns[mpbtn]->x0+btns[mpbtn]->imgbuf->width-1 -1, btns[mpbtn]->y0+btns[mpbtn]->imgbuf->height-1 -1,
+	                	//	WEGI_COLOR_DARKGRAY, 160);
+				#else /* Apply imgbuf_pressed */
+				egi_subimg_writeFB(btns[mpbtn]->imgbuf_pressed, vfbdev, 0, -1, btns[mpbtn]->x0, btns[mpbtn]->y0);
+				#endif
+
 				break;
 			case BTN_NEXT:
+				madCMD=CMD_NEXT;
+
+				/* If current it's in STAT_PAUSE, then changes to STAT_PLAY, and switch BTN_PLAY. */
+				if(madSTAT==STAT_PAUSE) {
+					/* Toggle btn_play/btn_pause, and update btn image */
+					btn_tmp=btns[BTN_PLAY];
+					btns[BTN_PLAY]=btn_pause;
+					btn_pause=btn_tmp;
+					egi_subimg_writeFB(btns[BTN_PLAY]->imgbuf, vfbdev,
+								0, -1, btns[BTN_PLAY]->x0, btns[BTN_PLAY]->y0);
+				}
+
 				break;
 		}
 	}
 
 	/* 3. LeftKeyUp */
 	if( pmostat->LeftKeyUp && mouseOnBtn) {
+		/* Resume button with normal image */
 		if(btns[mpbtn]->pressed) {
-			/* Resume button with normal image */
 			//egi_subimg_writeFB(btns[mpbtn]->imgbuf, vfbdev, 0, -1, btns[mpbtn]->x0, btns[mpbtn]->y0);
 			egi_subimg_writeFB(btns[mpbtn]->imgbuf_effect, vfbdev, 0, -1, btns[mpbtn]->x0, btns[mpbtn]->y0);
 			btns[mpbtn]->pressed=false;
 		}
 	}
+
+	/* 4. If mouseDZ on BTN_VOLUME */
+	if( pmostat->mouseDZ && mpbtn == BTN_VOLUME ) {
+		int pvol=0;  /* [0 100] */
+		egi_adjust_pcm_volume( -pmostat->mouseDZ);
+		egi_getset_pcm_volume(&pvol, NULL);
+
+		/* Base Line */
+		fbset_color2(vfbdev, WEGI_COLOR_WHITE);
+		draw_wline_nc(vfbdev, btns[BTN_VOLUME]->x0+5, btns[BTN_VOLUME]->y0+42,
+				      btns[BTN_VOLUME]->x0+5 +40, btns[BTN_VOLUME]->y0+42, 3);
+		/* Volume Line */
+		fbset_color2(vfbdev, WEGI_COLOR_ORANGE);
+		draw_wline_nc(vfbdev, btns[BTN_VOLUME]->x0+5, btns[BTN_VOLUME]->y0+42,
+				      btns[BTN_VOLUME]->x0+5 +40*pvol/100, btns[BTN_VOLUME]->y0+42, 3);
+	}
 }
+
+
+/*------------------------------------
+Write passage of time for MP3 playing.
+
+@intus:  Interval in usec.
+------------------------------------*/
+void draw_PassTime(long intus)
+{
+	static EGI_CLOCK eclock={0};
+	long usec;
+
+        pthread_mutex_lock(&surfshmem->shmem_mutex);
+/* ------ >>>  Surface shmem Critical Zone  */
+
+	/* First time */
+	if(eclock.status==ECLOCK_STATUS_IDLE) {
+		egi_clock_start(&eclock);
+
+		egi_surfBox_display(vfbdev, lab_passtime,  0, 0);
+  		FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.bold,   /* FBdev, fontface */
+                	                  15, 15, (UFT8_PCHAR)strPassTime,	/* fw,fh, pstr */
+                        	          180, 1, 0,         /* pixpl, lines, fgap */
+                                	  lab_passtime->x0, lab_passtime->y0,    /* x0,y0, */
+	                                  WEGI_COLOR_WHITE, -1, 220,     /* fontcolor, transcolor,opaque */
+        	                          NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
+	}
+
+	usec=egi_clock_peekCostUsec(&eclock);
+	if(usec >= intus) {
+		egi_surfBox_display(vfbdev, lab_passtime,  0, 0);
+  		FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.bold,   /* FBdev, fontface */
+                	                  15, 15, (UFT8_PCHAR)strPassTime,	/* fw,fh, pstr */
+                        	          180, 1, 0,         /* pixpl, lines, fgap */
+                                	  lab_passtime->x0, lab_passtime->y0,    /* x0,y0, */
+	                                  WEGI_COLOR_WHITE, -1, 220,     /* fontcolor, transcolor,opaque */
+        	                          NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
+		egi_clock_stop(&eclock);
+		egi_clock_start(&eclock);
+	}
+
+/* ------ <<<  Surface shmem Critical Zone  */
+                pthread_mutex_unlock(&surfshmem->shmem_mutex);
+}
+
+
+/*------------------------------------
+Write name of MP3 file on lab_mp3name.
+
+------------------------------------*/
+void draw_mp3name(char *name)
+{
+	char strbuf[256];
+	int len;
+	if(strlen(name)>4) {
+		strncpy(strbuf, name, sizeof(strbuf)-1);
+		len=strlen(strbuf);
+		strbuf[len-4]='\0'; /* get rid of '.mp3' */
+	}
+
+        pthread_mutex_lock(&surfshmem->shmem_mutex);
+/* ------ >>>  Surface shmem Critical Zone  */
+
+	egi_surfBox_display(vfbdev, lab_mp3name,  0, 0);
+	FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.bold,   /* FBdev, fontface */
+               	                  15, 15, (UFT8_PCHAR)strbuf,	/* fw,fh, pstr */
+                       	          200, 1, 0,         /* pixpl, lines, fgap */
+                               	  lab_mp3name->x0, lab_mp3name->y0,    /* x0,y0, */
+                                  WEGI_COLOR_ORANGE, -1, 220,     /* fontcolor, transcolor,opaque */
+       	                          NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
+
+/* ------ <<<  Surface shmem Critical Zone  */
+                pthread_mutex_unlock(&surfshmem->shmem_mutex);
+}
+
+
