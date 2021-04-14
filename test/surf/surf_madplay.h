@@ -109,6 +109,8 @@ int        *pUserSig;       		/* Pointer to surfshmem->usersig, ==1 for quit. */
 char	   strPassTime[256];		/* Passage of time */
 //unsigned int nchannels, samplerate;	/* Channels and sample rate for decoded PCM data */
 
+int	ffseek_val, fbseek_val;		/* Fast forward/backward speed: skip ffseek_val*5 sec */
+
 const char *mad_mode_str[]={
 	"Single channel",
 	"Dual channel",
@@ -151,7 +153,7 @@ enum {
 	CMD_NONE=0,
 	CMD_NEXT,
 	CMD_PREV,
-	CMD_FFSEEK,	/* Fast forward seek */
+	CMD_FFSEEK,	/* Fast forward seek, command in BTN_NEXT, react in mad_flow header() */
 	CMD_FBSEEK,	/* Fast backward seek */
 	CMD_LOOP,
 	CMD_PAUSE,
@@ -505,6 +507,13 @@ static enum mad_flow header(void *data,  struct mad_header const *header )
   }
   madSTAT=STAT_PLAY;
 
+  /* If fast seek */
+  if(madCMD==CMD_FFSEEK) {
+	if(preset_timelapse < timelapse) /* To avoid repeat updating preset_timelapse. */
+		preset_timelapse=timelapse+5*ffseek_val;  /* 5s */
+	//mad_ret=MAD_FLOW_IGNORE;
+  }
+
   /* Count header frame */
   header_cnt++;
 
@@ -604,12 +613,16 @@ static enum mad_flow header(void *data,  struct mad_header const *header )
 
   /* 当按下快进时，跳过中间帧 */
   /* Check timelapse, to skip/ignore if <preset_timelapse. */
-  if(cmd_keyin==CMD_FFSEEK) {
-	if(timelapse < preset_timelapse)
+  if(madCMD==CMD_FFSEEK) {
+	if(timelapse < preset_timelapse) {
 		return MAD_FLOW_IGNORE;
-	else
-		cmd_keyin=CMD_NONE;
+	}
+	else {
+		madCMD=CMD_NONE;
+		draw_PassTime(0); /* Update passtime label */
+	}
   }
+
 
 
   return mad_ret;

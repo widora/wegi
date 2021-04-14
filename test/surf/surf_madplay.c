@@ -8,10 +8,11 @@ published by the Free Software Foundation.
 Usage:
 	1. Play control
 		BTN_PREV:  Click to play previous MP3 file.
+			   Roll the wheel up to FFSEEK.
 		BTN_PLAY:  Click to toggle Play/Pause
 		BTN_NEXT:  Click to play next MP3 file.
 	2. Volume control:
-		BTN_VOLUME: Move mouse onto the button and roll middle key to adjust volume.
+		BTN_VOLUME: Move mouse onto the button and roll the wheel to adjust volume.
 	3. Menu control:
 		TODO:
 
@@ -32,7 +33,9 @@ Journal:
 	1. mad_flow output(): correct nchannels and samplerate.
 	2. Add menus[].
 2021-04-13:
-	1. Add BTN_VOLUME for SYS volume control.
+	1. Add BTN_VOLUME for SYS volume control. +Mute/Demute control.
+2021-04-14:
+	1. Roll the wheel up to FFSEEK.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -75,15 +78,21 @@ EGI_IMGBUF *icons_effect;
 EGI_IMGBUF *icons_pressed;
 
 enum {
+	/* Working/On_display buttons */
 	BTN_PREV 	=0,
 	BTN_PLAY	=1,
 	BTN_NEXT	=2,
 	BTN_VOLUME	=3,
-	BTN_MAX		=4, /* <--- Limit */
+	BTN_VALID_MAX	=4, /* <--- Max number of working buttons. */
+
+	/* Standby/switching buttons */
+	BTN_PLAY_SWITCH	=5,  /* To switch with BTN_PLAY */
+	BTN_VOLUME_SWITCH=6,  /* To switch witch BTN_VOLUME */
+
+	BTN_MAX		=7, /* <--- Limit, for allocation. */
 };
 ESURF_BTN  * btns[BTN_MAX];
-ESURF_BTN  * btn_pause; /* Swap with BTN_PLAY */
-ESURF_BTN  * btn_tmp;
+ESURF_BTN  * btn_tmp=NULL;
 int btnW=50;		/* Button size, same as original icon size. */
 int btnH=50;
 bool mouseOnBtn;
@@ -214,27 +223,29 @@ int main(int argc, char **argv)
 	#if 0 /* 3 buttons arrangement */
 	btns[BTN_PREV]=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+4*73.5, 1+22, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	btns[BTN_PLAY]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+3*73.5, 1+22*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	btn_pause=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+3*73.5, 1+22*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_PLAY_SWITCH]=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+3*73.5, 1+22*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	btns[BTN_NEXT]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+4*73.5, 1+22*3+50*2, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	#else /* 4 buttons arrangement */
 	btns[BTN_PREV]=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+4*73.5, 1+7, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	btns[BTN_PLAY]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+3*73.5, 1+7*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	btn_pause=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+3*73.5, 1+7*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_PLAY_SWITCH]=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+3*73.5, 1+7*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	btns[BTN_NEXT]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+4*73.5, 1+7*3+50*2, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	btns[BTN_VOLUME]=egi_surfbtn_create(icons_normal, 25+10*75.5, 145+4*73.5, 1+7*4+50*3, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_VOLUME_SWITCH]=egi_surfbtn_create(icons_normal, 25+11*75.5, 145+4*73.5, 1+7*4+50*3, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	#endif
 
 	/* Set imgbuf_effect: egi_imgbuf_blockCopy(inimg, px, py, height, width) */
 	btns[BTN_PREV]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+7*75.5, 145+4*73.5, btnW, btnH);
 	btns[BTN_PLAY]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+6*75.5, 145+3*73.5, btnW, btnH);
-	btn_pause->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+7*75.5, 145+3*73.5, btnW, btnH);
+	btns[BTN_PLAY_SWITCH]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+7*75.5, 145+3*73.5, btnW, btnH);
 	btns[BTN_NEXT]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+6*75.5, 145+4*73.5, btnW, btnH);
 	btns[BTN_VOLUME]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+10*75.5, 145+4*73.5, btnW, btnH);
+	btns[BTN_VOLUME_SWITCH]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+11*75.5, 145+4*73.5, btnW, btnH);
 
 	/* imgbuf_pressed, OR use mask: egi_imgbuf_blockCopy(inimg, px, py, height, width) */
 	btns[BTN_PREV]->imgbuf_pressed = egi_imgbuf_blockCopy(icons_pressed, 25+7*75.5, 145+4*73.5, btnW, btnH);
 	btns[BTN_PLAY]->imgbuf_pressed = egi_imgbuf_blockCopy(icons_pressed, 25+6*75.5, 145+3*73.5, btnW, btnH);
-	btn_pause->imgbuf_pressed = egi_imgbuf_blockCopy(icons_pressed, 25+7*75.5, 145+3*73.5, btnW, btnH);
+	btns[BTN_PLAY_SWITCH]->imgbuf_pressed = egi_imgbuf_blockCopy(icons_pressed, 25+7*75.5, 145+3*73.5, btnW, btnH);
 	btns[BTN_NEXT]->imgbuf_pressed = egi_imgbuf_blockCopy(icons_pressed, 25+6*75.5, 145+4*73.5, btnW, btnH);
 
 
@@ -374,6 +385,8 @@ while(madSTAT==STAT_PAUSE) {
         pcmparam_ready=false;
         pcmdev_ready=false;
         poff=0;
+
+	madCMD=CMD_NONE;
 
         /* MAD_: Mmap input file 映射当前MP3文件 */
 madSTAT=STAT_LOAD;
@@ -539,7 +552,7 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 
         /* 1. !!!FIRST:  Check if mouse hovers over any button */
 	/* TODO: Rule out range box of contorl buttons */
-	for(i=0; i<BTN_MAX; i++) {
+	for(i=0; i<BTN_VALID_MAX; i++) {
                 /* A. Check mouse_on_button */
                 if( btns[i] ) {
                         mouseOnBtn=egi_point_on_surfbtn( btns[i], pmostat->mouseX -surfuser->surfshmem->x0,
@@ -675,17 +688,18 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
                 /* If any SURFBTN is touched, do reaction! */
                 switch(mpbtn) {
                         case BTN_PREV:
-				madCMD=CMD_PREV;
 
 				/* If current it's in STAT_PAUSE, then changes to STAT_PLAY, and switch BTN_PLAY. */
 				if(madSTAT==STAT_PAUSE) {
 					/* Toggle btn_play/btn_pause, and update btn image */
 					btn_tmp=btns[BTN_PLAY];
-					btns[BTN_PLAY]=btn_pause;
-					btn_pause=btn_tmp;
+					btns[BTN_PLAY]=btns[BTN_PLAY_SWITCH];
+					btns[BTN_PLAY_SWITCH]=btn_tmp;
 					egi_subimg_writeFB(btns[BTN_PLAY]->imgbuf, vfbdev,
 								0, -1, btns[BTN_PLAY]->x0, btns[BTN_PLAY]->y0);
 				}
+
+				madCMD=CMD_PREV;
 
 				break;
 			case BTN_PLAY:
@@ -695,16 +709,8 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 
 				/* Toggle btn_play/btn_pause */
 				btn_tmp=btns[BTN_PLAY];
-				btns[BTN_PLAY]=btn_pause;
-				btn_pause=btn_tmp;
-
-				/* Swith MAD COMMAND, madSTAT set in mad_flow header(). */
-				if(madSTAT==STAT_PLAY) {
-					madCMD=CMD_PAUSE;
-				}
-				else if(madSTAT==STAT_PAUSE) {
-					madCMD=CMD_PLAY;
-				}
+				btns[BTN_PLAY]=btns[BTN_PLAY_SWITCH];
+				btns[BTN_PLAY_SWITCH]=btn_tmp;
 
 				/* Draw new pressed button */
 			        #if 1 /* Normal btn image + rim OR igmbuf_effect */
@@ -717,19 +723,39 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 				egi_subimg_writeFB(btns[mpbtn]->imgbuf_pressed, vfbdev, 0, -1, btns[mpbtn]->x0, btns[mpbtn]->y0);
 				#endif
 
+				/* Swith MAD COMMAND, madSTAT set in mad_flow header(). */
+				if(madSTAT==STAT_PLAY) {
+					madCMD=CMD_PAUSE;
+				}
+				else if(madSTAT==STAT_PAUSE) {
+					madCMD=CMD_PLAY;
+				}
+
 				break;
 			case BTN_NEXT:
-				madCMD=CMD_NEXT;
-
 				/* If current it's in STAT_PAUSE, then changes to STAT_PLAY, and switch BTN_PLAY. */
 				if(madSTAT==STAT_PAUSE) {
 					/* Toggle btn_play/btn_pause, and update btn image */
 					btn_tmp=btns[BTN_PLAY];
-					btns[BTN_PLAY]=btn_pause;
-					btn_pause=btn_tmp;
+					btns[BTN_PLAY]=btns[BTN_PLAY_SWITCH];
+					btns[BTN_PLAY_SWITCH]=btn_tmp;
 					egi_subimg_writeFB(btns[BTN_PLAY]->imgbuf, vfbdev,
 								0, -1, btns[BTN_PLAY]->x0, btns[BTN_PLAY]->y0);
 				}
+
+				madCMD=CMD_NEXT;
+				break;
+			case BTN_VOLUME:
+
+				/* Swich mute/nonmute */
+				btn_tmp=btns[BTN_VOLUME];
+				btns[BTN_VOLUME]=btns[BTN_VOLUME_SWITCH];
+				btns[BTN_VOLUME_SWITCH]=btn_tmp;
+				egi_subimg_writeFB(btns[BTN_VOLUME]->imgbuf_effect, vfbdev,  /* mouse hover on, to use Effect */
+							0, -1, btns[BTN_VOLUME]->x0, btns[BTN_VOLUME]->y0);
+
+				/* Mute/Demute */
+				egi_pcm_mute();
 
 				break;
 		}
@@ -745,20 +771,34 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 		}
 	}
 
-	/* 4. If mouseDZ on BTN_VOLUME */
-	if( pmostat->mouseDZ && mpbtn == BTN_VOLUME ) {
-		int pvol=0;  /* [0 100] */
-		egi_adjust_pcm_volume( -pmostat->mouseDZ);
-		egi_getset_pcm_volume(&pvol, NULL);
+	/* 4. If mouseDZ and mouse hovers on... */
+	if( pmostat->mouseDZ ) {
+		int pvol=0;  /* Volume [0 100] */
+	   	switch(mpbtn) {
+			case BTN_VOLUME:  /* Adjust volume */
+				egi_adjust_pcm_volume( -pmostat->mouseDZ);
+				egi_getset_pcm_volume(&pvol, NULL);
 
-		/* Base Line */
-		fbset_color2(vfbdev, WEGI_COLOR_WHITE);
-		draw_wline_nc(vfbdev, btns[BTN_VOLUME]->x0+5, btns[BTN_VOLUME]->y0+42,
-				      btns[BTN_VOLUME]->x0+5 +40, btns[BTN_VOLUME]->y0+42, 3);
-		/* Volume Line */
-		fbset_color2(vfbdev, WEGI_COLOR_ORANGE);
-		draw_wline_nc(vfbdev, btns[BTN_VOLUME]->x0+5, btns[BTN_VOLUME]->y0+42,
-				      btns[BTN_VOLUME]->x0+5 +40*pvol/100, btns[BTN_VOLUME]->y0+42, 3);
+				/* Base Line */
+				fbset_color2(vfbdev, WEGI_COLOR_WHITE);
+				draw_wline_nc(vfbdev, btns[BTN_VOLUME]->x0+5, btns[BTN_VOLUME]->y0+42,
+						      btns[BTN_VOLUME]->x0+5 +40, btns[BTN_VOLUME]->y0+42, 3);
+				/* Volume Line */
+				fbset_color2(vfbdev, WEGI_COLOR_ORANGE);
+				draw_wline_nc(vfbdev, btns[BTN_VOLUME]->x0+5, btns[BTN_VOLUME]->y0+42,
+						      btns[BTN_VOLUME]->x0+5 +40*pvol/100, btns[BTN_VOLUME]->y0+42, 3);
+				break;
+			case BTN_PREV:	/* Fast Forward */
+
+				break;
+			case BTN_NEXT:	/* Fast Backward */
+				if( -pmostat->mouseDZ > 0 ) {
+					ffseek_val=-pmostat->mouseDZ;
+					madCMD=CMD_FFSEEK;
+				}
+				break;
+
+	   	}/* End switch */
 	}
 }
 
