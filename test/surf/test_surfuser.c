@@ -328,8 +328,66 @@ void *surfuser_ering_routine(void *args)
 			/* NOTE: Msg BRINGTOP and MOUSE_STATUS sent by TWO threads, and they MAY reaches NOT in right order! */
 	               case ERING_SURFACE_BRINGTOP:
                         	egi_dpstd("Surface is brought to top!\n");
-				ering_ON=false;	/* To get rid of LeftKeyDownHOld */
+				//ering_ON=false;	/* To get rid of LeftKeyDownHOld */
+				surfuser->ering_bringTop=true; /* As start of a new round of mevent session */
                 	        break;
+/* NOTE:
+ * 	1. If the mouse was on topbar of a surface when its last mevent session ended, and NOW the same surface is brought up to TOP
+ *	while previous TOP surface is minimized by clicking and keep_hold_down on TOPBTN_MIN.
+ *	2. We SHOULD NOT use ERING_SURFACE_BRINGTOP esmg as the start signal of a new mevent round!!!
+ *	3. Instead, we should use other mouse status...such as 'Release DH', 'Release...'
+ *
+ *	Study following cases:
+
+  	XXX 1. Error: MOUSE_STATUS gets before BRINGTOP.
+...
+--DH--
+ --1--
+... ...
+--DH--
+ --1--
+--- Release DH --- ( END  of Last Session )
+--DH--			 <------ Should be after BRINGTOP emsg!
+ --1--
+surfuser_ering_routine(): Surface is brought to top!
+surfuser_parse_mouse_event(): BringTop
+surfuser_parse_mouse_event(): LeftKeyDown mpbtn=-1
+--DH--
+ --1--
+--DH--
+ --1--
+ ... ...
+
+  	XXX 2. Error: NO BRINGTOP emsg at all!
+ ...
+--- Release DH --- ( END of Last Session )
+			 <------ Should get BRINGTOP emsg!
+--DH--
+ --1--
+--DH--
+ --1--
+--DH--
+ --1--
+...
+	VVV 3. Correct: MOUSE_STATUS gets after BRINGTOP.
+...
+--- Release DH --- ( END of Last Session )
+surfuser_parse_mouse_event(): LeftKeyDown mpbtn=-1
+--- Release DH ---
+surfuser_ering_routine(): Surface is brought to top!
+surfuser_parse_mouse_event(): BringTop
+surfuser_parse_mouse_event(): Touch a BTN mpbtn=-1, i=0
+--DH--
+--DH--
+--DH--
+--DH--
+--DH--
+--DH--
+--DH--
+...
+*/
+
+
         	       case ERING_SURFACE_RETIRETOP:
                 	        egi_dpstd("Surface is retired from top!\n");
                         	break;
@@ -338,7 +396,7 @@ void *surfuser_ering_routine(void *args)
 				//egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
 				/* Parse mouse event */
 				surfuser_parse_mouse_event(surfuser,mouse_status);  /* mutex_lock */
-				/* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent */
+				/* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent. SURFMAN sets MEVENT before ering. */
 				surfuser->surfshmem->flags &= (~SURFACE_FLAG_MEVENT);
 				break;
 	               default:

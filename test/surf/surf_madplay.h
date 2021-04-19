@@ -148,7 +148,7 @@ static bool pcmdev_ready;	   /* PCM 设备ready */
 static bool pcmparam_ready;	   /* PCM 参数ready */
 
 /* KeyIn command 定义键盘输入命令 */
-static int cmd_keyin;
+//static int cmd_keyin;
 enum {
 	CMD_NONE=0,
 	CMD_NEXT,
@@ -511,61 +511,35 @@ static enum mad_flow header(void *data,  struct mad_header const *header )
   if(madCMD==CMD_FFSEEK) {
 	if(preset_timelapse < timelapse) /* To avoid repeat updating preset_timelapse. */
 		preset_timelapse=timelapse+5*ffseek_val;  /* 5s */
-	//mad_ret=MAD_FLOW_IGNORE;
+	/* To clear madCMD later */
+  }
+  else if(madCMD==CMD_FBSEEK) {
+                if( egi_filo_read(filo_headpos, header_cnt-50*ffseek_val, &headpos) ==0 )
+		{
+                	header_cnt-=50*ffseek_val; /* go back 10*ffseek_val Frameheaders */
+
+                	/* Reload stream */
+                	mad_stream_buffer(&(buffer->decoder->sync->stream), buffer->start+headpos.poff, fsize-headpos.poff);
+                	timelapse_sec=headpos.timelapse;
+                	timelapse_frac=headpos.timelapse-timelapse_sec;
+
+			/* Update passtime label */
+  			timelapse=(1.0*timelapse_frac/MAD_TIMER_RESOLUTION) + timelapse_sec;
+  			lapHour=timelapse/3600;
+  			lapMin=(timelapse-lapHour*3600)/60;
+  			lapfSec=timelapse-3600*lapHour-60*lapMin;
+
+  			snprintf(strPassTime, sizeof(strPassTime), "%02d:%02d:%02d - [%02d:%02d:%02d]",
+						lapHour, lapMin, (int)lapfSec, durHour, durMin, (int)durfSec);
+			draw_PassTime(0);
+
+			madCMD=CMD_NONE;
+			return MAD_FLOW_IGNORE;
+		}
   }
 
   /* Count header frame */
   header_cnt++;
-
-#if 0 ////////////////////////////////////////////////
-
-  /* Parse keyinput 读取键盘指令 */
-  read(STDIN_FILENO, &ch,1);
-  switch(ch) {
-	case 'q': 	/* Quit */
-	case 'Q':
-		printf("\n\n");
-		exit(0);
-		break;
-	case 'n':	/* Next */
-	case 'N':
-		printf("\n\n");
-	  	return MAD_FLOW_STOP;
-	case 'p':	/* Prev */
-	case 'P':
-		printf("\n\n");
-		cmd_keyin=CMD_PREV;
-	  	return MAD_FLOW_STOP;
-	case '+':	/* Volume up */
-		egi_adjust_pcm_volume(5);
-		egi_getset_pcm_volume(&percent,NULL);
-		printf("\nVol: %d%%\n",percent);
-		break;
-	case '-':	/* Volume down */
-		egi_adjust_pcm_volume(-5);
-		egi_getset_pcm_volume(&percent,NULL);
-		printf("\nVol: %d%%\n",percent);
-		break;
-	case '>':	/* Fast forward */
-		preset_timelapse=timelapse+5;  /* 5s */
-		cmd_keyin=CMD_FFSEEK;
-		mad_ret=MAD_FLOW_IGNORE;
-		break;
-	case '<':	/* Fast backward */
-		printf("\n Headcnt: %ld \n", header_cnt);
-		if(egi_filo_read(filo_headpos, header_cnt-50, &headpos)!=0)
-			break;
-		header_cnt-=50;	/* 50 Frameheaders */
-
-		/* Reload stream */
-  		mad_stream_buffer(&(buffer->decoder->sync->stream), buffer->start+headpos.poff, fsize-headpos.poff);
-		timelapse_sec=headpos.timelapse;
-		timelapse_frac=headpos.timelapse-timelapse_sec;
-
-		return MAD_FLOW_IGNORE;
-		break;
-  }
-#endif /////////////////////////////////////////////
 
   /* Time elapsed 计算当前播放时间 ---or read FILO. */
   timelapse_frac += header->duration.fraction;

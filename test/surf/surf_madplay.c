@@ -8,13 +8,24 @@ published by the Free Software Foundation.
 Usage:
 	1. Play control
 		BTN_PREV:  Click to play previous MP3 file.
-			   Roll the wheel up to FFSEEK.
+			   Roll the wheel down to FBSEEK.
 		BTN_PLAY:  Click to toggle Play/Pause
 		BTN_NEXT:  Click to play next MP3 file.
+			   Roll the wheel up to FFSEEK.
 	2. Volume control:
 		BTN_VOLUME: Move mouse onto the button and roll the wheel to adjust volume.
 	3. Menu control:
-		TODO:
+		MENU_HELP:  Click to create a surface to display help content.
+		TODO: MENU_FILE, MENU_OPTION
+
+Multi_threads Scheme:
+	1  Main loop:
+	   ----> madplay process:   ---> header(), decode()
+	2. thread_eringRoutine loop:					<sysfonts>
+	   ----> surfuser_parse_mouse_event()   ---> redraw_surface()
+		       |
+		       --> 3. child thread_eringRoutine loop:		<appfonts>
+				----> surfuser_parse_mouse_event()   ---> redraw_surface()
 
 Note:
 1. Quit process:
@@ -23,6 +34,10 @@ Note:
        to quit current decoding session.
    2.3 main loop checks usersig==1, then break loop and release all
        sources before it ends program.
+
+TODO:
+1. EGI fonts arrangement for several threads.
+   To cache/buffer different sizes of fonts.
 
 Journal:
 2021-04-10:
@@ -35,7 +50,10 @@ Journal:
 2021-04-13:
 	1. Add BTN_VOLUME for SYS volume control. +Mute/Demute control.
 2021-04-14:
-	1. Roll the wheel up to FFSEEK.
+	1. Roll the wheel to FFSEEK/FBSEEK.
+2021-04-15:
+	1. TEST: INCBIN   https://github.com/graphitemaster/incbin
+	2. Add menu_help().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -58,9 +76,14 @@ https://github.com/widora/wegi
 #include "egi_procman.h"
 #include "egi_input.h"
 
+#include "sys_incbin.h"
 #include "surf_madplay.h"
 
+INCBIN(NormalIcons, "/home/midas-zhou/Pictures/icons/gray_icons_normal_block.png");
+INCBIN(EffectIcons, "/home/midas-zhou/Pictures/icons/gray_icons_effect_block.png");
+
 #define DEFAULT_MP3_PATH "/mmc/music/\*.mp3"
+
 
 /* For SURFUSER */
 EGI_SURFUSER     *surfuser=NULL;
@@ -111,6 +134,10 @@ int menuW;	/* var. */
 int menuH=24;
 bool mouseOnMenu;
 int mpmenu=-1;	/* Index of mouse touched menu, <0 invalid */
+
+void menu_file();
+void menu_option();
+void menu_help(int x0, int y0);
 
 
 /* ESURF Lables */
@@ -171,11 +198,40 @@ int main(int argc, char **argv)
         }
 #endif
 
+#if 1        /* Load freetype fonts */
+        printf("FTsymbol_load_appfonts()...\n");
+        if(FTsymbol_load_appfonts() !=0) {
+                printf("Fail to load FT appfonts, quit.\n");
+                return -1;
+        }
+#endif
+
+
+#if 0	/* Create sysfont buffer, for fw=15,fh=15. */
+	printf("Create buffer for sysfont.bold...\n");
+	egi_fontbuffer=FTsymbol_create_fontBuffer(egi_sysfonts.bold, 15, 15, 0x4E00, 21000);  /* face, fw, fh, unistart, size */
+	if(egi_fontbuffer)
+		printf("Buffer for sysfont.bold is created!\n");
+	else
+		printf("Fail to create sysfont.bold!\n");
+#endif
+
 	/* Set signal handler */
 //	egi_common_sigAction(SIGINT, signal_handler);
 
+
+	/* Enter private dir */
+	chdir("/tmp/.egi");
+	mkdir("madplay", S_IRWXG);
+	if(chdir("/tmp/.egi/madplay")!=0) {
+		printf("Fail to enter private dir! Err'%s'\n", strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+
 	/* Load Noraml Icons */
-	icons_normal=egi_imgbuf_readfile("/mmc/gray_icons_normal_block.png");
+	//icons_normal=egi_imgbuf_readfile("/mmc/gray_icons_normal_block.png");
+	egi_copy_to_file("gray_icons_normal_block.png", gNormalIconsData, gNormalIconsSize, 0); 	 /* fpath, pstr, size, endtok */
+	icons_normal=egi_imgbuf_readfile("gray_icons_normal_block.png");
 	if( egi_imgbuf_setSubImgs(icons_normal, 12*5)!=0 ) {
 		printf("Fail to setSubImgs for icons_normal!\n");
 		exit(EXIT_FAILURE);
@@ -190,7 +246,9 @@ int main(int argc, char **argv)
 	}
 
 	/* Load Effect Icons */
-	icons_effect=egi_imgbuf_readfile("/mmc/gray_icons_effect_block.png");
+	//icons_effect=egi_imgbuf_readfile("/mmc/gray_icons_effect_block.png");
+	egi_copy_to_file("gray_icons_effect_block.png", gEffectIconsData, gEffectIconsSize, 0); 	 /* fpath, pstr, size, endtok */
+	icons_effect=egi_imgbuf_readfile("gray_icons_effect_block.png");
 	if( egi_imgbuf_setSubImgs(icons_effect, 12*5)!=0 ) {
 		printf("Fail to setSubImgs for icons_effect!\n");
 		exit(EXIT_FAILURE);
@@ -385,6 +443,8 @@ while(madSTAT==STAT_PAUSE) {
         pcmparam_ready=false;
         pcmdev_ready=false;
         poff=0;
+	timelapse=0;
+	preset_timelapse=0;
 
 	madCMD=CMD_NONE;
 
@@ -448,19 +508,19 @@ madSTAT=STAT_PLAY;
 
         /* Join ering_routine  */
         // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
-	printf("Cancel thread...\n");
+	egi_dpstd("Cancel thread...\n");
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
         /* Make sure mutex unlocked in pthread if any! */
-	printf("Joint thread_eringRoutine...\n");
+	egi_dpstd("Joint thread_eringRoutine...\n");
         if( pthread_join(surfshmem->thread_eringRoutine, NULL)!=0 )
                 egi_dperr("Fail to join eringRoutine");
 
 	/* Unregister and destroy surfuser */
-	printf("Unregister surfuser...\n");
+	egi_dpstd("Unregister surfuser...\n");
 	if( egi_unregister_surfuser(&surfuser)!=0 )
 		egi_dpstd("Fail to unregister surfuser!\n");
 
-	printf("Exit OK!\n");
+	egi_dpstd("Exit OK!\n");
 	exit(0);
 }
 
@@ -485,6 +545,9 @@ void *surfuser_ering_routine(void *args)
 	if(emsg==NULL)
 		return (void *)-1;
 
+	/* Hint */
+	egi_dpstd("SURFACE %s starts ERING routine. \n", surfuser->surfshmem->surfname);
+
 	while( surfuser->surfshmem->usersig !=1  ) {
 		/* 1. Waiting for msg from SURFMAN, BLOCKED here if NOT the top layer surface! */
 	        //egi_dpstd("Waiting in recvmsg...\n");
@@ -495,7 +558,8 @@ void *surfuser_ering_routine(void *args)
         	}
 		/* SURFMAN disconnects */
 		else if(nrecv==0) {
-			egi_dperr("ering_msg_recv() nrecv==0!");
+			egi_dperr("ering_msg_recv() nrecv==0! SURFMAN disconnects!!");
+			//continue;
 			exit(EXIT_FAILURE);
 		}
 
@@ -513,7 +577,7 @@ void *surfuser_ering_routine(void *args)
 				//egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
 				/* Parse mouse event */
 				surfuser_parse_mouse_event(surfuser,mouse_status);  /* mutex_lock */
-				/* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent */
+				/* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent. SURFMAN sets MEVENT before ering. */
 				surfuser->surfshmem->flags &= (~SURFACE_FLAG_MEVENT);
 				break;
 	               default:
@@ -568,7 +632,7 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 
 		/* B. If the mouse just moves onto a SURFBTN */
 	        if(  mouseOnBtn && mpbtn != i ) {
-			egi_dpstd("Touch a BTN mpbtn=%d, i=%d\n", mpbtn, i);
+			egi_dpstd("Touch BTN btns[%d], prev. mpbtn=%d\n", i, mpbtn);
                 	/* B.1 In case mouse move from a nearby SURFBTN, restore its button image. */
 	                if( mpbtn>=0 ) {
         	        	egi_subimg_writeFB(btns[mpbtn]->imgbuf, vfbdev,
@@ -614,7 +678,7 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 
 	/* NOW: mpbtn updated */
 
-	/* 1.A Check if mouse hovers over any muenu */
+	/* 1.A Check if mouse hovers over any menu */
 	if( !mouseOnBtn ) {
 		for(i=0; i<MENU_MAX; i++) {
 	                /* A. Check mouse_on_menu */
@@ -662,7 +726,6 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
                 	else if( mouseOnBtn && mpmenu == i ) {
                         	break;
 	                }
-
 		} /* EDN for(menus) */
 
 	}
@@ -761,6 +824,24 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 		}
 	}
 
+        /* 3. If LeftKeyDown(Click) on menu */
+        if( pmostat->LeftKeyDown && mouseOnMenu ) {
+                egi_dpstd("LeftKeyDown mpmenu=%d\n", mpmenu);
+
+                /* If any SURFBTN is touched, do reaction! */
+                switch(mpmenu) {
+                        case MENU_FILE:
+				break;
+			case MENU_OPTION:
+				break;
+			case MENU_HELP:
+				pthread_mutex_unlock(&surfshmem->shmem_mutex);
+				menu_help(surfshmem->x0+20, surfshmem->y0+20);
+				pthread_mutex_lock(&surfshmem->shmem_mutex);
+				break;
+		}
+	}
+
 	/* 3. LeftKeyUp */
 	if( pmostat->LeftKeyUp && mouseOnBtn) {
 		/* Resume button with normal image */
@@ -788,11 +869,15 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 				draw_wline_nc(vfbdev, btns[BTN_VOLUME]->x0+5, btns[BTN_VOLUME]->y0+42,
 						      btns[BTN_VOLUME]->x0+5 +40*pvol/100, btns[BTN_VOLUME]->y0+42, 3);
 				break;
-			case BTN_PREV:	/* Fast Forward */
+			case BTN_PREV:	/* Fast Backward */
+				if( madSTAT==STAT_PLAY &&  -pmostat->mouseDZ < 0 ) {
+					ffseek_val=pmostat->mouseDZ;
+					madCMD=CMD_FBSEEK;
+				}
 
 				break;
-			case BTN_NEXT:	/* Fast Backward */
-				if( -pmostat->mouseDZ > 0 ) {
+			case BTN_NEXT:	/* Fast Forward */
+				if( madSTAT==STAT_PLAY && -pmostat->mouseDZ > 0 ) {
 					ffseek_val=-pmostat->mouseDZ;
 					madCMD=CMD_FFSEEK;
 				}
@@ -877,3 +962,100 @@ void draw_mp3name(char *name)
 }
 
 
+/*-------------------------------
+To create a SURFACE for menu help.
+
+@x0,y0: Origin coordinate relative
+	to its father SURFACE.
+
+TODO:
+1. When the menu SURFACE is brought up to TOP, while just before the SURFMAN
+   refreshs the SYS FBDEV, if you happens to click on the father SURFACE at that point,
+   the menu SURFACE would then hide behind the father SURFACE, and mstat CAN NOT
+   reach to it!
+
+--------------------------------*/
+void menu_help(int x0, int y0)
+{
+	int msw=210;
+	int msh=150;
+
+	const char *str_help = "   EGI图形版Madplay\n\n \
+This program is under license of GNU GPL v2.\n \
+ Enjoy!";
+
+EGI_SURFUSER     *msurfuser=NULL;
+EGI_SURFSHMEM    *msurfshmem=NULL;        /* Only a ref. to surfuser->surfshmem */
+FBDEV            *mvfbdev=NULL;           /* Only a ref. to &surfuser->vfbdev  */
+EGI_IMGBUF       *msurfimg=NULL;          /* Only a ref. to surfuser->imgbuf */
+SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
+EGI_16BIT_COLOR  mbkgcolor;
+
+	/* 1. Register/Create a surfuser */
+	printf("Register to create a surfuser...\n");
+	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, msw, msh, msw, msh, mcolorType ); /* Fixed size */
+	if(msurfuser==NULL) {
+		printf("Fail to register surfuser!\n");
+		return;
+	}
+
+	/* 2. Get ref. pointers to vfbdev/surfimg/surfshmem */
+	mvfbdev=&msurfuser->vfbdev;
+	msurfimg=msurfuser->imgbuf;
+	msurfshmem=msurfuser->surfshmem;
+
+        /* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons etc. */
+        //surfshmem->minimize_surface 	= surfuser_minimize_surface;   	/* Surface module default functions */
+	//surfshmem->redraw_surface 	= surfuser_redraw_surface;
+	//surfshmem->maximize_surface 	= surfuser_maximize_surface;   	/* Need resize */
+	//surfshmem->normalize_surface 	= surfuser_normalize_surface; 	/* Need resize */
+        msurfshmem->close_surface 	= surfuser_close_surface;
+	//surfshmem->user_mouse_event	= my_mouse_event;
+
+	/* 4. Name for the surface. */
+	strncpy(msurfshmem->surfname, "Help", SURFNAME_MAX-1);
+
+	/* 5. First draw surface. */
+	msurfshmem->bkgcolor=WEGI_COLOR_GRAYA; /* OR default BLACK */
+	surfuser_firstdraw_surface(msurfuser, TOPBTN_CLOSE); /* Default firstdraw operation */
+
+	/* 6. Start Ering routine */
+	printf("start ering routine...\n");
+	if( pthread_create(&msurfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, msurfuser) !=0 ) {
+		printf("Fail to launch thread_EringRoutine!\n");
+		if( egi_unregister_surfuser(&msurfuser)!=0 )
+			egi_dpstd("Fail to unregister surfuser!\n");
+	}
+
+	/* 7. Write content */
+	FTsymbol_uft8strings_writeFB( mvfbdev, egi_appfonts.bold,   	/* FBdev, fontface */
+               	                  15, 15, (UFT8_PCHAR)str_help,		/* fw,fh, pstr */
+                       	          msw-10, 10, 3,         		/* pixpl, lines, fgap */
+                               	  5,  35,    		  		/* x0,y0, */
+                                  WEGI_COLOR_BLACK, -1, 240,     	/* fontcolor, transcolor,opaque */
+       	                          NULL, NULL, NULL, NULL);        	/* int *cnt, int *lnleft, int* penx, int* peny */
+
+	/* 7. Activate image */
+	msurfshmem->sync=true;
+
+ 	/* ====== Main Loop ====== */
+	 while( msurfshmem->usersig != 1 ) {
+		usleep(100000);
+	};
+
+        /* Join ering_routine  */
+        // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
+	egi_dpstd("Cancel thread...\n");
+        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+        /* Make sure mutex unlocked in pthread if any! */
+	egi_dpstd("Joint thread_eringRoutine...\n");
+        if( pthread_join(msurfshmem->thread_eringRoutine, NULL)!=0 )
+                egi_dperr("Fail to join eringRoutine");
+
+	/* Unregister and destroy surfuser */
+	egi_dpstd("Unregister surfuser...\n");
+	if( egi_unregister_surfuser(&msurfuser)!=0 )
+		egi_dpstd("Fail to unregister surfuser!\n");
+
+	egi_dpstd("Exit OK!\n");
+}

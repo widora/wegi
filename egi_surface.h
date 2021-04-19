@@ -96,6 +96,11 @@ struct egi_surface_user {
 						 * 3. Its width/height to be adjusted with surface resize/redraw operation.
 						 *    But not its already allcated memory.
 						 */
+	bool		ering_bringTop;		/* Set as TRUE when surfuser_ering_routine() gets ERING_SURFACE_BRINGTOP emsg
+						 * 1. surfuser_parse_mouse_event() will see it as start of a new round of mevent session,
+						 *    and it will clear its old stat data (lastX/Y etc.) before process mevent. then
+						 *    it will reset to FALSE.
+						 */
 };
 
 
@@ -207,6 +212,10 @@ struct egi_surface_shmem {
 					 * EGI_SURFACE also holds the data!
 					 * For unmap shmem.
 					 */
+	EGI_SURFSHMEM	*child;		/* The only child, an independent SURFACE, displys always on its parent.
+					 * When its mevent is activated, mevent of its parent is blocked/disable.
+					 * Only after the child is unregistered does the parent resume its mevent process.
+					 */
 
 	/* Mutex: PTHREAD_PROCESS_SHARED + PTHREAD_MUTEX_ROBUST */
 	pthread_mutexattr_t mutexattr;	/* MUST also in the shared memory */
@@ -227,8 +236,8 @@ struct egi_surface_shmem {
 
 //	bool		syncAtop;	/* */
 	bool		sync;		/* True: surface image is ready. False: surface image is NOT ready. */
-					/* TODO: More. NOW, only for activate the surface after surface is registered AND
-					 * image is ready! If NOT, a black(calloc raw memory) image may be brought to FB.
+					/* TODO: More. NOW, only to activate the surface after surface is registered AND
+					 * image is ready! (If NOT, a black(calloc raw memory) image may be brought to FB.)
 					 */
 
         /* Surface Geomtrical Params */
@@ -294,8 +303,8 @@ struct egi_surface_shmem {
 	/* 6. Close */
 		void (*close_surface)(EGI_SURFUSER **surfuser);
 
-	/* Call backs */
-	/* 1. Mouse Event callback */
+	/* Callbacks */
+	/* 1. Mouse Event callback. */
 	void (*user_mouse_event)(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 	// void (*user_keybd_event)(EGI_SURFUSER *surfuser, xxx ;
 
@@ -324,6 +333,15 @@ struct egi_surface {
 
 /* ---- Surfman private data --- */
 //	unsigned int	uid;		/* Surface uid, unique for each surface. */
+
+	pid_t		pid;		/* Process ID of the SURFUSER */
+	unsigned int	level;		/* Level number of the surface, the bigger the deeper.
+					 * 1. If no parent, then level=0.
+					 * 2. A surface with a bigger level will top the smaller one (with same pid)
+					 *    on zseq, it means alway bring the deeper surface to the top.
+					 *    AND all surfaces with the same pid MUST unregister from the deeper level.
+					 * 3. A child MUST NOT be minimizable! also see surfman_bringtop_surface_nolock().
+					 */
 
 	unsigned int	id;		/* [Surfman RW]: NOW as index of the surfman->surfaces[]
 					 * !!! --- Volatile value --- !!!
@@ -435,7 +453,7 @@ void surface_insertSort_zseq(EGI_SURFACE **surfaces, int n); /* Re_assign all su
 EGI_SURFUSER *egi_register_surfuser( const char *svrpath, int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType );
 int egi_unregister_surfuser(EGI_SURFUSER **surfuser);
 
-	/* Default surface operations */
+	/* Default surface operations; OR use your own tailor_made functions. */
 __attribute__((weak)) void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns);
 __attribute__((weak)) void surfuser_move_surface(EGI_SURFUSER *surfuser, int x0, int y0);
 __attribute__((weak)) void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h);
@@ -452,7 +470,7 @@ EGI_SURFMAN *egi_create_surfman(const char *svrpath);	/* surfman_mutex, */
 int egi_destroy_surfman(EGI_SURFMAN **surfman);		/* surfman_mutex, */
 
 int surfman_register_surface( EGI_SURFMAN *surfman, int userID,		/* surfman_mutex, sort zseq, */
-			      int x0, int y0, int MaxW, int MaxH, int w, int h, SURF_COLOR_TYPE colorType); /* ret index of surfman->surfaces[] */
+		      int x0, int y0, int MaxW, int MaxH, int w, int h, SURF_COLOR_TYPE colorType, pid_t pid); /* ret index of surfman->surfaces[] */
 int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID );	/* surfman_mutex, sort zseq, */
 int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID);	/* sort zseq, */
 int surfman_bringtop_surface(EGI_SURFMAN *surfman, int surfID);		/* surfman_mutex, sort zseq, */

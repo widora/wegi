@@ -13,8 +13,8 @@ midaszhou@yahoo.com
 #include "egi_fbdev.h"
 #include "egi_image.h"
 
-typedef struct egi_surface_box		ESURF_BOX;
-typedef struct egi_surface_button	ESURF_BTN;    //EGI_SURFBTN;
+typedef struct egi_surface_box		ESURF_BOX;    // ESURF_LABEL
+typedef struct egi_surface_button	ESURF_BTN;
 typedef struct egi_surface_tickbox	ESURF_TICKBOX;
 
 
@@ -47,6 +47,7 @@ struct egi_surface_button {
 	int		x0;	/* Origin position relative to its container */
 	int		y0;
 	EGI_IMGBUF	*imgbuf; /* To hold normal button image */
+				 /* OR: Use its subimg to hold effect/pressed/... images */
 
 	EGI_IMGBUF	*imgbuf_effect;  /* Partial OR whole size */
 	EGI_IMGBUF	*imgbuf_pressed;

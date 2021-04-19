@@ -18,6 +18,7 @@ SURFUSER:  The owner of a SURFACE, an uclient to SURFMAN. (TODO: It MAY hold
 	   several SURFACEs?).
 	   However it can only access SURFSHMEM part of the SURFACE, as
 	   a way to protect private data for the SURFMAN.
+	   The SURUSER constrols to move/adjust its position/size by surfuser_parse_mouse_event().
       >>>  The SURFUSER (or a thread of it) is always blocked at ering_msg_recv() when its
 	   surface is NOT on the TOP layer, and starts to parse input data from SURFMAN once
 	   it's activated.
@@ -54,7 +55,8 @@ SURFMAN:
          2.2.2 Retire/unregister SURFUSER if it disconnets from ERING.
      2.3 surfman_render_thread():
          2.3.1 To render all surfaces/mouse/menus to FB.
-	 2.3.2 Synchronize with all SURFUSER(SURFSHMEM).
+	 2.3.2 To render mouse cursor.
+	 2.3.3 Synchronize with all SURFUSER(SURFSHMEM).
   3. Main thread of the SURFMAN.
      3.1 Scan mouse and keyboard input, and parse it.
      3.2 Update mouse position, as for surfman ->mx,my.
@@ -92,6 +94,11 @@ TODO:
 
 6. If a frame of a SURFUSER vfbdev lives with very short time, it may be skipped by surfman_render_thread().
    (sync)
+
+7. Add a list for SURFACE to hook up all control elements.
+
+8. surfuser_close_surface(): To avoid thread_EringRoutine be blocked at ering_msg_recv(), JUST brutly close sockfd
+   and force the thread to quit. ....
 
 Journal
 2021-02-22:
@@ -166,6 +173,17 @@ Journal
 	 1. Add: egi_point_on_surface().
 2021-04-07:
 	 1. Spin off surface controls to egi_surfcontrols.c
+2021-04-16:
+	 1. Add member 'pid' and 'level' for EGI_SURFACE, and modify folloing functions:
+	    1.1 ering_request_surface():	Add pid for the calling process.
+	    1.2 surfman_register_surface(): Assign eface.pid and eface.level
+	    1.3 surface_compare_zseq() :	Also compare with surface->level
+	    1.4 surfman_bringtop_surface_nolock():  If surfaces[surfID] has child,
+	        then bringtop its child with the biggest level value.
+2021-04-17:
+	1. Add member 'bool ering_bringTop' for EGI_SURFUSER.
+	2. surfuser_parse_mouse_event(): use 'ering_bringTop==true' as start of a new
+	   round of mevent parsing session.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -317,14 +335,15 @@ int egi_munmap_surfshmem(EGI_SURFSHMEM **shmem)
 
 
 /*---------------------------------------------------
-Compare surfaces with surface->zseq value.
+Compare surfaces with surface->zseq and surface->level.
 
 A NULL surface always has Min. zseq value!
 
 Return:
         Relative Priority Sequence position:
         -1 (<0)   eface1->zseq < eface2->zseq
-         0 (=0)   eface1->zseq = eface2->zseq
+         0 (=0)   eface1->zseq = eface2->zseq and same level
+		  -1 OR 1 NOT same level.
          1 (>0)   eface1->zset > eface2->zseq
 ---------------------------------------------------*/
 int surface_compare_zseq(const EGI_SURFACE *eface1, const EGI_SURFACE *eface2)
@@ -340,8 +359,15 @@ int surface_compare_zseq(const EGI_SURFACE *eface1, const EGI_SURFACE *eface2)
 	/* NOW: eface1 != NULL && eface2 != NULL */
 	if( eface1->zseq < eface2->zseq )
 		return -1;
-	else if( eface1->zseq == eface2->zseq)
-		return 0;
+	else if( eface1->zseq == eface2->zseq ) {
+		/* NOTE: In surfman_register_surface(), surfaces with same pid will all be assigned with MAX zseq.  */
+		if ( eface1->level > eface2->level )
+			return 1;
+		else if( eface1->level < eface2->level )
+			return -1;
+		else	/* Same level value, MUST all level==0! means no parent. */
+			return 0;
+	}
 	else /* eface1->zseq > eface2->zseq */
 		return 1;
 }
@@ -591,6 +617,7 @@ EGI_SURFSHMEM *ering_request_surface(int sockfd, int x0, int y0, int maxW, int m
          * data[0]:ering_request_type,
          * data[1]:x0, data[2]:y0,
          * data[3]:maxW, data[4]:maxH, data[5]:width, data[6]:height, data[7]:colorTYpe
+	 * data[8]: pid of the calling process
          */
 	memset(data,0,sizeof(data));
 	data[0]=ERING_REQUEST_ESURFACE;
@@ -598,6 +625,7 @@ EGI_SURFSHMEM *ering_request_surface(int sockfd, int x0, int y0, int maxW, int m
 	data[3]=maxW;  	data[4]=maxH;
 	data[5]=w;  	data[6]=h;
 	data[7]=colorType;
+	data[8]=getpid();
 
 	/* 2. MSG iov data  */
 	msg.msg_iov=&iov;  /* iov holds data */
@@ -820,8 +848,9 @@ static void* surfman_request_process_thread(void *arg)
          * data[0]:ering_request_type,
          * data[1]:x0, data[2]:y0,
          * data[3]:maxW, data[4]:maxH, data[5]:width, data[6]:height, data[7]:colorTYpe
+	 * data[8]: pid of the requesting/client process.
          */
-	sfID=surfman_register_surface( surfman, i, data[1], data[2], data[3], data[4], data[5], data[6], data[7] );
+	sfID=surfman_register_surface( surfman, i, data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8] );
 	if(sfID<0) {
 		egi_dpstd("surfman_register_surface() fails!\n");
 		if(surfman->scnt==SURFMAN_MAX_SURFACES)
@@ -1078,7 +1107,7 @@ Return:
 	<0	Fails
 ----------------------------------------------------------------------*/
 int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
-			      int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType )
+			      int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType, pid_t pid)
 {
 	size_t shmsize;
 	int memfd;
@@ -1176,7 +1205,8 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
                 return -5;
         }
 
-	/* 7. Register to surfman->surfaces[] */
+
+	/* 7. Register to surfman->surfaces[], insertSort_zseq later.. */
 	for(k=0; k<SURFMAN_MAX_SURFACES; k++) {
 		if( surfman->surfaces[k]==NULL ) {
 			surfman->surfaces[k]=eface;
@@ -1202,7 +1232,20 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 	}
 
 	/* 6. Assign ID and other members */
+	/* 6.0 Assign level/zseq, check if it's a child of registered surface, with the same pid */
+	for(k=0; k<SURFMAN_MAX_SURFACES; k++) {
+		if( surfman->surfaces[k] && surfman->surfaces[k]->pid==pid ) { /* NOW: eface->pid==0 */
+			eface->level++;	/* Assign level */
+			surfman->surfaces[k]->zseq=SURFMAN_MAX_SURFACES; /* Let surface_insertSort_zseq() to adjust later. */
+		}
+	}
+	/* Set zseq as scnt m this can NOT ensure to bring the surface to top.???  */
+	// eface->zseq=surfman->scnt; /* ==scnt, The lastest surface has the biggest zseq!  All surface.zseq >0!  */
+	/* Set zseq as  SURFMAN_MAX_SURFACES */
+	eface->zseq=SURFMAN_MAX_SURFACES; /* Top it first, Let surface_insertSort_zseq() to adjust later. */
+
 	/* 6.1 Surfman part */
+	eface->pid=pid;
 	eface->id=k;		 /* <--- ID */
 	eface->csFD=surfman->userv->sessions[userID].csFD;  /* <--- csFD / surf_userID */
 	eface->memfd=memfd;
@@ -1211,10 +1254,6 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 	eface->height=maxH;
 	eface->colorType=colorType;
 
-	/* Set zseq as scnt m this can NOT ensure to bring the surface to top.???  */
-	// eface->zseq=surfman->scnt; /* ==scnt, The lastest surface has the biggest zseq!  All surface.zseq >0!  */
-	/* Set zseq as  SURFMAN_MAX_SURFACES */
-	eface->zseq=SURFMAN_MAX_SURFACES; /* Top it first, Let surface_insertSort_zseq() to adjust later. */
 
 	/* 6.2 For surfshmem */
 	eface->surfshmem->shmsize=shmsize;
@@ -1363,9 +1402,11 @@ int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID )
 
 
 /*-------------------------------------------------------------------
-1. Bring surfman->surfaces[surfID] to the top layer by updating
-   its zseq and its id!
-2. Reset its STATUS to NORMAL.
+1.  Bring surfman->surfaces[surfID] to the top layer by updating
+    its zseq and its id!
+1.A IF surfaces[surfID] has child(with same pid), then bring up the
+    child with the biggest level value.
+2.  Reset its STATUS to NORMAL.
 
 Assume that zseq of input surfman->surfaces are sorted in ascending order.
 
@@ -1406,6 +1447,33 @@ int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
 		else  /* If nw>0: Reset status to MAXIMIZED */
 			surfman->surfaces[surfID]->surfshmem->status=SURFACE_STATUS_MAXIMIZED;
 	}
+
+	/* If the surface has child, then bring up the child with the biggest level vaule.
+	 * --- A child MUST NOT be minimizable! */
+	else {
+		/* Assume that zseq of surfman->surfaces are sorted in ascending order, as of surfman->surfaces[i] */
+		for(i=surfID; i<SURFMAN_MAX_SURFACES; i++) {
+			if(  surfman->surfaces[i]->pid == surfman->surfaces[surfID]->pid 	/* Same pid */
+			     && surfman->surfaces[i]->level > surfman->surfaces[surfID]->level ) {
+
+				surfID=i; /* !!! -- Replace surfID --  !!! */
+			}
+		}
+
+#if 0 /////////////////////////////////////////
+		for(i=0; i<SURFMAN_MAX_SURFACES; i++) {
+			if(  surfman->surfaces[i]!=NULL ) {
+				if(  surfman->surfaces[i]->pid == surfman->surfaces[surfID]->pid 	/* Same pid */
+				     && surfman->surfaces[i]->level > surfman->surfaces[surfID]->level ) {
+
+					surfID=i; /* !!! -- Replace surfID --  !!! */
+				}
+			}
+		}
+#endif /////////////////////////////////////////
+
+	}
+
 
 	/* Set its zseq to Max. of the surfman->surfaces */
 	egi_dpstd("Set surfaces[%d] zseq to %d\n",surfID, surfman->scnt);
@@ -1812,14 +1880,18 @@ static void * surfman_render_thread(void *arg)
 
 		/* B.2b Get TopDispSurfID: <0 No surface on desk, OR all at minibar menu.  */
 		TopDispSurfID=surfman_get_TopDispSurfaceID(surfman);
-		if( TopDispSurfID>=0 && userID != surfman->surfaces[TopDispSurfID]->csFD ) {
+		if( TopDispSurfID>=0 && userID != surfman->surfaces[TopDispSurfID]->csFD ) { /* A new TOP surface */
 			userID = surfman->surfaces[TopDispSurfID]->csFD;
+
 			/* NEW TOP surface! send ERING_SURFACE_BRINGTOP to it. */
                         /* Send msg to the surface */
                         emsg->type=ERING_SURFACE_BRINGTOP;
                         if( unet_sendmsg( userID, emsg->msghead) <=0 )
                         		egi_dpstd("Fail to sednmsg ERING_SURFACE_BRINGTOP!\n");
+
 		}
+
+
 
 		/* B.2c Clear minsurfaces */
 		//memset(surfman->minsurfaces, 0, SURFMAN_MAX_SURFACES*sizeof(typeof(surfman->minsurfaces)));
@@ -1881,6 +1953,7 @@ static void * surfman_render_thread(void *arg)
 				egi_dperr("Fail to get mutex_lock for shmem of surface[%d].", i);
 				continue;  /* To traverse surfaces */
        			}
+
 	/* ------ >>>  Surfshmem Critical Zone  */
 
 			/* Check sync, TODO more for sync. */
@@ -2104,15 +2177,20 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 	if(surfuser==NULL || pmostat==NULL)
 		return;
 
-	/* TODO the lastX/Y MAY be values of last time TOP surface. */
-#if 0	/* Check ering_ON, Reset lastX/Y.  NOT synch with
-	 * NOTE:
-	 */
-	if( !ering_ON ) {
-		printf("ering_ON!\n");
+#if 1	/* Reset lastX/Y, as lastX/Y may be values of last round of mevent parse session. */
+	if( surfuser->ering_bringTop ) {
+		egi_dpstd("BringTop\n");
 		lastX=pmostat->mouseX;
 		lastY=pmostat->mouseY;
-		ering_ON=true;
+
+		/* Change pmostat to LeftKeyDown,  to avoid LKHoldDown to move surface */
+		if(pmostat->LeftKeyDownHold) {
+			pmostat->LeftKeyDownHold=false;
+			pmostat->LeftKeyDown=true;
+		}
+
+		/* Reset ering_bringTop....TODO OR to reset at last! */
+		surfuser->ering_bringTop=false;
 	}
 #endif
 
@@ -2244,7 +2322,7 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 	 *	 will restore position of the surface as RELATIVE to the mouse as last time clicking on SURFBTN_MINIMIZE!
 	 *       So you will see the mouse is upon the SURFBTN_MINMIZE just exactly at the same postion as before!
 	 *
-	 *	 --- OK, modify test_surfman.c:  Skip first LeftKeyDown mostat, and move codes of 'sending mostat to the surface'
+	 *	 XXX --- OK, modify test_surfman.c:  Skip first LeftKeyDown mostat, and move codes of 'sending mostat to the surface'
 	 *	to the end of mouse_even_processing.
 	 */
         if( pmostat->LeftKeyDownHold && surfshmem->mpbtn<0 ) {
@@ -2256,11 +2334,12 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 		 * ---OK, Modify egi_input.c
                  */
 
+
 		/* Case 1. Downhold on topbar to move the surface
 		 * A. If mouse is on surface topbar, then update x0,y0 to adjust its position
 		 * B. Exclude status ADJUSTSIZE, to avoid ADJUSTSIZE mouse moving up to topbar.
 		 */
-		if( surfshmem->status != SURFACE_STATUS_ADJUSTSIZE
+		if( (surfshmem->status != SURFACE_STATUS_ADJUSTSIZE)
 		    && lastX > surfshmem->x0 && lastX < surfshmem->x0+surfshmem->vw
 		    && lastY > surfshmem->y0 && lastY < surfshmem->y0+30 ) /* TopBarWidth 30 */
 		{
@@ -2283,6 +2362,7 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 		else if( surfshmem->redraw_surface==NULL ) {
 			goto  END_ADJUST;
 		}
+		/* Following cases need redraw_surface() ...... */
 
 		/* Case 2. Downhold on RightDownCorner:  To adjust size of surface
 		 * Effective edge width 15 pixs.

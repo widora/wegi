@@ -215,7 +215,7 @@ int main(int argc, char **argv)
 
 	/* Play sound */
         /* mpc_dev, pcmbuf, vstep, nf, nloop, bool *sigstop, bool *sigsynch, bool* sigtrigger */
-        egi_pcmbuf_playback(PCM_MIXER, pcmAlarm, 0, 1024, 0, (bool *)&surfshmem->usersig,  NULL, NULL);
+        egi_pcmbuf_playback(PCM_MIXER, pcmAlarm, 0, 1024, 100, (bool *)&surfshmem->usersig,  NULL, NULL);
 
 	/* Loop */
 	while( surfshmem->usersig != 1 ) {
@@ -236,6 +236,9 @@ int main(int argc, char **argv)
 
 		tm_delayms(200);
 	}
+
+        /* XXX Wait for pcmbuf_playback to end and close its pcm handle */
+
 
         /* Free SURFBTNs */
         for(i=0; i<3; i++)
@@ -299,7 +302,7 @@ void *surfuser_ering_routine(void *args)
 				//egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
 				/* Parse mouse event */
 				surfuser_parse_mouse_event(surfuser,mouse_status);
-                                /* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent */
+                                /* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent. SURFMAN sets MEVENT before ering. */
                                 surfuser->surfshmem->flags &= (~SURFACE_FLAG_MEVENT);
 				break;
 	               default:

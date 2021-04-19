@@ -79,7 +79,9 @@ Journal
 2021-03-21:
 	1. Cancel codes of sending ERING_SURFACE_BRINGTOP, which should be carried out
 	   by surfman_render_thread()!
-
+2021-04-17:
+	1. Need to send LeftKeyDown to the new TOP surface to clear its old stat data, lastX/Y etc.
+	   See W2-1-A.2
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -326,7 +328,7 @@ int main(int argc, char **argv)
 				 * 3. A surface may be brought to TOP by resorting zseq, after other surface quits.
 				 */
 
-				/* IF: clicked surface already on TOP layer. ( Minimized surfaces NOT considered! ) */
+				/* A.1  IF: clicked surface already on TOP layer. ( Minimized surfaces NOT considered! ) */
 				// xxx if(surfID==SURFMAN_MAX_SURFACES-1) {
 				int topID=surfman_get_TopDispSurfaceID(surfman);
 				printf("topID=%d\n",topID);
@@ -352,7 +354,7 @@ int main(int argc, char **argv)
 						printf("Already TOP surface!\n");
 					}
 				}
-				/* Else: If clicked surface is NOT current top surface. */
+				/* A.2  Else: If clicked surface is NOT current top surface. */
 				else if(surfID>=0) { /* <0 as bkground */
 					surface_downhold=true;
 					printf("Bring surfID %d to TOP\n", surfID);
@@ -369,11 +371,12 @@ int main(int argc, char **argv)
 					}
 				 #endif /* CANCELED */
 
-					/* Here, we end mouse event processing without sending mostat to the surface! */
-
+#if 0				 /* XXX Here, we end mouse event processing without sending mostat to the surface! */
+				 /* !!! Need to send LeftKeyDown to the new TOP surface to clear its old stat data, lastX/Y etc.! */
 		 /* ------ <<<  Surfman Critical Zone  */
 					pthread_mutex_unlock(&surfman->surfman_mutex);
 					goto END_MOUSE_EVENT;
+#endif
 				}
 
 				/* B. surfID<0: Check if it clicks on leftside minibar menu, Check IndexMpMinSurf, which is set by
@@ -407,73 +410,8 @@ int main(int argc, char **argv)
 
 	                }
 
-#if 0 /////////////* Case 2,3:  NOT necessary anymore *//////////////////
-			/* 2. LeftKeyDownHold */
-                	else if(pmostat->LeftKeyDownHold) {
-                        	/* Note: As mouseDX/DY already added into mouseX/Y, and mouseX/Y have Limit Value also.
-	                         * If use mouseDX/DY, the cursor will slip away at four sides of LCD, as Limit Value applys for mouseX/Y,
-        	                 * while mouseDX/DY do NOT has limits!!!
-                	         * We need to retrive DX/DY from previous mouseX/Y.
-                        	 */
-				//printf("LeftKeyDH mutex lock..."); fflush(stdout);
-				pthread_mutex_lock(&surfman->surfman_mutex);
-				//printf("LeftKeyDH lock OK\n");
-		/* ------ >>>  Surfman Critical Zone  */
-
-    #if 0 /* NOW: It's SURFUSER's job to move surface */
-
-			   	if(surface_downhold && surfman->scnt ) {  /* Only if have surface registered! */
-					printf("Hold surface\n");
-					/* Downhold surface is always on the top layer */
-					surfID=SURFMAN_MAX_SURFACES-1;
-
-					/* Update surface x0,y0 */
-	                	        surfman->surfaces[surfID]->surfshmem->x0  += (pmostat->mouseX-lastX); /* Delt x0 */
-        	       	        	surfman->surfaces[surfID]->surfshmem->y0  += (pmostat->mouseY-lastY); /* Delt y0 */
-
-				}/* End surface_downhold */
-				   else {
-					printf("Hold non\n");
-
-			   	}
-    #endif /* END: move surface */
-
-				/* Whatever, update mouse position always. */
-                                //surfman->mx  += (pmostat->mouseX-lastX); /* Delt x0 */
-                                //surfman->my  += (pmostat->mouseY-lastY); /* Delt y0 */
-
-                                surfman->mx  = pmostat->mouseX;
-                                surfman->my  = pmostat->mouseY;
-
-				//printf("dx,dy: (%d,%d)\n", pmostat->mouseX-lastX, pmostat->mouseY-lastY);
-				//printf("mx,my: (%d,%d)\n", surfman->mx, surfman->my);
-
-	 	/* ------ <<<  Surfman Critical Zone  */
-				pthread_mutex_unlock(&surfman->surfman_mutex);
-
-                        	/* update lastX,Y */
-	                        lastX=pmostat->mouseX; lastY=pmostat->mouseY;
-
-				//usleep(5000);
-			}
-
-			/* 3. LeftKeyUp: to release current downhold surface */
-			else if(pmostat->LeftKeyUp ) {
-				if(surface_downhold) {
-					printf("Unhold surface\n");
-					surface_downhold=false;
-				}
-
-				pthread_mutex_lock(&surfman->surfman_mutex);
-		 /* ------ >>>  Surfman Critical Zone  */
-
-				surfman->mx = pmostat->mouseX;
-				surfman->my = pmostat->mouseY;
-
-		 /* ------ <<<  Surfman Critical Zone  */
-				pthread_mutex_unlock(&surfman->surfman_mutex);
-			}
-#endif ////////  END 2.3.  ///////////////////
+			/* 2. */
+			/* 3. */
 
 			/* 4. Update mouseXY to surfman */
 			else {
@@ -518,6 +456,7 @@ int main(int argc, char **argv)
 						surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->surfshmem->flags |= SURFACE_FLAG_MEVENT;
 						/* Send MEVENT then */
 						//printf("ering msg pmostat  RKDHold=%s\n", pmostat->RightKeyDownHold ? "TRUE" : "FALSE" );
+						//if(pmostat->LeftKeyDown) egi_dpstd("Ering mstat LeftKeyDown! \n");
 						if( ering_msg_send( surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->csFD,
 							emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS) ) <=0 ) {
 							egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");

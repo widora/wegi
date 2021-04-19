@@ -71,10 +71,13 @@ Note:
 TODO:
 1. To play PCM data with format other than SND_PCM_FORMAT_S16_LE.
 
-Jurnal:
+Journal:
 	1. Modify egi_play_pcm_buff():  param (void** buffer) to (void* buffer)
 	2. Modify egi_pcmhnd_playBuff(): param (void** buffer) to (void* buffer)
 
+2021-04-13:
+	1. Replace 'elem in egi_getset_pcm_volume()' by 'g_volmix_elem'.
+	2. Add egi_pcm_mute()
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -95,6 +98,7 @@ midaszhou@yahoo.com
 /* --- For system PCM PLAY/CAPTURE -- */
 static snd_pcm_t *g_ffpcm_handle;	/* for PCM playback */
 static snd_mixer_t *g_volmix_handle; 	/* for volume control */
+static snd_mixer_elem_t* g_volmix_elem; /* mixer elememnt */
 static bool g_blInterleaved;		/* Interleaved or Noninterleaved */
 static char g_snd_device[256]; 		/* Pending, use "default" now. */
 static int period_size;			/* period size of HW, in frames. */
@@ -295,6 +299,63 @@ void  egi_pcmhnd_playBuff(snd_pcm_t *pcm_handle, bool Interleaved, void *buffer,
 }
 
 
+/*--------------------------------
+Mute/Demut EGI PCM.
+
+Return:
+	0	OK
+	<0	Fails
+--------------------------------*/
+int egi_pcm_mute(void)
+{
+	int ret=0;
+
+#if 0 /* Use ALSA mixer switch */
+	static int control=1;
+
+	/* Check volmix_hande */
+	if( g_volmix_handle==NULL || g_volmix_elem==NULL) {
+		EGI_PLOG(LOGLV_CRITICAL,"%s: A g_volmix_handle OR g_volmix_elem is NULL!",__func__);
+		return -1;
+	}
+
+	//if( snd_mixer_selem_has_playback_switch(g_volmix_elem) ) {
+	//if( snd_mixer_selem_has_playback_switch_joined(g_volmix_elem) ) {
+	if( snd_mixer_selem_has_common_switch(g_volmix_elem) ) {
+		control = !control;
+		if( (ret=snd_mixer_selem_set_playback_switch_all(g_volmix_elem, control)) !=0 ) {
+			EGI_PLOG(LOGLV_ERROR, "%s: _set_playback_switch_all: %s",__func__, snd_strerror(ret));
+			return -2;
+		}
+		else
+			return 0;
+	}
+	else {
+		EGI_PLOG(LOGLV_ERROR, "%s: Mixer selem has NO playback switch! ",__func__);
+		return -3;
+	}
+
+#else  /* Get Set volume */
+	static int save_vol=0;
+	int zero=0;
+
+	/* Mute */
+	if(save_vol==0) {
+		ret=egi_getset_pcm_volume(&save_vol, &zero);
+		egi_dpstd("Get vol=%d\n", save_vol);
+	}
+	/* DeMute */
+	else {
+		ret=egi_getset_pcm_volume(NULL, &save_vol);
+		egi_dpstd("Set vol=%d\n", save_vol);
+		save_vol=0;
+	}
+
+	return ret;
+#endif
+}
+
+
 /*-------------------------------------------------------------------------------
 Get current volume value from the first available channel, and then set all
 volume to the given value.
@@ -332,7 +393,7 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 	static long  dBvol;     	/* in dB*100 */
 
 	static snd_mixer_selem_id_t *sid;
-	static snd_mixer_elem_t* elem;
+//	static snd_mixer_elem_t* elem;  // replaced by g_volmix_elem
 	static snd_mixer_selem_channel_id_t chn;
 	const char *card="default";
 	static char selem_name[128]={0};
@@ -383,7 +444,6 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 
 	}
 
-
 	//printf(" --- Selem: %s --- \n", selem_name);
 
 	/* open an empty mixer for volume control */
@@ -427,15 +487,15 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 	snd_mixer_selem_id_set_name(sid,selem_name);
 
 	/* Find a mixer simple element */
-	elem=snd_mixer_find_selem(g_volmix_handle,sid);
-	if(elem==NULL){
+	g_volmix_elem=snd_mixer_find_selem(g_volmix_handle,sid);
+	if(g_volmix_elem==NULL){
 		EGI_PLOG(LOGLV_ERROR, "%s: Fail to find mixer simple element '%s'.",__func__, selem_name);
 		ret=-5;
 		goto FAILS;
 	}
 
 	/* Get range for playback volume of a mixer simple element */
-	snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
+	snd_mixer_selem_get_playback_volume_range(g_volmix_elem, &min, &max);
 	if( min<0 || max<0 ){
 		EGI_PLOG(LOGLV_ERROR,"%s: Get range of volume fails.!",__func__);
 		ret=-6;
@@ -447,7 +507,7 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 	/* Get dB range for playback volume of a mixer simple element
 	 * dBmin and dBmax in dB*100
 	 */
-	ret=snd_mixer_selem_get_playback_dB_range(elem, &dBmin, &dBmax);
+	ret=snd_mixer_selem_get_playback_dB_range(g_volmix_elem, &dBmin, &dBmax);
 	if( ret !=0 ){
 		EGI_PLOG(LOGLV_ERROR,"%s: Get range of playback dB range fails.!",__func__);
 		ret=-6;
@@ -463,14 +523,14 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 	/* get volume , ret=0 Ok */
         for (chn = 0; chn < 32; chn++) {
 		/* Master control channel */
-                if (chn == 0 && snd_mixer_selem_has_playback_volume_joined(elem)) {
+                if (chn == 0 && snd_mixer_selem_has_playback_volume_joined(g_volmix_elem)) {
 			EGI_PLOG(LOGLV_CRITICAL,"%s: '%s' channle 0, Playback volume joined!",
 										__func__, selem_name);
 			finish_setup=true;
                         break;
 		}
 		/* Other control channel */
-                if (!snd_mixer_selem_has_playback_channel(elem, chn))
+                if (!snd_mixer_selem_has_playback_channel(g_volmix_elem, chn))
                         continue;
 		else {
 			finish_setup=true;
@@ -490,7 +550,7 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 	/* try to get playback volume value on the channel */
 	snd_mixer_handle_events(g_volmix_handle); /* handle events first */
 
-	ret=snd_mixer_selem_get_playback_volume(elem, chn, &vol); /* suppose that each channel has same volume value */
+	ret=snd_mixer_selem_get_playback_volume(g_volmix_elem, chn, &vol); /* suppose that each channel has same volume value */
 	if(ret<0) {
 		EGI_PLOG(LOGLV_ERROR,"%s: Get playback volume error on channle %d.",
 										__func__, chn);
@@ -500,7 +560,7 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 //	EGI_PLOG(LOGLV_CRITICAL,"%s: Get playback vol=%ld.", __func__, vol);
 
 	/* try to get playback dB value on the channel */
-	ret=snd_mixer_selem_get_playback_dB(elem, chn, &dBvol); /* suppose that each channel has same volume value */
+	ret=snd_mixer_selem_get_playback_dB(g_volmix_elem, chn, &dBvol); /* suppose that each channel has same volume value */
 	if(ret<0) {
 		EGI_PLOG(LOGLV_ERROR,"%s: Get playback dB error on channle %d.",
 										__func__, chn);
@@ -576,7 +636,7 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 		/* normalize vol, Not necessay now?  */
 		if(vol > max) vol=max;
 		else if(vol < min) vol=min;
-	        snd_mixer_selem_set_playback_volume_all(elem, vol);
+	        snd_mixer_selem_set_playback_volume_all(g_volmix_elem, vol);
 		//printf("Set playback all volume to: %ld.\n",vol);
 
 	#else /* ----- (Option 2) : Call snd_mixer_selem_set_playback_dB_all() ----
@@ -598,7 +658,7 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 		}
 //		printf("%s: set %s dBvol=%ld\n", __func__, linear_dBvol?"linear":"nonlinear" ,dBvol);
 		/* dB_all(elem, vol, dir)  vol: dB*100 dir>0 round up, otherwise down */
-	        snd_mixer_selem_set_playback_dB_all(elem, dBvol, 1);
+	        snd_mixer_selem_set_playback_dB_all(g_volmix_elem, dBvol, 1);
 	#endif
 
 	}

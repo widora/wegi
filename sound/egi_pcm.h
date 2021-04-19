@@ -80,6 +80,7 @@ int	egi_prepare_pcm_device(unsigned int nchan, unsigned int srate, bool bl_inter
 int 	egi_pcm_period_size(void);
 void 	egi_close_pcm_device(void);
 void 	egi_play_pcm_buff(void* buffer, int nf);
+int 	egi_pcm_mute(void);
 //int  	egi_getset_pcm_volume(int *pvol, int *percnt);
 int	egi_getset_pcm_volume(int *pgetvol, int *psetvol);
 int 	egi_adjust_pcm_volume(int vdelt);
