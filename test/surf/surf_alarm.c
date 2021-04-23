@@ -4,10 +4,21 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 Usage Example:
-./surf_alarm -p 50,50 -t "2021-3-7 19:54:00" "定时提醒！"
+	./surf_alarm -p 50,50 -t "2021-3-7 19:54:00" "定时提醒！"
+
+Note:
+1. If time is NOT due, the surface appears in minibar waiting in mute.
+2. Click MINIZE button to mute the alarm and bring the surface to
+   minibar.
 
 TODO:
 1. Check whether the userver is disconnected.
+
+Journal:
+2021-4-21:
+	1. Preset status as MINIMIZED.
+	2. Mute the alarm when the surface is minized.
+
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -35,6 +46,7 @@ https://github.com/widora/wegi
 #define ALARM_SOUND_PATH   	"/mmc/alarm.wav"  /* a very short piece */
 
 EGI_PCMBUF 	*pcmAlarm;
+bool		sigStopPlay;
 
 EGI_SURFUSER	*surfuser=NULL;
 EGI_SURFSHMEM	*surfshmem=NULL;	   /* Only a ref. to surfuser->surfshmem */
@@ -42,8 +54,10 @@ FBDEV 		*vfbdev=NULL;		   /* Only a ref. to surfuser->vfbdev  */
 EGI_IMGBUF 	*surfimg=NULL;		   /* Only a ref. to surfuser->imgbuf */
 SURF_COLOR_TYPE colorType=SURF_RGB565_A8;  /* surfuser->vfbdev color type */
 
-void 		*surfuser_ering_routine(void *args);
+//void *surfuser_ering_routine(void *args); /* Use module default function */
 void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns);
+
+void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
@@ -153,13 +167,14 @@ int main(int argc, char **argv)
         pcmAlarm=egi_pcmbuf_readfile(ALARM_SOUND_PATH);
         if(pcmAlarm==NULL)exit(1);
 
-	/* Time ticking.... */
+#if 0	/* Time ticking.... */
 	printf("Timer is working...\n");
 	do {
 		tm_delayms(100);
 		tnow=time(NULL);
 	}
 	while( difftime(tset, tnow)>0 );
+#endif
 
 	/* 1. Create a surfuser */
 	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, sw,sh, sw, sh, colorType); /* Fixed size */
@@ -178,6 +193,7 @@ int main(int argc, char **argv)
      	// Disable size_adjust: surfshmem->redraw_surface       =  surfuser_redraw_surface;
         surfshmem->maximize_surface     = surfuser_maximize_surface;    /* Need redraw */
         surfshmem->normalize_surface    = surfuser_normalize_surface;   /* Need redraw */
+	surfshmem->user_mouse_event     = my_mouse_event;
 
         /* 4. Assign name to the surface */
         //strncpy(surfshmem->surfname, "定时提醒", SURFNAME_MAX-1);
@@ -210,12 +226,30 @@ int main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 
+	/* Preset as MIN window */
+	surfshmem->status= SURFACE_STATUS_MINIMIZED;
+
         /* Activate/synchronize surface */
         surfshmem->sync=true;
 
+#if 1	/* Time ticking.... */
+	printf("Timer is working...\n");
+	do {
+		tm_delayms(100);
+		tnow=time(NULL);
+	}
+	while( difftime(tset, tnow)>0 );
+
+#endif
+
+	sigStopPlay=false;
+
+	surfshmem->status= SURFACE_STATUS_NORMAL;
+
 	/* Play sound */
         /* mpc_dev, pcmbuf, vstep, nf, nloop, bool *sigstop, bool *sigsynch, bool* sigtrigger */
-        egi_pcmbuf_playback(PCM_MIXER, pcmAlarm, 0, 1024, 100, (bool *)&surfshmem->usersig,  NULL, NULL);
+        //egi_pcmbuf_playback(PCM_MIXER, pcmAlarm, 0, 1024, 100, (bool *)&surfshmem->usersig,  NULL, NULL);
+        egi_pcmbuf_playback(PCM_MIXER, pcmAlarm, 0, 1024, 100, &sigStopPlay,  NULL, NULL);
 
 	/* Loop */
 	while( surfshmem->usersig != 1 ) {
@@ -237,8 +271,11 @@ int main(int argc, char **argv)
 		tm_delayms(200);
 	}
 
-        /* XXX Wait for pcmbuf_playback to end and close its pcm handle */
-
+        /* In case */
+	if( pcmAlarm->pcm_handle ) {
+	        printf("Close pcmAlarm->pcm_handle...\n");
+		snd_pcm_close(pcmAlarm->pcm_handle);
+	}
 
         /* Free SURFBTNs */
         for(i=0; i<3; i++)
@@ -263,6 +300,7 @@ int main(int argc, char **argv)
 }
 
 
+#if 0 ////////////////// To use module default function //////////////
 /*------------------------------------
     SURFUSER's ERING routine thread.
 ------------------------------------*/
@@ -286,8 +324,10 @@ void *surfuser_ering_routine(void *args)
 			continue;
         	}
 		/* SURFMAN disconnects */
-		else if(nrecv==0)
+		else if(nrecv==0) {
+			egi_dpstd("SURFMAN disconnects!\n");
 			exit(EXIT_FAILURE);
+		}
 
 	        /* 2. Parse ering messag */
         	switch(emsg->type) {
@@ -316,6 +356,7 @@ void *surfuser_ering_routine(void *args)
         egi_dpstd("Exit thread.\n");
 	return (void *)0;
 }
+#endif ////////////////////////////////////////
 
 
 /*----------------- Re-define firstdraw  ---------------------
@@ -422,3 +463,22 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns)
 
 }
 
+
+/*-----------------------------------------------------------------
+                Mouse Event Callback
+                (shmem_mutex locked!)
+
+1. It's a callback function called in surfuser_parse_mouse_event().
+2. pmostat is for whole desk range.
+3. This is for  SURFSHMEM.user_mouse_event() .
+
+To stop playback music.
+------------------------------------------------------------------*/
+void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
+{
+	/* Since user's mevent callback function is after default mevent process....*/
+	if( surfshmem->status == SURFACE_STATUS_MINIMIZED || surfshmem->usersig==1 )
+		sigStopPlay=true;
+
+
+}

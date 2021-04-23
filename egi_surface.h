@@ -23,7 +23,10 @@ midaszhou@yahoo.com
 #define ERING_PATH_SURFMAN	"/tmp/.egi/ering_surfman"
 
 /* Surface Appearance Geom */
-#define         SURF_TOPBAR_HEIGHT       30
+#define         SURF_TOPBAR_HEIGHT      30
+#define		SURF_TOPBAR_COLOR	WEGI_COLOR_GRAY5
+#define		SURF_OUTLINE_COLOR	WEGI_COLOR_GRAY
+
 
 #ifdef LETS_NOTE
         #define SURF_MAXW       800
@@ -212,7 +215,7 @@ struct egi_surface_shmem {
 					 * EGI_SURFACE also holds the data!
 					 * For unmap shmem.
 					 */
-	EGI_SURFSHMEM	*child;		/* The only child, an independent SURFACE, displys always on its parent.
+	EGI_SURFSHMEM	*child;		/* XXX The only child, an independent SURFACE, displys always on its parent.
 					 * When its mevent is activated, mevent of its parent is blocked/disable.
 					 * Only after the child is unregistered does the parent resume its mevent process.
 					 */
@@ -267,21 +270,38 @@ struct egi_surface_shmem {
 	int		nh;
 
 	/* Default buttons on topbar: CLOSE/MINIMIZE/MAXIMIZE */
-#define TOPBTN_CLOSE	(1<<0)
-#define TOPBTN_MIN	(1<<1)
-#define TOPBTN_MAX	(1<<2)
+#define TOPBTN_CLOSE	(1<<0)		/* button CLOSE */
+#define TOPBTN_MIN	(1<<1)		/* button MINIMIZE */
+#define TOPBTN_MAX	(1<<2)		/* button MAXIMIZE */
 
 #define TOPBTN_CLOSE_INDEX	0 	/* WARNGING: same order as surfshmem->mpbtn */
 #define TOPBTN_MIN_INDEX	1
 #define TOPBTN_MAX_INDEX	2
+#define TOPBTN_MAXNUM		3	/* Totally 3 buttons for sbtns[] */
 
 	ESURF_BTN     *sbtns[3];      /* CLOSE/MIN/MAX.  If NULL, ignore. same order as surfshmem->mpbtn */
 					/* NOW to be allocated/released by SURFUSER
 					 * see in surfuser_firstdraw_surface() to create them accd. to 'topbtns'.
+					 * TODO: NOW They are released/freed by the Caller!
 					 */
 	int		mpbtn;		/* Index of mouse touched buttons, as index of sbtns[]
-					 * <0 invalid.
+					 * <0 invalid.  Init. it as -1 in surfman_register_surface().
 					 */
+/* TEST: -----ESURF_BOX: as menu, label, ------------------ */
+#define TESTBOX_MAXNUM	3
+	ESURF_BOX	*sboxes[TESTBOX_MAXNUM];
+					/* Pointers to ESURF_BOX
+					 * TODO: NOW They are released/freed by the Caller!
+					 */
+
+	int		mpbox;		/* Index of mouse touched sboxes, as index of sboxes[]
+					 * <0 invalid.  Init. it as -1 in surfman_register_surface().
+					 */
+	/*** Surface draw Funtions */
+ 	/* 1. Draw background/canvas before firstdraw. */
+	void (*draw_canvas)(EGI_SURFUSER *surfuser);
+	/* 2. Firstdraw surface, draw surface and create buttons on topbar */
+	void (*firstdraw_surface)(EGI_SURFUSER *surfuser, int topbtns);
 
 	/*** Surface Operations: All by SURFUSER.
 	 *   1. They are just pointers, MAY be initilized with default OP functions.
@@ -352,7 +372,7 @@ struct egi_surface {
 //	const char 	name[];		Replaced by SURFSHMEM.surfname[]
 
 	int		csFD;		/* surf_userID, as of sessionID of userv->session[sessionID].
-					 * Two surface MAY have same csFD. ?
+					 * Two surface MAY have same csFD. ? XXX NOPE!
 					 * !!! test_surfman.c: Use csFD to identify a surface.
 					 */
 
@@ -454,6 +474,7 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath, int x0, int y0, int ma
 int egi_unregister_surfuser(EGI_SURFUSER **surfuser);
 
 	/* Default surface operations; OR use your own tailor_made functions. */
+__attribute__((weak)) void surfuser_draw_canvas(EGI_SURFUSER *surfuser);
 __attribute__((weak)) void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns);
 __attribute__((weak)) void surfuser_move_surface(EGI_SURFUSER *surfuser, int x0, int y0);
 __attribute__((weak)) void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h);
@@ -461,6 +482,8 @@ __attribute__((weak)) void surfuser_maximize_surface(EGI_SURFUSER *surfuser);
 __attribute__((weak)) void surfuser_normalize_surface(EGI_SURFUSER *surfuser);
 __attribute__((weak)) void surfuser_minimize_surface(EGI_SURFUSER *surfuser);
 __attribute__((weak)) void surfuser_close_surface(EGI_SURFUSER **surfuser);
+
+__attribute__((weak)) void *surfuser_ering_routine(void *surf_user);
 __attribute__((weak)) void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex */
 
 bool egi_point_on_surface(const EGI_SURFSHMEM *surfshmem, int x, int y); /* in work_area, NOT include frame_area */

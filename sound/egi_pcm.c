@@ -79,6 +79,11 @@ Journal:
 	1. Replace 'elem in egi_getset_pcm_volume()' by 'g_volmix_elem'.
 	2. Add egi_pcm_mute()
 
+2021-04-19:
+	1.egi_pcmbuf_playback(): If input pcmbuf->pcm_handle is NULL, then create/open it
+	  first, and close it after playback.
+
+
 Midas Zhou
 midaszhou@yahoo.com
 -------------------------------------------------------------------*/
@@ -299,13 +304,16 @@ void  egi_pcmhnd_playBuff(snd_pcm_t *pcm_handle, bool Interleaved, void *buffer,
 }
 
 
-/*--------------------------------
+/*-------------------------------------
 Mute/Demut EGI PCM.
+
+Note: This is for SYS PCM! It will mute/demute
+      all current applications.
 
 Return:
 	0	OK
 	<0	Fails
---------------------------------*/
+------------------------------------*/
 int egi_pcm_mute(void)
 {
 	int ret=0;
@@ -1003,6 +1011,7 @@ Note: 1. Now only support for PCM_S8, PCM_U8, and PCM_16
 	 depth max.=2. see in sf_readf_short(...)
       2. For wav files, the format for ALSA is SND_PCM_FORMAT_S16_LE.
       3. For wav files, access type is SND_PCM_ACCESS_RW_INTERLEAVED.
+      4. pcmbuf->pcm_hand will NOT be created/opened here.
 
 @path:	path of a sound file.
 
@@ -1119,6 +1128,8 @@ Playback a EGI_PCMIMG
 
 @dev_name:	PCM device
 @pcmbuf:	An EGI_PCMBUF holding pcm data.
+		If pcmbuf->pcm_handle == NULL, then create/open it first, and close it after playback.
+		Else if pcmbuf->pcm_handle != NULL, DO NOT close it after playback.
 @vstep:		Volume step up/down, each step is 1/16 strength of original PCM value.
 		So Min. value of vstep is -16.  If vstep<-16, then the sign of PCM value
 		will reverse!
@@ -1149,7 +1160,7 @@ Return:
 	0	OK
 	<0	Fails
 ----------------------------------------------------------------------*/
-int  egi_pcmbuf_playback( const char* dev_name, const EGI_PCMBUF *pcmbuf, int vstep,
+int  egi_pcmbuf_playback( const char* dev_name, EGI_PCMBUF *pcmbuf, int vstep,
 			  unsigned int nf , int nloop, bool *sigstop, bool *sigsynch, bool* sigtrigger)
 {
 	int		i;
@@ -1159,7 +1170,8 @@ int  egi_pcmbuf_playback( const char* dev_name, const EGI_PCMBUF *pcmbuf, int vs
 	unsigned char 	*pbuf=NULL;	/* pointer to pcm data position */
 	int16_t  	*vbuf=NULL;	/* for modified pcm data */
 	int count; 			/* for loop count */
-	snd_pcm_t *pcm_handle=NULL;
+	snd_pcm_t 	*pcm_handle=NULL;	/* Only a ref. pointer to pcmbuf->pcm_handle */
+	bool		without_pcm_handle=false;  /* TURE if pcmbuf->pcm_handle is NULL! */
 
 
 	/* Check sigstop before re_check in while() */
@@ -1172,7 +1184,7 @@ int  egi_pcmbuf_playback( const char* dev_name, const EGI_PCMBUF *pcmbuf, int vs
 		return -1;
 	}
 
-	/* allocate vpbuf */
+	/* Allocate vpbuf */
 	if( vstep!=0 && pcmbuf->sformat==SND_PCM_FORMAT_S16 )  {  /* pcmbuf->depth==2, For PCM_S16 format only */
 		vbuf=calloc(nf, pcmbuf->nchanl*2);
 		if(vbuf==NULL) {
@@ -1184,18 +1196,25 @@ int  egi_pcmbuf_playback( const char* dev_name, const EGI_PCMBUF *pcmbuf, int vs
 		EGI_PLOG(LOGLV_WARN,"%s: Soft volume adjustment only supports SND_PCM_FORMAT_S16!",__func__);
 	}
 
-	/* open pcm device */
+	/* Open pcm device if input pcmbuf contain NULL */
 	//printf("%s: open playback device...\n",__func__);
-	pcm_handle=egi_open_playback_device( dev_name, pcmbuf->sformat,     /* dev_name, sformat */
-                                             pcmbuf->access_type, true,	    /* access_type, bool soft_resample */
-					     pcmbuf->nchanl, pcmbuf->srate, /* nchanl, srate */
-                                             50000			    /* latency (us), syssrate, */
-                                    	    );
-	if(pcm_handle==NULL) {
-		if(vbuf!=NULL) /* free vbuf first */
-			free(vbuf);
-		return -2;
+	if(pcmbuf->pcm_handle==NULL) {
+
+		without_pcm_handle=true;
+
+		pcmbuf->pcm_handle=egi_open_playback_device( dev_name, pcmbuf->sformat,     /* dev_name, sformat */
+        	                                     pcmbuf->access_type, true,	    /* access_type, bool soft_resample */
+						     pcmbuf->nchanl, pcmbuf->srate, /* nchanl, srate */
+                        	                     50000			    /* latency (us), syssrate, */
+                                	    	    );
+		if(pcmbuf->pcm_handle==NULL) {
+			if(vbuf!=NULL) /* free vbuf first */
+				free(vbuf);
+			return -2;
+		}
 	}
+	/* Set ref. pointer */
+	pcm_handle = pcmbuf->pcm_handle;
 
 	/* Write data to PCM for PLAYBACK */
 	//printf("%s: start pcm write...\n",__func__);
@@ -1283,11 +1302,15 @@ int  egi_pcmbuf_playback( const char* dev_name, const EGI_PCMBUF *pcmbuf, int vs
 	  	count++;
   	} while ( nloop<=0 || count<nloop );  /* end loops */
 
-	/* close pcm handle */
-	snd_pcm_drain(pcm_handle);
-	snd_pcm_close(pcm_handle);
+	/* Close private pcm handle */
+	if( without_pcm_handle ) {
+		snd_pcm_drain(pcmbuf->pcm_handle);
+		snd_pcm_close(pcmbuf->pcm_handle);
+		pcmbuf->pcm_handle=NULL;
+	}
+	/* Else: If input pcmbuf contains valid pcm_handle, DO NOT close it! */
 
-	/* free vbuf */
+	/* Free vbuf */
 	if( vstep !=0 && pcmbuf->sformat==SND_PCM_FORMAT_S16 )    //pcmbuf->depth==2   NOTE: vbuf may be referred to pbuf!
 		free(vbuf);
 

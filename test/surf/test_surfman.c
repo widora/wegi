@@ -11,6 +11,10 @@ Usage:
 5. Press 'a','d','w','s' to move SURFACE LEFT,RIGHT,UP,DOWN respectively.
 
 Note:
+0. EringMSG from SURFMAN's renderThread(After one surface minimized, to pick next TOP surface and ering BRINGTOP)
+   and from SURFMAN's main() routine job here(ering mstat to the TOP surface. ) are  NOT syncronized!
+   as they are two separated threads.
+
 1. SURFMAN routine:
    1.1 Parse keyboard input:  Shortcut key functions.
    1.2 Parse Mouse event:     LeftKeyDown to pick TOP surface.
@@ -82,6 +86,10 @@ Journal
 2021-04-17:
 	1. Need to send LeftKeyDown to the new TOP surface to clear its old stat data, lastX/Y etc.
 	   See W2-1-A.2
+2021-04-19:
+	1. Check whether directory of ERING_PATH_SURFMAN exists, if not, make it.
+2021-04-20:
+	1. Load a random image file for wallpaper.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -89,6 +97,7 @@ https://github.com/widora/wegi
 ------------------------------------------------------------------*/
 #include <stdio.h>
 #include <stdlib.h>
+#include <libgen.h>
 #include "egi_timer.h"
 #include "egi_color.h"
 #include "egi_log.h"
@@ -98,6 +107,7 @@ https://github.com/widora/wegi
 #include "egi_surface.h"
 #include "egi_procman.h"
 #include "egi_input.h"
+#include "egi_utils.h"
 
 #ifdef LETS_NOTE
         #define MCURSOR_NORMAL	"/home/midas-zhou/egi/mcursor.png"
@@ -179,6 +189,19 @@ int main(int argc, char **argv)
         ERING_MSG *emsg=ering_msg_init();
         if(emsg==NULL) exit(EXIT_FAILURE);
 
+	/* 0. Check directory for ERING_PATH_SURFMAN */
+	char *strdir=NULL;
+	char *pdir=NULL;
+	strdir=strdup(ERING_PATH_SURFMAN);
+	pdir=dirname(strdir);
+	if( access(pdir, F_OK)!=0 ) {
+		if(egi_util_mkdir(pdir, S_IRWXG) !=0 ) {
+			printf("Fail to mkdir for ering path!\n");
+			exit(EXIT_FAILURE);
+		}
+	}
+	free(strdir);
+
 	/* 1. Create an EGI surface manager */
 	surfman=egi_create_surfman(ERING_PATH_SURFMAN);
 	if(surfman==NULL)
@@ -191,13 +214,32 @@ int main(int argc, char **argv)
 	surfman->mgrab=egi_imgbuf_readfile(MCURSOR_GRAB);
 
 	/* 1.B Load wallpaper */
-	surfman->bkgimg=egi_imgbuf_readfile(SURFMAN_BKGIMG_PATH);
+	//surfman->bkgimg=egi_imgbuf_readfile(SURFMAN_BKGIMG_PATH);
+	char **FileList=NULL;
+	int  fcount=0;
+	FileList=egi_alloc_search_files("/mmc/desk", "png,jpg", &fcount); // const char* path, const char* fext,  int *pcount
+	if( FileList )
+		egi_dpstd("Found %d image files for wallpaper.\n", fcount);
+	else
+		egi_dpstd("No image file found for wallpaper!\n");
+
+
+	pthread_mutex_lock(&surfman->surfman_mutex);
+/* ------ >>>  Surfman Critical Zone  */
+
+	/* Load a random image file */
+	surfman->bkgimg=egi_imgbuf_readfile(FileList[mat_random_range(fcount)]);
+	/* Stretch image to fit for the FB */
+	egi_imgbuf_resize_update(&surfman->bkgimg, false, 320,240); //surfman->fbdev.pos_xres, surfman->fbdev.pos_yres); /* **pimg, keep_ratio, width, height */
+
+/* ------ <<<  Surfman Critical Zone  */
+	pthread_mutex_unlock(&surfman->surfman_mutex);
 
         /* 2. Set termI/O 设置终端为直接读取单个字符方式 */
         egi_set_termios();
 
 	/* 3. Set mouse callback function and start mouse readloop */
-	/* ! Refere pos_xres/yres for mouse movement limit. */
+	/* ! Refere pos_xres/yres for mouse movement limit. !!!WARNING!!! gv_fb_dev MAYBE NOT initilized yet! */
 	gv_fb_dev.pos_xres=surfman->fbdev.pos_xres;
 	gv_fb_dev.pos_yres=surfman->fbdev.pos_yres;
   	if( egi_start_mouseread(NULL, mouse_callback) <0 )

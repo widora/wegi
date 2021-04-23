@@ -49,6 +49,7 @@ Journal
 	1. Apply SURFACE module's default operation functions for
 	   CLOSE/MIN./MAX. buttons etc.
 
+
 Midas Zhou
 midaszhou@yahoo.com
 https://github.com/widora/wegi
@@ -80,17 +81,15 @@ FBDEV            *vfbdev=NULL;           /* Only a ref. to &surfuser->vfbdev  */
 EGI_IMGBUF       *surfimg=NULL;          /* Only a ref. to surfuser->imgbuf */
 SURF_COLOR_TYPE  colorType=SURF_RGB565;  /* surfuser->vfbdev color type */
 EGI_16BIT_COLOR  bkgcolor;
-bool		 ering_ON;		/* Surface on TOP, ERING is streaming input data. */
+//bool		 ering_ON;		/* Surface on TOP, ERING is streaming input data. */
 					/* XXX A LeftKeyDown as signal to start parse of mostat stream from ERING,
 					 * Before that, all mostat received will be ignored. This is to get rid of
 					 * LeftKeyDownHold following LeftKeyDown which is to pick the top surface.
 					 */
 
-/* ERING routine */
-void            *surfuser_ering_routine(void *args);
-
 /* Apply SURFACE module default function */
-// void  surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex */
+//void  *surfuser_ering_routine(void *args);
+//void  surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex */
 
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
@@ -245,7 +244,7 @@ START_TEST:
 
         	/* Free SURFBTNs */
         	for(i=0; i<3; i++)
-                	egi_surfbtn_free(&surfshmem->sbtns[i]);
+                	egi_surfBtn_free(&surfshmem->sbtns[i]);
 
 		/* Unregister and destroy surfuser */
 		printf("Unregister surfsuer...\n");
@@ -264,7 +263,7 @@ START_TEST:
 
         /* Free SURFBTNs */
         for(i=0; i<3; i++)
-                egi_surfbtn_free(&surfshmem->sbtns[i]);
+                egi_surfBtn_free(&surfshmem->sbtns[i]);
 
         /* Join ering_routine  */
         // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
@@ -284,7 +283,7 @@ START_TEST:
 	exit(0);
 }
 
-
+#if 0 ///////////////////  Module Default Function  //////////////////////
 /*------------------------------------
     SURFUSER's ERING routine thread.
 ------------------------------------*/
@@ -329,13 +328,17 @@ void *surfuser_ering_routine(void *args)
 	               case ERING_SURFACE_BRINGTOP:
                         	egi_dpstd("Surface is brought to top!\n");
 				//ering_ON=false;	/* To get rid of LeftKeyDownHOld */
-				surfuser->ering_bringTop=true; /* As start of a new round of mevent session */
+				surfuser->ering_bringTop=true; /* Canceled XXX As start of a new round of mevent session */
                 	        break;
 /* NOTE:
+ *	0. Emsg MAY NOT reach to the surface in right sequence:
+ *         As SURFMAN's renderThread(after one surface minimized, to pick next TOP surface and ering BRINGTOP)
+ *         and SURFMAN's routine job ( ering mstat to the TOP surface. ) are two separated threads, and their ERING jobs
+ *         are NOT syncronized! So it's NOT reliable to deem ERING_SURFACE_BRINGTOP emsg as start of a new mevent round!
  * 	1. If the mouse was on topbar of a surface when its last mevent session ended, and NOW the same surface is brought up to TOP
- *	while previous TOP surface is minimized by clicking and keep_hold_down on TOPBTN_MIN.
+ *	   while previous TOP surface is minimized by clicking and keep_hold_down on TOPBTN_MIN.
  *	2. We SHOULD NOT use ERING_SURFACE_BRINGTOP esmg as the start signal of a new mevent round!!!
- *	3. Instead, we should use other mouse status...such as 'Release DH', 'Release...'
+ *	3. Instead, we should use member of surfshmem , OR other mouse status...such as 'Release DH', 'Release...'
  *
  *	Study following cases:
 
@@ -387,7 +390,6 @@ surfuser_parse_mouse_event(): Touch a BTN mpbtn=-1, i=0
 ...
 */
 
-
         	       case ERING_SURFACE_RETIRETOP:
                 	        egi_dpstd("Surface is retired from top!\n");
                         	break;
@@ -412,4 +414,5 @@ surfuser_parse_mouse_event(): Touch a BTN mpbtn=-1, i=0
 	return (void *)0;
 }
 
+#endif //////////////////////////////////////////
 

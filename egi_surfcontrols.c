@@ -4,11 +4,19 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 
+Journal:
+2021-4-22:
+	1. Add ESURF_LABEL and its functions.
+	2. Modify 'egi_surfbtn_' to 'egi_surfBtn_'
+	3. Add egi_surfBtn_writeFB().
+	4. Modify 'egi_surfXXX_display' to egi_surfXXX_writeFB'
+
+
 Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
 #include "egi_surfcontrols.h"
-
+#include "egi_debug.h"
 
 /*---------------------------------------------------------------
 Create an ESURF_BOX and blockcopy its imgbuf from input imgbuf.
@@ -92,7 +100,7 @@ inline bool egi_point_on_surfBox(const ESURF_BOX *box, int x, int y)
 }
 
 /*-----------------------------------------
-Display an ESURF_BOX on the FBDEV.
+Display an ESURF_BOX onto the FBDEV.
 
 @fbdev:		Pointer to FBDEV
 @box:		Pointer to ESURF_BOX
@@ -100,13 +108,119 @@ Display an ESURF_BOX on the FBDEV.
 		relative to FBDEV.
 
 -----------------------------------------*/
-void egi_surfBox_display(FBDEV *fbdev, const ESURF_BOX *box, int cx0, int cy0) {
+void egi_surfBox_writeFB(FBDEV *fbdev, const ESURF_BOX *box, int cx0, int cy0) {
 	if( box==NULL || fbdev==NULL )
 		return;
 
 	egi_subimg_writeFB(box->imgbuf, fbdev, 0, -1, cx0+box->x0, cy0+box->y0); /* imgbuf, fb, subnum, subcolor, x0,y0 */
 }
 
+
+/*---------------------------------------------------------------
+Create an ESURF_LABEL and blockcopy its imgbuf from input imgbuf.
+
+@imgbuf		An EGI_IMGBUF holds image.
+@xi,yi		Label bkg image origin relative to its container.
+@x0,y0		Label origin relative to its container.
+@w,h		Width and height of the label.
+
+Return:
+	A pointer to ESURF_LABEL	ok
+	NULL				Fails
+----------------------------------------------------------------*/
+ESURF_LABEL *egi_surfLab_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h)
+{
+	ESURF_LABEL   *lab=NULL;
+
+	if(imgbuf==NULL)
+		return NULL;
+
+	/* w/h check inside egi_image functions */
+	//if(w<1 || h<1)
+	//	return NULL;
+
+	/* Calloc ESURF_LAB */
+	lab=calloc(1, sizeof(ESURF_LABEL));
+	if(lab==NULL)
+		return NULL;
+
+	/* To copy a block from imgbuf as box image */
+	lab->imgbuf=egi_imgbuf_blockCopy(imgbuf, xi, yi, h, w);
+	if(lab->imgbuf==NULL) {
+		free(lab);
+		return NULL;
+	}
+
+	/* Assign members */
+	lab->x0=x0;
+	lab->y0=y0;
+	lab->w=w;
+	lab->h=h;
+
+	return lab;
+}
+
+/*---------------------------------------
+	Free an ESURF_LABEL.
+---------------------------------------*/
+void egi_surfLab_free(ESURF_LABEL **lab)
+{
+	if(lab==NULL || *lab==NULL)
+		return;
+
+	/* Free imgbuf */
+	egi_imgbuf_free((*lab)->imgbuf);
+
+	/* Free struct */
+	free(*lab);
+
+	*lab=NULL;
+}
+
+/*-----------------------------------------
+Display an ESURF_LABEL onto the FBDEV.
+
+@fbdev:		Pointer to FBDEV
+@lab:		Pointer to ESURF_BOX
+@face:		Font face
+@fw,fh:		Font size
+@color:		Text color
+@cx0,cy0:	Its container origin x0,y0
+		relative to FBDEV.
+
+-----------------------------------------*/
+void egi_surfLab_writeFB(FBDEV *fbdev, const ESURF_LABEL *lab, FT_Face face, int fw, int fh, EGI_16BIT_COLOR color, int cx0, int cy0)
+{
+	if( lab==NULL || fbdev==NULL )
+		return;
+
+	/* Bkg image */
+	egi_subimg_writeFB(lab->imgbuf, fbdev, 0, -1, cx0+lab->x0, cy0+lab->y0); /* imgbuf, fb, subnum, subcolor, x0,y0 */
+
+	/* Write label text on bkg */
+        FTsymbol_uft8strings_writeFB(  fbdev, face,             		/* FBdev, fontface */
+                                        fw, fh, (UFT8_PCHAR)lab->text,   	/* fw,fh, pstr */
+                                        lab->w, 1, 0,                           /* pixpl, lines, fgap */
+                                        lab->x0, lab->y0,            		/* x0,y0, */
+                                        color, -1, 255,              		/* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);                /* int *cnt, int *lnleft, int* penx, int* peny */
+
+}
+
+/*-------------------------------------
+Update Label text.
+
+@lab:	Pointer to ESUR_LABEL
+@text:	Text for label.
+-------------------------------------*/
+void egi_surfLab_updateText( ESURF_LABEL *lab, const char *text )
+{
+	if(lab==NULL || text==NULL)
+		return;
+
+	strncpy( lab->text, text, ESURF_LABTEXT_MAX-1 );
+	lab->text[ESURF_LABTEXT_MAX-1]='\0';
+}
 
 /*---------------------------------------------------------------
 Create an ESURF_BTN and blockcopy its imgbuf from input imgbuf.
@@ -120,7 +234,7 @@ Return:
 	A pointer to ESURF_BTN	ok
 	NULL				Fails
 ----------------------------------------------------------------*/
-ESURF_BTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h)
+ESURF_BTN *egi_surfBtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h)
 {
 	ESURF_BTN	*sbtn=NULL;
 
@@ -139,6 +253,7 @@ ESURF_BTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0
 	/* To copy a block from imgbuf as button image */
 	sbtn->imgbuf=egi_imgbuf_blockCopy(imgbuf, xi, yi, h, w);
 	if(sbtn->imgbuf==NULL) {
+		egi_dpstd("Fail to blockCopy imgbuf!\n");
 		free(sbtn);
 		return NULL;
 	}
@@ -154,7 +269,7 @@ ESURF_BTN *egi_surfbtn_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0
 /*---------------------------------------
 	Free an ESURF_BTN.
 ---------------------------------------*/
-void egi_surfbtn_free(ESURF_BTN **sbtn)
+void egi_surfBtn_free(ESURF_BTN **sbtn)
 {
 	if(sbtn==NULL || *sbtn==NULL)
 		return;
@@ -169,6 +284,36 @@ void egi_surfbtn_free(ESURF_BTN **sbtn)
 
 	*sbtn=NULL;
 }
+
+/*-----------------------------------------
+Display an ESURF_BTN onto the FBDEV.
+
+@fbdev:		Pointer to FBDEV
+@btn:		Pointer to ESURF_BTN
+@type:		Type of imgbuf.
+		SURFBTN_IMGBUF_NORMAL/EFFECT/PRESSED.
+@cx0,cy0:	Its container origin x0,y0
+		relative to FBDEV.
+
+-----------------------------------------*/
+void egi_surfBtn_writeFB(FBDEV *fbdev, const ESURF_BTN *btn, int type, int cx0, int cy0)
+{
+	if( btn==NULL || fbdev==NULL )
+		return;
+
+	switch(type) {
+		case SURFBTN_IMGBUF_NORMAL:
+			egi_subimg_writeFB(btn->imgbuf, fbdev, 0, -1, cx0+btn->x0, cy0+btn->y0); /* imgbuf, fb, subnum, subcolor, x0,y0 */
+			break;
+		case SURFBTN_IMGBUF_EFFECT:
+			egi_subimg_writeFB(btn->imgbuf_effect, fbdev, 0, -1, cx0+btn->x0, cy0+btn->y0);
+			break;
+		case SURFBTN_IMGBUF_PRESSED:
+			egi_subimg_writeFB(btn->imgbuf_pressed, fbdev, 0, -1, cx0+btn->x0, cy0+btn->y0);
+			break;
+	}
+}
+
 
 /*---------------------------------------
 Check if point (x,y) in on the SURFBTN.
@@ -291,7 +436,7 @@ Display an ESURF_TICKBOX on the FBDEV.
 		relative to FBDEV.
 
 -----------------------------------------*/
-void egi_surfTickBox_display(FBDEV *fbdev, const ESURF_TICKBOX *tbox,  int cx0, int cy0)
+void egi_surfTickBox_writeFB(FBDEV *fbdev, const ESURF_TICKBOX *tbox,  int cx0, int cy0)
 {
 	if( tbox==NULL || fbdev==NULL )
 		return;

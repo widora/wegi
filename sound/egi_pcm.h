@@ -32,7 +32,7 @@ Midas Zhou
 
 /* EGI_PCMBUF */
 typedef struct {
-	snd_pcm_t 		*pcm_handle;	/* PCM handle */
+	snd_pcm_t 		*pcm_handle;	/* PCM handle. NOT necessary. */
 
 	unsigned long	 	size;		/* in bytes(TODO inframes), size of pcmbuf[]*/
 	unsigned char*   	pcmbuf;		/* PCM data, with following params */
@@ -86,6 +86,7 @@ int	egi_getset_pcm_volume(int *pgetvol, int *psetvol);
 int 	egi_adjust_pcm_volume(int vdelt);
 
 /* --- Other PCM functions --- */
+//int snd_pcm_open(snd_pcm_t **pcm, const char *name,  snd_pcm_stream_t stream, int mode);
 snd_pcm_t*  egi_open_playback_device( const char *dev_name, snd_pcm_format_t sformat, snd_pcm_access_t access_type,
 				      bool soft_resample, unsigned int nchanl, unsigned int srate, unsigned int latency );
 int 	egi_pcmhnd_setParams( snd_pcm_t *pcm_handle, snd_pcm_format_t sformat, snd_pcm_access_t access_type,
@@ -98,7 +99,7 @@ EGI_PCMBUF* 	egi_pcmbuf_create(  unsigned long size, unsigned int nchanl, unsign
                                 	  snd_pcm_format_t sformat, snd_pcm_access_t access_type );
 void 	        egi_pcmbuf_free(EGI_PCMBUF **pcmbuf);
 EGI_PCMBUF*     egi_pcmbuf_readfile(char *path);
-int  		egi_pcmbuf_playback(const char* dev_name, const EGI_PCMBUF *pcmbuf, int vstep, unsigned int nf,
+int  		egi_pcmbuf_playback(const char* dev_name, EGI_PCMBUF *pcmbuf, int vstep, unsigned int nf,
 				  				int nloop, bool *sigstop, bool *sigsynch, bool* sigtrigger);
 
 

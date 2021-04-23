@@ -11,6 +11,9 @@ Jurnal
 2021-02-22:
 	1. Modify egi_imgbuf_resetColorAlpha().
 
+2021-04-20:
+	1. Add param keep_ratio for egi_imgbuf_resize() AND egi_imgbuf_resize_update().
+
 Midas Zhou
 midaszhou@yahoo.com
 -------------------------------------------------------------------*/
@@ -1609,6 +1612,8 @@ NOTE:
 
 
 @ineimg:	Input EGI_IMGBUF holding the original image data.
+@keep_ratio:	True: Keep aspect ratio.
+		False: Stretch size.
 @width:		Width for new image.
 		If width<=0 AND height>0: adjust width/height proportional to oldwidth/oldheight.
 		If width<2, auto. adjust it to 2.
@@ -1620,7 +1625,7 @@ Return:
 	A pointer to EGI_IMGBUF with new image 		OK
 	NULL						Fails
 ------------------------------------------------------------------------*/
-EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg,
+EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 				//unsigned int width, unsigned int height )
 				int width, int height )
 {
@@ -1666,11 +1671,13 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg,
 	else if(height<1)
 		height=width*oldheight/oldwidth;
 
-	/* Keep image ratio */
-	if( height/width > oldheight/oldwidth )
-		width=height*oldwidth/oldheight;
-	else
-		height=width*oldheight/oldwidth;
+	/* Keep image aspect ratio */
+	if(keep_ratio) {
+		if( height/width > oldheight/oldwidth )
+			width=height*oldwidth/oldheight;
+		else
+			height=width*oldheight/oldwidth;
+	}
 
 	/* Limit width and height to 2, ==1 will cause Devide_By_Zero exception. */
 	if(width<2) width=2;
@@ -1943,7 +1950,7 @@ Return:
 	0  	OK
 	<0	Fails
 --------------------------------------------------------------------*/
-int egi_imgbuf_resize_update(EGI_IMGBUF **pimg, unsigned int width, unsigned int height)
+int egi_imgbuf_resize_update(EGI_IMGBUF **pimg, bool keep_ratio, unsigned int width, unsigned int height)
 {
 	EGI_IMGBUF  *tmpimg;
 
@@ -1955,7 +1962,7 @@ int egi_imgbuf_resize_update(EGI_IMGBUF **pimg, unsigned int width, unsigned int
 		return 0;
 
 	/* resize the imgbuf by egi_imgbuf_resize() */
-	tmpimg=egi_imgbuf_resize(*pimg, width, height);
+	tmpimg=egi_imgbuf_resize(*pimg, keep_ratio, width, height);
 	if(tmpimg==NULL)
 		return -2;
 
@@ -3051,7 +3058,7 @@ int egi_subimg_writeFB(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subindex,
 	int w,h;
 
 	if(egi_imgbuf==NULL || egi_imgbuf->imgbuf==NULL ) {
-		printf("%s: egi_imbug or egi_imgbuf->imgbuf is NULL!\n",__func__);
+		printf("%s: egi_imbuf or egi_imgbuf->imgbuf is NULL!\n",__func__);
 		return -1;;
 	}
 	/* get mutex lock */
