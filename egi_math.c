@@ -1204,9 +1204,9 @@ Example:
 egi_random_range(5):  0,1,2,3,4
 egi_random_range(-5): -4,-3,-2,-1,0
 
-max>1:  0<= ret <=max-1
+max>1:  0<= ret <=max-1   [0 max-1]
 max=0 or 1:  0
-max<0:  max+1 <= ret <=0
+max<0:  max+1 <= ret <=0  [max+1 0]
 ---------------------------------------*/
 int mat_random_range(int max)
 {

@@ -99,7 +99,9 @@ typedef struct fbdev{
 
 
 	EGI_IMGBUF	*virt_fb;	/* virtual FB, as an EGI_IMGBUF */
-	EGI_IMGBUF	*VFrameImg;	/* To hold a Virtual Frame IMGBUF. as result of a completed frame. render resutl.*/
+	EGI_IMGBUF	*VFrameImg;	/* To hold a Virtual Frame IMGBUF. as result of a completed frame. render result.
+					 * vfb_render(): copy virt_fb to VFrameImg
+					 */
 	bool		vimg_owner;	/* Ownership of virt_fb(imgbuf) and VFrameImg.
 					 * True:  FBDEV has the ownership, usually imgbuf is created/allocated during init_virt_fbdev().
 				 	 *	  and virt_fb will be released when release_virt_fbdev().

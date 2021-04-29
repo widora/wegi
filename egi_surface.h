@@ -103,7 +103,12 @@ struct egi_surface_user {
 						 * 1. surfuser_parse_mouse_event() will see it as start of a new round of mevent session,
 						 *    and it will clear its old stat data (lastX/Y etc.) before process mevent. then
 						 *    it will reset to FALSE.
+						 *  XXX NOT synch/ NOT reliable XXX
 						 */
+	bool		mevent_suspend;		/* As token for starting of a new round of mevent session
+						 * Init as TRUE.
+						 */
+
 };
 
 
@@ -269,10 +274,16 @@ struct egi_surface_shmem {
 	int		nw;
 	int		nh;
 
+	/* Top bar apparance options for firstdraw_surface() */
+#define TOPBAR_NONE	(0)		/* No topbar/topbtn/surfname */
+#define TOPBAR_COLOR	(1<<0)		/* Topbar color band: if firstdraw options >= (1<<0) */
+#define TOPBAR_NAME	(1<<1)		/* Surface name, if firstdraw options >= (1<<1) */
+
 	/* Default buttons on topbar: CLOSE/MINIMIZE/MAXIMIZE */
-#define TOPBTN_CLOSE	(1<<0)		/* button CLOSE */
-#define TOPBTN_MIN	(1<<1)		/* button MINIMIZE */
-#define TOPBTN_MAX	(1<<2)		/* button MAXIMIZE */
+#define TOPBTN_CLOSE	(1<<2)		/* button CLOSE */
+#define TOPBTN_MIN	(1<<3)		/* button MINIMIZE */
+#define TOPBTN_MAX	(1<<4)		/* button MAXIMIZE */
+
 
 #define TOPBTN_CLOSE_INDEX	0 	/* WARNGING: same order as surfshmem->mpbtn */
 #define TOPBTN_MIN_INDEX	1
@@ -298,10 +309,10 @@ struct egi_surface_shmem {
 					 * <0 invalid.  Init. it as -1 in surfman_register_surface().
 					 */
 	/*** Surface draw Funtions */
- 	/* 1. Draw background/canvas before firstdraw. */
+ 	/* 1. Draw background/canvas, called at beginning of surfuser_firstdraw_surface() */
 	void (*draw_canvas)(EGI_SURFUSER *surfuser);
 	/* 2. Firstdraw surface, draw surface and create buttons on topbar */
-	void (*firstdraw_surface)(EGI_SURFUSER *surfuser, int topbtns);
+	void (*firstdraw_surface)(EGI_SURFUSER *surfuser, int options);
 
 	/*** Surface Operations: All by SURFUSER.
 	 *   1. They are just pointers, MAY be initilized with default OP functions.
@@ -323,11 +334,12 @@ struct egi_surface_shmem {
 	/* 6. Close */
 		void (*close_surface)(EGI_SURFUSER **surfuser);
 
-	/* Callbacks */
-	/* 1. Mouse Event callback. */
+	/* User Callbacks */
+	/* 1. Mouse Event callback in surfuser_parse_mouse_event() */
 	void (*user_mouse_event)(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 	// void (*user_keybd_event)(EGI_SURFUSER *surfuser, xxx ;
-
+	/* 2. Close event callback in close_surface().   */
+	void (*user_close_surface)(EGI_SURFUSER *surfuser);
 
 	/* Surface default color, as backgroud */
 	EGI_16BIT_COLOR	bkgcolor;
@@ -475,7 +487,7 @@ int egi_unregister_surfuser(EGI_SURFUSER **surfuser);
 
 	/* Default surface operations; OR use your own tailor_made functions. */
 __attribute__((weak)) void surfuser_draw_canvas(EGI_SURFUSER *surfuser);
-__attribute__((weak)) void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns);
+__attribute__((weak)) void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int options);
 __attribute__((weak)) void surfuser_move_surface(EGI_SURFUSER *surfuser, int x0, int y0);
 __attribute__((weak)) void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h);
 __attribute__((weak)) void surfuser_maximize_surface(EGI_SURFUSER *surfuser);

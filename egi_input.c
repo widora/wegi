@@ -714,7 +714,7 @@ static void *egi_mouse_loopread( void* arg )
 			/* If callback trapped here, then cmd_end_loopread_mouse signal will NOT be responded!
 			 * mostauts.request is set in the callback!
 			 */
-			egi_dpstd("RKDHold=%s\n", mostatus.RightKeyDownHold ? "TRUE" : "FALSE" );
+			//egi_dpstd("RKDHold=%s\n", mostatus.RightKeyDownHold ? "TRUE" : "FALSE" );
 			mouse_callback(mouse_data, sizeof(mouse_data), &mostatus);
 		}
 

@@ -283,17 +283,17 @@ int main(int argc, char **argv)
 
 	/* Create controls buttons: ( imgbuf, xi, yi, x0, y0, w, h ) */
 	#if 0 /* 3 buttons arrangement */
-	btns[BTN_PREV]=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+4*73.5, 1+22, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	btns[BTN_PLAY]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+3*73.5, 1+22*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	btns[BTN_PLAY_SWITCH]=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+3*73.5, 1+22*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	btns[BTN_NEXT]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+4*73.5, 1+22*3+50*2, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_PREV]=egi_surfBtn_create(icons_normal, 25+7*75.5, 145+4*73.5, 1+22, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_PLAY]=egi_surfBtn_create(icons_normal, 25+6*75.5, 145+3*73.5, 1+22*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_PLAY_SWITCH]=egi_surfBtn_create(icons_normal, 25+7*75.5, 145+3*73.5, 1+22*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_NEXT]=egi_surfBtn_create(icons_normal, 25+6*75.5, 145+4*73.5, 1+22*3+50*2, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	#else /* 4 buttons arrangement */
-	btns[BTN_PREV]=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+4*73.5, 1+7, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	btns[BTN_PLAY]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+3*73.5, 1+7*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	btns[BTN_PLAY_SWITCH]=egi_surfbtn_create(icons_normal, 25+7*75.5, 145+3*73.5, 1+7*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	btns[BTN_NEXT]=egi_surfbtn_create(icons_normal, 25+6*75.5, 145+4*73.5, 1+7*3+50*2, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	btns[BTN_VOLUME]=egi_surfbtn_create(icons_normal, 25+10*75.5, 145+4*73.5, 1+7*4+50*3, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	btns[BTN_VOLUME_SWITCH]=egi_surfbtn_create(icons_normal, 25+11*75.5, 145+4*73.5, 1+7*4+50*3, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_PREV]=egi_surfBtn_create(icons_normal, 25+7*75.5, 145+4*73.5, 1+7, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_PLAY]=egi_surfBtn_create(icons_normal, 25+6*75.5, 145+3*73.5, 1+7*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_PLAY_SWITCH]=egi_surfBtn_create(icons_normal, 25+7*75.5, 145+3*73.5, 1+7*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_NEXT]=egi_surfBtn_create(icons_normal, 25+6*75.5, 145+4*73.5, 1+7*3+50*2, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_VOLUME]=egi_surfBtn_create(icons_normal, 25+10*75.5, 145+4*73.5, 1+7*4+50*3, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
+	btns[BTN_VOLUME_SWITCH]=egi_surfBtn_create(icons_normal, 25+11*75.5, 145+4*73.5, 1+7*4+50*3, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	#endif
 
 	/* Set imgbuf_effect: egi_imgbuf_blockCopy(inimg, px, py, height, width) */
@@ -507,7 +507,7 @@ madSTAT=STAT_PLAY;
 
         /* Free SURFBTNs */
         for(i=0; i<3; i++)
-                egi_surfbtn_free(&surfshmem->sbtns[i]);
+                egi_surfBtn_free(&surfshmem->sbtns[i]);
 
         /* Join ering_routine  */
         // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
@@ -622,7 +622,7 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 	for(i=0; i<BTN_VALID_MAX; i++) {
                 /* A. Check mouse_on_button */
                 if( btns[i] ) {
-                        mouseOnBtn=egi_point_on_surfbtn( btns[i], pmostat->mouseX -surfuser->surfshmem->x0,
+                        mouseOnBtn=egi_point_on_surfBtn( btns[i], pmostat->mouseX -surfuser->surfshmem->x0,
                                                                 pmostat->mouseY -surfuser->surfshmem->y0 );
                 }
 //		else
@@ -911,7 +911,7 @@ void draw_PassTime(long intus)
 	if(eclock.status==ECLOCK_STATUS_IDLE) {
 		egi_clock_start(&eclock);
 
-		egi_surfBox_display(vfbdev, lab_passtime,  0, 0);
+		egi_surfBox_writeFB(vfbdev, lab_passtime,  0, 0);
   		FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.bold,   /* FBdev, fontface */
                 	                  15, 15, (UFT8_PCHAR)strPassTime,	/* fw,fh, pstr */
                         	          180, 1, 0,         /* pixpl, lines, fgap */
@@ -922,7 +922,7 @@ void draw_PassTime(long intus)
 
 	usec=egi_clock_peekCostUsec(&eclock);
 	if(usec >= intus) {
-		egi_surfBox_display(vfbdev, lab_passtime,  0, 0);
+		egi_surfBox_writeFB(vfbdev, lab_passtime,  0, 0);
   		FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.bold,   /* FBdev, fontface */
                 	                  15, 15, (UFT8_PCHAR)strPassTime,	/* fw,fh, pstr */
                         	          180, 1, 0,         /* pixpl, lines, fgap */
@@ -955,7 +955,7 @@ void draw_mp3name(char *name)
         pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */
 
-	egi_surfBox_display(vfbdev, lab_mp3name,  0, 0);
+	egi_surfBox_writeFB(vfbdev, lab_mp3name,  0, 0);
 	FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.bold,   /* FBdev, fontface */
                	                  15, 15, (UFT8_PCHAR)strbuf,	/* fw,fh, pstr */
                        	          200, 1, 0,         /* pixpl, lines, fgap */
@@ -974,12 +974,16 @@ To create a SURFACE for menu help.
 @x0,y0: Origin coordinate relative to SURFACE of the caller.
 	( also as previous level surface )
 
+Note:
+1. If it's called in mouse event function, DO NOT forget to
+   unlock shmem_mutex.
+
 TODO:
 1. XXX When the menu SURFACE is brought up to TOP, while just before the SURFMAN
    refreshs the SYS FBDEV, if you happens to click on the father SURFACE at that point,
    the menu SURFACE would then hide behind the father SURFACE, and mstat CAN NOT
    reach to it!
-   ---- OK!
+   ---- OK! Always top the surface with biggest value of level
 
 ---------------------------------------------------------*/
 void menu_help(EGI_SURFSHMEM *surfcaller, int x0, int y0)

@@ -167,15 +167,6 @@ int main(int argc, char **argv)
         pcmAlarm=egi_pcmbuf_readfile(ALARM_SOUND_PATH);
         if(pcmAlarm==NULL)exit(1);
 
-#if 0	/* Time ticking.... */
-	printf("Timer is working...\n");
-	do {
-		tm_delayms(100);
-		tnow=time(NULL);
-	}
-	while( difftime(tset, tnow)>0 );
-#endif
-
 	/* 1. Create a surfuser */
 	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, sw,sh, sw, sh, colorType); /* Fixed size */
 	if(surfuser==NULL)
@@ -239,7 +230,6 @@ int main(int argc, char **argv)
 		tnow=time(NULL);
 	}
 	while( difftime(tset, tnow)>0 );
-
 #endif
 
 	sigStopPlay=false;
@@ -279,7 +269,7 @@ int main(int argc, char **argv)
 
         /* Free SURFBTNs */
         for(i=0; i<3; i++)
-                egi_surfbtn_free(&surfshmem->sbtns[i]);
+                egi_surfBtn_free(&surfshmem->sbtns[i]);
 
         /* Join ering_routine  */
         // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
@@ -390,7 +380,8 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns)
 
 	/* 1. Set BK color */
 	/* CCFFFF(LTblue), FF99FF,FFCCFF(LTpink), FFFF99(LTyellow) */
-	egi_imgbuf_resetColorAlpha(surfimg, COLOR_RGB_TO16BITS(0xFF,0xFF,0x99), 255); /* Reset color only */
+	//egi_imgbuf_resetColorAlpha(surfimg, COLOR_RGB_TO16BITS(0xCC,0xFF,0xFF), 255); /* Reset color only */
+	egi_imgbuf_resetColorAlpha(surfimg, egi_color_random(color_light), 255); /* Reset color only */
 
 	/* 2. Draw top bar */
 	draw_filled_rect2(vfbdev,WEGI_COLOR_GRAY5, 0, 0, surfimg->width-1, SURF_TOPBAR_HEIGHT-1);
@@ -447,16 +438,16 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns)
 	i=0;
 	/* By the order of 'X_O' */
 	if( topbtns&TOPBTN_CLOSE ) {
-		surfshmem->sbtns[TOPBTN_CLOSE_INDEX]=egi_surfbtn_create(surfimg,  xs,0+1,    xs,0+1,  18, 30-1);
+		surfshmem->sbtns[TOPBTN_CLOSE_INDEX]=egi_surfBtn_create(surfimg,  xs,0+1,    xs,0+1,  18, 30-1);
 									/* (imgbuf, xi, yi, x0, y0, w, h) */
 		i++;
 	}
 	if( topbtns&TOPBTN_MIN ) {
-	        surfshmem->sbtns[TOPBTN_MIN_INDEX]=egi_surfbtn_create(surfimg,  xs+i*20,0+1,  xs+i*20,0+1,   18, 30-1);
+	        surfshmem->sbtns[TOPBTN_MIN_INDEX]=egi_surfBtn_create(surfimg,  xs+i*20,0+1,  xs+i*20,0+1,   18, 30-1);
 		i++;
 	}
 	if( topbtns&TOPBTN_MAX )
-	        surfshmem->sbtns[TOPBTN_MAX_INDEX]=egi_surfbtn_create(surfimg,  xs+i*20,0+1,  xs+i*20,0+1, 18, 30-1);
+	        surfshmem->sbtns[TOPBTN_MAX_INDEX]=egi_surfBtn_create(surfimg,  xs+i*20,0+1,  xs+i*20,0+1, 18, 30-1);
 
 //       	pthread_mutex_unlock(&surfshmem->shmem_mutex);
 /* <<< ------  Surfman Critical Zone  */

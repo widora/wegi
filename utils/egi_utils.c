@@ -371,7 +371,7 @@ END_FUNC:
 /*----------------------------------------------------------
 Copy pstr pointed content to a file. If the file dose NOT
 exist, then create it first. New content are writen/appended
-to the end the file.
+to the end of the file.
 
 @fpath: 	Full file path name.
 @pstr:		Pointer to content for copying to the file
@@ -918,7 +918,7 @@ void egi_free_buff2D(unsigned char **buff, int items)
 4. Call egi_free_buff2D() to free result array of string.
 
 @path:           Sear path without extension name.
-@fext:		 File extension name, separated by '.', ' ', '.', or';'.
+@fext:		 File extension name, separated by ' ', '.', ',', or';'.
 		 Example: "jpg", ".bmp, .doc", "avi; jpg .wav",....
 @pcount:         Total number of files found, NULL to ignore.
 		-1, search fails.
@@ -969,7 +969,6 @@ char ** egi_alloc_search_files(const char* path, const char* fext,  int *pcount 
 		if(pcount!=NULL)*pcount=-1;
 		return NULL;
 	}
-
 
 	/* get separated extension name list */
 	strbuf=strdup(fext);
@@ -1047,8 +1046,6 @@ char ** egi_alloc_search_files(const char* path, const char* fext,  int *pcount 
 													1<<km );
 		}
 
-
-
                 /* 5.2 check name string length */
                 if( strlen(file->d_name) > EGI_NAME_MAX-1 )
 		{
@@ -1057,14 +1054,12 @@ char ** egi_alloc_search_files(const char* path, const char* fext,  int *pcount 
                         continue;
 		}
 
-
 		/* TODO: skip mid '.' */
 		pt=strstr(file->d_name,"."); /* get '.' pointer */
 		if(pt==NULL){
 			//printf("ff_find_files(): no extension '.' for %s\n",file->d_name);
 			continue;
 		}
-
 
 		/* compare file extension  with items in ext_list[] */
 		ext_matched=false;

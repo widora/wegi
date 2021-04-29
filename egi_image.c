@@ -480,8 +480,7 @@ EGI_IMGBUF *egi_imgbuf_blockCopy( const EGI_IMGBUF *ineimg,
 
 
 /*---------------------------------------------------------------------
-Copy a block from an EGI_IMGBUF and paste it to another one.
-
+Copy a block from srcimg and paste it to destimg.
 
 Note:
 1. If destimg has alpha values,then copy it also. while if original

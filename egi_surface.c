@@ -93,17 +93,20 @@ TODO:
    ---OK
 
 4. Close surface brutly by calling shutdown( (*surfuser)->uclit->sockfd, SHUT_RDWR), which will force process to exit immediately!???
+   surfuser_close_surface(): To avoid thread_EringRoutine be blocked at ering_msg_recv(), JUST brutly close sockfd
+   and force the thread to quit. ....
 
 5. If a SURFUSER do NOT release its shmem_mutex, then SURFMAN's surfman_render_thread will be BLOCKED!
    Each SURFSUER MAY need a workFB? as a VFrameImg in a virtual FBDEV.
+   SAVE THAT AS DESSERT ;)
 
 6. If a frame of a SURFUSER vfbdev lives with very short time, it may be skipped by surfman_render_thread().
    (sync)
 
 7. Add a list for SURFACE to hook up all control elements.
 
-8. surfuser_close_surface(): To avoid thread_EringRoutine be blocked at ering_msg_recv(), JUST brutly close sockfd
-   and force the thread to quit. ....
+8. It's NOT reliable to deem ERING_SURFACE_BRINGTOP emsg as start of a new mevent round!
+   See NOTE at surfuser_parse_mouse_event().
 
 Journal
 2021-02-22:
@@ -135,7 +138,7 @@ Journal
 	   (Add struct memeber IndexMpMinSurf for SURFMAN)
 2021-03-12:
 	1. Add ESURF_BTN: egi_surfBtn_create(), egi_surfBtn_free().
-	2. Add egi_point_on_surfbtn()
+	2. Add egi_point_on_surfBtn()
 2021-03-13:
 	1. Move surface->status to surface->surfshmem->status, so SURFUSER can access.
 2021-03-15:
@@ -191,9 +194,13 @@ Journal
 	   round of mevent parsing session.
 2021-04-20:
 	1. Add member 'ESURF_BOX sboxes[]' for EGI_SURFSHMEM. For menu test.
-
 2021-04-21:
 	1. Add surfuser_ering_routine().
+2021-04-26:
+	1. surfuser_firstdraw_surface(): Param. 'topbtns' modified to be 'options'.
+2021-04-29:
+	1. EGI_SURFSHMEM: Add memeber user_close_surface() for EGI_SURFSHMEM.
+	2. EGI_SURFUSER: Add memeber 'mevent_suspend'. as start token of new round of mevent session.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -524,6 +531,8 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 
 	/* xxxx 7. Init first 3 surfuser->surfbtns[] as for CLOSE/MIN/MAX */
 
+	/* Assign other memebers */
+	surfuser->mevent_suspend = true;
 
 	/* OK */
 	return surfuser;
@@ -2225,20 +2234,23 @@ void *surfuser_ering_routine(void *surf_user)
 }
 
 
-/*-------------  For SURFUSER  -------------------
+/*------------------------  For SURFUSER  ---------------------------
 Parse mouse event and take actions.
-Called by surfuser_input_routine()
+Called by surfuser_input_routine().
+As default mevent function, it triggers reactions of holddown_moving,
+size_adjusting/maximizing/minimizing, and closing surface.
 
 @surfuser:   Pointer to EGI_SURFUSER.
 @pmostat:    Pointer to EGI_MOUSE_STATUS
--------------------------------------------------*/
+------------------------------------------------------------------*/
 void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 {
 	int 		i;
 	static int 	lastX, lastY;
 	bool		mouseOnBtn; 		/* Mouse on button */
-	static bool	mevent_suspend=true;    /* TRUE: If current surface is NOT the TOP surface, OR it mevent is suspended.
-						 *  TODO: 
+//	static bool	mevent_suspend=true; 
+						/* TRUE: If current surface is NOT the TOP surface, OR its mevent is suspended.
+						 *  TODO:
 						 */
 
 	/* Ref. pointers */
@@ -2267,7 +2279,8 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 	 *	2. Here temprarily use 'mevent_suspend' ( triggered by LeftKeyUp )!
 	 */
 	//if( surfuser->ering_bringTop || mevent_suspend ) {
-	if( mevent_suspend && !pmostat->KeysIdle ) {
+	//if( mevent_suspend && !pmostat->KeysIdle ) {
+	if( surfuser->mevent_suspend && !pmostat->KeysIdle ) {
 		//egi_dpstd("BringTop\n");
 		egi_dpstd("mevent starts\n");
 		lastX=pmostat->mouseX;
@@ -2280,11 +2293,11 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 			pmostat->LeftKeyDown=true;
 		}
 
-		/* Reset ering_bringTop....TODO OR to reset at last! */
-		surfuser->ering_bringTop=false;
+		/* Reset ering_bringTop....XXX Reset at last! as user_mouse_event() MAY also need it! */
+		//surfuser->ering_bringTop=false;
 
-		/* Reset mevent_suspend */
-		mevent_suspend=false;
+		/* Reset mevent_suspend XXX Reset at last! as user_mouse_event() MAY also need it!  */
+		//mevent_suspend=false;
 	}
 #endif
 
@@ -2307,7 +2320,7 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 
 		/* A. Check mouse_on_button */
 		if( sbtns[i] ) {
-			mouseOnBtn=egi_point_on_surfbtn( sbtns[i], pmostat->mouseX -surfuser->surfshmem->x0,
+			mouseOnBtn=egi_point_on_surfBtn( sbtns[i], pmostat->mouseX -surfuser->surfshmem->x0,
 								pmostat->mouseY -surfuser->surfshmem->y0 );
 		}
 		//if(!mouseOnBtn)
@@ -2550,8 +2563,8 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
         if( pmostat->LeftKeyUp ) {
 		printf("--- Release DH ---\n");
 
-		/* Pending... NOW deem it as start of mevent_suspend statu */
-		mevent_suspend=true;
+		/* Pending... Deem as start of mevent_suspend,.. move to the last.  */
+		// surfuser->mevent_suspend=true;
 
 		if( surfshmem->status == SURFACE_STATUS_DOWNHOLD
 		    || surfshmem->status == SURFACE_STATUS_ADJUSTSIZE)  //RIGHTADJUST )
@@ -2587,6 +2600,14 @@ END_ADJUST:
 
 #endif
 
+	/* LAST: Set/Reset surfuser->mevent_suspend */
+        if( pmostat->LeftKeyUp ) {
+		//printf("--- Mevent suspend ---\n");
+		surfuser->mevent_suspend=true;
+	}
+	else    /* Rest at alse */
+		surfuser->mevent_suspend=false;
+
 
 END_FUNC:
 /* ------ <<<  Surface shmem Critical Zone  */
@@ -2600,11 +2621,12 @@ Draw the surface at first time.
 Create SURFBTNs by blockcopy SURFACE image.
 
 @surfuser:	Pointer to EGI_SURFUSER.
-@topbtns:	Buttons on top bar, optional.
+@options:	Apprance and Buttons on top bar, optional.
+		TOPBAR_NONE | TOPBAR_COLOR | TOPBAR_NAME
 		TOPBTN_CLOSE | TOPBTN_MIN | TOPBTN_MAX.
-		0 No buttons on topbar.
+		0 No topbar
 ----------------------------------------------------------*/
-void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns)
+void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int options)
 {
 	if(surfuser==NULL || surfuser->surfshmem==NULL)
 		return;
@@ -2635,7 +2657,8 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns)
         	egi_imgbuf_resetColorAlpha(surfimg, surfshmem->bkgcolor, 255); //-1); /* Reset color only */
 
 	        /* 1.2B  Draw top bar. */
-        	draw_filled_rect2(vfbdev,SURF_TOPBAR_COLOR, 0,0, surfimg->width-1, SURF_TOPBAR_HEIGHT-1);
+		if( options >= TOPBAR_COLOR )
+	        	draw_filled_rect2(vfbdev,SURF_TOPBAR_COLOR, 0,0, surfimg->width-1, SURF_TOPBAR_HEIGHT-1);
 	}
 
 	/* 2. Case reserved intently. */
@@ -2648,15 +2671,15 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns)
 	int  nbs=0;
 
 	/* Put icon char in order of 'X_O' */
-	if( topbtns&TOPBTN_CLOSE ) {
+	if( options&TOPBTN_CLOSE ) {
 		strcat(btnchar,"X");
 		nbs++;
 	}
-	if( topbtns&TOPBTN_MIN ) {
+	if( options&TOPBTN_MIN ) {
 		strcat(btnchar,"_");
 		nbs++;
 	}
-	if( topbtns&TOPBTN_MAX ) {
+	if( options&TOPBTN_MAX ) {
 		strcat(btnchar,"O");
 		nbs++;
 	}
@@ -2672,12 +2695,14 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns)
 	}
 
         /* 4. Put surface name/title on topbar */
-        FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, 	  /* FBdev, fontface */
+	if( options >= TOPBAR_NAME ) {
+	        FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, 	  /* FBdev, fontface */
                                         18, 18, (const UFT8_PCHAR) surfshmem->surfname, /* fw,fh, pstr */
                                         320, 1, 0,                        /* pixpl, lines, fgap */
                                         10, 5,                             /* x0,y0, */
                                         WEGI_COLOR_WHITE, -1, 200,        /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
+	}
 
         /* 5. Draw outline rim */
         //fbset_color2(vfbdev, WEGI_COLOR_GRAY); //BLACK);
@@ -2688,16 +2713,16 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int topbtns)
         int xs=surfimg->width-20*nbs -3 -2;
 	i=0;
 	/* By the order of 'X_O' */
-	if( topbtns&TOPBTN_CLOSE ) {
+	if( options&TOPBTN_CLOSE ) {
 		surfshmem->sbtns[TOPBTN_CLOSE_INDEX]=egi_surfBtn_create(surfimg,  xs,0+1,    xs,0+1,  18, 30-1);
 									/* (imgbuf, xi, yi, x0, y0, w, h) */
 		i++;
 	}
-	if( topbtns&TOPBTN_MIN ) {
+	if( options&TOPBTN_MIN ) {
 	        surfshmem->sbtns[TOPBTN_MIN_INDEX]=egi_surfBtn_create(surfimg,  xs+i*20,0+1,  xs+i*20,0+1,   18, 30-1);
 		i++;
 	}
-	if( topbtns&TOPBTN_MAX )
+	if( options&TOPBTN_MAX )
 	        surfshmem->sbtns[TOPBTN_MAX_INDEX]=egi_surfBtn_create(surfimg,  xs+i*20,0+1,  xs+i*20,0+1, 18, 30-1);
 
 //       	pthread_mutex_unlock(&surfshmem->shmem_mutex);
@@ -2930,6 +2955,15 @@ void surfuser_close_surface(EGI_SURFUSER **surfuser)
         if( surfuser==NULL || (*surfuser)==NULL )
                 return;
 
+	if( (*surfuser)->uclit == NULL )
+		return;
+
+	/* User defined close function. it MAY return here. */
+	if( (*surfuser)->surfshmem->user_close_surface )
+		(*surfuser)->surfshmem->user_close_surface(*surfuser);
+
+/* <<< ------------------- */
+
 	/* Free and release. */
 
 #if 0   /** XXX NOPE!
@@ -2939,12 +2973,14 @@ void surfuser_close_surface(EGI_SURFUSER **surfuser)
                 egi_dpstd("Fail to unregister surfuser!\n");
 #endif
 
+
 	/* Just put signal to end main loop! */
 //	(*surfuser)->surfshmem->usersig =1;
 
 	/* Shut down sockfd to quit ering */
         /* To avoid thread_EringRoutine be blocked at ering_msg_recv(), JUST brutly close sockfd
          * to force the thread to quit.
+	 * Results: surfuser_ering_routine(): ering_msg_recv() nrecv==0! SURFMAN disconnects!! Err'Success'.
          */
         egi_dpstd("Shutdown surfuser->uclit->sockfd!\n");
         if(shutdown( (*surfuser)->uclit->sockfd, SHUT_RDWR)!=0)

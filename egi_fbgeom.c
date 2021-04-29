@@ -150,7 +150,7 @@ inline void fbreset_alpha(FBDEV *dev)
 
  Midas Zhou
 ---------------------------------------------*/
-bool pxy_inbox(int px,int py, int x1, int y1,int x2, int y2)
+inline bool pxy_inbox(int px,int py, int x1, int y1,int x2, int y2)
 {
        int xl,xh,yl,yh;
 

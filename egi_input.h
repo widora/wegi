@@ -36,6 +36,7 @@ typedef struct egi_mouse_status {
         bool MidKeyUpHold;
 
 	bool KeysIdle;	/* All keys are uphold */
+	/* MouseIdle: KeysIdle + mouseDX/YZ==0 */
 
         int  mouseX;	/* Of FB_POS */
         int  mouseY;

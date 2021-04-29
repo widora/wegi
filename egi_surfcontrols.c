@@ -11,6 +11,8 @@ Journal:
 	3. Add egi_surfBtn_writeFB().
 	4. Modify 'egi_surfXXX_display' to egi_surfXXX_writeFB'
 
+2021-4-25:
+	1. Add ESURF_LISTBOX and its functions.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -324,7 +326,7 @@ Check if point (x,y) in on the SURFBTN.
 Return:
 	True or False.
 ----------------------------------------*/
-inline bool egi_point_on_surfbtn(const ESURF_BTN *sbtn, int x, int y)
+inline bool egi_point_on_surfBtn(const ESURF_BTN *sbtn, int x, int y)
 {
 	if( sbtn==NULL || sbtn->imgbuf==NULL )
 		return false;
@@ -346,12 +348,12 @@ during  XXX_firstdraw_XXX().
 TODO: NOW only square type.
 
 @imgbuf		An EGI_IMGBUF holds image icons.
-@xi,yi		TICKBOX image origin relative to its container.
+@xi,yi		TICKBOX.imgbuf origin relative to its container(input imgbuf).
 @x0,y0		TICKBOX origin relative to its container.
 @w,h		Width and height of the tickbox.
 
 Return:
-	A pointer to ESURF_BTN	ok
+	A pointer to ESURF_TICKBOX	ok
 	NULL				Fails
 ----------------------------------------------------------------*/
 ESURF_TICKBOX *egi_surfTickBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h)
@@ -449,4 +451,122 @@ void egi_surfTickBox_writeFB(FBDEV *fbdev, const ESURF_TICKBOX *tbox,  int cx0, 
 }
 
 
+/*---------------------------------------------------------------
+Create an ESURF_LISTBOX and blockcopy its imgbuf from input imgbuf.
 
+@imgbuf		An EGI_IMGBUF holds backgroud image for the ListBox.
+@xi,yi		LISTBOX.imgbuf origin relative to its holding image(input imgbuf).
+@x0,y0		LISTBOX origin relative to its container.
+@w,h		Width and height of the whole ListBox area.(including
+		vertical scroll bar).
+@ListBarH	Height for each list bar
+
+Return:
+	A pointer to ESURF_LISTBOX	Ok
+	NULL				Fails
+----------------------------------------------------------------*/
+ESURF_LISTBOX   *egi_surfListBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h, int ListBarH)
+{
+	ESURF_LISTBOX	*listbox=NULL;
+
+	if(imgbuf==NULL)
+		return NULL;
+
+	/* w/h check inside egi_image functions */
+	//if(w<1 || h<1)
+	//	return NULL;
+
+	/* Calloc LISTBOX */
+	listbox=calloc(1, sizeof(ESURF_LISTBOX));
+	if(listbox==NULL)
+		return NULL;
+
+	/* To copy a block from imgbuf as whole listbox bkgimg. */
+	listbox->imgbuf=egi_imgbuf_blockCopy(imgbuf, xi, yi, h, w);
+	if(listbox->imgbuf==NULL) {
+		egi_dpstd("Fail to blockCopy imgbuf!\n");
+		free(listbox);
+		return NULL;
+	}
+
+	/* Assign members */
+	listbox->x0=x0;
+	listbox->y0=y0;
+
+        listbox->FirstIdx=-1;    /* Start item index in ListBox */
+        listbox->SelectIdx=-1;   /* Selected Item index, <0 Invalid.  */
+
+	listbox->face = egi_appfonts.regular;
+	listbox->fh=10;
+	listbox->fw=12;
+
+	listbox->ListBoxW = w - ESURF_LISTBOX_SCROLLBAR_WIDTH;
+	listbox->ListBoxH = h;
+	listbox->ListBarH = ListBarH;
+	listbox->MaxViewItems = listbox->ListBoxH/listbox->ListBarH; // +2; /* +2 for partial items */
+
+	listbox->ScrollBarW = ESURF_LISTBOX_SCROLLBAR_WIDTH;
+	listbox->ScrollBarH = h;
+
+	listbox->pastPos = 0;
+	listbox->GuideBlockH = h;
+	listbox->GuideBlockW = ESURF_LISTBOX_SCROLLBAR_WIDTH;
+
+	/* Create list space */
+	listbox->ListCapacity=16;
+	listbox->list = calloc(listbox->ListCapacity, ESURF_LISTBOX_ITEM_MAXLEN*sizeof(char));
+	if(listbox->list==NULL) {
+                egi_dpstd("Fail to calloc listbox->list!\n");
+                egi_imgbuf_free(listbox->imgbuf);
+                free(listbox);
+                return NULL;
+	}
+
+	/* Create ListImgBox for List area */
+        listbox->ListImgbuf=egi_imgbuf_blockCopy(listbox->imgbuf, 0, 0, listbox->ListBoxH, listbox->ListBoxW);
+	if(listbox->ListImgbuf==NULL) {
+		egi_dpstd("Fail to blockCopy ListImgbuf!\n");
+		free(listbox->list);
+		egi_imgbuf_free(listbox->imgbuf);
+		free(listbox);
+		return NULL;
+	}
+
+	/* Init. ListFB */
+        if( init_virt_fbdev(&listbox->ListFB, listbox->ListImgbuf, NULL)!= 0 ) {
+                egi_dpstd("Fail to initialize listFB!\n");
+		egi_imgbuf_free(listbox->ListImgbuf);
+		free(listbox->list);
+                egi_imgbuf_free(listbox->imgbuf);
+                free(listbox);
+                return NULL;
+        }
+
+
+	return listbox;
+}
+
+
+/*---------------------------------------
+	Free an ESURF_LISTBOX.
+---------------------------------------*/
+void egi_surfListBox_free(ESURF_LISTBOX **listbox)
+{
+	if(listbox==NULL || *listbox==NULL)
+		return;
+
+	/* Release ListFB */
+	release_virt_fbdev(&(*listbox)->ListFB);
+
+	/* Free imgbuf */
+	egi_imgbuf_free((*listbox)->ListImgbuf);
+	egi_imgbuf_free((*listbox)->imgbuf);
+
+	/* Free list */
+	free((*listbox)->list);
+
+	/* Free struct */
+	free(*listbox);
+
+	*listbox=NULL;
+}

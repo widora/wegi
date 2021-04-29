@@ -318,12 +318,12 @@ int fb_set_screenPos(FBDEV *fb_dev, unsigned int xres, unsigned int yres)
 }
 
 
-/*--------------------------------------------------
+/*--------------------------------------------------------------------
 Initiate a virtual FB device with an EGI_IMGBUF
 , which is only a ref. pointer and will NOT be freed
 in release_virt_fbdev(), except explicitly set fb_dev->vimg_owner=true.
 
-!!! WARING !!! Caller clear fb_dev first.
+!!! WARNING !!! Caller clear fb_dev first.
 
 @dev:   	Pointer to statically allocated FBDEV.
 @fbimg:  	Pointer to an EGI_IMGBUF, as fb_dev->virt_fb.
@@ -334,7 +334,7 @@ in release_virt_fbdev(), except explicitly set fb_dev->vimg_owner=true.
 Return:
         0       OK
         <0      Fails
----------------------------------------------------*/
+----------------------------------------------------------------------*/
 int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *fbimg, EGI_IMGBUF *FrameImg)
 {
 	/* Check input data */
