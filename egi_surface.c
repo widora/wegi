@@ -89,12 +89,14 @@ TODO:
    since hardware does NOT support 2_layer frame buffer, working buffer
    need redraw  the mouse cursor....
 
-3. XXX The last SURFUSER's register request has exactly 50% chance to fail with unet_recvmsg() errno=131 Err'Connection reset by peer'.
-   ---OK
+3. Syn eringing mostat:
+   NOW: surfman awaits until surfuer clears flag SURFACE_FLAG_MEVENT(finishing parsing last mevent), and all mostats
+   are ignored during that period, which reuslts in SUM(mouseDY) != mousteY
 
 4. Close surface brutly by calling shutdown( (*surfuser)->uclit->sockfd, SHUT_RDWR), which will force process to exit immediately!???
    surfuser_close_surface(): To avoid thread_EringRoutine be blocked at ering_msg_recv(), JUST brutly close sockfd
    and force the thread to quit. ....
+   ....??? Callback user defined SURFSHMEM.close_surface().
 
 5. If a SURFUSER do NOT release its shmem_mutex, then SURFMAN's surfman_render_thread will be BLOCKED!
    Each SURFSUER MAY need a workFB? as a VFrameImg in a virtual FBDEV.
@@ -107,6 +109,9 @@ TODO:
 
 8. It's NOT reliable to deem ERING_SURFACE_BRINGTOP emsg as start of a new mevent round!
    See NOTE at surfuser_parse_mouse_event().
+
+9. Sync. mechanism for SURFACE mouse_event_suspend and 
+   NOW: LeftKeyUp as mevent_suspend signal token.
 
 Journal
 2021-02-22:
@@ -2248,7 +2253,7 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 	int 		i;
 	static int 	lastX, lastY;
 	bool		mouseOnBtn; 		/* Mouse on button */
-//	static bool	mevent_suspend=true; 
+//SURFUSER member XXX	static bool	mevent_suspend=true;
 						/* TRUE: If current surface is NOT the TOP surface, OR its mevent is suspended.
 						 *  TODO:
 						 */
@@ -2276,7 +2281,7 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 	 *	   As SURFMAN's renderThread(after one surface minimized, to pick next TOP surface and ering BRINGTOP)
 	 *	   and SURFMAN's routine job ( ering mstat to the TOP surface. ) are two separated threads, and their ERING jobs
 	 *	   are NOT syncronized! So it's NOT reliable to deem ERING_SURFACE_BRINGTOP emsg as start of a new mevent round!
-	 *	2. Here temprarily use 'mevent_suspend' ( triggered by LeftKeyUp )!
+	 *	2. Here temprarily use 'mevent_suspend' ( triggered by LeftKeyUp ) for the purpose!
 	 */
 	//if( surfuser->ering_bringTop || mevent_suspend ) {
 	//if( mevent_suspend && !pmostat->KeysIdle ) {
@@ -2288,16 +2293,16 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 
 		/* Change pmostat to LeftKeyDown,  to avoid LKHoldDown to move surface */
 		if(pmostat->LeftKeyDownHold) {
-			printf("Reste LKDH to LKD\n");
+			printf("Reset LKDH to LKD\n");
 			pmostat->LeftKeyDownHold=false;
 			pmostat->LeftKeyDown=true;
 		}
 
-		/* Reset ering_bringTop....XXX Reset at last! as user_mouse_event() MAY also need it! */
+		/* XXX Reset ering_bringTop.... */
 		//surfuser->ering_bringTop=false;
 
-		/* Reset mevent_suspend XXX Reset at last! as user_mouse_event() MAY also need it!  */
-		//mevent_suspend=false;
+		/* Reset mevent_suspend XXX Reset at last! as user_mouse_event() MAY also need it! ---NOPE! */
+		surfuser->mevent_suspend=false;
 	}
 #endif
 
@@ -2414,13 +2419,6 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
                  /* Update lastX/Y, to compare with next mouseX/Y to get deviation. */
 		 lastX=pmostat->mouseX; lastY=pmostat->mouseY;
 	}
-#if 0	/* 4.A LeftKeyUp */
-	else if( pmostat->LeftKeyUp ) {
-		egi_dpstd("LeftKeyUp\n");
-
-
-	}
-#endif
 
         /* 4. LeftKeyDownHold: To move surface OR Adjust surface size. */
 	/* Note: If You click a minimized surface on the MiniBar and keep downhold, then mostat LeftKeyDownHold
@@ -2440,7 +2438,6 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
                  * We need to retrive DX/DY from previous mouseX/Y.
 		 * ---OK, Modify egi_input.c
                  */
-
 
 		/* Case 1. Downhold on topbar to move the surface
 		 * A. If mouse is on surface topbar, then update x0,y0 to adjust its position
@@ -2555,7 +2552,7 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 		lastX=pmostat->mouseX; lastY=pmostat->mouseY;
 
 		/* To skip drawing on workarea */
-		goto END_FUNC;
+		goto USER_CALLBACK;
 	}
 
 	/* 4.A ELSE: !LeftKeyDownHold: Restore status to NORMAL */
@@ -2563,8 +2560,8 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
         if( pmostat->LeftKeyUp ) {
 		printf("--- Release DH ---\n");
 
-		/* Pending... Deem as start of mevent_suspend,.. move to the last.  */
-		// surfuser->mevent_suspend=true;
+		/* Pending... Deem as start of mevent_suspend. */
+		surfuser->mevent_suspend=true;
 
 		if( surfshmem->status == SURFACE_STATUS_DOWNHOLD
 		    || surfshmem->status == SURFACE_STATUS_ADJUSTSIZE)  //RIGHTADJUST )
@@ -2583,33 +2580,28 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 
 END_ADJUST:
 
-	/* 5. If click on surface work area.
+#if 0	/* 5. If click on surface work area.
 	 * Note: If above case 3 click to maximize the surface, then the click will pass down and draw a dot here!
 	 * 	 so we need to check mpbtn. OR move case_5 just after case_3.
 	 */
-#if 0
 	if(  surfshmem->mpbtn<0 && pmostat->LeftKeyDown && pmostat->mouseY-surfshmem->y0 > 30) {
 
         	fbset_color2(vfbdev, egi_color_random(color_all));
 		draw_filled_circle(vfbdev, pmostat->mouseX-surfshmem->x0, pmostat->mouseY-surfshmem->y0, 10);
 	}
-#else
-	/* Callback user defined mouse event functions */
+#endif
+
+
+USER_CALLBACK:
+	/* 6. Callback user defined mouse event functions */
 	if( surfshmem->user_mouse_event )
 		surfshmem->user_mouse_event(surfuser, pmostat);
 
-#endif
 
-	/* LAST: Set/Reset surfuser->mevent_suspend */
-        if( pmostat->LeftKeyUp ) {
-		//printf("--- Mevent suspend ---\n");
-		surfuser->mevent_suspend=true;
-	}
-	else    /* Rest at alse */
-		surfuser->mevent_suspend=false;
 
 
 END_FUNC:
+
 /* ------ <<<  Surface shmem Critical Zone  */
         	pthread_mutex_unlock(&surfshmem->shmem_mutex);
 

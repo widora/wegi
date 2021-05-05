@@ -399,7 +399,7 @@ END_PROG:
 
         /* Free SURFBTNs */
         for(i=0; i<3; i++)
-                egi_surfbtn_free(&surfshmem->sbtns[i]);
+                egi_surfBtn_free(&surfshmem->sbtns[i]);
 
         /* Join ering_routine  */
         // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
@@ -951,10 +951,10 @@ Draw RCBox and TickBoxes[]
 --------------------------------------------------*/
 void draw_RCBox(FBDEV *vfb, int cx0, int cy0)
 {
-	egi_surfBox_display(vfb, RCBox, cx0, cy0);
-	egi_surfTickBox_display(vfb, TickBox[0], RCBox->x0, RCBox->y0);
-	egi_surfTickBox_display(vfb, TickBox[1], RCBox->x0, RCBox->y0);
-	egi_surfTickBox_display(vfb, TickBox[2], RCBox->x0, RCBox->y0);
+	egi_surfBox_writeFB(vfb, RCBox, cx0, cy0);
+	egi_surfTickBox_writeFB(vfb, TickBox[0], RCBox->x0, RCBox->y0);
+	egi_surfTickBox_writeFB(vfb, TickBox[1], RCBox->x0, RCBox->y0);
+	egi_surfTickBox_writeFB(vfb, TickBox[2], RCBox->x0, RCBox->y0);
 }
 
 

@@ -8,12 +8,18 @@ Test libhelixaac
   Helix Fixed-point HE-AAC decoder ---  www.helixcommunity.org
 
 To make a simple m3u8 radio player:
-	test_heliaac.c 	---> radio_aacdeode
+	test_heliaac.c 	---> radio_aacdecode
 	test_http.c	---> http_aac
 
 
 Note:
 1. Only support 2 channels NOW.
+
+
+Journal:
+2021-05-03:
+	1. Test msg queue: send params to WetRadio.
+
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -28,6 +34,7 @@ midaszhou@yahoo.com
 #include <egi_pcm.h>
 #include <egi_input.h>
 #include <egi_log.h>
+#include <egi_timer.h>
 
 int main(int argc, char **argv)
 {
@@ -55,6 +62,8 @@ int main(int argc, char **argv)
 
 	int percent;
 	char ch;
+
+
 
 	/***  AAC Header: profile
 	 * 0. AAC Main
@@ -113,6 +122,32 @@ int main(int argc, char **argv)
 
 	/* AACDecInfo */
 	aacDecInfo = (AACDecInfo *)aacDec;
+
+
+
+/* TEST: -------- MSG QUEUE ----------- */
+	#include <sys/msg.h>
+
+#define MSGQTEXT_MAXLEN 64
+
+	int msgid;
+	int msgerr;
+
+	struct smg_data {
+		long msg_type;
+		char msg_text[MSGQTEXT_MAXLEN];
+	} msgdata;
+	EGI_CLOCK eclock={0};
+
+	/* Delete it incase already exist */
+	msgid = msgget((key_t)5555, IPC_CREAT|0666);
+	if(msgid<0) {
+		printf("Fail msgget!\n");
+	}
+
+	egi_clock_start(&eclock);
+
+/* ----end: MSG QUEUE---- */
 
 ///////////// --- TEST: RADIO --- /////////////
 printf("\nAAC RADIO Player\n");
@@ -233,6 +268,27 @@ RADIO_LOOP:
 			//EGI_PLOG(LOGLV_INFO, "AACDecode: %lld bytes of aac data decoded.\n", fmap_aac->fsize-bytesLeft );
 			AACGetLastFrameInfo(aacDec, &aacFrameInfo);
 
+#if 0		/* TEST: ------------ MSG QUEUE ------------------*/
+			if( egi_clock_peekCostUsec(&eclock) > 100000 ) {
+				msgdata.msg_type=5;
+				msgdata.msg_text[MSGQTEXT_MAXLEN-1]='\0';
+				snprintf(msgdata.msg_text, MSGQTEXT_MAXLEN-1, "%s Ch=%d %dHz",
+					strprofile[aacFrameInfo.profile], aacFrameInfo.nChans, aacFrameInfo.sampRateOut );
+				if(msgid<0)
+					printf("msgid<0!\n");
+				msgerr=msgsnd(msgid, (void *)&msgdata, MSGQTEXT_MAXLEN, 0); 	/* IPC_NOWAIT */
+				if(msgerr!=0) {
+					printf("Faill to msgsnd!\n");
+				}
+				else
+					printf("Msg sent out type=%ld!\n", msgdata.msg_type);
+
+				/* Restart clock */
+				egi_clock_restart(&eclock);
+			}
+
+		/* END: ---- MSG QUEUE ---- */
+#endif
 			/* Sep parameters for pcm_hanle, Assume format as SND_PCM_FORMAT_S16_LE, */
 			if(!pcmdev_ready || nchanl != aacFrameInfo.nChans || samplerate!=aacFrameInfo.sampRateOut )
 			{
@@ -246,8 +302,8 @@ RADIO_LOOP:
 //				printf(" profile\t%d\n tnsUsed\t%d\n pnsUsed\t%d\n",
 //					aacFrameInfo.profile,  aacFrameInfo.tnsUsed,  aacFrameInfo.pnsUsed );
 				printf("----------------------------\n");
-
 				/* In AACGetLastFrameInfo():
+				 * aacFrameInfo->sampRateCore =  aacDecInfo->sampRate;
 		                 * aacFrameInfo->sampRateOut =   aacDecInfo->sampRate * (aacDecInfo->sbrEnabled ? 2 : 1);
                 		 * aacFrameInfo->bitsPerSample = 16;
 		                 * aacFrameInfo->outputSamps =   aacDecInfo->nChans * AAC_MAX_NSAMPS * (aacDecInfo->sbrEnabled ? 2 : 1);
@@ -257,6 +313,23 @@ RADIO_LOOP:
 				        AAC_FF_ADIF = 2,
 				        AAC_FF_RAW =  3
 				 */
+
+#if 1		/* TEST: ------------ MSG QUEUE ------------------*/
+				msgdata.msg_type=5;
+				msgdata.msg_text[MSGQTEXT_MAXLEN-1]='\0';
+				snprintf(msgdata.msg_text, MSGQTEXT_MAXLEN-1, "%s Ch=%d %dHz %s",
+					strprofile[aacFrameInfo.profile], aacFrameInfo.nChans, aacFrameInfo.sampRateOut,
+									aacFrameInfo.sampRateOut>aacFrameInfo.sampRateCore?"SBR":" " );
+				if(msgid<0)
+					printf("msgid<0!\n");
+				msgerr=msgsnd(msgid, (void *)&msgdata, MSGQTEXT_MAXLEN, 0); 	/* IPC_NOWAIT */
+				if(msgerr!=0) {
+					printf("Faill to msgsnd!\n");
+				}
+				else
+					printf("Msg sent out type=%ld!\n", msgdata.msg_type);
+		/* END: ---- MSG QUEUE ---- */
+#endif
 
 				/* Assign nchanl and samplerate */
 				nchanl= aacFrameInfo.nChans;

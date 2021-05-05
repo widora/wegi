@@ -13,12 +13,24 @@ Journal:
 
 2021-4-25:
 	1. Add ESURF_LISTBOX and its functions.
+2021-4-29:
+	1. ESURF_LISTBOX: add memeber 'var_SelectIdx'
+2021-5-01:
+	1. egi_surfListBox_create(): Add params 'fw' and 'fh'.
+2021-5-02:
+	1. Add: egi_surfListBox_addItem(), egi_surfListBox_redraw()
+	        egi_surfListBox_adjustFirstIdx(), egi_surfListBox_PxySelectItem()
+2021-5-05:
+	1. ESURF_LISTBOX: add memeber 'GuideBlockDownHold'.
+	2. Add: egi_surfListBox_adjustPastPos()
 
 Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
 #include "egi_surfcontrols.h"
+#include "egi_surface.h"
 #include "egi_debug.h"
+#include "egi_utils.h"
 
 /*---------------------------------------------------------------
 Create an ESURF_BOX and blockcopy its imgbuf from input imgbuf.
@@ -459,13 +471,15 @@ Create an ESURF_LISTBOX and blockcopy its imgbuf from input imgbuf.
 @x0,y0		LISTBOX origin relative to its container.
 @w,h		Width and height of the whole ListBox area.(including
 		vertical scroll bar).
-@ListBarH	Height for each list bar
+@fw,fh		Font size.
+@ListBarH	Height for each list bar, line_spacing.
 
 Return:
 	A pointer to ESURF_LISTBOX	Ok
 	NULL				Fails
 ----------------------------------------------------------------*/
-ESURF_LISTBOX   *egi_surfListBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h, int ListBarH)
+ESURF_LISTBOX   *egi_surfListBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h,
+							    int fw, int fh, int ListBarH )
 {
 	ESURF_LISTBOX	*listbox=NULL;
 
@@ -475,6 +489,10 @@ ESURF_LISTBOX   *egi_surfListBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int 
 	/* w/h check inside egi_image functions */
 	//if(w<1 || h<1)
 	//	return NULL;
+
+	/* Check fw/fh */
+	if( fw<1 ) fw=5;
+	if( fh<1 ) fh=5;
 
 	/* Calloc LISTBOX */
 	listbox=calloc(1, sizeof(ESURF_LISTBOX));
@@ -495,21 +513,22 @@ ESURF_LISTBOX   *egi_surfListBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int 
 
         listbox->FirstIdx=-1;    /* Start item index in ListBox */
         listbox->SelectIdx=-1;   /* Selected Item index, <0 Invalid.  */
+	listbox->var_SelectIdx=-1;  /* As interim var. for  mouse event function */
 
 	listbox->face = egi_appfonts.regular;
-	listbox->fh=10;
-	listbox->fw=12;
+	listbox->fh=fh;
+	listbox->fw=fw;
 
 	listbox->ListBoxW = w - ESURF_LISTBOX_SCROLLBAR_WIDTH;
 	listbox->ListBoxH = h;
 	listbox->ListBarH = ListBarH;
-	listbox->MaxViewItems = listbox->ListBoxH/listbox->ListBarH; // +2; /* +2 for partial items */
+	listbox->MaxViewItems = (listbox->ListBoxH +listbox->ListBarH/2) /listbox->ListBarH; /* Partially show */
 
 	listbox->ScrollBarW = ESURF_LISTBOX_SCROLLBAR_WIDTH;
 	listbox->ScrollBarH = h;
 
 	listbox->pastPos = 0;
-	listbox->GuideBlockH = h;
+	listbox->GuideBlockH = h;  /* Init. as full range */
 	listbox->GuideBlockW = ESURF_LISTBOX_SCROLLBAR_WIDTH;
 
 	/* Create list space */
@@ -569,4 +588,305 @@ void egi_surfListBox_free(ESURF_LISTBOX **listbox)
 	free(*listbox);
 
 	*listbox=NULL;
+}
+
+
+/*--------------------------------------------------
+Add/copy item content to listbox->list[], and update
+GuideBlokH, pastPost,..etc accordingly.
+
+@listbox	Pointer to ESURF_LISTBOX
+@pstr		Pointer to item content, as string
+
+Return:
+	0	OK
+	<0	Fails
+--------------------------------------------------*/
+int egi_surfListBox_addItem(ESURF_LISTBOX *listbox, const char *pstr)
+{
+	if( listbox == NULL || pstr == NULL )
+		return -1;
+
+	/* Check ListCapacity and growsize for listbox->list */
+	if( listbox->TotalItems >= listbox->ListCapacity ) {
+
+		if( egi_mem_grow((void **)&listbox->list, ESURF_LISTBOX_ITEM_MAXLEN*listbox->ListCapacity,	/* oldsize */
+						     ESURF_LISTBOX_ITEM_MAXLEN*sizeof(char)*ESURF_LISTBOX_CAPACITY_GROWSIZE)  /* moresize */
+		    <0 ) {
+			egi_dpstd("Fail to memgrow for listbox->list!\n");
+			return -2;
+		}
+
+		listbox->ListCapacity += ESURF_LISTBOX_CAPACITY_GROWSIZE;
+	}
+
+	/* Copy content into list */
+	strncpy(listbox->list[listbox->TotalItems], pstr, ESURF_LISTBOX_ITEM_MAXLEN-1);
+
+	/* Update TotalItems */
+	listbox->TotalItems++;
+
+	/* Update listbox->pastPos */
+	listbox->pastPos = listbox->ScrollBarH*listbox->FirstIdx/listbox->TotalItems;
+
+	/* Update GuideBlokH */
+        listbox->GuideBlockH = listbox->ListBoxH * ( listbox->MaxViewItems < listbox->TotalItems ?
+						    listbox->MaxViewItems : listbox->TotalItems  ) /listbox->TotalItems;
+	/* Set Limit for GuideBlokH */
+        if(listbox->GuideBlockH<1)
+        	listbox->GuideBlockH=1;
+
+	return 0;
+}
+
+
+/*--------------------------------------------------------------------
+Redraw listbox and its view content to the surface( surfuser->imgbuf).
+( ListBox content + ScrollBar + GuideBlock )
+
+@psurfuser:	Pointer to EGI_SURFUSER.
+@listbox:	Pointer to ESURF_LISTBOX.
+
+---------------------------------------------------------------------*/
+void egi_surfListBox_redraw(EGI_SURFUSER *psurfuser, ESURF_LISTBOX *listbox)
+{
+	int i;
+
+	if( psurfuser==NULL || listbox==NULL )
+		return;
+
+	if( listbox->list==NULL ) //|| listbox->list[0]==NULL )
+		return;
+
+	/* Get ref. pointers to vfbdev/surfimg/surfshmem */
+	//EGI_SURFSHMEM   *psurfshmem=NULL;      /* Only a ref. to surfuser->surfshmem */
+	FBDEV           *pvfbdev=NULL;           /* Only a ref. to &surfuser->vfbdev  */
+	EGI_IMGBUF	*psurfimg=NULL;          /* Only a ref. to surfuser->imgbuf */
+
+	//psurfshmem=surfuser->surfshmem;
+	pvfbdev=(FBDEV *)&psurfuser->vfbdev;
+	psurfimg=psurfuser->imgbuf;
+
+	/* 1. Refresh bkgIMG. ONLY for scrollbar area here. */
+        //egi_surfBox_writeFB(mvfbdev, (ESURF_BOX *)listbox, 0, 0);
+        egi_imgbuf_copyBlock( psurfimg, listbox->imgbuf, false, 			/* destimg, srcimg, blendON */
+        			listbox->ScrollBarW, listbox->ScrollBarH, 	/* bw,bh */
+                                listbox->x0+listbox->ListBoxW, listbox->y0, 	/* xd,yd */
+                                listbox->ListBoxW, 0); 				/* xs,ys */
+
+
+
+	/* 2. Draw scroll bar GUIDEBLOCK */
+	draw_filled_rect2(pvfbdev, WEGI_COLOR_ORANGE, listbox->x0 +listbox->ListBoxW, listbox->y0 +listbox->pastPos,
+			listbox->x0 +listbox->ListBoxW +listbox->GuideBlockW-1, listbox->y0 +listbox->pastPos +listbox->GuideBlockH-1 );
+
+      	/* 3. Refresh bkimg for ListImgbuf */
+        egi_imgbuf_copyBlock( listbox->ListImgbuf, listbox->imgbuf, false, 	/* destimg, srcimg, blendON */
+                               listbox->ListBoxW, listbox->ListBoxH, 0,0,  0,0 ); /* bw,bh, xd,yd, xs,ys */
+
+      	/* 4. Update/write ListBox items to ListImgbuf */
+	if(listbox->MaxViewItems<1) {
+	      	egi_subimg_writeFB(listbox->ListImgbuf, pvfbdev, 0, -1, listbox->x0, listbox->y0);
+		return;
+	}
+        for(i=0; i< listbox->MaxViewItems && i+listbox->FirstIdx < listbox->TotalItems; i++) {
+        	FTsymbol_uft8strings_writeFB( &listbox->ListFB, listbox->face,          /* FBdev, fontface */
+               	                                  listbox->fw, listbox->fh,		/* fw,fh */
+						  (UFT8_PCHAR)listbox->list[i+listbox->FirstIdx],   /* pstr */
+                       	                          listbox->ListBoxW, 1, 0,              /* pixpl, lines, fgap */
+                               	                  5, i*listbox->ListBarH +2,            /* x0,y0, */
+                                       	          WEGI_COLOR_BLACK, -1, 255,            /* fontcolor, transcolor,opaque */
+                                               	  NULL, NULL, NULL, NULL);              /* int *cnt, int *lnleft, int* penx, int* peny */
+       	}
+
+        /* 5. Paste ListImgbuf to surface */
+      	egi_subimg_writeFB(listbox->ListImgbuf, pvfbdev, 0, -1, listbox->x0, listbox->y0);
+}
+
+
+/*--------------------------------------------------------------------
+Adjust listbox->FirstIdx, and change listbox->pastPos accordingly.
+
+NOTE: Use FirstIdx to driver pastPos (guiding block position).
+
+@listbox:	Pointer to ESURF_LISTBOX.
+@delt:		Adjusting value for listbox->FirstIdx. ( + or - )
+
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------------------------------*/
+int egi_surfListBox_adjustFirstIdx(ESURF_LISTBOX *listbox, int delt)
+{
+	if(listbox==NULL)
+		return -1;
+
+	/* If empty content */
+	if( listbox->TotalItems <1 ) { /* Empty listbox */
+		listbox->FirstIdx=0;
+		return 0;
+	}
+
+	/* Update FirstIdx  */
+        listbox->FirstIdx += delt;
+        if(listbox->FirstIdx < 0) {
+        	listbox->FirstIdx=0;
+
+		listbox->pastPos=0;
+		return 0;
+	}
+	/* At lease one item in ListBox */
+        else if( listbox->FirstIdx > listbox->TotalItems-1 ) {
+        	listbox->FirstIdx = listbox->TotalItems-1;
+
+		listbox->pastPos = listbox->ScrollBarH - listbox->GuideBlockH;
+		return 0;
+	}
+
+        /* Update listbox->pastPos */
+        listbox->pastPos = listbox->ScrollBarH* listbox->FirstIdx/listbox->TotalItems; /* TotalItems<0 ruled out */
+       	if(listbox->pastPos<0)
+        	listbox->pastPos=0;
+        else if( listbox->pastPos > listbox->ScrollBarH - listbox->GuideBlockH)
+                listbox->pastPos=listbox->ScrollBarH - listbox->GuideBlockH;
+
+	return 0;
+}
+
+
+/*--------------------------------------------------------------------
+Adjust listbox->pastPos, and change listbox->FirstIdx accordingly.
+NOTE: Use pastPos to driver FirstIdx (listbox view content).
+
+@listbox:	Pointer to ESURF_LISTBOX.
+@delt:		Adjusting value for listbox->pastPos. ( + or - )
+
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------------------------------*/
+int egi_surfListBox_adjustPastPos(ESURF_LISTBOX *listbox, int delt)
+{
+	if(listbox==NULL)
+		return -1;
+
+	/* If empty content */
+	if( listbox->TotalItems <1 ) { /* Empty listbox */
+		listbox->pastPos=0;
+		listbox->FirstIdx=0;
+		return 0;
+	}
+
+        /* Update listbox->pastPos */
+	listbox->pastPos += delt;
+       	if(listbox->pastPos<0) {
+        	listbox->pastPos=0;
+		listbox->FirstIdx=0;
+		return 0;
+	}
+        else if( listbox->pastPos > listbox->ScrollBarH - listbox->GuideBlockH) {
+
+                listbox->pastPos=listbox->ScrollBarH - listbox->GuideBlockH;
+		/* Update FirstIdx as follows... */
+	}
+
+	/* Update FirstIdx  */
+	listbox->FirstIdx = listbox->pastPos*listbox->TotalItems/listbox->ScrollBarH;
+
+	return 0;
+}
+
+
+
+/*----------------------------------------------------------------------------
+Check if point (px,py) is on ViewItemBar of ListBox, change listbox->SeletIdx
+and Hightlight the selected item then.
+Here selected item is of listbox->var_SelectIdx, NOT listbox->SelectIdx!
+
+@psurfuer:	Pointer to EGI_SURFUSER, as container of the listbox.
+@listbox:	Pointer to ESURF_LISTBOX.
+@px, py:	Cooridnate relative to surfuser origin.
+
+mouse_hover = mouse_enter + mouse_over +mouse_leave ??
+
+Return:
+	>=0	OK, as listbox->var_SelectIdx.
+	<0	Fails
+----------------------------------------------------------------------------*/
+int egi_surfListBox_PxySelectItem(EGI_SURFUSER *surfuser, ESURF_LISTBOX *listbox, int px, int py)
+{
+	FBDEV *vfb=NULL;
+	int index;  /* newly selected item index, as of listbox->list[] */
+
+	if(surfuser == NULL || listbox == NULL )
+		return -1;
+
+	if( listbox->list==NULL ) // || listbox->list[0]==NULL )
+		return -1;
+
+	if( listbox->TotalItems <1 )
+		return -1;
+
+	/* Get ref. pointers to vfbdev/surfimg/surfshmem */
+	vfb=&surfuser->vfbdev;
+
+	/* Check if px,py located in ListBox area. (NOT in scroll bar area.) */
+	if( pxy_inbox( px,py, listbox->x0, listbox->y0,
+		       listbox->x0 + listbox->ListBoxW-1, listbox->y0 + listbox->ListBoxH-1) == false  )
+		return -2;
+
+	/* Cal. current moused pointed item index */
+	index = listbox->FirstIdx + (py-SURF_TOPBAR_HEIGHT)/listbox->ListBarH;
+
+	/* Limit index, in case BLANK items. */
+	if( index > listbox->TotalItems-1 )
+		return -3;
+
+	/* NOW: listbox->var_SelectIdx is still old value */
+
+	/* If selected item changes */
+	if( listbox->var_SelectIdx != index ) {
+	   	/* 1. Restor/De_highlight previous selected ListBar: redraw bkgimg and content */
+	   	if( listbox->var_SelectIdx > -1 ) {
+			/* Refresh item bkimg */
+			egi_imgbuf_copyBlock( listbox->ListImgbuf, listbox->imgbuf, false, /*  destimg, srcimg, blendON */
+					listbox->ListBoxW, listbox->ListBarH, 	      /* bw, bh */
+					0, listbox->ListBarH*(listbox->var_SelectIdx-listbox->FirstIdx),    /* xd, yd */
+					0, listbox->ListBarH*(listbox->var_SelectIdx-listbox->FirstIdx) );  /*xs,ys */
+
+			/* Restore item content to ListImgbuf */
+			FTsymbol_uft8strings_writeFB( &listbox->ListFB, listbox->face,   	/* FBdev, fontface */
+      			             	  listbox->fw, listbox->fh, (UFT8_PCHAR)listbox->list[listbox->var_SelectIdx],	/* fw,fh, pstr */
+               	       			          listbox->ListBoxW, 1, 0,         		/* pixpl, lines, fgap */
+                       	       			  5, (listbox->var_SelectIdx-listbox->FirstIdx)*listbox->ListBarH +2,  /* x0,y0, */
+	                               		  WEGI_COLOR_BLACK, -1, 255,     	/* fontcolor, transcolor,opaque */
+		       	                          NULL, NULL, NULL, NULL);        	/* int *cnt, int *lnleft, int* penx, int* peny */
+	   	}
+
+		/* 2. Draw/highlight newly selected items */
+		#if 0 /* Mask newly selected item */
+		draw_blend_filled_rect( vfb, listbox->x0, listbox->y0+(index-listbox->FirstIdx)*listbox->ListBarH,
+					 listbox->x0+listbox->ListBoxW -1, listbox->y0+(index-listbox->FirstIdx+1)*listbox->ListBarH-1,
+       					 WEGI_COLOR_GRAY1, 180);
+		#else /* Change newly selected ListBar bkgimg */
+		draw_filled_rect2(&listbox->ListFB,  WEGI_COLOR_CYAN, 0, listbox->ListBarH*(index-listbox->FirstIdx),
+						listbox->ListBoxW-1, listbox->ListBarH*(index-listbox->FirstIdx+1)-1 );
+
+		FTsymbol_uft8strings_writeFB( &listbox->ListFB, egi_appfonts.regular,   /* FBdev, fontface */
+      	       			               listbox->fw, listbox->fh, (UFT8_PCHAR)listbox->list[index],	/* fw,fh, pstr */
+            	       			   	listbox->ListBoxW, 1, 0,         		/* pixpl, lines, fgap */
+                       	       			5, (index-listbox->FirstIdx)*listbox->ListBarH +2,  	/* x0,y0, */
+                                		WEGI_COLOR_BLACK, -1, 255,     	/* fontcolor, transcolor,opaque */
+		       	                        NULL, NULL, NULL, NULL);        	/* int *cnt, int *lnleft, int* penx, int* peny */
+
+		#endif
+
+		/* 3. Paste modified ListImgbuf to surface */
+		egi_subimg_writeFB(listbox->ListImgbuf, vfb, 0, -1, listbox->x0, listbox->y0);
+
+		/* 4. Upate SelectIdx at last */
+		listbox->var_SelectIdx = index;
+	}
+
+	return listbox->var_SelectIdx;
 }

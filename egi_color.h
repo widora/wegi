@@ -7,10 +7,16 @@ Color classification method:
 	Douglas.R.Jacobs' RGB Hex Triplet Color Chart
   	http://www.jakesan.com
 
+LCD test/calibration refrence:
+	http://www.lagom.nl/lcd-test/
 
 TODO:
 1. GAMMA CORRECTION for TFT LCD.
 2. LCD sub_pixel deviation depends on pixel structure, RGB, RGBW,WRGB,RGB delt.. etc.
+3. Sub_pixel layout will affect geometry/color displaying.
+   Example:
+   Verical or horizontal lines may appear BLACKER/THICKER if there is same sub_pixel
+   color nearby ....
 
 Midas Zhou
 -------------------------------------------------------------------*/

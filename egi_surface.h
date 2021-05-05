@@ -107,6 +107,7 @@ struct egi_surface_user {
 						 */
 	bool		mevent_suspend;		/* As token for starting of a new round of mevent session
 						 * Init as TRUE.
+						 * !!! WARNING !!! TODO: NOT correct now, To improve...
 						 */
 
 };
@@ -234,7 +235,10 @@ struct egi_surface_shmem {
 					 * 1. SURFMAN and SURFUSER CAN set the status.
 					 * 2. surfman_render_thread will read the status!
 					 */
-	uint32_t	flags;
+
+	uint32_t	flags;		/*
+					 * SURFACE_FLAG_DOWNHOLD, SURFACE_FLAG_MEVENT, SURFACE_FLAG_KEVENT
+					 */
 
 	pthread_t       thread_eringRoutine;    /* SURFUSER ERING routine */
 	int		usersig;	/* user signal: NOW 1 as quit surface ERING routine. */
@@ -440,7 +444,9 @@ enum surface_status {
 enum surface_flags {
 
 	SURFACE_FLAG_DOWNHOLD   	=(1<<0),  	/* Downhold by mouse, SURFMAN readonly */
-	SURFACE_FLAG_MEVENT   		=(1<<1),  	/* SURFMAN set, SURFUSER reset after finishing parsing the MEVENT */
+	SURFACE_FLAG_MEVENT   		=(1<<1),  	/* SURFMAN set, SURFUSER reset after finishing parsing the MEVENT/
+							If SURFACE_FLAG_MEVENT NOT cleared by the surfuser, then current mostat will be ignored!
+							*/
 	SURFACE_FLAG_KEVENT   		=(1<<2),  	/* SURFMAN set, SURFUSER reset after finishing parsing the KEVENT */
 
 };

@@ -109,6 +109,8 @@ https://github.com/widora/wegi
 #include "egi_input.h"
 #include "egi_utils.h"
 
+#define WALLPAPER_PATH	 "/mmc/desk"
+
 #ifdef LETS_NOTE
         #define MCURSOR_NORMAL	"/home/midas-zhou/egi/mcursor.png"
         #define MCURSOR_GRAB     "/home/midas-zhou/egi/mgrab.png"
@@ -217,14 +219,14 @@ int main(int argc, char **argv)
 	//surfman->bkgimg=egi_imgbuf_readfile(SURFMAN_BKGIMG_PATH);
 	char **FileList=NULL;
 	int  fcount=0;
-	FileList=egi_alloc_search_files("/mmc/desk", "png,jpg", &fcount); // const char* path, const char* fext,  int *pcount
+	FileList=egi_alloc_search_files(WALLPAPER_PATH, "png,jpg", &fcount); // const char* path, const char* fext,  int *pcount
 	if( FileList )
 		egi_dpstd("Found %d image files for wallpaper.\n", fcount);
 	else
 		egi_dpstd("No image file found for wallpaper!\n");
 
 
-	pthread_mutex_lock(&surfman->surfman_mutex);
+//	pthread_mutex_lock(&surfman->surfman_mutex);
 /* ------ >>>  Surfman Critical Zone  */
 
 	/* Load a random image file */
@@ -233,7 +235,7 @@ int main(int argc, char **argv)
 	egi_imgbuf_resize_update(&surfman->bkgimg, false, 320,240); //surfman->fbdev.pos_xres, surfman->fbdev.pos_yres); /* **pimg, keep_ratio, width, height */
 
 /* ------ <<<  Surfman Critical Zone  */
-	pthread_mutex_unlock(&surfman->surfman_mutex);
+//	pthread_mutex_unlock(&surfman->surfman_mutex);
 
         /* 2. Set termI/O 设置终端为直接读取单个字符方式 */
         egi_set_termios();
@@ -505,6 +507,8 @@ int main(int argc, char **argv)
 						}
 						//printf("ering msg send OK!\n");
 					    }
+
+					    /* If SURFACE_FLAG_MEVENT NOT cleared by the surfuser, then current mostat will be ignored! */
 
 					    /* Break. Only send to the TOP surface. */
 					    break;

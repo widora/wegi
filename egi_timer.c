@@ -40,6 +40,11 @@ uapi/asm-generic/posix_types.h:14:typedef long		__kernel_long_t;
 4. double difftime(time_t time1, time_t time0);
 
 
+Journal:
+2021-05-03:
+	1. Add egi_clock_restart().
+
+
 TODO:
 	--- Critical ---
 1. time_t overflow for 2038 YEAR problem.
@@ -533,6 +538,26 @@ int egi_clock_stop(EGI_CLOCK *eclock)
 			ret=-3;
 			break;
 	}
+
+	return ret;
+}
+
+
+/*--------------------------------------
+Restart a clock.
+Return:
+	0	OK
+	<0	Fails
+--------------------------------------*/
+int egi_clock_restart(EGI_CLOCK *eclock)
+{
+	int ret=0;
+
+	ret=egi_clock_stop(eclock);
+	if(ret)
+		return ret;
+
+	ret=egi_clock_start(eclock);
 
 	return ret;
 }

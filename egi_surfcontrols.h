@@ -14,7 +14,11 @@ midaszhou@yahoo.com
 #include "egi_image.h"
 #include "egi_FTsymbol.h"
 
-typedef struct egi_surface_box		ESURF_BOX;    // ESURF_LABEL
+/* Extern type definition, as in egi_surface.h */
+typedef struct egi_surface_user		EGI_SURFUSER;
+
+/* Type definition */
+typedef struct egi_surface_box		ESURF_BOX;
 typedef struct egi_surface_label	ESURF_LABEL;
 typedef struct egi_surface_button	ESURF_BTN;
 typedef struct egi_surface_tickbox	ESURF_TICKBOX;
@@ -114,11 +118,12 @@ struct egi_surface_tickbox {
 ESURF_TICKBOX *egi_surfTickBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h);
 void 	egi_surfTickBox_free(ESURF_TICKBOX **tbox);
 bool 	egi_point_on_surfTickBox(const ESURF_TICKBOX *tbox, int x, int y);
-void 	egi_surfTickBox_display(FBDEV *fbdev, const ESURF_TICKBOX *tbox,  int cx0, int cy0);
+void 	egi_surfTickBox_writeFB(FBDEV *fbdev, const ESURF_TICKBOX *tbox,  int cx0, int cy0);
 
 /***
 			--- An EGI_SURFACE_LISTBOX ---
- 1. A simple ListBox with vertical scroll bar.
+ 1. A simple ListBox with vertical scroll bar
+ 2. ListBoxH == ScrollBarH
 */
 struct egi_surface_listbox {
 	int		x0;		/* Origin position relative to its container */
@@ -139,16 +144,28 @@ struct egi_surface_listbox {
 	int		TotalItems;	/* Total item in list[] */
 
 	int 		FirstIdx;	/* Index of list[] for the first item displayed in ListBox, <0 Invalid.
-					 * 1. Init. as -1 when ListBox created, and use it as new round of session_start_token for mouse_event().
+					 * 1. Init. as -1 when ListBox created.
 					 * 2. ListBox displays items from the FirstIdx item before mouse_event triggers.
 					 * 3. To temprarily store first item index.
 					 * 4. It changes as mouse_event scroll the ListBox.
+
+					 * Usually FristIdx set as previous SelecteIdx.
 					 */
+
 	int		SelectIdx;	/* Index of list[] for currently selected Item, <0 Invalid.
+					 * As confirmed selected item index of var_SelectIdx.
 					 * 1. Init as -1 when  ListBox created.
 					 * 2. When ListBox surface quits, it returns a NON_nagetive value as index of list[]
 				  	 *    OR return -1, as cancelling the selection, by clicking on SURFBNT_CLOSE.
 					 */
+	int 		var_SelectIdx;	/* As an interim variable for listbox_mouse_event function, <0 Invalid.
+					 * 1. It will be modified when mouse points to a list item in the ListBox, however
+					 *    it will NOT be saved to SelectIdx, until it's clicked to confirm the selection.
+					 * 2. Init. as -1 when ListBox created.
+					 */
+//	bool		init_mevent; 	/* It's token(0) to initlize static variables in listbox_mouse_event */
+
+
 	/* Font */
 	FT_Face 	face;		/* Init as egi_appfonts.regular */
 	int 		fh;		/* Font Height and Width, Init as 12 */
@@ -157,7 +174,7 @@ struct egi_surface_listbox {
 	/* For list box area */
         int 		ListBoxW; 	/* List area size, WITHOUT scroll bar */
 	int 		ListBoxH;
-	int		ListBarH;	/* Height of each list bar */
+	int		ListBarH;	/* Line spacing,  Height of each list bar */
 
 	int		MaxViewItems; 	/* Max. items int the ListBox
 					 * MaxViewItems = listbox->ListBoxH/listbox->ListBarH XXX+2! --2 for partial items.
@@ -176,10 +193,17 @@ struct egi_surface_listbox {
 	int 		pastPos;	/* Height of scroll area above the Scroll slider, stands for passed/viewed content. */
 	int 		GuideBlockH;	/* control 	block height */
 	int 		GuideBlockW;	/* == ScrollAreaW */
+	bool		GuideBlockDownHold;  /* If GuideBlock is hold_down for dragging */
 
 	/* Reactions / Operations */
+
 };
-ESURF_LISTBOX 	*egi_surfListBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h, int ListBarH);
+ESURF_LISTBOX 	*egi_surfListBox_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h, int fw, int fh, int ListBarH);
 void	egi_surfListBox_free(ESURF_LISTBOX **listbox);
+int 	egi_surfListBox_addItem(ESURF_LISTBOX *listbox, const char *pstr);
+void 	egi_surfListBox_redraw(EGI_SURFUSER *psurfuser, ESURF_LISTBOX *listbox);
+int 	egi_surfListBox_adjustFirstIdx(ESURF_LISTBOX *listbox, int delt); /* FirstIdx driver pastPos */
+int 	egi_surfListBox_adjustPastPos(ESURF_LISTBOX *listbox, int delt);  /* pastPos driver FirstIdx */
+int 	egi_surfListBox_PxySelectItem(EGI_SURFUSER *surfuser, ESURF_LISTBOX *listbox, int px, int py);
 
 #endif

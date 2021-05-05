@@ -68,6 +68,7 @@ void egi_sleep(unsigned char fd, unsigned int s, unsigned int ms);
 /* EGI CLOCK */
 int egi_clock_start(EGI_CLOCK *eclock);
 int egi_clock_stop(EGI_CLOCK *eclock);
+int egi_clock_restart(EGI_CLOCK *eclock);
 int egi_clock_pause(EGI_CLOCK *eclock);
 long egi_clock_readCostUsec(EGI_CLOCK *eclock);
 long egi_clock_peekCostUsec(EGI_CLOCK *eclock);
