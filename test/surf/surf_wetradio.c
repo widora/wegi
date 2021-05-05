@@ -16,8 +16,8 @@ Note:
 killall -9 http_aac
 killall -9 radio_aacdecode
 sleep 1
-rm a.stream
-rm b.stream
+rm -rf a.stream
+rm -rf b.stream
 if [ $# -lt 1 ]; then
   echo "No address, quit."
   exit 1
@@ -48,6 +48,15 @@ Journal:
 	1. Improve ListBox_mouse_event
 2021-04-28:
 	1. Add another version of load_playlist()
+2021-04-29:
+	1. Add egi_surfListBox_addItem(), egi_surfListBox_redraw()
+2021-05-01:
+	1. Add egi_surfListBox_adjustFirstIdx(), egi_surfListBox_PxySelectItem().
+2021-05-03:
+	1. Spin off egi_surfListBox_XXX functions to egi_surfcontrols.c.
+	2. Receive radio stream params from HelixAAC decoder, via System V message queue.
+2021-05-05:
+	1. ListBox_mouse_event(): Drag GuideBlock on scrollbar to change View of ListBox.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -76,7 +85,7 @@ https://github.com/widora/wegi
 
 #define RADIO_LIST_PATH "/home/FM_list"
 
-/* Width and Height of the surface */
+/* Width and Height of the MAIN surface */
 int 	sw=240;
 int 	sh=200;
 
@@ -115,7 +124,7 @@ enum {
 	SIG_STOP,
 	SIG_PREV,
 	SIG_NEXT,
-	SIG_CHANGE,	/* Select a new radio station */
+	SIG_SWITCH,	/* Select a new radio station */
 };
 int radioSTAT=STAT_STOP;
 int radioSIG=SIG_NONE;
@@ -163,7 +172,7 @@ int mpbtn=-1;   /* Index of mouse touched button, <0 invalid. */
 enum {
 	LAB_STATUS	=0,	/* Status: connecting, playing, stop */
 	LAB_RSNAME	=1,	/* Radio station name */
-	LAB_DETAILS	=2,	/* Detail of data stream */
+	LAB_PARAMS	=2,	/* Detail of data stream */
 	LAB_MAX		=3	/* <--- Limit */
 };
 ESURF_LABEL *labels[LAB_MAX];
@@ -180,10 +189,6 @@ void	*surfuser_ering_routine(void *args);
 /* ListBox, for selecting radio */
 int 	surf_ListBox(EGI_SURFSHMEM *surfcaller, int x0, int y0);
 void 	ListBox_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
-
-int egi_surfListBox_addItem(ESURF_LISTBOX *listbox, const char *pstr);
-void egi_surfListBox_redraw(EGI_SURFUSER *psurfuser, ESURF_LISTBOX *listbox);
-
 
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
@@ -245,6 +250,25 @@ int main(int argc, char **argv)
 #endif
 	/* Prepare mixer simple element for volume preparation */
   	egi_getset_pcm_volume(NULL,NULL);
+
+/* TEST: -------- MSG QUEUE ----------- */
+        #include <sys/msg.h>
+
+        int msgid;
+        int msglen;
+
+#define MSGQTEXT_MAXLEN 64
+        struct smg_data {
+                long msg_type;
+                char msg_text[MSGQTEXT_MAXLEN];
+        } msgdata;
+
+        msgid = msgget((key_t)5555, IPC_CREAT|0666);
+        if(msgid<0) {
+                printf("Fail msgget!\n");
+		exit(-1);
+	}
+/* ----end: MSG QUEUE---- */
 
 	/* Enter private dir */
 	chdir("/tmp/.egi");
@@ -364,9 +388,9 @@ int main(int argc, char **argv)
 	egi_surfLab_updateText(labels[LAB_RSNAME], playlist[playlist_idx].name);
 	egi_surfLab_writeFB(vfbdev, labels[LAB_RSNAME], egi_sysfonts.regular, 18, 18, WEGI_COLOR_GREEN, 0, 0);
 	/* 9.3 Stream detail */
-	labels[LAB_DETAILS]=egi_surfLab_create(surfimg,20,SURF_TOPBAR_HEIGHT+5+60,20,SURF_TOPBAR_HEIGHT+5+60, panW-20, 20); /* img,xi,yi,x0,y0,w,h */
-	egi_surfLab_updateText(labels[LAB_DETAILS], "AAC_LC Ch=2 48KHz");
-	egi_surfLab_writeFB(vfbdev, labels[LAB_DETAILS], egi_sysfonts.regular, 14, 14, WEGI_COLOR_GREEN, 0, 0);
+	labels[LAB_PARAMS]=egi_surfLab_create(surfimg,20,SURF_TOPBAR_HEIGHT+5+60,20,SURF_TOPBAR_HEIGHT+5+60, panW-20, 20); /* img,xi,yi,x0,y0,w,h */
+	egi_surfLab_updateText(labels[LAB_PARAMS], "Params...");
+	egi_surfLab_writeFB(vfbdev, labels[LAB_PARAMS], egi_sysfonts.regular, 14, 14, WEGI_COLOR_GREEN, 0, 0);
 
 	/* 10. Start Ering routine: Use module default routine function. */
 	printf("start ering routine...\n");
@@ -402,12 +426,15 @@ int main(int argc, char **argv)
 				playlist_idx = playlist_max-1;
 
 			/* Update Labels */
+			egi_surfLab_updateText(labels[LAB_STATUS], "Connecting...");
+			egi_surfLab_updateText(labels[LAB_PARAMS], "Params...");
+			egi_surfLab_updateText(labels[LAB_RSNAME], playlist[playlist_idx].name);
+
         		pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */
-			egi_surfLab_updateText(labels[LAB_STATUS], "Connecting...");
 			egi_surfLab_writeFB(vfbdev, labels[LAB_STATUS], egi_sysfonts.regular, 18, 18, WEGI_COLOR_LTYELLOW, 0, 0);
-			egi_surfLab_updateText(labels[LAB_RSNAME], playlist[playlist_idx].name);
 			egi_surfLab_writeFB(vfbdev, labels[LAB_RSNAME], egi_sysfonts.regular, 18, 18, WEGI_COLOR_GREEN, 0, 0);
+			egi_surfLab_writeFB(vfbdev, labels[LAB_PARAMS], egi_sysfonts.regular, 14, 14, WEGI_COLOR_GREEN, 0, 0);
 /* ------ <<<  Surface shmem Critical Zone  */
 	                pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
@@ -417,9 +444,9 @@ int main(int argc, char **argv)
 			radioSIG = SIG_NONE;
 		}
 		if(  radioSIG == SIG_PLAY && radioSTAT != STAT_PLAY ) {
+			egi_surfLab_updateText(labels[LAB_STATUS], "Connecting...");
         		pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */
-			egi_surfLab_updateText(labels[LAB_STATUS], "Connecting...");
 			egi_surfLab_writeFB(vfbdev, labels[LAB_STATUS], egi_sysfonts.regular, 18, 18, WEGI_COLOR_LTYELLOW, 0, 0);
 			egi_surfLab_updateText(labels[LAB_RSNAME], playlist[playlist_idx].name);
 			egi_surfLab_writeFB(vfbdev, labels[LAB_RSNAME], egi_sysfonts.regular, 18, 18, WEGI_COLOR_GREEN, 0, 0);
@@ -432,9 +459,9 @@ int main(int argc, char **argv)
 			radioSIG = SIG_NONE;
 		}
 		else if( radioSIG == SIG_STOP ) {
+			egi_surfLab_updateText(labels[LAB_STATUS], "Stop");
         		pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */
-			egi_surfLab_updateText(labels[LAB_STATUS], "Stop");
 			egi_surfLab_writeFB(vfbdev, labels[LAB_STATUS], egi_sysfonts.regular, 18, 18, WEGI_COLOR_LTYELLOW, 0, 0);
 /* ------ <<<  Surface shmem Critical Zone  */
 	                pthread_mutex_unlock(&surfshmem->shmem_mutex);
@@ -443,21 +470,24 @@ int main(int argc, char **argv)
 			radioSTAT = STAT_STOP;
 			radioSIG = SIG_NONE;
 		}
-		else if( radioSIG == SIG_CHANGE ) { /* Change station, playlist_idx changed by surf_ListBox() */
+		else if( radioSIG == SIG_SWITCH ) { /* Switch/Change station, playlist_idx changed by surf_ListBox() */
 			/* Update Labels */
+			egi_surfLab_updateText(labels[LAB_RSNAME], playlist[playlist_idx].name);
+			egi_surfLab_updateText(labels[LAB_PARAMS], "Params...");
+
         		pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */
-			egi_surfLab_updateText(labels[LAB_RSNAME], playlist[playlist_idx].name);
 			egi_surfLab_writeFB(vfbdev, labels[LAB_RSNAME], egi_sysfonts.regular, 18, 18, WEGI_COLOR_GREEN, 0, 0);
+			egi_surfLab_writeFB(vfbdev, labels[LAB_PARAMS], egi_sysfonts.regular, 14, 14, WEGI_COLOR_GREEN, 0, 0);
 /* ------ <<<  Surface shmem Critical Zone  */
 	                pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
 			if( radioSTAT == STAT_PLAY || radioSTAT == STAT_CONNECT ) {
 				stop_radio();
 
+				egi_surfLab_updateText(labels[LAB_STATUS], "Connecting...");
         			pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */
-				egi_surfLab_updateText(labels[LAB_STATUS], "Connecting...");
 				egi_surfLab_writeFB(vfbdev, labels[LAB_STATUS], egi_sysfonts.regular, 18, 18, WEGI_COLOR_LTYELLOW, 0, 0);
 /* ------ <<<  Surface shmem Critical Zone  */
 	                	pthread_mutex_unlock(&surfshmem->shmem_mutex);
@@ -476,27 +506,49 @@ int main(int argc, char **argv)
 		if( radioSTAT == STAT_CONNECT ) {
 			if( stat("/tmp/a.stream", &sb)==0 && sb.st_size>0 ) {
 				radioSTAT = STAT_PLAY;
+
+				egi_surfLab_updateText(labels[LAB_STATUS], "Playing...");
         			pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */
-				egi_surfLab_updateText(labels[LAB_STATUS], "Playing...");
 				egi_surfLab_writeFB(vfbdev, labels[LAB_STATUS], egi_sysfonts.regular, 18, 18, WEGI_COLOR_WHITE, 0, 0);
 /* ------ <<<  Surface shmem Critical Zone  */
 		                pthread_mutex_unlock(&surfshmem->shmem_mutex);
 			}
 		}
 		else if( radioSTAT == STAT_PLAY ) {
-			if( stat("/tmp/a.stream", &sb)!=0 && stat("/tmp/b.stream", &sb)!=0 ) {
+			if(   ( stat("/tmp/a.stream", &sb)!=0 || sb.st_size==0 )
+			   && ( stat("/tmp/b.stream", &sb)!=0 || sb.st_size==0 ) ) {
 				radioSTAT = STAT_CONNECT;
+
+				egi_surfLab_updateText(labels[LAB_STATUS], "Connecting...");
         			pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */
-				egi_surfLab_updateText(labels[LAB_STATUS], "Connecting...");
 				egi_surfLab_writeFB(vfbdev, labels[LAB_STATUS], egi_sysfonts.regular, 18, 18, WEGI_COLOR_WHITE, 0, 0);
 /* ------ <<<  Surface shmem Critical Zone  */
 		                pthread_mutex_unlock(&surfshmem->shmem_mutex);
 			}
 		}
 
-		usleep(100000);
+/* TEST: ----------- MSG QUEUE ----- */
+		long msgtype=5; /* If 0, first msg in queue, whatever type! */
+		msglen=msgrcv(msgid, (void *)&msgdata, MSGQTEXT_MAXLEN, msgtype, MSG_NOERROR|IPC_NOWAIT); /* MSG_NOERROR  */
+		if( msglen<0 && errno == ENOMSG ) {
+		}
+		else if(msglen<0)
+			egi_dperr("Fail to msgrcv");
+		else if(msglen==0)
+			egi_dperr("msglen=0!\n");
+		else {
+				egi_surfLab_updateText(labels[LAB_PARAMS], msgdata.msg_text);
+        			pthread_mutex_lock(&surfshmem->shmem_mutex);
+/* ------ >>>  Surface shmem Critical Zone  */
+				egi_surfLab_writeFB(vfbdev, labels[LAB_PARAMS], egi_sysfonts.regular, 14, 14, WEGI_COLOR_GREEN, 0, 0);
+/* ------ <<<  Surface shmem Critical Zone  */
+		                pthread_mutex_unlock(&surfshmem->shmem_mutex);
+		}
+/* END: ---- MSG QUEUE ---- */
+
+		usleep(10000);
 	}
 
 	/* Stop radio */
@@ -558,7 +610,7 @@ void  my_draw_canvas(EGI_SURFUSER *surfuser)
 
         /* Ref. pointers */
         FBDEV  *vfbdev=&surfuser->vfbdev;
-        EGI_IMGBUF *surfimg=surfuser->imgbuf;
+        //EGI_IMGBUF *surfimg=surfuser->imgbuf;
         EGI_SURFSHMEM *surfshmem=surfuser->surfshmem;
 
 	/* Puts surftexture */
@@ -602,7 +654,7 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 		// else
 		//	continue;
 
-                #if 1 /* TEST: --------- */
+                #if 0 /* TEST: --------- */
                 if(mouseOnBtn)
                         printf(">>> Touch btns[%d].\n", i);
                 #endif
@@ -753,7 +805,7 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 			if(index>=0 && index != playlist_idx ) {
 				playlist_idx = index;
 				egi_dpstd("Change radio: playlist_idx =%d\n", playlist_idx);
-				radioSIG = SIG_CHANGE;
+				radioSIG = SIG_SWITCH;
 			}
 			pthread_mutex_lock(&surfshmem->shmem_mutex);
 	   }
@@ -795,7 +847,7 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 
 #if 0 ////////////////  PLAYLIST FORMAT 1  //////////////////////
 /*-----------------------------------------------
-Load playlist from a text file, which contains URL
+Load playlist from a text file containing URL
 and radio name in each line separated by blanks:
 
 http://...      古典音乐
@@ -861,7 +913,7 @@ int load_playlist(const char *fpath, struct radio_info **infoList,  int *listCnt
 		}
 	}
 
-	/* Pass out resutl */
+	/* Pass out result */
 	*infoList = list;
 	*listCnt = cnt;
 
@@ -877,7 +929,7 @@ int load_playlist(const char *fpath, struct radio_info **infoList,  int *listCnt
 
 #else ////////////////  PLAYLIST FORMAT  2  //////////////////////
 /*-----------------------------------------------
-Load playlist from a text file, which contains URL
+Load playlist from a text file containing URL
 and radio name in each line separated by a comma:
 
 古典音乐,http://...
@@ -943,7 +995,7 @@ int load_playlist(const char *fpath, struct radio_info **infoList,  int *listCnt
 		}
 	}
 
-	/* Pass out resutl */
+	/* Pass out result */
 	*infoList = list;
 	*listCnt = cnt;
 
@@ -979,10 +1031,13 @@ int surf_ListBox(EGI_SURFSHMEM *surfcaller, int x0, int y0)
 
 	/* Surface outline size */
 	int msw=panW+30;
-	int msh=180;
+	int msh=SURF_TOPBAR_HEIGHT + 20*7 +15; /* partially show item */
 
 	/* For list box */
 	ESURF_LISTBOX	*listbox=NULL;
+	int fh=16, fw=16;
+	int LineSpace=20; /* Line spacing */
+
 
 	/* Get ref. pointer */
 EGI_SURFUSER     *msurfuser=NULL;
@@ -1026,94 +1081,29 @@ EGI_16BIT_COLOR  mbkgcolor=WEGI_COLOR_GRAYB;
 	/* 6.1 Firstdraw/Create ListBox */
 	draw_filled_rect2(mvfbdev, WEGI_COLOR_WHITE, 1, SURF_TOPBAR_HEIGHT, 1+((msw-2)-ESURF_LISTBOX_SCROLLBAR_WIDTH)-1, msh-2);
 	listbox=egi_surfListBox_create(msurfimg, 1, SURF_TOPBAR_HEIGHT, 1, SURF_TOPBAR_HEIGHT,  /* imgbuf, xi, yi, x0, y0, w, h, ListBarH */
-						   msw-2, msh-SURF_TOPBAR_HEIGHT-1, 16+4 );
+						   msw-2, msh-SURF_TOPBAR_HEIGHT-1, fw, fh, LineSpace );
 	if( listbox == NULL ) {
 		egi_dpstd("Fail to create ListBox!\n");
 		egi_unregister_surfuser(&msurfuser);
 		return -2;
 	}
 
-	/* Set font size */
-	listbox->fh=16; listbox->fw=16;
-
 	/* Add items to listbox */
 	for(i=0; i<playlist_max; i++)
 		egi_surfListBox_addItem(listbox, playlist[i].name);
 
-	//XXX set  FirstIdx 
-	listbox->FirstIdx=playlist_idx;
-
-	/* 6.2 Draw ListBox content */
+	/* Set FirstIdx */
 	if( playlist_idx <0 )
 		playlist_idx=0;
+	egi_surfListBox_adjustFirstIdx(listbox, playlist_idx+1); /* delt=playlist_idx+1 */
 
-#if 1  ////////////// Call egi_surfListBox_redraw() ////////////////////
-	/* Cal. GuideBlockH */
-	if( playlist_max <=0 )
-		listbox->GuideBlockH = listbox->ListBoxH;
-	else {
-		listbox->GuideBlockH= listbox->ListBoxH * ( listbox->MaxViewItems<playlist_max? listbox->MaxViewItems : playlist_max )/playlist_max;
-		if(listbox->GuideBlockH<1)
-			listbox->GuideBlockH=1;
-	}
-
-	/* Cal. listbox->pastPos */
-	if( playlist_idx>0 && playlist_max>0 ) {
-		listbox->pastPos = listbox->ScrollBarH*playlist_idx/playlist_max;
-                if(listbox->pastPos<0)
-                        listbox->pastPos=0;
-                else if( listbox->pastPos > listbox->ScrollBarH - listbox->GuideBlockH)
-                        listbox->pastPos=listbox->ScrollBarH - listbox->GuideBlockH;
-	}
-	else
-		listbox->pastPos = 0;
-
-	/* Redraw LISTBOX with content */
+	/* 6.2 Draw ListBox with content */
 	egi_surfListBox_redraw(msurfuser, listbox);
 
-#else  ///////////////////////   XXX egi_surfListBox_redraw()   //////////////////////
-
-	for(i=0; i< listbox->MaxViewItems && i < playlist_max-playlist_idx; i++) {
-		FTsymbol_uft8strings_writeFB( &listbox->ListFB, egi_appfonts.regular,   /* FBdev, fontface */
-        	       	                  listbox->fw, listbox->fh, (UFT8_PCHAR)playlist[i+playlist_idx].name,		/* fw,fh, pstr */
-                	       	          listbox->ListBoxW, 1, 0,   	/* pixpl, lines, fgap */
-                        	       	  5, i*listbox->ListBarH +2,  	/* x0,y0, */
-                                	  WEGI_COLOR_BLACK, -1, 255,    /* fontcolor, transcolor,opaque */
-	       	                          NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
-	}
-	/* Paste ListImgbuf to surface */
-	egi_subimg_writeFB(listbox->ListImgbuf, mvfbdev, 0, -1, listbox->x0, listbox->y0);
-
-	/* 6.3 Draw ListBox vertical scroll bar and GuideBlock */
-	/* Cal. GuideBlockH */
-	if( playlist_max <=0 )
-		listbox->GuideBlockH = listbox->ListBoxH;
-	else {
-		listbox->GuideBlockH= listbox->ListBoxH * ( listbox->MaxViewItems<playlist_max? listbox->MaxViewItems : playlist_max )/playlist_max;
-		if(listbox->GuideBlockH<1)
-			listbox->GuideBlockH=1;
-	}
-	/* Cal. listbox->pastPos */
-	if( playlist_idx>0 && playlist_max>0 ) {
-		listbox->pastPos = listbox->ScrollBarH*playlist_idx/playlist_max;
-                if(listbox->pastPos<0)
-                        listbox->pastPos=0;
-                else if( listbox->pastPos > listbox->ScrollBarH - listbox->GuideBlockH)
-                        listbox->pastPos=listbox->ScrollBarH - listbox->GuideBlockH;
-	}
-	else
-		listbox->pastPos = 0;
-
-	/* Draw scroll GUIDEBLOCK */
-	draw_filled_rect2(mvfbdev, WEGI_COLOR_ORANGE, listbox->x0 +listbox->ListBoxW, listbox->y0 +listbox->pastPos,
-			listbox->x0 +listbox->ListBoxW +listbox->GuideBlockW-1, listbox->y0 +listbox->pastPos +listbox->GuideBlockH-1 );
-
-#endif //////////////////////////////////
-
-
 	/* 7. Pre_set listbox->SelectIdx as invalid */
-//	listbox->FirstIdx = -1;
-	listbox->SelectIdx = -1;
+	listbox->SelectIdx = -1; //playlist_idx; /* <0, as NO Selected itme */
+	listbox->var_SelectIdx = playlist_idx; 	/* Set preselect item */
+	listbox->FirstIdx = playlist_idx;	/* Set ListBox view postion */
 
 	/* 8. Put listbox in SURFSHMEME.sboxes[]  */
 	msurfshmem->sboxes[0]=(ESURF_BOX *)listbox;
@@ -1174,44 +1164,36 @@ This is for ListBox surfaces.
    unexpected results or errors!
    And when mevent session starts, set FirstIdx=playlist_idx first.
 3. When ListBox is created, FirstIdx is always set as current playlist_idx.
-4. Click on list item to set listbox->SelectIdx = index;
+4. Click on list item to confirm/set listbox->SelectIdx = listbox->var_SelectIdx;
    and msurfshmem->usersig = 1 to quit the ListBox surface.
 5. Roll mouse wheel up/down to scroll up/down ListBox content.
 6. Click in scroll bar area to page_up/page_down.
-7. 
+7. Drag GuideBlock to change content in the ListBox view.
 -------------------------------------------------------------------------*/
 void ListBox_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 {
-        int i;
-	static int FirstIdx=-1;	   /* The first item index in ListBox, variable.
-				    * Assign to listbox->FirstIdx when changes. (mouse wheel rolls)
-				    * Reset to -1 when mevet session ends!
-				    */
-
-	static int SelectIdx=-1;   /* Selected index, variable,
-				    * Pass to listbox->SelectIdx when clicked. (otherwise listbox->SelectIdx==-1)
-				    * as NO item selected.
-				    * Reset to -1 when mevet session ends!
-				    */
-	int index;
 	int px,py;		   /* px,py  relative to surfshmem */
 
 	bool mouseOnListBox=false;
 	bool mouseOnScrollBar=false;
 	bool mouseOnGuideBlock=false;
 
+	static int lastY;	   /* For scroll bar GuideBlock dragging */
+
+
 	/* --------- Rule out mouse postion out of workarea -------- */
 
 	/* Get ref. pointers to vfbdev/surfimg/surfshmem */
 	EGI_SURFSHMEM   *msurfshmem=NULL;        /* Only a ref. to surfuser->surfshmem */
-	FBDEV           *mvfbdev=NULL;           /* Only a ref. to &surfuser->vfbdev  */
-	EGI_IMGBUF	*msurfimg=NULL;          /* Only a ref. to surfuser->imgbuf */
+	//FBDEV           *mvfbdev=NULL;           /* Only a ref. to &surfuser->vfbdev  */
+	//EGI_IMGBUF	*msurfimg=NULL;          /* Only a ref. to surfuser->imgbuf */
 	ESURF_LISTBOX	*listbox=NULL;
 
 	/* [PRE_1] Get ref. pointer */
 	msurfshmem=surfuser->surfshmem;
-	mvfbdev=&surfuser->vfbdev;
-	msurfimg=surfuser->imgbuf;
+	//mvfbdev=&surfuser->vfbdev;
+	//msurfimg=surfuser->imgbuf;
+
 	listbox=(ESURF_LISTBOX *)msurfshmem->sboxes[0];
 	if(listbox==NULL)
 		return;
@@ -1224,43 +1206,19 @@ void ListBox_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 	px=pmostat->mouseX -msurfshmem->x0;
 	py=pmostat->mouseY -msurfshmem->y0;
 
-      	/* 0. Update/Init FirstIdx and pastPos. For each mevent session.
-	 * Note:
-	 *  If the SURFACE closed by clicking on SURFBTN_CLOSE, func private var. FirstIdx will NOT be reset!
-	 *  ( since we haven't defined user_close_surfuser(). )
-	 *  while listbox->FirstIdx always init. as -1  when listbox is created!
-	 */
-//	if( listbox->FirstIdx < 0 ) {  /* If start of new round mevent session. */
-	if( surfuser->mevent_suspend ) { /* If start of new round mevent session. */
-		printf(" Init FirstIdx ...\n");
-		/* Init FirstIdx */
-		FirstIdx=playlist_idx;
-	//	listbox->FirstIdx=playlist_idx;
-
-                /* Update listbox->pastPos, ScrollBarH set in surf_ListBox() */
-                listbox->pastPos = listbox->ScrollBarH*FirstIdx/playlist_max;
-                if(listbox->pastPos<0)
-                        listbox->pastPos=0;
-                else if( listbox->pastPos > listbox->ScrollBarH - listbox->GuideBlockH)
-                        listbox->pastPos=listbox->ScrollBarH - listbox->GuideBlockH;
-
-		/* XXX Limit: Make ListBox always full. */
-		//if( FirstIdx > playlist_max-listbox->MaxViewItems && playlist_max>listbox->MaxViewItems )
-		//	FirstIdx=playlist_max-listbox->MaxViewItems;
-	}
-
 	/* 1. Check if mouse hovers over any ARAEA */
 	/* 1.1 On ListBox */
 	if( pxy_inbox( px,py, listbox->x0, listbox->y0,  listbox->x0 + listbox->ListBoxW-1, listbox->y0 + listbox->ListBoxH-1)  )
 	{
 		mouseOnListBox=true;
 	}
-	/* 1.2 On scroll control block */
+	/* 1.2 On scroll guiding block */
 	else if ( pxy_inbox( px, py, listbox->x0 + listbox->ListBoxW, listbox->y0+listbox->pastPos,
 					listbox->x0 + listbox->ListBoxW+ listbox->ScrollBarW -1,
 					listbox->y0+listbox->pastPos+ listbox->GuideBlockH-1 ) )
 	{
 		mouseOnGuideBlock=true;
+		lastY = pmostat->mouseY;
 	}
 	/* 1.3 On scroll bar area */
 	else if ( pxy_inbox( px, py, listbox->x0 + listbox->ListBoxW, listbox->y0,
@@ -1270,86 +1228,22 @@ void ListBox_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 	}
 
 	/* 2. If mouseDZ (mouse wheel), scroll and update content in ListBox */
-//	int fw=16, fh=16, fgap=5;	/* Font size */
 	if( mouseOnListBox && pmostat->mouseDZ ) {
 
-		/* A. Refresh bkgIMG */
-		#if 0 /* Write all ListBox BKIMG  */
-		//egi_surfBox_writeFB(mvfbdev, (ESURF_BOX *)listbox, 0, 0);
-		#else /* Refresh bkimg of scroll bar to surface imgbuf */
-		egi_imgbuf_copyBlock( msurfimg, listbox->imgbuf, false, /*  destimg, srcimg, blendON */
-				      listbox->ScrollBarW, listbox->ScrollBarH, /* bw,bh */
-				      listbox->x0+listbox->ListBoxW, listbox->y0, /* xd,yd */
-				      listbox->ListBoxW, 0); /* xs,ys */
-		#endif
-
-#if 0 /* --------  B. Use mouseDZ to driver listbox->pastPos ----------- */
-
-		/* Update position of scroll bar GUIDEBLOCK */
-		listbox->pastPos += pmostat->mouseDZ;
-		if(listbox->pastPos<0)
-			listbox->pastPos=0;
-		else if( listbox->pastPos > listbox->ListBoxH - listbox->GuideBlockH)
-			listbox->pastPos=listbox->ListBoxH - listbox->GuideBlockH;
-
-		/* Update first index for items displayed in ListBox */
-		FirstIdx=playlist_max*listbox->pastPos/listbox->ListBoxH;
-
-		/* CtrBlockH: cal. in surf_ListBox(). */
-
-		/* Draw scroll bar CONTORL_BLOCK */
-		draw_filled_rect2(mvfbdev, WEGI_COLOR_ORANGE, listbox->x0 +listbox->ListBoxW, listbox->y0 +listbox->pastPos,
-				listbox->x0 +listbox->ListBoxW +listbox->GuideBlockW-1, listbox->y0 +listbox->pastPos +listbox->GuideBlockH-1 );
-
+#if 0 /* --------  A. Use mouseDZ to driver listbox->pastPos ----------- */
 
 #else /* --------  B. Use mouseDZ to driver FirstIdx ----------- */
-
-		/* Update first index  */
-		FirstIdx += pmostat->mouseDZ;
-		if(FirstIdx < 0)
-			FirstIdx=0;
-		else if( FirstIdx > playlist_max-1)
-			FirstIdx=playlist_max-1;
-
-		/* CtrBlockH: cal. in surf_ListBox(). */
-
-		/* Update listbox->pastPos */
-		listbox->pastPos = listbox->ScrollBarH*FirstIdx/playlist_max;
-		if(listbox->pastPos<0)
-			listbox->pastPos=0;
-		else if( listbox->pastPos > listbox->ScrollBarH - listbox->GuideBlockH)
-			listbox->pastPos=listbox->ScrollBarH - listbox->GuideBlockH;
-
-		/* Draw scroll bar GUIDEBLOCK */
-		draw_filled_rect2(mvfbdev, WEGI_COLOR_ORANGE, listbox->x0 +listbox->ListBoxW, listbox->y0 +listbox->pastPos,
-				listbox->x0 +listbox->ListBoxW +listbox->GuideBlockW-1, listbox->y0 +listbox->pastPos +listbox->GuideBlockH-1 );
+		egi_surfListBox_adjustFirstIdx(listbox, pmostat->mouseDZ);
 
 #endif /* ----- END mouseDZ driver ----- */
 
-		/* E. Limit FirstIdx to keep ListBox FULL of itmes. */
-		if( FirstIdx > playlist_max-listbox->MaxViewItems && playlist_max>listbox->MaxViewItems )
-			FirstIdx = playlist_max-listbox->MaxViewItems;
+//		printf("MouseDZ: listboxFirstIdx=%d, ListBoxMaxViewItems=%d\n",listbox->FirstIdx, listbox->MaxViewItems);
 
-		printf("MouseDZ: FirstIdx=%d, ListBoxMaxViewItems=%d\n",FirstIdx, listbox->MaxViewItems);
+		/* ReDraw ListBox */
+		egi_surfListBox_redraw(surfuser, listbox);
 
-		/* F. Assign to listbox->FirstIdx */
-//		listbox->FirstIdx = FirstIdx;
-
-		/* G. Refresh bkimg for ListImgbuf */
-		egi_imgbuf_copyBlock( listbox->ListImgbuf, listbox->imgbuf, false, /*  destimg, srcimg, blendON */
-					listbox->ListBoxW, listbox->ListBoxH, 0,0,  0,0 ); /*  bw,bh, xd,yd, xs,ys */
-
-		/* H. Update/write ListBox items to ListImgbuf */
-		for(i=0; i< listbox->MaxViewItems && i+FirstIdx < playlist_max; i++) {
-			FTsymbol_uft8strings_writeFB( &listbox->ListFB, egi_appfonts.regular,   	/* FBdev, fontface */
-        	       		                  listbox->fw, listbox->fh, (UFT8_PCHAR)playlist[i+FirstIdx].name,	/* fw,fh, pstr */
-                	       		          listbox->ListBoxW, 1, 0,         		/* pixpl, lines, fgap */
-                        	       		  5, i*listbox->ListBarH +2,  			/* x0,y0, */
-	                                	  WEGI_COLOR_BLACK, -1, 255,     	/* fontcolor, transcolor,opaque */
-		       	                          NULL, NULL, NULL, NULL);        	/* int *cnt, int *lnleft, int* penx, int* peny */
-		}
-		/* I. Paste ListImgbuf to surface */
-		egi_subimg_writeFB(listbox->ListImgbuf, mvfbdev, 0, -1, listbox->x0, listbox->y0);
+		/* Reset SelectIdx to -1 */
+		listbox->SelectIdx = -1;
 	}
 
 	/* 3. Get mouse pointed item, and change its bkg color to hightlight it.
@@ -1357,223 +1251,63 @@ void ListBox_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 	 */
 	else if( mouseOnListBox ) {
 
-	      	/* A. Update first item index in ListBox, OK see at beginning case 0. */
-
-		/* B. Cal. current moused pointed item index */
-		index= FirstIdx +(py-SURF_TOPBAR_HEIGHT)/listbox->ListBarH;
-
-		/* C. Limit index, in case BLANK items. */
-		if( index > playlist_max-1 )
-			return;
-                printf("Playlist_idx=%d, FirstIdx=%d, index=%d, SelectIdx=%d\n", playlist_idx, FirstIdx, index, SelectIdx);
-
-		/* D. Redraw ListBox if select_index changes */
-		if( SelectIdx < 0 || SelectIdx != index ) {
-
-			/* --1. Restor previous selected ListBar: redrwa bkgimg and content */
-			if( SelectIdx >=0 && SelectIdx !=index ) {
-
-				/* --1.1 Refresh item bkimg */
-				egi_imgbuf_copyBlock( listbox->ListImgbuf, listbox->imgbuf, false, /*  destimg, srcimg, blendON */
-					listbox->ListBoxW, listbox->ListBarH, 	      /* bw, bh */
-					0, listbox->ListBarH*(SelectIdx-FirstIdx),    /* xd, yd */
-					0, listbox->ListBarH*(SelectIdx-FirstIdx) );  /*xs,ys */
-
-				/* --1.2 Restore item content to ListImgbuf */
-				FTsymbol_uft8strings_writeFB( &listbox->ListFB, egi_appfonts.regular,   	/* FBdev, fontface */
-        	       			                  listbox->fw, listbox->fh, (UFT8_PCHAR)playlist[SelectIdx].name,	/* fw,fh, pstr */
-                	       			          listbox->ListBoxW, 1, 0,         		/* pixpl, lines, fgap */
-                        	       			  5, (SelectIdx-FirstIdx)*listbox->ListBarH +2,  /* x0,y0, */
-	                                		  WEGI_COLOR_BLACK, -1, 255,     	/* fontcolor, transcolor,opaque */
-			       	                          NULL, NULL, NULL, NULL);        	/* int *cnt, int *lnleft, int* penx, int* peny */
-
-			}
-
-			/* --2. Draw/highlight newly selected items */
-			#if 0 /* Mark newly selected item */
-			draw_blend_filled_rect( mvfbdev, listbox->x0, listbox->y0+(index-FirstIdx)*listbox->ListBarH,
-						 listbox->x0+listbox->ListBoxW -1, listbox->y0+(index-FirstIdx+1)*listbox->ListBarH-1,
-               					 WEGI_COLOR_GRAY1, 180);
-
-			#else /* Change newly selected ListBar bkgimg */
-			draw_filled_rect2(&listbox->ListFB,  WEGI_COLOR_GRAY1, 0, listbox->ListBarH*(index-FirstIdx),
-							listbox->ListBoxW-1, listbox->ListBarH*(index-FirstIdx+1)-1 );
-
-			FTsymbol_uft8strings_writeFB( &listbox->ListFB, egi_appfonts.regular,   /* FBdev, fontface */
-       	       			                  listbox->fw, listbox->fh, (UFT8_PCHAR)playlist[index].name,	/* fw,fh, pstr */
-               	       			          listbox->ListBoxW, 1, 0,         		/* pixpl, lines, fgap */
-                       	       			  5, (index-FirstIdx)*listbox->ListBarH +2,  	/* x0,y0, */
-                                		  WEGI_COLOR_BLACK, -1, 255,     	/* fontcolor, transcolor,opaque */
-		       	                          NULL, NULL, NULL, NULL);        	/* int *cnt, int *lnleft, int* penx, int* peny */
-
-			#endif
-
-			/* --3. Paste modified ListImgbuf to surface */
-			egi_subimg_writeFB(listbox->ListImgbuf, mvfbdev, 0, -1, listbox->x0, listbox->y0);
-
-			/* --4. Upate SelectIdx at last */
-			SelectIdx = index;
-		}
+		/* Selecte ListBox item by point(px,py), and highlight it. */
+		egi_surfListBox_PxySelectItem(surfuser, listbox, px, py);
 	}
 
-	/* TODO: Close the SURFACE by clicking on SURFBTN_CLOSE */
-	/* 4. Click on ListBox, return SelectIdx and signal to quit. */
-	if( pmostat->LeftKeyDown && mouseOnListBox ) {
-
+	/* :: Parse LeftKeyDown */
+	if( pmostat->LeftKeyDown ) {
+	   /* 4. Click on ListBox, confirm var_SelectIdx to SelectIdx, and signal to quit. */
+	   if( mouseOnListBox ) {
 		/* 4.1 Upate ListBox SelectIdx ONLY when click, If by Close BTN, it keeps as -1. */
-		listbox->SelectIdx = SelectIdx;
-		printf("Click on ListBox, selectIdx=%d\n", listbox->SelectIdx);
+		listbox->SelectIdx = listbox->var_SelectIdx;
+		//printf("Click on ListBox, selectIdx=%d\n", listbox->SelectIdx);
 
-		/* 4.2 Reset static FirstIdx and SelectIdx  */
-		FirstIdx = -1;
-		SelectIdx = -1;
-
-		/* 4.3 Signal to quit Listbox surface */
+		/* 4.2 Signal to quit Listbox surface */
 		msurfshmem->usersig = 1;
-	}
-	/* 5. Click on ScrollBar to page up/down */
-	else if( pmostat->LeftKeyDown && mouseOnScrollBar ) {
+	   }
+	   /* 5. Click on ScrollBar guiding block */
+	   else if( mouseOnGuideBlock ) {
+		listbox->GuideBlockDownHold=true;
+	   }
+	   /* 6. Click on ScrollBar to page up/down */
+	   else if( mouseOnScrollBar ) {
 		/* Click before scroll GuideBlock: Update FirstIdx */
 		if( py < listbox->y0+listbox->pastPos ) {
 			//printf("Scroll page up!\n");
-			FirstIdx -= listbox->MaxViewItems;
-			if(FirstIdx < 0)
-				FirstIdx = 0;
+			egi_surfListBox_adjustFirstIdx(listbox, -listbox->MaxViewItems);
 		}
 		else if ( py >  listbox->y0+listbox->pastPos + listbox->GuideBlockH ) {
 			//printf("Scroll page down!\n");
-			FirstIdx += listbox->MaxViewItems;
-			if(FirstIdx > playlist_max-1 )
-				FirstIdx = playlist_max-1;
+			egi_surfListBox_adjustFirstIdx(listbox, +listbox->MaxViewItems);
 		}
 
-		/* Update listbox->pastPos */
-		listbox->pastPos = listbox->ScrollBarH*FirstIdx/playlist_max;
-		if(listbox->pastPos<0)
-			listbox->pastPos=0;
-		else if( listbox->pastPos > listbox->ScrollBarH - listbox->GuideBlockH)
-			listbox->pastPos=listbox->ScrollBarH - listbox->GuideBlockH;
-
-		/* Refresh whole bkimg */
-		egi_surfBox_writeFB(mvfbdev, (ESURF_BOX *)listbox, 0, 0);
-
-		/* Draw scroll bar CONTORL_BLOCK */
-		draw_filled_rect2(mvfbdev, WEGI_COLOR_ORANGE, listbox->x0 +listbox->ListBoxW, listbox->y0 +listbox->pastPos,
-			listbox->x0 +listbox->ListBoxW +listbox->GuideBlockW-1, listbox->y0 +listbox->pastPos +listbox->GuideBlockH-1 );
-
-               	/* Refresh bkimg for ListImgbuf */
-                egi_imgbuf_copyBlock( listbox->ListImgbuf, listbox->imgbuf, false, /*  destimg, srcimg, blendON */
-       	                                listbox->ListBoxW, listbox->ListBoxH, 0,0,  0,0 ); /*  bw,bh, xd,yd, xs,ys */
-
-               	/* Update/write ListBox items to ListImgbuf */
-                for(i=0; i< listbox->MaxViewItems && i+FirstIdx < playlist_max; i++) {
-       	                FTsymbol_uft8strings_writeFB( &listbox->ListFB, egi_appfonts.regular,           /* FBdev, fontface */
-               	                                  listbox->fw, listbox->fh, (UFT8_PCHAR)playlist[i+FirstIdx].name,        /* fw,fh, pstr */
-                       	                          listbox->ListBoxW, 1, 0,                      /* pixpl, lines, fgap */
-                               	                  5, i*listbox->ListBarH +2,                    /* x0,y0, */
-                                       	          WEGI_COLOR_BLACK, -1, 255,            /* fontcolor, transcolor,opaque */
-                                               	  NULL, NULL, NULL, NULL);              /* int *cnt, int *lnleft, int* penx, int* peny */
-                }
-       	        /* Paste ListImgbuf to surface */
-               	egi_subimg_writeFB(listbox->ListImgbuf, mvfbdev, 0, -1, listbox->x0, listbox->y0);
+                /* ReDraw ListBox */
+                egi_surfListBox_redraw(surfuser, listbox);
+	   }
 	}
-}
 
+	/* :: Parse LeftKeyHoldDown */
+	if( pmostat->LeftKeyDownHold ) {
+		/* 7. Drag the guiding block */
+		if( listbox->GuideBlockDownHold ) { //&& ( mouseOnGuideBlock || mouseOnScrollBar) ) {  /*  */
+			/* TODO: NOW mostat MAY be ignored by surfman if last mevent NOT finished! which results in
+		           	 inconsistency of SUM(mouseDY) and mouseY  */
+			//egi_surfListBox_adjustPastPos(listbox, pmostat->mouseDY);
+			egi_surfListBox_adjustPastPos(listbox, pmostat->mouseY-lastY);
 
-/*--------------------------------------------------
-Add/copy item content to listbox->list[].
+	                /* ReDraw ListBox */
+        	        egi_surfListBox_redraw(surfuser, listbox);
 
-@listbox	Pointer to ESURF_LISTBOX
-@pstr		Pointer to item content
-
-Return:
-	0	OK
-	<0	Fails
---------------------------------------------------*/
-int egi_surfListBox_addItem(ESURF_LISTBOX *listbox, const char *pstr)
-{
-	if( listbox == NULL || pstr == NULL )
-		return -1;
-
-	/* Check ListCapacity and growsize for listbox->list */
-	if( listbox->TotalItems >= listbox->ListCapacity ) {
-
-		if( egi_mem_grow((void **)&listbox->list, ESURF_LISTBOX_ITEM_MAXLEN*listbox->ListCapacity,	/* oldsize */
-						     ESURF_LISTBOX_ITEM_MAXLEN*sizeof(char)*ESURF_LISTBOX_CAPACITY_GROWSIZE)  /* moresize */
-		    <0 ) {
-			egi_dpstd("Fail to memgrow for listbox->list!\n");
-			return -2;
+			/* Update lastY */
+			lastY = pmostat->mouseY;
 		}
-
-		listbox->ListCapacity += ESURF_LISTBOX_CAPACITY_GROWSIZE;
 	}
 
-	/* Copy content into list */
-	strncpy(listbox->list[listbox->TotalItems], pstr, ESURF_LISTBOX_ITEM_MAXLEN-1);
-
-	/* Update TotalItems */
-	listbox->TotalItems++;
-
-	return 0;
+	/* :: Parse LeftKeyUp */
+	if( pmostat->LeftKeyUp ) {
+		listbox->GuideBlockDownHold=false;
+	}
 }
 
 
-/*--------------------------------------------------------------------
-Redraw listbox and its view content to the surface( surfuser->imgbuf).
-
-@psurfuser:	Pointer to EGI_SURFUSER.
-@listbox:	Pointer to ESURF_LISTBOX.
-
----------------------------------------------------------------------*/
-void egi_surfListBox_redraw(EGI_SURFUSER *psurfuser, ESURF_LISTBOX *listbox)
-{
-	int i;
-
-	if( psurfuser==NULL || listbox==NULL )
-		return;
-
-	if( listbox->list==NULL || listbox->list[0]==NULL )
-		return;
-
-	/* Get ref. pointers to vfbdev/surfimg/surfshmem */
-	//EGI_SURFSHMEM   *psurfshmem=NULL;        /* Only a ref. to surfuser->surfshmem */
-	FBDEV           *pvfbdev=NULL;           /* Only a ref. to &surfuser->vfbdev  */
-	EGI_IMGBUF	*psurfimg=NULL;          /* Only a ref. to surfuser->imgbuf */
-
-	//psurfshmem=surfuser->surfshmem;
-	pvfbdev=(FBDEV *)&psurfuser->vfbdev;
-	psurfimg=psurfuser->imgbuf;
-
-	/* 1. Refresh bkgIMG. ONLY for scrollbar area here. */
-        //egi_surfBox_writeFB(mvfbdev, (ESURF_BOX *)listbox, 0, 0);
-        egi_imgbuf_copyBlock( psurfimg, listbox->imgbuf, false, 			/* destimg, srcimg, blendON */
-        			listbox->ScrollBarW, listbox->ScrollBarH, 	/* bw,bh */
-                                listbox->x0+listbox->ListBoxW, listbox->y0, 	/* xd,yd */
-                                listbox->ListBoxW, 0); 				/* xs,ys */
-
-	/* 2. Draw scroll bar GUIDEBLOCK */
-	draw_filled_rect2(pvfbdev, WEGI_COLOR_ORANGE, listbox->x0 +listbox->ListBoxW, listbox->y0 +listbox->pastPos,
-			listbox->x0 +listbox->ListBoxW +listbox->GuideBlockW-1, listbox->y0 +listbox->pastPos +listbox->GuideBlockH-1 );
-
-      	/* 3. Refresh bkimg for ListImgbuf */
-        egi_imgbuf_copyBlock( listbox->ListImgbuf, listbox->imgbuf, false, 	/* destimg, srcimg, blendON */
-                               listbox->ListBoxW, listbox->ListBoxH, 0,0,  0,0 ); /* bw,bh, xd,yd, xs,ys */
-
-      	/* 4. Update/write ListBox items to ListImgbuf */
-	if(listbox->MaxViewItems<1) {
-	      	egi_subimg_writeFB(listbox->ListImgbuf, pvfbdev, 0, -1, listbox->x0, listbox->y0);
-		return;
-	}
-        for(i=0; i< listbox->MaxViewItems && i+listbox->FirstIdx < listbox->TotalItems; i++) {
-        	FTsymbol_uft8strings_writeFB( &listbox->ListFB, listbox->face,          /* FBdev, fontface */
-               	                                  listbox->fw, listbox->fh,		/* fw,fh */
-						  (UFT8_PCHAR)listbox->list[i+listbox->FirstIdx],   /* pstr */
-                       	                          listbox->ListBoxW, 1, 0,              /* pixpl, lines, fgap */
-                               	                  5, i*listbox->ListBarH +2,            /* x0,y0, */
-                                       	          WEGI_COLOR_BLACK, -1, 255,            /* fontcolor, transcolor,opaque */
-                                               	  NULL, NULL, NULL, NULL);              /* int *cnt, int *lnleft, int* penx, int* peny */
-       	}
-
-        /* 5. Paste ListImgbuf to surface */
-      	egi_subimg_writeFB(listbox->ListImgbuf, pvfbdev, 0, -1, listbox->x0, listbox->y0);
-}
