@@ -63,6 +63,7 @@ Journal:
 2021-03-10:
 	1. userv_listen_thread(): Move checking_available_slot after calling_accept().
 
+
 Midas Zhou
 midaszhou@yahoo.com
 ---------------------------------------------------------------------*/
@@ -75,6 +76,7 @@ midaszhou@yahoo.com
 #include <sys/socket.h>
 #include <pthread.h>
 #include <signal.h>
+#include <libgen.h> /* dirname() */
 
 /* EGI_SURFACE */
 #include <sys/stat.h>
@@ -82,6 +84,7 @@ midaszhou@yahoo.com
 #include <sys/syscall.h>
 #include <sys/select.h>
 
+#include "egi_utils.h"
 #include "egi_unet.h"
 #include "egi_timer.h"
 #include "egi_debug.h"
@@ -836,7 +839,7 @@ Return:
 int ering_msg_send(int sockfd, ERING_MSG *emsg,  int msg_type, const void *data,  size_t len)
 {
 	int ret=0;
-	void *tmp;
+//	void *tmp;
 
 	if(emsg==NULL)
 		return -1;

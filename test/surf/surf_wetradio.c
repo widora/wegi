@@ -251,10 +251,7 @@ int main(int argc, char **argv)
 	/* Prepare mixer simple element for volume preparation */
   	egi_getset_pcm_volume(NULL,NULL);
 
-/* TEST: -------- MSG QUEUE ----------- */
-        #include <sys/msg.h>
-
-        int msgid;
+/*  TEST: -------- MSG QUEUE ----------- */
         int msglen;
 
 #define MSGQTEXT_MAXLEN 64
@@ -263,18 +260,23 @@ int main(int argc, char **argv)
                 char msg_text[MSGQTEXT_MAXLEN];
         } msgdata;
 
-        msgid = msgget((key_t)5555, IPC_CREAT|0666);
+  #if 0 /* OR  USE surfuser->msgid instead  */
+        int msgid;
+	key_t mqkey=ftok(ERING_PATH_SURFMAN, SURFMAN_MSGKEY_PROJID); /* proj_id MUST >0 ! */
+        msgid = msgget(mqkey, 0); //IPC_CREAT|0666); /* suppose SURFMAN created it */
         if(msgid<0) {
-                printf("Fail msgget!\n");
+		egi_dperr("Fail msgget()!");
 		exit(-1);
 	}
+  #endif
+
 /* ----end: MSG QUEUE---- */
 
 	/* Enter private dir */
 	chdir("/tmp/.egi");
-	mkdir("radioNet", S_IRWXG);
+	mkdir("radioNet", 0770); /* 0777 ??? drwxr-xr-x */
 	if(chdir("/tmp/.egi/radioNet")!=0) {
-		printf("Fail to enter private dir! Err'%s'\n", strerror(errno));
+		egi_dperr("Fail to make/enter private dir!");
 		exit(EXIT_FAILURE);
 	}
 
@@ -331,7 +333,7 @@ int main(int argc, char **argv)
 
 	/* EGI_SURFACE Info */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
-	printf("Shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
+	printf("Shmsize: %zdBytes  Geom: %dx%dx%dBpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
         /* Get surface mutex_lock */
@@ -342,6 +344,7 @@ int main(int argc, char **argv)
 /* ------ >>>  Surface shmem Critical Zone  */
 
         /* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons etc. */
+	// Defualt: surfuser_ering_routine() calls surfuser_parse_mouse_event();
         surfshmem->minimize_surface 	= surfuser_minimize_surface;   	/* Surface module default functions */
 	//surfshmem->redraw_surface 	= surfuser_redraw_surface;
 	//surfshmem->maximize_surface 	= surfuser_maximize_surface;   	/* Need resize */
@@ -395,7 +398,7 @@ int main(int argc, char **argv)
 	/* 10. Start Ering routine: Use module default routine function. */
 	printf("start ering routine...\n");
 	if( pthread_create(&surfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, surfuser) !=0 ) {
-		printf("Fail to launch thread_EringRoutine!\n");
+		egi_dperr("Fail to launch thread_EringRoutine!");
 		exit(EXIT_FAILURE);
 	}
 
@@ -530,9 +533,11 @@ int main(int argc, char **argv)
 		}
 
 /* TEST: ----------- MSG QUEUE ----- */
-		long msgtype=5; /* If 0, first msg in queue, whatever type! */
-		msglen=msgrcv(msgid, (void *)&msgdata, MSGQTEXT_MAXLEN, msgtype, MSG_NOERROR|IPC_NOWAIT); /* MSG_NOERROR  */
+		long msgtype=SURFMSG_AAC_PARAMS; /* If 0, first msg in queue, whatever type! */
+		//msglen=msgrcv(msgid, (void *)&msgdata, MSGQTEXT_MAXLEN, msgtype, MSG_NOERROR|IPC_NOWAIT);
+		msglen=msgrcv(surfuser->msgid, (void *)&msgdata, MSGQTEXT_MAXLEN, msgtype, MSG_NOERROR|IPC_NOWAIT);
 		if( msglen<0 && errno == ENOMSG ) {
+			//egi_dpstd("No msg...\n");
 		}
 		else if(msglen<0)
 			egi_dperr("Fail to msgrcv");

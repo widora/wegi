@@ -32,12 +32,13 @@ int main(int argc, char **argv)
 /* TODO test */
 //	cstr_split_nstr(strm3u, split, )
 
-	/* Start egi log */
+#if 0	/* Start egi log */
   	if(egi_init_log("/mmc/test_http.log") != 0) {
                 printf("Fail to init logger,quit.\n");
                 return -1;
   	}
 	EGI_PLOG(LOGLV_INFO,"%s: Start logging...", argv[0]);
+#endif
 
 	/* For http,  conflict with curl?? */
 	printf("start egitick...\n");

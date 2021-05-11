@@ -206,6 +206,17 @@ Journal
 2021-04-29:
 	1. EGI_SURFSHMEM: Add memeber user_close_surface() for EGI_SURFSHMEM.
 	2. EGI_SURFUSER: Add memeber 'mevent_suspend'. as start token of new round of mevent session.
+2021-05-06:
+	1. EGI_SURFMAN: Add memeber 'msgid' for message queue.
+	   Modify: egi_create_surfman(), egi_destroy_surfman() --- create/remove surfman->msgid.
+	2. Add: SURFMSG_DATA
+2021-05-07:
+	1. EGI_SURFUSER: Add memeber 'msgid' for message queue.
+	   Modify: egi_register_surfuser() --- msgget msgid.
+2021-05-11:
+	1. surfman_bringtop_surface_nolock(): BringUp all group surfaces with same PID value.
+	2. Add: surfmsg_send(), surfms_recv()
+	3. surfman_render_thread()  TEST: surfmsg_recv()SURFMSG_REQUEST_REFRESH
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -220,6 +231,8 @@ midaszhou@yahoo.com
 #include <sys/mman.h>
 #include <sys/syscall.h>
 #include <sys/select.h>
+#include <sys/msg.h>
+
 #include "egi_log.h"
 #include "egi_unet.h"
 #include "egi_timer.h"
@@ -494,7 +507,17 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 	}
 	egi_dpstd("Uclient succeed to connect to '%s'.\n", svrpath);
 
-	/* 3. Request for a surface and get shared memory data */
+        /* 3. Get message queue, SURFMAN is the Owner. */
+        key_t  mqkey=ftok(ERING_PATH_SURFMAN, SURFMAN_MSGKEY_PROJID);
+        surfuser->msgid = msgget(mqkey, 0);  /* SURFMAN created it */
+        if(surfuser->msgid<0) {
+                egi_dperr("Fail msgget()!");
+		unet_destroy_Uclient(&surfuser->uclit);
+		free(surfuser);
+		return NULL;
+        }
+
+	/* 4. Request for a surface and get shared memory data */
 	surfuser->surfshmem=ering_request_surface( surfuser->uclit->sockfd, x0, y0, maxW, maxH, w, h, colorType);
 	if(surfuser->surfshmem==NULL) {
 		egi_dpstd("Fail to request surface!\n");
@@ -503,7 +526,7 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 		return NULL;
 	}
 
-	/* 4. Allocate an EGI_IMGBUF, for its vfbdev. */
+	/* 5. Allocate an EGI_IMGBUF, for its vfbdev. */
 	surfuser->imgbuf=egi_imgbuf_alloc();
 	if(surfuser->imgbuf==NULL) {
 		egi_dpstd("Fail to allocate imgbuf!\n");
@@ -513,7 +536,7 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 		return NULL;
 	}
 
-	/* 5. Map surface data to imgbuf */
+	/* 6. Map surface data to imgbuf */
 	surfuser->imgbuf->width = w;	/* Default surface size */
 	surfuser->imgbuf->height = h;
 	surfuser->imgbuf->imgbuf = (EGI_16BIT_COLOR *)surfuser->surfshmem->color; /* SURF_RGB565 ! */
@@ -522,7 +545,7 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
         else
                 surfuser->imgbuf->alpha = NULL;
 
-	/* 6. Init. virtual FBDEV */
+	/* 7. Init. virtual FBDEV */
 	if( init_virt_fbdev(&surfuser->vfbdev, surfuser->imgbuf, NULL) != 0 ) {
 		egi_dpstd("Fail to init vfbdev!\n");
 		surfuser->imgbuf->imgbuf=NULL; /* Unlink to surface data before free imgbuf */
@@ -534,7 +557,8 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 		return NULL;
 	}
 
-	/* xxxx 7. Init first 3 surfuser->surfbtns[] as for CLOSE/MIN/MAX */
+	/* xxxx. Init first 3 surfuser->surfbtns[] as for CLOSE/MIN/MAX ---  */
+	/* NOW in surfuser_firstdraw_surface() */
 
 	/* Assign other memebers */
 	surfuser->mevent_suspend = true;
@@ -951,7 +975,7 @@ surfman_unregister_surface():           ----- (-)surfaces[7], scnt=4 -----
 /*-------------------------------------------------
 Create an EGI_SURFMAN (surface manager).
 
-@svrpath:	Path of the surfman.
+@svrpath:	Path/Ering_Addr of the surfman.
 
 Return:
 	A pointer to EGI_SURFACE	OK
@@ -983,6 +1007,7 @@ EGI_SURFMAN *egi_create_surfman(const char *svrpath)
 		return NULL;
 	}
 	egi_dpstd("Surfman userv_listen_thread starts!\n");
+
 	/* NOW:  userv_listen_thread() starts. */
 
 	/* 4. Start surfman_request_process_thread() */
@@ -995,20 +1020,32 @@ EGI_SURFMAN *egi_create_surfman(const char *svrpath)
         }
 	egi_dpstd("surfman_request_process_thread starts!\n");
 
-	/* 5. Allocate imgbuf */
+	/* 5. Create System_V message queue */
+	key_t  mqkey=ftok(ERING_PATH_SURFMAN, SURFMAN_MSGKEY_PROJID);
+	surfman->msgid = msgget(mqkey, IPC_CREAT|0666);
+        if(surfman->msgid<0) {
+                egi_dperr("Fail msgget()!");
+		unet_destroy_Userver(&surfman->userv);
+		pthread_mutex_destroy(&surfman->surfman_mutex);
+		free(surfman);
+		return NULL;
+        }
+
+#if 0	/* X. Allocate imgbuf: --- NOT applied yet! --- */
 	surfman->imgbuf=egi_imgbuf_alloc();
 	if(surfman->imgbuf==NULL) {
-		egi_dpstd("Fail to allocate imgbfu!\n");
+		egi_dperr("Fail to allocate imgbfu!\n");
 		/* -------- NOW: use egi_destroy_surfman() aft surfman->repThread, ... */
 		egi_destroy_surfman(&surfman);
 		pthread_mutex_destroy(&surfman->surfman_mutex);
 		return NULL;
 	}
+#endif
 
 	/* 6. Init FBDEV */
 	surfman->fbdev.devname = gv_fb_dev.devname;  /* USE global FB device name */
 	if( init_fbdev(&surfman->fbdev) !=0 ) {
-		egi_dpstd("Fail to init_fbdev\n");
+		egi_dperr("Fail to init_fbdev\n");
 		egi_destroy_surfman(&surfman);
 		return NULL;
 	}
@@ -1070,6 +1107,11 @@ int egi_destroy_surfman(EGI_SURFMAN **surfman)
 	if((*surfman)->imgbuf)
 		egi_imgbuf_free2(&(*surfman)->imgbuf);
 
+	/* 4. Remove the message queue, awakening all waiting reader and writer processes
+	 *    (with an error return and  errno set to EIDRM).
+	 */
+	if( msgctl((*surfman)->msgid, IPC_RMID, 0) !=0 )
+		egi_dperr("Fail to remove msgid!");
 
 	/* TODO: Free more cursor icons here?? */
 	// mcursor, mgrab
@@ -1433,7 +1475,7 @@ int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID )
 /*-------------------------------------------------------------------
 1.  Bring surfman->surfaces[surfID] to the top layer by updating
     its zseq and its id!
-1.A IF surfaces[surfID] has child(with same pid), then bring up the
+1.  IF surfaces[surfID] has child(with same pid), then bring up the
     child with the biggest level value.
 2.  Reset its STATUS to NORMAL.
 
@@ -1446,6 +1488,7 @@ Return:
 	0	OK
 	<0	Fails
 -------------------------------------------------------------------*/
+#if 0 /////////////////  BringUp the surface with same PID and biggest level value  //////////////////
 int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
 {
 	int i;
@@ -1491,7 +1534,6 @@ int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
 		}
 	}
 
-
 	/* Set its zseq to Max. of the surfman->surfaces */
 	egi_dpstd("Set surfaces[%d] zseq to %d\n",surfID, surfman->scnt);
 	surfman->surfaces[surfID]->zseq=surfman->scnt;
@@ -1513,6 +1555,67 @@ int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
 
 	return 0;
 }
+
+#else ///////////////////// BringUp all group surfaces with same PID value  /////////////////////////////
+
+int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
+{
+	int i;
+
+	/* Check input */
+	if(surfman==NULL)
+		return -1;
+	if(surfID <0 || surfID > SURFMAN_MAX_SURFACES-1 )
+		return -2;
+
+	/* Check */
+	if(surfman->surfaces[surfID]==NULL) {
+		return -3;
+	}
+
+	/* If already at top! XXX Max. zseq does NOT necessary means TOP surface, MAYBE in minibar menu. */
+	//if(surfman->surfaces[surfID]->zseq==surfman->scnt) {
+	//	return 0;
+	//}
+
+	/* ----- !!! Here assume a child MUST NOT be minimizable  !!! ----- */
+	/* In case bring surface from minibar menu (MINIMIZED) to TOP, reset its STAUTS. */
+	if( surfman->surfaces[surfID]->surfshmem->status == SURFACE_STATUS_MINIMIZED )
+	{
+		/* If nw==0: Reset Status to NORMAL*/
+		if( surfman->surfaces[surfID]->surfshmem->nw == 0 )
+			surfman->surfaces[surfID]->surfshmem->status=SURFACE_STATUS_NORMAL;
+		else  /* If nw>0: Reset status to MAXIMIZED */
+			surfman->surfaces[surfID]->surfshmem->status=SURFACE_STATUS_MAXIMIZED;
+	}
+	/* If the surface has child, then bring up the child with the biggest level value. */
+	else {
+		/* Assume that zseq of surfman->surfaces are sorted in ascending order, as of surfman->surfaces[i] */
+		//for(i=0; i<SURFMAN_MAX_SURFACES; i++) {
+		for(i=0; i<SURFMAN_MAX_SURFACES; i++) {
+			if( surfman->surfaces[i]!=NULL &&  surfman->surfaces[i]->pid == surfman->surfaces[surfID]->pid ) {
+				/* Surfaces with same PID all be assigned with MAX. zseq */
+				surfman->surfaces[i]->zseq=SURFMAN_MAX_SURFACES +1; /* +1 to enusure > all other surfaces.zseq */
+				/* Get the biggest level, surfID refers to current biggest one */
+			     	if( surfman->surfaces[i]->level > surfman->surfaces[surfID]->level ) {
+					surfID=i; /* !!! -- Replace surfID --  !!! */
+			     	}
+			}
+		}
+	}
+
+	/* NOW: surfID refer to surface with PID and biggest level */
+	egi_dpstd("Finial surfID=%d\n",surfID);
+	surfman->surfaces[surfID]->zseq=SURFMAN_MAX_SURFACES +1 +1;  /* +1+1 to ensure is the biggest zseq */
+
+        /* Sort surfman->surfaces[] in ascending order of their zseq value */
+        surface_insertSort_zseq(&surfman->surfaces[0], SURFMAN_MAX_SURFACES);
+
+	return 0;
+}
+
+#endif //////////////////////////////////////////////////////////
+
 
 /*-----------------------------------------------------------
 Bring surfman->surfaces[surfID] to the top layer by updating
@@ -1819,7 +1922,7 @@ int surfman_get_TopDispSurfaceID(EGI_SURFMAN *surfman)
 
 
 /*-----------------------------------------------
-wRender surfman->surfaces[] one by one, and bring
+Render surfman->surfaces[] one by one, and bring
 them to FB to display.
 NOW: only supports SURF_RGB565
 
@@ -1830,6 +1933,7 @@ static void * surfman_render_thread(void *arg)
 {
 	int i;
 	int mutexret;
+
 
 	EGI_SURFSHMEM *surfshmem=NULL; /* Ref. */
 	EGI_SURFACE *surface=NULL;
@@ -1854,6 +1958,8 @@ static void * surfman_render_thread(void *arg)
 		return (void *)-2;
 	}
 
+	SURFMSG_DATA msgdata={0};
+
 	/* A.1 To confirm FBDEV open and available */
 	if( surfman->fbdev.fbfd <=0 ) {
 		egi_dpstd("Surfman fbdev.fbfd is invalid!\n");
@@ -1867,9 +1973,19 @@ static void * surfman_render_thread(void *arg)
 		return (void *)-3;
 	}
 
+        /* TEST-----:  First trigger render.  */
+        surfmsg_send(surfman->msgid, SURFMSG_REQUEST_REFRESH, NULL, IPC_NOWAIT);
+
 	/* A.3 Routine of rendering registered surfaces */
 	surfman->renderThread_on = true;
 	while( surfman->cmd !=1 ) {
+
+		/* TEST: -----B.0 Block wait render_request msg  */
+		printf("surfmsg recv...\n");
+		if( surfmsg_recv(surfman->msgid, &msgdata, SURFMSG_REQUEST_REFRESH, MSG_NOERROR) <0 ) {
+               		tm_delayms(5);
+			continue;
+		}
 
 		/* B.1 Get surfman_mutex ONE BY ONE!  TODO: TBD */
 		//egi_dpstd("Try surfman mutex lock...\n");
@@ -2231,7 +2347,7 @@ void *surfuser_ering_routine(void *surf_user)
 
 	}
 
-	/* Free EMSG */
+	/* Free ering MSG */
 	ering_msg_free(&emsg);
 
 	egi_dpstd("OK to exit ering routine thread.\n");
@@ -2247,7 +2363,7 @@ size_adjusting/maximizing/minimizing, and closing surface.
 
 @surfuser:   Pointer to EGI_SURFUSER.
 @pmostat:    Pointer to EGI_MOUSE_STATUS
-------------------------------------------------------------------*/
+--------------------------------------------------------------------*/
 void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 {
 	int 		i;
@@ -2556,12 +2672,18 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 	}
 
 	/* 4.A ELSE: !LeftKeyDownHold: Restore status to NORMAL */
-	//else {
-        if( pmostat->LeftKeyUp ) {
-		printf("--- Release DH ---\n");
+	/* Note: A mostats MAY be dropped by the surfman before SURFACE_FLAG_MEVENT is cleared! Check pmostat->LeftKeyUpHold */
+        else if( pmostat->LeftKeyUp || pmostat->LeftKeyUpHold) {
 
-		/* Pending... Deem as start of mevent_suspend. */
-		surfuser->mevent_suspend=true;
+		if( pmostat->LeftKeyUp ) {
+			printf("--- Release DH ---\n");
+
+			/* Pending... Deem as start of mevent_suspend. */
+			surfuser->mevent_suspend=true;
+
+	                /* Update lastX,Y. In case current surface is brought down from TOP. */
+			lastX=pmostat->mouseX; lastY=pmostat->mouseY;
+		}
 
 		if( surfshmem->status == SURFACE_STATUS_DOWNHOLD
 		    || surfshmem->status == SURFACE_STATUS_ADJUSTSIZE)  //RIGHTADJUST )
@@ -2573,8 +2695,6 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 				surfshmem->status = SURFACE_STATUS_NORMAL;
 		}
 
-                /* Update lastX,Y. In case current surface is brought down from TOP. */
-		lastX=pmostat->mouseX; lastY=pmostat->mouseY;
 	}
 
 
@@ -2983,3 +3103,96 @@ void surfuser_close_surface(EGI_SURFUSER **surfuser)
 	(*surfuser)->surfshmem->usersig =1;
 
 }
+
+
+/*---------------------------------------------------
+Send SURFMSG.
+
+@msgid: 	System_V message queue identifier.
+@msgtype:	Message type.
+@msgtext:	Message text. NULL to ignore.
+@flags:		Flags: IPC_NOWAIT
+
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------------*/
+inline int surfmsg_send(int msgid, long msgtype, const char *msgtext, int flags)
+{
+	int msgerr;
+	int msg_size;
+	SURFMSG_DATA  msg_data={0};
+
+	/* Prepare msg data */
+        msg_data.msg_type = msgtype;
+
+	if(msgtext==NULL)
+		msg_size=0;
+	else {
+	        strncpy(msg_data.msg_text, msgtext, SURFMSG_TEXT_MAX-1);
+        	msg_data.msg_text[SURFMSG_TEXT_MAX-1]='\0';
+
+        	msg_size=strlen(msg_data.msg_text)+1;
+	}
+
+	/* Note:
+	 *	1. msgsnd() is never automatically restarted after being interrupted by a signal handler
+	 *	2. If sufficient space is available in the queue, msgsnd() succeeds immediately.
+	 */
+        msgerr=msgsnd(msgid, (void *)&msg_data, msg_size, flags);
+	if(msgerr<0) {
+		egi_dperr("msgrcv fails.");
+		//if(errno==EIDRM) egi_dpstd("msgid is invalid! Or the queue is removed.\n");
+		//else if(errno==EAGAIN) egi_dpstd("Insufficient spacd in the queue!\n");
+	}
+
+	return msgerr;
+}
+
+
+/*----------------------------------------------------------------
+Receive SURFMSG.
+
+@msgid: 	System_V message queue identifier.
+@msgdata:	Pointer to SURFMASG_DATA.
+@msgtype:	Message type.
+@msgflag:	Flags: IPC_NOWAIT,MSG_NOERROR,MSG_COPY, ...etc.
+
+Return:
+	>=0	OK
+	<0	Fails OR no_msg.
+----------------------------------------------------------------*/
+inline int surfmsg_recv(int msgid, SURFMSG_DATA *msgdata, long msgtype, int msgflag)
+{
+	int msglen;
+
+        msglen=msgrcv(msgid, (void *)msgdata, SURFMSG_TEXT_MAX, msgtype, msgflag);
+        if( msglen<0 ) {
+		egi_dperr("msgrcv fails.");
+		if( errno == ENOMSG ) egi_dpstd("No msg...\n");
+        }
+        else if(msglen==0) {
+        	//egi_dpstd("msglen=0!\n");
+	}
+
+	return msglen;
+}
+
+
+#if 0 ////////////////////////////////////
+/*-------------------------------------------
+SURFMSG request for surfman to render/refresh.
+
+@msgid:  System_V message queue identifier.
+	 surfman->msgid;
+
+Return:
+	0	OK
+	<0	Fails
+-------------------------------------------*/
+int surfmsg_request_render(int msgid)
+{
+	/* msg_size==0 */
+	return	surfmsg_send(msgid, SURFMSG_REQUEST_REFRESH, NULL, IPC_NOWAIT);
+}
+#endif ///////////////////////////////////

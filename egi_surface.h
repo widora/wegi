@@ -14,13 +14,16 @@ midaszhou@yahoo.com
 #include <stdbool.h>
 #include <sys/un.h>
 #include <sys/socket.h>
+#include <sys/msg.h>
 #include "egi.h"
 #include "egi_unet.h"
 #include "egi_fbdev.h"
 #include "egi_input.h"
 #include "egi_surfcontrols.h"
 
-#define ERING_PATH_SURFMAN	"/tmp/.egi/ering_surfman"
+//#define ERING_PATH_SURFMAN	"/tmp/.egi/ering_surfman"
+#define ERING_PATH_SURFMAN	"/tmp/run/ering/ering_surfman"
+
 
 /* Surface Appearance Geom */
 #define         SURF_TOPBAR_HEIGHT      30
@@ -55,6 +58,8 @@ typedef struct egi_surface 		EGI_SURFACE;	/* Data of a SURFACE, for SURFMAN */
 typedef struct egi_surface_shmem 	EGI_SURFSHMEM;  /* Shared data in a SURFACE, for SURFUSER. */
 typedef struct egi_surface_manager	EGI_SURFMAN;
 typedef struct egi_surface_user		EGI_SURFUSER;
+typedef struct surface_msg_data		SURFMSG_DATA;
+
 
 /* Surface color data type */
 typedef enum surf_color_type		SURF_COLOR_TYPE;
@@ -68,15 +73,6 @@ enum surf_color_type {
 	SURF_COLOR_MAX 	=5,     /*  This is also as end token, see surf_get_pixsize() */
 };
 
-#if 0  /* SURFBTN IDs --->  Index of SURFSHMEM->sbtns[] */
-enum surf_button_ids {
-        SURFBTN_CLOSE           = 0,
-        SURFBTN_MINIMIZE        = 1,
-        SURFBTN_MAXIMIZE        = 2,
-        /* More slef-defined IDs */
-};
-#endif /////////////////
-
 
 /*** 			--- An EGI_SURFUSER ---
  * 1. When an EGI_SURFUSER is created together with an EGI_SURFACE(EGI_SURFSHMEM), there is 1 ering thread:
@@ -85,11 +81,16 @@ enum surf_button_ids {
  */
 struct egi_surface_user {
 	EGI_UCLIT 	*uclit;			/* A uClient to EGI_SURFMAN's uServer. */
+
+        int             msgid;                  /* Message queue identifier, SURFMAN is the Owner! */
+//      key_t           msgkey;                 /* key_t associated with msgid */
+
 	EGI_SURFSHMEM	*surfshmem;		/* Shared memory data in a surface, to release by egi_munmap_surfshmem()
 						 * Include surfshmem->thread_eringRoutine.
-						 * TODO: More than 1 SURFACEs for a SURFUSER ???!
-						 * 	1. means more surfshmem. ( and vfbdev? imgbuf?)
-						 * 	2. This will complicate ering_msg_send() to each surface.
+						 * NOW: one surfuer for one surface only.
+						 * TODO: XXX More than 1 SURFACEs for a SURFUSER ???!
+						 * 	XXX 1. means more surfshmem. ( and vfbdev? imgbuf?)
+						 * 	XXX 2. This will complicate ering_msg_send() to each surface.
 						 */
 
 	FBDEV  		vfbdev;			/* Virtual FBDEV, statically allocated. */
@@ -99,6 +100,7 @@ struct egi_surface_user {
 						 * 3. Its width/height to be adjusted with surface resize/redraw operation.
 						 *    But not its already allcated memory.
 						 */
+
 	bool		ering_bringTop;		/* Set as TRUE when surfuser_ering_routine() gets ERING_SURFACE_BRINGTOP emsg
 						 * 1. surfuser_parse_mouse_event() will see it as start of a new round of mevent session,
 						 *    and it will clear its old stat data (lastX/Y etc.) before process mevent. then
@@ -129,7 +131,7 @@ struct egi_surface_user {
  *
  */
 struct egi_surface_manager {
-	/* 1. Surface user manager */
+	/* 1. Surface USERV */
 	EGI_USERV	*userv;		/* A userver, to accept clients
 					 * Each userv->sessions[] stands for a surface user (surfuser).
 					 * One surface user may register more than 1 surface.
@@ -139,9 +141,18 @@ struct egi_surface_manager {
 		 * 1.2 Userv->sessions[] to be retired by surfman_request_process_thread(void *surfman);
 		 */
 
+	/* 2.System_V msessage queue
+	 * Message queue
+	 */
+#define SURFMAN_MSGKEY_PROJID	5		/* proj_id for ftok() to generate mqkey */
+	int 		msgid;			/* message queue identifier! Careful about its PERMISSION mode. */
+//	key_t 		msgkey;			/* key_t associated with msgid */
+
+
+
         int              cmd;           /* cmd to surfman, NOW: 1 to end acpthread & renderThread! */
 
-        /* 2. Surfman request processing: create and register surfaces.  */
+        /* 3. Surfman request processing: create and register surfaces.  */
 	pthread_t		repThread;	/* Request_processing thread */
         bool                    repThread_on;   /*  rpthread IS running! */
         int                     scnt;           /* Active/nonNULL surfaces counter */
@@ -172,7 +183,7 @@ struct egi_surface_manager {
 	int		mincnt;				/* Counter of minimized surfaces */
 	int		IndexMpMinSurf;   /* Index of mouse pointed minsurfaces[], <0 NOT ON minibar! */
 
-	/* 3. Surface render process */
+	/* 4. Surface render process */
 	EGI_IMGBUF	*mcursor;	  /* Mouse cursor imgbuf -- NORMAL */
 	EGI_IMGBUF	*mgrab;		  /* Mouse cursor --- GRAB */
 					  /** NOTE:
@@ -185,7 +196,7 @@ struct egi_surface_manager {
 	EGI_IMGBUF	*bkgimg;	  /* back ground image, as wall paper. */
 	EGI_IMGBUF	*imgbuf;	  /* An empty imgbuf struct to temp. link with color/alpha data of a surface
 					   * Draw the imgbuf to the fbdev then.
-					   *  --- NOT Applied yet ---
+					   *  --- NOT Applied yet! ---
 					   */
 	FBDEV 		fbdev;		  /* Init .devname = gv_fb_dev.devname, statically allocated.
 					   * Zbuff ON.
@@ -473,6 +484,27 @@ enum ering_result_type {
 };
 #endif /* END */
 
+
+/* SURFMSG_DATA : System_V message queue data */
+#define SURFMSG_TEXT_MAX	8
+struct surface_msg_data {
+        long msg_type;
+        char msg_text[SURFMSG_TEXT_MAX];  	/* Messages of zero length also OK */
+};
+
+/* For SURFMSG_DATA.msg_type:  MUST be positive integer value!!! */
+enum  surface_msg_type {
+				/* MUST >0 */
+	SURFMSG_REQUEST_DISPINFO	=1,	/* Request for displaying  SURFMSG_DATA.msg_text[] on a surface. */
+	SURFMSG_REQUEST_REFRESH	 	=2,	/* Request for render/refresh all surfaces. */
+
+
+	SURFMSG_AAC_PARAMS		=101,   /* Temp. for WetRadio */
+};
+
+/* Functions for msg */
+int surfmsg_send(int msgid, long msgtype, const char *msgtext, int flags);
+int surfmsg_recv(int msgid, SURFMSG_DATA *msgdata, long msgtype, int msgflag);
 
 /* Functions for   --- EGI_SURFACE ---   */
 int surf_get_pixsize(SURF_COLOR_TYPE colorType);

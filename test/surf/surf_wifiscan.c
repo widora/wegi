@@ -21,7 +21,8 @@ Journal
 	2. sysfont FOR SURFSYS, appfont for APP.
 2021-04-03:
 	1. Add TickBox in RightClickMenu.
-
+2021-05-11:
+        1. TEST: surfmsg_send()SURFMSG_REQUEST_REFRESH
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -206,6 +207,7 @@ int main(int argc, char** argv)
 /* ------ >>>  Surface shmem Critical Zone  */
 
         /* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons. */
+	// Defualt: surfuser_ering_routine() calls surfuser_parse_mouse_event();
         surfshmem->minimize_surface     = surfuser_minimize_surface;    /* Surface module default functions */
         surfshmem->redraw_surface       = my_redraw_surface; 	//surfuser_redraw_surface;
         surfshmem->maximize_surface     = surfuser_maximize_surface;    /* Need redraw */
@@ -239,7 +241,7 @@ int main(int argc, char** argv)
 
         /* Test EGI_SURFACE */
         printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
-        printf("Shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
+        printf("Shmsize: %zdBytes  Geom: %dx%dx%dBpp  Origin at (%d,%d). \n",
                         surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
         /* 6. Start Ering routine */
@@ -285,6 +287,11 @@ while( surfshmem->usersig != 1 ) {
 		 *	12  Chinawwwwww      55:55:55:55:55:55   WPA1PSKWPA2PSK/AES     81       11b/g/n BELOW  In YES
 		 *	11  ChinaNet-678     66:66:66:66:66:66   WPA2PSK/TKIPAES        65       11b/g/n NONE   In  NO
 		 *	7   CMCC-RED         77:77:77:77:77:77   WPA1PSKWPA2PSK/TKIPAES 55       11b/g/n NONE   In  NO
+
+		 * Note: You MUST login as root, OR iwpriv_set_SiteSurvey will FAIL!
+		 *	midas@Widora: iwpriv ra0 set SiteSurvey=0
+		 *	Interface doesn't accept private ioctl...
+		 *	set (8BE2): Operation not permitted
 		 */
                 execl("/bin/sh", "sh", "-c", "aps | grep 11b/g/n", (char *)0);
 
@@ -318,9 +325,9 @@ while( surfshmem->usersig != 1 ) {
 		/* Continue to read output from ptyfd */
                 nread=read(ptyfd, obuf+nbuf, sizeof(obuf)-nbuf-1);
                 printf("nread=%zd\n",nread);
-                //printf("obuf: \n%s\n",obuf);
                 if(nread>0) {
                 	nbuf += nread;
+			obuf[nbuf]='\0';
                 }
                 else if(nread==0) {
                 	printf("nread=0...\n");
@@ -330,6 +337,7 @@ while( surfshmem->usersig != 1 ) {
 			 * However data in obuf[] has NOT been completely parsed yet.
 			 */
                 }
+                printf("Remain obuf[]: \n%s\n",obuf);
 
 		/* Extract data from obuf[] line by line. */
                 pnl=strstr(obuf,"\n");  /* Check if there is a NL in obuf[]. */
@@ -360,6 +368,9 @@ while( surfshmem->usersig != 1 ) {
 			parse_apinfo(linebuf, index++);
 
 		}
+		else if( pnl==NULL && nread>0 ) {
+			
+		}
 
 	} while( nread>=0 || nbuf>0 );
 
@@ -380,6 +391,9 @@ END_APSCAN:
 
 	/* Update surfuser IMGBUF, by copying workfb IMGBUF to surfuser->imgbuf */
 	update_surfimg();  /* Also update RCMenu */
+
+	/* TEST-----:  MSG request for SURFMAN to render/refresh.  */
+        surfmsg_send(surfuser->msgid, SURFMSG_REQUEST_REFRESH, NULL, IPC_NOWAIT);
 
 	/* Close and release ptyfd */
 	if( display_curve[CURVE_WIFI_SIGNAL] ) {

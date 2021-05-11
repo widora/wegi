@@ -106,6 +106,10 @@ Journal
 	 	1.B. Clear mouse_data after set mouse type to Intellimouse.
 		1.C. Case 2 0b01: mostatus.RightKeyDownHold=true --modified to--> mostatus.RightKeyDownHold=false
 		1.D. Case 2 0b10: mostatus.LeftKeyDownHold=false --modified to-->  mostatus.RightKeyDownHold=false;
+2021-05-10:
+	XXX 1. egi_mouse_loopread(): Cancel while(checkRequest) {} at end of loop.
+
+
 Midas Zhou
 midaszhou@yahoo.com
 --------------------------------------------------------------------------------------*/
@@ -464,6 +468,8 @@ TODO:
    Example: LeftKeyDownHold transfers to LeftKeyDown directly,
 	    and omit LeftKeyUp status.
 
+
+
 @arg:	devname for the mouse device.
 	if NULL, "/dev/input/mice"
 ---------------------------------------------------------*/
@@ -576,7 +582,7 @@ static void *egi_mouse_loopread( void* arg )
 
 		/* NOW: retval>0 OR TIME_OUT */
 
-		/* Get mostatus mutex lock */
+		/* Get mostatus mutex lock:  Waiting for test_surfman to egi_mouse_putRequest(pmostat) */
 	        if( pthread_mutex_lock(&mostatus.mutex) !=0 )
 			printf("%s: Fail to mutex lock mostatus.mutex!\n",__func__);
 /*  --- >>>  Critical Zone  */
@@ -689,6 +695,8 @@ static void *egi_mouse_loopread( void* arg )
 			mostatus.mouseDY = -( (mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2] );
 			tmp=mostatus.mouseY;
 		        mostatus.mouseY +=mostatus.mouseDY;
+
+			/* Limit mouseY */
 		        if( mostatus.mouseY > gv_fb_dev.pos_yres -5)
                 		mostatus.mouseY=gv_fb_dev.pos_yres -5;
 		        else if(mostatus.mouseY<0)
@@ -728,7 +736,10 @@ static void *egi_mouse_loopread( void* arg )
 				);
 		#endif
 
-		/* Wait for event request to be proceed, TODO: use pthread_cond_wait() instead. */
+		/* Wait for MEVETN request to be proceed, TODO: use pthread_cond_wait() instead. */
+		/* Note:
+		 * 1. This is to ensure each MEVENT request is parsed/responded.
+		 * 2. Request usually is parsed/responded by another thread, other than mouse_callback(), Example: test_surfman.c */
 		while( egi_mouse_checkRequest(&mostatus) && !mostatus.cmd_end_loopread_mouse ) { tm_delayms(5); };
 	}
 

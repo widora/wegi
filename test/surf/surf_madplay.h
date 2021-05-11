@@ -479,9 +479,9 @@ static enum mad_flow output(void *data, struct mad_header const *header, struct 
  */
 static enum mad_flow header(void *data,  struct mad_header const *header )
 {
-  int percent;
-  char ch;
-  ch=0;
+//  int percent;
+//  char ch;
+//  ch=0;
   int mad_ret=MAD_FLOW_CONTINUE;
   struct buffer *buffer = data;
   MP3_HEADER_POS headpos;

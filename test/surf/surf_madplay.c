@@ -16,6 +16,7 @@ Usage:
 		BTN_VOLUME: Move mouse onto the button and roll the wheel to adjust volume.
 	3. Menu control:
 		MENU_HELP:  Click to create a surface to display help content.
+		MENU_OPTION: Click to create a surface for TEST purpose.
 		TODO: MENU_FILE, MENU_OPTION
 
 Multi_threads Scheme:
@@ -223,12 +224,12 @@ int main(int argc, char **argv)
 	/* Set signal handler */
 //	egi_common_sigAction(SIGINT, signal_handler);
 
-
 	/* Enter private dir */
 	chdir("/tmp/.egi");
-	mkdir("madplay", S_IRWXG);
+	mkdir("madplay", 0770); /* "It is modified by the process's umask in the usual way: in the
+       				   absence of a default ACL, the mode of the created directory is (mode & ~umask & 0777)." -MAN */
 	if(chdir("/tmp/.egi/madplay")!=0) {
-		printf("Fail to enter private dir! Err'%s'\n", strerror(errno));
+		egi_dperr("Fail to make/enter private dir!");
 		exit(EXIT_FAILURE);
 	}
 
@@ -237,7 +238,7 @@ int main(int argc, char **argv)
 	egi_copy_to_file("gray_icons_normal_block.png", gNormalIconsData, gNormalIconsSize, 0); 	 /* fpath, pstr, size, endtok */
 	icons_normal=egi_imgbuf_readfile("gray_icons_normal_block.png");
 	if( egi_imgbuf_setSubImgs(icons_normal, 12*5)!=0 ) {
-		printf("Fail to setSubImgs for icons_normal!\n");
+		egi_dperr("Fail to setSubImgs for icons_normal!\n");
 		exit(EXIT_FAILURE);
 	}
 	/* Set subimgs */
@@ -254,7 +255,7 @@ int main(int argc, char **argv)
 	egi_copy_to_file("gray_icons_effect_block.png", gEffectIconsData, gEffectIconsSize, 0); 	 /* fpath, pstr, size, endtok */
 	icons_effect=egi_imgbuf_readfile("gray_icons_effect_block.png");
 	if( egi_imgbuf_setSubImgs(icons_effect, 12*5)!=0 ) {
-		printf("Fail to setSubImgs for icons_effect!\n");
+		egi_dperr("Fail to setSubImgs for icons_effect!\n");
 		exit(EXIT_FAILURE);
 	}
 	/* Set subimgs */
@@ -333,6 +334,7 @@ int main(int argc, char **argv)
 /* ------ >>>  Surface shmem Critical Zone  */
 
         /* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons etc. */
+	// Defualt: surfuser_ering_routine() calls surfuser_parse_mouse_event();
         surfshmem->minimize_surface 	= surfuser_minimize_surface;   	/* Surface module default functions */
 	//surfshmem->redraw_surface 	= surfuser_redraw_surface;
 	//surfshmem->maximize_surface 	= surfuser_maximize_surface;   	/* Need resize */
@@ -387,13 +389,13 @@ int main(int argc, char **argv)
 
 	/* Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
-	printf("Shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
+	printf("Shmsize: %zdBytes  Geom: %dx%dx%dBpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
 	/* 9. Start Ering routine */
 	printf("start ering routine...\n");
 	if( pthread_create(&surfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, surfuser) !=0 ) {
-		printf("Fail to launch thread_EringRoutine!\n");
+		egi_dperr("Fail to launch thread_EringRoutine!");
 		exit(EXIT_FAILURE);
 	}
 
@@ -405,12 +407,15 @@ int main(int argc, char **argv)
 
 
   	/* MAD_0: Set termI/O 设置终端为直接读取单个字符方式 */
+	egi_dpstd("Set termios()...\n");
   	egi_set_termios();
 
 	/* MAD_1: Prepare vol 启动系统声音调整设备 */
+	egi_dpstd("Getset PCM volume...\n");
   	egi_getset_pcm_volume(NULL,NULL);
 
   	/* MAD_2: Open pcm playback device 打开PCM播放设备 */
+	egi_dpstd("Open pcm_handle...\n");
   	if( snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0) <0 ) {  /* SND_PCM_NONBLOCK,SND_PCM_ASYNC */
         	printf("Fail to open PCM playback device!\n");
 	        return 1;
@@ -1000,7 +1005,7 @@ EGI_SURFSHMEM    *msurfshmem=NULL;        /* Only a ref. to surfuser->surfshmem 
 FBDEV            *mvfbdev=NULL;           /* Only a ref. to &surfuser->vfbdev  */
 //EGI_IMGBUF       *msurfimg=NULL;          /* Only a ref. to surfuser->imgbuf */
 SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
-EGI_16BIT_COLOR  mbkgcolor;
+//EGI_16BIT_COLOR  mbkgcolor;
 
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
@@ -1034,7 +1039,7 @@ EGI_16BIT_COLOR  mbkgcolor;
 	/* 6. Start Ering routine */
 	printf("start ering routine...\n");
 	if( pthread_create(&msurfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, msurfuser) !=0 ) {
-		printf("Fail to launch thread_EringRoutine!\n");
+		egi_dperr("Fail to launch thread_EringRoutine!");
 		if( egi_unregister_surfuser(&msurfuser)!=0 )
 			egi_dpstd("Fail to unregister surfuser!\n");
 	}
@@ -1095,7 +1100,7 @@ EGI_SURFSHMEM    *msurfshmem=NULL;        /* Only a ref. to surfuser->surfshmem 
 FBDEV            *mvfbdev=NULL;           /* Only a ref. to &surfuser->vfbdev  */
 EGI_IMGBUF       *msurfimg=NULL;          /* Only a ref. to surfuser->imgbuf */
 SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
-EGI_16BIT_COLOR  mbkgcolor;
+//EGI_16BIT_COLOR  mbkgcolor;
 
 	if(surfcaller==NULL)
 		return;
@@ -1152,7 +1157,7 @@ EGI_16BIT_COLOR  mbkgcolor;
 	/* 6. Start Ering routine */
 	printf("start ering routine...\n");
 	if( pthread_create(&msurfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, msurfuser) !=0 ) {
-		printf("Fail to launch thread_EringRoutine!\n");
+		egi_dperr("Fail to launch thread_EringRoutine!");
 		if( egi_unregister_surfuser(&msurfuser)!=0 )
 			egi_dpstd("Fail to unregister surfuser!\n");
 	}

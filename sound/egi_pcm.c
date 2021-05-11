@@ -62,6 +62,13 @@ enum AVSampleFormat {
 
 
 Note:
+0. For permission mode: set 'rw' for users to access device files at /dev/snd/
+   Example:
+	crw-rw-rw-    1 root     root      116,   0 May  6 11:59 controlC0
+	crw-rw-rw-    1 root     root      116,  24 May  6 11:59 pcmC0D0c
+	crw-rw-rw-    1 root     root      116,  16 May  6 11:59 pcmC0D0p
+	crw-rw-rw-    1 root     root      116,  33 May  6 11:59 time
+
 1. Mplayer will take the pcm device exclusively?? ---NOPE.
 2. ctrl_c also send interrupt signal to MPlayer to cause it stuck.
    Mplayer interrrupted by signal 2 in Module: enable_cache
@@ -448,7 +455,6 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 			else
 				linear_dBvol=false;
 		}
-
 
 	}
 
@@ -1197,7 +1203,7 @@ int  egi_pcmbuf_playback( const char* dev_name, EGI_PCMBUF *pcmbuf, int vstep,
 	}
 
 	/* Open pcm device if input pcmbuf contain NULL */
-	//printf("%s: open playback device...\n",__func__);
+	//egi_dpstd("open playback device...\n");
 	if(pcmbuf->pcm_handle==NULL) {
 
 		without_pcm_handle=true;

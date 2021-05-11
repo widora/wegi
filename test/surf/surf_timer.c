@@ -119,6 +119,7 @@ int main(int argc, char **argv)
 /* ------ >>>  Surface shmem Critical Zone  */
 
 	/* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons. */
+	// Defualt: surfuser_ering_routine() calls surfuser_parse_mouse_event();
 	surfshmem->minimize_surface = surfuser_minimize_surface; /* Surface module default functions */
 	surfshmem->close_surface = surfuser_close_surface;
 
@@ -131,7 +132,7 @@ int main(int argc, char **argv)
 
 	/* 6. Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
-	printf("shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
+	printf("shmsize: %zdBytes  Geom: %dx%dx%dBpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
 	/* 7. Start Ering routine */

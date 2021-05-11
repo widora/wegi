@@ -184,6 +184,7 @@ START_TEST:
 /* ------ >>>  Surface shmem Critical Zone  */
 
         /* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons etc. */
+	// Defualt: surfuser_ering_routine() calls surfuser_parse_mouse_event();
         surfshmem->minimize_surface 	= surfuser_minimize_surface;   	/* Surface module default functions */
 	surfshmem->redraw_surface 	= surfuser_redraw_surface;
 	surfshmem->maximize_surface 	= surfuser_maximize_surface;   	/* Need resize */
@@ -205,7 +206,7 @@ START_TEST:
 
 	/* Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
-	printf("Shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
+	printf("Shmsize: %zdBytes  Geom: %dx%dx%dBpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
 	/* XXX 5. Create SURFBTNs by blockcopy SURFACE image, after first_drawing the surface! */

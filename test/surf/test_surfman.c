@@ -55,7 +55,7 @@ XXX 7. If a surface is clicked on SURFBTN_MIN and its status is changed to be SU
    there'll be NO ering msg to the surface!  Necessary???
 
    NOTE: 5.6.7 --- SURFACE_STATUS_MINIMIZED to be sent by surfman_render_thread()!
-8.
+8. A mostats MAY be dropped by the surfman before TOP surface clear SURFACE_FLAG_MEVENT!
 
 
 Journal
@@ -90,6 +90,12 @@ Journal
 	1. Check whether directory of ERING_PATH_SURFMAN exists, if not, make it.
 2021-04-20:
 	1. Load a random image file for wallpaper.
+2021-05-06:
+	1. TEST: Receive msg queue from surfuser.
+2021-05-08:
+	1. Set permission mode for ERING_PATH_SURFMAN.
+2021-05-11:
+	1. TEST: surfmsg_send()SURFMSG_REQUEST_REFRESH
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -98,6 +104,8 @@ https://github.com/widora/wegi
 #include <stdio.h>
 #include <stdlib.h>
 #include <libgen.h>
+#include <sys/msg.h>
+
 #include "egi_timer.h"
 #include "egi_color.h"
 #include "egi_log.h"
@@ -145,6 +153,9 @@ void signal_handler(int signo)
 	}
 }
 
+/* For SURFMSG_DATA */
+int nrcv;
+SURFMSG_DATA msgdata;
 
 int main(int argc, char **argv)
 {
@@ -156,6 +167,7 @@ int main(int argc, char **argv)
 	int opt;
 //	int sw=0,sh=0; /* Width and Height of the surface */
 //	int x0=0,y0=0; /* Origin coord of the surface */
+
 
 
 #if 0	/* Start EGI log */
@@ -211,6 +223,24 @@ int main(int argc, char **argv)
 	else
 		printf("Succeed to create surfman at '%s'!\n", ERING_PATH_SURFMAN);
 
+        /* 1.01 Set permission mode for directory '/tmp/run/ering', default: 'd---r-x---' */
+        char strtmp[EGI_PATH_MAX+EGI_NAME_MAX];
+        strtmp[EGI_PATH_MAX+EGI_NAME_MAX-1]='\0';
+        strncpy(strtmp, ERING_PATH_SURFMAN, EGI_PATH_MAX+EGI_NAME_MAX-1);
+        if( chmod( dirname(strtmp), 0665)<0 ) {  /* drw-rw-r-x: r-x for Others! x-MUST,   rw- XXX  */
+        //if( chmod( "/run/ering", 0666)<0 ) {
+                egi_dperr("Fail chmod Dir of ERING_PATH_SURFMAN!");
+		egi_destroy_surfman(&surfman);
+		exit(EXIT_FAILURE);
+        }
+        /* 1.02 Set permission mode for the ERING svrpath: srw-rw-rw- */
+        if( chmod(ERING_PATH_SURFMAN, 0666)<0 ) {
+                egi_dperr("Fail chmod ERING_PATH_SURFMAN!");
+		egi_destroy_surfman(&surfman);
+		exit(EXIT_FAILURE);
+        }
+
+
 	/* 1.A Load imgbuf for mouse cursor */
 	surfman->mcursor=egi_imgbuf_readfile(MCURSOR_NORMAL);
 	surfman->mgrab=egi_imgbuf_readfile(MCURSOR_GRAB);
@@ -249,7 +279,30 @@ int main(int argc, char **argv)
 
 	/* 4. Do SURFMAN routine jobs while no command */
 	k=SURFMAN_MAX_SURFACES-1;
-	while( surfman->cmd==0 ) {
+	while( surfman->cmd !=1 ) {
+
+/* TEST: ------- SURFMSG ------- */
+		/* Receive msg queue _REQUEST_DISPINFO from surfaces */
+		nrcv=msgrcv(surfman->msgid, (void *)&msgdata, SURFMSG_TEXT_MAX, SURFMSG_REQUEST_DISPINFO, MSG_NOERROR|IPC_NOWAIT);
+                if( nrcv<0 && errno == ENOMSG ) {
+                }
+                else if(nrcv<0)
+                        egi_dperr("msgrcv() fails.");
+		else {
+                	if(nrcv==0)
+                        	egi_dpstd("msgrcv nrcv=0!\n");
+
+			switch(msgdata.msg_type) {
+				case SURFMSG_REQUEST_DISPINFO:
+					egi_dpstd("EMSG from surface: %s!\n", msgdata.msg_text);
+					break;
+
+				default:
+					break;
+
+			}
+		}
+
 
 		/* TODO: Select/Epoll mouse/keyboard event, poll_input_event */
 
@@ -458,7 +511,8 @@ int main(int argc, char **argv)
 			/* 3. */
 
 			/* 4. Update mouseXY to surfman */
-			else {
+			//else {
+			else if( pmostat->mouseDX || pmostat->mouseDY ) {
 
 				pthread_mutex_lock(&surfman->surfman_mutex);
 		 /* ------ >>>  Surfman Critical Zone  */
@@ -468,8 +522,10 @@ int main(int argc, char **argv)
 
 		 /* ------ <<<  Surfman Critical Zone  */
 				pthread_mutex_unlock(&surfman->surfman_mutex);
-			}
 
+				/* TEST-----:  MSG request for SURFMAN to render/refresh.  */
+				surfmsg_send(surfman->msgid, SURFMSG_REQUEST_REFRESH, NULL, IPC_NOWAIT);
+			}
 
 #if 1			/* 5. At last, send mouse_status to the TOP(focused) surface */
 			/*** NOTE:
@@ -507,7 +563,9 @@ int main(int argc, char **argv)
 						}
 						//printf("ering msg send OK!\n");
 					    }
-
+					    else {  /* SURFACE_FLAG_MEVENT NOT cleared! */
+							egi_dpstd("FLAG_MEVENT NOT cleared!\n");
+					    }
 					    /* If SURFACE_FLAG_MEVENT NOT cleared by the surfuser, then current mostat will be ignored! */
 
 					    /* Break. Only send to the TOP surface. */
@@ -527,8 +585,16 @@ END_MOUSE_EVENT:
                        	lastY=pmostat->mouseY;
 
 			/* Put request */
-			egi_mouse_putRequest(pmostat);
+			egi_mouse_putRequest(pmostat); /* Unlock mutex meanwihle */
+
                 }
+
+		/* W3. ELSE: egi_mouse_getRequest(pmostat)==false;  the pmostat MAY be skipped/missed?
+		 *     Example: when click on TOPBTN_MIN, it DOESN'T react.
+		 */
+		else {
+			//egi_dpstd("Fail getRequest(pmostat)!\n");
+		}
 
 		tm_delayms(5);
    	} /* End while() */
@@ -547,12 +613,8 @@ END_MOUSE_EVENT:
 /*------------------------------------------------------------------------------
 		Callback for mouse input
 Callback runs in MouseRead thread.
-1. If lock_mousectrl is TRUE, then any operation to champ MUST be locked! just to
-   avoid race condition with main thread.
-2. Just update mouseXYZ
-3. Check and set ACTIVE token for menus.
-4. If click in TXTBOX, set typing cursor or marks.
-5. The function will be pending until there is a mouse event.
+1. Just to pass out mouse data.
+2. Set request.
 
 --------------------------------------------------------------------------------*/
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus)
@@ -584,7 +646,7 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
         /* Put mutex lock */
         pthread_mutex_unlock(&mostatus->mutex);
 
-	/* NOTE:
+	/* XXX NOTE:
 	 * It goes to mouse event select again,  and when mouse_loopread thread reads next mouse BEFORE
 	 * main thread locks/pares above passed mostatus, it will MISS it then!
 	 * Example: Leftkey_Up event is missed and next Leftkey_DownHold is parsed.

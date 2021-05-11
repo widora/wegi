@@ -179,6 +179,7 @@ int main(int argc, char **argv)
 	surfshmem=surfuser->surfshmem;
 
         /* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons. */
+	// Defualt: surfuser_ering_routine() calls surfuser_parse_mouse_event();
         surfshmem->minimize_surface     = surfuser_minimize_surface;    /* Surface module default functions */
         surfshmem->close_surface        = surfuser_close_surface;
      	// Disable size_adjust: surfshmem->redraw_surface       =  surfuser_redraw_surface;
@@ -208,7 +209,7 @@ int main(int argc, char **argv)
                                        	WEGI_COLOR_BLACK, -1, 255,           /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);             /* int *cnt, int *lnleft, int* penx, int* peny */
 
-	printf("shmsize: %zdBytes  Geom: %dx%dx%dbpp  Origin at (%d,%d). \n",
+	printf("shmsize: %zdBytes  Geom: %dx%dx%dBpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
 	/* 5. Start Ering routine */

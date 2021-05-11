@@ -35,6 +35,9 @@ midaszhou@yahoo.com
 #include <egi_input.h>
 #include <egi_log.h>
 #include <egi_timer.h>
+#include <egi_debug.h>
+
+#include <egi_surface.h>
 
 int main(int argc, char **argv)
 {
@@ -88,7 +91,7 @@ int main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 
-#if 1   /* Start egi log */
+#if 0   /* Start egi log */
         if(egi_init_log("/mmc/test_helixaac.log") != 0) {
                 printf("Fail to init logger,quit.\n");
                 return -1;
@@ -129,7 +132,6 @@ int main(int argc, char **argv)
 	#include <sys/msg.h>
 
 #define MSGQTEXT_MAXLEN 64
-
 	int msgid;
 	int msgerr;
 
@@ -139,11 +141,14 @@ int main(int argc, char **argv)
 	} msgdata;
 	EGI_CLOCK eclock={0};
 
-	/* Delete it incase already exist */
-	msgid = msgget((key_t)5555, IPC_CREAT|0666);
+	/* Get System V message queue identifier */
+	key_t mqkey=ftok(ERING_PATH_SURFMAN, SURFMAN_MSGKEY_PROJID); /* proj_id MUST >0 ! */
+	msgid = msgget(mqkey, 0); //IPC_CREAT|0666); /* suppose SURFMAN created it */
 	if(msgid<0) {
-		printf("Fail msgget!\n");
+		egi_dperr("Fail msgget()!");
+//		exit(1); /* Comment it for non_surf env. */
 	}
+	egi_dpstd("msgget succeed!\n");
 
 	egi_clock_start(&eclock);
 
@@ -268,27 +273,9 @@ RADIO_LOOP:
 			//EGI_PLOG(LOGLV_INFO, "AACDecode: %lld bytes of aac data decoded.\n", fmap_aac->fsize-bytesLeft );
 			AACGetLastFrameInfo(aacDec, &aacFrameInfo);
 
-#if 0		/* TEST: ------------ MSG QUEUE ------------------*/
-			if( egi_clock_peekCostUsec(&eclock) > 100000 ) {
-				msgdata.msg_type=5;
-				msgdata.msg_text[MSGQTEXT_MAXLEN-1]='\0';
-				snprintf(msgdata.msg_text, MSGQTEXT_MAXLEN-1, "%s Ch=%d %dHz",
-					strprofile[aacFrameInfo.profile], aacFrameInfo.nChans, aacFrameInfo.sampRateOut );
-				if(msgid<0)
-					printf("msgid<0!\n");
-				msgerr=msgsnd(msgid, (void *)&msgdata, MSGQTEXT_MAXLEN, 0); 	/* IPC_NOWAIT */
-				if(msgerr!=0) {
-					printf("Faill to msgsnd!\n");
-				}
-				else
-					printf("Msg sent out type=%ld!\n", msgdata.msg_type);
-
-				/* Restart clock */
-				egi_clock_restart(&eclock);
-			}
-
+		/* TEST: ------------ MSG QUEUE ------------------*/
 		/* END: ---- MSG QUEUE ---- */
-#endif
+
 			/* Sep parameters for pcm_hanle, Assume format as SND_PCM_FORMAT_S16_LE, */
 			if(!pcmdev_ready || nchanl != aacFrameInfo.nChans || samplerate!=aacFrameInfo.sampRateOut )
 			{
@@ -315,19 +302,19 @@ RADIO_LOOP:
 				 */
 
 #if 1		/* TEST: ------------ MSG QUEUE ------------------*/
-				msgdata.msg_type=5;
+		if(msgid>=0) {
+				msgdata.msg_type=SURFMSG_AAC_PARAMS;
 				msgdata.msg_text[MSGQTEXT_MAXLEN-1]='\0';
 				snprintf(msgdata.msg_text, MSGQTEXT_MAXLEN-1, "%s Ch=%d %dHz %s",
 					strprofile[aacFrameInfo.profile], aacFrameInfo.nChans, aacFrameInfo.sampRateOut,
 									aacFrameInfo.sampRateOut>aacFrameInfo.sampRateCore?"SBR":" " );
-				if(msgid<0)
-					printf("msgid<0!\n");
 				msgerr=msgsnd(msgid, (void *)&msgdata, MSGQTEXT_MAXLEN, 0); 	/* IPC_NOWAIT */
 				if(msgerr!=0) {
 					printf("Faill to msgsnd!\n");
 				}
 				else
 					printf("Msg sent out type=%ld!\n", msgdata.msg_type);
+		}
 		/* END: ---- MSG QUEUE ---- */
 #endif
 
