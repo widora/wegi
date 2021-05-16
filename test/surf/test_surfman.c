@@ -96,6 +96,11 @@ Journal
 	1. Set permission mode for ERING_PATH_SURFMAN.
 2021-05-11:
 	1. TEST: surfmsg_send()SURFMSG_REQUEST_REFRESH
+2021-05-12:
+	1. Set/reset surfman->minibar_ON to display/disappear screen left_side minibar.
+2021-05-14:
+	1. Add a MenuList: surfman->menulist.
+	2. Set/reset surfman->menulist_ON to display/disappear MenuList tree.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -277,7 +282,43 @@ int main(int argc, char **argv)
   	if( egi_start_mouseread(NULL, mouse_callback) <0 )
 		exit(EXIT_FAILURE);
 
-	/* 4. Do SURFMAN routine jobs while no command */
+        /* 4. Create a MenuList Tree */
+        ESURF_MENULIST *mlist_System, *mlist_Program, *mlist_Tools;
+        /* 4.1 Create root mlist: ( mode, root, x0, y0, mw, mh, face, fw, fh, capacity) */
+        surfman->menulist=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, true, 0, 240-1, 110, 30, egi_sysfonts.regular, 16, 16, 8 );
+        mlist_System=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0, 0, 130, 30, egi_sysfonts.regular, 16, 16, 8 );
+        mlist_Program=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0, 0, 70, 30, egi_sysfonts.regular, 16, 16, 8 );
+        mlist_Tools=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0, 0, 130, 30, egi_sysfonts.regular, 16, 16, 8 );
+
+        /* 4.2 Add items to mlist_Tools */
+        egi_surfMenuList_addItem(mlist_Tools, "系统监控", NULL);
+        egi_surfMenuList_addItem(mlist_Tools, "Security", NULL);
+        egi_surfMenuList_addItem(mlist_Tools, "文件管理", NULL);
+
+        /* 4.2 Add items to mlist_Program */
+        egi_surfMenuList_addItem(mlist_Program, "画图", NULL);
+        egi_surfMenuList_addItem(mlist_Program, "搜索", NULL);
+        egi_surfMenuList_addItem(mlist_Program, "计算器", NULL);
+        egi_surfMenuList_addItem(mlist_Program, "ＰＰＡ", NULL);
+
+        /* 4.3 Add items to mlist_System */
+        egi_surfMenuList_addItem(mlist_System, "工具", mlist_Tools);
+        egi_surfMenuList_addItem(mlist_System, "Program", mlist_Program); /* Link sub_mlist0 to  mlist_System */
+        egi_surfMenuList_addItem(mlist_System, "Trash Bin", NULL);
+        egi_surfMenuList_addItem(mlist_System, "Control Panel", NULL);
+
+        /* 4.4 Add items to the ROOT menulist */
+        egi_surfMenuList_addItem(surfman->menulist, "Shut Down", NULL);
+        egi_surfMenuList_addItem(surfman->menulist, "Log Out", NULL);
+        egi_surfMenuList_addItem(surfman->menulist, "System", mlist_System);
+
+#if 0	/* 4.5 ------TEST:  Init Assemble the MenuList Selection Path */
+        surfman->menulist->path[1] = mlist_System;
+        surfman->menulist->path[2] = mlist_Program;
+        surfman->menulist->depth=2;     /* 2 levels of sub_MenuList */
+#endif
+
+	/* 5. Do SURFMAN routine jobs while no command */
 	k=SURFMAN_MAX_SURFACES-1;
 	while( surfman->cmd !=1 ) {
 
@@ -401,7 +442,47 @@ int main(int argc, char **argv)
 		/* W2. Mouse event process */
 	        if( egi_mouse_getRequest(pmostat) ) {  /* Apply pmostat->mutex_lock */
 
-	                /* 1. LeftKeyDown: To bring the surface to top, to save current mouseXY */
+			/* W2.1. If mouse cursor linger at left_bottom corner, then display/activate MenuList tree. */
+			if( !surfman->menulist_ON ) {
+				if( pmostat->mouseX < 10 && pmostat->mouseY > surfman->fbdev.pos_yres -10 )
+					surfman->menulist_ON=true;
+			}
+			/* Otherwise update MenuList tree as per pxy */
+			else {
+				pthread_mutex_lock(&surfman->surfman_mutex);
+		 /* ------ >>>  Surfman Critical Zone  */
+
+				egi_surfMenuList_updatePath(surfman->menulist, pmostat->mouseX, pmostat->mouseY);
+
+		 /* ------ <<<  Surfman Critical Zone  */
+				pthread_mutex_unlock(&surfman->surfman_mutex);
+
+			}
+
+			/* W2.2. If mouse cursor linger at letf_top corner, then display/activate minibar */
+	   if(!surfman->menulist_ON ) {
+
+			if( !surfman->minibar_ON ) {
+				if( pmostat->mouseX < 10 && pmostat->mouseY <10  )
+					surfman->minibar_ON=true;
+			}
+			/* Otherwise, disappear it. */
+			else {
+				pthread_mutex_lock(&surfman->surfman_mutex);
+		 /* ------ >>>  Surfman Critical Zone  */
+				/* If mouseXY become out of Minibar */
+				if( SURFMAN_MINIBAR_PIXZ != surfman_xyget_Zseq(surfman, pmostat->mouseX, pmostat->mouseY) )
+				{
+                                        surfman->minibar_ON=false;
+//Reset in surfman_render_thread():      surfman->IndexMpMinSurf=-1; /* Refer to nothing */
+				}
+
+		 /* ------ <<<  Surfman Critical Zone  */
+				pthread_mutex_unlock(&surfman->surfman_mutex);
+			}
+	    }
+
+	                /* W2.3. LeftKeyDown: To bring the surface to top, to save current mouseXY */
         	        if( pmostat->LeftKeyDown )  {  //&& !surface_downhold ) {
 
 				pthread_mutex_lock(&surfman->surfman_mutex);
@@ -410,10 +491,23 @@ int main(int argc, char **argv)
                                 surfman->mx  = pmostat->mouseX;
                                 surfman->my  = pmostat->mouseY;
 
-				/* A. Check if it clicks on any SURFACEs. */
+				/* Check zseq  */
 				zseq=surfman_xyget_Zseq(surfman, surfman->mx, surfman->my);
 				printf("Picked zseq=%d\n", zseq);
 
+#if 1
+				/* Check if click on MenuList */
+				if( surfman->menulist_ON ) {
+					if( zseq != SURFMAN_MENULIST_PIXZ )
+						surfman->menulist_ON = false;
+					else {
+
+					}
+
+				}
+#endif
+
+				/* A. Check if it clicks on any SURFACEs. */
 				surfID=surfman_xyget_surfaceID(surfman, surfman->mx, surfman->my );
 				printf("surfID=%d\n",surfID);
 
@@ -425,10 +519,12 @@ int main(int argc, char **argv)
 				 * 3. A surface may be brought to TOP by resorting zseq, after other surface quits.
 				 */
 
-				/* A.1  IF: clicked surface already on TOP layer. ( Minimized surfaces NOT considered! ) */
 				// xxx if(surfID==SURFMAN_MAX_SURFACES-1) {
 				int topID=surfman_get_TopDispSurfaceID(surfman);
 				printf("topID=%d\n",topID);
+
+
+				/* A.1  IF: clicked surface already on TOP layer. ( Minimized surfaces NOT considered! ) */
 				/* !!! Exclude surfID <0 && surfman_get_TopDispSurfaceID() <0 */
 				if( surfID >=0 && surfID==surfman_get_TopDispSurfaceID(surfman) ) {
 					surface_downhold=true;
@@ -483,6 +579,9 @@ int main(int argc, char **argv)
 					/* Bring mouse clicked minisurface to TOP layer, also restore its status. */
 					surfman_bringtop_surface_nolock(surfman, surfman->minsurfaces[surfman->IndexMpMinSurf]->id);
 
+					/* Disappear minibar then */
+					surfman->minibar_ON = false;
+
 				 #if 0 /* CANCELED: ------  BY surfman_render_thread()!!! */
 					/* Send msg to the surface */
 					emsg->type=ERING_SURFACE_BRINGTOP;
@@ -507,10 +606,13 @@ int main(int argc, char **argv)
 
 	                }
 
-			/* 2. */
-			/* 3. */
 
-			/* 4. Update mouseXY to surfman */
+			/* W2.4. */
+
+
+			/* W2.5. */
+
+			/* W2.6. Update mouseXY to surfman */
 			//else {
 			else if( pmostat->mouseDX || pmostat->mouseDY ) {
 
@@ -523,11 +625,14 @@ int main(int argc, char **argv)
 		 /* ------ <<<  Surfman Critical Zone  */
 				pthread_mutex_unlock(&surfman->surfman_mutex);
 
-				/* TEST-----:  MSG request for SURFMAN to render/refresh.  */
+#if 0 /* TEST-----:  MSG request for SURFMAN to render/refresh.  */
 				surfmsg_send(surfman->msgid, SURFMSG_REQUEST_REFRESH, NULL, IPC_NOWAIT);
+#endif
+
 			}
 
-#if 1			/* 5. At last, send mouse_status to the TOP(focused) surface */
+
+#if 1			/* W2.7. At last, send mouse_status to the TOP(focused) surface */
 			/*** NOTE:
 			 *   1. If current mostat is a LeftKeyDown on minibar menu, then it brings a surface to TOP,
 			 *	and here also immediately ering the same mostat to the surface! It may cause unwanted

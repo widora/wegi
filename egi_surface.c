@@ -15,7 +15,7 @@ SURFACE(SURFSHMEM):   An imgbuf and relevant image data allocated for an applica
 	   the sole surface that gets mouse/keyboard input from SURFMAN via ERING.
 
 SURFUSER:  The owner of a SURFACE, an uclient to SURFMAN. (TODO: It MAY hold
-	   several SURFACEs?).
+	   several SURFACEs? XXX One surfuser one surface.  ).
 	   However it can only access SURFSHMEM part of the SURFACE, as
 	   a way to protect private data for the SURFMAN.
 	   The SURUSER constrols to move/adjust its position/size by surfuser_parse_mouse_event().
@@ -34,6 +34,17 @@ ERING:	   MSG ring through local UNIX socket, between SURFACEs and SURFMAN.
 
 FirstDraw: To draw an object (surface etc) first time, and MAY also initialize/create images for
  	   control elements (Icon,Button, etc.) on it.
+
+Minibar:   A group/list of icons/tabs associated with minimized surfaces, now arranged at left side of screen.
+
+Top Layer Operation:
+	  1. A Top Layer Operation obtain current events(mevent, kevent) exclusively, while other
+	  operations MAY all blocked waiting for event.
+	  Example: 1. Menulist selection operation. 2. Top surface routine.
+
+	  2. A Top Layer Operation MAY be interrupted/forced to quit by user interventions.
+	  Example:   Click on outside area of a MenuList to quit the menu_selection operation.
+		     Click on other Surface to take the place of Top Surface.
 
 
 			----- Routine Process ----
@@ -217,6 +228,12 @@ Journal
 	1. surfman_bringtop_surface_nolock(): BringUp all group surfaces with same PID value.
 	2. Add: surfmsg_send(), surfms_recv()
 	3. surfman_render_thread()  TEST: surfmsg_recv()SURFMSG_REQUEST_REFRESH
+	   Rendering all surfaces ONLY when SURFMSG_REQUEST_REFRESH is received.
+2021-05-12:
+	1. surfman_render_thread(): Display Minibar at SURFMAN_MINIBAR_PIXZ layer.
+2021-05-14:
+	1. EGI_SURFUSER: Add memeber 'menulist'
+	2. surfman_render_thread(): Draw surfman->menulist.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -1867,6 +1884,10 @@ int surfman_xyget_surfaceID(EGI_SURFMAN *surfman, int x, int y)
 
 	zseq=fbget_zbuff(&surfman->fbdev, x, y); /* 0 for bkground layer */
 
+	/* If for non_surface layers, such as minibar, topbar, btn_icons, ...*/
+	if( zseq > SURFMAN_MAX_SURFACES )
+		return -1;
+
 	return  zseq>0 ? SURFMAN_MAX_SURFACES -surfman->scnt +zseq -1 : -1;
 }
 
@@ -1946,8 +1967,8 @@ static void * surfman_render_thread(void *arg)
 	EGI_IMGBUF *mrefimg=NULL; /* Just a ref. to an imgbuf */
 	int  mdx=0, mdy=0;	  	  /* Mouse icon offset from tip point */
 
-	int MiniBarWidth=120; /* Left side minibar menu */
-	int MiniBarHeight=30;
+	int MiniBarWidth=SURFMAN_MINIBAR_WIDTH; 	/* Left side minibar menu */
+	int MiniBarHeight=SURFMAN_MINIBAR_HEIGHT;
 
 	if( surfman==NULL )
 		return (void *)-1;
@@ -1973,19 +1994,22 @@ static void * surfman_render_thread(void *arg)
 		return (void *)-3;
 	}
 
-        /* TEST-----:  First trigger render.  */
+
+#if 0 /* TEST-----:  First trigger render.  */
         surfmsg_send(surfman->msgid, SURFMSG_REQUEST_REFRESH, NULL, IPC_NOWAIT);
+#endif
 
 	/* A.3 Routine of rendering registered surfaces */
 	surfman->renderThread_on = true;
 	while( surfman->cmd !=1 ) {
 
-		/* TEST: -----B.0 Block wait render_request msg  */
+#if 0 /* TEST -----:  B.0 Block wait REQUEST_REFRESH msg  */
 		printf("surfmsg recv...\n");
 		if( surfmsg_recv(surfman->msgid, &msgdata, SURFMSG_REQUEST_REFRESH, MSG_NOERROR) <0 ) {
                		tm_delayms(5);
 			continue;
 		}
+#endif
 
 		/* B.1 Get surfman_mutex ONE BY ONE!  TODO: TBD */
 		//egi_dpstd("Try surfman mutex lock...\n");
@@ -2165,6 +2189,7 @@ static void * surfman_render_thread(void *arg)
 		}
 
 		/* B.XX Draw minimized surfaces */
+#if 0 /* Display Minibar at bkground level  */
 		surfman->fbdev.pixz=0; 		/* All minimized surfaces drawn just overlap bkground! */
 		surfman->IndexMpMinSurf = -1;   /* Initial mouse NOT on minibar menu */
 		for(i=0; i < surfman->mincnt; i++) {
@@ -2197,6 +2222,50 @@ static void * surfman_render_thread(void *arg)
                                        10, i*30+5,	                 /* x0,y0, */
                                        WEGI_COLOR_WHITE, -1, 160,        /* fontcolor, transcolor,opaque */
                                        NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
+		}
+
+#else /* Display Minibar at TOP ( SURFMAN_MINIBAR_PIXZ ) level  */
+	surfman->IndexMpMinSurf = -1;   	     /* Initial mouse NOT on minibar menu */
+	if ( surfman->minibar_ON )
+	{
+		surfman->fbdev.pixz=SURFMAN_MINIBAR_PIXZ;    /* pixz >SURFMAN_MAX_SURFACES,  To make minibar at TOP layer */
+		for(i=0; i < surfman->mincnt; i++) {
+
+			/* Get ref. to surfshmem */
+			surfshmem=surfman->minsurfaces[i]->surfshmem;
+
+			/* Check whether the mouse is on the left minibar menu */
+			if( surfman->mx < MiniBarWidth && surfman->my < surfman->mincnt*MiniBarHeight ) {
+					surfman->IndexMpMinSurf=surfman->my/MiniBarHeight;
+			}
+
+			/* Draw MiniBar Menu */
+			draw_blend_filled_rect(&surfman->fbdev,0, i*MiniBarHeight, MiniBarWidth-1, (i+1)*MiniBarHeight,
+					/* Set color for mouse pointed minibar menu */
+	                                 i== surfman->IndexMpMinSurf ? WEGI_COLOR_DARKRED:WEGI_COLOR_DARKGRAY, 160);
+			fbset_color2(&surfman->fbdev, WEGI_COLOR_GRAYB); /* Draw div. line */
+			draw_wline(&surfman->fbdev, 0, (i+1)*MiniBarHeight, MiniBarWidth-1, (i+1)*MiniBarHeight, 2);
+
+			/* Write surface Name on MiniBar Menu */
+			if(surfshmem->surfname)
+				pstr=surfshmem->surfname;
+			else
+				pstr="EGI_SURF";
+
+		        FTsymbol_uft8strings_writeFB(&surfman->fbdev, egi_sysfonts.regular, /* FBdev, fontface */
+                                       18, 18,(const UFT8_PCHAR)pstr,    /* fw,fh, pstr */
+                                       MiniBarWidth-10-5, 1, 0,     	         /* pixpl, lines, fgap */
+                                       10, i*30+5,	                 /* x0,y0, */
+                                       WEGI_COLOR_WHITE, -1, 160,        /* fontcolor, transcolor,opaque */
+                                       NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
+		}
+
+	}
+#endif
+		/* B.XXX Draw MenuList Tree */
+		if ( surfman->menulist_ON ) {
+			surfman->fbdev.pixz=SURFMAN_MENULIST_PIXZ;    /* pixz >SURFMAN_MAX_SURFACES,  To make minibar at TOP layer */
+			egi_surfMenuList_writeFB(&surfman->fbdev, surfman->menulist, 0, 0, 0);
 		}
 
 		/* B.4 Draw cursor, disable zbuff and always make it at top. */

@@ -124,7 +124,8 @@ struct egi_surface_user {
  *    	  1.2.1 To create and register surfaces, upon surfuser's request.
  *	  1.2.2 To retire surfuser if it disconnets.
  *    1.3 surfman_render_thread:
- *	  1.3.1 To render all surfaces.
+ *	  1.3.1 Loop rendering all surfaces at regular intervals.
+ *	  -----	TEST:  Rendering all surfaces ONLY when SURFMSG_REQUEST_REFRESH is received.
  *
  * 2. The SURFMAN manages all mouse icons(imgbufs)! SURFSHMEM applys a certain mouse icon by setting its ref ID.
  * 3. The SURFMAN controls and dispatchs mouse data, always to the TOP surface only.
@@ -157,6 +158,7 @@ struct egi_surface_manager {
         bool                    repThread_on;   /*  rpthread IS running! */
         int                     scnt;           /* Active/nonNULL surfaces counter */
 
+#define SURFMAN_MINIBAR_PIXZ	1000	/* fbdev.pixz value for the minibar layer */
 #define SURFMAN_MAX_SURFACES	8	/* TODO:  A list to manage all surfaces */
 					/* Note:  Define USERV_MAX_CLIENTS (8+1)!  >8 !!!
 					 *        Then recvmsg() can pass 9th request to surfman, who can reply
@@ -175,13 +177,24 @@ struct egi_surface_manager {
 	/*  Relate sessions[] with surfaces[], so when session ends, surfaces to be unregistered.
 	 *  OK, NOW see: surfman_unregister_surfuser();
 	 */
+#define SURFMAN_MINIBAR_WIDTH	120
+#define SURFMAN_MINIBAR_HEIGHT	30
 
 	EGI_SURFACE	*minsurfaces[SURFMAN_MAX_SURFACES];	/* Pointers to minimized surfaces
 								 * 1. Push sequence: from [0] to  [SURFMAN_MAX_SURFACES]
 								 * 2. It's updated each time before surfman renders surfaces[].
 								 */
-	int		mincnt;				/* Counter of minimized surfaces */
+	int		mincnt;		  /* Counter of minimized surfaces */
 	int		IndexMpMinSurf;   /* Index of mouse pointed minsurfaces[], <0 NOT ON minibar! */
+	bool		minibar_ON;	  /* To display/disappear minibar (A group of icons/tabs associated with minimized surfaces.)
+					   * To be turned ON/OFF by test_surfman.c:
+					   */
+
+	/* MenuList */
+#define SURFMAN_MENULIST_PIXZ	1010	  /* fbdev.pixz value for the menulist layer */
+	ESURF_MENULIST	*menulist;	  /* A root MenuList */
+	bool		menulist_ON;
+
 
 	/* 4. Surface render process */
 	EGI_IMGBUF	*mcursor;	  /* Mouse cursor imgbuf -- NORMAL */

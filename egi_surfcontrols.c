@@ -10,7 +10,6 @@ Journal:
 	2. Modify 'egi_surfbtn_' to 'egi_surfBtn_'
 	3. Add egi_surfBtn_writeFB().
 	4. Modify 'egi_surfXXX_display' to egi_surfXXX_writeFB'
-
 2021-4-25:
 	1. Add ESURF_LISTBOX and its functions.
 2021-4-29:
@@ -23,6 +22,10 @@ Journal:
 2021-5-05:
 	1. ESURF_LISTBOX: add memeber 'GuideBlockDownHold'.
 	2. Add: egi_surfListBox_adjustPastPos()
+2021-5-13:
+2021-5-14:
+2021-5-15:
+	1. Add ESURF_MENULIST and its functions.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -463,6 +466,391 @@ void egi_surfTickBox_writeFB(FBDEV *fbdev, const ESURF_TICKBOX *tbox,  int cx0, 
 }
 
 
+/*-----------------------------------------------------------
+Create a MenuList.
+
+@mode:		Root MenuList position type.
+	        ROOT_LEFT_BOTTOM	ROOT_RIGHT_BOTTO
+		ROOT_LEFT_TOP		ROOT_RIGHT_TOP
+
+@x0,y0:  	Origin relative to its container
+@mw,mh:	 	Size for each menu item/piece.
+@FT_Face:	Font face.
+@fw,fh:		Font size.
+@capacity:	MAX./capable number of menu itmes in the list.
+@root:		TRUE: If a root MenuList.
+
+Return:
+	An pointer to ESURF_MENULIST	Ok
+	NULL				Fails
+------------------------------------------------------------*/
+ESURF_MENULIST *egi_surfMenuList_create( int mode, bool root, int x0, int y0, int mw, int mh,
+	                                         FT_Face face, int fw, int fh, unsigned int capacity)
+{
+	if( mw <1 || mh <1 )
+		return NULL;
+	if( capacity < 1 )
+		return NULL;
+
+	/* 1. Calloc mlist */
+	ESURF_MENULIST *mlist = calloc(1, sizeof(ESURF_MENULIST));
+	if(mlist==NULL)
+		return NULL;
+
+	/* 2. Calloc mitems */
+	mlist->mitems = calloc(capacity, sizeof(EGI_MENUITEM));
+	if(mlist->mitems==NULL) {
+		free(mlist);
+		return NULL;
+	}
+
+	/* 3. Calloc path for root MenuList */
+	if(root) {
+		mlist->path= calloc(ESURF_MENULIST_DEPTH_MAX, sizeof(ESURF_MENULIST*));
+		if(mlist->path==NULL) {
+			free(mlist->mitems);
+			free(mlist);
+			return NULL;
+		}
+
+		/* Assign path[0] to itself */
+		mlist->path[0]=mlist;
+	}
+
+	/* 4. Assign memebers */
+	mlist->mode=mode;
+	mlist->root=root;
+
+	if(root) {
+		mlist->x0=x0;
+		mlist->y0=y0;
+	}
+	/* NOTE: For sub MenuLists, all 0 */
+
+	mlist->mw=mw;
+	mlist->mh=mh;
+
+	mlist->face=face;
+
+	if(fw<1 || fh<1) {
+		fw=12;
+		fh=12;
+	}
+	mlist->fw=fw;
+	mlist->fh=fh;
+
+	mlist->capacity=capacity;
+
+	/* Set default color, User can revise it. */
+	mlist->bkgcolor=ESURF_MENULIST_BKGCOLOR;
+	mlist->hltcolor=ESURF_MENULIST_HLTCOLOR;
+	mlist->fontcolor=ESURF_MENULIST_FONTCOLOR;
+
+	/* If only a root MenuList, without any sub_MenuList, then mlist->depth==0 */
+
+	/* Final selected MenuItem index: For root sub_MenuList Only. */
+	mlist->fidx = -1;
+
+	return mlist;
+}
+
+/*-----------------------------------------------------------
+Free an MenuList.
+
+	!!! --- This is a recursive function --- !!!
+
+mlist:	An pointer to ESURF_MENULIST
+------------------------------------------------------------*/
+void    egi_surfMenuList_free(ESURF_MENULIST **mlist)
+{
+	int i;
+
+	if( mlist==NULL || *mlist==NULL )
+		return;
+
+	/* Free itemm menus */
+	for(i=0; i < (*mlist)->mcnt; i++) {
+		/* Free name */
+		free( (*mlist)->mitems[i].descript);
+		/* Free linked MenuList */
+		egi_surfMenuList_free(&((*mlist)->mitems[i].mlist));
+	}
+
+	/* If ROOT */
+	if( (*mlist)->path )
+		free( (*mlist)->path );
+
+	free(*mlist);
+	*mlist=NULL;
+}
+
+/*---------------------------------------------------------------------
+Draw a root MenuList with expanded/visible sub_MenuLists.
+
+		!!! --- This is a recursive function --- !!!
+
+@FBDEV:		Pointer to FBDEV.
+@mlist:		A pointer to a ESURF_MENULIST.
+@offx, offy:	Offset to mlist->(x0,y0).
+		For a root MenuList usually: 0,0.
+		For a sub_MenuList, offsetXY from its upper level MenuList origin.
+@select_idx:    Selected Menu index, as of mlist->mitems[].
+		If mlist is root MenuList, then select_idx will be checked/calcluated.
+		<0, Ignore.
+--------------------------------------------------------------------*/
+void egi_surfMenuList_writeFB(FBDEV *fbdev, const ESURF_MENULIST *mlist, int offx, int offy, int select_idx)
+{
+	int i;
+
+	if(fbdev==NULL || mlist==NULL)
+		return;
+
+	/* Check select_idx */
+	if( mlist->root ) {
+		if(mlist->depth >0)
+			select_idx = mlist->path[1]->node;  /* Node number of next sub MenuList */
+		else /* ==0 */
+			select_idx = mlist->fidx;    	     /* As index of selected item */
+	}
+
+	switch(mlist->mode) {
+	    case MENULIST_ROOTMODE_LEFT_BOTTOM:
+
+		/* 1. Draw MenuList bkgcolor */
+		draw_filled_rect2(fbdev, mlist->bkgcolor, mlist->x0 +offx, mlist->y0 +offy,
+					mlist->x0 +offx +mlist->mw-1, mlist->y0 +offy -(mlist->mh*mlist->mcnt)-1 );
+		/* Edge */
+		fbset_color2(fbdev,WEGI_COLOR_GRAY2); //BLACK);
+		draw_rect(fbdev,  mlist->x0 +offx, mlist->y0 +offy,
+					mlist->x0 +offx +mlist->mw-1, mlist->y0 +offy -(mlist->mh*mlist->mcnt)-1 );
+
+		/* 2. Draw description and mark for each MenuItem */
+		for(i=0; i < mlist->mcnt; i++) {
+			/* Selected menu: --- highlight color --- */
+			/* Ignore select_idx <0 */
+			if( select_idx  == i ) // xxx  -- fidx MAYBE not cleared as -1 !!!
+				//draw_filled_rect2( fbdev, mlist->hltcolor, x1,y1, x2,y2 );
+				draw_blend_filled_rect( fbdev,
+						   mlist->x0 +offx +1, 		     mlist->y0 +offy -i*mlist->mh -1,		/* x1,y1 */
+						   mlist->x0 +offx +mlist->mw -1 -1, mlist->y0 +offy -(i+1)*mlist->mh -1 +1,    /* x2,y2 */
+						   mlist->hltcolor, 200 );
+
+			/* Write Description */
+		        FTsymbol_uft8strings_writeFB( fbdev, mlist->face, 	/* FBdev, fontface */
+                                      mlist->fw, mlist->fh, (const UFT8_PCHAR)mlist->mitems[i].descript,  /* fw,fh, pstr */
+                                      mlist->mw, 1, 0,	 		/* pixpl, lines, fgap */
+                                      mlist->x0 +offx +10, mlist->y0 +offy -(i+1)*mlist->mh +5,       /* x0,y0, */
+                                      mlist->fontcolor, -1, 255,       /* fontcolor, transcolor,opaque */
+                                      NULL, NULL, NULL, NULL );        /* int *cnt, int *lnleft, int* penx, int* peny */
+
+			/* Draw NodeItem mark '>' */
+			if( mlist->mitems[i].mlist !=NULL) {
+				const char* nodemark=">";
+				int pixlen=FTsymbol_uft8strings_pixlen( mlist->face, mlist->fw, mlist->fh, (const UFT8_PCHAR)nodemark);
+				if(pixlen>0)
+		                       FTsymbol_uft8strings_writeFB( fbdev, mlist->face,       /* FBdev, fontface */
+                	                      mlist->fw, mlist->fh, (const UFT8_PCHAR)nodemark,  /* fw,fh, pstr */
+                        	              mlist->mw, 1, 0,                  /* pixpl, lines, fgap */
+                                	      mlist->x0 +offx +mlist->mw -pixlen-8-2,	/* x0, y0 */
+					      mlist->y0 +offy -(i+1)*mlist->mh +5,
+                                      	      mlist->fontcolor, -1, 240,       /* fontcolor, transcolor,opaque */
+                                      	      NULL, NULL, NULL, NULL );        /* int *cnt, int *lnleft, int* penx, int* peny */
+			}
+		}
+
+		/* 3. If root_MenuList:  Draw all sub_MenuLists in path[].  */
+		if( mlist->root ) {
+			i=1; /* i=0, root_MenuList */
+
+			/* Sub_MenList offsetX/Y are all (0,0)s
+			 * Convert to origin relative to root_MenuList container.
+			 */
+			offx = mlist->x0 +offx;
+			offy = mlist->y0 +offy;
+
+			/* TODO:  mlist->path[] MAY NOT cleared,  MUST check depth value! */
+			while( mlist->path[i] && i< mlist->depth+1 ) {
+				/* Cal. offset, relative to origin of the root MenuList */
+				if(i==1) {
+					offx += mlist->mw   -2;		/* -2 --- overlap effect */
+					offy -= mlist->mh * (mlist->path[1])->node;
+				} else {
+					offx += (mlist->path[i-1])->mw   -2;  /* -2 --- overlap effect */
+					offy -= (mlist->path[i-1])->mh * (mlist->path[i])->node;
+				}
+
+				/* Cal. select_index */
+				/* Recursive calling */
+				//egi_dpstd("Draw mlist->path[%d]...\n", i);
+				egi_surfMenuList_writeFB(fbdev, mlist->path[i], offx, offy,
+						      i==mlist->depth  ? mlist->path[i]->fidx : mlist->path[i+1]->node );  /* Selected menu index */
+						      /* If ROOT or END menulist, take as fidx. */
+				i++;
+			}
+		}
+
+		break;
+
+	    case MENULIST_ROOTMODE_RIGHT_BOTTOM :
+		break;
+	    case MENULIST_ROOTMODE_LEFT_TOP:
+		break;
+	    case MENULIST_ROOTMODE_RIGHT_TOP:
+		break;
+	}
+}
+
+
+/*---------------------------------------------------------------------
+Add a new item to the mlist.
+Note:
+1. Ownership of submlist is transfered to mlist, and it will be released
+   when free mlist.
+
+@mlist:		An pointer to ESURF_MENULIST
+@descript:	Description of the new menu item.
+@submlist:	!NULL, A new menu item links to the sub_MenuList.
+		Ownership transfered to mlist!
+		It's node number also updated!
+
+Return:
+	0	OK
+	<0	Fails
+--------------------------------------------------------------------*/
+int  egi_surfMenuList_addItem(ESURF_MENULIST *mlist, const char *descript,  ESURF_MENULIST *submlist)
+{
+	if( mlist==NULL || descript==NULL )
+		return -1;
+
+	/* Check/Grow capacity */
+	if( mlist->mcnt == mlist->capacity ) {
+		if( egi_mem_grow( (void **)&mlist->mitems, mlist->capacity*sizeof(EGI_MENUITEM),
+							   ESURF_MENUILIST_MITEMS_GROWSIZE*sizeof(EGI_MENUITEM)) != 0 ) {
+			egi_dperr("Fail to memgrow mitems.");
+			return -2;
+		}
+
+		mlist->capacity += ESURF_MENUILIST_MITEMS_GROWSIZE;
+	}
+
+	/* Description */
+	mlist->mitems[mlist->mcnt].descript=strndup(descript, EGI_MENU_DESCRIPT_MAXLEN);
+	if(mlist->mitems[mlist->mcnt].descript==NULL) {
+		egi_dperr("Fail assign descript");
+		return -3;
+	}
+
+	/* Add sub menulist*/
+	if( submlist != NULL ) {
+		mlist->mitems[mlist->mcnt].mlist=submlist;
+
+		/* Update its node number */
+		submlist->node=mlist->mcnt;
+
+		/* Update depth */
+		/* NOPE! depth to be updated in realtime.  */
+	}
+
+	/* Update Counter */
+	mlist->mcnt +=1;
+
+	return 0;
+}
+
+
+/*------------------------------------------------------------------
+Update menu selection tree path and midx.
+If the cursor is on a MenuItem that links to a sub_MenuList, then
+update mlist->path[].
+Else if the cursor in on a regular MenuItem, then update mlist->fidx.
+
+
+@mlist:	A pointer to ESURF_MENULIST, It MUST be a root MenuList.
+@px,py:	As cursor point. It's MUST under the same coord. system as
+        of mlist->x0,y0 !
+
+Return:
+	0	OK
+	<0	Fails
+-------------------------------------------------------------------*/
+int  egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py)
+{
+	int i;
+	int x0,y0;	/* Origin point of a MenuList box */
+	int x1, y1; 	/* Diagonal point to x0,y0 */
+	int index;
+
+	if(mlist==NULL || mlist->root==false)
+		return -1;
+	if(mlist->mcnt<1)  /* At lease on item */
+		return -2;
+
+	/* Init. x0,y0 */
+	x0=mlist->x0;
+	y0=mlist->y0;
+
+	/* Reset find first */
+	mlist->fidx = -1;
+
+	/* Check if Pxy is on current MenuList tree map. */
+	for(i=0; i < mlist-> depth +1; i++) {
+
+		/* Cal. MenuList Box points */
+		switch(mlist->mode) {
+    		   case MENULIST_ROOTMODE_LEFT_BOTTOM:
+			/* Cal. origin of MenuList: mlist->path[i] */
+			if(i>0) {
+				x0 += mlist->path[i-1]->mw -2; /* -2 --- overlap effect */
+				y0 -= (mlist->path[i]->node)*(mlist->path[i-1]->mh);
+			}
+			/* Cal. diagonal corner point of the MenuList box. */
+			x1 = x0 +mlist->path[i]->mw	-2; /*  -2 --- Deduce */
+			y1 = y0 -mlist->path[i]->mh*mlist->path[i]->mcnt;
+
+			break;
+
+    		   case MENULIST_ROOTMODE_RIGHT_BOTTOM :
+			break;
+    		   case MENULIST_ROOTMODE_LEFT_TOP:
+			break;
+    		   case MENULIST_ROOTMODE_RIGHT_TOP:
+			break;
+		}
+
+		/* Check if Pxy located within the MenuList Box */
+		if( pxy_inbox(px, py, x0, y0, x1, y1) ) {
+			/* Cal. index of MenuItem as pxy loacted on */
+			index = ( abs(y0-py) -2) / (mlist->path[i]->mh); /* -2: in case index == path[i]->mcnt ? NO WAY! */
+
+			/* If current item links to a sub_MenuList, then depth +1 */
+			if( mlist->path[i]->mitems[index].mlist !=NULL ) {
+				/* Update depth as i+1 */
+				mlist->depth = i+1;
+				/* Expand tree path, and  */
+				mlist->path[mlist->depth]=mlist->path[i]->mitems[index].mlist;
+				/* Node number for new added sub_MenuList */
+				mlist->path[mlist->depth]->node = index;
+				/* Marked as no item selected ??? */
+				mlist->path[mlist->depth]->fidx = -1;
+			}
+			else {
+				mlist->depth = i;
+				/* Update fidx for both root and end menuList!! */
+				mlist->fidx = index;		/* Root MenuList */
+				mlist->path[i]->fidx = index;   /* End MenuList */
+			}
+		}
+		/* Clear selected item index */
+		else {
+			mlist->fidx = -1;
+			mlist->path[i]->fidx = -1;
+		}
+
+	} /* End for() */
+
+	return 0;
+}
+
 /*---------------------------------------------------------------
 Create an ESURF_LISTBOX and blockcopy its imgbuf from input imgbuf.
 
@@ -674,8 +1062,6 @@ void egi_surfListBox_redraw(EGI_SURFUSER *psurfuser, ESURF_LISTBOX *listbox)
                                 listbox->x0+listbox->ListBoxW, listbox->y0, 	/* xd,yd */
                                 listbox->ListBoxW, 0); 				/* xs,ys */
 
-
-
 	/* 2. Draw scroll bar GUIDEBLOCK */
 	draw_filled_rect2(pvfbdev, WEGI_COLOR_ORANGE, listbox->x0 +listbox->ListBoxW, listbox->y0 +listbox->pastPos,
 			listbox->x0 +listbox->ListBoxW +listbox->GuideBlockW-1, listbox->y0 +listbox->pastPos +listbox->GuideBlockH-1 );
@@ -795,7 +1181,6 @@ int egi_surfListBox_adjustPastPos(ESURF_LISTBOX *listbox, int delt)
 
 	return 0;
 }
-
 
 
 /*----------------------------------------------------------------------------
