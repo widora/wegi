@@ -49,6 +49,8 @@ Jurnal
 	2. draw_filled_spline(): fbset_color() replaced by fbset_color2().
 	   draw_circle2() draw_filled_annulus2() draw_filled_circle2():
 	   fbset_color() replaced by fbset_color2() to use pixcolor.
+2021-05-19:
+	1. Add draw_blend_filled_triangle().
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -2247,6 +2249,40 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 		draw_line(dev, points[nm].x+i, yu, points[nm].x+i, yd);
 	}
 
+
+
+}
+
+/*-----------------------------------------------------------------
+Draw a a filled triangle.
+
+@dev: 		FB device
+@points:  	A pointer to 3 EGI_POINTs / Or an array.
+@color:		Color of the filled triangle.
+@alpha:	  	Alpha value of the filled triangle.
+
+Midas Zhou
+------------------------------------------------------------------*/
+void draw_blend_filled_triangle(FBDEV *dev, EGI_POINT *points, EGI_16BIT_COLOR color, uint8_t alpha)
+{
+	bool save_pixcolor_on;
+
+	if(dev==NULL)
+		return;
+
+	/* turn on FBDEV pixcolor and pixalpha_hold */
+	save_pixcolor_on=dev->pixcolor_on;
+	dev->pixcolor_on=true;
+	dev->pixcolor=color;
+	dev->pixalpha_hold=true;
+	dev->pixalpha=alpha;
+
+	draw_filled_triangle(dev, points);
+
+	/* turn off FBDEV pixcolor and pixalpha_hold */
+	dev->pixcolor_on=save_pixcolor_on;
+	dev->pixalpha_hold=false;
+	dev->pixalpha=255;
 }
 
 

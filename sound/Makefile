@@ -31,7 +31,7 @@ LIBS    += -lpng -ljpeg -lz
 LIBS 	+= -lcurl -lssl -lcrypto
 LIBS 	+= -lm -lz -pthread -lbz2
 LIBS 	+= -lfreetype
-#LIBS    += -legi
+LIBS    += -legi
 LIBS    += -lgif
 
 

@@ -48,6 +48,7 @@ LDFLAGS += -L./lib -L$(COMMON_USRDIR)/lib
 
 LIBS = -ljpeg -lm -lpthread #-ljson-c -lasound
 LIBS += -lfreetype  -lm -lz -lbz2
+#LIBS += -lrt    #for shm_open() shm_unlink()...
 
 #### ------ 手动设置特定目标生成规则  ------
 

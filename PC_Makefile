@@ -43,6 +43,7 @@ LDFLAGS += -L./pclib
 LIBS = -ljpeg -lm -lpthread #-ljson-c -lasound
 LIBS += -lfreetype  -lm -lz -lbz2
 LIBS += -lgif
+LIBS += -lrt	#for shm_open() shm_unlink()...
 
 #### ------ 手动设置特定目标生成规则  ------
 

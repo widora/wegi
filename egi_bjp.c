@@ -22,6 +22,10 @@ TODO:
     2. jpgshow() picture flips --OK
     3. in show_jpg(), just force 8bit color data to be 24bit, need to improve.!!!
 
+Journal:
+2021-05-19:
+	1.egi_imgbuf_loadjpg(): close_jpgImg(imgbuf) before abort/return.
+
 
 Modified and appended by Midas Zhou
 midaszhou@yahoo.com
@@ -744,19 +748,20 @@ int egi_imgbuf_loadjpg(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 	}
 
 	/* open jpg and get parameters */
-	imgbuf=open_jpgImg(fpath,&width,&height,&components);
+	imgbuf=open_jpgImg(fpath, &width, &height, &components);
 	if(imgbuf==NULL) {
 		printf("egi_imgbuf_loadjpg(): open_jpgImg() fails!\n");
 		return -1;
 	}
 	printf("%s: Open a jpg file with size W%dxH%d \n", __func__, width, height);
 
-        /* get mutex lock */
+        /* ------------> Get mutex lock */
 #if 1
 	// printf("%s: try mutex lock...\n",__func__);
         if(pthread_mutex_lock(&egi_imgbuf->img_mutex) != 0)
         {
                 printf("%s:fail to get mutex lock.\n",__func__);
+		close_jpgImg(imgbuf);
                 return -2;
         }
 #endif
@@ -773,6 +778,7 @@ int egi_imgbuf_loadjpg(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 	{
 		printf("egi_imgbuf_loadjpg(): fail to malloc imgbuf.\n");
 	        pthread_mutex_unlock(&egi_imgbuf->img_mutex);
+		close_jpgImg(imgbuf);
 		return -3;
 	}
 
@@ -798,7 +804,7 @@ int egi_imgbuf_loadjpg(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 		}
 	}
 
-	/* put image mutex lock */
+	/* <----------  put image mutex lock */
         pthread_mutex_unlock(&egi_imgbuf->img_mutex);
 
 	close_jpgImg(imgbuf);

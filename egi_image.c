@@ -153,12 +153,13 @@ void egi_imgbuf_free(EGI_IMGBUF *egi_imgbuf)
 	egi_imgbuf_cleardata(egi_imgbuf);
 
 	/*  ??????? necesssary ????? */
-	pthread_mutex_unlock(&egi_imgbuf->img_mutex);
+	if( pthread_mutex_unlock(&egi_imgbuf->img_mutex) != 0)
+		EGI_PLOG(LOGLV_TEST,"%s:Fail to unlock img_mutex!\n",__func__);
 
         /* Destroy thread mutex lock for page resource access */
         if(pthread_mutex_destroy(&egi_imgbuf->img_mutex) !=0 )
-		EGI_PLOG(LOGLV_TEST,"%s:Fail to destroy img_mutex!\n",__func__);
-
+		EGI_PLOG(LOGLV_TEST,"%s:Fail to destroy img_mutex!.\n",__func__);
+					/*  Err'No message of desired type' ??? */
 	free(egi_imgbuf);
 
 	egi_imgbuf=NULL; /* ineffective though...*/

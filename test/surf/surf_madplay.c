@@ -59,6 +59,10 @@ Journal:
 	1. Add menu_option()
 	2. Add testsurf_mouse_event()
 	3. menu_option surface recursive test.
+2021-05-16:
+	1. Search all MP3 file in the defaul diretory.
+2021-05-21:
+	1. TEST: To Register/FirstDraw/Sync surface and display it as early as possible.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -84,10 +88,19 @@ https://github.com/widora/wegi
 #include "sys_incbin.h"
 #include "surf_madplay.h"
 
-INCBIN(NormalIcons, "/home/midas-zhou/Pictures/icons/gray_icons_normal_block.png");
-INCBIN(EffectIcons, "/home/midas-zhou/Pictures/icons/gray_icons_effect_block.png");
 
-#define DEFAULT_MP3_PATH "/mmc/music/\*.mp3"
+#ifdef LETS_NOTE
+	#define DEFAULT_MP3_PATH "/home/midas-zhou/Music"
+	INCBIN(NormalIcons, "/home/midas-zhou/Pictures/icons/gray_icons_normal_block.png");
+	INCBIN(EffectIcons, "/home/midas-zhou/Pictures/icons/gray_icons_effect_block.png");
+	INCBIN(BrightIcons, "/home/midas-zhou/Pictures/icons/gray_icons_bright.png");
+#else
+	#define DEFAULT_MP3_PATH "/mmc/music"
+
+	INCBIN(NormalIcons, "/home/midas-zhou/Pictures/icons/gray_icons_normal_block.png");
+	INCBIN(EffectIcons, "/home/midas-zhou/Pictures/icons/gray_icons_effect_block.png");
+	INCBIN(BrightIcons, "/home/midas-zhou/Pictures/icons/gray_icons_bright.png");
+#endif
 
 /* For SURFUSER */
 EGI_SURFUSER     *surfuser=NULL;
@@ -177,14 +190,8 @@ int main(int argc, char **argv)
 	int sw=0,sh=0; /* Width and Height of the surface */
 	int x0=0,y0=0; /* Origin coord of the surface */
 	char *pname=NULL;
-	int files;
-
-  	if (argc <2 ) {
-		printf("Please provide MP3 fpath!\n");
-		//printf("No path provided, use default path '%s'.\n", DEFAULT_MP3_PATH);
-                exit(EXIT_FAILURE);
-	}
-  	files=argc-1;
+	char **mp3_paths=NULL;
+	int files;	/* Total number of MP3 files */
 
 
 #if 0	/* Start EGI log */
@@ -221,6 +228,53 @@ int main(int argc, char **argv)
 		printf("Fail to create sysfont.bold!\n");
 #endif
 
+	/* Register and FirstDraw */
+#if 1	/* 1. Register/Create a surfuser */
+	printf("Register to create a surfuser...\n");
+	x0=0;y0=0;	sw=240; sh=170;
+	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, sw, sh, sw, sh, colorType ); /* Fixed size */
+	if(surfuser==NULL) {
+		printf("Fail to register surfuser!\n");
+		exit(EXIT_FAILURE);
+	}
+
+	/* 2. Get ref. pointers to vfbdev/surfimg/surfshmem */
+	vfbdev=&surfuser->vfbdev;
+	surfimg=surfuser->imgbuf;
+	surfshmem=surfuser->surfshmem;
+
+        /* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons etc. */
+	// Defualt: surfuser_ering_routine() calls surfuser_parse_mouse_event();
+        surfshmem->minimize_surface 	= surfuser_minimize_surface;   	/* Surface module default functions */
+	//surfshmem->redraw_surface 	= surfuser_redraw_surface;
+	//surfshmem->maximize_surface 	= surfuser_maximize_surface;   	/* Need resize */
+	//surfshmem->normalize_surface 	= surfuser_normalize_surface; 	/* Need resize */
+        surfshmem->close_surface 	= surfuser_close_surface;
+	surfshmem->user_mouse_event	= my_mouse_event;
+
+	pUserSig = &surfshmem->usersig;
+
+	/* 4. Name for the surface. */
+	pname="MadPlayer";
+	strncpy(surfshmem->surfname, pname, SURFNAME_MAX-1);
+
+	/* 5. First draw surface. */
+	surfshmem->bkgcolor=WEGI_COLOR_DARKGRAY; /* OR default BLACK */
+	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN); /* Default firstdraw operation */
+
+	/* ----------> Activate image immediately! */
+	surfshmem->sync=true;
+
+#endif
+
+	/* Search all MP3 file in the defaul diretory */
+	mp3_paths=egi_alloc_search_files(DEFAULT_MP3_PATH, "mp3", &files);
+	if(mp3_paths==NULL) {
+		printf("No MP3 found!\n");
+		exit(EXIT_FAILURE);
+	}
+
+
 	/* Set signal handler */
 //	egi_common_sigAction(SIGINT, signal_handler);
 
@@ -232,6 +286,7 @@ int main(int argc, char **argv)
 		egi_dperr("Fail to make/enter private dir!");
 		exit(EXIT_FAILURE);
 	}
+
 
 	/* Load Noraml Icons */
 	//icons_normal=egi_imgbuf_readfile("/mmc/gray_icons_normal_block.png");
@@ -268,7 +323,9 @@ int main(int argc, char **argv)
 	}
 
 	/* Load Pressed Icons */
-	icons_pressed=egi_imgbuf_readfile("/mmc/gray_icons_bright.png");
+	//icons_pressed=egi_imgbuf_readfile("/mmc/gray_icons_bright.png");
+	egi_copy_to_file("gray_icons_bright.png", gBrightIconsData, gBrightIconsSize, 0);          /* fpath, pstr, size, endtok */
+	icons_pressed=egi_imgbuf_readfile("gray_icons_bright.png");
 	if( egi_imgbuf_setSubImgs(icons_pressed, 12*5)!=0 ) {
 		printf("Fail to setSubImgs for icons_pressed!\n");
 		exit(EXIT_FAILURE);
@@ -283,19 +340,12 @@ int main(int argc, char **argv)
 	}
 
 	/* Create controls buttons: ( imgbuf, xi, yi, x0, y0, w, h ) */
-	#if 0 /* 3 buttons arrangement */
-	btns[BTN_PREV]=egi_surfBtn_create(icons_normal, 25+7*75.5, 145+4*73.5, 1+22, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	btns[BTN_PLAY]=egi_surfBtn_create(icons_normal, 25+6*75.5, 145+3*73.5, 1+22*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	btns[BTN_PLAY_SWITCH]=egi_surfBtn_create(icons_normal, 25+7*75.5, 145+3*73.5, 1+22*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	btns[BTN_NEXT]=egi_surfBtn_create(icons_normal, 25+6*75.5, 145+4*73.5, 1+22*3+50*2, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	#else /* 4 buttons arrangement */
 	btns[BTN_PREV]=egi_surfBtn_create(icons_normal, 25+7*75.5, 145+4*73.5, 1+7, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	btns[BTN_PLAY]=egi_surfBtn_create(icons_normal, 25+6*75.5, 145+3*73.5, 1+7*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	btns[BTN_PLAY_SWITCH]=egi_surfBtn_create(icons_normal, 25+7*75.5, 145+3*73.5, 1+7*2+50, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	btns[BTN_NEXT]=egi_surfBtn_create(icons_normal, 25+6*75.5, 145+4*73.5, 1+7*3+50*2, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	btns[BTN_VOLUME]=egi_surfBtn_create(icons_normal, 25+10*75.5, 145+4*73.5, 1+7*4+50*3, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
 	btns[BTN_VOLUME_SWITCH]=egi_surfBtn_create(icons_normal, 25+11*75.5, 145+4*73.5, 1+7*4+50*3, SURF_TOPBAR_HEIGHT+55, btnW, btnH);
-	#endif
 
 	/* Set imgbuf_effect: egi_imgbuf_blockCopy(inimg, px, py, height, width) */
 	btns[BTN_PREV]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 25+7*75.5, 145+4*73.5, btnW, btnH);
@@ -312,6 +362,7 @@ int main(int argc, char **argv)
 	btns[BTN_NEXT]->imgbuf_pressed = egi_imgbuf_blockCopy(icons_pressed, 25+6*75.5, 145+4*73.5, btnW, btnH);
 
 
+#if 0	/* Here OR at beginning:  Register and FirstDraw */
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
 	x0=0;y0=0;	sw=240; sh=170;
@@ -325,13 +376,6 @@ int main(int argc, char **argv)
 	vfbdev=&surfuser->vfbdev;
 	surfimg=surfuser->imgbuf;
 	surfshmem=surfuser->surfshmem;
-
-        /* Get surface mutex_lock */
-        if( pthread_mutex_lock(&surfshmem->shmem_mutex) !=0 ) {
-        	egi_dperr("Fail to get mutex_lock for surface.");
-		exit(EXIT_FAILURE);
-        }
-/* ------ >>>  Surface shmem Critical Zone  */
 
         /* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons etc. */
 	// Defualt: surfuser_ering_routine() calls surfuser_parse_mouse_event();
@@ -349,9 +393,23 @@ int main(int argc, char **argv)
 	strncpy(surfshmem->surfname, pname, SURFNAME_MAX-1);
 
 	/* 5. First draw surface. */
+	printf("Frist draw...\n");
 	surfshmem->bkgcolor=WEGI_COLOR_DARKGRAY; /* OR default BLACK */
 	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN); /* Default firstdraw operation */
 
+	/* ----------> Activate image immediately! */
+	surfshmem->sync=true;
+
+#endif
+
+        /* Get surface mutex_lock */
+        if( pthread_mutex_lock(&surfshmem->shmem_mutex) !=0 ) {
+        	egi_dperr("Fail to get mutex_lock for surface.");
+		exit(EXIT_FAILURE);
+        }
+/* ------ >>>  Surface shmem Critical Zone  */
+
+	printf("Draw top menus...\n");
 	/* 6. Draw/Create top menus */
 	//fbset_color2(vfbdev, WEGI_COLOR_GRAYA);
 	fbset_color2(vfbdev, WEGI_COLOR_DARKBLUE); //FIREBRICK);
@@ -380,7 +438,6 @@ int main(int argc, char **argv)
 	/* Create ESURF_BOX lab_passtime */
 	lab_passtime=egi_surfBox_create(surfimg, 42, 142, 42, 142, 180, 20); /* imgbuf, xi, yi,  x0, y0, w, h */
 
-
 	/* 8. First draw btns */
         egi_subimg_writeFB(btns[BTN_PREV]->imgbuf, vfbdev, 0, -1, btns[BTN_PREV]->x0, btns[BTN_PREV]->y0);
         egi_subimg_writeFB(btns[BTN_PLAY]->imgbuf, vfbdev, 0, -1, btns[BTN_PLAY]->x0, btns[BTN_PLAY]->y0);
@@ -400,7 +457,7 @@ int main(int argc, char **argv)
 	}
 
 	/* 10. Activate image */
-	surfshmem->sync=true;
+//	surfshmem->sync=true;
 
 /* ------ <<<  Surface shmem Critical Zone  */
                 pthread_mutex_unlock(&surfshmem->shmem_mutex);
@@ -414,10 +471,10 @@ int main(int argc, char **argv)
 	egi_dpstd("Getset PCM volume...\n");
   	egi_getset_pcm_volume(NULL,NULL);
 
-  	/* MAD_2: Open pcm playback device 打开PCM播放设备 */
+  	/* MAD_2: Open pcm playback device 打开PCM播放设备. Ubuntu takes pcm devie exclusively!? */
 	egi_dpstd("Open pcm_handle...\n");
   	if( snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0) <0 ) {  /* SND_PCM_NONBLOCK,SND_PCM_ASYNC */
-        	printf("Fail to open PCM playback device!\n");
+        	egi_dperr("Fail to open PCM playback device!\n");
 	        return 1;
   	}
 
@@ -459,12 +516,19 @@ while(madSTAT==STAT_PAUSE) {
 
         /* MAD_: Mmap input file 映射当前MP3文件 */
 madSTAT=STAT_LOAD;
-	draw_mp3name(basename(argv[i+1]));
+//	draw_mp3name(basename(argv[i+1]));
+	draw_mp3name(basename(mp3_paths[i]));
 	snprintf(strPassTime, sizeof(strPassTime), "Loading...");
 	draw_PassTime(0);
 
-        mp3_fmap=egi_fmap_create(argv[i+1], 0, PROT_READ, MAP_PRIVATE);
-        if(mp3_fmap==NULL) return 1;
+//        mp3_fmap=egi_fmap_create(argv[i+1], 0, PROT_READ, MAP_PRIVATE);
+	egi_dpstd("Load file '%s'...\n", mp3_paths[i]);
+        mp3_fmap=egi_fmap_create(mp3_paths[i], 0, PROT_READ, MAP_PRIVATE);
+        if(mp3_fmap==NULL) {
+	        egi_filo_free(&filo_headpos);
+		continue;
+		/*  ----------> continue for()  */
+	}
         fsize=mp3_fmap->fsize;
 
         /* MAD_: To fill filo_headpos and calculation time duration. */
@@ -478,7 +542,8 @@ madSTAT=STAT_LOAD;
 
         /* MAD_ : Decoding 解码播放 */
 madSTAT=STAT_PLAY;
-        printf(" Start playing...\n %s\n size=%lldk\n", argv[i+1], mp3_fmap->fsize>>10);
+//        printf(" Start playing...\n %s\n size=%lldk\n", argv[i+1], mp3_fmap->fsize>>10);
+        printf(" Start playing...\n %s\n size=%lldk\n", mp3_paths[i], mp3_fmap->fsize>>10);
         mp3_decode((const unsigned char *)mp3_fmap->fp, mp3_fmap->fsize);
 
         /* MAD_ : Release source 释放相关资源　*/

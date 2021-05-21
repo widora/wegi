@@ -206,7 +206,7 @@ struct egi_surface_manager {
 	int		mx;		  /* Mouse cursor position */
 	int		my;
 
-	EGI_IMGBUF	*bkgimg;	  /* back ground image, as wall paper. */
+	EGI_IMGBUF	*bkgimg;	  /* Back ground image, as wall paper. */
 	EGI_IMGBUF	*imgbuf;	  /* An empty imgbuf struct to temp. link with color/alpha data of a surface
 					   * Draw the imgbuf to the fbdev then.
 					   *  --- NOT Applied yet! ---
@@ -321,7 +321,8 @@ struct egi_surface_shmem {
 	ESURF_BTN     *sbtns[3];      /* CLOSE/MIN/MAX.  If NULL, ignore. same order as surfshmem->mpbtn */
 					/* NOW to be allocated/released by SURFUSER
 					 * see in surfuser_firstdraw_surface() to create them accd. to 'topbtns'.
-					 * TODO: NOW They are released/freed by the Caller!
+					 * XXX TODO: NOW They are released/freed by the Caller!
+					 * Releases/freed by egi_unregister_surfuser().
 					 */
 	int		mpbtn;		/* Index of mouse touched buttons, as index of sbtns[]
 					 * <0 invalid.  Init. it as -1 in surfman_register_surface().
@@ -498,8 +499,9 @@ enum ering_result_type {
 #endif /* END */
 
 
-/* SURFMSG_DATA : System_V message queue data */
-#define SURFMSG_TEXT_MAX	8
+/*** SURFMSG_DATA : System_V message queue data
+ */
+#define SURFMSG_TEXT_MAX	1024
 struct surface_msg_data {
         long msg_type;
         char msg_text[SURFMSG_TEXT_MAX];  	/* Messages of zero length also OK */
@@ -508,9 +510,12 @@ struct surface_msg_data {
 /* For SURFMSG_DATA.msg_type:  MUST be positive integer value!!! */
 enum  surface_msg_type {
 				/* MUST >0 */
-	SURFMSG_REQUEST_DISPINFO	=1,	/* Request for displaying  SURFMSG_DATA.msg_text[] on a surface. */
-	SURFMSG_REQUEST_REFRESH	 	=2,	/* Request for render/refresh all surfaces. */
+	SURFMSG_REQUEST_DISPINFO		=1,	/* Request for displaying  SURFMSG_DATA.msg_text[] on a surface. */
+	SURFMSG_REQUEST_REFRESH	 		=2,	/* Request for render/refresh all surfaces. */
+	SURFMSG_REQUEST_UPDATE_WALLPAPER	=3,	/* Request for updating wallpaper */
 
+	/* msg_typ <= 100, FOR SURFMAN private use only. */
+#define	SURFMSG_PRVTYPE_MAX		100
 
 	SURFMSG_AAC_PARAMS		=101,   /* Temp. for WetRadio */
 };

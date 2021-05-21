@@ -234,6 +234,10 @@ Journal
 2021-05-14:
 	1. EGI_SURFUSER: Add memeber 'menulist'
 	2. surfman_render_thread(): Draw surfman->menulist.
+2021-05-18:
+	1. egi_unregister_surfuser(): Free topbar CLOSE/MIN/MAX btns in surfshmem->sbtns[].
+2021-05-19:
+	1. surfman_render_thread(): Add triangular ushering marks at left_top and left_bottom.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -598,6 +602,7 @@ Return:
 ----------------------------------------------------------*/
 int egi_unregister_surfuser(EGI_SURFUSER **surfuser)
 {
+	int i;
 	int ret=0;
 
 	if(surfuser==NULL || (*surfuser)==NULL)
@@ -617,6 +622,10 @@ int egi_unregister_surfuser(EGI_SURFUSER **surfuser)
 		ret = -1;
 	}
 #endif
+
+	/* 1. Free topbar CLOSE/MIN/MAX btns: surfshmem->sbtns[] */
+	for(i=0; i<TOPBTN_MAXNUM; i++)
+		free((*surfuser)->surfshmem->sbtns[i]);
 
         /* 2. Release virtual FBDEV */
         release_virt_fbdev(&(*surfuser)->vfbdev);
@@ -1875,7 +1884,8 @@ Return surface ID to surfman->surfaces[].
 
 Return:
         <0      BKGround / Out of range / Fails.
-		( zseq=0 as for bkground layer.)
+		( zseq=0 as for bkground layer!! )
+
         >=0     Ok, as index to surfman->surfaces[].
 -----------------------------------------------------------------*/
 int surfman_xyget_surfaceID(EGI_SURFMAN *surfman, int x, int y)
@@ -1965,7 +1975,7 @@ static void * surfman_render_thread(void *arg)
 
 	EGI_IMGBUF *imgbuf=NULL;  /* An EGI_IMGBUF to temporarily hold surface color data, NOT APPLIED! */
 	EGI_IMGBUF *mrefimg=NULL; /* Just a ref. to an imgbuf */
-	int  mdx=0, mdy=0;	  	  /* Mouse icon offset from tip point */
+	int  mdx=0, mdy=0;	  /* Mouse icon offset from tip point */
 
 	int MiniBarWidth=SURFMAN_MINIBAR_WIDTH; 	/* Left side minibar menu */
 	int MiniBarHeight=SURFMAN_MINIBAR_HEIGHT;
@@ -2188,8 +2198,9 @@ static void * surfman_render_thread(void *arg)
 			draw_filled_rect2(&surfman->fbdev, WEGI_COLOR_BLACK, 0,0, surfman->fbdev.pos_xres-1, surfman->fbdev.pos_yres-1 );
 		}
 
+
 		/* B.XX Draw minimized surfaces */
-#if 0 /* Display Minibar at bkground level  */
+#if 0 /* Display Minibar at bkground level: pixz=0  */
 		surfman->fbdev.pixz=0; 		/* All minimized surfaces drawn just overlap bkground! */
 		surfman->IndexMpMinSurf = -1;   /* Initial mouse NOT on minibar menu */
 		for(i=0; i < surfman->mincnt; i++) {
@@ -2211,7 +2222,7 @@ static void * surfman_render_thread(void *arg)
 			draw_wline(&surfman->fbdev, 0, (i+1)*MiniBarHeight, MiniBarWidth-1, (i+1)*MiniBarHeight, 2);
 
 			/* Write surface Name on MiniBar Menu */
-			if(surfshmem->surfname)
+			if(surfshmem->surfname[0]) /* !!! surfname[SURFNAME_MAX], static mem space !!! */
 				pstr=surfshmem->surfname;
 			else
 				pstr="EGI_SURF";
@@ -2220,7 +2231,7 @@ static void * surfman_render_thread(void *arg)
                                        18, 18,(const UFT8_PCHAR)pstr,    /* fw,fh, pstr */
                                        MiniBarWidth-10-5, 1, 0,     	         /* pixpl, lines, fgap */
                                        10, i*30+5,	                 /* x0,y0, */
-                                       WEGI_COLOR_WHITE, -1, 160,        /* fontcolor, transcolor,opaque */
+                                       WEGI_COLOR_WHITE, -1, 240,        /* fontcolor, transcolor,opaque */
                                        NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
 		}
 
@@ -2262,10 +2273,35 @@ static void * surfman_render_thread(void *arg)
 
 	}
 #endif
-		/* B.XXX Draw MenuList Tree */
+		/* B.XXX Draw MenuList Path Tree */
 		if ( surfman->menulist_ON ) {
 			surfman->fbdev.pixz=SURFMAN_MENULIST_PIXZ;    /* pixz >SURFMAN_MAX_SURFACES,  To make minibar at TOP layer */
 			egi_surfMenuList_writeFB(&surfman->fbdev, surfman->menulist, 0, 0, 0);
+		}
+
+		/* B.X_1 Draw Guiding Mark at Left_Top and Left_Bottom corner. Sensing range 60x60 */
+		EGI_POINT points[3];
+		if( !surfman->minibar_ON && !surfman->menulist_ON )
+		{
+			/* Left_Top mark to usher MiniBar */
+		   if(surfman->mx < 60 && surfman->my < 60) {
+		     	surfman->fbdev.zbuff_on = false;
+			points[0] = (EGI_POINT){0,0};
+			points[1] = (EGI_POINT){20,0};
+			points[2] = (EGI_POINT){0,20};
+			//fbset_color2(&surfman->fbdev, WEGI_COLOR_LTBLUE);
+			draw_blend_filled_triangle(&surfman->fbdev, points, WEGI_COLOR_LTBLUE,200);
+		     	surfman->fbdev.zbuff_on = true;
+		  }	/* Left_Bottom mark to usher MenuList */
+		  else if ( !surfman->menulist_ON && surfman->mx < 60  && surfman->my > surfman->fbdev.pos_yres -60 ) {
+		     	surfman->fbdev.zbuff_on = false;
+			points[0] = (EGI_POINT){0, surfman->fbdev.pos_yres-1};
+			points[1] = (EGI_POINT){20,surfman->fbdev.pos_yres-1};
+			points[2] = (EGI_POINT){0,surfman->fbdev.pos_yres-1-20};
+			//fbset_color2(&surfman->fbdev, WEGI_COLOR_LTYELLOW);
+			draw_blend_filled_triangle(&surfman->fbdev, points, WEGI_COLOR_LTYELLOW,200);
+		     	surfman->fbdev.zbuff_on = true;
+		  }
 		}
 
 		/* B.4 Draw cursor, disable zbuff and always make it at top. */
@@ -2284,9 +2320,9 @@ static void * surfman_render_thread(void *arg)
 		/* B.6 Render and bring to FB */
 		fb_render(&surfman->fbdev);
 		#ifdef LETS_NOTE
-		tm_delayms(5);
+ 		 tm_delayms(10);
 		#else
-		tm_delayms(100);
+		 tm_delayms(100);
 		#endif
 	}
 
@@ -3219,7 +3255,7 @@ inline int surfmsg_send(int msgid, long msgtype, const char *msgtext, int flags)
 }
 
 
-/*----------------------------------------------------------------
+/*-----------------------------------------------------------------------------
 Receive SURFMSG.
 
 @msgid: 	System_V message queue identifier.
@@ -3228,14 +3264,14 @@ Receive SURFMSG.
 @msgflag:	Flags: IPC_NOWAIT,MSG_NOERROR,MSG_COPY, ...etc.
 
 Return:
-	>=0	OK
+	>=0	OK, the number of bytes actually copied into msgdata->msg_text[]
 	<0	Fails OR no_msg.
-----------------------------------------------------------------*/
+--------------------------------------------------------------------------------*/
 inline int surfmsg_recv(int msgid, SURFMSG_DATA *msgdata, long msgtype, int msgflag)
 {
 	int msglen;
 
-        msglen=msgrcv(msgid, (void *)msgdata, SURFMSG_TEXT_MAX, msgtype, msgflag);
+        msglen=msgrcv(msgid, (void *)msgdata, SURFMSG_TEXT_MAX-1, msgtype, msgflag);
         if( msglen<0 ) {
 		egi_dperr("msgrcv fails.");
 		if( errno == ENOMSG ) egi_dpstd("No msg...\n");
@@ -3243,6 +3279,8 @@ inline int surfmsg_recv(int msgid, SURFMSG_DATA *msgdata, long msgtype, int msgf
         else if(msglen==0) {
         	//egi_dpstd("msglen=0!\n");
 	}
+	else
+		msgdata->msg_text[msglen]='\0';
 
 	return msglen;
 }

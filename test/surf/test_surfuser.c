@@ -58,9 +58,7 @@ https://github.com/widora/wegi
 #include <stdlib.h>
 #include <errno.h>
 #include <stdbool.h>
-#include <sys/mman.h>
 #include <unistd.h>
-#include <sys/syscall.h>   /* For SYS_xxx definitions */
 
 #include "egi_timer.h"
 #include "egi_color.h"
@@ -195,7 +193,7 @@ START_TEST:
 	if(pname)
 		strncpy(surfshmem->surfname, pname, SURFNAME_MAX-1);
 	else
-		pname="EGI_SURF";
+		strncpy(surfshmem->surfname, "EGI_SURF", SURFNAME_MAX-1);
 
 	/* 4. First draw surface */
 	surfshmem->bkgcolor=egi_color_random(color_all); /* OR default BLACK */
@@ -243,9 +241,9 @@ START_TEST:
         	if( pthread_join(surfshmem->thread_eringRoutine, NULL)!=0 )
                 	egi_dperr("Fail to join eringRoutine");
 
-        	/* Free SURFBTNs */
-        	for(i=0; i<3; i++)
-                	egi_surfBtn_free(&surfshmem->sbtns[i]);
+        	/* Free SURFBTNs, ---- OK, to be released by egi_unregister_surfuser()! */
+        	//for(i=0; i<3; i++)
+                //	egi_surfBtn_free(&surfshmem->sbtns[i]);
 
 		/* Unregister and destroy surfuser */
 		printf("Unregister surfsuer...\n");
@@ -262,9 +260,9 @@ START_TEST:
 
 #endif
 
-        /* Free SURFBTNs */
-        for(i=0; i<3; i++)
-                egi_surfBtn_free(&surfshmem->sbtns[i]);
+        /* Free SURFBTNs, ---- OK, to be released by egi_unregister_surfuser()!  */
+//        for(i=0; i<3; i++)
+//                egi_surfBtn_free(&surfshmem->sbtns[i]);
 
         /* Join ering_routine  */
         // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.

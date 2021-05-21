@@ -126,15 +126,19 @@ void 	egi_surfTickBox_writeFB(FBDEV *fbdev, const ESURF_TICKBOX *tbox,  int cx0,
 
 /***
 			--- An EGI_SURFACE_MENULIST ---
- 1. A control of MenuList (on surface). A MenuList consists of certain number of MenuItems, with description on it.
- 2. If a MenuItem in a MenuList links to a sub_MenuList, its a a NodeItem.
+ 1. A control of MenuList (on surface). A MenuList consists of certain number of MenuItems,
+    with description on it, and linked to a SURFPROG.
+ 2. If a MenuItem in a MenuList links to a sub_MenuList, it is called a NodeItem.
  3. A sub_MenuList has a node number, which is the item index of its upper/parent MenuList.
- 4. A MenuList tree consists of sub_MenuLists linked finally to a root MenuList.
+ 4. A MenuList Tree consists of sub_MenuLists linked finally to a root MenuList.
+
 			!!! --- WARNING --- !!!
  5. A MenuList tree MUST be assmebled/built from end branch sub_MenuLists to the root MenuList.
- 6. A root MenuList maintains a path[] to map out the selection MenuList tree.
- 7. The ROOT MenuList and the END MenuList shares the same fidx value, which is the index of the final selected MenuItem.
- 7. Menu_selection is a Top_Layer_Operation, it takes all events exclusively.
+
+ 6. A Selection Tree is the path of menu selection, all selected sub_MenuLists are visibly expanded.
+ 7. A root MenuList maintains a path[] to map out the selection MenuList tree.
+ 8. The ROOT MenuList and the END MenuList shares the same fidx value, which is the index of the final selected MenuItem.
+ 9. Menu_selection is a Top_Layer_Operation, it takes all events exclusively.
 */
 
 /* EGI_MENUITEM: free operation in _surfMenuList_free */
@@ -144,9 +148,11 @@ struct egi_menu_item {
 	bool		ticked;		/* TBD */
 	bool		valid;		/* TBD */
 
-	ESURF_MENULIST	*mlist;		/* !NULL  If it links to a ESURF_MENULIST */
+	ESURF_MENULIST	*mlist;		/* Links to a ESURF_MENULIST */
+	const char	*run_script;	/* ESURF_PROG prog_path + argv */
 
 };
+
 /* ESURF_MENULIST */
 struct egi_surface_menulist {
 	int 		mode;		/* A mode defines the postion of the root MenuList and its growth/path orientation.
@@ -158,21 +164,36 @@ struct egi_surface_menulist {
 #define MENULIST_ROOTMODE_RIGHT_TOP		3
 
 	bool		root;		/* True: If a root MenuList */
-	int		node;		/* Node numeber, For a sub_MenuList: as items index of its upper/parent MenuList. */
+	int		node;		/* Node numeber, For a sub_MenuList: as items index of its upper/parent MenuList.
+					 * Init. as -1, NOT a NodeItem.
+					 */
 
 	int 		x0;		/* For the root MenuList: Origin coordinates, relative to its container/screen. */
-	int 		y0;		/* For sub MenuList, it's NO USE NOW! <----- */
+	int 		y0;		/* For sub MenuList, if offset from normal aligment position. usually set y0 only.
+					 * As normal alignment: first MenuItem of the expanded sub_MenuList shall align with
+					 * the linked NodeItem.
+					 *		    --  --
+					 *		--  --> --
+					 *		--> --
+					 *		--
+					 *	    --> --
+					 *	    --
+					 *	   (ROOT)
+					 */
 
 	int 		mw;		/* Size for each menu piece. */
 	int 		mh;
+#define ESURF_MENULIST_OVERLAP	  5  	/* horizontal overlap value between two nearby MenuLists */
 
 	FT_Face 	face;		/* Font face */
 	int		fw;		/* font size, default as 12.  */
 	int		fh;
 
 	/* Colors */
-#define ESURF_MENULIST_BKGCOLOR		WEGI_COLOR_DARKGRAY
+#define ESURF_MENULIST_BKGCOLOR		WEGI_COLOR_GRAY5; //DARKGRAY
 	EGI_16BIT_COLOR bkgcolor;	/* Menu base color, BKG color */
+#define ESURF_MENULIST_SIDECOLOR	WEGI_COLOR_GRAY2;
+	EGI_16BIT_COLOR sidecolor;	/* Color for side/edge lines */
 #define ESURF_MENULIST_HLTCOLOR		WEGI_COLOR_ORANGE
 	EGI_16BIT_COLOR hltcolor;	/* Highlight color */
 #define ESURF_MENULIST_FONTCOLOR        WEGI_COLOR_WHITE
@@ -197,7 +218,8 @@ struct egi_surface_menulist {
 				 * An array of pointers to MenuLists, to map out current selected MenuLists tree(layout):
 				 *  1. Expended/visible MenuLists: path[0]->path[1]->...->path[depth].
 				 *  2. ONLY for a root_MenuList!, Init. allocated as: *path[ESURF_MENULIST_DEPTH_MAX]
-				 *  3. path[0] pointer to root MenuList itself.
+				 *  3. egi_surfMenuList_create(): Init. path[0] pointer to root MenuList itself.
+				 *  4. !!! Dirty data in path[] NOT cleared, use memeber 'depth' as its limit.
 				 */
 
 	int		fidx;		/* !!! Only for the root MenuList and the end MenuList, others all -1.
@@ -208,10 +230,10 @@ struct egi_surface_menulist {
 ESURF_MENULIST *egi_surfMenuList_create(int mode, bool root, int x0, int y0, int mw, int mh,
 						FT_Face face, int fw, int fh, unsigned int capacity);
 void	egi_surfMenuList_free(ESURF_MENULIST **mlist);
-int 	egi_surfMenuList_addItem(ESURF_MENULIST *mlist, const char *descript, ESURF_MENULIST *submlist);
+int 	egi_surfMenuList_addItem(ESURF_MENULIST *mlist, const char *descript, ESURF_MENULIST *submlist, const char *run_script);
 void 	egi_surfMenuList_writeFB(FBDEV *fbdev, const ESURF_MENULIST *mlist, int offx, int offy, int select_idx);
-int 	egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py); /* Pick the menu item, and update path and midx */
-//int	egi_surfMenuList_execute(ESURF_MENULIST *mlist); /* To confirm ...Click on the item ...etc. */
+int 	egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py); /* Pick the menu item, and update path and fidx */
+int 	egi_surfMenuList_runMenuProg(const ESURF_MENULIST *mlist);
 
 /***
 			--- An EGI_SURFACE_LISTBOX ---

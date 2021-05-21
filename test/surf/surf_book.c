@@ -54,7 +54,12 @@ void            *surfuser_ering_routine(void *surfuser);
 void my_redraw_surface(EGI_SURFUSER *surfuser, int w, int h);
 
 /* For text */
+#ifdef LETS_NOTE
+const char *fpath="/home/midas-zhou/Documents/hlm_all.txt";
+#else
 const char *fpath="/mmc/hlm.txt";
+#endif
+
 EGI_FILEMMAP *fmap;
 UFT8_PCHAR ptxt;
 int fw=18;
@@ -185,9 +190,10 @@ int main(int argc, char **argv)
 	printf("Shmsize: %zdBytes  Geom: %dx%dx%dBpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
-	/* TEST: draw line */
+#if 0	/* TEST: draw line */
 	fbset_color2(vfbdev, WEGI_COLOR_ORANGE);
 	draw_wline(vfbdev, 10, 40, surfshmem->vw-10,surfshmem->vh-10,1);
+#endif
 
 	/* 5. Write text on surface */
         FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular,   /* FBdev, fontface */
@@ -218,7 +224,7 @@ int main(int argc, char **argv)
 
         /* Free SURFBTNs */
         for(i=0; i<3; i++)
-                egi_surfbtn_free(&surfshmem->sbtns[i]);
+                egi_surfBtn_free(&surfshmem->sbtns[i]);
 
         /* Join ering_routine  */
         // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
@@ -243,6 +249,7 @@ int main(int argc, char **argv)
 }
 
 
+#if 0 //////////////  Use module default routine function  //////////////////////
 /*------------------------------------
     SURFUSER's ERING routine thread.
 ------------------------------------*/
@@ -306,6 +313,7 @@ void *surfuser_ering_routine(void *args)
 
 	return (void *)0;
 }
+#endif ////////////////////////////////////////////////
 
 
 /*---------------------------------------------------------------

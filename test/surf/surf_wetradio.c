@@ -1125,7 +1125,7 @@ EGI_16BIT_COLOR  mbkgcolor=WEGI_COLOR_GRAYB;
 	msurfshmem->sync=true;
 
  	/* ====== Main Loop ====== */
-	 while( msurfshmem->usersig != 1 ) {
+	while( msurfshmem->usersig != 1 ) {
 		usleep(100000);
 	};
 

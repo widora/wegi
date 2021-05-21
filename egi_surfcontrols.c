@@ -26,14 +26,21 @@ Journal:
 2021-5-14:
 2021-5-15:
 	1. Add ESURF_MENULIST and its functions.
+2021-5-16:
+	1. Add egi_surfMenuList_runMenuProg()
+2021-5-18:
+	1. egi_surfMenuList_updatePath(): Apply sub_MenuList.(x0,y0) to offset
+	   its normal alignment position.
 
 Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
 #include "egi_surfcontrols.h"
 #include "egi_surface.h"
-#include "egi_debug.h"
 #include "egi_utils.h"
+#include "egi_debug.h"
+#include "egi_log.h"
+#include <unistd.h>
 
 /*---------------------------------------------------------------
 Create an ESURF_BOX and blockcopy its imgbuf from input imgbuf.
@@ -473,7 +480,11 @@ Create a MenuList.
 	        ROOT_LEFT_BOTTOM	ROOT_RIGHT_BOTTO
 		ROOT_LEFT_TOP		ROOT_RIGHT_TOP
 
-@x0,y0:  	Origin relative to its container
+@x0,y0:  	For root MenuList: Origin relative to its container
+		Other sub_MenuList: Offset to normal aligment postion.
+                Usually just take (0,0), unless you don't keep normal
+		alignment of MenuList to MenuList.
+
 @mw,mh:	 	Size for each menu item/piece.
 @FT_Face:	Font face.
 @fw,fh:		Font size.
@@ -521,11 +532,10 @@ ESURF_MENULIST *egi_surfMenuList_create( int mode, bool root, int x0, int y0, in
 	mlist->mode=mode;
 	mlist->root=root;
 
-	if(root) {
-		mlist->x0=x0;
-		mlist->y0=y0;
-	}
-	/* NOTE: For sub MenuLists, all 0 */
+	mlist->node=-1;	/* Default NOT NodeItem */
+
+	mlist->x0=x0;
+	mlist->y0=y0;
 
 	mlist->mw=mw;
 	mlist->mh=mh;
@@ -543,6 +553,7 @@ ESURF_MENULIST *egi_surfMenuList_create( int mode, bool root, int x0, int y0, in
 
 	/* Set default color, User can revise it. */
 	mlist->bkgcolor=ESURF_MENULIST_BKGCOLOR;
+	mlist->sidecolor=ESURF_MENULIST_SIDECOLOR;
 	mlist->hltcolor=ESURF_MENULIST_HLTCOLOR;
 	mlist->fontcolor=ESURF_MENULIST_FONTCOLOR;
 
@@ -584,6 +595,7 @@ void    egi_surfMenuList_free(ESURF_MENULIST **mlist)
 	*mlist=NULL;
 }
 
+
 /*---------------------------------------------------------------------
 Draw a root MenuList with expanded/visible sub_MenuLists.
 
@@ -619,29 +631,34 @@ void egi_surfMenuList_writeFB(FBDEV *fbdev, const ESURF_MENULIST *mlist, int off
 		/* 1. Draw MenuList bkgcolor */
 		draw_filled_rect2(fbdev, mlist->bkgcolor, mlist->x0 +offx, mlist->y0 +offy,
 					mlist->x0 +offx +mlist->mw-1, mlist->y0 +offy -(mlist->mh*mlist->mcnt)-1 );
-		/* Edge */
-		fbset_color2(fbdev,WEGI_COLOR_GRAY2); //BLACK);
-		draw_rect(fbdev,  mlist->x0 +offx, mlist->y0 +offy,
-					mlist->x0 +offx +mlist->mw-1, mlist->y0 +offy -(mlist->mh*mlist->mcnt)-1 );
+		/* Rim/Edge Lines */
+		//fbset_color2(fbdev, mlist->sidecolor);
+		fbset_color2(fbdev, COLOR_COMPLEMENT_16BITS(mlist->bkgcolor));
+		//draw_rect(fbdev,  mlist->x0 +offx, mlist->y0 +offy,
+		//			mlist->x0 +offx +mlist->mw-1, mlist->y0 +offy -(mlist->mh*mlist->mcnt)-1 );  /* width 1pix */
+		draw_wrect(fbdev,  mlist->x0 +offx, mlist->y0 +offy,
+					mlist->x0 +offx +mlist->mw-1, mlist->y0 +offy -(mlist->mh*mlist->mcnt)-1, 2); /* width 2pix */
+
 
 		/* 2. Draw description and mark for each MenuItem */
 		for(i=0; i < mlist->mcnt; i++) {
-			/* Selected menu: --- highlight color --- */
+
+			/* Highlight color on selected MenuItem */
 			/* Ignore select_idx <0 */
 			if( select_idx  == i ) // xxx  -- fidx MAYBE not cleared as -1 !!!
 				//draw_filled_rect2( fbdev, mlist->hltcolor, x1,y1, x2,y2 );
 				draw_blend_filled_rect( fbdev,
 						   mlist->x0 +offx +1, 		     mlist->y0 +offy -i*mlist->mh -1,		/* x1,y1 */
 						   mlist->x0 +offx +mlist->mw -1 -1, mlist->y0 +offy -(i+1)*mlist->mh -1 +1,    /* x2,y2 */
-						   mlist->hltcolor, 200 );
+						   mlist->hltcolor, 220 );
 
 			/* Write Description */
 		        FTsymbol_uft8strings_writeFB( fbdev, mlist->face, 	/* FBdev, fontface */
-                                      mlist->fw, mlist->fh, (const UFT8_PCHAR)mlist->mitems[i].descript,  /* fw,fh, pstr */
-                                      mlist->mw, 1, 0,	 		/* pixpl, lines, fgap */
-                                      mlist->x0 +offx +10, mlist->y0 +offy -(i+1)*mlist->mh +5,       /* x0,y0, */
-                                      mlist->fontcolor, -1, 255,       /* fontcolor, transcolor,opaque */
-                                      NULL, NULL, NULL, NULL );        /* int *cnt, int *lnleft, int* penx, int* peny */
+                                    mlist->fw, mlist->fh, (const UFT8_PCHAR)mlist->mitems[i].descript,  /* fw,fh, pstr */
+                                    mlist->mw -15, 1, 0,	 	/* pixpl, lines, fgap */
+                                    mlist->x0 +offx -ESURF_MENULIST_OVERLAP +15, mlist->y0 +offy -(i+1)*mlist->mh +5,       /* x0,y0, */
+                                    mlist->fontcolor, -1, 220,       /* fontcolor, transcolor,opaque */
+                                    NULL, NULL, NULL, NULL );        /* int *cnt, int *lnleft, int* penx, int* peny */
 
 			/* Draw NodeItem mark '>' */
 			if( mlist->mitems[i].mlist !=NULL) {
@@ -651,7 +668,7 @@ void egi_surfMenuList_writeFB(FBDEV *fbdev, const ESURF_MENULIST *mlist, int off
 		                       FTsymbol_uft8strings_writeFB( fbdev, mlist->face,       /* FBdev, fontface */
                 	                      mlist->fw, mlist->fh, (const UFT8_PCHAR)nodemark,  /* fw,fh, pstr */
                         	              mlist->mw, 1, 0,                  /* pixpl, lines, fgap */
-                                	      mlist->x0 +offx +mlist->mw -pixlen-8-2,	/* x0, y0 */
+                                	      mlist->x0 +offx +mlist->mw -pixlen-ESURF_MENULIST_OVERLAP-5, /* x0, y0 */
 					      mlist->y0 +offy -(i+1)*mlist->mh +5,
                                       	      mlist->fontcolor, -1, 240,       /* fontcolor, transcolor,opaque */
                                       	      NULL, NULL, NULL, NULL );        /* int *cnt, int *lnleft, int* penx, int* peny */
@@ -671,11 +688,11 @@ void egi_surfMenuList_writeFB(FBDEV *fbdev, const ESURF_MENULIST *mlist, int off
 			/* TODO:  mlist->path[] MAY NOT cleared,  MUST check depth value! */
 			while( mlist->path[i] && i< mlist->depth+1 ) {
 				/* Cal. offset, relative to origin of the root MenuList */
-				if(i==1) {
-					offx += mlist->mw   -2;		/* -2 --- overlap effect */
+				if(i==1) {  /* OK, mlist->path[0] pointed to root mlist. */
+					offx += mlist->mw  -ESURF_MENULIST_OVERLAP; /* --- overlap effect */
 					offy -= mlist->mh * (mlist->path[1])->node;
 				} else {
-					offx += (mlist->path[i-1])->mw   -2;  /* -2 --- overlap effect */
+					offx += (mlist->path[i-1])->mw -ESURF_MENULIST_OVERLAP;  /* --- overlap effect */
 					offy -= (mlist->path[i-1])->mh * (mlist->path[i])->node;
 				}
 
@@ -712,12 +729,14 @@ Note:
 @submlist:	!NULL, A new menu item links to the sub_MenuList.
 		Ownership transfered to mlist!
 		It's node number also updated!
+@run_script:	Valid ONLY when submlist==NULL!
+		Set as MenuItem.run_script.
 
 Return:
 	0	OK
 	<0	Fails
 --------------------------------------------------------------------*/
-int  egi_surfMenuList_addItem(ESURF_MENULIST *mlist, const char *descript,  ESURF_MENULIST *submlist)
+int  egi_surfMenuList_addItem(ESURF_MENULIST *mlist, const char *descript,  ESURF_MENULIST *submlist,  const char *run_script)
 {
 	if( mlist==NULL || descript==NULL )
 		return -1;
@@ -749,6 +768,9 @@ int  egi_surfMenuList_addItem(ESURF_MENULIST *mlist, const char *descript,  ESUR
 
 		/* Update depth */
 		/* NOPE! depth to be updated in realtime.  */
+	}
+	else {
+		mlist->mitems[mlist->mcnt].run_script=run_script;
 	}
 
 	/* Update Counter */
@@ -785,7 +807,7 @@ int  egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py)
 	if(mlist->mcnt<1)  /* At lease on item */
 		return -2;
 
-	/* Init. x0,y0 */
+	/* Init. x0,y0,  NOTE: mlist is the ROOT MenuList. */
 	x0=mlist->x0;
 	y0=mlist->y0;
 
@@ -800,11 +822,13 @@ int  egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py)
     		   case MENULIST_ROOTMODE_LEFT_BOTTOM:
 			/* Cal. origin of MenuList: mlist->path[i] */
 			if(i>0) {
-				x0 += mlist->path[i-1]->mw -2; /* -2 --- overlap effect */
-				y0 -= (mlist->path[i]->node)*(mlist->path[i-1]->mh);
+				x0 += mlist->path[i-1]->mw -ESURF_MENULIST_OVERLAP  /* --- overlap effect */
+				      +mlist->path[i]->x0;  /* Offset from normal alignment */
+				y0 += -(mlist->path[i]->node)*(mlist->path[i-1]->mh)
+				      +mlist->path[i]->y0;  /* Offset from normal alignment */
 			}
 			/* Cal. diagonal corner point of the MenuList box. */
-			x1 = x0 +mlist->path[i]->mw	-2; /*  -2 --- Deduce */
+			x1 = x0 +mlist->path[i]->mw -ESURF_MENULIST_OVERLAP; /* --- Deduce overlap */
 			y1 = y0 -mlist->path[i]->mh*mlist->path[i]->mcnt;
 
 			break;
@@ -850,6 +874,94 @@ int  egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py)
 
 	return 0;
 }
+
+/*---------------------------------------------------------
+If mlist has a MenuItem selected, then run the ESUF_PROG as
+linked/associated in MenuItem.run_script.
+If mlist->fidx<0, no selection, ignore.
+
+mlist:	An pointer to ESURF_MENULIST
+
+Return:
+	0	OK
+	<0	Fails
+--------------------------------------------------------*/
+int egi_surfMenuList_runMenuProg(const ESURF_MENULIST *mlist)
+{
+	int i;
+	char *strp=NULL;
+	char run_script[1024]={0};  /* prog_path + argv */
+	pid_t apid;
+	char *prog_path=NULL;
+	char *pargv[1024]; /* Max. 1024-1 argvs,
+			    * pargv[0] MUST be the prog_name!
+			    * pargv[last] MUST be NULL for execv()
+			    */
+
+	if( mlist==NULL || mlist->fidx <0 ) /* No MenuItem selected */
+		return -1;
+
+	strp=(char *)mlist->path[mlist->depth]->mitems[mlist->fidx].run_script;
+	if(strp==NULL) {
+		egi_dpstd("run_script is NULL!\n");
+		return -2;
+	}
+
+	/* Copy to run_script[] */
+	strncpy(run_script, strp, sizeof(run_script)-1);
+	run_script[ sizeof(run_script)-1 ] ='\0';
+
+	/* Get prog_path, pargv */
+	strp=strtok(run_script," ");
+	if(strp) {
+		/* Prog path */
+		prog_path=strp;
+
+		/* Get argv[0] */
+		i=0;
+		pargv[0]=strp;
+
+		/* Get argv[1-...] */
+		for( i=1; (strp=strtok(NULL," ")) && (i < sizeof(pargv)-1); i++) {
+			pargv[i]=strp;
+			printf("argv: %s\n", strp);
+		}
+
+		/* The last argv[] for execv() MUST be NULL */
+		pargv[i] = NULL;
+	}
+	else {
+		return -3;
+	}
+
+
+        egi_dpstd("Start vfork ...\n");
+        apid=vfork();
+
+        /* In PROG */
+	if(apid==0) {
+        	egi_dpstd("Start execv prog...\n");
+                execv(prog_path, pargv);
+                /* Warning!!! if fails! it still holds whole copied context data!!! */
+                EGI_PLOG(LOGLV_ERROR, "%s: fail to execv '%s' after vfork(), error:%s",
+                                                            __func__, run_script, strerror(errno) );
+                exit(255); /* 8bits(255) will be passed to parent */
+	}
+
+        /* In the caller's context */
+	else if(apid <0) {
+        	EGI_PLOG(LOGLV_ERROR, "%s: Fail to launch APP '%s'!",__func__, run_script);
+                        return -3;
+        }
+        else {
+                //EGI_PLOG(LOGLV_CRITICAL, "%s: APP '%s' launched successfully!\n", __func__, run_script);
+		egi_dpstd("Succeed to launch ESURF_PROG '%s'.\n", run_script);
+        }
+
+
+	return 0;
+}
+
 
 /*---------------------------------------------------------------
 Create an ESURF_LISTBOX and blockcopy its imgbuf from input imgbuf.

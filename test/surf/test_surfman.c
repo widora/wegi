@@ -98,9 +98,13 @@ Journal
 	1. TEST: surfmsg_send()SURFMSG_REQUEST_REFRESH
 2021-05-12:
 	1. Set/reset surfman->minibar_ON to display/disappear screen left_side minibar.
-2021-05-14:
+2021-05-14/15:
 	1. Add a MenuList: surfman->menulist.
 	2. Set/reset surfman->menulist_ON to display/disappear MenuList tree.
+2021-05-18:
+	1. Process SURFMSG_REQUEST_UPDATE_WALLPAPER.
+2021-05-21:
+	2. W.2.7.2  If the mouse cursor hovers over a NON_TOP_surface, ERING mstat to the surface.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -122,7 +126,11 @@ https://github.com/widora/wegi
 #include "egi_input.h"
 #include "egi_utils.h"
 
-#define WALLPAPER_PATH	 "/mmc/desk"
+#ifdef LETS_NOTE
+	#define WALLPAPER_PATH   "/home/midas-zhou/Pictures/desk"
+#else
+	#define WALLPAPER_PATH	 "/mmc/desk"
+#endif
 
 #ifdef LETS_NOTE
         #define MCURSOR_NORMAL	"/home/midas-zhou/egi/mcursor.png"
@@ -204,7 +212,7 @@ int main(int argc, char **argv)
 //  	tm_start_egitick();
 
 	/* Create an ERING_MSG */
-	printf("Create an ERING_MSG, sizeof(EGI_MOUSE_STATUS)=%lu ....\n", sizeof(EGI_MOUSE_STATUS));
+	printf("Create an ERING_MSG, sizeof(EGI_MOUSE_STATUS)=%d ....\n", sizeof(EGI_MOUSE_STATUS));
         ERING_MSG *emsg=ering_msg_init();
         if(emsg==NULL) exit(EXIT_FAILURE);
 
@@ -267,7 +275,7 @@ int main(int argc, char **argv)
 	/* Load a random image file */
 	surfman->bkgimg=egi_imgbuf_readfile(FileList[mat_random_range(fcount)]);
 	/* Stretch image to fit for the FB */
-	egi_imgbuf_resize_update(&surfman->bkgimg, false, 320,240); //surfman->fbdev.pos_xres, surfman->fbdev.pos_yres); /* **pimg, keep_ratio, width, height */
+	egi_imgbuf_resize_update(&surfman->bkgimg, false, surfman->fbdev.pos_xres, surfman->fbdev.pos_yres); /* **pimg, keep_ratio, width, height */
 
 /* ------ <<<  Surfman Critical Zone  */
 //	pthread_mutex_unlock(&surfman->surfman_mutex);
@@ -285,32 +293,35 @@ int main(int argc, char **argv)
         /* 4. Create a MenuList Tree */
         ESURF_MENULIST *mlist_System, *mlist_Program, *mlist_Tools;
         /* 4.1 Create root mlist: ( mode, root, x0, y0, mw, mh, face, fw, fh, capacity) */
-        surfman->menulist=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, true, 0, 240-1, 110, 30, egi_sysfonts.regular, 16, 16, 8 );
+        surfman->menulist=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, true, 0, surfman->fbdev.pos_yres-1,
+											110, 30, egi_sysfonts.regular, 16, 16, 8 );
         mlist_System=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0, 0, 130, 30, egi_sysfonts.regular, 16, 16, 8 );
-        mlist_Program=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0, 0, 70, 30, egi_sysfonts.regular, 16, 16, 8 );
+        mlist_Program=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0, 30*2, 100, 30, egi_sysfonts.regular, 16, 16, 8 );
         mlist_Tools=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0, 0, 130, 30, egi_sysfonts.regular, 16, 16, 8 );
 
         /* 4.2 Add items to mlist_Tools */
-        egi_surfMenuList_addItem(mlist_Tools, "系统监控", NULL);
-        egi_surfMenuList_addItem(mlist_Tools, "Security", NULL);
-        egi_surfMenuList_addItem(mlist_Tools, "文件管理", NULL);
+        egi_surfMenuList_addItem(mlist_Tools, "Security", NULL, "/tmp/test_surfuser -n  系统安全 ");
+        egi_surfMenuList_addItem(mlist_Tools, "文件管理", NULL, NULL);
+        egi_surfMenuList_addItem(mlist_Tools, "系统监控", NULL, "/tmp/surf_wifiscan");
+        egi_surfMenuList_addItem(mlist_Tools, "必应桌面", NULL, "/tmp/surf_wallpaper");
 
-        /* 4.2 Add items to mlist_Program */
-        egi_surfMenuList_addItem(mlist_Program, "画图", NULL);
-        egi_surfMenuList_addItem(mlist_Program, "搜索", NULL);
-        egi_surfMenuList_addItem(mlist_Program, "计算器", NULL);
-        egi_surfMenuList_addItem(mlist_Program, "ＰＰＡ", NULL);
+        /* 4.3 Add items to mlist_Program */
+        egi_surfMenuList_addItem(mlist_Program, "搜索", NULL, NULL);
+        egi_surfMenuList_addItem(mlist_Program, "测试", NULL, "/tmp/test_surfuser -n 测试 ");
+        egi_surfMenuList_addItem(mlist_Program, "WetRadio", NULL, "/tmp/surf_wetradio");
+        egi_surfMenuList_addItem(mlist_Program, "MAD播放器", NULL, "/tmp/surf_madplay /mmc/music/'*.mp3'" );
+        egi_surfMenuList_addItem(mlist_Program, "红楼梦", NULL, "/tmp/surf_book");
 
-        /* 4.3 Add items to mlist_System */
-        egi_surfMenuList_addItem(mlist_System, "工具", mlist_Tools);
-        egi_surfMenuList_addItem(mlist_System, "Program", mlist_Program); /* Link sub_mlist0 to  mlist_System */
-        egi_surfMenuList_addItem(mlist_System, "Trash Bin", NULL);
-        egi_surfMenuList_addItem(mlist_System, "Control Panel", NULL);
+        /* 4.4 Add items to mlist_System */
+        egi_surfMenuList_addItem(mlist_System, "Control Panel", NULL, NULL);
+        egi_surfMenuList_addItem(mlist_System, "工具", mlist_Tools, NULL);
+        egi_surfMenuList_addItem(mlist_System, "Program", mlist_Program, NULL); /* Link sub_mlist0 to  mlist_System */
+        egi_surfMenuList_addItem(mlist_System, "Trash Bin", NULL, NULL);
 
-        /* 4.4 Add items to the ROOT menulist */
-        egi_surfMenuList_addItem(surfman->menulist, "Shut Down", NULL);
-        egi_surfMenuList_addItem(surfman->menulist, "Log Out", NULL);
-        egi_surfMenuList_addItem(surfman->menulist, "System", mlist_System);
+        /* 4.5 Add items to the ROOT menulist */
+        egi_surfMenuList_addItem(surfman->menulist, "Shut Down", NULL, NULL);
+        egi_surfMenuList_addItem(surfman->menulist, "Log Out", NULL, NULL);
+        egi_surfMenuList_addItem(surfman->menulist, "System", mlist_System, NULL);
 
 #if 0	/* 4.5 ------TEST:  Init Assemble the MenuList Selection Path */
         surfman->menulist->path[1] = mlist_System;
@@ -318,13 +329,16 @@ int main(int argc, char **argv)
         surfman->menulist->depth=2;     /* 2 levels of sub_MenuList */
 #endif
 
+
+		/* =============== >>>  SURFMAN Routine Job  <<< ============== */
+
 	/* 5. Do SURFMAN routine jobs while no command */
 	k=SURFMAN_MAX_SURFACES-1;
 	while( surfman->cmd !=1 ) {
 
 /* TEST: ------- SURFMSG ------- */
 		/* Receive msg queue _REQUEST_DISPINFO from surfaces */
-		nrcv=msgrcv(surfman->msgid, (void *)&msgdata, SURFMSG_TEXT_MAX, SURFMSG_REQUEST_DISPINFO, MSG_NOERROR|IPC_NOWAIT);
+		nrcv=msgrcv(surfman->msgid, (void *)&msgdata, SURFMSG_TEXT_MAX-1, -SURFMSG_PRVTYPE_MAX, MSG_NOERROR|IPC_NOWAIT);
                 if( nrcv<0 && errno == ENOMSG ) {
                 }
                 else if(nrcv<0)
@@ -337,8 +351,28 @@ int main(int argc, char **argv)
 				case SURFMSG_REQUEST_DISPINFO:
 					egi_dpstd("EMSG from surface: %s!\n", msgdata.msg_text);
 					break;
+				case SURFMSG_REQUEST_UPDATE_WALLPAPER:
+					msgdata.msg_text[nrcv]='\0';
+					egi_dpstd("EMSG from surface: Update wallpaper with '%s'.\n", msgdata.msg_text);
 
+					/* Load a image file */
+					EGI_IMGBUF *tmpimg=egi_imgbuf_readfile(msgdata.msg_text);
+					/* Stretch image to fit for the FB */
+					if(tmpimg) {
+						egi_imgbuf_resize_update(&tmpimg, false, surfman->fbdev.pos_xres, surfman->fbdev.pos_yres);
+						pthread_mutex_lock(&surfman->surfman_mutex);
+		/* ------ >>>  Surfman Critical Zone  */
+
+						egi_imgbuf_free2(&surfman->bkgimg);
+						printf("Assing surfman->bkgimg = tmpimg!\n");
+						surfman->bkgimg = tmpimg;
+
+		/* ------ <<<  Surfman Critical Zone  */
+						pthread_mutex_unlock(&surfman->surfman_mutex);
+					}
+					break;
 				default:
+					egi_dpstd("Unknown EMSG: %s \n", msgdata.msg_text);
 					break;
 
 			}
@@ -495,13 +529,20 @@ int main(int argc, char **argv)
 				zseq=surfman_xyget_Zseq(surfman, surfman->mx, surfman->my);
 				printf("Picked zseq=%d\n", zseq);
 
-#if 1
+#if 1 /* ------ SurfMan::MenuList ------ */
 				/* Check if click on MenuList */
 				if( surfman->menulist_ON ) {
-					if( zseq != SURFMAN_MENULIST_PIXZ )
+					if( zseq != SURFMAN_MENULIST_PIXZ ) {
 						surfman->menulist_ON = false;
-					else {
-
+						/* Reset depth to clear previous selection tree. */
+						surfman->menulist->depth=0;
+					}
+					else
+					{
+						/* Load MenuItem Linked PROG */
+						egi_surfMenuList_runMenuProg(surfman->menulist);
+						surfman->menulist_ON = false;
+						surfman->menulist->depth=0;
 					}
 
 				}
@@ -644,14 +685,15 @@ int main(int argc, char **argv)
 			pthread_mutex_lock(&surfman->surfman_mutex);
 	/* ------ >>>  Surfman Critical Zone  */
 
-			if(surfman->scnt) {  /* Only if have surface registered */
+			/* W2.7.1  Only if have surface registered, and MiniBar+MenuList are OFF! */
+			if(surfman->scnt && !surfman->minibar_ON && !surfman->menulist_ON ) {
 				/*** NOTE:
 				 *   1. If current surfaces[SURFMAN_MAX_SURFACES-1] is minimized by SURFUSER! then we have
 				 *      to pick next top surface on the desk, NOT in the minibar menu!
 				 *      OR the minimized surface will keep receiving mostat !!!!
 				 *   2. NOT call surfman_bringtop_surface_nolock(), Let it keeps its zseq!
 				 */
-				for(j=0; j < surfman->scnt; j++) {
+				for(j=0; j < surfman->scnt; j++) {  /* SURFMAN_MAX_SURFACES-1-j:  traverse from upper layer. */
 					if( surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->surfshmem->status != SURFACE_STATUS_MINIMIZED ) {
 		/* Note: ering_msg_send() is BLOCKING type, if Surfuser DO NOT recv the msg, it will be blocked here!?  OR to kernel buffer. */
 
@@ -668,7 +710,7 @@ int main(int argc, char **argv)
 						}
 						//printf("ering msg send OK!\n");
 					    }
-					    else {  /* SURFACE_FLAG_MEVENT NOT cleared! */
+					    else {  /* SURFACE_FLAG_MEVENT NOT cleared! Means the TOP surface has NOT finished last mevent yet. */
 							egi_dpstd("FLAG_MEVENT NOT cleared!\n");
 					    }
 					    /* If SURFACE_FLAG_MEVENT NOT cleared by the surfuser, then current mostat will be ignored! */
@@ -678,6 +720,16 @@ int main(int argc, char **argv)
 					}
 				}
 			}
+
+			/* W.2.7.2  If the mouse cursor hovers over a NON_TOP_surface, ERING mstat to the surface. */
+			surfID=surfman_xyget_surfaceID(surfman, surfman->mx, surfman->my );
+			if( surfID >=0 && surfID !=SURFMAN_MAX_SURFACES-1 ) {  /* Not TOP surface */
+				if( ering_msg_send( surfman->surfaces[surfID]->csFD,
+					emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS) ) <=0 ) {
+					egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");
+				}
+			}
+
 
 	/* ------ <<<  Surfman Critical Zone  */
 			pthread_mutex_unlock(&surfman->surfman_mutex);

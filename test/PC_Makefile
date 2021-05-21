@@ -23,9 +23,11 @@ LDFLAGS += -L/lib
 LDFLAGS += -L/usr/lib/i386-linux-gnu
 
 #LIBS	=  -lepages
-#LIBS    += -lesound
-#LIBS    += -lasound
-#LIBS    =  -lsndfile
+LIBS    += -lesound
+LIBS    += -lasound
+LIBS    += -lsndfile
+LIBS    += -lmad
+LIBS	+= -lrt  #for shm_open()
 
 LIBS    += -lpng12
 LIBS    += -lz -lm -pthread -ljpeg
@@ -44,6 +46,8 @@ EGILIB=dynamic
 ### 		----- A template for making test app -----
 ###	Usage example: make test TEST_NAME=test_resizeimg EGILIB=static
 ###
+
+
 test:	$(TEST_NAME).c
 ifeq ($(EGILIB),static)
 	$(CC) $(TEST_NAME).c -o $(TEST_NAME) $(CFLAGS) $(LDFLAGS) \
@@ -58,9 +62,11 @@ endif
 
 
 ### !!! NOTE: put '-o $@  $@.c' ahead of FLAGS and LIBS !!!!
-%:%.c
-	$(CC) -o $@  $@.c $(CFLAGS) $(LDFLAGS) $(LIBS) -legi
-#	$(CC)  $(CFLAGS) $(LDFLAGS) $(LIBS)  $@.c -o $@
+# xxx--	$(CC)  $(CFLAGS) $(LDFLAGS) $(LIBS)  $@.c -o $@  ---xxx
+
+#%:%.c
+#	$(CC) -o $@  $@.c $(CFLAGS) $(LDFLAGS) $(LIBS) -legi
+
 
 clean:
 	rm -rf *.o $(APPS)
