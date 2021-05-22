@@ -52,6 +52,7 @@ bool 	pxy_inbox(int px,int py,int x1,int y1,int x2,int y2);
 //bool 	point_inbox2(const EGI_POINT *point, const EGI_BOX* box);
 bool 	point_inbox(const EGI_POINT *point, const EGI_BOX* box);
 bool 	point_incircle(const EGI_POINT *pxy, const EGI_POINT *pc, int r);
+bool 	point_intriangle(const EGI_POINT *pxy, const EGI_POINT *tripts);
 bool    box_inbox(EGI_BOX* box, EGI_BOX* container);
 bool    box_outbox(EGI_BOX* box, EGI_BOX* container);
 

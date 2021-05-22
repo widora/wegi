@@ -3,6 +3,10 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+Journal:
+2021-05-22:
+	1. Add MAT_VECTOR2D macros for 2D Vector operation.
+
 Midas Zhou
 -------------------------------------------------------------------*/
 #ifndef __EGI_MATH_H__
@@ -59,7 +63,6 @@ EGI_FVAL       imag;	/* imaginery part */
 @N:	Total number of sample data for each FFT session.
 */
 #define MAT_FHAMMING(n, N)  ( MAT_FVAL(0.54-0.46*cos(2.0*n*MATH_PI/N)) )
-
 
 /* Right_shift and Right_rotate operation
  @x:  	 input variable.
@@ -131,5 +134,28 @@ int 	mat_bspline_basis(int i, int deg, float u, const float *vu, float *LN);
 float   mat_FastInvSqrt( float x );
 
 int 	mat_sha256_digest(const uint8_t *input, uint32_t len, uint32_t *init_hv, uint32_t *init_kv, uint32_t *hv, char *digest);
+
+
+
+/* ----- 2D Vector Operation ----- */
+typedef struct {
+	float x;
+	float y;
+} MAT_VECTOR2D;
+
+/* Following: a,b are MAT_VECTOR2 */
+
+#define VECTOR2D_ADD(a, b)	( (MAT_VECTOR2D){a.x+b.x, a.y+b.y} )	/* Add */
+#define VECTOR2D_SUB(a, b)	( (MAT_VECTOR2D){a.x-b.x, a.y-b.y} )	/* Subtract */
+#define VECTOR2D_MULT(a, k)	( (MAT_VECTOR2D){ k*a.x, k*a.y } )	/* Multiply */
+#define VECTOR2D_DIV(a, k)	( (MAT_VECTOR2D){ a.x/k, a.y/k } )	/* Divide, K!=0 */
+
+#define VECTOR2D_MOD(a)		( sqrt(a.x*a.x+a.y*a.y) )		/* Module a!=0 */
+#define VECTOR2D_NORM(a)	( VECTOR2D_DIV(a, VECTOR2D_MOD(a) ) )	/* Normal, a!=0 */
+
+#define VECTOR2D_DOTPD(a, b)	( a.x*b.x + a.y*b.y )			/* Dot product */
+#define VECTOR2D_CROSSPD(a, b)	( (MAT_VECTOR2D){a.x-b.x, a.y-b.y} )	/* Cross product */
+
+
 
 #endif

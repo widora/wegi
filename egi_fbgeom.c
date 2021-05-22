@@ -51,6 +51,8 @@ Jurnal
 	   fbset_color() replaced by fbset_color2() to use pixcolor.
 2021-05-19:
 	1. Add draw_blend_filled_triangle().
+2021-05-22:
+	1. Add point_intriangle().
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -220,6 +222,53 @@ inline bool point_incircle(const EGI_POINT *pxy, const EGI_POINT *pc, int r)
 
 	else
 		return false;
+}
+
+/*------------------------------------------------------------------------
+ Check if an EGI_POINT is within a triangle.
+
+  		(Barycentric Coordinate Method)
+ Reference: https://blackpawn.com/texts/pointinpoly/default.html
+
+ @pxy:		checking point.
+ @tripts:   	Three points to define an Triangle.
+
+ return:
+	 True:  the point is totally within the triangle.
+	 False
+
+ Midas Zhou
+-------------------------------------------------------------------------*/
+inline bool point_intriangle(const EGI_POINT *pxy, const EGI_POINT *tripts)
+{
+	MAT_VECTOR2D v0,v1,v2;
+	float dp00, dp01, dp02, dp11, dp12;
+	float denom;
+	float u,v;
+
+	if(pxy==NULL || tripts==NULL)
+		return false;
+
+	v0 = VECTOR2D_SUB(tripts[2], tripts[0]);
+	v1 = VECTOR2D_SUB(tripts[1], tripts[0]);
+	v2 = VECTOR2D_SUB(pxy[0], tripts[0]);
+
+	dp00=VECTOR2D_DOTPD(v0, v0);
+	dp01=VECTOR2D_DOTPD(v0, v1);
+	dp02=VECTOR2D_DOTPD(v0, v2);
+	dp11=VECTOR2D_DOTPD(v1, v1);
+	dp12=VECTOR2D_DOTPD(v1, v2);
+
+	denom=dp00*dp11 - dp01*dp01;
+
+	/* Is a Line!? */
+	if( abs(denom) < 0.0001 )
+		return true;
+
+	u=(dp11*dp02 - dp01*dp12)/denom;
+	v=(dp00*dp12 - dp01*dp02)/denom;
+
+	return	(u>=0) && (v>=0) && (u+v<1);
 }
 
 
