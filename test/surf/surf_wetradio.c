@@ -57,6 +57,8 @@ Journal:
 	2. Receive radio stream params from HelixAAC decoder, via System V message queue.
 2021-05-05:
 	1. ListBox_mouse_event(): Drag GuideBlock on scrollbar to change View of ListBox.
+2021-05-25:
+	1. Try to scroll radio_station_name if its too long for displaying panel.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -199,6 +201,8 @@ void signal_handler(int signo)
         }
 }
 
+void FTsymbol_writeIMG(EGI_IMGBUF *imgbuf, char *txt, int fw, int fh, EGI_16BIT_COLOR color, int px, int py);
+
 
 /*----------------------------
 	   MAIN()
@@ -208,6 +212,7 @@ int main(int argc, char **argv)
 	//int i,j;
 	int x0=0,y0=0; /* Origin coord of the surface */
 	char *pname=NULL;
+	int px=0;
 
         /* Set signal handler */
       	egi_common_sigAction(SIGINT, signal_handler);
@@ -428,6 +433,10 @@ int main(int argc, char **argv)
 			if( playlist_idx < 0 )
 				playlist_idx = playlist_max-1;
 
+			/* Clear LAB */
+			px=0;
+			egi_imgbuf_resetColorAlpha(labels[LAB_RSNAME]->imgbuf, WEGI_COLOR_DARKGRAY1, 255);
+
 			/* Update Labels */
 			egi_surfLab_updateText(labels[LAB_STATUS], "Connecting...");
 			egi_surfLab_updateText(labels[LAB_PARAMS], "Params...");
@@ -474,6 +483,10 @@ int main(int argc, char **argv)
 			radioSIG = SIG_NONE;
 		}
 		else if( radioSIG == SIG_SWITCH ) { /* Switch/Change station, playlist_idx changed by surf_ListBox() */
+			/* Clear LAB */
+			px=0;
+			egi_imgbuf_resetColorAlpha(labels[LAB_RSNAME]->imgbuf, WEGI_COLOR_DARKGRAY1, 255);
+
 			/* Update Labels */
 			egi_surfLab_updateText(labels[LAB_RSNAME], playlist[playlist_idx].name);
 			egi_surfLab_updateText(labels[LAB_PARAMS], "Params...");
@@ -552,6 +565,30 @@ int main(int argc, char **argv)
 		                pthread_mutex_unlock(&surfshmem->shmem_mutex);
 		}
 /* END: ---- MSG QUEUE ---- */
+
+
+#if 1 /* TEST: ------------- Scroll Radio station name. */
+	   if( surfshmem->status != SURFACE_STATUS_MINIMIZED ) {
+		int pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.bold, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
+		if(pixlen > panW ) {
+			//printf("resetColorAlpah\n");
+			egi_imgbuf_resetColorAlpha(labels[LAB_RSNAME]->imgbuf, WEGI_COLOR_DARKGRAY1, 255);
+			px-=1;
+			if(px < (labels[LAB_RSNAME]->w - pixlen -panW/2) ) px=labels[LAB_RSNAME]->w/2;
+			//printf("writeIMG\n");
+			FTsymbol_writeIMG(labels[LAB_RSNAME]->imgbuf, labels[LAB_RSNAME]->text, 18, 18, WEGI_COLOR_ORANGE, px, 0);
+
+	        	pthread_mutex_lock(&surfshmem->shmem_mutex);
+/* ------ >>>  Surface shmem Critical Zone  */
+			printf("subimg writeFB\n");
+			egi_subimg_writeFB(labels[LAB_RSNAME]->imgbuf, vfbdev, 0, -1, labels[LAB_RSNAME]->x0, labels[LAB_RSNAME]->y0);
+			//egi_surfLab_writeFB(vfbdev, labels[LAB_RSNAME], egi_sysfonts.regular, 18, 18, WEGI_COLOR_GREEN, 0, 0);
+/* ------ <<<  Surface shmem Critical Zone  */
+			pthread_mutex_unlock(&surfshmem->shmem_mutex);
+		}
+	   }
+
+#endif
 
 		usleep(10000);
 	}
@@ -714,19 +751,22 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
                                                                 pmostat->mouseY -surfuser->surfshmem->y0 );
 		/* If the mouse just moves onto LAB */
 		if(mouseOnLab && mplab<0 ) {
-		    	/* Same effect: Put mask */
+		    	#if 0 /* Same effect: Put mask */
 			draw_blend_filled_rect(vfbdev,  labels[LAB_RSNAME]->x0, labels[LAB_RSNAME]->y0,
         						labels[LAB_RSNAME]->x0+labels[LAB_RSNAME]->imgbuf->width-1 -1,
 							labels[LAB_RSNAME]->y0+labels[LAB_RSNAME]->imgbuf->height-1 -1,
                 					WEGI_COLOR_LTYELLOW, 180);
-
+			#endif
 			mplab=LAB_RSNAME;
 		}
 		/* If the mouse leaves the LAB */
 		else if(!mouseOnLab && mplab== LAB_RSNAME) {
+			#if 0
 			egi_surfLab_writeFB(vfbdev, labels[LAB_RSNAME], egi_sysfonts.regular, 18, 18, WEGI_COLOR_GREEN, 0, 0);
+			#endif
 			mplab =-1;
 		}
+
 	}
 
 #if 0
@@ -1079,11 +1119,14 @@ EGI_16BIT_COLOR  mbkgcolor=WEGI_COLOR_GRAYB;
 
 	/* 5. First draw ListBox surface. */
 	msurfshmem->bkgcolor=mbkgcolor; /* OR default BLACK */
+	egi_dpstd("First draw surface...\n");
 	surfuser_firstdraw_surface(msurfuser, TOPBTN_CLOSE); /* Default firstdraw operation */
 //	surfuser_firstdraw_surface(msurfuser, TOPBAR_NONE); /* Default firstdraw operation */
 
-	/* 6. Draw ListBox */
+
+	/* 6. Draw/Create ListBox */
 	/* 6.1 Firstdraw/Create ListBox */
+	egi_dpstd("Create ListBox...\n");
 	draw_filled_rect2(mvfbdev, WEGI_COLOR_WHITE, 1, SURF_TOPBAR_HEIGHT, 1+((msw-2)-ESURF_LISTBOX_SCROLLBAR_WIDTH)-1, msh-2);
 	listbox=egi_surfListBox_create(msurfimg, 1, SURF_TOPBAR_HEIGHT, 1, SURF_TOPBAR_HEIGHT,  /* imgbuf, xi, yi, x0, y0, w, h, ListBarH */
 						   msw-2, msh-SURF_TOPBAR_HEIGHT-1, fw, fh, LineSpace );
@@ -1092,6 +1135,8 @@ EGI_16BIT_COLOR  mbkgcolor=WEGI_COLOR_GRAYB;
 		egi_unregister_surfuser(&msurfuser);
 		return -2;
 	}
+	/* Set font face */
+	listbox->face = egi_appfonts.regular;  /* Default: egi_appfonts.regular */
 
 	/* Add items to listbox */
 	for(i=0; i<playlist_max; i++)
@@ -1315,4 +1360,19 @@ void ListBox_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 	}
 }
 
+
+/*-------------------------------------
+        FTsymbol WriteIMG TXT
+@txt:           Input text
+@px,py:         X/Y for start point
+--------------------------------------*/
+void FTsymbol_writeIMG(EGI_IMGBUF *imgbuf, char *txt, int fw, int fh, EGI_16BIT_COLOR color, int px, int py)
+{
+        FTsymbol_uft8strings_writeIMG(  imgbuf, egi_sysfonts.bold,       /* IMGBUF, fontface */
+                                        fw, fh,(const unsigned char *)txt,      /* fw,fh, pstr */
+                                        320, 1, 0,                      /* pixpl, lines, fgap */
+                                        px, py,                         /* x0,y0, */
+                                        color, -1, 255,                 /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);        /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+}
 

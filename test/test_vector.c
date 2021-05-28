@@ -70,7 +70,7 @@ int main(int argc, char **argv)
   /* <<<<<  End of EGI general init EGI初始化流程结束  >>>>>> */
 
 
-   const int	ntg=7;	/* Total number of triangles */
+   const int	ntg=12;	/* Total number of triangles */
 
    typedef struct triangle_data {
 		EGI_POINT 	*pts;
@@ -78,15 +78,20 @@ int main(int argc, char **argv)
    } TRIANG_DATA;
    TRIANG_DATA triangs[ntg];
 
-   EGI_POINT	pts[3*7]=
+   EGI_POINT	pts[3*12]=
 		{
-			{80,80}, {240,80}, {160, 160},		/* Triangle 0 */
+			{80,100}, {240,100}, {160, 160},	/* Triangle 0 */
 			{0,80}, {80, 160}, {80,240-1},		/* Triangle 1 */
 			{320-1,80}, {240,160}, {240,240-1},	/* Triangle 2 */
 			{80,240-1}, {120, 160}, {160,240-1},	/* Triangle 3 */
 			{160,240-1}, {200, 160}, {240,240-1},	/* Triangle 4 */
 			{0,80}, {160,0}, {120, 60},		/* Triangle 5 */
-			{160,0}, {200,60}, {320-1, 80}		/* Triangle 6 */
+			{160,0}, {200,60}, {320-1, 80},		/* Triangle 6 */
+			{40,80}, {40,80}, {100,140},		/* An inclined line: Triangle 7 */
+			{280,80}, {220,140}, {220,140},		/* An inclined line: Triangle 8 */
+			{80, 80}, {80, 80}, {240, 80}, 		/* A Horizontal line: Triangle 9 */
+			{160,170},{160,170+60}, {160,170+60},   /* A vertical line: Triangle 10 */
+			{160, 60}, {160, 60},{160, 60}		/* A point: Triangle 11 */
 		};
 
    /* Define triangles */
@@ -113,34 +118,48 @@ int main(int argc, char **argv)
    while(1) {
 	while( !mouse_request ) { tm_delayms(10);}; //{ usleep(1000); };
 
-	/* Check if touchs triangle */
-	fb_filo_off(&gv_fb_dev);
+	/* Get moustXY */
 	mpt.x=pmostat->mouseX; mpt.y=pmostat->mouseY;
+
+#if 1	/* Check if touchs triangle */
+	fb_filo_off(&gv_fb_dev);
 	for( i=0; i<ntg; i++ ) {
 	   if( triangs[i].selected==false ) {
 		triangs[i].selected=true;
 		if( point_intriangle(&mpt, triangs[i].pts) ) {
 			fbset_color(WEGI_COLOR_RED);
 			draw_filled_triangle(&gv_fb_dev, triangs[i].pts);
+
+			/* A point */
+			if(i==11) {
+				draw_circle(&gv_fb_dev, triangs[i].pts->x, triangs[i].pts->y, 5);
+			}
 		}
 	   }
-	   else {
+	   else {  /* Clear and restore orignal color. */
 		triangs[i].selected=false;
 		if( point_intriangle(&mpt, triangs[i].pts)==false ) {
                         fbset_color(WEGI_COLOR_GRAY);
                         draw_filled_triangle(&gv_fb_dev, triangs[i].pts);
+
+			/* A point */
+			if(i==11) {
+				fbset_color(WEGI_COLOR_DARKGRAY);
+				draw_circle(&gv_fb_dev, triangs[i].pts->x, triangs[i].pts->y, 5);
+			}
                 }
 	   }
 	}
 	fb_filo_on(&gv_fb_dev);
+#endif
 
 	/* If NO mouse_request, then it ONLY need to redraw mouse with new position */
 	if( pmostat->KeysIdle ) {
-		printf("Mouse Key Idle\n"); /* NOTE: There usually (at lease) 1 No_request after a request! for the mouse_callback NOT ready yet!! */
+		// printf("Mouse Key Idle\n"); /* NOTE: There usually (at lease) 1 No_request after a request! for the mouse_callback NOT ready yet!! */
 
 		fb_render(&gv_fb_dev);
 		draw_mcursor(pmostat->mouseX, pmostat->mouseY);
-		tm_delayms(30);
+		tm_delayms(20);
 
 		mouse_request=false;
 		continue;
@@ -188,8 +207,6 @@ int main(int argc, char **argv)
 }
 
 
-
-
 /*-------------------------------------
         FTsymbol WriteFB TXT
 @txt:           Input text
@@ -202,11 +219,8 @@ void FTsymbol_writeFB(char *txt, int fw, int fh, EGI_16BIT_COLOR color, int px, 
                                         320, 1, 0,      		/* pixpl, lines, fgap */
                                         px, py,                         /* x0,y0, */
                                         color, -1, 220,                 /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL);      	/*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                                        NULL, NULL, NULL, NULL);      	/* int *cnt, int *lnleft, int* penx, int* peny */
 }
-
-
-
 
 /*-----------------------------------------------------------
 		Callback for mouse input

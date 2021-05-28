@@ -253,7 +253,6 @@ int main(int argc, char **argv)
 		exit(EXIT_FAILURE);
         }
 
-
 	/* 1.A Load imgbuf for mouse cursor */
 	surfman->mcursor=egi_imgbuf_readfile(MCURSOR_NORMAL);
 	surfman->mgrab=egi_imgbuf_readfile(MCURSOR_GRAB);
@@ -313,7 +312,7 @@ int main(int argc, char **argv)
         egi_surfMenuList_addItem(mlist_Program, "红楼梦", NULL, "/tmp/surf_book");
 
         /* 4.4 Add items to mlist_System */
-        egi_surfMenuList_addItem(mlist_System, "Control Panel", NULL, NULL);
+        egi_surfMenuList_addItem(mlist_System, "Control Panel", NULL, "/tmp/surfman_guider");
         egi_surfMenuList_addItem(mlist_System, "工具", mlist_Tools, NULL);
         egi_surfMenuList_addItem(mlist_System, "Program", mlist_Program, NULL); /* Link sub_mlist0 to  mlist_System */
         egi_surfMenuList_addItem(mlist_System, "Trash Bin", NULL, NULL);
@@ -721,15 +720,32 @@ int main(int argc, char **argv)
 				}
 			}
 
-			/* W.2.7.2  If the mouse cursor hovers over a NON_TOP_surface, ERING mstat to the surface. */
+#if 1			/* W.2.7.2  If the mouse cursor hovers over a NON_TOP_surface, ERING mstat to the surface.
+			 * Note:
+			 * 	1. LeftKeyDownHold will move a NOT_TOP_surface!
+			 *      2. 	!!! ----- SEGMENT_FAULT ERROR ----- !!!
+			 *	   If current displayed surface has been unregistered, while zbuff[] values of surfman->fb_dev
+			 *	   have NOT been updated yet(as they are handled respectively by two threads), then access to
+			 *	   surfman->surfaces[surfID] will cause segfault!
+			 *	   In this case, surfman_xyget_surfaceID() results in surfID=SURFMAN_MAX_SURFACES!
+			 *
+			 */
+			//egi_dpstd("xyget_surfID\n");
 			surfID=surfman_xyget_surfaceID(surfman, surfman->mx, surfman->my );
-			if( surfID >=0 && surfID !=SURFMAN_MAX_SURFACES-1 ) {  /* Not TOP surface */
+			/* Note:
+			 * Not TOP surface AND surfID != SURFMAN_MAX_SURFACES, which means prev TOP surface unregistered,
+		         * while surfman zbuff[] NOT updated!!
+			 */
+			// XXX if( surfID >=0 && surfID != SURFMAN_MAX_SURFACES-1 && surfID != SURFMAN_MAX_SURFACES ) {
+			if( surfID >=0 && surfID < SURFMAN_MAX_SURFACES-1 ) {
+				egi_dpstd("Touch surfID=%d\n", surfID);
+				pmostat->LeftKeyDownHold = false; /* <--------- */
 				if( ering_msg_send( surfman->surfaces[surfID]->csFD,
 					emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS) ) <=0 ) {
 					egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");
 				}
 			}
-
+#endif
 
 	/* ------ <<<  Surfman Critical Zone  */
 			pthread_mutex_unlock(&surfman->surfman_mutex);

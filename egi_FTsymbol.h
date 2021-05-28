@@ -31,7 +31,8 @@ struct FTsymbol_library {
 	 *   across threads is possible also, as long as a mutex lock is used around FT_New_Face
 	 *   and FT_Done_Face. "
 	 */
-	FT_Library     library;		/* NOTE: typedef struct FT_LibraryRec_  *FT_Library */
+	FT_Library     		 library;		/* NOTE: typedef struct FT_LibraryRec_  *FT_Library */
+	pthread_mutex_t          lib_mutex;
 
 	/* Regular type */
         FT_Face         regular;	/* NOTE: typedef struct FT_FaceRec_*  FT_Face */
@@ -108,7 +109,7 @@ int 	FTsymbol_get_FTface_Height(FT_Face face, int fw, int fh);
 int 	FTsymbol_uft8string_getAdvances(FT_Face face, int fw, int fh, const unsigned char *ptr); /* Need check and test */
 int 	FTsymbol_cooked_charWidth(wchar_t wcode, int fw);
 void 	FTsymbol_unicode_print(wchar_t wcode);
-void 	FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar_t wcode, int *xleft,
+void 	FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh, wchar_t wcode, int *xleft,	/* SYSFONTS lib_mutex */
 				int x0, int y0, int fontcolor, int transpcolor,int opaque);
 
 int  	FTsymbol_unicstrings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, const wchar_t *pwchar,
@@ -121,6 +122,13 @@ int  	FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh,
                                int x0, int y0,
 			       int fontcolor, int transpcolor, int opaque,
  			       int *cnt, int *lnleft, int* penx, int* peny );
+
+int  	FTsymbol_uft8strings_writeIMG( EGI_IMGBUF *imgbuf, FT_Face face, int fw, int fh, const unsigned char *pstr,
+			       unsigned int pixpl,  unsigned int lines,  unsigned int gap,
+                               int x0, int y0,
+			       int fontcolor, int transpcolor, int opaque,
+ 			       int *cnt, int *lnleft, int* penx, int* peny );
+
 
 int  	FTsymbol_uft8strings_pixlen( FT_Face face, int fw, int fh, const unsigned char *pstr); /* FTsymbol_uft8string_getAdvances() will call it.*/
 

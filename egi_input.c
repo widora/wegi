@@ -109,6 +109,7 @@ Journal
 2021-05-10:
 	XXX 1. egi_mouse_loopread(): Cancel while(checkRequest) {} at end of loop.
 
+TODO: If mouse is disconnected, the mouse_callback() will be hung up.
 
 Midas Zhou
 midaszhou@yahoo.com

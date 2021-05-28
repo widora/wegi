@@ -51,8 +51,9 @@ Jurnal
 	   fbset_color() replaced by fbset_color2() to use pixcolor.
 2021-05-19:
 	1. Add draw_blend_filled_triangle().
-2021-05-22:
+2021-05-22/23:
 	1. Add point_intriangle().
+	2. Add pxy_online(), point_online().
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -178,6 +179,78 @@ inline bool pxy_inbox(int px,int py, int x1, int y1,int x2, int y2)
 		return false;
 }
 
+
+/*--------------------------------------------
+ check if (px,py) in on line(x1,y1,x2,y2).
+
+ Return:
+	 True
+	 False
+
+ Midas Zhou
+---------------------------------------------*/
+inline bool pxy_online(int px,int py, int x1, int y1,int x2, int y2)
+{
+	MAT_VECTOR2D vt[3];
+	float s;
+	float len;
+        int xl,xh,yl,yh;
+
+	len= sqrt( (x2-x1)*(x2-x1) + (y2-y1)*(y2-y1) );
+
+	/* 1. If degenerated into a point */
+	if( len<1 ) {
+		//egi_dpstd("Too short a line, it's a point!\n");
+		len= sqrt( (px-x1)*(px-x1) + (py-y1)*(py-y1) );
+		return (len < 2.0);
+	}
+
+	/* 2. Check vector cross product, and distance=s/len */
+	vt[0]=(MAT_VECTOR2D){x1-px, y1-py}; /* x1-px */
+	vt[1]=(MAT_VECTOR2D){x2-px, y2-py}; /* x2-px */
+	s= VECTOR2D_CROSSPD(vt[0], vt[1]);
+	if( abs(s)/len > 1.0 )
+		return false;
+
+	/* 3. NOW: On the same line, but NOT necessary on the segment. */
+
+	/* 4. Check if on the segement */
+	if(x1>=x2){
+		xh=x1;xl=x2;
+	}
+	else {
+		xl=x1;xh=x2;
+	}
+
+	if(y1>=y2){
+		yh=y1;yl=y2;
+	}
+	else {
+		yh=y2;yl=y1;
+	}
+
+	return ( px>=xl && px<=xh) && (py>=yl && py<=yh); /* NOT '||', consider Vertical OR Horizontal line! */
+}
+
+
+/*--------------------------------------------
+ check if (px,py) in on segment defined by pts.
+
+ Return:
+	 True
+	 False
+
+ Midas Zhou
+---------------------------------------------*/
+inline bool point_online(const EGI_POINT *pxy, const EGI_POINT *pts)
+{
+	if( pxy==NULL || pts==NULL)
+		return false;
+
+       return pxy_online( pxy->x, pxy->y,
+			  pts->x, pts->y, (pts+1)->x, (pts+1)->y );
+}
+
 /*-----------------------------------------------
  check if an EGI_POINT is in an EGI_BOX
  return:
@@ -231,44 +304,54 @@ inline bool point_incircle(const EGI_POINT *pxy, const EGI_POINT *pc, int r)
  Reference: https://blackpawn.com/texts/pointinpoly/default.html
 
  @pxy:		checking point.
- @tripts:   	Three points to define an Triangle.
+ @tripts:   	Three points to define a triangle.
 
  return:
-	 True:  the point is totally within the triangle.
+	 True:  the point is within the triangle.
 	 False
 
  Midas Zhou
 -------------------------------------------------------------------------*/
 inline bool point_intriangle(const EGI_POINT *pxy, const EGI_POINT *tripts)
 {
-	MAT_VECTOR2D v0,v1,v2;
+	MAT_VECTOR2D vt[4];
+	float s;
 	float dp00, dp01, dp02, dp11, dp12;
 	float denom;
 	float u,v;
+	float len;
 
 	if(pxy==NULL || tripts==NULL)
 		return false;
 
-	v0 = VECTOR2D_SUB(tripts[2], tripts[0]);
-	v1 = VECTOR2D_SUB(tripts[1], tripts[0]);
-	v2 = VECTOR2D_SUB(pxy[0], tripts[0]);
+	vt[0] = VECTOR2D_SUB(tripts[2], tripts[0]);
+	vt[1] = VECTOR2D_SUB(tripts[1], tripts[0]);
+	vt[2] = VECTOR2D_SUB(pxy[0], tripts[0]);	/* <---- pxy -> ptn[0] ------- */
+	vt[3]=  VECTOR2D_SUB(tripts[2], tripts[1]);
 
-	dp00=VECTOR2D_DOTPD(v0, v0);
-	dp01=VECTOR2D_DOTPD(v0, v1);
-	dp02=VECTOR2D_DOTPD(v0, v2);
-	dp11=VECTOR2D_DOTPD(v1, v1);
-	dp12=VECTOR2D_DOTPD(v1, v2);
+	dp00=VECTOR2D_DOTPD(vt[0], vt[0]);
+	dp01=VECTOR2D_DOTPD(vt[0], vt[1]);
+	dp02=VECTOR2D_DOTPD(vt[0], vt[2]);
+	dp11=VECTOR2D_DOTPD(vt[1], vt[1]);
+	dp12=VECTOR2D_DOTPD(vt[1], vt[2]);
 
 	denom=dp00*dp11 - dp01*dp01;
 
-	/* Is a Line!? */
-	if( abs(denom) < 0.0001 )
-		return true;
+	/* If degenrated into a line. */
+	if( abs(denom) < 1 ) {
+		//egi_dpstd("denom<1, It's a line! \n");
+		/* Case: vt[3]~=0! */
+		if(VECTOR2D_MOD( vt[3])<1 )
+			return point_online(pxy, tripts);    /* Line: tripts[0], tripts[1] */
+		/* Case: vt[0]~=0! || vt[1]~=0! */
+		else
+			return point_online(pxy, tripts+1);    /* Line: tripts[1], tripts[2] */
+	}
 
 	u=(dp11*dp02 - dp01*dp12)/denom;
 	v=(dp00*dp12 - dp01*dp02)/denom;
 
-	return	(u>=0) && (v>=0) && (u+v<1);
+	return	(u>=0) && (v>=0) && ( u+v <= 1 );
 }
 
 
@@ -992,6 +1075,7 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 
 	/* Extend pixel alphas */
 	EGI_8BIT_ALPHA alphas[4]={65,45,32,25}; //{70, 40, 30, 20}; //{120,80,60};
+	//EGI_8BIT_ALPHA alphas[4]={200,150,100,50}; //{70, 40, 30, 20}; //{120,80,60};
 
 	/* Turn on pixalpha_hold */
 	if( dev->antialias_on ) {
@@ -2298,8 +2382,8 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 		draw_line(dev, points[nm].x+i, yu, points[nm].x+i, yd);
 	}
 
-
-
+	/* Draw outline: NOTE: draw_triangle() gives a litter bigger outline. */
+	//draw_triangle(dev, points);
 }
 
 /*-----------------------------------------------------------------

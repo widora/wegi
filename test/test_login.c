@@ -218,8 +218,8 @@ int main(int argc, char **argv)
 	/* Create and init FTcharmap */
 	chmap=FTcharmap_create( PASSWORD_MAX_SIZE, txtbox.startxy.x, txtbox.startxy.y,		/* txtsize,  x0, y0  */
 		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
-			CHMAP_SIZE, tlns, txtbox.endxy.x-txtbox.startxy.x-smargin, fh+fgap,   /* mapsize, lines, pixpl, lndis */
-			-1, WEGI_COLOR_DARKBLUE, true, true );  /* bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
+		  egi_sysfonts.regular, CHMAP_SIZE, tlns, txtbox.endxy.x-txtbox.startxy.x-smargin, fh+fgap,   /* face, mapsize, lines, pixpl, lndis */
+		  -1, WEGI_COLOR_WHITE, true, false );  /* bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 	chmap->bkgcolor=-1;			/* no bkgcolor */
 	chmap->markcolor=WEGI_COLOR_GREEN; 	/* Selection mark color */
@@ -414,7 +414,7 @@ int main(int argc, char **argv)
 	}
 
 
-
+#if 0////////////
 	/* <<<<<<<<<<<<<<<<<<<<    Read from USB Keyboard HIDraw   >>>>>>>>>>>>>>>>>>> */
 	static char txtbuff[1024];	/* text buffer */
 
@@ -451,6 +451,7 @@ int main(int argc, char **argv)
 		}
 	}
 
+#endif ////////////////////
 
                   /*-----------------------------------
                    *         End of Main Program
@@ -502,7 +503,7 @@ static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int
 	int ret;
 
        	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,          	/* FBdev, charmap*/
-                                        egi_sysfonts.regular, fw, fh,   /* fontface, fw,fh */
+                                        fw, fh,   			/* fw,fh */
                                         -1, 255,      			/* transcolor,opaque */
                                         NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
@@ -630,7 +631,7 @@ static void draw_mcursor(int x, int y)
                 mcimg=egi_imgbuf_readfile(MCURSOR_ICON_PATH);
 	if(tcimg==NULL) {
 		tcimg=egi_imgbuf_readfile(TXTCURSOR_ICON_PATH);
-		egi_imgbuf_resize_update(&tcimg, fw, fh );
+		egi_imgbuf_resize_update(&tcimg, true, fw, fh );
 	}
 
 	pt.x=mouseX;	pt.y=mouseY;  /* Mid */

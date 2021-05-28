@@ -47,6 +47,8 @@ void 	fbclear_bkBuff(FBDEV *dev, uint16_t color);  /* OBOSELETE, to use fb_clear
 
 void 	clear_screen(FBDEV *dev, uint16_t color);
 
+bool 	pxy_online(int px,int py, int x1, int y1,int x2, int y2);
+bool	point_online(const EGI_POINT *pxy, const EGI_POINT *pts);
 //bool 	point_inbox(int px,int py,int x1,int y1,int x2,int y2);
 bool 	pxy_inbox(int px,int py,int x1,int y1,int x2,int y2);
 //bool 	point_inbox2(const EGI_POINT *point, const EGI_BOX* box);

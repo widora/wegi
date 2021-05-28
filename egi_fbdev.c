@@ -405,7 +405,7 @@ int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *fbimg, EGI_IMGBUF *FrameImg)
 //		fb_dev->buffer[i]=NULL;
 //	}
 
-#if 1
+#if 0
         printf(" \n--- Virtual FB Parameters ---\n");
         printf(" bits_per_pixel: %d bits \n",		fb_dev->vinfo.bits_per_pixel);
         printf(" line_length: %d bytes\n",		fb_dev->finfo.line_length);

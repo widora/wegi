@@ -15,8 +15,17 @@ Jurnal:
 	1. Add  FTsymbol_create_fontBuffer() and  FTsymbol_free_fontBuffer().
 2021-01-28:
 	1.FTsymbol_unicode_writeFB(), add EGI_FONT_BUFFER to speed up.
+2021-05-25:
+	1. Add: FTsymbol_uft8strings_writeIMG().
+2021-05-26:
+	1. Add member 'lib_mutex' for EGI_FONTS.
+	2. Apply lib_mutex for following functions:
+		FTsymbol_load_library()
+		FTsymbol_release_library()
+		FTsymbol_unicode_writeFB()
 
 Midas Zhou
+midaszhou@yahoo.com
 -------------------------------------------------------------------*/
 #include "egi_log.h"
 #include "egi_FTsymbol.h"
@@ -24,6 +33,7 @@ Midas Zhou
 #include "egi_cstring.h"
 #include "egi_utils.h"
 #include "egi_debug.h"
+#include "sys_list.h"  /* container_of() */
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <freetype2/ft2build.h>
@@ -183,13 +193,16 @@ void FTsymbol_release_allpages(void)
 /*---------------------------------------------------------------
 Initialize FT library and load faces.
 
+
 Note:
 1. You shall avoid to load all fonts in main process,
    it will slow down fork() process significantly.
-2.  When a new face is created (FT_New_Face or FT_Open_Face), the
-the library looks for a Unicode charmap within the list and
-automatically activates it. Or use FT_Select_Charmap to manually
-change encoding type.
+2. When a new face is created (FT_New_Face or FT_Open_Face), the
+   the library looks for a Unicode charmap within the list and
+   automatically activates it. Or use FT_Select_Charmap to manually
+   change encoding type.
+
+@symlib:	A pointer to EGI_FONTS.
 
 return:
         0       OK
@@ -207,9 +220,16 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
 
 	if( symlib == NULL )
 	{
-		printf("%s: Fail to check integrity of the input FTsymbol_library!\n",__func__);
+		egi_dpstd("Fail to check integrity of the input FTsymbol_library!\n");
 		return -1;
 	}
+
+	/* 0. Init lib_mutex mutex */
+        if(pthread_mutex_init(&symlib->lib_mutex, NULL) != 0)
+        {
+                egi_dpstd("Fail to init lib_mutex.\n");
+                return -1;
+        }
 
         /* 1. initialize FT library */
         error = FT_Init_FreeType( &symlib->library );
@@ -238,7 +258,7 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
 					__func__, symlib->ftname, symlib->fpath_regular, FT_HAS_KERNING(symlib->regular) ? " ":"NO" );
 	}
 
-	/* 3. create face object: Light */
+	/* 3. Create face object: Light */
         error = FT_New_Face( symlib->library, symlib->fpath_light, 0, &symlib->light );
         if(error==FT_Err_Unknown_File_Format) {
                 EGI_PLOG(LOGLV_WARN,"%s: [%s] font file '%s' opens, but its font format is unsupported!",
@@ -257,7 +277,7 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
 				 	__func__, symlib->ftname, symlib->fpath_light, FT_HAS_KERNING(symlib->light) ? " ":"NO" );
 	}
 
-	/* 4. create face object: Bold */
+	/* 4. Create face object: Bold */
         error = FT_New_Face( symlib->library, symlib->fpath_bold, 0, &symlib->bold );
         if(error==FT_Err_Unknown_File_Format) {
                 EGI_PLOG(LOGLV_WARN,"%s: [%s] font file '%s' opens, but its font format is unsupported!",
@@ -276,7 +296,7 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
 						__func__, symlib->ftname,symlib->fpath_bold, FT_HAS_KERNING(symlib->bold) ? " ":"NO");
 	}
 
-	/* 5. create face object: Special */
+	/* 5. Create face object: Special */
         error = FT_New_Face( symlib->library, symlib->fpath_special, 0, &symlib->special );
         if(error==FT_Err_Unknown_File_Format) {
                 EGI_PLOG(LOGLV_WARN,"%s: [%s] font file '%s' opens, but its font format is unsupported!",
@@ -358,9 +378,21 @@ FT_Face FTsymbol_create_newFace( EGI_FONTS *symlib, const char *ftpath)
 ---------------------------------------------------*/
 void FTsymbol_release_library( EGI_FONTS *symlib )
 {
-	if(symlib==NULL)
+	if(symlib==NULL || symlib->library==NULL)
 		return;
 
+	/* 1. Destroy lib_mutex */
+        /* Hope there is no other user */
+        if(pthread_mutex_lock(&symlib->lib_mutex) !=0 )
+                EGI_PLOG(LOGLV_TEST,"%s:Fail to lib_mutex!\n",__func__);
+        /*  ??????? necesssary ????? */
+        //if( pthread_mutex_unlock(&symlib->lib_mutex) != 0)
+        //        EGI_PLOG(LOGLV_TEST,"%s:Fail to unlock lib_mutex!\n",__func__);
+        /* Destroy thread mutex lock for page resource access */
+        if(pthread_mutex_destroy(&symlib->lib_mutex) !=0 )
+                EGI_PLOG(LOGLV_TEST,"%s:Fail to destroy lib_mutex!.\n",__func__);
+
+	/* 2. Free FT faces and library */
  	FT_Done_Face    ( symlib->regular );
   	FT_Done_Face    ( symlib->light );
   	FT_Done_Face    ( symlib->bold );
@@ -1079,6 +1111,17 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 		return;
 	}
 
+	/* Mutex lock FT_library */
+	// FT_Library   FTlib=face->glyph->library;
+	// EGI_FONTS *fonts=container_of(&FTlib, EGI_FONTS, library); /* XXX NOPE! FT_Library is a pointer! */
+        // if(pthread_mutex_lock(&fonts->lib_mutex) !=0 ){
+        if(pthread_mutex_lock(&egi_sysfonts.lib_mutex) !=0 ){
+                EGI_PLOG(LOGLV_ERROR,"%s: Fail to lock lib_mutex! Err'%s'.", __func__, strerror(errno));
+                return ;
+	}
+/* ------ >>>  Critical Zone  */
+
+
 #if 1 /* ----------------    TEST: EGI_FONT_BUFFER  -------------------- */
 	EGI_WCHAR_GLYPH *wchar_glyph;
 if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
@@ -1101,6 +1144,10 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
         	sdw=FTsymbol_cooked_charWidth(wcode, fw);
 	        if( sdw >=0 )  {
         	        *xleft -= sdw;
+
+/* ------ <<<  Critical Zone  */
+		        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+
                 	return;         /* Ignore bitmap */
 	        }
         	else  {
@@ -1109,14 +1156,21 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
         	}
 
 	        /* If NO space left, do NOT writeFB then. */
-        	if( *xleft < 0 )
+        	if( *xleft < 0 ) {
+/* ------ <<<  Critical Zone  */
+		        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+
                 	return;
+		}
 	}
 
         /* write to FB,  symcode =0, whatever  */
         if(fb_dev != NULL) {
                 symbol_writeFB(fb_dev, &ftsympg, fontcolor, transpcolor, x0+delX, y0+delY, 0, opaque);
         }
+
+/* ------ <<<  Critical Zone  */
+        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
 
 	return;
 }
@@ -1128,11 +1182,16 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
    	   error = FT_Set_Char_Size( face, 32*32, 0, 100,0 ); */
 	if(error) {
 		printf("%s: FT_Set_Pixel_Sizes() fails!\n",__func__);
+
+/* ------ <<<  Critical Zone  */
+	        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+
 		return;
 	}
 
 	/* This is the MAX. possible height of glyph, as for line distance. */
 	//printf("Current FT_Face height=%d pixels\n", face->size->metrics.height>>6 );
+
 
 	/* Do not set transform, keep up_right and pen position(0,0)
     		FT_Set_Transform( face, &matrix, &pen ); */
@@ -1141,6 +1200,10 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
     	error = FT_Load_Char( face, wcode, FT_LOAD_RENDER );
     	if (error) {
 		egi_dperr("FT_Load_Char() fails! wcode=0x%04X\n", wcode);
+
+/* ------ <<<  Critical Zone  */
+	        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+
 		return;
 	}
 
@@ -1200,6 +1263,9 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 		else				/* CR   ...Maybe other unicode, it is supposed to have defined bitmap.width and advanceX */
 			*xleft -= 0;
 
+/* ------ <<<  Critical Zone  */
+	        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+
 		return;  /* DO NOT draw image */
 	}
 	else
@@ -1213,6 +1279,10 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 	sdw=FTsymbol_cooked_charWidth(wcode, fw);
 	if( sdw >=0 )  {
 		*xleft -= sdw;
+
+/* ------ <<<  Critical Zone  */
+	        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+
 		return;		/* Ignore bitmap */
 	}
 	else  {
@@ -1221,8 +1291,13 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 	}
 
 	/* If NO space left, do NOT writeFB then. */
-	if( *xleft < 0 )
+	if( *xleft < 0 ) {
+
+/* ------ <<<  Critical Zone  */
+	        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+
 		return;
+	}
 
 	/* taken bbox_H as fh */
 
@@ -1245,6 +1320,10 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 	if(fb_dev != NULL) {
 		symbol_writeFB(fb_dev, &ftsympg, fontcolor, transpcolor, x0+delX, y0+delY, 0, opaque);
 	}
+
+/* ------ <<<  Critical Zone:  NOTE: ftsympg has ref. to slot->bitmap.buffer!  */
+        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+
 }
 
 
@@ -1541,6 +1620,46 @@ FUNC_END:
 
 	return p-pstr;
 }
+
+
+/*-----------------------------------------------------------------------------------------
+Write a string of charaters with UFT-8 encoding to an IMGBUF.
+
+Params: See FTsymbol_uft8strings_writeFB()
+x0,y0:	Left top coordinate of the character bitmap,relative to IMGBUF coord system.
+
+
+return:
+                >=0     bytes write to FB
+                <0      fails
+-----------------------------------------------------------------------------------------*/
+int     FTsymbol_uft8strings_writeIMG( EGI_IMGBUF *imgbuf, FT_Face face, int fw, int fh, const unsigned char *pstr,
+                               unsigned int pixpl,  unsigned int lines,  unsigned int gap,
+                               int x0, int y0,
+                               int fontcolor, int transpcolor, int opaque,
+                               int *cnt, int *lnleft, int* penx, int* peny )
+{
+	int ret;
+	FBDEV vfb={0};
+	vfb.vimg_owner=false;
+
+	if(imgbuf==NULL)
+		return -1;
+
+
+	if( init_virt_fbdev(&vfb, imgbuf, NULL) !=0 ) {
+		egi_dpstd("Fail to init_virt_fbdev!\n");
+		return -2;
+	}
+
+	ret=FTsymbol_uft8strings_writeFB( &vfb, face, fw, fh, pstr, pixpl, lines, gap, x0,y0,
+						fontcolor, transpcolor, opaque, cnt, lnleft, penx, peny );
+
+        release_virt_fbdev(&vfb);
+
+	return ret;
+}
+
 
 
 #if  0 ///////////////////////////////////////////////////////////////////////////////////////

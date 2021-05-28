@@ -126,6 +126,13 @@ struct egi_surface_user {
  *    1.3 surfman_render_thread:
  *	  1.3.1 Loop rendering all surfaces at regular intervals.
  *	  -----	TEST:  Rendering all surfaces ONLY when SURFMSG_REQUEST_REFRESH is received.
+ *    1.4 Main thread (test_surfman.c)
+ *	  1.4.1 Monitor mevent/kevent.
+ *	  1.4.2 Minimize/Normalize(restore) surfaces.
+ *	  1.4.3 Switch between surfaces, shift TOP layer surface.
+ *	  1.4.4 ERING mstat/kstat to the TOP(foucsed) surface, and MAYBE other surfaces.
+ *	  1.4.5 Desktop MinBar operation.
+ *	  1.4.6 Desktop MenuList operation.
  *
  * 2. The SURFMAN manages all mouse icons(imgbufs)! SURFSHMEM applys a certain mouse icon by setting its ref ID.
  * 3. The SURFMAN controls and dispatchs mouse data, always to the TOP surface only.
@@ -302,7 +309,7 @@ struct egi_surface_shmem {
 	int		nw;
 	int		nh;
 
-	/* Top bar apparance options for firstdraw_surface() */
+	/* Top bar appearance options for firstdraw_surface() */
 #define TOPBAR_NONE	(0)		/* No topbar/topbtn/surfname */
 #define TOPBAR_COLOR	(1<<0)		/* Topbar color band: if firstdraw options >= (1<<0) */
 #define TOPBAR_NAME	(1<<1)		/* Surface name, if firstdraw options >= (1<<1) */
@@ -520,7 +527,7 @@ enum  surface_msg_type {
 	SURFMSG_AAC_PARAMS		=101,   /* Temp. for WetRadio */
 };
 
-/* Functions for msg */
+/* Functions for SURFMSG */
 int surfmsg_send(int msgid, long msgtype, const char *msgtext, int flags);
 int surfmsg_recv(int msgid, SURFMSG_DATA *msgdata, long msgtype, int msgflag);
 

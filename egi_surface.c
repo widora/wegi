@@ -11,8 +11,12 @@ SURFACE(SURFSHMEM):   An imgbuf and relevant image data allocated for an applica
 	   It defines an area for interface of (image) displaying and (mouse) interacting.
 	   At SURFUSER side, it can only access SURFSHMEM part of the SURFACE.
 
-	   The TOP Surface is the current focued surface on the desktop, and it's
-	   the sole surface that gets mouse/keyboard input from SURFMAN via ERING.
+	   The TOP Surface is the current focused surface on the desktop, and it's
+	   the sole surface that gets mouse/keyboard input from SURFMAN via ERING. --- TODO&TBD,
+
+TASKSURFACE:
+	   A surface associated with a certain task, graphics of the surface are updated
+	   to SURFSHMEM by the task, while rendered by the SURFMAN.
 
 SURFUSER:  The owner of a SURFACE, an uclient to SURFMAN. (TODO: It MAY hold
 	   several SURFACEs? XXX One surfuser one surface.  ).
@@ -35,7 +39,7 @@ ERING:	   MSG ring through local UNIX socket, between SURFACEs and SURFMAN.
 FirstDraw: To draw an object (surface etc) first time, and MAY also initialize/create images for
  	   control elements (Icon,Button, etc.) on it.
 
-Minibar:   A group/list of icons/tabs associated with minimized surfaces, now arranged at left side of screen.
+Minibar:   A group/list of icons/tabs linked to minimized surfaces, now arranged at left side of screen.
 
 Top Layer Operation:
 	  1. A Top Layer Operation obtain current events(mevent, kevent) exclusively, while other
@@ -56,7 +60,6 @@ SURFUSER:
   3. Receive ERING message from the SURFMAN by calling ering_msg_recv(BLOCKED),
      via connected UNIX type sockfd. < Mouse/Keyboard data >
   4. Do routine jobs, update image data to SURFSHMEM and synchronize with SURFMAN.
-
 
 SURFMAN:
   1. Create a SURFMAN by calling egi_create_surfman(), which initializes envs with:
@@ -123,6 +126,9 @@ TODO:
 
 9. Sync. mechanism for SURFACE mouse_event_suspend and 
    NOW: LeftKeyUp as mevent_suspend signal token.
+
+10. FT_library for mutli_thread
+   NOW: Apply lib_mutex for EGI_SYSFONTS.
 
 Journal
 2021-02-22:
@@ -226,7 +232,7 @@ Journal
 	   Modify: egi_register_surfuser() --- msgget msgid.
 2021-05-11:
 	1. surfman_bringtop_surface_nolock(): BringUp all group surfaces with same PID value.
-	2. Add: surfmsg_send(), surfms_recv()
+	2. Add: surfmsg_send(), surfmsg_recv()
 	3. surfman_render_thread()  TEST: surfmsg_recv()SURFMSG_REQUEST_REFRESH
 	   Rendering all surfaces ONLY when SURFMSG_REQUEST_REFRESH is received.
 2021-05-12:
@@ -897,6 +903,8 @@ static void* surfman_request_process_thread(void *arg)
 						/* Unregister related surfuser(socket session) ! */
 						if( surfman_unregister_surfUser(surfman, i) <0 ) /* i as sessionID */
 							egi_dpstd("Fail to unregister surfUser sessionID=%d \n", i);
+						else
+							egi_dpstd("Ok to unregister surfUser sessionID=%d \n", i);
 					}
 					/* Case B: Error ocurrs */
 					else if(nrcv<0) {
@@ -1838,6 +1846,7 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID)
        	egi_dpstd("\t\t----- (-)userv->sessions[%d], ccnt=%d -----\n", sessionID, surfman->userv->ccnt);
 
 	/* 5. Resort surfman->surfaces[] in ascending order of their zseq value */
+	egi_dpstd("\t\t----- insertSort zseq...\n");
 	surface_insertSort_zseq(&surfman->surfaces[0], SURFMAN_MAX_SURFACES);
 
 	/* Bring the max Zseq surface to top layer. */
@@ -2549,6 +2558,11 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 			mouseOnBtn=egi_point_on_surfBtn( sbtns[i], pmostat->mouseX -surfuser->surfshmem->x0,
 								pmostat->mouseY -surfuser->surfshmem->y0 );
 		}
+		else {	/* Also for the case there is NO SURFBTN on the surface! */
+			mouseOnBtn=false;
+			surfshmem->mpbtn=-1;
+			continue;
+		}
 		//if(!mouseOnBtn)
 		//	surfshmem->mpbtn=-1; /* Init as -1 in surfman_register_surface() */
 
@@ -2561,7 +2575,7 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 
 		/* B. If the mouse just moves onto a SURFBTN */
 		if( mouseOnBtn && (surfshmem->mpbtn != i) ) {  /* XXX surfshmem->mpbtn <0 ! */
-			egi_dpstd("Touch a BTN mpbtn=%d, i=%d\n", surfshmem->mpbtn, i);
+			egi_dpstd("Touch a BTN, prev_mpbtn=%d, now_i=%d\n", surfshmem->mpbtn, i);
 			/* B.1 In case mouse move from a nearby SURFBTN, restore its button image. */
 			if( surfshmem->mpbtn>=0 ) {
 				egi_subimg_writeFB(sbtns[surfshmem->mpbtn]->imgbuf, &surfuser->vfbdev,
@@ -2870,7 +2884,7 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int options)
 	}
 	else {  /* Else: Default canvas */
 
-	        /* 1.1B Set BKG color */
+	        /* 1.1B Set BKG color/alpha for surfimg, If surface colorType has NO alpha, then ignore. */
         	egi_imgbuf_resetColorAlpha(surfimg, surfshmem->bkgcolor, 255); //-1); /* Reset color only */
 
 	        /* 1.2B  Draw top bar. */
@@ -3215,7 +3229,8 @@ Send SURFMSG.
 
 @msgid: 	System_V message queue identifier.
 @msgtype:	Message type.
-@msgtext:	Message text. NULL to ignore.
+@msgtext:	Message text.
+		If NULL, Set msg_size=0.
 @flags:		Flags: IPC_NOWAIT
 
 Return:
@@ -3248,7 +3263,7 @@ inline int surfmsg_send(int msgid, long msgtype, const char *msgtext, int flags)
 	if(msgerr<0) {
 		egi_dperr("msgrcv fails.");
 		//if(errno==EIDRM) egi_dpstd("msgid is invalid! Or the queue is removed.\n");
-		//else if(errno==EAGAIN) egi_dpstd("Insufficient spacd in the queue!\n");
+		//else if(errno==EAGAIN) egi_dpstd("Insufficient space in the queue!\n");
 	}
 
 	return msgerr;

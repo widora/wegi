@@ -154,7 +154,7 @@ typedef struct {
 #define VECTOR2D_NORM(a)	( VECTOR2D_DIV(a, VECTOR2D_MOD(a) ) )	/* Normal, a!=0 */
 
 #define VECTOR2D_DOTPD(a, b)	( a.x*b.x + a.y*b.y )			/* Dot product */
-#define VECTOR2D_CROSSPD(a, b)	( (MAT_VECTOR2D){a.x-b.x, a.y-b.y} )	/* Cross product */
+#define VECTOR2D_CROSSPD(a, b)	( a.x*b.y - b.x*a.y )			/* Cross product */
 
 
 

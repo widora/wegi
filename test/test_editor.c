@@ -42,7 +42,7 @@ Note:
                ( --- 3. Definition and glossary --- )
 
 1. char:    A printable ASCII code OR a local character with UFT-8 encoding.
-2. dline:  displayed/charmapped line, A line starts/ends at displaying window left/right end side.
+2. dline:   A displayed/charmapped line, A line starts/ends at displaying window left/right end side.
    retline: A line starts/ends by a new line token '\n'.
 3. scroll up/down:  scroll up/down charmap by mouse, keep cursor position relative to txtbuff.
 	  (UP: decrease chmap->pref (-txtbuff), 	  DOWN: increase chmap->pref (-txtbuff) )
@@ -1257,7 +1257,7 @@ static void draw_mcursor(void)
                 mcimg=egi_imgbuf_readfile(MCURSOR_ICON_PATH);
 	if(tcimg==NULL) {
 		tcimg=egi_imgbuf_readfile(TXTCURSOR_ICON_PATH);
-		egi_imgbuf_resize_update(&tcimg, fw, fh );
+		egi_imgbuf_resize_update(&tcimg, true, fw, fh );
 	}
 
 	pt.x=mouseX;	pt.y=mouseY;  /* Mid */

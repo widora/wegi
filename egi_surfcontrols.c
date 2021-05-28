@@ -225,7 +225,7 @@ void egi_surfLab_writeFB(FBDEV *fbdev, const ESURF_LABEL *lab, FT_Face face, int
         FTsymbol_uft8strings_writeFB(  fbdev, face,             		/* FBdev, fontface */
                                         fw, fh, (UFT8_PCHAR)lab->text,   	/* fw,fh, pstr */
                                         lab->w, 1, 0,                           /* pixpl, lines, fgap */
-                                        lab->x0, lab->y0,            		/* x0,y0, */
+                                        cx0+lab->x0, cy0+lab->y0,     		/* x0,y0, */
                                         color, -1, 255,              		/* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);                /* int *cnt, int *lnleft, int* penx, int* peny */
 
