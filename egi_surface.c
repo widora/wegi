@@ -1891,11 +1891,16 @@ Return surface ID to surfman->surfaces[].
 @surfman	Pointer to a pointer to an EGI_SURFMAN.
 @x,y:           Pixel coordinate value. under FB.pos_rotate coord!
 
+NOTE:
+1. If ret == SURFMAN_MAX_SURFACES, it means prev TOP surface unregistered,
+   while surfman zbuff[] NOT updated yet!!
+
+
 Return:
         <0      BKGround / Out of range / Fails.
 		( zseq=0 as for bkground layer!! )
 
-        >=0     Ok, as index to surfman->surfaces[].
+        >=0     Ok, as index to surfman->surfaces[]. also see note 1.
 -----------------------------------------------------------------*/
 int surfman_xyget_surfaceID(EGI_SURFMAN *surfman, int x, int y)
 {

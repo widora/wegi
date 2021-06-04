@@ -133,6 +133,7 @@ struct egi_surface_user {
  *	  1.4.4 ERING mstat/kstat to the TOP(foucsed) surface, and MAYBE other surfaces.
  *	  1.4.5 Desktop MinBar operation.
  *	  1.4.6 Desktop MenuList operation.
+ *	  1.4.7 Waitpid child process.
  *
  * 2. The SURFMAN manages all mouse icons(imgbufs)! SURFSHMEM applys a certain mouse icon by setting its ref ID.
  * 3. The SURFMAN controls and dispatchs mouse data, always to the TOP surface only.
@@ -173,6 +174,8 @@ struct egi_surface_manager {
 					 */
 	EGI_SURFACE		*surfaces[SURFMAN_MAX_SURFACES];  /* Pointers to surfaces
 								   * Always keep in ascending order of their zseq values!
+								   * Aft. insertSort surfaces[SURFMAN_MAX_SURFACES-1] will be the first to be
+								   * assigned(non-NULL), then surfaces[SURFMAN_MAX_SURFACES-2] ... ...
 								   * whenever: 1. register OR unregister a surface.
 								   *	       2. bring OR retire a surface to/from TOP layer.
 								   */

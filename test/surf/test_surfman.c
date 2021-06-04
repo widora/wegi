@@ -6,9 +6,10 @@ published by the Free Software Foundation.
 Usage:
 1. Press 0-7 to bring indexed SURFACE to top.
    Keep pressing 0 to traverse all SURFACEs.
-3. Press 'N' to minimize current top SURFACE.
-4. Press 'M' to maximize current top SURFACE.
-5. Press 'a','d','w','s' to move SURFACE LEFT,RIGHT,UP,DOWN respectively.
+3. Press 'Ctrl+n' to minimize current top SURFACE. //ASCII 14
+4. Press 'Ctrl+o' to maximize current top SURFACE. //ASCII 15
+5. Press 'Ctrl+j','Ctrl+l','Ctrl+i','Ctrl+k' to move current TOP_SURFACE LEFT,RIGHT,UP,DOWN respectively.
+   //ASCII 10,12,9,11
 
 Note:
 0. EringMSG from SURFMAN's renderThread(After one surface minimized, to pick next TOP surface and ering BRINGTOP)
@@ -56,7 +57,7 @@ XXX 7. If a surface is clicked on SURFBTN_MIN and its status is changed to be SU
 
    NOTE: 5.6.7 --- SURFACE_STATUS_MINIMIZED to be sent by surfman_render_thread()!
 8. A mostats MAY be dropped by the surfman before TOP surface clear SURFACE_FLAG_MEVENT!
-
+9. Read raw KEY_input directly from Keyboard HIDraw, for special KEYs not defined by ASCII.
 
 Journal
 2021-03-11:
@@ -105,6 +106,13 @@ Journal
 	1. Process SURFMSG_REQUEST_UPDATE_WALLPAPER.
 2021-05-21:
 	2. W.2.7.2  If the mouse cursor hovers over a NON_TOP_surface, ERING mstat to the surface.
+2021-05-30:
+	1. W.4  Add waitpid for child process.
+2021-05-31:
+	1. Interlock surfman->minibar_ON and surfman->menulist_ON
+2021-06-02:
+	1.Pack keyboard input into pmostat->ch
+	2.Modify key_combinations for surface movement/shift.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -114,6 +122,7 @@ https://github.com/widora/wegi
 #include <stdlib.h>
 #include <libgen.h>
 #include <sys/msg.h>
+#include <sys/wait.h>
 
 #include "egi_timer.h"
 #include "egi_color.h"
@@ -157,6 +166,10 @@ int	userID; /* NOW as surface->csFD */
 
 static int sigQuit;
 
+/* Wait pid */
+int wait_pid;
+int wait_status;
+
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
 {
@@ -174,13 +187,12 @@ int main(int argc, char **argv)
 {
 //	int ret;
 	int j,k;
-	int ch;
+	char ch;
 	int surfID;
 
 	int opt;
 //	int sw=0,sh=0; /* Width and Height of the surface */
 //	int x0=0,y0=0; /* Origin coord of the surface */
-
 
 
 #if 0	/* Start EGI log */
@@ -387,6 +399,9 @@ int main(int argc, char **argv)
 			egi_dperr("Fail to read STDIN");
 			ch=0;
 		}
+		if(ch) printf("Keyin: '%c'(%d)\n", ch,ch);
+
+#if 1	/* TEST--------: Select TOP surface:  !!! WARNING !!! surfman_mutex ignored. !!!! scnt>0 !!! */
 		if(ch >='0' && ch < '8' ) {  /* 1,2,3...9 */
 			pthread_mutex_lock(&surfman->surfman_mutex);
 	/* ------ >>>  Surfman Critical Zone  */
@@ -411,23 +426,24 @@ int main(int argc, char **argv)
 			pthread_mutex_unlock(&surfman->surfman_mutex);
 		}
 		else {
+
+	/* TEST--------: Move surface, !!! WARNING !!! surfman_mutex ignored. !!!! scnt>0 !!! */
 			switch(ch) {
-				/* TEST--------: Move surface, surfman_mutex ignored. !!!! scnt>0 !!! */
-				case 'a':
+				case 10: //Ctrl+j
 					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->x0 -=10;
 					break;
-				case 'd':
+				case 12: //Ctrl+l
 					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->x0 +=10;
 					break;
-				case 'w':
+				case 9:  //Ctrl+i
 					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->y0 -=10;
 					break;
-				case 's':
+				case 11: //Ctrl+k
 					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->y0 +=10;
 					break;
 
 				/* TEST--------: Minimize / Maximize surfaces */
-				case 'n': /* Minimize the surface */
+				case 14: //Ctrl+n : /* Minimize the surface */
 					printf("Minimize surface.\n");
 					pthread_mutex_lock(&surfman->surfman_mutex);
 			/* ------ >>>  Surfman Critical Zone  */
@@ -453,7 +469,7 @@ int main(int argc, char **argv)
 					pthread_mutex_unlock(&surfman->surfman_mutex);
 					break;
 
-				case 'm': /* Maximize the surface */
+				case 15: //Ctrl+O /* Maximize the surface */
 					printf("Maximize surface.\n");
 					pthread_mutex_lock(&surfman->surfman_mutex);
 
@@ -471,14 +487,29 @@ int main(int argc, char **argv)
 					break;
 			}
 		}
+#endif /* END TEST :----- */
 
+
+
+WAIT_REQUEST:
 		/* W2. Mouse event process */
-	        if( egi_mouse_getRequest(pmostat) ) {  /* Apply pmostat->mutex_lock */
+	        if( egi_mouse_getRequest(pmostat) ) {  /* If true: pmostat->mutex_lock keeps locked! */
+
+			/* W2.0: Pack STDIN ch into pmostat->ch, while pmostat->mutex_lock MUST keep locked! */
+			if(pmostat) { /* To skip init NULL value. */
+				pmostat->ch = ch;
+				//printf("pmostat ch=%c\n", ch);
+			}
+			else
+				egi_dpstd("pmosta==NULL!\n");
+
 
 			/* W2.1. If mouse cursor linger at left_bottom corner, then display/activate MenuList tree. */
-			if( !surfman->menulist_ON ) {
-				if( pmostat->mouseX < 10 && pmostat->mouseY > surfman->fbdev.pos_yres -10 )
+			if( !surfman->menulist_ON && !pmostat->LeftKeyDownHold ) {  /* to avoid surface_downhold=true */
+				if( pmostat->mouseX < 10 && pmostat->mouseY > surfman->fbdev.pos_yres -10 ) {
 					surfman->menulist_ON=true;
+					surfman->minibar_ON=false; /* interlocking! */
+				}
 			}
 			/* Otherwise update MenuList tree as per pxy */
 			else {
@@ -495,9 +526,11 @@ int main(int argc, char **argv)
 			/* W2.2. If mouse cursor linger at letf_top corner, then display/activate minibar */
 	   if(!surfman->menulist_ON ) {
 
-			if( !surfman->minibar_ON ) {
-				if( pmostat->mouseX < 10 && pmostat->mouseY <10  )
+			if( !surfman->minibar_ON  && !pmostat->LeftKeyDownHold ) {  /* to avoid surface_downhold=true */
+				if( pmostat->mouseX < 10 && pmostat->mouseY <10  ) {
 					surfman->minibar_ON=true;
+					surfman->menulist_ON=false; /* interlocking */
+				}
 			}
 			/* Otherwise, disappear it. */
 			else {
@@ -701,13 +734,14 @@ int main(int argc, char **argv)
 						/* Set MEVENT first */
 						surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->surfshmem->flags |= SURFACE_FLAG_MEVENT;
 						/* Send MEVENT then */
+//						egi_dpstd("Ering_msg_send ch=%d\n", pmostat->ch);
 						//printf("ering msg pmostat  RKDHold=%s\n", pmostat->RightKeyDownHold ? "TRUE" : "FALSE" );
 						//if(pmostat->LeftKeyDown) egi_dpstd("Ering mstat LeftKeyDown! \n");
 						if( ering_msg_send( surfman->surfaces[SURFMAN_MAX_SURFACES-1-j]->csFD,
 							emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS) ) <=0 ) {
 							egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");
 						}
-						//printf("ering msg send OK!\n");
+//						egi_dpstd("Ering_msg_send OK! ch=%d\n", pmostat->ch);
 					    }
 					    else {  /* SURFACE_FLAG_MEVENT NOT cleared! Means the TOP surface has NOT finished last mevent yet. */
 							egi_dpstd("FLAG_MEVENT NOT cleared!\n");
@@ -720,6 +754,7 @@ int main(int argc, char **argv)
 				}
 			}
 
+
 #if 1			/* W.2.7.2  If the mouse cursor hovers over a NON_TOP_surface, ERING mstat to the surface.
 			 * Note:
 			 * 	1. LeftKeyDownHold will move a NOT_TOP_surface!
@@ -728,17 +763,18 @@ int main(int argc, char **argv)
 			 *	   have NOT been updated yet(as they are handled respectively by two threads), then access to
 			 *	   surfman->surfaces[surfID] will cause segfault!
 			 *	   In this case, surfman_xyget_surfaceID() results in surfID=SURFMAN_MAX_SURFACES!
-			 *
+			 *	3. A NON_TOP_surface receives mstat ONLY WHEN the mouse is within its surface area, and it CAN NOT
+			 *	   receive it once the mouse is out of the range.
 			 */
 			//egi_dpstd("xyget_surfID\n");
 			surfID=surfman_xyget_surfaceID(surfman, surfman->mx, surfman->my );
 			/* Note:
 			 * Not TOP surface AND surfID != SURFMAN_MAX_SURFACES, which means prev TOP surface unregistered,
-		         * while surfman zbuff[] NOT updated!!
+		         * while surfman zbuff[] NOT updated yet!!
 			 */
 			// XXX if( surfID >=0 && surfID != SURFMAN_MAX_SURFACES-1 && surfID != SURFMAN_MAX_SURFACES ) {
 			if( surfID >=0 && surfID < SURFMAN_MAX_SURFACES-1 ) {
-				egi_dpstd("Touch surfID=%d\n", surfID);
+			//	egi_dpstd("Touch surfID=%d\n", surfID);
 				pmostat->LeftKeyDownHold = false; /* <--------- */
 				if( ering_msg_send( surfman->surfaces[surfID]->csFD,
 					emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS) ) <=0 ) {
@@ -766,7 +802,13 @@ END_MOUSE_EVENT:
 		 *     Example: when click on TOPBTN_MIN, it DOESN'T react.
 		 */
 		else {
-			//egi_dpstd("Fail getRequest(pmostat)!\n");
+//			egi_dpstd("Fail getRequest(pmostat)!\n");
+			goto WAIT_REQUEST;
+		}
+
+		/* W4. Waitpit child */
+		if( (wait_pid=waitpid(-1, &wait_status, WNOHANG)) >0 ) {
+			egi_dpstd("A child process PID=%d exits, wait_status=%d!\n", wait_pid, wait_status);
 		}
 
 		tm_delayms(5);

@@ -492,6 +492,7 @@ while(madSTAT==STAT_PAUSE) {
 		break;
 	usleep(100000);
 };
+	egi_dpstd("Start to play %s\n", mp3_paths[i]);
 
         /* MAD_: Init filo 建立一个FILO用于存放MP3 HEADER　*/
         filo_headpos=egi_malloc_filo(1024, sizeof(MP3_HEADER_POS), FILOMEM_AUTO_DOUBLE);

@@ -63,6 +63,9 @@ struct egi_surface_label {
 	int		h;
 #define ESURF_LABTEXT_MAX	512
 	char		text[ESURF_LABTEXT_MAX];	/* content */
+	EGI_IMGBUF	*front_imgbuf;	/* As front image, under TEXT.
+					 * NOW: A ref. pointer only!
+					 */
 
 	/* Reactions / Operations */
 	// On_Touch:

@@ -138,6 +138,15 @@ static bool cmd_end_loopread_event;            	/* command to end loopread if tr
 static pthread_t thread_loopread_event;
 static void *egi_input_loopread(void *arg);
 
+#if 0 ///////////////////
+static pthread_cond_t   cond_request;   /* To indicate that mouse event request  */
+static pthread_mutex_t  mutex_lockCond; /* mutex lock for pthread cond */
+static int              flag_cond=-1;   /* predicate for pthread cond, set in egi_touch_loopread()
+                                         * flag_cond:  == 0, request=false,  ==1 request=true.
+                                         * flag_cond:  == -1, idle.
+					 */
+#endif/////////////////
+
 
 /* 2. Input device: for mouse */
 #if 1 /* set mouse type to Intellimouse #1 */
@@ -718,7 +727,7 @@ static void *egi_mouse_loopread( void* arg )
 	  	/* Put mutex lock */
 		pthread_mutex_unlock(&mostatus.mutex);
 
-		/* Call back */
+		/* Call back. mostauts.request is set in the callback! */
 		if(mouse_callback!=NULL) {
 			/* If callback trapped here, then cmd_end_loopread_mouse signal will NOT be responded!
 			 * mostauts.request is set in the callback!
@@ -801,6 +810,8 @@ bool egi_mouse_getRequest(EGI_MOUSE_STATUS *mostat)
 		return false;
 	}
 }
+
+
 
 
 /*-----------------------------------------------

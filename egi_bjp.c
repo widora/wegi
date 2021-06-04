@@ -753,14 +753,14 @@ int egi_imgbuf_loadjpg(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 		printf("egi_imgbuf_loadjpg(): open_jpgImg() fails!\n");
 		return -1;
 	}
-	printf("%s: Open a jpg file with size W%dxH%d \n", __func__, width, height);
+	egi_dpstd("Open a jpg file with size W%dxH%d \n", width, height);
 
         /* ------------> Get mutex lock */
 #if 1
 	// printf("%s: try mutex lock...\n",__func__);
         if(pthread_mutex_lock(&egi_imgbuf->img_mutex) != 0)
         {
-                printf("%s:fail to get mutex lock.\n",__func__);
+                egi_dperr("Fail to get mutex lock.\n");
 		close_jpgImg(imgbuf);
                 return -2;
         }
@@ -949,7 +949,8 @@ int egi_imgbuf_loadpng(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
         if(pthread_mutex_lock(&egi_imgbuf->img_mutex) != 0)
         {
                 printf("%s: fail to get mutex lock.\n",__func__);
-                return -1;
+		ret=-7;
+		goto READ_FAIL;
         }
 
 	/* free data and reset egi_imgbuf */

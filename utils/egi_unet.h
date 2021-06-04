@@ -77,7 +77,7 @@ int unet_default_sigAction(void);
 
 /* ----------	ERING MSG and Functions ---------- */
 
-#define ERING_MSG_DATALEN	128	/* In bytes, Fixed length of data in ERING_MSG. for stream data stransfer. */
+#define ERING_MSG_DATALEN	128	/* In bytes, Fixed length of data in ERING_MSG. for stream data transfer. */
 
 enum ering_request_type {
         ERING_REQUEST_NONE      =0,

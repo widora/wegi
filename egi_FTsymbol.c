@@ -385,9 +385,10 @@ void FTsymbol_release_library( EGI_FONTS *symlib )
         /* Hope there is no other user */
         if(pthread_mutex_lock(&symlib->lib_mutex) !=0 )
                 EGI_PLOG(LOGLV_TEST,"%s:Fail to lib_mutex!\n",__func__);
-        /*  ??????? necesssary ????? */
-        //if( pthread_mutex_unlock(&symlib->lib_mutex) != 0)
-        //        EGI_PLOG(LOGLV_TEST,"%s:Fail to unlock lib_mutex!\n",__func__);
+
+        if( pthread_mutex_unlock(&symlib->lib_mutex) != 0)
+                EGI_PLOG(LOGLV_TEST,"%s:Fail to unlock lib_mutex!\n",__func__);
+
         /* Destroy thread mutex lock for page resource access */
         if(pthread_mutex_destroy(&symlib->lib_mutex) !=0 )
                 EGI_PLOG(LOGLV_TEST,"%s:Fail to destroy lib_mutex!.\n",__func__);

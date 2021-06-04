@@ -31,6 +31,8 @@ Journal:
 2021-5-18:
 	1. egi_surfMenuList_updatePath(): Apply sub_MenuList.(x0,y0) to offset
 	   its normal alignment position.
+2021-6-1:
+	1. Add member 'front_imgbuf" for ESURF_LABEL.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -219,10 +221,16 @@ void egi_surfLab_writeFB(FBDEV *fbdev, const ESURF_LABEL *lab, FT_Face face, int
 		return;
 
 	/* Bkg image */
-	egi_subimg_writeFB(lab->imgbuf, fbdev, 0, -1, cx0+lab->x0, cy0+lab->y0); /* imgbuf, fb, subnum, subcolor, x0,y0 */
+	if(lab->imgbuf)
+		egi_subimg_writeFB(lab->imgbuf, fbdev, 0, -1, cx0+lab->x0, cy0+lab->y0); /* imgbuf, fb, subnum, subcolor, x0,y0 */
+
+	/* Front image */
+	if(lab->front_imgbuf)
+		egi_subimg_writeFB(lab->front_imgbuf, fbdev, 0, -1, cx0+lab->x0, cy0+lab->y0); /* imgbuf, fb, subnum, subcolor, x0,y0 */
 
 	/* Write label text on bkg */
-        FTsymbol_uft8strings_writeFB(  fbdev, face,             		/* FBdev, fontface */
+	if( lab->text )
+        	FTsymbol_uft8strings_writeFB(  fbdev, face,            		/* FBdev, fontface */
                                         fw, fh, (UFT8_PCHAR)lab->text,   	/* fw,fh, pstr */
                                         lab->w, 1, 0,                           /* pixpl, lines, fgap */
                                         cx0+lab->x0, cy0+lab->y0,     		/* x0,y0, */

@@ -3,7 +3,14 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+Journal:
+2021-06-02:
+	1.iw_get_rssi(): Modify to return RSSI Level value.
+2021-06-03:
+	1. Add: iw_is_running(), iw_ifup(), iw_ifdown().
+
 Midas Zhou
+midaszhou@yahoo.com
 -----------------------------------------------------------------*/
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -22,6 +29,7 @@ Midas Zhou
 #include "egi_timer.h"
 #include "egi_log.h"
 #include "egi_iwinfo.h"
+#include "egi_debug.h"
 
 #ifndef IW_NAME
 #define IW_NAME "apcli0"
@@ -29,50 +37,113 @@ Midas Zhou
 
 
 /*------------------------------------------
-Get wifi strength value
+Get WiFi signal strength value
+See ioctl calls in linux-3.18.29/include/uapi/linux/wireless.h
 
-*rssi:	strength value
+@rssi: Pointer to pass out RSSI value in dBm.
 
-Return
-	0	OK
-	<0	Fails
+Note:
+1. MIN_RSSI = -100, MAX_RSSI=-55.
+2. Recommended division of 5 levels:
+        level 0: MIN_RSSI = -100
+        level 4: MAX_RSSI = -55
+        Level other: (sval-(-100))*4/(-55-(-100))
+3. If rssi == 0, it also indicates NO_Connection.
+
+Return:
+	>=0	OK, as Level value [0 4].
+	<0	Fails, or WIFI is disconnected.
 -------------------------------------------*/
-int iw_get_rssi(int *rssi)
+int iw_get_rssi(const char *ifname, int *rssi)
 {
 	int sockfd;
+	struct ifreq ifr;
+	int ifflags;
 	struct iw_statistics stats;
-	struct iwreq req;
+	struct iwreq iwr;
+	int sval;
 
-	memset(&stats,0,sizeof(struct iw_statistics));
-	memset(&req,0,sizeof(struct iwreq));
-	sprintf(req.ifr_name,"apcli0");
-	req.u.data.pointer=&stats;
-	req.u.data.length=sizeof(struct iw_statistics);
+	if(ifname==NULL)
+		return -1;
+
+	/* Init ifr */
+	memset(&ifr, 0, sizeof(ifr));
+	sprintf(ifr.ifr_name, ifname);
+
+	/* Init iwr */
+	memset(&stats,0,sizeof(stats));
+	memset(&iwr,0,sizeof(iwr));
+	sprintf(iwr.ifr_name, ifname);
+	iwr.u.data.pointer=&stats;
+	iwr.u.data.length=sizeof(struct iw_statistics);
 	#ifdef CLEAR_UPDATED
-	req.u.data.flags=1;
+	iwr.u.data.flags=1;
 	#endif
 
-	if((sockfd=socket(AF_INET,SOCK_DGRAM,0))==-1)
+	if((sockfd=socket(AF_INET, SOCK_DGRAM, 0)) <0 )
 	{
 		//perror("Could not create simple datagram socket");
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to create SOCK_DGRAM socket: %s \n",
 								   __func__, strerror(errno));
 		return -1;
 	}
-	if(ioctl(sockfd,SIOCGIWSTATS,&req)==-1)
+
+	/* Get ifr */
+	if(ioctl(sockfd, SIOCGIFFLAGS, &ifr) !=0 )
 	{
-		//perror("Error performing SIOCGIWSTATS");
+		EGI_PLOG(LOGLV_ERROR,"%s: Fail to call ioctl(socket,SIOCGIFFLAGS,...): %s \n",
+								   __func__, strerror(errno));
+		close(sockfd);
+		return -2;
+	}
+	/* Get interface flags */
+	ifflags=ifr.ifr_flags;
+	if( ifflags & IFF_UP ) {
+		//egi_dpstd("Apcli0 is UP!\n");
+	}
+	else {
+		egi_dpstd("'%s' is DOWN!\n", ifname);
+		close(sockfd);
+		return -2;
+	}
+
+	/* Get iwr */
+	if(ioctl(sockfd, SIOCGIWSTATS, &iwr) !=0 )
+	{
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to call ioctl(socket,SIOCGIWSTATS,...): %s \n",
 								   __func__, strerror(errno));
 		close(sockfd);
 		return -2;
 	}
 
-	if(rssi != NULL)
-		*rssi=(int)(signed char)stats.qual.level;
-
+	/* Close sockfd */
 	close(sockfd);
-	return 0;
+
+	/* Fetch signal strength value */
+	sval=(int)(signed char)stats.qual.level;
+
+	/* Pass out RSSI dBm value */
+	if(rssi != NULL)
+		*rssi=sval;
+
+	/* Cal. Level value */
+//	egi_dpstd("sval=%d dBm\n", sval);
+        if(sval == 0)   /* No connection! */
+                return -1;
+
+        else if(sval >= -55)	/* 4 */
+                return 4;
+        else if(sval > -66)     /* 3 == 4*(sval+100)/45, sval=-66.2, above... */
+                return 3;
+        else if(sval > -77)     /* 2 == 4*(sval+100)/45, sval=-77.5, above.. */
+                return 2;
+	else if(sval > -88)	/* 1 == 4*(sval+100)/45, sval=-88.7, above.. */
+		return 1;
+        //else if(sval > -100)  /* 0: Level 0 and BELOW, all as Level 0 */
+	else
+                return 0;
+
+	return -1;
 }
 
 
@@ -575,3 +646,136 @@ int iw_get_clients(const char *ifname)
 	fclose(fil);
 	return nclts;
 }
+
+
+/*----------------------------------------------
+Check whecher the WiFi interface is running.
+
+@ifname:	Interface name.
+
+Return:
+	True:	IFF_UP && IFF_RUNNING
+	False:  Not UP or RUNNING
+		or Fails
+----------------------------------------------*/
+bool iw_is_running(const char *ifname)
+{
+	int sockfd;
+        struct ifreq ifr;
+
+	if(ifname==NULL)
+		return false;
+
+	sockfd=socket(AF_INET, SOCK_DGRAM, 0);
+	if(sockfd<0)
+		return false;
+	fcntl(sockfd, F_SETFD, fcntl(sockfd, F_GETFD) | FD_CLOEXEC);
+
+        strncpy(ifr.ifr_name, ifname, IFNAMSIZ);
+
+	/* Get ifr */
+        if( ioctl(sockfd, SIOCGIFFLAGS, &ifr) !=0) {
+		close(sockfd);
+                return false;
+	}
+
+	close(sockfd);
+
+        return (ifr.ifr_flags & IFF_UP) && (ifr.ifr_flags & IFF_RUNNING);
+}
+
+/*----------------------------------------------
+Turn UP/DOWN WiFi interface.
+With refrence to  mtk-wifi-V1.1/iwinfo_utils.c
+
+@ifname:	Interface name.
+
+Return:
+	0	OK
+	<0	Fails
+----------------------------------------------*/
+int iw_ifup(const char *ifname)
+{
+	int ret;
+	int sockfd;
+        struct ifreq ifr;
+
+	if(ifname==NULL)
+		return -1;
+
+	sockfd=socket(AF_INET, SOCK_DGRAM, 0);
+	if(sockfd<0)
+		return -1;
+	fcntl(sockfd, F_SETFD, fcntl(sockfd, F_GETFD) | FD_CLOEXEC);
+
+        strncpy(ifr.ifr_name, ifname, IFNAMSIZ);
+
+	/* Get ifr */
+        if( ioctl(sockfd, SIOCGIFFLAGS, &ifr) !=0) {
+		close(sockfd);
+                return -1;
+	}
+
+	/* Reset ifr */
+        ifr.ifr_flags |= (IFF_UP | IFF_RUNNING);
+	ret=ioctl(sockfd, SIOCSIFFLAGS, &ifr);
+
+	close(sockfd);
+
+	return ret;
+}
+
+int iw_ifdown(const char *ifname)
+{
+	int ret;
+	int sockfd;
+        struct ifreq ifr;
+
+	if(ifname==NULL)
+		return -1;
+
+	sockfd=socket(AF_INET, SOCK_DGRAM, 0);
+	if(sockfd<0)
+		return -1;
+	fcntl(sockfd, F_SETFD, fcntl(sockfd, F_GETFD) | FD_CLOEXEC);
+
+        strncpy(ifr.ifr_name, ifname, IFNAMSIZ);
+
+	/* Get ifr */
+        if( ioctl(sockfd, SIOCGIFFLAGS, &ifr) !=0) {
+		close(sockfd);
+                return -1;
+	}
+
+	/* Reset ifr */
+        ifr.ifr_flags &= ~IFF_UP;
+	ret=ioctl(sockfd, SIOCSIFFLAGS, &ifr);
+
+	close(sockfd);
+
+	return ret;
+}
+
+
+/*-----------------------------------------------------------
+		From mtk-wifi/src/ap_client.c
+------------------------------------------------------------*/
+#define SIOCIWFIRSTPRIV      0x8BE0
+#define RTPRIV_IOCTL_SET (SIOCIWFIRSTPRIV + 0x02)
+#define RTPRIV_IOCTL_GET_STATE_DATA (SIOCIWFIRSTPRIV + 0x1E)
+void iwpriv(const char *name, const char *key, const char *val)
+{
+        int socket_id;
+        struct iwreq wrq;
+        char data[64];
+
+        snprintf(data, 64, "%s=%s", key, val);
+        socket_id = socket(AF_INET, SOCK_DGRAM, 0);
+        strcpy(wrq.ifr_ifrn.ifrn_name, name);
+        wrq.u.data.length = strlen(data);
+        wrq.u.data.pointer = data;
+        wrq.u.data.flags = 0;
+        ioctl(socket_id, RTPRIV_IOCTL_SET, &wrq);
+        close(socket_id);
+}
+

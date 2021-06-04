@@ -54,8 +54,10 @@ typedef struct egi_mouse_status {
 					*  which may be trapped in deadlock withou a signal.
 					*/
 
+	char ch;	/* TEST: Input key value */
 	bool request;  /* 0 -- No request, 1-- Mouse event request respond */
 } EGI_MOUSE_STATUS;
+
 
 
 /***  @inevnt: input event data */

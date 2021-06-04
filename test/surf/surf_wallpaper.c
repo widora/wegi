@@ -10,6 +10,8 @@ Note:
 1. Call bing_today.sh to fetch/download a Bing wallpaper, and SURFMSG
    the file path to SURFMAN.
 
+Journal:
+
 Midas Zhou
 midaszhou@yahoo.com
 https://github.com/widora/wegi
@@ -31,6 +33,7 @@ https://github.com/widora/wegi
 #include "egi_procman.h"
 #include "egi_input.h"
 #include "egi_bjp.h"
+#include "egi_utils.h"
 
 #define BING_WALLPAPER_PATH	"/tmp/bing_today.jpg"
 
@@ -114,7 +117,7 @@ int main(int argc, char **argv)
 
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
-	x0 = 150; y0 = 240 -25;
+	x0 = SURF_MAXW-130; y0 = 28; //SURF_MAXH-SURF_TOPBAR_HEIGHT -16;
 	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, sw,sh, sw,sh, colorType );
 	if(surfuser==NULL) {
 		sleep(1);
@@ -161,7 +164,7 @@ int main(int argc, char **argv)
 	/* XX... Draw/Create SurfControls (Buttons/Lables/Menus/...)  */
 
 	/* ONLY write notice onto the surface. */
-	FTsymbol_writeFB(vfbdev, "正在下载必应壁纸...", 18, 18, WEGI_COLOR_GRAYB, 0, 0);
+	FTsymbol_writeFB(vfbdev, "正在下载必应壁纸...", 14, 14, WEGI_COLOR_GRAYC, 0, 0);
 
 	/* 6. Start Ering routine */
 	printf("start ering routine...\n");
@@ -180,10 +183,12 @@ int main(int argc, char **argv)
 	/* ========== Main loop ========== */
 	bool ret_ok=false;
 	while( surfshmem->usersig != 1 ) {
-		tm_delayms(100);
 
-		if(ret_ok)
+		tm_delayms(100);
+		if(ret_ok) {
+			/* Wait for surface to exit */
 			continue;
+		}
 
 #ifdef LETS_NOTE
 		ret=system("/home/midas-zhou/bing_today.sh");
@@ -198,10 +203,17 @@ int main(int argc, char **argv)
 			egi_imgbuf_resize_update(&bingimg, false, 320, 240); /* !!! XXX vfbdev->pos_xres, vfbdev->pos_yres  */
 			egi_imgbuf_avgLuma(bingimg, 135);
 			FTsymbol_writeIMG(bingimg,"Bing 必应", 16,16, WEGI_COLOR_WHITE, 320-80, 5); /* vfb, txt, fw, fh, color, px, py */
+
+			EGI_FILEMMAP *fmap=egi_fmap_create("/tmp/.bing_today_title", 0, PROT_READ, MAP_PRIVATE);
+			if(fmap && fmap->fsize) {
+				FTsymbol_writeIMG(bingimg, fmap->fp, 12,12, WEGI_COLOR_WHITE, 5, 240-30); /* vfb, txt, fw, fh, color, px, py */
+			}
+			egi_fmap_free(&fmap);
+
 			egi_imgbuf_savepng(BING_WALLPAPER_PATH, bingimg);
 			egi_imgbuf_free2(&bingimg);
 
-			/* Hide surface. */
+			/* Hide surface ... */
 			surfshmem->sync=false;
 
 			/* SURFMSG to SURFMAN.   ( msgid, msgtype, msgtext, flags ) */
@@ -212,10 +224,26 @@ int main(int argc, char **argv)
 			else
 				printf("OK, surfmsg sent out!\n");
 
-
 /* QUIT surface: ........................ */
 			surfshmem->usersig=1;
+			/* set token */
+			ret_ok=true;
+		}
+		else { /* ELSE !WIFEXITED(ret) */
+			egi_dpstd("Fail to call system()!\n");
 
+        		pthread_mutex_lock(&surfshmem->shmem_mutex);
+/* ------ >>>  Surface shmem Critical Zone  */
+
+			egi_imgbuf_resetColorAlpha(surfimg, WEGI_COLOR_GRAYB, 0);
+			FTsymbol_writeFB(vfbdev, "下载必应壁纸失败！", 14, 14, WEGI_COLOR_GRAYC, 0, 0);
+
+/* ------ <<<  Surface shmem Critical Zone  */
+			pthread_mutex_unlock(&surfshmem->shmem_mutex);
+
+			sleep(2);
+/* QUIT surface: ........................ */
+			surfshmem->usersig=1;
 			/* set token */
 			ret_ok=true;
 		}
@@ -265,7 +293,7 @@ void FTsymbol_writeIMG(EGI_IMGBUF *imgbuf, char *txt, int fw, int fh, EGI_16BIT_
 {
         FTsymbol_uft8strings_writeIMG(   imgbuf, egi_sysfonts.regular,       /* IMGBUF, fontface */
                                         fw, fh,(const unsigned char *)txt,      /* fw,fh, pstr */
-                                        320, 1, 0,                      /* pixpl, lines, fgap */
+                                        320, 5, fh/5,                      /* pixpl, lines, fgap */
                                         px, py,                         /* x0,y0, */
                                         color, -1, 255,                 /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);        /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */

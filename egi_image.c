@@ -152,17 +152,24 @@ void egi_imgbuf_free(EGI_IMGBUF *egi_imgbuf)
 	/* free data inside */
 	egi_imgbuf_cleardata(egi_imgbuf);
 
-	/*  ??????? necesssary ????? */
+#if 1	/*  ??????? necesssary ????? */
+	/*  "It shall be safe to destroy an initialized mutex that is unlocked. Attempting to
+	 *   destroy a locked mutex results in undefined behavior"  --- POSIX man/Linux man 3
+	 */
 	if( pthread_mutex_unlock(&egi_imgbuf->img_mutex) != 0)
 		EGI_PLOG(LOGLV_TEST,"%s:Fail to unlock img_mutex!\n",__func__);
+#endif
 
         /* Destroy thread mutex lock for page resource access */
         if(pthread_mutex_destroy(&egi_imgbuf->img_mutex) !=0 )
-		EGI_PLOG(LOGLV_TEST,"%s:Fail to destroy img_mutex!.\n",__func__);
-					/*  Err'No message of desired type' ??? */
+		EGI_PLOG(LOGLV_TEST,"%s:Fail to destroy img_mutex!. Err'%s'. \n",__func__, strerror(errno));
+					/*  Err'No message of desired type'
+					   Fail to destroy img_mutex!. Err'File exists'.??? */
+	/* NOTE: It seems a previous ERROR/errno will affect pthread_mutex_destroy()!? */
+
 	free(egi_imgbuf);
 
-	egi_imgbuf=NULL; /* ineffective though...*/
+//	egi_imgbuf=NULL; /* ineffective though...*/
 }
 
 /*------------------------------------------

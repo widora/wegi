@@ -5,9 +5,33 @@ published by the Free Software Foundation.
 
 Create an EGI Desktop guide bar.
 
+Usage:
+	Sound Control:
+		Move mouse onto ICON_SOUND and roll mouse wheel to turn volume UP/DOWN.
+	WiFi Control:
+		Move mouse onto ICON_WIFI and click to turn ON/OFF WiFi connection.
+
 Journal:
 2021-05-27: Start programming...
             Finish.
+	    Auto. relocation/alignment to TOP/BOTTOM of desk.
+2021-05-31:
+        1. Test: Auto. hide the surface...
+			--- As a TOP_surface ---
+	Alway receives mstat from ERING, and OK to reset/set sync to hide/show!
+
+			--- As a NON_TOP_surface ---
+	It receives mstat ONLY WHEN the mouse is within	its surface area,
+	and it STOP receiving ONCE the mouse is out of the range.
+	It means if the surface is displayed as a NON_TOP_surface then it
+        CAN NOT reset sync to hide again! OR if it's hidden then it CAN NOT
+	set sync to show itself neither.
+
+2021-06-1:
+	1. Update labicon_WIFI as per real_time RSSI.
+	2. Update labicon_SOUND as per real_time audio volume.
+2021-06-04:
+	1. Ubus call to turn WiFi UP/DOWN.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -18,6 +42,7 @@ https://github.com/widora/wegi
 #include <errno.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 #include "egi_timer.h"
 #include "egi_color.h"
@@ -28,19 +53,28 @@ https://github.com/widora/wegi
 #include "egi_surface.h"
 #include "egi_procman.h"
 #include "egi_input.h"
-
+#include "egi_iwinfo.h"
+#include "egi_pcm.h"
 
 /* SURF Lable_Icons */
 enum {
         LABICON_STATUS  =0,     /* CPU */
         LABICON_TIME    =1,     /* Clock */
-        LABICON_SOUND   =2,     /* Detail of data stream */
+        LABICON_SOUND   =2,     /* Sound */
         LABICON_WIFI	=3,     /* WiFi Info. */
         LABICON_MAX     =4      /* <--- Limit */
 };
 ESURF_LABEL *labicons[LABICON_MAX];
 int mp=-1;   /* Index of mouse touched labicons[], <0 invalid. */
 
+EGI_IMGBUF *wifi_icons[5+1]; /* RSSI LEVEL: 0,1,2,3,4; No_Connection 5 */
+int wifi_icon_index; 	/* Index of wifi_icons[]. */
+int wifi_level; 	/* WiFi signal strength level 0,1,2,3,4,5 */
+
+EGI_IMGBUF *volume_icons[4];
+int volume_icon_index; /* Index of volume_icons[] */
+int volume_level;	/* 0,1,2,3 */
+int vol_pval;		/* Volume percentage value */
 
 /* For SURFUSER */
 EGI_SURFUSER     *surfuser=NULL;
@@ -55,11 +89,30 @@ EGI_16BIT_COLOR  bkgcolor;
 					 * LeftKeyDownHold following LeftKeyDown which is to pick the top surface.
 					 */
 
+/* Wait pid */
+int wait_pid;
+int wait_status;
+
 /* Apply SURFACE module default function */
 //void  *surfuser_ering_routine(void *args);
 //void  surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex */
 void my_firstdraw_surface(EGI_SURFUSER *surfuser, int options);
+void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 void labicon_time_update(void);
+
+//"ubus call network.wireless down",
+const char *arg_wifi_down[3]={
+	"network.wireless",
+	"down",
+	NULL,
+};
+const char *arg_wifi_up[3]={
+	"network.wireless",
+	"up",
+	NULL,
+};
+
+int ubus_cli_call(const char *ubus_socket, int argc, const char**argv);
 
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
@@ -128,7 +181,9 @@ REGISTER_SURFUSER:
 	surfshmem->maximize_surface 	= surfuser_maximize_surface;   	/* Need resize */
 	surfshmem->normalize_surface 	= surfuser_normalize_surface; 	/* Need resize */
         surfshmem->close_surface 	= surfuser_close_surface;
+        surfshmem->draw_canvas          = my_draw_canvas;
 #endif
+        surfshmem->user_mouse_event     = my_mouse_event;
 
 	/* 3. Give a name for the surface. */
 	strncpy(surfshmem->surfname, "EGI Desktop", SURFNAME_MAX-1);
@@ -138,19 +193,40 @@ REGISTER_SURFUSER:
 	//surfuser_firstdraw_surface(surfuser, TOPBAR_NAME); /* Default firstdraw operation */
 	my_firstdraw_surface(surfuser, TOPBAR_NAME); /* Default firstdraw operation */
 
-	/* Create Label */
+	/* Load 24x24 icons */
+	wifi_icons[0]=egi_imgbuf_readfile("/mmc/icons/wifi_0.png");	egi_imgbuf_resetColorAlpha(wifi_icons[0], WEGI_COLOR_WHITE, -1);
+	wifi_icons[1]=egi_imgbuf_readfile("/mmc/icons/wifi_25.png"); 	egi_imgbuf_resetColorAlpha(wifi_icons[1], WEGI_COLOR_WHITE, -1);
+	wifi_icons[2]=egi_imgbuf_readfile("/mmc/icons/wifi_50.png");	egi_imgbuf_resetColorAlpha(wifi_icons[2], WEGI_COLOR_WHITE, -1);
+	wifi_icons[3]=egi_imgbuf_readfile("/mmc/icons/wifi_75.png");	egi_imgbuf_resetColorAlpha(wifi_icons[3], WEGI_COLOR_WHITE, -1);
+	wifi_icons[4]=egi_imgbuf_readfile("/mmc/icons/wifi_100.png");	egi_imgbuf_resetColorAlpha(wifi_icons[4], WEGI_COLOR_WHITE, -1);
+	wifi_icons[5]=egi_imgbuf_readfile("/mmc/icons/wifi_no_connect.png"); egi_imgbuf_resetColorAlpha(wifi_icons[5], WEGI_COLOR_WHITE, -1);
+
+	volume_icons[0]=egi_imgbuf_readfile("/mmc/icons/avolume_0.png"); egi_imgbuf_resetColorAlpha(volume_icons[0], WEGI_COLOR_WHITE, -1);
+	volume_icons[1]=egi_imgbuf_readfile("/mmc/icons/avolume_1.png"); egi_imgbuf_resetColorAlpha(volume_icons[1], WEGI_COLOR_WHITE, -1);
+	volume_icons[2]=egi_imgbuf_readfile("/mmc/icons/avolume_2.png"); egi_imgbuf_resetColorAlpha(volume_icons[2], WEGI_COLOR_WHITE, -1);
+	volume_icons[3]=egi_imgbuf_readfile("/mmc/icons/avolume_3.png"); egi_imgbuf_resetColorAlpha(volume_icons[3], WEGI_COLOR_WHITE, -1);
+
+//	EGI_IMGBUF *audio_volume_100=egi_imgbuf_readfile("/mmc/icons/audio_volume_100.png");
+	EGI_IMGBUF *battery_100_charging=egi_imgbuf_readfile("/mmc/icons/battery_100_charging.png");
+	EGI_IMGBUF *pinyin_icon=egi_imgbuf_readfile("/mmc/icons/pinyin_icon.png");
+
+	/* Create Labels */
         labicons[LABICON_TIME]=egi_surfLab_create(surfimg, SURF_MAXW-5-60, 1, SURF_MAXW-5-60, 1, 80, 30-2); /* img,xi,yi,x0,y0,w,h */
         egi_surfLab_updateText(labicons[LABICON_TIME], "00:00");
-        egi_surfLab_writeFB(vfbdev, labicons[LABICON_TIME], egi_sysfonts.bold, 16, 16, WEGI_COLOR_LTYELLOW, 0, 5);
+        egi_surfLab_writeFB(vfbdev, labicons[LABICON_TIME], egi_sysfonts.bold, 16, 16, WEGI_COLOR_LTYELLOW, 0, 4);
 
-	/* 24x24 icons */
-	EGI_IMGBUF *wifi_100=egi_imgbuf_readfile("/mmc/icons/wifi_100.png");
-	EGI_IMGBUF *audio_volume_100=egi_imgbuf_readfile("/mmc/icons/audio_volume_100.png");
-	EGI_IMGBUF *battery_100_charging=egi_imgbuf_readfile("/mmc/icons/battery_100_charging.png");
-	egi_subimg_writeFB(wifi_100, vfbdev, 0, WEGI_COLOR_WHITE, SURF_MAXW-5-60-40, 2);
-	egi_subimg_writeFB(battery_100_charging, vfbdev, 0, WEGI_COLOR_PINK, SURF_MAXW-5-60-40-40, 3);
-	egi_subimg_writeFB(audio_volume_100, vfbdev, 0, WEGI_COLOR_WHITE, SURF_MAXW-5-60-40-40-30, 2);
+        labicons[LABICON_WIFI]=egi_surfLab_create(surfimg, SURF_MAXW-5-60 -40-30, 2, SURF_MAXW-5-60 -40-30, 2, 30, 30-2); /* img,xi,yi,x0,y0,w,h */
+	labicons[LABICON_WIFI]->front_imgbuf=wifi_icons[0]; /* A ref. pointer */
+	egi_surfLab_writeFB(vfbdev, labicons[LABICON_WIFI], egi_sysfonts.bold, 16, 16, WEGI_COLOR_WHITE, 0, 0);
 
+        labicons[LABICON_SOUND]=egi_surfLab_create(surfimg, SURF_MAXW-5-60 -40-30-30, 2, SURF_MAXW-5-60 -40-30-30, 2, 30,30-2);/* img,xi,yi,x0,y0,w,h */
+	labicons[LABICON_SOUND]->front_imgbuf=volume_icons[1];
+	egi_surfLab_writeFB(vfbdev, labicons[LABICON_SOUND], egi_sysfonts.bold, 16, 16, WEGI_COLOR_WHITE, 0, 0);
+
+	/* Put icons from Right to Left */
+	egi_subimg_writeFB(battery_100_charging, vfbdev, 0, WEGI_COLOR_PINK, SURF_MAXW-5-60 -40, 3);
+//	egi_subimg_writeFB(audio_volume_100, vfbdev, 0, WEGI_COLOR_WHITE, SURF_MAXW-5-60 -40-30-30, 2);
+	egi_subimg_writeFB(pinyin_icon, vfbdev, 0, -1, SURF_MAXW-5-60 -40-30-30-30, 4);
 
 	/* Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
@@ -172,16 +248,49 @@ REGISTER_SURFUSER:
 
 	/* Main loop */
 	while( surfshmem->usersig != 1 ) {
-		tm_delayms(100);
+		tm_delayms(200);
 
-        	/* Get surface mutex_lock */
+
+		/* 1. Update clock */
         	pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */
-
 		labicon_time_update();
-
 /* ------ <<<  Surface shmem Critical Zone  */
                 pthread_mutex_unlock(&surfshmem->shmem_mutex);
+
+		/* 2. Update WIFI RSSI Level */
+        	pthread_mutex_lock(&surfshmem->shmem_mutex);
+/* ------ >>> Surface shmem Critical Zone */
+		wifi_level=iw_get_rssi("apcli0",NULL); //get_wifi_level();
+		if(wifi_level != wifi_icon_index) {
+			if(wifi_level<0) wifi_level=5; /* No Connection */
+			wifi_icon_index=wifi_level;
+			/* Update LAB front_imagbuf */
+			labicons[LABICON_WIFI]->front_imgbuf=wifi_icons[wifi_icon_index];
+			egi_surfLab_writeFB(vfbdev, labicons[LABICON_WIFI], egi_sysfonts.bold, 16, 16, WEGI_COLOR_WHITE, 0, 0);
+		}
+/* ------ <<<  Surface shmem Critical Zone  */
+                pthread_mutex_unlock(&surfshmem->shmem_mutex);
+
+		/* 3. Update PCM volume */
+        	pthread_mutex_lock(&surfshmem->shmem_mutex);
+/* ------ >>> Surface shmem Critical Zone */
+		egi_getset_pcm_volume(&vol_pval, NULL);
+		volume_level=vol_pval/30;
+		if(volume_level != volume_icon_index) {
+			volume_icon_index=volume_level;
+			/* Update LAB front_imagbuf */
+			labicons[LABICON_SOUND]->front_imgbuf=volume_icons[volume_icon_index];
+			egi_surfLab_writeFB(vfbdev, labicons[LABICON_SOUND], egi_sysfonts.bold, 16, 16, WEGI_COLOR_WHITE, 0, 0);
+		}
+/* ------ <<<  Surface shmem Critical Zone  */
+                pthread_mutex_unlock(&surfshmem->shmem_mutex);
+
+
+		/* Wait pid */
+		if( (wait_pid=waitpid(-1, &wait_status, WNOHANG)) >0 ) {
+                        egi_dpstd("A child process PID=%d exits, wait_status=%d!\n", wait_pid, wait_status);
+                }
 
 	}
 
@@ -257,7 +366,7 @@ void my_firstdraw_surface(EGI_SURFUSER *surfuser, int options)
 	        FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.bold, 	  /* FBdev, fontface */
                                         16, 16, (const UFT8_PCHAR) surfshmem->surfname, /* fw,fh, pstr */
                                         320, 1, 0,                        /* pixpl, lines, fgap */
-                                        10, 5,                             /* x0,y0, */
+                                        10, 4,                             /* x0,y0, */
                                         WEGI_COLOR_WHITE, -1, 200,        /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
 	}
@@ -285,5 +394,161 @@ void labicon_time_update(void)
 
 	tm_get_strtime(strtmp);
         egi_surfLab_updateText(labicons[LABICON_TIME], strtmp);
-        egi_surfLab_writeFB(vfbdev, labicons[LABICON_TIME], egi_sysfonts.bold, 16, 16, WEGI_COLOR_LTYELLOW, 0, 5);
+        egi_surfLab_writeFB(vfbdev, labicons[LABICON_TIME], egi_sysfonts.regular, 16, 16, WEGI_COLOR_LTYELLOW, 0, 4);
 }
+
+
+/*------------------------------------------------------------------
+                Mouse Event Callback
+                (shmem_mutex locked!)
+
+1. It's a callback function called in surfuser_parse_mouse_event().
+2. pmostat is for whole desk range.
+3. This is for  SURFSHMEM.user_mouse_event() .
+--------------------------------------------------------------------*/
+void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
+{
+//	printf("(%d,%d)\n", pmostat->mouseX, pmostat->mouseY);
+
+#if 0	/* To hide/unhide surface, !!! see NOTE/Journal for its drawbacks. */
+	if( pxy_inbox( pmostat->mouseX, pmostat->mouseY, surfshmem->x0, surfshmem->y0,
+				 surfshmem->x0+surfshmem->vw, surfshmem->y0+surfshmem->vh ) == false ) {
+		/* Hide the surface */
+		surfshmem->sync=false;
+
+		return;
+	}
+	else
+		surfshmem->sync=true;
+#endif
+	/* If click */
+	if( pmostat->LeftKeyDown ) {
+		/* Click on WiFi LABICON */
+        	if( egi_point_on_surfBox( (ESURF_BOX *)labicons[LABICON_WIFI],
+                	                pmostat->mouseX-surfshmem->x0, pmostat->mouseY-surfshmem->y0) ) {
+			if( iw_is_running("apcli0") ) {
+				egi_dpstd("ifdown apcli0...\n");
+				iw_ifdown("apcli0"); /* This is NOT enough, netifd/ap_client will auto. reconnect!? */
+
+#ifndef LETS_NOTE
+				/* Fork to exe ubus_call */
+				int pid;
+				if( (pid=vfork())<0)
+					egi_dpstd("Vfork error!\n");
+				else if(pid==0) {
+					ubus_cli_call(NULL, 2, arg_wifi_down);
+					exit(0);
+				}
+				egi_dpstd("Ok ubus call wifi_down!\n");
+#endif
+				//XX iwpriv("ra0", "ApCliEnable", "0");
+				//XX system("wifi down");
+			}
+			else {
+				egi_dpstd("ifup apcli0...\n");
+				iw_ifup("apcli0");	/* This is NOT enough, netifd/ap_client will auto. reconnect!? */
+
+#ifndef LETS_NOTE
+				/* Fork to exe ubus_call */
+				int pid;
+				if( (pid=vfork())<0)
+					egi_dpstd("Vfork error!\n");
+				else if(pid==0) {
+					ubus_cli_call(NULL, 2, arg_wifi_up);
+					exit(0);
+				}
+#endif				egi_dpstd("Ok ubus call wifi_up!\n");
+
+				//XX iwpriv("ra0", "ApCliEnable", "1");
+				//XX system("wifi up");
+			}
+		}
+	}
+	/* If LeftKeyUp, then readjust position */
+	else if( pmostat->LeftKeyUp ) {
+		/* Locate GuideBar to TOP of the desk. */
+		if( surfshmem->y0 < SURF_MAXH/2 ) {
+			surfshmem->x0 = -5;
+			surfshmem->y0 = -1;
+		}
+		/* Locate GuideBar to BOTTOM of the desk. */
+		else {
+			surfshmem->x0 = -5;
+			surfshmem->y0 = SURF_MAXH-30;
+		}
+	}
+
+	/* If on ICON SOUND */
+	if( egi_point_on_surfBox( (ESURF_BOX *)labicons[LABICON_SOUND],
+				pmostat->mouseX-surfshmem->x0, pmostat->mouseY-surfshmem->y0) ) {
+		if( pmostat->mouseDZ ) {
+			//printf("DZ=%d\n", pmostat->mouseDZ);
+			//vol_pval += -pmostat->mouseDZ*5;
+			//egi_getset_pcm_volume(NULL, &vol_pval);
+			egi_adjust_pcm_volume(-pmostat->mouseDZ*2);
+		}
+	}
+
+
+}
+
+
+/*--------------- Ubus Client call host ------------
+	Ubus Client call host
+With reference to: ubus-2015-05-25/cli.c
+Copyright (C) 2011 Felix Fietkau <nbd@openwrt.org>
+GNU Lesser General Public License version 2.1
+----------------------------------------------------*/
+#ifndef LETS_NOTES
+
+#include <libubox/blobmsg_json.h>
+#include "libubus.h"
+static bool simple_output=false;
+static void receive_call_result_data(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+        char *str;
+        if (!msg)
+                return;
+
+        str = blobmsg_format_json_indent(msg, true, simple_output ? -1 : 0);
+        printf("%s\n", str);
+        free(str);
+}
+
+
+int ubus_cli_call(const char *ubus_socket, int argc, const char **argv)
+{
+	struct ubus_context *ctx=NULL;
+	struct blob_buf b={0};
+        uint32_t id;
+        int ret;
+	int timeout=30;
+
+        if (argc < 2 || argc > 3)
+                return -2;
+
+        ctx = ubus_connect(ubus_socket);
+        if (!ctx) {
+                if (!simple_output)
+                        fprintf(stderr, "Failed to connect to ubus\n");
+                return -1;
+        }
+
+        blob_buf_init(&b, 0);
+        if (argc == 3 && !blobmsg_add_json_from_string(&b, argv[2])) {
+                if (!simple_output)
+                        fprintf(stderr, "Failed to parse message data\n");
+                return -1;
+        }
+
+        ret = ubus_lookup_id(ctx, argv[0], &id);
+        if (ret) {
+		printf("ubus_lookup_id fails!\n");
+                return ret;
+	}
+
+	printf("ubus_invoke...\n");
+        return ubus_invoke(ctx, id, argv[1], b.head, receive_call_result_data, NULL, timeout * 1000);
+}
+
+#endif

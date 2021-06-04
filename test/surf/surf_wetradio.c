@@ -59,6 +59,8 @@ Journal:
 	1. ListBox_mouse_event(): Drag GuideBlock on scrollbar to change View of ListBox.
 2021-05-25:
 	1. Try to scroll radio_station_name if its too long for displaying panel.
+2021-05-30:
+	1. Update pixlen after each egi_surfLab_updateText(labels[LAB_RSNAME]...)
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -179,7 +181,7 @@ enum {
 };
 ESURF_LABEL *labels[LAB_MAX];
 int mplab=-1;   /* Index of mouse touched lab, <0 invalid. */
-
+int pixlen;	/* pixlen for radio station name */
 
 /* User surface functions */
 void 	my_draw_canvas(EGI_SURFUSER *surfuser);
@@ -395,6 +397,8 @@ int main(int argc, char **argv)
 	labels[LAB_RSNAME]=egi_surfLab_create(surfimg,20,SURF_TOPBAR_HEIGHT+5+32,20,SURF_TOPBAR_HEIGHT+5+32, panW-20, 25); /* img,xi,yi,x0,y0,w,h */
 	egi_surfLab_updateText(labels[LAB_RSNAME], playlist[playlist_idx].name);
 	egi_surfLab_writeFB(vfbdev, labels[LAB_RSNAME], egi_sysfonts.regular, 18, 18, WEGI_COLOR_GREEN, 0, 0);
+	pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.bold, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
+
 	/* 9.3 Stream detail */
 	labels[LAB_PARAMS]=egi_surfLab_create(surfimg,20,SURF_TOPBAR_HEIGHT+5+60,20,SURF_TOPBAR_HEIGHT+5+60, panW-20, 20); /* img,xi,yi,x0,y0,w,h */
 	egi_surfLab_updateText(labels[LAB_PARAMS], "Params...");
@@ -450,6 +454,8 @@ int main(int argc, char **argv)
 /* ------ <<<  Surface shmem Critical Zone  */
 	                pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
+			pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.bold, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
+
 			start_radio(playlist[playlist_idx].address);
 
 			radioSTAT = STAT_CONNECT;  /* Main loop to check STAT_PLAY, if stream file found. */
@@ -457,6 +463,7 @@ int main(int argc, char **argv)
 		}
 		if(  radioSIG == SIG_PLAY && radioSTAT != STAT_PLAY ) {
 			egi_surfLab_updateText(labels[LAB_STATUS], "Connecting...");
+
         		pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */
 			egi_surfLab_writeFB(vfbdev, labels[LAB_STATUS], egi_sysfonts.regular, 18, 18, WEGI_COLOR_LTYELLOW, 0, 0);
@@ -464,6 +471,8 @@ int main(int argc, char **argv)
 			egi_surfLab_writeFB(vfbdev, labels[LAB_RSNAME], egi_sysfonts.regular, 18, 18, WEGI_COLOR_GREEN, 0, 0);
 /* ------ <<<  Surface shmem Critical Zone  */
 	                pthread_mutex_unlock(&surfshmem->shmem_mutex);
+
+			pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.bold, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
 
 			start_radio(playlist[playlist_idx].address);
 
@@ -497,6 +506,8 @@ int main(int argc, char **argv)
 			egi_surfLab_writeFB(vfbdev, labels[LAB_PARAMS], egi_sysfonts.regular, 14, 14, WEGI_COLOR_GREEN, 0, 0);
 /* ------ <<<  Surface shmem Critical Zone  */
 	                pthread_mutex_unlock(&surfshmem->shmem_mutex);
+
+			pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.bold, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
 
 			if( radioSTAT == STAT_PLAY || radioSTAT == STAT_CONNECT ) {
 				stop_radio();
@@ -569,8 +580,8 @@ int main(int argc, char **argv)
 
 #if 1 /* TEST: ------------- Scroll Radio station name. */
 	   if( surfshmem->status != SURFACE_STATUS_MINIMIZED ) {
-		int pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.bold, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
-		if(pixlen > panW ) {
+		//int pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.bold, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
+		if( pixlen > labels[LAB_RSNAME]->w ) {
 			//printf("resetColorAlpah\n");
 			egi_imgbuf_resetColorAlpha(labels[LAB_RSNAME]->imgbuf, WEGI_COLOR_DARKGRAY1, 255);
 			px-=1;
@@ -963,7 +974,7 @@ int load_playlist(const char *fpath, struct radio_info **infoList,  int *listCnt
 	*listCnt = cnt;
 
 	if( cnt==0 ) {
-		egi_dpstd("No radio address found!\n");
+		egi_dpstd("No radio address found! or playlist format error. \n");
 		return -2;
 	}
 	else
@@ -1045,7 +1056,7 @@ int load_playlist(const char *fpath, struct radio_info **infoList,  int *listCnt
 	*listCnt = cnt;
 
 	if( cnt==0 ) {
-		egi_dpstd("No radio address found!\n");
+		egi_dpstd("No radio address found! or playlist format error.\n");
 		return -2;
 	}
 	else

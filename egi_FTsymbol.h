@@ -33,6 +33,7 @@ struct FTsymbol_library {
 	 */
 	FT_Library     		 library;		/* NOTE: typedef struct FT_LibraryRec_  *FT_Library */
 	pthread_mutex_t          lib_mutex;
+	// int refcnt....
 
 	/* Regular type */
         FT_Face         regular;	/* NOTE: typedef struct FT_FaceRec_*  FT_Face */

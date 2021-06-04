@@ -86,8 +86,9 @@ EGI_16BIT_COLOR  bkgcolor;
 					 */
 
 /* Apply SURFACE module default function */
-//void  *surfuser_ering_routine(void *args);
+void  *surfuser_ering_routine(void *args);  /* For LOOP_TEST and ering_test, a little different from module default function. */
 //void  surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex */
+void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
@@ -188,6 +189,8 @@ START_TEST:
 	surfshmem->maximize_surface 	= surfuser_maximize_surface;   	/* Need resize */
 	surfshmem->normalize_surface 	= surfuser_normalize_surface; 	/* Need resize */
         surfshmem->close_surface 	= surfuser_close_surface;
+        surfshmem->user_mouse_event     = my_mouse_event;
+        //surfshmem->draw_canvas          = my_draw_canvas;
 
 	/* 3. Give a name for the surface. */
 	if(pname)
@@ -282,10 +285,29 @@ START_TEST:
 	exit(0);
 }
 
-#if 0 ///////////////////  Module Default Function  //////////////////////
-/*------------------------------------
+
+/*--------------------------------------------------------------------
+                Mouse Event Callback
+                (shmem_mutex locked!)
+
+1. It's a callback function called in surfuser_parse_mouse_event().
+2. pmostat is for whole desk range.
+3. This is for  SURFSHMEM.user_mouse_event() .
+--------------------------------------------------------------------*/
+void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
+{
+	/* Get key_input */
+	if( pmostat->ch )
+		printf("%c\n", pmostat->ch);
+
+}
+
+
+/*-----------------------------------------------------
     SURFUSER's ERING routine thread.
-------------------------------------*/
+A little different from module default routine function
+, for LOOP_TEST and ering_test.
+------------------------------------------------------*/
 void *surfuser_ering_routine(void *args)
 {
 	EGI_SURFUSER *surfuser=NULL;
@@ -320,6 +342,7 @@ void *surfuser_ering_routine(void *args)
 			exit(EXIT_FAILURE);
 		    #endif
 		}
+//		egi_dpstd("Ering_msg_recv OK\n");
 
 	        /* 2. Parse ering messag */
         	switch(emsg->type) {
@@ -394,6 +417,8 @@ surfuser_parse_mouse_event(): Touch a BTN mpbtn=-1, i=0
                         	break;
 		       case ERING_MOUSE_STATUS:
 				mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
+				if(mouse_status->ch !=0)
+					egi_dpstd("Input ch='%c'(%d)\n", mouse_status->ch, mouse_status->ch);
 				//egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
 				/* Parse mouse event */
 				surfuser_parse_mouse_event(surfuser,mouse_status);  /* mutex_lock */
@@ -413,5 +438,4 @@ surfuser_parse_mouse_event(): Touch a BTN mpbtn=-1, i=0
 	return (void *)0;
 }
 
-#endif //////////////////////////////////////////
 

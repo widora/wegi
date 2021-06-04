@@ -893,8 +893,10 @@ int ering_msg_recv(int sockfd, ERING_MSG *emsg)
 {
 	int ret;
 
-	if(emsg==NULL)
+	if(emsg==NULL) {
+		egi_dpstd("Input emsg is NULL!\n");
 		return -1;
+	}
 
 	/* ALWAYS fixed msg_iov[1].iov_len */
 	//emsg->msghead->msg_iov[1].iov_len=ERING_MSG_DATALEN;
