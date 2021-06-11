@@ -12,6 +12,12 @@ midaszhou@yahoo.com
 
 #include <stdbool.h>
 #include <linux/input.h>
+#include <stdint.h>
+
+typedef struct egi_keyboard_status {
+	uint16_t keycode;
+	bool	 press;
+} EGI_KBD_STATUS;
 
 /*** NOTE:
  *	1. Pointer memeber is NOT allowed! see ERING_MSG for mouse status.
@@ -66,6 +72,7 @@ typedef struct egi_mouse_status {
 
 
 
+
 /***  @inevnt: input event data */
 typedef void (* EGI_INEVENT_CALLBACK)(struct input_event *inevent);  		/* input event callback function */
 
@@ -76,6 +83,7 @@ typedef void (* EGI_MOUSE_CALLBACK)(unsigned char *data, int size, EGI_MOUSE_STA
 void 	egi_input_setCallback(EGI_INEVENT_CALLBACK callback);
 int 	egi_start_inputread(const char *dev_name);
 int 	egi_end_inputread(void);
+int 	egi_read_kbdcode(EGI_KBD_STATUS *kbdstat);
 
 /* For mice device */
 void 	egi_mouse_setCallback(EGI_MOUSE_CALLBACK callback);

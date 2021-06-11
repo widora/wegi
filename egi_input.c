@@ -111,6 +111,10 @@ Journal
 
 TODO: If mouse is disconnected, the mouse_callback() will be hung up.
 
+2021-06-11:
+	1. Add EGI_KBD_STATUS
+	1. Add egi_read_kbdcode().
+
 Midas Zhou
 midaszhou@yahoo.com
 --------------------------------------------------------------------------------------*/
@@ -916,4 +920,231 @@ void egi_reset_termios(void)
         egi_dpstd("OLD input speed:%d, output speed:%d\n",cfgetispeed(&old_termioset), cfgetospeed(&old_termioset) );
 }
 
+
+/*--------------------------------------------------------------
+Reference: https://blog.csdn.net/lanmanck/article/details/8423669
+
+ * Copyright 2002 Red Hat Inc., Durham, North Carolina.
+ *
+ * All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation on the rights to use, copy, modify, merge,
+ * publish, distribute, sublicense, and/or sell copies of the Software,
+ * and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice (including the
+ * next paragraph) shall be included in all copies or substantial
+ * portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NON-INFRINGEMENT.  IN NO EVENT SHALL RED HAT AND/OR THEIR SUPPLIERS
+ * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ *
+ * This is a simple test program that reads from /dev/input/event*,
+ * decoding events into a human readable form.
+ *
+ *
+ * Authors:
+ *   Rickard E. (Rik) Faith <faith@redhat.com>
+
+ ---------------------------------------------------------
+ Modified to select /dev/input/event* to read KEY_EV only.
+ Midas Zhou   <midaszhou@yahoo.com>
+
+-----------------------------------------------------------------
+ Read keyboard EV_KEY event to get key code.
+
+ @kstat: 	A pointer to EGI_KEY_STATUS.
+
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------------------------*/
+int egi_read_kbdcode(EGI_KBD_STATUS *kstat)
+{
+    	int           i, j;
+    	char          name[64];           /* RATS: Use ok, but could be better */
+    	char          buf[256] = { 0, };  /* RATS: Use ok */
+    	unsigned char mask[EV_MAX/8 + 1]; /* RATS: Use ok */
+    	int           version;
+    	int           fd[32] = {0};
+    	struct timeval	tmout;
+    	int           rc;
+
+	struct input_id	   devID;
+	struct input_event event;
+
+	bool  type_ev_key;
+	bool  type_ev_rep;
+	bool  got_key_code;   /* Get input event of KEY */
+
+    	/* Select fds */
+	int sfd;
+    	int maxfd;
+    	fd_set rfds;
+
+	/* Clear fd set */
+    	maxfd=0;
+    	FD_ZERO(&rfds);
+
+	for (i = 0; i < 32; i++) {
+        	sprintf(name, "/dev/input/event%d", i);
+        	if ((fd[i] = open(name, O_RDWR, 0)) >= 0) {
+
+            		ioctl(fd[i], EVIOCGBIT(0, sizeof(mask)), mask);
+			ioctl(fd[i], EVIOCGID, &devID);
+
+	        	ioctl(fd[i], EVIOCGVERSION, &version);
+        		ioctl(fd[i], EVIOCGNAME(sizeof(buf)), buf);
+
+#if 0 /* Print out input device information */
+			printf("devID.product=%u\n", devID.product);
+            		printf("%s\n", name);
+            		printf("    evdev version: %d.%d.%d\n",
+                   		version >> 16, (version >> 8) & 0xff, version & 0xff);
+            		printf("    name: %s\n", buf);
+            		printf("    features:");
+#endif
+
+			/* Clear token */
+			type_ev_key=false;
+			type_ev_rep=false;
+
+			/* Check input device type */
+            		for (j = 0; j < EV_MAX; j++) {
+				// #define test_bit(bit) (mask[(bit)/8] & (1 << ((bit)%8)))
+        	        	//if (test_bit(j)) {
+				if( mask[j/8] & (1 << (j%8)) ) {
+		                        const char *type = "unknown";
+	        	            	switch(j) {
+			                    case EV_KEY: type = "keys/buttons";
+						type_ev_key=true;
+						break;
+			                    case EV_REL: type = "relative";     break;
+			                    case EV_ABS: type = "absolute";     break;
+			                    case EV_MSC: type = "reserved";     break;
+			                    case EV_LED: type = "leds";         break;
+			                    case EV_SND: type = "sound";        break;
+			                    case EV_REP: type = "repeat";
+						type_ev_rep=true;
+						break;
+			                    case EV_FF:  type = "feedback";     break;
+                    			}
+//					printf(" %s", type);
+                		}
+            		}
+//            		printf("\n");
+
+			/* If EV_KEY+EV_REP: Add fd into selection AS keyboard. */
+			if( type_ev_key && type_ev_rep ) {
+				FD_SET(fd[i],&rfds);
+				if(fd[i] > maxfd)
+					maxfd=fd[i];
+//				printf("KBD fd[%d]: '%s', product id=%u\n", i, name, devID.product);
+			}
+		}
+		//else
+			//printf("Fail to open '%s', or it doesn't exist.\n", name);
+
+	} /* END for() */
+
+
+	/* If no fd in set */
+	if(maxfd==0)
+		return -1;
+
+	/* Clear token */
+	got_key_code=false;
+
+	/* Select fd */
+        tmout.tv_sec=0;
+        tmout.tv_usec=1000;
+	sfd=select(maxfd+1, &rfds, NULL, NULL, &tmout);
+
+   	if(sfd>0) {
+
+	   for(i=0; i<32; i++) {
+		if( fd[i]<0 )
+			continue;
+
+		if( !FD_ISSET(fd[i], &rfds) )
+			continue;
+
+	    	/* Read out fds[i], break if get KEY_CODE. */
+            	while( (rc = read(fd[i], &event, sizeof(struct input_event))) > 0) {
+			printf("fd[%d]: ",i);
+			printf("%-24.24s.%06lu type 0x%04x; code 0x%04x;"
+                       		" value 0x%08x; ",
+                      		ctime(&event.time.tv_sec),
+                       		event.time.tv_usec,
+                 		event.type, event.code, event.value);
+                	switch (event.type) {
+	                   case EV_KEY:
+        	            	if (event.code > BTN_MISC) {
+               		        	printf("Button %d %s", event.code & 0xff,
+	                       	       		event.value ? "press" : "release");
+				} else {
+                       			printf("Key %d (0x%x) %s", event.code & 0xff,
+	                       			event.code & 0xff, event.value ? "press" : "release");
+               	    		}
+				got_key_code=true;
+				break;
+
+#if 0 /*  Discard other event...  */
+	                   case EV_REL: printf("Rel"); break;
+	                   case EV_ABS: printf("ABS"); break;
+	                   case EV_MSC: printf("Misc"); break;
+        	           case EV_LED: printf("Led");  break;
+                	   case EV_SND: printf("Snd");  break;
+	                   case EV_REP: printf("Rep");  break;
+        	           case EV_FF:  printf("FF");   break;
+#endif
+
+			   default:
+				printf("NOT EV_KEY!\n");
+				break;
+                	}
+                	printf("\n");
+
+		        /* If got keycode, exit loop. */
+     			if(got_key_code) {
+	     			//printf("Got keycode!\n");
+	     			break;
+    			}
+
+	    	} /* END while( read(fd[i]..) */
+		// else
+		//	printf("rc = %d, (%s)\n", rc, strerror(errno));
+
+	        /* If got keycode, exit for() loop. */
+     		if(got_key_code)
+	     		break;
+
+           } /* END for() */
+        } /* END if(sfd>0) */
+
+	/* Close all fds */
+     	for (i = 0; i < 32; i++) {
+		if(fd[i]>0)
+			close(fd[i]);
+     	}
+
+	/* Pass out key status */
+	if(got_key_code) {
+		kstat->keycode=event.code & 0xff;
+		kstat->press=event.value;
+		return 0;
+	}
+
+    	return -1;
+}
 
