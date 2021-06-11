@@ -244,6 +244,11 @@ Journal
 	1. egi_unregister_surfuser(): Free topbar CLOSE/MIN/MAX btns in surfshmem->sbtns[].
 2021-05-19:
 	1. surfman_render_thread(): Add triangular ushering marks at left_top and left_bottom.
+2021-06-07:
+	1. Add member 'fd_flock' for EGI_SURFUSER.
+	2. Modify egi_register_surfuser():  call egi_lock_pidfile() to get fd_flock.
+	2. Modify egi_unregister_surfuser(): to close(fd_flock).
+
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -270,6 +275,7 @@ midaszhou@yahoo.com
 #include "egi_math.h"
 #include "egi_FTsymbol.h"
 #include "egi_input.h"
+#include "egi_utils.h"
 
 static void* surfman_request_process_thread(void *surfman);
 static void * surfman_render_thread(void *surfman);
@@ -504,10 +510,20 @@ Return:
 	A pointer to EGI_SURFUSER	OK
 	NULL				Fails
 -------------------------------------------------------------*/
-EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
-				   int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType )
+EGI_SURFUSER *egi_register_surfuser( const char *svrpath, const char *pid_lock_file,
+				    int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType )
 {
+	int fd_flock;
 	EGI_SURFUSER *surfuser;
+
+	/* Check if instance already running */
+	fd_flock=0;
+	if(pid_lock_file) {
+		if( (fd_flock=egi_lock_pidfile(pid_lock_file)) <=0 ) {
+			egi_dperr("Fail to lock pidfile, an instance is already running?");
+			return NULL;
+		}
+	}
 
 	/* Check input */
 	if( colorType != SURF_RGB565 && colorType != SURF_RGB565_A8 ) {
@@ -588,6 +604,7 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath,
 	/* NOW in surfuser_firstdraw_surface() */
 
 	/* Assign other memebers */
+	surfuser->fd_flock = fd_flock;	/* If pid_lock_file==NULL, then fd_lock=0 */
 	surfuser->mevent_suspend = true;
 
 	/* OK */
@@ -649,7 +666,11 @@ int egi_unregister_surfuser(EGI_SURFUSER **surfuser)
         if( unet_destroy_Uclient(&(*surfuser)->uclit) !=0 )
 		ret += -(1<<2);
 
-        /* 6. Free surfuser struct */
+	/* 6. close(fd_flock) to unlock file. */
+	if( (*surfuser)->fd_flock >0 )
+		close((*surfuser)->fd_flock);
+
+        /* 7. Free surfuser struct */
         free(*surfuser);
 	*surfuser=NULL;
 
@@ -2818,7 +2839,6 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 			else
 				surfshmem->status = SURFACE_STATUS_NORMAL;
 		}
-
 	}
 
 
@@ -2840,8 +2860,6 @@ USER_CALLBACK:
 	/* 6. Callback user defined mouse event functions */
 	if( surfshmem->user_mouse_event )
 		surfshmem->user_mouse_event(surfuser, pmostat);
-
-
 
 
 END_FUNC:

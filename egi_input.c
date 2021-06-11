@@ -870,10 +870,10 @@ void egi_set_termios(void)
         tcgetattr(STDIN_FILENO, &old_termioset);
 	old_termispeed=cfgetispeed(&old_termioset);
 	if(old_termispeed<0)
-		printf("%s: Fail cfgetispeed, Err'%s'\n", __func__, strerror(errno));
+		egi_dperr("Fail cfgetispeed");
 	old_termospeed=cfgetospeed(&old_termioset);
 	if(old_termospeed<0)
-		printf("%s: Fail cfgetispeed, Err'%s'\n", __func__, strerror(errno));
+		egi_dperr("Fail cfgetospeed");
 
 	/* Setup with new settings */
         new_termioset=old_termioset;
@@ -882,18 +882,20 @@ void egi_set_termios(void)
         new_termioset.c_cc[VMIN]=0; //1;
         new_termioset.c_cc[VTIME]=0; //0
 
-	/* TEST: set IO speed with tentative values. */
+
+#if 0	/* TEST: set IO speed with tentative values. */
         if( cfsetispeed(&new_termioset,B57600)<0 )  /* 4k */
-		printf("%s: Fail cfsetiseepd, Err'%s'\n", __func__, strerror(errno));
+		egi_dperr("Fail cfsetiseed");
 
         if( cfsetospeed(&new_termioset,B57600)<0 )
-		printf("%s: Fail cfsetoseepd, Err'%s'\n", __func__, strerror(errno));
+		egi_dperr("Fail cfsetoseed");
+#endif
 
 	/* Set parameters to the terminal. TCSANOW -- the change occurs immediately.*/
         if( tcsetattr(STDIN_FILENO, TCSANOW, &new_termioset)<0 )
-		printf("%s: Fail tcsetattr, Err'%s'\n", __func__, strerror(errno));
+		egi_dperr("Fail tcsetattr");
 
-        printf("NEW input speed:%d, output speed:%d\n",cfgetispeed(&new_termioset), cfgetospeed(&new_termioset) );
+        egi_dpstd("NEW input speed:%d, output speed:%d\n",cfgetispeed(&new_termioset), cfgetospeed(&new_termioset) );
 
 #endif
 }
@@ -911,7 +913,7 @@ void egi_reset_termios(void)
         /* Restore old terminal settings */
         tcsetattr(STDIN_FILENO, TCSANOW, &old_termioset);
 
-        printf("OLD input speed:%d, output speed:%d\n",cfgetispeed(&old_termioset), cfgetospeed(&old_termioset) );
+        egi_dpstd("OLD input speed:%d, output speed:%d\n",cfgetispeed(&old_termioset), cfgetospeed(&old_termioset) );
 }
 
 

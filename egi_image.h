@@ -77,7 +77,11 @@ EGI_IMGBUF  *egi_imgbuf_avgsoft2(const EGI_IMGBUF *ineimg, int size, bool alpha_
 
 //EGI_IMGBUF  *egi_imgbuf_resize(const EGI_IMGBUF *ineimg, unsigned int width, unsigned int height);
 EGI_IMGBUF  *egi_imgbuf_resize(EGI_IMGBUF *ineimg, bool keep_ratio, int width, int height);     /* mutex_lock */
+EGI_IMGBUF  *egi_imgbuf_resize_nolock( EGI_IMGBUF *ineimg, bool keep_ratio, int width, int height );
+EGI_IMGBUF  *egi_imgbuf_scale( EGI_IMGBUF *ineimg, int width, int height );
+
 int 	egi_imgbuf_resize_update(EGI_IMGBUF **pimg, bool keep_ratio, unsigned int width, unsigned int height);
+int 	egi_imgbuf_scale_update(EGI_IMGBUF **pimg, int width, int height);
 
 int 	egi_imgbuf_blur_update(EGI_IMGBUF **pimg, int size, bool alpha_on);
 int	egi_imgbuf_blend_imgbuf(EGI_IMGBUF *eimg, int xb, int yb, const EGI_IMGBUF *addimg );

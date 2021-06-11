@@ -35,7 +35,7 @@ https://github.com/widora/wegi
 #include "egi_bjp.h"
 #include "egi_utils.h"
 
-#define BING_WALLPAPER_PATH	"/tmp/bing_today.jpg"
+#define BING_WALLPAPER_PATH	"/tmp/bing_today.jpg"  /* MAY save to png with same name. */
 
 /* Width and Height of the MAIN surface */
 int 	sw=200;
@@ -186,6 +186,8 @@ int main(int argc, char **argv)
 
 		tm_delayms(100);
 		if(ret_ok) {
+			egi_dpstd("Wait for surface to exit...\n");
+
 			/* Wait for surface to exit */
 			continue;
 		}
@@ -197,10 +199,12 @@ int main(int argc, char **argv)
 #endif
 
 		egi_dpstd("System ret=%d\n", ret);
-		if( WIFEXITED(ret) ) {
-			/* Edit bing_today.jpg: Put on title/mark. */
-			bingimg=egi_imgbuf_readfile(BING_WALLPAPER_PATH);
-			egi_imgbuf_resize_update(&bingimg, false, 320, 240); /* !!! XXX vfbdev->pos_xres, vfbdev->pos_yres  */
+		if( WIFEXITED(ret)			/* However, WIFEXITED(ret) may still fail! */
+		    && (bingimg=egi_imgbuf_readfile(BING_WALLPAPER_PATH))!=NULL  )
+		{
+			/* Edit bing_today.jpg: Put on title/mark. WARN: bing_today.sh MAY fail! */
+			//egi_imgbuf_resize_update(&bingimg, false, 320, 240); /* !!! XXX vfbdev->pos_xres, vfbdev->pos_yres  */
+			egi_imgbuf_scale_update(&bingimg, SURF_MAXW, SURF_MAXH);
 			egi_imgbuf_avgLuma(bingimg, 135);
 			FTsymbol_writeIMG(bingimg,"Bing 必应", 16,16, WEGI_COLOR_WHITE, 320-80, 5); /* vfb, txt, fw, fh, color, px, py */
 
@@ -210,7 +214,7 @@ int main(int argc, char **argv)
 			}
 			egi_fmap_free(&fmap);
 
-			egi_imgbuf_savepng(BING_WALLPAPER_PATH, bingimg);
+			egi_imgbuf_savepng(BING_WALLPAPER_PATH, bingimg); /* Save to png with name *.jpg */
 			egi_imgbuf_free2(&bingimg);
 
 			/* Hide surface ... */
@@ -241,7 +245,7 @@ int main(int argc, char **argv)
 /* ------ <<<  Surface shmem Critical Zone  */
 			pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
-			sleep(2);
+			sleep(3);
 /* QUIT surface: ........................ */
 			surfshmem->usersig=1;
 			/* set token */

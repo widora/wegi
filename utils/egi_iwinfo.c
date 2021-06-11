@@ -102,10 +102,11 @@ int iw_get_rssi(const char *ifname, int *rssi)
 		//egi_dpstd("Apcli0 is UP!\n");
 	}
 	else {
-		egi_dpstd("'%s' is DOWN!\n", ifname);
+//		egi_dpstd("'%s' is DOWN!\n", ifname);
 		close(sockfd);
 		return -2;
 	}
+//	egi_dpstd("%s %s\n", ifr.ifr_flags & IFF_UP ? "IFF_UP": "IFF_DOWN", ifr.ifr_flags & IFF_RUNNING ? "IFF_RUNNING" : "IFF_idle" );
 
 	/* Get iwr */
 	if(ioctl(sockfd, SIOCGIWSTATS, &iwr) !=0 )
@@ -127,9 +128,8 @@ int iw_get_rssi(const char *ifname, int *rssi)
 		*rssi=sval;
 
 	/* Cal. Level value */
-//	egi_dpstd("sval=%d dBm\n", sval);
-        if(sval == 0)   /* No connection! */
-                return -1;
+        if(sval == 0)   /* Start connecting... */
+                return -1;	/* Level 0 also */
 
         else if(sval >= -55)	/* 4 */
                 return 4;
@@ -675,11 +675,14 @@ bool iw_is_running(const char *ifname)
 
 	/* Get ifr */
         if( ioctl(sockfd, SIOCGIFFLAGS, &ifr) !=0) {
+		egi_dperr("ioctl(sockfd, SIOCGIFFLAGS..)");
 		close(sockfd);
                 return false;
 	}
 
 	close(sockfd);
+
+	egi_dpstd("%s %s\n", ifr.ifr_flags & IFF_UP ? "IFF_UP": "IFF_DOWN", ifr.ifr_flags & IFF_RUNNING ? "IFF_RUNNING" : "IFF_idle" );
 
         return (ifr.ifr_flags & IFF_UP) && (ifr.ifr_flags & IFF_RUNNING);
 }

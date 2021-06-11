@@ -88,6 +88,8 @@ https://github.com/widora/wegi
 #include "sys_incbin.h"
 #include "surf_madplay.h"
 
+/* PID lock file, to ensure only one running instatnce. */
+const char *pid_lock_file="/var/run/surf_madplay.pid";
 
 #ifdef LETS_NOTE
 	#define DEFAULT_MP3_PATH "/home/midas-zhou/Music"
@@ -232,7 +234,7 @@ int main(int argc, char **argv)
 #if 1	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
 	x0=0;y0=0;	sw=240; sh=170;
-	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, sw, sh, sw, sh, colorType ); /* Fixed size */
+	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, pid_lock_file, x0, y0, sw, sh, sw, sh, colorType ); /* Fixed size */
 	if(surfuser==NULL) {
 		printf("Fail to register surfuser!\n");
 		exit(EXIT_FAILURE);
@@ -1075,7 +1077,7 @@ SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
 
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
-	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, surfcaller->x0+x0, surfcaller->y0+y0,
+	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, surfcaller->x0+x0, surfcaller->y0+y0,
 								msw, msh, msw, msh, mcolorType ); /* Fixed size */
 	if(msurfuser==NULL) {
 		printf("Fail to register surfuser!\n");
@@ -1171,13 +1173,21 @@ SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
 	if(surfcaller==NULL)
 		return;
 
+REGISTER_SURFUSER:
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
-	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, surfcaller->x0+x0, surfcaller->y0+y0,
+	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, surfcaller->x0+x0, surfcaller->y0+y0,
 								msw, msh, msw, msh, mcolorType ); /* Fixed size */
 	if(msurfuser==NULL) {
-		printf("Fail to register surfuser!\n");
-		return;
+                /* If instance already running, exit */
+                int fd;
+                if( (fd=egi_lock_pidfile(pid_lock_file)) <=0 )
+                        exit(EXIT_FAILURE);
+                else
+                        close(fd);
+
+                usleep(100000);
+                goto REGISTER_SURFUSER;
 	}
 
 	/* 2. Get ref. pointers to vfbdev/surfimg/surfshmem */

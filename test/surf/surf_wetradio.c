@@ -89,6 +89,9 @@ https://github.com/widora/wegi
 
 #define RADIO_LIST_PATH "/home/FM_list"
 
+/* PID lock file, to ensure only one running instatnce. */
+const char *pid_lock_file="/var/run/surf_wetradio.pid";
+
 /* Width and Height of the MAIN surface */
 int 	sw=240;
 int 	sh=200;
@@ -327,7 +330,7 @@ int main(int argc, char **argv)
 
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
-	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, sw, sh, sw, sh, colorType ); /* Fixed size */
+	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, pid_lock_file, x0, y0, sw, sh, sw, sh, colorType ); /* Fixed size */
 	if(surfuser==NULL) {
 		printf("Fail to register surfuser!\n");
 		exit(EXIT_FAILURE);
@@ -1105,7 +1108,7 @@ EGI_16BIT_COLOR  mbkgcolor=WEGI_COLOR_GRAYB;
 
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
-	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, surfcaller->x0+x0, surfcaller->y0+y0,
+	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, surfcaller->x0+x0, surfcaller->y0+y0,
 								msw, msh, msw, msh, mcolorType ); /* Fixed size */
 	if(msurfuser==NULL) {
 		printf("Fail to register surfuser!\n");

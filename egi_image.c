@@ -14,6 +14,11 @@ Jurnal
 2021-04-20:
 	1. Add param keep_ratio for egi_imgbuf_resize() AND egi_imgbuf_resize_update().
 
+2021-06-05:
+	1. Modify egi_imgbuf_resize(): if ineimg and outeimg is same size, then goto CREATE_OUTEIMG.
+	2. Add  egi_imgbuf_resize_nolock().
+	3. Add  egi_imgbuf_scale(), egi_imgbuf_scale_update().
+
 Midas Zhou
 midaszhou@yahoo.com
 -------------------------------------------------------------------*/
@@ -210,27 +215,27 @@ int egi_imgbuf_init(EGI_IMGBUF *egi_imgbuf, int height, int width, bool AlphaON)
 	if(height<=0 || width<=0)
 		return -2;
 
-	/* empty old data if any */
+	/* Empty old data if any */
 	egi_imgbuf_cleardata(egi_imgbuf);
 
-        /* calloc imgbuf->imgbuf */
-        egi_imgbuf->imgbuf = calloc(1,height*width*sizeof(uint16_t));
+        /* Calloc imgbuf->imgbuf */
+        egi_imgbuf->imgbuf = calloc(1,height*width*sizeof(EGI_16BIT_COLOR));
         if(egi_imgbuf->imgbuf == NULL) {
-                printf("%s: fail to calloc egi_imgbuf->imgbuf.\n",__func__);
+                egi_dperr("Fail to calloc egi_imgbuf->imgbuf.");
 		return -2;
         }
 
-        /* calloc imgbuf->alpha, alpha=0, 100% canvas color. */
+        /* Calloc imgbuf->alpha, alpha=0, 100% canvas color. */
 	if(AlphaON) {
 	        egi_imgbuf->alpha= calloc(1, height*width*sizeof(unsigned char)); /* alpha value 8bpp */
         	if(egi_imgbuf->alpha == NULL) {
-	                printf("%s: fail to calloc egi_imgbuf->alpha.\n",__func__);
+	                egi_dperr("Fail to calloc egi_imgbuf->alpha.");
 			free(egi_imgbuf->imgbuf);
                 	return -3;
         	}
 	}
 
-        /* retset height and width for imgbuf */
+        /* Retset height and width for imgbuf */
         egi_imgbuf->height=height;
         egi_imgbuf->width=width;
 
@@ -1600,11 +1605,20 @@ Resize an image and create a new EGI_IMGBUF to hold the new image data.
 Only size/color/alpha of ineimg will be transfered to outeimg, others
 such as subimg will be ignored. )
 
+
 TODO:
-1. Before scale down an image, merge and shrink it to a certain size first!!!
-2. Block resize (zoom), oresize a block of the original image to a givn size.
+XXX 1. Before scale down an image, merge and shrink it to a certain size first!!!
+	--OK, see egi_imgbuf_scale()
+XXX 2. Block resize (zoom), resize a block of the original image to a givn size.
+	--Use egi_imgbuf_blockCopy(), egi_imgbuf_coplyBlock().
 
 NOTE:
+0. 			----- IMPORTANT -----
+   This function is good at enlarging an image by creating new pixels with linear interpolation.
+   However, when shrink(scale down) an image, it only select discrete pixles to form
+   a new image. Without compressing/merging nearby pixels, it's NOT a linear way.
+   Call egi_imgbuf_scale() to linearly shrink/scale_down an image.
+
 1. Linear interpolation is carried out with fix point calculation.
 2. If either width or height is <1, then adjust width/height proportional to oldwidth/oldheight.
 3. !!! --- LIMIT --- !!!
@@ -1668,6 +1682,10 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 	if(ineimg->alpha!=NULL)
 			alpha_on=true;
 
+	/* If same size, OK */
+	if( height==ineimg->height && width==ineimg->width )
+		goto CREATE_OUTEIMG;
+
 	/* If W or H is <=0: Adjust width/height proportional to oldwidth/oldheight */
 	if(width<1 && height<1) {
 		pthread_mutex_unlock(&ineimg->img_mutex);
@@ -1680,10 +1698,10 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 
 	/* Keep image aspect ratio */
 	if(keep_ratio) {
-		if( height/width > oldheight/oldwidth )
-			width=height*oldwidth/oldheight;
+		if( 1.0*height/width > 1.0*oldheight/oldwidth )
+			width=round(1.0*height*oldwidth/oldheight);
 		else
-			height=width*oldheight/oldwidth;
+			height=round(1.0*width*oldheight/oldwidth);
 	}
 
 	/* Limit width and height to 2, ==1 will cause Devide_By_Zero exception. */
@@ -1704,17 +1722,18 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 	}
 #endif /* ----- TEST ONLY ----- */
 
-	/* create output imgbuf */
-	outeimg= egi_imgbuf_create( height, width, 0, 0); /* (h,w,alpha,color) alpha/color will be replaced later */
+
+CREATE_OUTEIMG:
+	/* Create output imgbuf */
+	if( alpha_on )
+		outeimg = egi_imgbuf_create( height, width, 0, 0); /* (h,w,alpha,color) alpha/color will be replaced later */
+	else /* Alpha_on==false */
+		outeimg = egi_imgbuf_createWithoutAlpha( height, width, 0);
+	/* If fails */
 	if(outeimg==NULL) {
-		printf("%s: fail to create outeimg!\n",__func__);
+		egi_dperr("Fail to create outeimg!");
 		pthread_mutex_unlock(&ineimg->img_mutex);
 		return NULL;
-	}
-	if(!alpha_on) {
-		free(outeimg->alpha);
-		pthread_mutex_unlock(&ineimg->img_mutex);
-		outeimg->alpha=NULL;
 	}
 
 	/* If same size, just memcpy data */
@@ -1730,12 +1749,11 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 
 	/* TODO: NOT keep ratio, if height or width is the same size, to speed up */
 
-
 	/* Allocate mem to hold oldheight x width image for intermediate processing */
 	//printf("Malloc icolors...\n");
 	icolors=(EGI_16BIT_COLOR **)egi_malloc_buff2D(oldheight,width*sizeof(EGI_16BIT_COLOR));
 	if(icolors==NULL) {
-		printf("%s: Fail to malloc icolors.\n",__func__);
+		egi_dperr("Fail to malloc icolors.");
 		egi_imgbuf_free(outeimg);
 
 		pthread_mutex_unlock(&ineimg->img_mutex);
@@ -1744,7 +1762,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 	if(alpha_on) {
 	   ialphas=egi_malloc_buff2D(oldheight,width*sizeof(unsigned char));
 	   if(ialphas==NULL) {
-		printf("%s: Fail to malloc ipalphas.\n",__func__);
+		egi_dperr("Fail to malloc ipalphas.");
 		egi_imgbuf_free(outeimg);
 		egi_free_buff2D((unsigned char **)icolors, oldheight);
 
@@ -1757,7 +1775,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 	//printf("Malloc fcolors...\n");
 	fcolors=(EGI_16BIT_COLOR **)egi_malloc_buff2D(height,width*sizeof(EGI_16BIT_COLOR));
 	if(fcolors==NULL) {
-		printf("%s: Fail to malloc fcolors.\n",__func__);
+		egi_dperr("Fail to malloc fcolors.");
 		egi_imgbuf_free(outeimg);
 		egi_free_buff2D((unsigned char **)icolors, oldheight);
 		if(alpha_on)
@@ -1769,7 +1787,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 	if(alpha_on) {
 	    falphas=egi_malloc_buff2D(height,width*sizeof(unsigned char));
 	    if(falphas==NULL) {
-		printf("%s: Fail to malloc ipalphas.\n",__func__);
+		egi_dperr("Fail to malloc ipalphas.");
 		egi_imgbuf_free(outeimg);
 		egi_free_buff2D((unsigned char **)icolors, oldheight);
 		egi_free_buff2D(ialphas, oldheight);
@@ -1780,10 +1798,10 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 	    }
 	}
 
-	printf("%s: height=%d, width=%d, oldheight=%d, oldwidth=%d \n", __func__,
+	egi_dpstd("height=%d, width=%d, oldheight=%d, oldwidth=%d \n",
 								height, width, oldheight, oldwidth );
 
-	/* get new rowsize in bytes */
+	/* Get new rowsize in bytes */
 	color_rowsize=width*sizeof(EGI_16BIT_COLOR);
 	alpha_rowsize=width*sizeof(unsigned char);
 
@@ -1798,9 +1816,10 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 			 *   1. Here ln is left point index, and rn is right point index of a row of pixels.
 			 *      ln and rn are index of original image row.
 			 *      The inserted new point is between ln and rn.
-			 *   2. Notice that (oldwidth-1)/(width-1) is acutual width ratio.
+			 *   2. Notice that (oldwidth-1)/(width-1) is acutual color_width ratio.
 			 */
 			ln=j*(oldwidth-1)/(width-1);/* xwidth-1 is gap numbers */
+			/* j of new_width map to that of old_width: 1.0*j*(oldwidth-1)/(width-1)-ln --> Fixed point (1U<<15) */
 			f15_ratio=(j*(oldwidth-1)-ln*(width-1))*(1U<<15)/(width-1); /* >= 0 */
 			/* If last point, the ratio must be 0! no more point at its right now! */
 			if(ln == oldwidth-1)
@@ -1811,7 +1830,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 			printf( "row: ln=%d, rn=%d,  f15_ratio=%d, ratio=%f \n",
 						ln, rn, f15_ratio, 1.0*f15_ratio/(1U<<15) );
 #endif
-			/* interpolate pixel color/alpha value, and store to icolors[]/ialphas[]  */
+			/* Interpolate pixel color/alpha value, and store to icolors[]/ialphas[]  */
 			if(alpha_on) {
 				//printf("alpha_on interpolate ...\n");
 				egi_16bitColor_interplt(ineimg->imgbuf[i*oldwidth+ln], /* color1 */
@@ -1839,7 +1858,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 #endif
 	}
 
-	/* NOTE: rowsize keep same here! Just need to scale height. */
+	/* NOW: rowsize keep same here! Just need to scale height. */
 
 /* ------- <<<  Critical Zone  */
 	/* put mutex lock for ineimg */
@@ -1902,7 +1921,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 		    memcpy( outeimg->alpha+i*width, falphas[i], alpha_rowsize );
 	}
 
-	/* free buffers */
+	/* Free buffers */
 	//printf("%s: Free buffers...\n", __func__);
 	egi_free_buff2D((unsigned char **)icolors, oldheight);
 	egi_free_buff2D(ialphas, oldheight);   /* no matter alpha off */
@@ -1916,6 +1935,378 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 		return tmpeimg;
 	}
 #endif /* ----- FOR TEST ONLY ----- */
+
+	return outeimg;
+}
+
+////////////////    egi_imgbuf_resize   NO Mutex_lock   /////////////////////////
+EGI_IMGBUF  *egi_imgbuf_resize_nolock( EGI_IMGBUF *ineimg, bool keep_ratio, int width, int height )
+{
+	int i,j;
+	int ln,rn;		/* left/right(or up/down) index of pixel in a row of ineimg */
+	int f15_ratio;
+	unsigned int color_rowsize, alpha_rowsize;
+	EGI_IMGBUF *outeimg=NULL;
+//	EGI_IMGBUF *tmpeimg=NULL;
+
+	/* for intermediate processing */
+	EGI_16BIT_COLOR **icolors=NULL;
+	unsigned char 	**ialphas=NULL;
+
+	/* for final processing */
+	EGI_16BIT_COLOR **fcolors=NULL;
+	unsigned char 	**falphas=NULL;
+
+	if( ineimg==NULL || ineimg->imgbuf==NULL) //|| width<=0 || height<=0 ) adjust to 2
+		return NULL;
+
+	unsigned int oldwidth=ineimg->width;
+	unsigned int oldheight=ineimg->height;
+
+	bool alpha_on;
+	if(ineimg->alpha!=NULL)
+		alpha_on=true;
+	else
+		alpha_on=false;
+
+	/* If same size, OK */
+	if( height==ineimg->height && width==ineimg->width )
+		goto CREATE_OUTEIMG;
+
+	/* If W or H is <=0: Adjust width/height proportional to oldwidth/oldheight */
+	if(width<1 && height<1) {
+		return NULL;
+	}
+	else if(width<1)
+		width=height*oldwidth/oldheight;
+	else if(height<1)
+		height=width*oldheight/oldwidth;
+
+	/* Keep image aspect ratio */
+	if(keep_ratio) {
+		if( 1.0*height/width > 1.0*oldheight/oldwidth ) {
+			width=round(1.0*height*oldwidth/oldheight);
+		}
+		else
+			height=round(1.0*width*oldheight/oldwidth);
+	}
+
+	/* Limit width and height to 2, ==1 will cause Devide_By_Zero exception. */
+	if(width<2) width=2;
+	if(height<2) height=2;
+
+
+CREATE_OUTEIMG:
+	/* Create output imgbuf */
+	if( alpha_on )
+		outeimg = egi_imgbuf_create( height, width, 0, 0); /* (h,w,alpha,color) alpha/color will be replaced later */
+	else /* Alpha_on==false */
+		outeimg = egi_imgbuf_createWithoutAlpha( height, width, 0);
+	if(outeimg==NULL) {
+		egi_dperr("Fail to create outeimg!");
+		return NULL;
+	}
+
+	/* If same size, just memcpy data */
+	if( height==ineimg->height && width==ineimg->width ) {
+		memcpy( outeimg->imgbuf, ineimg->imgbuf, sizeof(EGI_16BIT_COLOR)*height*width);
+		if(alpha_on) {
+			memcpy( outeimg->alpha, ineimg->alpha, sizeof(unsigned char)*height*width);
+		}
+		return outeimg;
+	}
+
+	/* Allocate mem to hold oldheight x width image for intermediate processing */
+	//printf("Malloc icolors...\n");
+	icolors=(EGI_16BIT_COLOR **)egi_malloc_buff2D(oldheight,width*sizeof(EGI_16BIT_COLOR));
+	if(icolors==NULL) {
+		egi_dperr("Fail to malloc icolors.");
+		egi_imgbuf_free(outeimg);
+		return NULL;
+	}
+	if(alpha_on) {
+	   ialphas=egi_malloc_buff2D(oldheight,width*sizeof(unsigned char));
+	   if(ialphas==NULL) {
+		egi_dperr("Fail to malloc ipalphas.");
+		egi_imgbuf_free(outeimg);
+		egi_free_buff2D((unsigned char **)icolors, oldheight);
+		return NULL;
+	   }
+	}
+
+	/* Allocate mem to hold final image size height x width  */
+	//printf("Malloc fcolors...\n");
+	fcolors=(EGI_16BIT_COLOR **)egi_malloc_buff2D(height,width*sizeof(EGI_16BIT_COLOR));
+	if(fcolors==NULL) {
+		egi_dperr("Fail to malloc fcolors.");
+		egi_imgbuf_free(outeimg);
+		egi_free_buff2D((unsigned char **)icolors, oldheight);
+		if(alpha_on)
+			egi_free_buff2D(ialphas, oldheight);
+
+		return NULL;
+	}
+	if(alpha_on) {
+	    falphas=egi_malloc_buff2D(height,width*sizeof(unsigned char));
+	    if(falphas==NULL) {
+		egi_dperr("Fail to malloc ipalphas.");
+		egi_imgbuf_free(outeimg);
+		egi_free_buff2D((unsigned char **)icolors, oldheight);
+		egi_free_buff2D(ialphas, oldheight);
+		egi_free_buff2D((unsigned char **)fcolors, height);
+
+		return NULL;
+	    }
+	}
+
+	egi_dpstd("height=%d, width=%d, oldheight=%d, oldwidth=%d \n",
+								height, width, oldheight, oldwidth );
+
+	/* Get new rowsize in bytes */
+	color_rowsize=width*sizeof(EGI_16BIT_COLOR);
+	alpha_rowsize=width*sizeof(unsigned char);
+
+	/* ----- STEP 1 -----  scale image from [oldheight_X_oldwidth] to [oldheight_X_width] */
+	//printf("STEP 1 scale image to [oldheight_X_width]...\n");
+	for(i=0; i<oldheight; i++)
+	{
+//		printf(" \n STEP 1: ----- row %d ----- \n",i);
+		for(j=0; j<width; j++) /* apply new width */
+		{
+			/* Note:
+			 *   1. Here ln is left point index, and rn is right point index of a row of pixels.
+			 *      ln and rn are index of original image row.
+			 *      The inserted new point is between ln and rn.
+			 *   2. Notice that (oldwidth-1)/(width-1) is acutual color_width ratio.
+			 */
+			ln=j*(oldwidth-1)/(width-1);/* xwidth-1 is gap numbers */
+			/* j of new_width map to that of old_width: 1.0*j*(oldwidth-1)/(width-1)-ln --> Fixed point (1U<<15) */
+			f15_ratio=(j*(oldwidth-1)-ln*(width-1))*(1U<<15)/(width-1); /* >= 0 */
+			/* If last point, the ratio must be 0! no more point at its right now! */
+			if(ln == oldwidth-1)
+				rn=ln;
+			else
+				rn=ln+1;
+#if 0 /* --- TEST --- */
+			printf( "row: ln=%d, rn=%d,  f15_ratio=%d, ratio=%f \n",
+						ln, rn, f15_ratio, 1.0*f15_ratio/(1U<<15) );
+#endif
+			/* Interpolate pixel color/alpha value, and store to icolors[]/ialphas[]  */
+			if(alpha_on) {
+				//printf("alpha_on interpolate ...\n");
+				egi_16bitColor_interplt(ineimg->imgbuf[i*oldwidth+ln], /* color1 */
+							ineimg->imgbuf[i*oldwidth+rn], /* color2 */
+			                                /* uchar alpha1,  uchar alpha2 */
+					 	ineimg->alpha[i*oldwidth+ln], ineimg->alpha[i*oldwidth+rn],
+                                         /* int f15_ratio, EGI_16BIT_COLOR* color, unsigned char *alpha */
+					 	f15_ratio, icolors[i]+j, ialphas[i]+j  );
+			}
+			else {
+				//printf("alpha_off interpolate ...\n");
+				egi_16bitColor_interplt(ineimg->imgbuf[i*oldwidth+ln], /* color1 */
+							ineimg->imgbuf[i*oldwidth+rn], /* color2 */
+			                                /* uchar alpha1,  uchar alpha2 */
+					 		 0, 0,   /* whatever when out pointer is NULL */
+                                         /* int f15_ratio, EGI_16BIT_COLOR* color, unsigned char *alpha */
+					 		f15_ratio, icolors[i]+j, NULL );
+			}
+		}
+#if 0 /* ----- FOR TEST ONLY ----- */
+		/* copy row data to tmpeimg */
+		memcpy( tmpeimg->imgbuf+i*width, icolors[i], color_rowsize );
+		if(alpha_on)
+		    memcpy( tmpeimg->alpha+i*width, ialphas[i], alpha_rowsize );
+#endif
+	}
+
+	/* NOW: rowsize keep same here! Just need to scale height. */
+
+
+	/* ----- STEP 2 -----  scale image from [oldheight_X_width] to [height_X_width] */
+	//printf("STEP 2: scale image to [height_X_width]...\n");
+	for(i=0; i<width; i++)
+	{
+//		printf(" \n STEP 2: ----- column %d ----- \n",i);
+		for(j=0; j<height; j++) /* apply new height */
+		{
+			/* Here ln is upper point index, and rn is lower point index of a column of pixels.
+			 * ln and rn are index of original image column.
+			 * The inserted new point is between ln and rn.
+			 */
+			ln=j*(oldheight-1)/(height-1);/* xwidth-1 is gap numbers */
+			f15_ratio=(j*(oldheight-1)-ln*(height-1))*(1U<<15)/(height-1); /* >= 0 */
+			/* If last point, the ratio must be 0! no more point at its lower position now! */
+			if( ln == oldheight-1 )
+				rn=ln;
+			else
+				rn=ln+1;
+#if 0 /* --- TEST --- */
+			printf( "column: ln=%d, rn=%d,  f15_ratio=%d, ratio=%f \n",
+						ln, rn, f15_ratio, 1.0*f15_ratio/(1U<<15) );
+#endif
+			/* interpolate pixel color/alpha value, and store data to fcolors[]/falphas[]  */
+			if(alpha_on) {
+				//printf("column: alpha_on interpolate ...\n");
+				egi_16bitColor_interplt(
+							//ineimg->imgbuf[ln*width+i], /* color1 */
+							//ineimg->imgbuf[rn*width+i], /* color2 */
+							 icolors[ln][i], icolors[rn][i], /* old: color1, color2 */
+			                                /* old: uchar alpha1,  uchar alpha2 */
+					 	//ineimg->alpha[ln*width+i], ineimg->alpha[rn*width+i],
+						   	 ialphas[ln][i], ialphas[rn][i],
+                                         /* int f15_ratio, EGI_16BIT_COLOR* color, unsigned char *alpha */
+					 	         f15_ratio, fcolors[j]+i, falphas[j]+i  );
+			}
+			else {
+				//printf("column: alpha_off interpolate ...\n");
+				egi_16bitColor_interplt(
+							//ineimg->imgbuf[ln*width+i], /* color1 */
+							//ineimg->imgbuf[rn*width+i], /* color2 */
+							 icolors[ln][i], icolors[rn][i], /* color1, color2 */
+			                                /* uchar alpha1,  uchar alpha2 */
+					 		 0, 0,   /* whatever, when passout pointer is NULL */
+                                         /* int f15_ratio, EGI_16BIT_COLOR* color, unsigned char *alpha */
+					 		f15_ratio, fcolors[j]+i, NULL );
+			}
+		}
+		/* Can NOT copy row data here! as it transverses column.  */
+	}
+
+	/* Copy row data to outeimg when all finish. */
+	for( i=0; i<height; i++) {
+		memcpy( outeimg->imgbuf+i*width, fcolors[i], color_rowsize );
+		if(alpha_on)
+		    memcpy( outeimg->alpha+i*width, falphas[i], alpha_rowsize );
+	}
+
+	/* Free buffers */
+	//printf("%s: Free buffers...\n", __func__);
+	egi_free_buff2D((unsigned char **)icolors, oldheight);
+	egi_free_buff2D(ialphas, oldheight);   /* no matter alpha off */
+	egi_free_buff2D((unsigned char **)fcolors, height);
+	egi_free_buff2D(falphas, height);      /* no matter alpha off */
+
+#if 0 /* ----- FOR TEST ONLY ----- */
+	if(tmpeimg!=NULL) {
+		printf("return tmpeimg...\n");
+		egi_imgbuf_free(outeimg);
+		return tmpeimg;
+	}
+#endif /* ----- FOR TEST ONLY ----- */
+
+	return outeimg;
+}
+
+
+/*-----------------------------------------------------------------------
+Scale up/down an image while keeping same W/H ratio. Special treatment for case
+of scale_down_factor >= 2.
+
+TODO:  Change original W/H ratio to width/height as input.
+
+@ineimg:	Input EGI_IMGBUF holding the original image data.
+@width:		Width for new image.
+@height:	Height for new image.
+
+Return:
+	A pointer to EGI_IMGBUF with new image 		OK
+	NULL						Fails
+------------------------------------------------------------------------*/
+EGI_IMGBUF  *egi_imgbuf_scale( EGI_IMGBUF *ineimg, int width, int height )
+{
+	int sm;	 /* Scale multiples */
+	int sqsm; /* sm*sm */
+	EGI_IMGBUF *outeimg;
+	EGI_IMGBUF *tmpimg;
+	float factor;
+	int i,j, k,n;
+	unsigned int index;
+	unsigned int color;
+	unsigned int R,G,B;
+	unsigned int alpha;
+	bool alpha_on;
+
+	if(ineimg==NULL)
+		return NULL;
+
+	if( width<1 || height<1)
+		return NULL;
+
+	if( ineimg->alpha !=NULL )
+		alpha_on=true;
+	else
+		alpha_on=false;
+
+	/* 1. If Scale_down_factor < 2, call egi_imgbuf_resize_nolock(), interpolation method. */
+	factor=1.0*ineimg->width/width;
+	if( factor < 2.0 ) {
+		egi_dpstd("Scale_down_factor < 2, call egi_imgbuf_resize_nolock()...\n");
+		return egi_imgbuf_resize_nolock(ineimg, true, width, height);
+	}
+
+	/* NOW: Scale_down_factor >= 2 */
+
+	/* Note:
+	 * 1. For most case, the scale factor should be an integer! plus some allowance.
+	 * 2. Ok, you may take within [0 0.5) instead of 0.3.
+	 *    Example: sm=3.4, expect_width=10, while ineimg->width =34.  take intermediate_width=10*3=30.
+	 *    From 34 --> 30:  Interpolate within 34 to shrink width to 30, though it's better to interpolate linerly to enlarge width.
+	 */
+	if( sm - floor(factor) < 0.3 )
+		sm = floor(factor);
+	else
+		sm=floor(factor)+1; /* floor(x): the largest integral value that is not greater than x */
+
+	sqsm=sm*sm;
+
+	egi_dpstd("Scale_down_factor=%d >= 2, scale down to merge pixles...\n", sm);
+
+	/* 2. Create output imgbuf */
+	if( alpha_on )
+		outeimg = egi_imgbuf_create( height, width, 0, 0); /* (h,w,alpha,color) alpha/color will be replaced later */
+	else /* Alpha_on==false */
+		outeimg = egi_imgbuf_createWithoutAlpha( height, width, 0);
+
+	if(outeimg==NULL) {
+		egi_dperr("Fail to create outeimg!");
+		return NULL;
+	}
+
+	/* 3. Resize/enlarge original image to width/height*sm */
+	tmpimg=egi_imgbuf_resize_nolock(ineimg, false, width*sm, height*sm); /* !!! Keep_ration MAY NOT keep tmpimg size as (width*sm,height*sm) */
+	if(tmpimg==NULL) {
+		egi_dperr("Fail to resize image!");
+		egi_imgbuf_free(outeimg);
+		return NULL;
+	}
+
+	/* 4. Merge/map pixel blocks to one pixle */
+	for(i=0; i<width; i++) {
+		for(j=0; j<height; j++) {
+			/* Merge pixle color/alpah */
+			R=0; G=0; B=0;
+			alpha=0;
+			for(k=0; k<sm; k++) {  /* block width */
+				for(n=0; n<sm; n++)  { /* block height */
+					index = (j*width*sqsm+i*sm) + width*sm*n + k; /* sqsm=sm*sm */
+					color = tmpimg->imgbuf[index];
+					R += (color&0xF800)>>8;
+					G += (color&0x7E0)>>3;
+					B += (color&0x1F)<<3;
+					if(alpha_on) {
+						alpha += tmpimg->alpha[index];
+					}
+				}
+			}
+			/* Average R/G/B */
+			outeimg->imgbuf[j*width+i]= COLOR_RGB_TO16BITS(R/sqsm, G/sqsm, B/sqsm);
+			if(alpha_on)
+				outeimg->alpha[j*width+i]=alpha/sqsm;
+		}
+	}
+
+	/* 5. Free tmpimg */
+	egi_imgbuf_free(tmpimg);
 
 	return outeimg;
 }
@@ -1969,17 +2360,47 @@ int egi_imgbuf_resize_update(EGI_IMGBUF **pimg, bool keep_ratio, unsigned int wi
 		return 0;
 
 	/* resize the imgbuf by egi_imgbuf_resize() */
-	tmpimg=egi_imgbuf_resize(*pimg, keep_ratio, width, height);
+	tmpimg=egi_imgbuf_resize_nolock(*pimg, keep_ratio, width, height);
 	if(tmpimg==NULL)
 		return -2;
 
-	/* Free original imgbuf and replaced by tmpimg */
+	/* Free original imgbuf and replace it with tmpimg */
 	egi_imgbuf_free(*pimg);
 	*pimg=tmpimg;
 
 	return 0;
 }
 
+/*--------------------------------------------------------------------
+Scale an EGI_IMGBUF by calling  egi_imgbuf_scale(). If it succeeds,
+the original imgbuf data will be updated then.
+
+Return:
+	0  	OK
+	<0	Fails
+--------------------------------------------------------------------*/
+int egi_imgbuf_scale_update(EGI_IMGBUF **pimg, int width, int height)
+{
+	EGI_IMGBUF  *tmpimg;
+
+	if( pimg==NULL || *pimg==NULL )
+		return -1;
+
+	/* If same size */
+	if( (*pimg)->width==width && (*pimg)->height==height )
+		return 0;
+
+	/* resize the imgbuf by egi_imgbuf_resize() */
+	tmpimg=egi_imgbuf_scale(*pimg, width, height);
+	if(tmpimg==NULL)
+		return -2;
+
+	/* Free original imgbuf and replace it with tmpimg */
+	egi_imgbuf_free(*pimg);
+	*pimg=tmpimg;
+
+	return 0;
+}
 
 /*------------------------------------------------------------------------------
 Blend two images of EGI_IMGBUF together, and allocate alpha if eimg->alpha is

@@ -631,6 +631,11 @@ void fb_copy_FBbuffer(FBDEV *fb_dev,unsigned int from_numpg, unsigned int to_num
 /*-----------------------------------------------------------
     Clear FB back buffs by filling with given color
 
+		  !!! --- OBSELET ---- !!!
+To call following functions instead:
+ fb_clear_workBuff(), fb_clear_bkgBuff(), fb_clear_mapBuffer()
+
+
 Also see: fb_clear_workBuff() for WEGI_16BIT_COLOR.
 
 @fb_dev:	struct FBDEV whose buffer to be cleared.
@@ -703,7 +708,7 @@ void fb_clear_mapBuffer(FBDEV *dev, unsigned int numpg, EGI_16BIT_COLOR color)
 
 
 /*------------------------------------------------
-	Clear FB working backbuffer
+	Clear FB working buffer
 -------------------------------------------------*/
 void fb_clear_workBuff(FBDEV *fb_dev, EGI_16BIT_COLOR color)
 {

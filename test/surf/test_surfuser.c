@@ -41,6 +41,7 @@ TODO:
 
 6. An idle mostat will keeping streaming from surfman!
 
+7. When ering is busy transfering key_inputs and mouse_event , mouse on topbar btn NOT react!
 
 Journal
 2021-03-17:
@@ -48,6 +49,10 @@ Journal
 2021-03-25:
 	1. Apply SURFACE module's default operation functions for
 	   CLOSE/MIN./MAX. buttons etc.
+2021-06-08:
+	1. Recive pmostat->ch and push to ptxt, then write to surface.
+2021-06-09:
+	1. Recive pmostat->chars and push to ptxt, then write to surface.
 
 
 Midas Zhou
@@ -70,7 +75,10 @@ https://github.com/widora/wegi
 #include "egi_procman.h"
 #include "egi_input.h"
 
+
 #define LOOP_TEST	0	/* Surface birdth and death loop test */
+
+//const char *pid_lock_file="/var/run/surfman_guider.pid";
 
 /* For SURFUSER */
 EGI_SURFUSER     *surfuser=NULL;
@@ -84,8 +92,16 @@ EGI_16BIT_COLOR  bkgcolor;
 					 * Before that, all mostat received will be ignored. This is to get rid of
 					 * LeftKeyDownHold following LeftKeyDown which is to pick the top surface.
 					 */
+/* For text buffer */
+char ptxt[1024];	/* Text */
+int poff;		/* Offset to ptxt */
+EGI_16BIT_COLOR	fcolor=WEGI_COLOR_BLACK;
+int fw=20, fh=20;
+int fgap=4;
+
 
 /* Apply SURFACE module default function */
+void my_redraw_surface(EGI_SURFUSER *surfuser, int w, int h);
 void  *surfuser_ering_routine(void *args);  /* For LOOP_TEST and ering_test, a little different from module default function. */
 //void  surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex */
 void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
@@ -112,6 +128,8 @@ int main(int argc, char **argv)
 	int sw=0,sh=0; /* Width and Height of the surface */
 	int x0=0,y0=0; /* Origin coord of the surface */
 	char *pname=NULL;
+
+        /* <<<<<  EGI general initialization   >>>>>> */
 
 #if 0	/* Start EGI log */
         if(egi_init_log("/mmc/test_surfman.log") != 0) {
@@ -159,10 +177,10 @@ START_TEST:
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
 	if( sw!=0 && sh!=0) {
-		surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, SURF_MAXW,SURF_MAXH, sw, sh, colorType );
+		surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, x0, y0, SURF_MAXW,SURF_MAXH, sw, sh, colorType );
 	}
 	else
-		surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, mat_random_range(SURF_MAXW-50)-50, mat_random_range(SURF_MAXH-50),
+		surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, mat_random_range(SURF_MAXW-50)-50, mat_random_range(SURF_MAXH-50),
      	                                SURF_MAXW, SURF_MAXH,  140+mat_random_range(SURF_MAXW/2), 60+mat_random_range(SURF_MAXH/2), colorType );
 	if(surfuser==NULL) {
 		sleep(1);
@@ -185,7 +203,7 @@ START_TEST:
         /* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons etc. */
 	// Defualt: surfuser_ering_routine() calls surfuser_parse_mouse_event();
         surfshmem->minimize_surface 	= surfuser_minimize_surface;   	/* Surface module default functions */
-	surfshmem->redraw_surface 	= surfuser_redraw_surface;
+	surfshmem->redraw_surface 	= my_redraw_surface;
 	surfshmem->maximize_surface 	= surfuser_maximize_surface;   	/* Need resize */
 	surfshmem->normalize_surface 	= surfuser_normalize_surface; 	/* Need resize */
         surfshmem->close_surface 	= surfuser_close_surface;
@@ -204,6 +222,9 @@ START_TEST:
 //	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MAX); /* Default firstdraw operation */
 //	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE); /* Default firstdraw operation */
 //	surfuser_firstdraw_surface(surfuser, TOPBTN_MAX|TOPBTN_MIN); /* Default firstdraw operation */
+
+	/* font color */
+	fcolor=COLOR_COMPLEMENT_16BITS(surfshmem->bkgcolor);
 
 	/* Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
@@ -281,6 +302,9 @@ START_TEST:
 	if( egi_unregister_surfuser(&surfuser)!=0 )
 		egi_dpstd("Fail to unregister surfuser!\n");
 
+        /* <<<<<  EGI general release   >>>>>> */
+        // Ignore;
+
 	printf("Exit OK!\n");
 	exit(0);
 }
@@ -296,10 +320,58 @@ START_TEST:
 --------------------------------------------------------------------*/
 void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 {
-	/* Get key_input */
-	if( pmostat->ch )
-		printf("%c\n", pmostat->ch);
+	int k;
 
+	/* Get key_input */
+	if( pmostat->nch ) {
+		egi_dpstd("chars: %-32.32s, nch=%d\n", pmostat->chars, pmostat->nch);
+
+	   /* Write each char in pmostat->chars[] into ptxt[] */
+	   for(k=0; k< pmostat->nch; k++) {
+		/* Write ch into text buffer */
+		if( poff < 1024-1 ) {
+			if( poff)
+				poff--;  /* To earse last '|' */
+
+			if( poff>0 && pmostat->chars[k] == 127  ) { /* Backsapce */
+				poff -=1; /*  Ok, NOW poff -= 2 */
+				ptxt[poff+1]='\0';
+			}
+			else
+				ptxt[poff++]=pmostat->chars[k];
+
+			/* Pust '|' at last */
+			ptxt[poff++]='|';
+		}
+	   }
+
+		/* Redraw surface to update text.
+		 * TODO: Here topbar BTNS will also be redrawn, and effect of mouse on top TBN will also be cleared! */
+		/* Note: Call FTsymbol_uft8strings_writeFB() is NOT enough, need to clear surface bkg first. */
+		my_redraw_surface(surfuser, surfimg->width, surfimg->height);
+	}
+
+}
+
+
+/*---------------------------------------------------------------
+Adjust surface size, redraw surface imgbuf.
+
+@surfuser:      Pointer to EGI_SURFUSER.
+@w,h:           New size of surface imgbuf.
+---------------------------------------------------------------*/
+void my_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
+{
+        /* Redraw default function first */
+        surfuser_redraw_surface(surfuser, w, h); /* imgbuf w,h updated */
+
+        /* Rewrite txt */
+        FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular,   /* FBdev, fontface */
+                                        fw, fh, (const UFT8_PCHAR)ptxt, /* fw,fh, pstr */
+                                        w-10, (h-SURF_TOPBAR_HEIGHT-10)/(fh+fgap) +1, fgap,  /* pixpl, lines, fgap */
+                                        5, SURF_TOPBAR_HEIGHT+5,        /* x0,y0, */
+                                        fcolor, -1, 255,  		/* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
 }
 
 
@@ -417,8 +489,8 @@ surfuser_parse_mouse_event(): Touch a BTN mpbtn=-1, i=0
                         	break;
 		       case ERING_MOUSE_STATUS:
 				mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
-				if(mouse_status->ch !=0)
-					egi_dpstd("Input ch='%c'(%d)\n", mouse_status->ch, mouse_status->ch);
+				if(mouse_status->nch !=0)
+					egi_dpstd("Input chars: %-32.32s\n", mouse_status->chars);
 				//egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
 				/* Parse mouse event */
 				surfuser_parse_mouse_event(surfuser,mouse_status);  /* mutex_lock */

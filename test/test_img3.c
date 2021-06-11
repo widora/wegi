@@ -8,6 +8,11 @@ Test image rotation functions.
 Usage:
 	./test_img3  file
 
+Journal:
+2021-06-07:
+	1. Test egi_imgbuf_scale().
+
+
 Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
@@ -57,14 +62,14 @@ int main(int argc, char** argv)
         	return -1;
 #endif
   	/* Set sys FB mode */
-  	fb_set_directFB(&gv_fb_dev,true);
-  	fb_position_rotate(&gv_fb_dev,3);
+  	fb_set_directFB(&gv_fb_dev,false);
+  	fb_position_rotate(&gv_fb_dev, 0);
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
 
 
-#if 1 ///////////////////////
+#if 0 ///////////////////////
 fb_set_directFB(&gv_fb_dev,false);
 fb_position_rotate(&gv_fb_dev,0);
 
@@ -72,7 +77,7 @@ if(argc<3) exit(1);
 EGI_IMGBUF* origimg=egi_imgbuf_readfile(argv[1]);
 if(origimg==NULL)exit(1);
 
-EGI_IMGBUF* myimg=egi_imgbuf_resize(origimg, 320, 240);
+EGI_IMGBUF* myimg=egi_imgbuf_resize(origimg, true, 320, 240);
 if(myimg==NULL)exit(1);
 
 egi_imgbuf_windisplay2( myimg, &gv_fb_dev,
@@ -113,8 +118,8 @@ int 	delt=1;		/* incremental delta */
 
 const wchar_t *wstr1=L"   a mini. EGI";
 
-const wchar_t *wstr2=L"奔跑在WIDORA上的\n	\
-             小企鹅";
+//const wchar_t *wstr2=L"奔跑在WIDORA上的小企鹅";
+const wchar_t *wstr2=L"转圈缩放的LINUX小企鹅";
 
         if(argc<2) {
                 printf("Usage: %s file\n",argv[0]);
@@ -127,6 +132,69 @@ const wchar_t *wstr2=L"奔跑在WIDORA上的\n	\
         	EGI_PLOG(LOGLV_ERROR, "%s: Fail to read and load file '%s'!", __func__, argv[1]);
 		return -1;
 	}
+
+
+#if 1    /* ---------     Test egi_imgbuf_scale()    --------- */
+	EGI_IMGBUF *tmpimg;
+	int sw, sh;
+	char strtmp[256];
+	s=2;
+	delt=1;
+do {
+
+	if( s >= 300 && delt >0 )
+		delt=-delt;
+	else if(s < 2 && delt <0 )
+		delt=-delt;
+
+	s+=delt;
+	sw=round(1.0*eimg->width*s/200);
+	sh=round(1.0*eimg->height*s/200);
+	printf("sw=%d, sh=%d\n", sw, sh);
+	sprintf(strtmp,"Merge down: %0.2f", 1.0*eimg->width/sw);
+
+	tmpimg=egi_imgbuf_scale( eimg, sw, sh);
+
+	x0=round(1.0*(320-tmpimg->width)/2);
+	y0=round(1.0*(240-tmpimg->height)/2);
+
+	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY3);
+	egi_imgbuf_windisplay2( tmpimg, &gv_fb_dev,  		/* imgbuf, fb_dev */
+                                0, 0, x0, y0,         		/* xp, yp, xw, yw */
+				tmpimg->width, tmpimg->height); /* winw, winh */
+        FTsymbol_uft8strings_writeFB(&gv_fb_dev, egi_appfonts.bold,       /* FBdev, fontface */
+                                        20, 20, (const UFT8_PCHAR)strtmp, /* fw,fh, pstr */
+                                        320, 1, 0,                        /* pixpl, lines, gap */
+                                        10, 10,                          /* x0,y0, */
+                                        WEGI_COLOR_RED, -1, 255,        /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
+	fb_render(&gv_fb_dev);
+
+	egi_imgbuf_free2(&tmpimg);
+
+	if( s<=30 ) {
+		tm_delayms(150);
+		if(delt==-4)
+			delt =-1;
+	}
+	else if( s<=50 ) {
+		tm_delayms(150);
+		if( delt==1 )
+			delt =4;
+		else if(delt==-8)
+			delt =-4;
+	}
+	else if( s<=200 ) {
+		tm_delayms(50);
+		if(delt==4)
+			delt = 8;
+	}
+
+} while(1);
+
+
+#endif
+
 
 
 #if 0    /* ---------     Test egi_imgbuf_rotBlockCopy()    --------- */
@@ -156,7 +224,7 @@ const wchar_t *wstr2=L"奔跑在WIDORA上的\n	\
 
 #endif
 
-#if 1    /* ---------     Test egi_imgbuf_flipY()    --------- */
+#if 0    /* ---------     Test egi_imgbuf_flipY()    --------- */
 	int sk=0;
   	fb_set_directFB(&gv_fb_dev,false);
 
@@ -164,12 +232,12 @@ const wchar_t *wstr2=L"奔跑在WIDORA上的\n	\
 	sk=!sk;
 	fb_clear_backBuff(&gv_fb_dev,WEGI_COLOR_GRAY3);
 
-#if 0
+   #if 0
 	if(sk)
 		egi_imgbuf_flipY(eimg);
 	else
 		egi_imgbuf_centroSymmetry(eimg);
-#endif
+  #endif
 	egi_imgbuf_flipX(eimg);
 
        	egi_imgbuf_windisplay( eimg, &gv_fb_dev, -1,		 		    /* img, fb, subcolor */
@@ -183,7 +251,7 @@ const wchar_t *wstr2=L"奔跑在WIDORA上的\n	\
 #endif
 
 
-#if 1    /* ---------     Test egi_imgbuf_rotate()    --------- */
+#if 0    /* ---------     Test egi_imgbuf_rotate()    --------- */
   	fb_set_directFB(&gv_fb_dev,false);
 
 	EGI_IMGBUF* eimgbk=NULL;
@@ -234,34 +302,33 @@ while(1) {
 #endif
 
 
-
-#if 1    /* ---------     Test egi_imgbuf_rotate()    --------- */
+#if 1    /* ---------     Test egi_imgbuf_rotate(): For 320Wx240H screen    --------- */
 do {
-	i+=10;
+	i+=5;
 
 	/* restore FB data */
 //	fb_restore_FBimg(&gv_fb_dev, 0, false);
-	clear_screen(&gv_fb_dev, WEGI_COLOR_GRAY3);
-//	fb_clear_backBuff(&gv_fb_dev, WEGI_COLOR_GRAY3);
+//	clear_screen(&gv_fb_dev, WEGI_COLOR_GRAY3);
+	fb_clear_backBuff(&gv_fb_dev, WEGI_COLOR_GRAY3);
 
         /* 2. Create rotated imgbuf */
 	rotimg=egi_imgbuf_rotate(eimg, i);
 
 	/* 2. Scale the imgbuf (**pimg, width, height) */
-	if( s > 150 && delt >0 )
+	if( s > 200 && delt >0 )
 		delt=-1;
 	else if(s < 50 && delt <0 )
 		delt=1;
 
 	s+=delt;
-	egi_imgbuf_resize_update( &rotimg, rotimg->width*s/200, rotimg->height*s/200);
-
+	egi_imgbuf_resize_update( &rotimg, true, rotimg->width*s/200, rotimg->height*s/200);
 
 	/* 3. Display the image */
-	x0=(240-rotimg->width)/2;
-	y0=(320-rotimg->height)/2;
+	x0=(320-rotimg->width)/2;
+	y0=(240-rotimg->height)/2;
 
 	#if 0 /* TEST: egi_imgbuf_windisplay() */
+	printf("windisplay...\n");
         egi_imgbuf_windisplay( rotimg, &gv_fb_dev, -1,		 		/* img, fb, subcolor */
                                0, 0, x0, y0,					/* xp,yp  xw,yw */
                                rotimg->width, rotimg->height);	 		/* winw, winh */
@@ -274,22 +341,23 @@ do {
 
 
         /* Comments */
+#if 0
         FTsymbol_unicstrings_writeFB(&gv_fb_dev, egi_appfonts.bold,         /* FBdev, fontface */
                                           32, 32, wstr1,  		    /* fw,fh, pstr */
-                                          240, 6, 10,                    /* pixpl, lines, gap */
+                                          320, 2, 10,                    /* pixpl, lines, gap */
                                           0, 200,                      	    /* x0,y0, */
-                                          WEGI_COLOR_BLACK, -1, 255 );   /* fontcolor, transcolor,opaque */
+                                          WEGI_COLOR_RED, -1, 255 );   /* fontcolor, transcolor,opaque */
+#endif
 
         FTsymbol_unicstrings_writeFB(&gv_fb_dev, egi_appfonts.bold,         /* FBdev, fontface */
                                           24, 24, wstr2,  		    /* fw,fh, pstr */
-                                          240, 6,  10,                    /* pixpl, lines, gap */
-                                          0, 50,                        /* x0,y0, */
-                                          WEGI_COLOR_WHITE, -1, 255 );   /* fontcolor, transcolor,opaque */
-
+                                          320, 6,  10,                    /* pixpl, lines, gap */
+                                          30, 20,                        /* x0,y0, */
+                                          WEGI_COLOR_ORANGE, -1, 255 );   /* fontcolor, transcolor,opaque */
+	fb_render(&gv_fb_dev);
 
 	/* 4. Free rotimgs */
-	egi_imgbuf_free(rotimg);
-	rotimg=NULL;
+	egi_imgbuf_free2(&rotimg);
 
 	/* 5. Refresh FB by memcpying back buffer to FB */
 //	fb_page_refresh(&gv_fb_dev,0);

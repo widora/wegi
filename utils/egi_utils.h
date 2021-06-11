@@ -74,6 +74,8 @@ int egi_encode_base64(int type, const unsigned char *data, unsigned int size, ch
 int egi_encode_base64URL(const unsigned char *base64_data, unsigned int data_size, char *buff, unsigned int buff_size, bool notail);
 int egi_encode_uft8URL(const unsigned char *ustr, char *buff, unsigned int buff_size);
 
+int egi_lock_pidfile(const char *pid_lock_file);
+
 /* EGI_BITSTATUS: Bitwise status */
 typedef struct egi_bit_status {
 	unsigned int 	total;		/* Total number of effective bits in octbits[] */

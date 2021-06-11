@@ -26,6 +26,8 @@ Journal:
 2021-05-19:
 	1.egi_imgbuf_loadjpg(): close_jpgImg(imgbuf) before abort/return.
 
+2021-06-06:
+	1. Add: egi_imgbuf_savejpg()
 
 Modified and appended by Midas Zhou
 midaszhou@yahoo.com
@@ -1019,6 +1021,95 @@ INIT_FAIL:
 
 	return ret;
 }
+
+/*--------------------------------------------------------------------------
+Save an EGI_IMGBUF to a JPG file by calling libjpeg.
+
+@fpath:		PNG file path
+@eg_imgbuf:	EGI_IMGBUF holding the image data, in 16bits color
+@quality:	Quality of compression.
+
+Return:
+	0	OK
+	<0	Fails
+---------------------------------------------------------------*/
+int egi_imgbuf_savejpg(const char* fpath,  EGI_IMGBUF *eimg, int quality)
+{
+	struct jpeg_compress_struct cinfo;
+	struct jpeg_error_mgr jerr;
+	/* typedef char JSAMPLE; typedef JSAMPLE FAR *JSAMPROW;  */
+	JSAMPROW row_buff=NULL; /* SMAE as: char *row_buff; */
+	FILE *outfile;
+	int i;
+	unsigned int k,off;
+	EGI_16BIT_COLOR color;
+
+	if(eimg==NULL || eimg->imgbuf==NULL)
+		return -1;
+
+        if (( outfile = fopen(fpath, "wbe")) == NULL) {
+                egi_dperr("open '%s' fails.", fpath);
+                return -2;
+        }
+
+	/* Calloc row_buff */
+	row_buff=calloc(1, eimg->width*3);  /* RGB 24bit */
+	if(row_buff==NULL) {
+		fclose(outfile);
+		return -3;
+	}
+
+	/* Allocate and init. JPEG compression object */
+	cinfo.err = jpeg_std_error(&jerr);
+	jpeg_create_compress(&cinfo);
+
+	/* Specify data destination */
+	jpeg_stdio_dest(&cinfo, outfile);
+
+	/* Set parameters for compression */
+	cinfo.image_width = eimg->width;
+	cinfo.image_height = eimg->height;
+	cinfo.input_components = 3;  /* Color components per pixel: RGB  */
+	cinfo.in_color_space =JCS_RGB;
+
+	/* Set default compression parameters */
+	jpeg_set_defaults(&cinfo);
+
+	/* Set any non-default parameters */
+	/* Set quality */
+	jpeg_set_quality(&cinfo, quality, TRUE /* limit to baseline-JPEG values */ );
+
+	/* Start compressing */
+	/* Write a complete interchang-JPEG file */
+	jpeg_start_compress(&cinfo, TRUE);
+
+	while( cinfo.next_scanline < cinfo.image_height ) {
+		/* Read eimg line to row_buff */
+		k=0;
+		for(i=0; i < eimg->width; i++) {
+			off=cinfo.next_scanline*eimg->width + i;
+			color = eimg->imgbuf[off];
+			row_buff[k++]=(color&0xF800)>>8;  //R
+			row_buff[k++]=(color&0x7E0)>>3;	  //G
+			row_buff[k++]=(color&0x1F)<<3;	  //B
+		}
+
+		(void) jpeg_write_scanlines(&cinfo, &row_buff, 1);
+	}
+
+	/* Finish compresson */
+	jpeg_finish_compress(&cinfo);
+	jpeg_destroy_compress(&cinfo);
+
+	/* Close file */
+	fclose(outfile);
+
+	/* Free row_buff */
+	free(row_buff);
+
+	return 0;
+}
+
 
 /*--------------------------------------------------------------------------
 Save an EGI_IMGBUF to an PNG file by calling libpng.

@@ -32,6 +32,9 @@ Journal:
 	2. Update labicon_SOUND as per real_time audio volume.
 2021-06-04:
 	1. Ubus call to turn WiFi UP/DOWN.
+	2. Make dynamic_icon effect when reloading WiFi interface.
+2021-06-05:
+	1. bool guider_in_position.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -43,6 +46,7 @@ https://github.com/widora/wegi
 #include <stdbool.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/file.h>
 
 #include "egi_timer.h"
 #include "egi_color.h"
@@ -55,6 +59,13 @@ https://github.com/widora/wegi
 #include "egi_input.h"
 #include "egi_iwinfo.h"
 #include "egi_pcm.h"
+#include "egi_utils.h"
+
+/* PID lock file, to ensure only one running instatnce. */
+const char *pid_lock_file="/var/run/surfman_guider.pid";
+
+/* SURF position */
+bool guider_in_position;	/* True: If guider bar is in designated position. */
 
 /* SURF Lable_Icons */
 enum {
@@ -67,9 +78,11 @@ enum {
 ESURF_LABEL *labicons[LABICON_MAX];
 int mp=-1;   /* Index of mouse touched labicons[], <0 invalid. */
 
+EGI_CLOCK eclock;
 EGI_IMGBUF *wifi_icons[5+1]; /* RSSI LEVEL: 0,1,2,3,4; No_Connection 5 */
 int wifi_icon_index; 	/* Index of wifi_icons[]. */
 int wifi_level; 	/* WiFi signal strength level 0,1,2,3,4,5 */
+bool wifi_reloading; /* WiFi interface is reloading */
 
 EGI_IMGBUF *volume_icons[4];
 int volume_icon_index; /* Index of volume_icons[] */
@@ -112,7 +125,10 @@ const char *arg_wifi_up[3]={
 	NULL,
 };
 
+/* Ubus call netifd */
 int ubus_cli_call(const char *ubus_socket, int argc, const char**argv);
+void *thread_ubus_wifi_down(void *arg);
+void *thread_ubus_wifi_up(void *arg);
 
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
@@ -122,13 +138,14 @@ void signal_handler(int signo)
 	}
 }
 
+
+
 /*----------------------------
 	   MAIN()
 -----------------------------*/
 int main(int argc, char **argv)
 {
 	int i;
-
 	int sw=0,sh=0; /* Width and Height of the surface */
 	int x0=0,y0=0; /* Origin coord of the surface */
 
@@ -151,15 +168,33 @@ int main(int argc, char **argv)
 	/* Set signal handler */
 //	egi_common_sigAction(SIGINT, signal_handler);
 
+#if 0   /* Enter private dir */
+        chdir("/tmp/.egi");
+        mkdir("surf_xxx", 0777); /* 0777 ??? drwxr-xr-x */
+        if(chdir("/tmp/.egi/surf_xxx")!=0) {
+                egi_dperr("Fail to make/enter private dir!");
+                exit(EXIT_FAILURE);
+        }
+#endif
+
+
 REGISTER_SURFUSER:
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
 	x0=-5; y0=SURF_MAXH-30;	sw=SURF_MAXW +5*2; sh=SURF_TOPBAR_HEIGHT;
-	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, SURF_MAXW,SURF_MAXH, sw, sh, colorType );
+	surfuser=egi_register_surfuser( ERING_PATH_SURFMAN, pid_lock_file, x0, y0, SURF_MAXW,SURF_MAXH, sw, sh, colorType );
 	if(surfuser==NULL) {
+		/* If instance already running, exit */
+		int fd;
+		if( (fd=egi_lock_pidfile(pid_lock_file)) <=0 )
+			exit(EXIT_FAILURE);
+		else
+			close(fd);
+
 		usleep(100000);
 		goto REGISTER_SURFUSER;
 	}
+	guider_in_position=true;
 
 	/* 2. Get ref. pointers to vfbdev/surfimg/surfshmem */
 	vfbdev=&surfuser->vfbdev;
@@ -185,10 +220,10 @@ REGISTER_SURFUSER:
 #endif
         surfshmem->user_mouse_event     = my_mouse_event;
 
-	/* 3. Give a name for the surface. */
+	/* 4. Give a name for the surface. */
 	strncpy(surfshmem->surfname, "EGI Desktop", SURFNAME_MAX-1);
 
-	/* 4. First draw surface */
+	/* 5. First draw surface */
 	surfshmem->bkgcolor=WEGI_COLOR_GRAY; /* OR default BLACK */
 	//surfuser_firstdraw_surface(surfuser, TOPBAR_NAME); /* Default firstdraw operation */
 	my_firstdraw_surface(surfuser, TOPBAR_NAME); /* Default firstdraw operation */
@@ -233,14 +268,14 @@ REGISTER_SURFUSER:
 	printf("Shmsize: %zdBytes  Geom: %dx%dx%dBpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
-	/* 5. Start Ering routine */
+	/* 6. Start Ering routine */
 	printf("start ering routine...\n");
 	if( pthread_create(&surfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, surfuser) !=0 ) {
 		printf("Fail to launch thread_EringRoutine!\n");
 		exit(EXIT_FAILURE);
 	}
 
-	/* 6. Activate image */
+	/* 7. Activate image */
 	surfshmem->sync=true;
 
 /* ------ <<<  Surface shmem Critical Zone  */
@@ -248,8 +283,7 @@ REGISTER_SURFUSER:
 
 	/* Main loop */
 	while( surfshmem->usersig != 1 ) {
-		tm_delayms(200);
-
+		tm_delayms(50);
 
 		/* 1. Update clock */
         	pthread_mutex_lock(&surfshmem->shmem_mutex);
@@ -259,18 +293,38 @@ REGISTER_SURFUSER:
                 pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
 		/* 2. Update WIFI RSSI Level */
+		wifi_level=iw_get_rssi("apcli0",NULL); //get_wifi_level();
+		//printf("wifi_level=%d\n", wifi_level);
+		if( wifi_reloading && wifi_level<0 ) {	/* WiFi interface is reloading */
+			if( egi_clock_peekCostUsec(&eclock) > 300000 ) {
+				wifi_icon_index ++;
+				/* Loop wifi icon 0->4 */
+				if(wifi_icon_index > 4)
+					wifi_icon_index=0;
+				egi_clock_restart(&eclock);
+			}
+		}
+		else if( wifi_level<0 ) { /* Disconnected */
+			wifi_reloading=false;
+			/* icon index 5 as Disconnected */
+			wifi_level=5;
+			wifi_icon_index=5;
+		}
+		else if( wifi_level>=0 ) {
+			wifi_reloading=false;
+			wifi_icon_index=wifi_level;
+		}
+
         	pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>> Surface shmem Critical Zone */
-		wifi_level=iw_get_rssi("apcli0",NULL); //get_wifi_level();
-		if(wifi_level != wifi_icon_index) {
-			if(wifi_level<0) wifi_level=5; /* No Connection */
-			wifi_icon_index=wifi_level;
+
 			/* Update LAB front_imagbuf */
 			labicons[LABICON_WIFI]->front_imgbuf=wifi_icons[wifi_icon_index];
 			egi_surfLab_writeFB(vfbdev, labicons[LABICON_WIFI], egi_sysfonts.bold, 16, 16, WEGI_COLOR_WHITE, 0, 0);
-		}
+
 /* ------ <<<  Surface shmem Critical Zone  */
                 pthread_mutex_unlock(&surfshmem->shmem_mutex);
+
 
 		/* 3. Update PCM volume */
         	pthread_mutex_lock(&surfshmem->shmem_mutex);
@@ -285,7 +339,6 @@ REGISTER_SURFUSER:
 		}
 /* ------ <<<  Surface shmem Critical Zone  */
                 pthread_mutex_unlock(&surfshmem->shmem_mutex);
-
 
 		/* Wait pid */
 		if( (wait_pid=waitpid(-1, &wait_status, WNOHANG)) >0 ) {
@@ -311,7 +364,6 @@ REGISTER_SURFUSER:
 	printf("Exit OK!\n");
 	exit(0);
 }
-
 
 
 /*---------------------------------------------------------
@@ -408,7 +460,7 @@ void labicon_time_update(void)
 --------------------------------------------------------------------*/
 void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 {
-//	printf("(%d,%d)\n", pmostat->mouseX, pmostat->mouseY);
+	//printf("(%d,%d)\n", pmostat->mouseX, pmostat->mouseY);
 
 #if 0	/* To hide/unhide surface, !!! see NOTE/Journal for its drawbacks. */
 	if( pxy_inbox( pmostat->mouseX, pmostat->mouseY, surfshmem->x0, surfshmem->y0,
@@ -421,16 +473,19 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 	else
 		surfshmem->sync=true;
 #endif
+
 	/* If click */
 	if( pmostat->LeftKeyDown ) {
 		/* Click on WiFi LABICON */
         	if( egi_point_on_surfBox( (ESURF_BOX *)labicons[LABICON_WIFI],
                 	                pmostat->mouseX-surfshmem->x0, pmostat->mouseY-surfshmem->y0) ) {
+
+			/* TurnOFF apcli0 */
 			if( iw_is_running("apcli0") ) {
 				egi_dpstd("ifdown apcli0...\n");
-				iw_ifdown("apcli0"); /* This is NOT enough, netifd/ap_client will auto. reconnect!? */
-
-#ifndef LETS_NOTE
+				//iw_ifdown("apcli0"); /* This is NOT enough, netifd/ap_client will auto. reconnect!? */
+			#if 0 /* 1: vfor() to carry ubus call */
+			    #ifndef LETS_NOTE
 				/* Fork to exe ubus_call */
 				int pid;
 				if( (pid=vfork())<0)
@@ -440,15 +495,23 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 					exit(0);
 				}
 				egi_dpstd("Ok ubus call wifi_down!\n");
-#endif
+			    #endif
+			#else /* 2: Thread to carry ubus call */
+				egi_dpstd("Start thread ubus call...\n");
+				pthread_t thread_ucall;
+				pthread_create(&thread_ucall, NULL, &thread_ubus_wifi_down, NULL);
+				egi_dpstd("thread_ucall OK.\n");
+			#endif
 				//XX iwpriv("ra0", "ApCliEnable", "0");
 				//XX system("wifi down");
 			}
+			/* TurnON apcli0 */
 			else {
 				egi_dpstd("ifup apcli0...\n");
-				iw_ifup("apcli0");	/* This is NOT enough, netifd/ap_client will auto. reconnect!? */
-
-#ifndef LETS_NOTE
+				/* Cost time! This is NOT enough if you ubus_called to put it DOWN before! also ubus_call to turn it UP. */
+				// iw_ifup("apcli0");
+			#if 0 /* 1: vfor() to carry ubus call */
+			    #ifndef LETS_NOTE
 				/* Fork to exe ubus_call */
 				int pid;
 				if( (pid=vfork())<0)
@@ -457,15 +520,25 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 					ubus_cli_call(NULL, 2, arg_wifi_up);
 					exit(0);
 				}
-#endif				egi_dpstd("Ok ubus call wifi_up!\n");
-
+				egi_dpstd("Ok ubus call wifi_up!\n");
+			    #endif
+			#else /* 2: Thread to carry ubus call */
+				egi_dpstd("Start thread ubus call...\n");
+				pthread_t thread_ucall;
+				pthread_create(&thread_ucall, NULL, &thread_ubus_wifi_up, NULL);
+				egi_dpstd("thread_ucall OK.\n");
+			#endif
 				//XX iwpriv("ra0", "ApCliEnable", "1");
 				//XX system("wifi up");
 			}
 		}
 	}
-	/* If LeftKeyUp, then readjust position */
-	else if( pmostat->LeftKeyUp ) {
+	/* If Surface is downhold for moving */
+	else if( guider_in_position && surfshmem->status == SURFACE_STATUS_DOWNHOLD ) {
+		guider_in_position=false;
+	}
+	/* If LeftKeyUp, then readjust position: LefitKeyUp is a one hit event.. */
+	else if( pmostat->LeftKeyUp || ( !guider_in_position && surfshmem->status != SURFACE_STATUS_DOWNHOLD )) {
 		/* Locate GuideBar to TOP of the desk. */
 		if( surfshmem->y0 < SURF_MAXH/2 ) {
 			surfshmem->x0 = -5;
@@ -476,7 +549,10 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 			surfshmem->x0 = -5;
 			surfshmem->y0 = SURF_MAXH-30;
 		}
+
+		guider_in_position=true;
 	}
+
 
 	/* If on ICON SOUND */
 	if( egi_point_on_surfBox( (ESURF_BOX *)labicons[LABICON_SOUND],
@@ -488,7 +564,6 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 			egi_adjust_pcm_volume(-pmostat->mouseDZ*2);
 		}
 	}
-
 
 }
 
@@ -511,10 +586,9 @@ static void receive_call_result_data(struct ubus_request *req, int type, struct 
                 return;
 
         str = blobmsg_format_json_indent(msg, true, simple_output ? -1 : 0);
-        printf("%s\n", str);
+        egi_dpstd("%s\n", str);
         free(str);
 }
-
 
 int ubus_cli_call(const char *ubus_socket, int argc, const char **argv)
 {
@@ -550,5 +624,37 @@ int ubus_cli_call(const char *ubus_socket, int argc, const char **argv)
 	printf("ubus_invoke...\n");
         return ubus_invoke(ctx, id, argv[1], b.head, receive_call_result_data, NULL, timeout * 1000);
 }
+#else  /* ----- For LETS_NOTE, No UBUS.  ---- */
+int ubus_cli_call(const char *ubus_socket, int argc, const char **argv)
+{
+
+}
 
 #endif
+
+/* ------- Thread function --------- */
+void *thread_ubus_wifi_down(void *arg)
+{
+	pthread_detach(pthread_self());
+
+	iw_ifdown("apcli0"); /* This is NOT enough, netifd/ap_client will auto. reconnect!? */
+
+	ubus_cli_call(NULL, 2, arg_wifi_down);
+
+	return (void *)0;
+}
+void *thread_ubus_wifi_up(void *arg)
+{
+	pthread_detach(pthread_self());
+
+        /* Cost time! This is NOT enough if you ubus_called to put it DOWN before! also ubus_call to turn it UP. */
+	wifi_reloading=true; /* put it before iw_ifup() */
+	egi_clock_stop(&eclock);
+	egi_clock_start(&eclock);
+        iw_ifup("apcli0");
+
+	ubus_cli_call(NULL, 2, arg_wifi_up);
+
+	return (void *)0;
+}
+

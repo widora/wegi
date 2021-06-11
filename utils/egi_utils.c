@@ -12,6 +12,8 @@ Jurnal
 	1. egi_fmap_create(): To fail if file size is 0!
 2021-02-13:
 	1. egi_fmap_create(): Add flock(,LOCK_EX) during mmaping.
+2021-06-07:
+	1. Add egi_lock_pidfile().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -1417,7 +1419,59 @@ END_ENCODE:
 }
 
 
+/*-------------------------------------------------------
+To create and/or lock pid_lock_file, to ensure
+there is ONLY one instance running.
 
+@pid_lock_file:  File for PID lock.
+
+Return:
+        FD of pid_lock_file     OK
+        =0                      Instance already running.
+        <0                      Fails
+-------------------------------------------------------*/
+int egi_lock_pidfile(const char *pid_lock_file)
+{
+        int fd;
+        char strtmp[64];
+        int len;
+
+        fd=open(pid_lock_file, O_RDWR|O_CREAT, 0644);
+        if(fd<0) {
+                egi_dperr("Fail to open '%s'.",pid_lock_file);
+                return -1;
+        }
+
+        /* Get advisory exclusive lock */
+        if( flock(fd, LOCK_EX|LOCK_NB) !=0 ) {
+                if(errno==EWOULDBLOCK) {
+                        egi_dpstd("An instance already running with pid file locked!\n");
+                        close(fd);
+                        return 0;
+                }
+                else {
+                        egi_dperr("Fail to flock '%s'.",pid_lock_file);
+                        close(fd);
+                        return -2;
+                }
+        }
+
+        /* Write current pid into the file */
+        if( ftruncate(fd, 0) !=0 ) {
+                egi_dperr("Fail to ftruncate '%s'.", pid_lock_file);
+                flock(fd, LOCK_UN);
+                close(fd);
+                return -3;
+        }
+        sprintf(strtmp, "%d\n", getpid());
+        len=strlen(strtmp)+1;
+        if( len != write(fd, strtmp, len) )
+                egi_dpstd("WARNING: short write!\n");
+
+        /* File locked, DO NOT close(fd) here! */
+
+        return fd;
+}
 
 /*--------------------------------------------
 Create an EGI_BITSTATUS.

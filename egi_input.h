@@ -19,23 +19,26 @@ midaszhou@yahoo.com
 typedef struct egi_mouse_status {
         pthread_mutex_t mutex;      /* mutex lock */
 
-	/* OR use bitwise to store status */
-        bool LeftKeyDown;
-        bool LeftKeyUp;
-        bool LeftKeyDownHold;
-        bool LeftKeyUpHold;
+	/* OR use bitwise to store status:
+	 * 	 	!!! WARNING !!!
+	 * 	Bitfields may NOT be protable!
+	 */
+        bool LeftKeyDown	:1;
+        bool LeftKeyUp		:1;
+        bool LeftKeyDownHold	:1;
+        bool LeftKeyUpHold	:1;
 
-        bool RightKeyDown;
-        bool RightKeyUp;
-        bool RightKeyDownHold;
-        bool RightKeyUpHold;
+        bool RightKeyDown	:1;
+        bool RightKeyUp		:1;
+        bool RightKeyDownHold	:1;
+        bool RightKeyUpHold	:1;
 
-        bool MidKeyDown;
-        bool MidKeyUp;
-        bool MidKeyDownHold;
-        bool MidKeyUpHold;
+        bool MidKeyDown		:1;
+        bool MidKeyUp		:1;
+        bool MidKeyDownHold	:1;
+        bool MidKeyUpHold	:1;
 
-	bool KeysIdle;	/* All keys are uphold */
+	bool KeysIdle		:1;	/* All keys are uphold */
 	/* MouseIdle: KeysIdle + mouseDX/YZ==0 */
 
         int  mouseX;	/* Of FB_POS */
@@ -54,7 +57,10 @@ typedef struct egi_mouse_status {
 					*  which may be trapped in deadlock withou a signal.
 					*/
 
-	char ch;	/* TEST: Input key value */
+	int  nch;	/* Used bytes in ch[] */
+	char chars[32];	/* Input ASCII values.  NOT necessary to be null(0) terminated!  */
+	/* TODO: Non_ASCII key values */
+
 	bool request;  /* 0 -- No request, 1-- Mouse event request respond */
 } EGI_MOUSE_STATUS;
 

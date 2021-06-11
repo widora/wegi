@@ -82,6 +82,13 @@ enum surf_color_type {
 struct egi_surface_user {
 	EGI_UCLIT 	*uclit;			/* A uClient to EGI_SURFMAN's uServer. */
 
+	int		fd_flock;		/* It applys when pid_lock_file!=NULL:
+						 * 1. File descriptor of lock_pid_file, which usually is named as /var/run/xxxx.pid
+						 * 2. Init. as 0.
+						 * 3. Get fd_flock at egi_register_surfuser(), and close(fd) at egi_unregister_surfuser().
+						 * 4. When an instance starts running, it trys to create the lock_pid_file, and flocks it.
+						 * 5. Call egi_lock_pidfile() to check if an instance already running!
+						 */
         int             msgid;                  /* Message queue identifier, SURFMAN is the Owner! */
 //      key_t           msgkey;                 /* key_t associated with msgid */
 
@@ -548,7 +555,8 @@ void surface_insertSort_zseq(EGI_SURFACE **surfaces, int n); /* Re_assign all su
 
 
 /* Functions for   --- EGI_SURFUSER ---   */
-EGI_SURFUSER *egi_register_surfuser( const char *svrpath, int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType );
+EGI_SURFUSER *egi_register_surfuser( const char *svrpath, const char* pid_lock_file,
+				     int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType );
 int egi_unregister_surfuser(EGI_SURFUSER **surfuser);
 
 	/* Default surface operations; OR use your own tailor_made functions. */

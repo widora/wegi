@@ -82,6 +82,7 @@ int show_jpg( const char* fpath, const unsigned char *inbuff, unsigned long insi
 
 int egi_imgbuf_loadjpg(const char* fpath, EGI_IMGBUF *egi_imgbuf);
 int egi_imgbuf_loadpng(const char* fpath, EGI_IMGBUF *egi_imgbuf);
+int egi_imgbuf_savejpg(const char* fpath,  EGI_IMGBUF *eimg, int quality);
 int egi_imgbuf_savepng(const char* fpath, EGI_IMGBUF *egi_imgbuf);
 
 /* roaming picture in a window */
