@@ -96,6 +96,10 @@ Note:
 	5.  Replace typings in group_set by calling UniHanGroup_update_typings(group_set, update_set);
 
 
+Journal:
+2021-06-15:
+	1. Add polyphonic UNIHAN 盛(cheng) to unihans_pinyin.dat
+
 Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------------------*/

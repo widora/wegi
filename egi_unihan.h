@@ -26,12 +26,12 @@ typedef wchar_t 	EGI_UNICODE;
 #define UNICODE_PRC_END       0x9FA5
 
 /* TXT and DATA files */
+#define PINYIN3500_TXT_PATH	"/mmc/pinyin3500.txt"		/* 3500 frequently used Haizi TXT */
+#define PINYIN3500_DATA_PATH    "/mmc/unihan3500.dat"		/* Saved UNIHAN SET containing above unihans */
+
 #define MANDARIN_TXT_PATH    	"/mmc/kMandarin.txt"		/* kMandarin.txt from Unihan_Readings.txt, see UniHan_load_MandarinTxt() */
 #define HANYUPINYIN_TXT_PATH    "/mmc/kHanyuPinyin.txt"		/* kHanyuPinyin.txt from Unihan_Readings.txt, see UniHan_load_HanyuPinyinTxt() */
 #define UNIHANS_DATA_PATH       "/mmc/unihans_pinyin.dat"	/* Saved UNIHAN SET containing above unihans */
-
-#define PINYIN3500_TXT_PATH	"/mmc/pinyin3500.txt"		/* 3500 frequently used Haizi TXT */
-#define PINYIN3500_DATA_PATH    "/mmc/unihan3500.dat"		/* Saved UNIHAN SET containing above unihans */
 
 #define CIZU_TXT_PATH			"/mmc/chinese_cizu.txt"		/* Cizu TXT file path */
 #define UNIHANGROUPS_DATA_PATH   	"/mmc/unihangroups_pinyin.dat"	/* Saved UNIHANGROUP set

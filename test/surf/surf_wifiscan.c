@@ -41,6 +41,9 @@ midaszhou@yahoo.com
 #include "egi_debug.h"
 #include "egi_surface.h"
 
+/* PID lock file, to ensure only one running instatnce. */
+const char *pid_lock_file="/var/run/surf_wifiscan.pid";
+
 /* For SURFUSER */
 EGI_SURFUSER     *surfuser=NULL;
 EGI_SURFSHMEM    *surfshmem=NULL;        /* Only a ref. to surfuser->surfshmem */
@@ -192,7 +195,7 @@ int main(int argc, char** argv)
 
         /* 1. Register/Create a surfuser */
         printf("Register to create a surfuser...\n");
-        surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, 0, 0, 320, 240,320, 240, colorType );
+        surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, pid_lock_file, 0, 0, 320, 240,320, 240, colorType );
         if(surfuser==NULL) {
                 exit(EXIT_FAILURE);
         }

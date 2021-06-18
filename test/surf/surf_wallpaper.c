@@ -6,6 +6,9 @@ published by the Free Software Foundation.
 A tool program to set wallpaper for SURFMAN.
 TEST: Surface has NOT frames, and ONLY display some words on the screen.
 
+TODO:
+1. Sometime it will 
+
 Note:
 1. Call bing_today.sh to fetch/download a Bing wallpaper, and SURFMSG
    the file path to SURFMAN.
@@ -87,8 +90,8 @@ int main(int argc, char **argv)
 	int x0=0,y0=0; /* Origin coord of the surface */
 	EGI_IMGBUF *bingimg=NULL;
 
-#if 0	/* Start EGI log */
-        if(egi_init_log("/mmc/test_surfman.log") != 0) {
+#if 1	/* Start EGI log */
+        if(egi_init_log("/mmc/surf_wallpaper.log") != 0) {
                 printf("Fail to init logger, quit.\n");
                 exit(EXIT_FAILURE);
         }
@@ -116,9 +119,9 @@ int main(int argc, char **argv)
 	}
 
 	/* 1. Register/Create a surfuser */
-	printf("Register to create a surfuser...\n");
+	EGI_PLOG(LOGLV_TEST, "Register to create a surfuser...\n");
 	x0 = SURF_MAXW-130; y0 = 28; //SURF_MAXH-SURF_TOPBAR_HEIGHT -16;
-	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, sw,sh, sw,sh, colorType );
+	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, x0, y0, sw,sh, sw,sh, colorType );
 	if(surfuser==NULL) {
 		sleep(1);
 		exit(EXIT_FAILURE);
@@ -130,7 +133,7 @@ int main(int argc, char **argv)
 	surfshmem=surfuser->surfshmem;
 
 	/* Test EGI_SURFACE */
-	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
+	EGI_PLOG(LOGLV_TEST, "An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
 	printf("Shmsize: %zdBytes  Geom: %dx%dx%dBpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
@@ -167,7 +170,7 @@ int main(int argc, char **argv)
 	FTsymbol_writeFB(vfbdev, "正在下载必应壁纸...", 14, 14, WEGI_COLOR_GRAYC, 0, 0);
 
 	/* 6. Start Ering routine */
-	printf("start ering routine...\n");
+	EGI_PLOG(LOGLV_TEST,"start ering routine...\n");
 	if( pthread_create(&surfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, surfuser) !=0 ) {
 		printf("Fail to launch thread_EringRoutine!\n");
 		exit(EXIT_FAILURE);
@@ -186,7 +189,7 @@ int main(int argc, char **argv)
 
 		tm_delayms(100);
 		if(ret_ok) {
-			egi_dpstd("Wait for surface to exit...\n");
+			EGI_PLOG(LOGLV_TEST,"Wait for surface to exit...\n");
 
 			/* Wait for surface to exit */
 			continue;
@@ -195,13 +198,24 @@ int main(int argc, char **argv)
 #ifdef LETS_NOTE
 		ret=system("/home/midas-zhou/bing_today.sh");
 #else
+		EGI_PLOG(LOGLV_TEST,"Start system()...\n");
 		ret=system("/home/bing_today.sh");
 #endif
 
-		egi_dpstd("System ret=%d\n", ret);
+/*** ---- CURL ERROR
+[2021-06-13 14:34:09] [LOGLV_TEST] Start system()...
+curl: (7) Error   // Failed connect to...
+XXXXX XXXXXXXXXXXXXXXX
+curl: (7) Error
+[2021-06-13 14:34:10] [LOGLV_TEST] System ret=0
+*/
+
+
+		EGI_PLOG(LOGLV_TEST, "System ret=%d\n", ret);
 		if( WIFEXITED(ret)			/* However, WIFEXITED(ret) may still fail! */
 		    && (bingimg=egi_imgbuf_readfile(BING_WALLPAPER_PATH))!=NULL  )
 		{
+			EGI_PLOG(LOGLV_TEST, "Editing image...\n");
 			/* Edit bing_today.jpg: Put on title/mark. WARN: bing_today.sh MAY fail! */
 			//egi_imgbuf_resize_update(&bingimg, false, 320, 240); /* !!! XXX vfbdev->pos_xres, vfbdev->pos_yres  */
 			egi_imgbuf_scale_update(&bingimg, SURF_MAXW, SURF_MAXH);
@@ -214,8 +228,9 @@ int main(int argc, char **argv)
 			}
 			egi_fmap_free(&fmap);
 
-			egi_imgbuf_savepng(BING_WALLPAPER_PATH, bingimg); /* Save to png with name *.jpg */
+			egi_imgbuf_savejpg(BING_WALLPAPER_PATH, bingimg, 100);
 			egi_imgbuf_free2(&bingimg);
+			EGI_PLOG(LOGLV_TEST, "Finish editing and saving!\n");
 
 			/* Hide surface ... */
 			surfshmem->sync=false;
@@ -223,10 +238,10 @@ int main(int argc, char **argv)
 			/* SURFMSG to SURFMAN.   ( msgid, msgtype, msgtext, flags ) */
 			msgerr=surfmsg_send(surfuser->msgid, SURFMSG_REQUEST_UPDATE_WALLPAPER, BING_WALLPAPER_PATH, 0);
 			if(msgerr!=0) {
-                                printf("Faill to msgsnd!\n");
+                                EGI_PLOG(LOGLV_TEST, "Faill to msgsnd!\n");
                         }
 			else
-				printf("OK, surfmsg sent out!\n");
+				EGI_PLOG(LOGLV_TEST, "OK, surfmsg sent out!\n");
 
 /* QUIT surface: ........................ */
 			surfshmem->usersig=1;
@@ -234,7 +249,7 @@ int main(int argc, char **argv)
 			ret_ok=true;
 		}
 		else { /* ELSE !WIFEXITED(ret) */
-			egi_dpstd("Fail to call system()!\n");
+			EGI_PLOG(LOGLV_TEST, "Fail to call system()!\n");
 
         		pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */
@@ -255,19 +270,42 @@ int main(int argc, char **argv)
 
         /* Pos_1: Join ering_routine  */
         // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
-	printf("Cancel thread...\n");
-        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	/* To force eringRoutine to quit, for sockfd MAY be blocked at ering_msg_recv()! */
+	tm_delayms(200); /* Let eringRoutine to try to exit by itself, at signal surfshmem->usersig =1 */
+        if( surfshmem->eringRoutine_running ) {
+		EGI_PLOG(LOGLV_TEST, "Cancel eringRoutine thread...\n");
+        	if( pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL) !=0)
+			EGI_PLOG(LOGLV_TEST, "Fail to pthread_setcancelstate eringRoutine, it MAY already quit! Err'%s'.\n", strerror(errno));
+		if( pthread_cancel( surfshmem->thread_eringRoutine ) !=0)
+			EGI_PLOG(LOGLV_TEST, "Fail to pthread_cancel eringRoutine, it MAY already quit! Err'%s'.\n", strerror(errno));
+		else
+			EGI_PLOG(LOGLV_TEST, "OK to cancel eringRoutine thread!\n");
+	}
+
+#if 0   /* If ERING sockfd blocked at ering_msg_recv(), Shutdown sockfd to force thread to quit.
+         * Results: surfuser_ering_routine(): ering_msg_recv() nrecv==0! SURFMAN disconnects!! Err'Success'.
+         */
+	/* XXX NOPE! sockfd is valid until you call egi_unregister_surfuser() to destroy_Uclient! */
+	struct stat statbuf;
+	tm_delayms(200);  /* Wait to let ering routine quit normally with signal of surfshmem->usersig == 1... */
+	if( fstat(surfuser->uclit->sockfd, &statbuf) != EBADF ) {
+	        EGI_PLOG(LOGLV_TEST, "Ering routine blocked, shutdown uclit sockfd, Err'%s'\n", strerror(errno));
+        	if(shutdown( surfuser->uclit->sockfd, SHUT_RDWR)!=0)
+                	EGI_PLOG(LOGLV_TEST, "Fail to shutdown uclit sockfd!\n");
+	}
+#endif
+
         /* Make sure mutex unlocked in pthread if any! */
-	printf("Joint thread_eringRoutine...\n");
+	EGI_PLOG(LOGLV_TEST, "Joint thread_eringRoutine...\n");
         if( pthread_join(surfshmem->thread_eringRoutine, NULL)!=0 )
                 egi_dperr("Fail to join eringRoutine");
 
 	/* Pos_2: Unregister and destroy surfuser */
-	printf("Unregister surfuser...\n");
+	EGI_PLOG(LOGLV_TEST, "Unregister surfuser...\n");
 	if( egi_unregister_surfuser(&surfuser)!=0 )
 		egi_dpstd("Fail to unregister surfuser!\n");
 
-	printf("Exit OK!\n");
+	EGI_PLOG(LOGLV_TEST, "Exit OK!\n");
 	exit(0);
 }
 

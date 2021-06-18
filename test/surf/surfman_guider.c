@@ -191,6 +191,12 @@ REGISTER_SURFUSER:
 		else
 			close(fd);
 
+		/* Try 3 time */
+                int static ntry=0;
+                ntry++;
+                if(ntry==3)
+                        exit(EXIT_FAILURE);
+
 		usleep(100000);
 		goto REGISTER_SURFUSER;
 	}

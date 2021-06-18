@@ -282,6 +282,8 @@ struct egi_surface_shmem {
 					 */
 
 	pthread_t       thread_eringRoutine;    /* SURFUSER ERING routine */
+	bool		eringRoutine_running;	/* An indicator, set/reset in surfuser_ering_routine(). */
+
 	int		usersig;	/* user signal: NOW 1 as quit surface ERING routine. */
 
 	bool		hidden;		/* True: invisible. */

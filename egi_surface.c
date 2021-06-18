@@ -248,7 +248,12 @@ Journal
 	1. Add member 'fd_flock' for EGI_SURFUSER.
 	2. Modify egi_register_surfuser():  call egi_lock_pidfile() to get fd_flock.
 	2. Modify egi_unregister_surfuser(): to close(fd_flock).
-
+2021-06-13:
+	1. surfuser_ering_routine():
+	1.1 If sockfd broken when calling ering_msg_recv(surfuser->uclit->sockfd, emsg)
+	    DO NOT exit there, let main thread do it.
+	1.2 Add memeber 'eringRoutine_running' for EGI_SURFSHMEM.
+	1.3 Set/reset surfuser->surfshmem->eringRoutine_running.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -637,8 +642,9 @@ int egi_unregister_surfuser(EGI_SURFUSER **surfuser)
 #if 0   /* XXX NOPE!!  Should NOT join eringRoutine in egi_unregister_surfuser()! Put it at end of main()! */
 	/* 1. Join ering_routine  */
 	(*surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
-	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-	tm_delayms(10);
+	//pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	//pthread_cancel( (*surfuser)->surfshmem->thread_eringRoutine );
+	tm_delayms(100);
 	/* Make sure mutex unlocked in pthread if any! */
 	if( pthread_join((*surfuser)->surfshmem->thread_eringRoutine, NULL)!=0 ) {
 		egi_dperr("Fail to join eringRoutine");
@@ -647,26 +653,32 @@ int egi_unregister_surfuser(EGI_SURFUSER **surfuser)
 #endif
 
 	/* 1. Free topbar CLOSE/MIN/MAX btns: surfshmem->sbtns[] */
+	//egi_dpstd("free topbar sbtns...\n");
 	for(i=0; i<TOPBTN_MAXNUM; i++)
 		free((*surfuser)->surfshmem->sbtns[i]);
 
         /* 2. Release virtual FBDEV */
+	//egi_dpstd("release_virt_fbdev...\n");
         release_virt_fbdev(&(*surfuser)->vfbdev);
 
 	/* 3. Unlink imgbuf data and free the holding imgbuf */
+	//egi_dpstd("Free surfuser->imgbuf...\n");
 	(*surfuser)->imgbuf->imgbuf=NULL;
 	(*surfuser)->imgbuf->alpha=NULL;
 	egi_imgbuf_free2(&(*surfuser)->imgbuf);
 
         /* 4. Unmap surfshmem */
+	//egi_dpstd("munmap_surfshmem...\n");
         if( egi_munmap_surfshmem(&(*surfuser)->surfshmem) !=0 )
 		ret += -(1<<1);
 
         /* 5. Free uclit, and close its socket. SURFMAN should receive signal to retire the surface. */
+	//egi_dpstd("unet_destroy_Uclient...\n");
         if( unet_destroy_Uclient(&(*surfuser)->uclit) !=0 )
 		ret += -(1<<2);
 
 	/* 6. close(fd_flock) to unlock file. */
+	//egi_dpstd("Close fd_flock ...\n");
 	if( (*surfuser)->fd_flock >0 )
 		close((*surfuser)->fd_flock);
 
@@ -1660,7 +1672,7 @@ int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
 	}
 
 	/* NOW: surfID refer to surface with PID and biggest level */
-	egi_dpstd("Finial surfID=%d\n",surfID);
+	egi_dpstd("Final surfID=%d\n",surfID);
 	surfman->surfaces[surfID]->zseq=SURFMAN_MAX_SURFACES +1 +1;  /* +1+1 to ensure is the biggest zseq */
 
         /* Sort surfman->surfaces[] in ascending order of their zseq value */
@@ -2449,6 +2461,9 @@ void *surfuser_ering_routine(void *surf_user)
 	/* Hint */
 	egi_dpstd("SURFACE %s starts ERING routine. \n", surfuser->surfshmem->surfname);
 
+	/* Set indicator */
+	surfuser->surfshmem->eringRoutine_running=true;
+
 	while( surfuser->surfshmem->usersig !=1  ) {
 		/* 1. Waiting for msg from SURFMAN, BLOCKED here if NOT the top layer surface! */
 	        //egi_dpstd("Waiting in recvmsg...\n");
@@ -2460,8 +2475,9 @@ void *surfuser_ering_routine(void *surf_user)
 		/* SURFMAN disconnects */
 		else if(nrecv==0) {
 			egi_dperr("ering_msg_recv() nrecv==0! SURFMAN disconnects!!");
-			//continue;
-			exit(EXIT_FAILURE);
+			// continue;
+			// surfuser->surfshmem->eringRoutine_running=false;
+			// exit(EXIT_FAILURE); /* DO NOT exit here, let main thread do it. */
 		}
 
 	        /* 2. Parse ering messag */
@@ -2489,6 +2505,9 @@ void *surfuser_ering_routine(void *surf_user)
 
 	/* Free ering MSG */
 	ering_msg_free(&emsg);
+
+	/* Reset indicator */
+	surfuser->surfshmem->eringRoutine_running=false;
 
 	egi_dpstd("OK to exit ering routine thread.\n");
 	return (void *)0;

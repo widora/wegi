@@ -120,8 +120,13 @@ Journal
 	2. Add members 'chars[32]' and 'nch' for EGI_MOUSE_STATUS.
 	3. Buffer key_inputs in chars[], and later transfer to pmostat->chars[]
 	   to ering to the TOP surface. Such to avoid missing any key input.
-2021-07-10:
+2021-06-10:
 	1. To clear all buffer chars[] if there is no surface displayed on desk.
+2021-06-16:
+	1. Add:  W.0  Read keyboard shortcut control keys...
+2021-06-18:
+	1. Chars of a TTY Escape Sequence are inseparable, we MUST read out
+	   all chars in STDIN buffer at once(at one time), NOT one_by_one!!!
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -132,6 +137,7 @@ https://github.com/widora/wegi
 #include <libgen.h>
 #include <sys/msg.h>
 #include <sys/wait.h>
+#include <sys/types.h>
 
 #include "egi_timer.h"
 #include "egi_color.h"
@@ -160,12 +166,17 @@ https://github.com/widora/wegi
 	#define SURFMAN_BKGIMG_PATH	"/mmc/egidesk.jpg"  // "/mmc/linux.jpg"
 #endif
 
-
+/* Inputs: keyboard, mouse, TTY  */
+static EGI_KBD_STATUS kbdstat;
 static EGI_MOUSE_STATUS mostat;
 static EGI_MOUSE_STATUS *pmostat;
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
 int 	lastX;
 int 	lastY;
+/* TTY STDIN key buffer */
+int 	nch;
+char 	chars[32];  	/* W.2.7.1A if NO surface displayed, then clear buffer chars[] */
+
 bool	surface_downhold; /* NO USE */
 
 EGI_SURFMAN *surfman;
@@ -179,9 +190,6 @@ static int sigQuit;
 int wait_pid;
 int wait_status;
 
-/* Input key buffer */
-int nch;
-char chars[32];
 
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
@@ -203,6 +211,7 @@ int main(int argc, char **argv)
 	int surfID;
 
 	int opt;
+	int nread;
 
         /* <<<<<  EGI general initialization   >>>>>> */
 
@@ -401,26 +410,94 @@ int main(int argc, char **argv)
 			}
 		}
 
-
 KEY_INPUT:
-		/* TODO: Select/Epoll mouse/keyboard event, poll_input_event */
 
-		/* W.1  Keyboard event */
-		/* Switch the top surface */
+
+		/* W.0  Read keyboard shortcut control keys ...
+		 * Note:
+		 * 1. Capture keyboard chortcut_control_keys first!!!
+		 *    Loop back after control_keys are parsed A.S.A.P, such to avoid key_event missing/omitting
+    		 *    due to long time processing/wating in mouse_event.
+		 *
+		 */
+#if 1
+		if( egi_read_kbdcode(&kbdstat, "/dev/input/event0") !=0 ) {
+			//egi_dpstd("Fail read_kbdcode!\n");
+		}
+
+#else
+		/* DO NOT memset(&kbdstat,0, sizeof(EGI_KBD_STATUS))! */
+		//if( egi_read_kbdcode(&kbdstat, "/dev/input/event0") == 0 ) {
+		if( egi_read_kbdcode(&kbdstat, NULL) == 0 ) {
+
+                        /* ALT+TAB, in sequence. !!! EV_KEY MAYBE missing !!!  */
+			//printf("ks=%d,  %s + %s \n", kbdstat.ks, kbdstat.press_tab?"TAB":"", kbdstat.press_leftalt?"ALT":"");
+                        //if( kbdstat.conkeys.press_leftalt &&  kbdstat.keycode[0]==KEY_TAB ) {  //kbdstat.press_tab ) {
+                        if( kbdstat.conkeys.press_leftalt &&  kbdstat.keycode[0]==KEY_TAB ) {  //kbdstat.press_tab ) {
+                                        if( timercmp(&kbdstat.tm_tab, &kbdstat.tm_leftalt, >) )
+					{
+                                                //printf("ALT+TAB\n");
+						pthread_mutex_lock(&surfman->surfman_mutex);
+			/* ------ >>>  Surfman Critical Zone  */
+
+				 		surfman_bringtop_surface_nolock(surfman, SURFMAN_MAX_SURFACES-surfman->scnt);
+
+			/* ------ <<<  Surfman Critical Zone  */
+						pthread_mutex_unlock(&surfman->surfman_mutex);
+					}
+                        }
+
+		}
+		//else
+		//	printf("Fail to read kbdcode.\n");
+
+		/* W.01  If any ALT/SUPER combined shortcut keys pressed, discard all ASCIIs in STDIN and loopback,
+		 *	 DO NOT ering them to surfaces.
+		 * NOTE: TODO & TBD
+		 *  1. General Shortcuts MUST ering to surface: CTRL+C, CTRL+V, CTRL+X, CTRL+S, CTRL+N, CTRL+Z, CTRL+Q, ...
+		 *     It's good ideal to starts with CTRL+ for general shortcut!
+		 *  2. ALT/SUPER keys are ONLY for SURFMAN control shortcut keys!???
+		 */
+		if( kbdstat.press_leftalt || kbdstat.press_rightalt || kbdstat.press_super ) {
+			char tch[8];
+			read(STDIN_FILENO, &tch, 8);
+			continue;
+		}
+#endif
+
+		/* W.1  Read Keyboard STDIN  */
+#if 0	/* Read char ONE BY ONE from TTY stdin. */
                 ch=0;
                 if( read(STDIN_FILENO, &ch,1) <0 ) {
 			egi_dperr("Fail to read STDIN");
 			ch=0;
 		}
-		if(ch) {
-			/* Push into ch[] */
-			if( nch < sizeof(chars) )
+		if(ch>0) {
+			/* Push into chars[] */
+			if( nch < sizeof(chars)-1 )
 				chars[nch++]=ch;
-
 			printf("Keyin: '%c'(%d);  chars[]: %-32.32s\n", ch, ch, chars);
 		}
 
-#if 1	/* TEST--------: Select TOP surface:  !!! WARNING !!! surfman_mutex ignored. !!!! scnt>0 !!! */
+#else	/* Read out all chars from TTY stdin
+	 * Note:
+	 * 1. Since TTY Escape Sequence is also a SINGLE character/command, they MUST be readin together and
+	 *    packed in one ERING session. If a surfuser receives broken Escape_Sequence, it will cause ERROR!
+         *
+         */
+	do {
+                if( (nread=read(STDIN_FILENO, chars+nch, sizeof(chars)-1-nch)) <0 ) {
+			egi_dperr("Fail to read STDIN");
+		}
+		if(nread>0) {
+			nch +=nread;
+			printf("chars[]: %-32.32s\n", chars);
+		}
+	} while( nread>0 );  /* Break nread<=0 */
+#endif
+
+
+#if 0	/* TEST--------: Select TOP surface:  !!! WARNING !!! surfman_mutex ignored. !!!! scnt>0 !!! */
 		if(ch >='0' && ch < '8' ) {  /* 1,2,3...9 */
 			pthread_mutex_lock(&surfman->surfman_mutex);
 	/* ------ >>>  Surfman Critical Zone  */
@@ -517,9 +594,13 @@ WAIT_REQUEST:
 			/* W2.0: Pack STDIN ch into pmostat->ch, while pmostat->mutex_lock MUST keep locked! */
 			if(pmostat) { /* To skip init NULL value. */
 
-				/* Transfer nchar/chars buffer to pmostat->nch/pmotat->ch[] */
+				/* 1. Transfer nch/chars[] buffer to pmostat->nch/pmotat->ch[] */
 				pmostat->nch = nch;
 				strncpy(pmostat->chars, chars, nch);
+				pmostat->chars[nch]=0; /* EOF */
+
+				/* 2. Transer kbdstat->conkeys to pmostat->conkeys */
+				memcpy(&pmostat->conkeys, &kbdstat.conkeys, sizeof(EGI_CONKEY_STATUS));
 
 				/* Clear buffer chars[]:  <---- NOPE! NOT here!!!
 				 * Clear AFTER it sends pmostat->chars to the TOP surface!
@@ -527,6 +608,8 @@ WAIT_REQUEST:
 				 */
 				//XXX nch=0;
 				//XXX memset(chars,0, sizeof(chars));
+
+
 			}
 			else
 				egi_dpstd("pmosta==NULL!\n");
@@ -772,10 +855,16 @@ WAIT_REQUEST:
 
 						/* Reset/clear pmostat->nch */
 						pmostat->nch=0;
+						/* Reset/clear pmostat->conkey */
+						memset(&pmostat->conkeys,0,sizeof(EGI_CONKEY_STATUS));
 
-						/* Reset temp. buffer */
+						/* Reset nch/chars[] */
 		                                nch=0;
-                		                memset(chars,0, sizeof(chars));
+                		                memset(chars, 0, sizeof(chars));
+
+						/* NOPE! MUST NOT clear conkeys! .press_xxx MUST keeps!  XXX Reset/clear kbdstat->conkey. */
+						//memset(&kbdstat.conkeys,0,sizeof(EGI_CONKEY_STATUS));
+
 					    }
 					    else {  /* SURFACE_FLAG_MEVENT NOT cleared! Means the TOP surface has NOT finished last mevent yet. */
 							egi_dpstd("FLAG_MEVENT NOT cleared!\n");

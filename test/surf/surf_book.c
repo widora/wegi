@@ -145,10 +145,10 @@ int main(int argc, char **argv)
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
 	if( sw!=0 && sh!=0) {
-		surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, SURF_MAXW,SURF_MAXH, sw, sh, colorType );
+		surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, x0, y0, SURF_MAXW,SURF_MAXH, sw, sh, colorType );
 	}
 	else
-		surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, mat_random_range(SURF_MAXW-50)-50, mat_random_range(SURF_MAXH-50),
+		surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, mat_random_range(SURF_MAXW-50)-50, mat_random_range(SURF_MAXH-50),
      	                                SURF_MAXW, SURF_MAXH,  140+mat_random_range(SURF_MAXW/2), 60+mat_random_range(SURF_MAXH/2), colorType );
 	if(surfuser==NULL) {
 		exit(EXIT_FAILURE);
@@ -227,9 +227,17 @@ int main(int argc, char **argv)
                 egi_surfBtn_free(&surfshmem->sbtns[i]);
 
         /* Join ering_routine  */
-        // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
-        printf("Cancel thread...\n");
-        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+        /* To force eringRoutine to quit , for sockfd MAY be blocked at ering_msg_recv()! */
+        tm_delayms(200); /* Let eringRoutine to try to exit by itself, at signal surfshmem->usersig =1 */
+        if( surfshmem->eringRoutine_running ) {
+                if( pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL) !=0)
+                        egi_dperr("Fail to pthread_setcancelstate eringRoutine, it MAY already quit!");
+                if( pthread_cancel( surfshmem->thread_eringRoutine ) !=0)
+                        egi_dperr( "Fail to pthread_cancel eringRoutine, it MAY already quit!");
+                else
+                        egi_dpstd("OK to cancel eringRoutine thread!\n");
+        }
+
         /* Make sure mutex unlocked in pthread if any! */
         printf("Joint thread_eringRoutine...\n");
         if( pthread_join(surfshmem->thread_eringRoutine, NULL)!=0 )

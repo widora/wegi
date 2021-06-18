@@ -54,6 +54,8 @@ Journal
 2021-06-09:
 	1. Recive pmostat->chars and push to ptxt, then write to surface.
 
+2021-06-18:
+	1. my_mouse_event(): Test CONKEYs....
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -183,9 +185,12 @@ START_TEST:
 		surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, mat_random_range(SURF_MAXW-50)-50, mat_random_range(SURF_MAXH-50),
      	                                SURF_MAXW, SURF_MAXH,  140+mat_random_range(SURF_MAXW/2), 60+mat_random_range(SURF_MAXH/2), colorType );
 	if(surfuser==NULL) {
+		int static ntry=0;
+		ntry++;
+		if(ntry==3)
+			exit(EXIT_FAILURE);
 		sleep(1);
 		goto START_TEST;
-//		exit(EXIT_FAILURE);
 	}
 
 	/* 2. Get ref. pointers to vfbdev/surfimg/surfshmem */
@@ -289,9 +294,17 @@ START_TEST:
 //                egi_surfBtn_free(&surfshmem->sbtns[i]);
 
         /* Join ering_routine  */
-        // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
-	printf("Cancel thread...\n");
-        pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+        /* To force eringRoutine to quit , for sockfd MAY be blocked at ering_msg_recv()! */
+	tm_delayms(200); /* Let eringRoutine to try to exit by itself, at signal surfshmem->usersig =1 */
+        if( surfshmem->eringRoutine_running ) {
+                if( pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL) !=0)
+                        egi_dperr("Fail to pthread_setcancelstate eringRoutine, it MAY already quit!");
+                if( pthread_cancel( surfshmem->thread_eringRoutine ) !=0)
+                        egi_dperr( "Fail to pthread_cancel eringRoutine, it MAY already quit!");
+                else
+                        egi_dpstd("OK to cancel eringRoutine thread!\n");
+        }
+
         /* Make sure mutex unlocked in pthread if any! */
 	printf("Joint thread_eringRoutine...\n");
         if( pthread_join(surfshmem->thread_eringRoutine, NULL)!=0 )
@@ -322,35 +335,52 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 {
 	int k;
 
-	/* Get key_input */
-	if( pmostat->nch ) {
-		egi_dpstd("chars: %-32.32s, nch=%d\n", pmostat->chars, pmostat->nch);
-
-	   /* Write each char in pmostat->chars[] into ptxt[] */
-	   for(k=0; k< pmostat->nch; k++) {
-		/* Write ch into text buffer */
-		if( poff < 1024-1 ) {
-			if( poff)
-				poff--;  /* To earse last '|' */
-
-			if( poff>0 && pmostat->chars[k] == 127  ) { /* Backsapce */
-				poff -=1; /*  Ok, NOW poff -= 2 */
-				ptxt[poff+1]='\0';
-			}
-			else
-				ptxt[poff++]=pmostat->chars[k];
-
-			/* Pust '|' at last */
-			ptxt[poff++]='|';
-		}
-	   }
-
-		/* Redraw surface to update text.
-		 * TODO: Here topbar BTNS will also be redrawn, and effect of mouse on top TBN will also be cleared! */
-		/* Note: Call FTsymbol_uft8strings_writeFB() is NOT enough, need to clear surface bkg first. */
-		my_redraw_surface(surfuser, surfimg->width, surfimg->height);
+	/* Get CONKEYs input */
+        //printf("Time_Sorted CONKEYs: ");
+	if( pmostat->conkeys.nk >0 ) {
+	        for(k=0; k < pmostat->conkeys.nk; k++) {
+        	        printf("%s ", CONKEY_NAME[ (int)(pmostat->conkeys.conkeyseq[k]) ] );
+	        }
+        	printf("\n");
 	}
 
+	/* Get ASCII input */
+	if( pmostat->nch )
+	{
+		egi_dpstd("chars: %-32.32s, nch=%d\n", pmostat->chars, pmostat->nch);
+
+		/* If Escape Sequence. TODO: A Escape sequence MAY be broken!!! and NOT in one ering msg.  */
+		if( pmostat->chars[0] == 033 ) {
+			egi_dpstd("Escape sequence!\n");
+		}
+		/* Else: Printable ASCIIs +BACKSPACE */
+		else {
+		   /* Write each char in pmostat->chars[] into ptxt[] */
+		   for(k=0; k< pmostat->nch; k++) {
+			/* Write ch into text buffer */
+			if( poff < 1024-1 ) {
+				if( poff)
+					poff--;  /* To earse last '|' */
+
+				if( poff>0 && pmostat->chars[k] == 127  ) { /* Backsapce */
+					poff -=1; /*  Ok, NOW poff -= 2 */
+					ptxt[poff+1]='\0';
+				}
+				else
+					ptxt[poff++]=pmostat->chars[k];
+
+				/* Pust '|' at last */
+				ptxt[poff++]='|';
+			}
+		   }
+
+		   /* Redraw surface to update text.
+		    * TODO: Here topbar BTNS will also be redrawn, and effect of mouse on top TBN will also be cleared! */
+
+		   /* Note: Call FTsymbol_uft8strings_writeFB() is NOT enough, need to clear surface bkg first. */
+		   my_redraw_surface(surfuser, surfimg->width, surfimg->height);
+		}
+	}
 }
 
 
@@ -396,6 +426,9 @@ void *surfuser_ering_routine(void *args)
 	emsg=ering_msg_init();
 	if(emsg==NULL)
 		return (void *)-1;
+
+        /* Set indicator */
+        surfuser->surfshmem->eringRoutine_running=true;
 
 	while( surfuser->surfshmem->usersig !=1  ) {
 		/* 1. Waiting for msg from SURFMAN, BLOCKED here if NOT the top layer surface! */
@@ -505,6 +538,9 @@ surfuser_parse_mouse_event(): Touch a BTN mpbtn=-1, i=0
 
 	/* Free EMSG */
 	ering_msg_free(&emsg);
+
+        /* Reset indicator */
+        surfuser->surfshmem->eringRoutine_running=false;
 
 	egi_dpstd("Exit thread.\n");
 	return (void *)0;
