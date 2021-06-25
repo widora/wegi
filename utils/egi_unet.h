@@ -89,7 +89,8 @@ enum ering_msg_type {
         ERING_SURFMAN_ERR       =0,
         ERING_SURFACE_BRINGTOP  =1, /* Surfman bring/retire client surface to/from the top */
         ERING_SURFACE_RETIRETOP =2,
-        ERING_MOUSE_STATUS      =3,
+        ERING_SURFACE_CLOSE     =3, /* Surfman request the surface to close.. */
+        ERING_MOUSE_STATUS      =4,
 };
 
 enum ering_result_type {

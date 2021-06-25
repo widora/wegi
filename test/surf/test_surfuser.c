@@ -56,6 +56,10 @@ Journal
 
 2021-06-18:
 	1. my_mouse_event(): Test CONKEYs....
+2021-06-22:
+	1. my_mouse_event(): Test CONKEYs group.
+2021-06-24:
+	1. surfuser_ering_routine(): case ERING_SURFACE_CLOSE, surfman request to close the surface.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -334,22 +338,67 @@ START_TEST:
 void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 {
 	int k;
+	char strtmp[128];
 
+
+#if 1 /* --------- E1. Parse Keyboard Event ---------- */
+
+   	/* ------TEST:  CONKEY group */
 	/* Get CONKEYs input */
-        //printf("Time_Sorted CONKEYs: ");
-	if( pmostat->conkeys.nk >0 ) {
+	if( pmostat->conkeys.nk >0 ) { // || pmostat->conkeys.asciikey ) {
+		/* Clear ptxt */
+		ptxt[0]=0;
+
+		/* CONKEYs */
 	        for(k=0; k < pmostat->conkeys.nk; k++) {
-        	        printf("%s ", CONKEY_NAME[ (int)(pmostat->conkeys.conkeyseq[k]) ] );
+			/* If ASCII_conkey */
+			if( pmostat->conkeys.conkeyseq[k] == CONKEYID_ASCII ) {
+				sprintf(strtmp,"+Key%u", pmostat->conkeys.asciikey);
+				strcat(ptxt, strtmp);
+			}
+			/* Else: SHIFT/ALT/CTRL/SUPER */
+			else {
+				if(ptxt[0]) strcat(ptxt, "+"); /* If Not first conkey, add '+'. */
+				strcat(ptxt, CONKEY_NAME[ (int)(pmostat->conkeys.conkeyseq[k]) ] );
+			}
 	        }
-        	printf("\n");
+#if 0		/* ASCII_Conkey */
+		if( pmostat->conkeys.asciikey ) {
+			sprintf(strtmp,"+Key%u", pmostat->conkeys.asciikey);
+			strcat(ptxt, strtmp);
+		}
+#endif
+		/* TODO: Here topbar BTNS will also be redrawn, and effect of mouse on top TBN will also be cleared! */
+	        my_redraw_surface(surfuser, surfimg->width, surfimg->height);
 	}
+	/* Parse Function Key F1~F12, KEY_F1(59) ~ KEY_F10(68), KEY_F11(87), KEY_F12(88)  */
+	else if( pmostat->conkeys.press_lastkey ) {
+                /* Clear ptxt */
+		ptxt[0]=0;
+
+		if(pmostat->conkeys.lastkey > KEY_F1-1 && pmostat->conkeys.lastkey < KEY_F10+1 )
+			sprintf(ptxt,"F%d", pmostat->conkeys.lastkey-KEY_F1+1);
+		else if(pmostat->conkeys.lastkey > KEY_F11-1 && pmostat->conkeys.lastkey < KEY_F12+1 )
+			sprintf(ptxt,"F%d", pmostat->conkeys.lastkey-KEY_F11+11);
+
+		/* TODO: Here topbar BTNS will also be redrawn, and effect of mouse on top TBN will also be cleared! */
+	        my_redraw_surface(surfuser, surfimg->width, surfimg->height);
+	}
+	/* Clear text on the surface */
+	else if( ptxt[0] !=0 ) {
+		 ptxt[0]=0;
+	        my_redraw_surface(surfuser, surfimg->width, surfimg->height);
+	}
+
+
+#else /* --------- E2. Parse STDIN Input ---------- */
 
 	/* Get ASCII input */
 	if( pmostat->nch )
 	{
 		egi_dpstd("chars: %-32.32s, nch=%d\n", pmostat->chars, pmostat->nch);
 
-		/* If Escape Sequence. TODO: A Escape sequence MAY be broken!!! and NOT in one ering msg.  */
+		/* If Escape Sequence. TODO: A Escape sequence MAY be broken!!! and NOT in one ering msg.??  */
 		if( pmostat->chars[0] == 033 ) {
 			egi_dpstd("Escape sequence!\n");
 		}
@@ -381,7 +430,14 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 		   my_redraw_surface(surfuser, surfimg->width, surfimg->height);
 		}
 	}
+
+
+/* --------- E3. Parse Mouse Event ---------- */
+
+#endif
+
 }
+
 
 
 /*---------------------------------------------------------------
@@ -520,6 +576,10 @@ surfuser_parse_mouse_event(): Touch a BTN mpbtn=-1, i=0
         	       case ERING_SURFACE_RETIRETOP:
                 	        egi_dpstd("Surface is retired from top!\n");
                         	break;
+		       case ERING_SURFACE_CLOSE:
+				egi_dpstd("Surfman request to close the surface!\n");
+				surfuser->surfshmem->usersig =1;
+				break;
 		       case ERING_MOUSE_STATUS:
 				mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
 				if(mouse_status->nch !=0)

@@ -4,11 +4,6 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 
-	----- Concept and Definition -----
-
-CONKEY:    Control keys of SHIFT, CTRL, ALT, SUPER.. etc.
-
-
 Midas Zhou
 midaszhou@yahoo.com
 -------------------------------------------------------------------*/
@@ -32,12 +27,12 @@ typedef struct egi_mouse_status		EGI_MOUSE_STATUS;
  *   Cross_check: const char* CONKEY_NAME[]!
  */
 enum {
-	KEY_NONE_ID	=0,  /* Keep as 0! for EOF also. */
-	KEY_CTRL_ID	=1,
-	KEY_ALT_ID	=2,
-	KEY_SHIFT_ID	=3,
-	KEY_SUPER_ID	=4,
-	KEY_ASCII_ID	=5,
+	CONKEYID_NONE   =0,  /* Keep as 0! for EOF also. */
+	CONKEYID_CTRL	=1,
+	CONKEYID_ALT	=2,
+	CONKEYID_SHIFT	=3,
+	CONKEYID_SUPER	=4,
+	CONKEYID_ASCII	=5,  /* ascii keys, NOT ASCII Codes!!! */
 };
 extern const char* CONKEY_NAME[];
 
@@ -46,12 +41,14 @@ extern const char* CONKEY_NAME[];
  * 	Bitfields may NOT be portable!
  * 2. They shall NOT be cleared by the user before readkbd, they are recorded status!
  *    only  PRESS/RELEASE KEY_EVs will make them change!
+ * 3. An ASCII key will be deemed as a conkey ONLY WHEN preceded by a non_ASCII conkey!
+ *    and ONLY one ASCII key is allowed in conkey group, as END of a conkey group!
  */
 struct egi_controlkeys_status {
 
 	int  nk;			/* Total number of CONKEYs pressed */
 
-     	bool press_leftctrl		: 1; /* press or keep pressed */
+     	bool press_leftctrl		: 1; 	/* press or keep_pressed */
 	bool press_rightctrl		: 1;
         bool press_leftalt		: 1;
         bool press_rightalt		: 1;
@@ -59,17 +56,28 @@ struct egi_controlkeys_status {
 	bool press_rightshift		: 1;
 	bool press_leftsuper		: 1;
 	bool press_rightsuper		: 1;
-//	bool press_pageup		: 1;	/* !!! NOPE: To  TTY Escape Sequence  */
-//	bool press_pagedown		: 1;
+	bool press_asciikey		: 1;
+	bool press_lastkey		: 1;  /* TEST: The last key from keyboard input, usually use this as a function key. */
 
-/* Sequence of combined control keys; [0] the_first_pressed --->[3] the_last_pressed.
+/* Sequence of combined control keys; [0] the_first_pressed --->[4] the_last_pressed.
  * Note:
- *	1. NOW only 4 conkeys: SHIFT, ALT, CTRL, SUPER(win)
+ *	1. NOW only 4 conkeys (SHIFT, ALT, CTRL, SUPER(win)) +1 ASCII_conkey.
+ *	2. conkeyseq[] is always sorted in time sequence,  at end of egi_read_kbdcode().
  */
-#define  CONKEYSEQ_MAX 	4
-	char conkeyseq[CONKEYSEQ_MAX+1];/* +1 for EOF */
+#define  CONKEYSEQ_MAX 	5		/* MAX.5:  SHIFT+ALT+CTRL+SUPER  + 1 ASCII_Conkey */
+	char conkeyseq[CONKEYSEQ_MAX+1];/* +1 for EOF  */
+	unsigned int asciikey;		/* For the ONLY ASCII_conkey, if !=0. */
 
-//	unsigned int press_funs		: 12; /* Press F1 ~ F12. --- NOPE! arch dependent. */
+	unsigned int lastkey;		/* The last key from keyboard input
+					 * 1. Usually use this as a function key when nk==0.
+					 * 2. Usually the key shall NOT be EV_REP type.
+					 * 3. NOW the SURFMAN will reset press_lastkey to false if same keycode and tm_lastkey as last time.
+					 *    so as to ering lastkey press_statu to the surfuser ONLY ONCE.
+					 */
+
+	/*** Function keys:
+	 * 1. Function key is EV_REP type.
+	 */
 	bool press_F1			: 1;
 	bool press_F2			: 1;
 	bool press_F3			: 1;
@@ -87,11 +95,11 @@ struct egi_controlkeys_status {
 /*  Keyboard status,  EGI_KBD_STATUS  */
 struct egi_keyboard_status {
 
-	/*** Lastest key status as buffered
+	/*** Lastest key status for one round of select/read input devices.
 	 *  1.They will be cleared before each reading keyboard. See in egi_read_kbdcode().
-	 *  2. Remind to cross check type and size in egi_read_kbdcode().
+	 *  2. Remind to cross check type and size in egi_read_kbdcode(), Sec.5.
 	 */
-#define KBD_STATUS_BUFSIZE	4
+#define KBD_STATUS_BUFSIZE	8  //4
 	int	 		ks;	/* Total number of key events (press OR release) got in one read of KBD dev
 					 * (each call of egi_read_kbdcode()), results are buffered in following arrays.
 					 */
@@ -100,12 +108,13 @@ struct egi_keyboard_status {
 	bool	 		press[KBD_STATUS_BUFSIZE];
 
 	/*** Control key status.
-	 *   1. They user MUST NOT clear following date before reading keyboard, they are updated ONLY when EV_KEY happens. see egi_read_kbdcode().
+	 *   1. The user MUST NOT clear following date before reading keyboard, they are updated ONLY when EV_KEY happens. see egi_read_kbdcode().
 	 *   2. They are ONLY recorded status values! Check keycode[0 ...] instead to see which KEYs are currently triggered!
 	 */
 	EGI_CONKEY_STATUS	conkeys;
 
-        struct timeval tm_leftctrl;	/* Last update time, sizeof(struct timeval)=8Bytes */
+	/* Last update time for conkeys, sizeof(struct timeval)=8Bytes */
+        struct timeval tm_leftctrl;
         struct timeval tm_rightctrl;
         struct timeval tm_leftalt;
         struct timeval tm_rightalt;
@@ -113,8 +122,8 @@ struct egi_keyboard_status {
         struct timeval tm_rightshift;
         struct timeval tm_leftsuper;
         struct timeval tm_rightsuper;
-//        struct timeval tm_pageup;
-//        struct timeval tm_pagedown;
+
+	struct timeval tm_lastkey;	/* TEST: use this as a function key. */
 
 };
 
@@ -164,9 +173,12 @@ struct egi_mouse_status {
 
 	int  nch;	/* Used bytes in ch[] */
 	char chars[32];	/* Input ASCII values.  NOT necessary to be null(0) terminated!  */
-	/* TODO: Non_ASCII key values */
 
-	EGI_CONKEY_STATUS conkeys;
+	EGI_CONKEY_STATUS conkeys; /* NOTE: Unlike chars[], conkeys has NO buffer!
+				    * If you hit(press/release) a key with very short time, the press_status
+				    * MAY miss to SURFUSER, when the SURFUSER is too busy(FLAG_MEVENT NOT cleared) and
+				    * SURFMAN will skip/cancel that ERING session.
+				    */
 
 	bool request;  /* 0 -- No request, 1-- Mouse event request respond */
 };
@@ -191,6 +203,9 @@ int 	egi_end_mouseread(void);
 bool 	egi_mouse_checkRequest(EGI_MOUSE_STATUS *mostat);
 bool 	egi_mouse_getRequest(EGI_MOUSE_STATUS *mostat);
 int  	egi_mouse_putRequest(EGI_MOUSE_STATUS *mostat);
+
+/* For keyboard device */
+
 
 /* Terminal IO settings */
 void 	egi_set_termios(void);

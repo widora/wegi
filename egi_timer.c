@@ -48,6 +48,8 @@ Journal:
 TODO:
 	--- Critical ---
 1. time_t overflow for 2038 YEAR problem.
+2. To apply POSIX timer APIs:
+   timer_create(), timer_settime(), timer_gettimer(), timer_getoverrun(), timer_delete()
 
 Midas Zhou
 -----------------------------------------------------------------*/
@@ -198,7 +200,6 @@ void tm_get_ustrday(char *udaybuf)
         sprintf(udaybuf,"%d月%d日", tm_s->tm_mon+1,tm_s->tm_mday);
 
 }
-
 
 
 /*------------------------------

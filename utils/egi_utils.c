@@ -14,6 +14,8 @@ Jurnal
 	1. egi_fmap_create(): Add flock(,LOCK_EX) during mmaping.
 2021-06-07:
 	1. Add egi_lock_pidfile().
+2021-06-22:
+	1. Add egi_valid_fd().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -1473,6 +1475,35 @@ int egi_lock_pidfile(const char *pid_lock_file)
         return fd;
 }
 
+/*----------------------------------------------------
+Validate a file descriptor.
+
+Reference: https://blog.csdn.net/kangear/article/details/42805393
+
+Return:
+	0	OK, fd is valid.
+	<0	Fails, fd is invalid. or its underlying
+		device is closed/disconnected.
+----------------------------------------------------*/
+int egi_valid_fd(int fd)
+{
+        struct stat sbuf;
+
+	if(fd<0)
+		return -1;
+
+	if( fcntl(fd, F_GETFL) >0 ) {  	   /*  Get file status flags */
+        	if( fstat(fd, &sbuf)==0 ) {     /* Get file status */
+                	if( sbuf.st_nlink >=1 ) {  /* Check links */
+				return 0;
+			}
+		}
+	}
+
+	return -1;
+}
+
+
 /*--------------------------------------------
 Create an EGI_BITSTATUS.
 
@@ -1784,3 +1815,6 @@ int egi_bitstatus_checksum(void *data, size_t size)
 	/* TODO: divide data into 2^31 bits parts, 2^(31-8)=2^23 bytes.  */
 	return egi_bitstatus_count_ones(&ebits);
 }
+
+
+

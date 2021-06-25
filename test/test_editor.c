@@ -107,7 +107,9 @@ midaszhou@yahoo.com
 #define 	CHMAP_TXTBUFF_SIZE	64//1024     /* 256,text buffer size for EGI_FTCHAR_MAP.txtbuff */
 #define		CHMAP_SIZE		2048 //256  /* NOT less than Max. total number of chars (include '\n's and EOF) that may displayed in the txtbox */
 
-/* TTY input escape sequences.  USB Keyboard hidraw data is another story...  */
+/* TTY input escape sequences.  USB Keyboard hidraw data is another story...
+ * An escape sequece is regarded as a single nonprintable character. the ESC character (\033) is used as the first char. for a control key.
+ */
 #define		TTY_ESC		"\033"
 #define		TTY_UP		"\033[A"
 #define		TTY_DOWN	"\033[B"

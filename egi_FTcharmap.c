@@ -13,7 +13,7 @@ Note:
    To press any other key: it just scrolls charmap to display/locate selection marks.
 
 3. Sometimes it may needs more than one press/operation ( delete, backspace, shift etc.)
-   to make the cursor move, this is because there is/are unprintable chars
+   to make the cursor move, this is because there is/are nonprintable chars
    with zero width.
 
 
@@ -27,7 +27,7 @@ Note:
 	    If a cursor can move to the right side of the last char of a dline, or say end of the dline, that
 	    means it is a newline char ('\n'), OR it's the EOF.
 	    2. Sometimes it may needs more than one press/operation ( delete, backspace, shift etc.)
-   	    to make the cursor move, this is because there is/are unprintable chars with zero width.
+   	    to make the cursor move, this is because there is/are nonprintable chars with zero width.
 	    3. If the cursor(pchoff) in NOT shown in current charmap, just press any key to scroll to locate it.
 	    				!!! WARNING !!!
 	    If you press the deleting key, it will execute anyway, even the cursor(pchoff) is NOT in the current charmap!
@@ -1033,7 +1033,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 		}
 
 		/* --- check line space --- */
-		if(xleft<=0) {  /* ! xleft==0: for unprintable char, xleft unchaged */
+		if(xleft<=0) {  /* ! xleft==0: for nonprintable char, xleft unchaged */
 
 			/* Get start position of next displaying line
 			 * NOTE: for xleft==0: end line position is also the beginning of the next line!
@@ -1084,7 +1084,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 		}
 		/* NOTE: At last, reset ln/xleft/py for new line. Just after charXY updated!!! */
 		if(xleft<=0) {
-			/* Set new line, even xleft==0 and next char is an unprintable char, as we already start a new maplinePos[] as above. */
+			/* Set new line, even xleft==0 and next char is an nonprintable char, as we already start a new maplinePos[] as above. */
                   	ln++;
                        	xleft=pixpl;
                         py += chmap->maplndis; //fh+gap;

@@ -254,6 +254,12 @@ Journal
 	    DO NOT exit there, let main thread do it.
 	1.2 Add memeber 'eringRoutine_running' for EGI_SURFSHMEM.
 	1.3 Set/reset surfuser->surfshmem->eringRoutine_running.
+2021-06-24:
+	1. surfuser_ering_routine(): case ERING_SURFACE_CLOSE, the surfman request to close the surface.
+	2. Add: surfman_minimize_allSurfaces(), surfman_normalize_allSurfaces().
+
+2021-06-25:
+	1. surfman_bringtop_surface_nolock(): If it has any brother/child surfaces, bringtop together from minibar.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -1649,20 +1655,64 @@ int surfman_bringtop_surface_nolock(EGI_SURFMAN *surfman, int surfID)
 	/* In case bring surface from minibar menu (MINIMIZED) to TOP, reset its STAUTS. */
 	if( surfman->surfaces[surfID]->surfshmem->status == SURFACE_STATUS_MINIMIZED )
 	{
-		/* If nw==0: Reset Status to NORMAL*/
+#if 0		/* If nw==0: Reset Status to NORMAL*/
 		if( surfman->surfaces[surfID]->surfshmem->nw == 0 )
 			surfman->surfaces[surfID]->surfshmem->status=SURFACE_STATUS_NORMAL;
 		else  /* If nw>0: Reset status to MAXIMIZED */
 			surfman->surfaces[surfID]->surfshmem->status=SURFACE_STATUS_MAXIMIZED;
+#endif
+
+		/* Remove all self/brother/child surfaces from minibar. */
+		/* Assume that zseq of surfman->surfaces are sorted in ascending order, as of surfman->surfaces[i] */
+#if 1		/* Traverse surfman->surfaces[] */
+		for(i=0; i<SURFMAN_MAX_SURFACES; i++) {
+			if( surfman->surfaces[i]!=NULL &&  surfman->surfaces[i]->pid == surfman->surfaces[surfID]->pid ) {
+				/* If nw==0: Reset Status to NORMAL*/
+				if( surfman->surfaces[i]->surfshmem->nw == 0 )
+					surfman->surfaces[i]->surfshmem->status=SURFACE_STATUS_NORMAL;
+				else  /* If nw>0: Reset status to MAXIMIZED */
+					surfman->surfaces[i]->surfshmem->status=SURFACE_STATUS_MAXIMIZED;
+
+				/* Surfaces with same PID all be assigned with MAX. zseq */
+				surfman->surfaces[i]->zseq=SURFMAN_MAX_SURFACES +1; /* +1 to enusure > all other surfaces.zseq */
+
+				/* Get the biggest level, surfID refers to current biggest one */
+			     	if( surfman->surfaces[i]->level > surfman->surfaces[surfID]->level ) {
+					surfID=i; /* !!! -- Replace surfID --  !!! */
+			     	}
+			}
+		}
+#else		/*  Traverse  surfman->minsurfaces[]  */
+		int tmpLevel=surfman->surfaces[surfID]->level;
+		for(i=0; i< surfman->scnt; i++) {
+			if( surfman->minsurfaces[i]->pid == surfman->surfaces[surfID]->pid ) {
+				/* If nw==0: Reset Status to NORMAL*/
+				if( surfman->surfaces[i]->surfshmem->nw == 0 )
+					surfman->minsurfaces[i]->surfshmem->status=SURFACE_STATUS_NORMAL;
+				else  /* If nw>0: Reset status to MAXIMIZED */
+					surfman->minsurfaces[i]->surfshmem->status=SURFACE_STATUS_MAXIMIZED;
+
+				/* Surfaces with same PID all be assigned with MAX. zseq */
+				surfman->minsurfaces[i]->zseq=SURFMAN_MAX_SURFACES +1; /* +1 to enusure > all other surfaces.zseq */
+
+				/* Get the biggest level, surfID refers to current biggest one */
+			     	if( surfman->minsurfaces[i]->level > tmpLevel ) {
+					surfID=i; /* !!! -- Replace surfID --  !!! */
+					tmpLevel=surfman->minsurfaces[i]->level;
+xxxxxxxxxxxxxxxxxxxxxxxxx surfID 
+			     	}
+			}
+		}
+#endif
 	}
-	/* If the surface has child, then bring up the child with the biggest level value. */
+	/* If the surface is on desktop, then bring up the child with the biggest level value. */
 	else {
 		/* Assume that zseq of surfman->surfaces are sorted in ascending order, as of surfman->surfaces[i] */
-		//for(i=0; i<SURFMAN_MAX_SURFACES; i++) {
 		for(i=0; i<SURFMAN_MAX_SURFACES; i++) {
 			if( surfman->surfaces[i]!=NULL &&  surfman->surfaces[i]->pid == surfman->surfaces[surfID]->pid ) {
 				/* Surfaces with same PID all be assigned with MAX. zseq */
 				surfman->surfaces[i]->zseq=SURFMAN_MAX_SURFACES +1; /* +1 to enusure > all other surfaces.zseq */
+
 				/* Get the biggest level, surfID refers to current biggest one */
 			     	if( surfman->surfaces[i]->level > surfman->surfaces[surfID]->level ) {
 					surfID=i; /* !!! -- Replace surfID --  !!! */
@@ -1996,6 +2046,43 @@ int surfman_get_TopDispSurfaceID(EGI_SURFMAN *surfman)
 	}
 #endif
 	return -3;
+}
+
+/*---------------------------------------------------------
+Set status of all surfaces to be SURFACE_STATUS_MINIMIZED.
+
+@surfuser:      Pointer to EGI_SURFUSER.
+---------------------------------------------------------*/
+void surfman_minimize_allSurfaces(EGI_SURFMAN *surfman)
+{
+	int i;
+        if(surfman==NULL || surfman->scnt<1 )
+                return;
+
+        /* Restore to original sbtn image. OR next time when brought to TOP, old btn image keeps! */
+//        if(sbtnMIN)
+//                egi_subimg_writeFB(sbtnMIN->imgbuf, &surfuser->vfbdev, 0, -1, sbtnMIN->x0, sbtnMIN->y0);
+
+	for(i=0; i < surfman->scnt; i++) {  /* SURFMAN_MAX_SURFACES-1-j:  traverse from upper layer. */
+		surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]->surfshmem->status = SURFACE_STATUS_MINIMIZED;
+	}
+
+}
+
+/*------------------------------------------------------
+Set status of all surfaces to be SURFACE_STATUS_NORMAL.
+
+@surfuser:      Pointer to EGI_SURFUSER.
+------------------------------------------------------*/
+void surfman_normalize_allSurfaces(EGI_SURFMAN *surfman)
+{
+        int i;
+        if(surfman==NULL || surfman->scnt<1 )
+                return;
+
+        for(i=0; i < surfman->scnt; i++) {  /* SURFMAN_MAX_SURFACES-1-j:  traverse from upper layer. */
+                surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]->surfshmem->status = SURFACE_STATUS_NORMAL;
+        }
 }
 
 
@@ -2489,6 +2576,10 @@ void *surfuser_ering_routine(void *surf_user)
         	       case ERING_SURFACE_RETIRETOP:
                 	        egi_dpstd("Surface is retired from top!\n");
                         	break;
+                       case ERING_SURFACE_CLOSE:
+                                egi_dpstd("Surfman request to close the surface!\n");
+                                surfuser->surfshmem->usersig =1;
+                                break;
 		       case ERING_MOUSE_STATUS:
 				mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
 				//egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);

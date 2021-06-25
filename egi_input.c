@@ -85,6 +85,7 @@ Byte 4:	          0        0       5th_Btn  4th_Btn  		Z_Movement(Bit0-3)
 SETUP MAGIC:  { 0xf3, 200, 0xf3, 200, 0xf3, 80 }
 
 
+
 Journal
 2021-03-14:
 	1. egi_mouse_loopread(): When select() time out, instead of return and wait,
@@ -121,8 +122,23 @@ TODO: If mouse is disconnected, the mouse_callback() will be hung up.
 
 2021-06-17:
 	1. egi_read_kbdcode(): Sort kstat->conkeys.conkeyseq[] according to input timeval.
-
-
+2021-06-18:
+	1. egi_read_kbdcode():
+	   1.1 Close(fd) will also flush buffer of event, so male fd[] static.
+	   1.2 Check integerity of fd[] before ioctl and read.
+2021-06-21:
+	1. Add member 'asciikey' to EGI_CONKEY_STATUS, as the only ASCII type conkey!
+	   and modify egi_read_kbdcode() accordingly.
+2021-06-22:
+	1. egi_mouse_loopread(): DO NOT STOP loopreading even if the mouse is disconnected,
+	   			 replace while(mouse_fd<0){} with if(mouse_fd<0){}.
+	2. egi_read_kbdcode(): Call egi_valid_fd() to check/validate set_fds in each round.
+2021-06-23:
+	1. egi_read_kbdcode():
+	   1.1 Add concept and definition.
+	   1.2 Clear KBD STATUS when it detects an input device becomes disconnected/invalid! <-----
+2021-06-24:
+	1.egi_read_kbdcode():  Add ascii_conkey to conkeseq[].
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -131,6 +147,7 @@ midaszhou@yahoo.com
 #include "egi_input.h"
 #include "egi_timer.h"
 #include "egi_fbdev.h"
+#include "egi_utils.h"
 #include <stdio.h>
 #include <string.h>
 #include <termio.h>
@@ -161,6 +178,8 @@ static int              flag_cond=-1;   /* predicate for pthread cond, set in eg
 #endif/////////////////
 
 
+
+
 /* 2. Input device: for mouse */
 #if 1 /* set mouse type to Intellimouse #1 */
 static unsigned char setup_data[6]={0xf3,200,0xf3,100,0xf3,80};
@@ -180,16 +199,18 @@ static void *egi_mouse_loopread(void *arg);
 
 /* Mouse status and data */
 static EGI_MOUSE_STATUS mostatus={ .LeftKeyUpHold=true, .RightKeyUpHold=true, .MidKeyUpHold=true, .KeysIdle=true, };
-
+/* Keyboard status and data */
+static EGI_KBD_STATUS kbdstatus;
 
 /* Conkey ID to its Name */
 const char* CONKEY_NAME[]=
 {
-        [KEY_NONE_ID] 	= "None",
-        [KEY_CTRL_ID]   = "CTRL",
-        [KEY_ALT_ID]    = "ALT",
-        [KEY_SHIFT_ID]  = "SHIFT",
-        [KEY_SUPER_ID]  = "SUPER",
+        [CONKEYID_NONE]   = "None",
+        [CONKEYID_CTRL]   = "CTRL",
+        [CONKEYID_ALT]    = "ALT",
+        [CONKEYID_SHIFT]  = "SHIFT",
+        [CONKEYID_SUPER]  = "SUPER",
+        [CONKEYID_ASCII]  = "ASCII",
 };
 
 /*---------------------------------------------------
@@ -533,11 +554,15 @@ static void *egi_mouse_loopread( void* arg )
 			break;
 
 		/* Check fd, and try to re_open if necessary. */
+#if 0
 		while(mouse_fd<0) {
+#else
+		if(mouse_fd<0) {
+#endif
 			mouse_fd=open( dev_name, O_RDWR|O_CLOEXEC);
 			if(mouse_fd<0) {
 				printf("%s: Open '%s' fail: %s.\n",__func__, dev_name, strerror(errno));
-				tm_delayms(250);
+				tm_delayms(50);
 			}
 			else if(mouse_fd>0) {
 				printf("%s: Succeed to open '%s'.\n",__func__, dev_name);
@@ -556,12 +581,14 @@ static void *egi_mouse_loopread( void* arg )
 			}
 		}
 
+
 		/* To select fd */
 		FD_ZERO(&rfds);
 		FD_SET( mouse_fd, &rfds);
 		tmval.tv_sec=0;
 		tmval.tv_usec=50000;
 
+		//egi_dpstd("Start select mouse..\n");
 		retval=select( mouse_fd+1, &rfds, NULL, NULL, &tmval );
 		if(retval<0) {
 			printf("%s: select event: errno=%d, %s \n",__func__, errno, strerror(errno));
@@ -983,23 +1010,63 @@ Reference: https://blog.csdn.net/lanmanck/article/details/8423669
 Read keyboard EV_KEY event to get key codes. If kdev is NULL, then
 scan and poll all /dev/input/event* files.
 
+                ----- Concept and Definition -----
+
+CONKEYs:    	Control keys of SHIFT, CTRL, ALT, SUPER, which
+            	are NEITHER included in ASCII codes NOR represeted by Escape Sequence!
+
+FUNCKEYs:   	Function keys: F1....F12
+
+ASCIIKEYs:  	Keys defined in ASCII code, or definey by as TTY Escape Sequences, which
+		including PgUp,PgDn,Insert,Home,End,Left,Right,Up,Down....
+
+CONKEY_GROUP:  	Any combination of one or more of SHIFT/CTRL/ALT/SUPER, with each key appears once only,
+		and there may be an ASCIIKEY attached at last.
+
+ASCII_CONKEY: 	The only asciikey in a conkey group. AND it's the end a conkey_group!
+		An input asciikey will be an ascii_conkey ONLY IF the conkey_group is NOT empty!
+		OR it will be ignored.
+
+LASTKEY:      	The lastkey in the last input keycode at each egi_read_kbdcode() session.
+	TEST: -----    It's to be parsed as a functional key ONLY WHEN conkey_group is empty!
+
+Other keys: 	For other keys defined in the keybaord, media_control keys etc.
+            	TEST: conkey.lastkey......
+
+
 Note:
 0. Cat /proc/bus/input/devices to see corresponsing eventX device.
+1. If a device has EV_KEY type event, then we assume it's a keyboard.
 
-1.		 	--- IMPORTANT! ---
+2.			--- WARNING! ---
+   Static memebers(fd[]) are in the function!
+
+3.		 	--- IMPORTANT! ---
    If 2 or more keys are pressed, then the ONLY repeating  keycode
    is that of the LAST pressed key! This will help to analyze sequence
    of combined_keys!
-2. Control_key_status in kstat will NOT be cleared before kbdread, they will be updated
+
+4.			--- IMPORTANT! ---
+   Each round for kbdread may get more than 1 keyinput event, so need to buffer codes/timeval of those
+   events in kstat->keycode[]/press[]/tmval[] first, then parse those data one by one, and
+   store only final status.
+   Example: If kbdread get KEY_A PRESS and RELEASE events both,  then only final RELEASE status will
+   be recorded.
+   So, a big KBD_STATUS_BUFSIZE helps to absorb unnecessary intermediate status.
+
+5. Control_key_status in kstat will NOT be cleared before kbdread, they will be updated
    after kbdread.
-3. TODO: It MAY miss/omit key events if CPU load is too hight!!! ?
+
+6. XXX TODO: It MAY miss/omit key events if CPU load is too hight!!! ?
    Example: when press and release key 'A' quickly, it may miss/omit PRESS event, and get RELEASE only!
-4. For some keyboards: pressing down Left_SHIFT and Right_SHIFT at the same
+   ---OK, Make fd[] static to ensure unbroken event data for kbdread! and always check/validate them before add to fd_set.
+
+7. For some keyboards: pressing down Left_SHIFT and Right_SHIFT at the same
    time will block further key input.
 
  @kstat: 	A pointer to EGI_KEY_STATUS.
  @kdev:		Specified input devcie path for keyboard.
-		If null, ignore.
+		If null, ignore. then scan and poll /dev/input/eventX.
 
 Return:
 	0	OK
@@ -1009,20 +1076,17 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 {
     	int           i, j, k;
     	char          devname[64];           /* RATS: Use ok, but could be better */
-    	char          buf[256] = { 0, };  /* RATS: Use ok */
     	unsigned char mask[EV_MAX/8 + 1]; /* RATS: Use ok */
-    	int           version;
-    	int           fd[32] = {0};	  /* Max. fd for input devies */
+    	static int    fd[16] = {0};	  /* Max. fd for input devies, static!!! */
 	int	      nk;		  /* Total input devices, MAX. sizeof(fd), OR 1 if kdev!=NULL. */
 
     	struct timeval	tmout;
     	int           rc;
 
-	struct input_id	   devID;
 	struct input_event event;
 
-	bool  type_ev_key;
-	bool  type_ev_rep;
+	bool  type_ev_key;		/* Has EV_KEY event */
+	bool  type_ev_rep;		/* OK, NOT necessary for a keybaord. */
 	bool  finish_read_key;		/* KBD_STATUS_BUFSIZE limit! */
 
     	/* Select fds */
@@ -1030,13 +1094,15 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
     	int maxfd;
     	fd_set rfds;
 
+
 	if(kstat==NULL)
 		return -1;
 
+	/* If input device specified */
 	if(kdev)
 		nk=1;
 	else
-		nk=sizeof(fd);
+		nk=sizeof(fd)/sizeof(typeof(fd[0]));
 
 
 	/* 1. Clear fd set */
@@ -1052,15 +1118,46 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 		else
 	        	sprintf(devname, "/dev/input/event%d", i);
 
-        	if ((fd[i] = open(devname, O_RDONLY|O_NONBLOCK, 0)) >= 0) {
+		/* All fd[] are static */
+        	if ( fd[i]>0 || (fd[i] = open(devname, O_RDONLY|O_NONBLOCK, 0)) >= 0 ) {
 
+			/* Check file descriptor, in case input device disconnected. */
+			if( egi_valid_fd(fd[i])!=0 ) {
+				egi_dperr("'%s' is invalid or disconnected!", devname);
+				/* Close fd[i] */
+				if(close(fd[i])!=0)
+					egi_dperr("close(fd)");
+				fd[i]=-1;
+				/* Clear KBD STATUS */
+				memset(kstat,0,sizeof(EGI_KBD_STATUS));
+				continue;
+			}
+
+			#if 0 /* If fd[] is invalid, icotl() also fails */
+            		if( ioctl(fd[i], EVIOCGBIT(0, sizeof(mask)), mask) <0 ) {
+				egi_dpstd("Fail ioctl to '%s', evdev invalid or disconnected! \n", devname);
+				/* Close fd[i] */
+				if(close(fd[i])!=0)
+					egi_dperr("close(fd)");
+				fd[i]=-1;
+				/* Clear KBD STATUS */
+				memset(kstat,0,sizeof(EGI_KBD_STATUS));
+				continue;
+			}
+			#endif
+
+			/* Get mask of evdev */
             		ioctl(fd[i], EVIOCGBIT(0, sizeof(mask)), mask);
-			ioctl(fd[i], EVIOCGID, &devID);
 
+#if 0 /* Print out input device information */
+			struct input_id	   devID;
+		    	int           version;
+		    	char          buf[256] = { 0, };  /* RATS: Use ok */
+
+			ioctl(fd[i], EVIOCGID, &devID);
 	        	ioctl(fd[i], EVIOCGVERSION, &version);
         		ioctl(fd[i], EVIOCGNAME(sizeof(buf)), buf);
 
-#if 0 /* Print out input device information */
 			printf("devID.product=%u\n", devID.product);
             		printf("%s\n", devname);
             		printf("    evdev version: %d.%d.%d\n",
@@ -1073,10 +1170,9 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 			type_ev_key=false;
 			type_ev_rep=false;
 
-			/* Check input device type */
+			/* Check input device/event type */
             		for (j = 0; j < EV_MAX; j++) {
 				// #define test_bit(bit) (mask[(bit)/8] & (1 << ((bit)%8)))
-        	        	//if (test_bit(j)) {
 				if( mask[j/8] & (1 << (j%8)) ) {
 		                        const char *type = "unknown";
 	        	            	switch(j) {
@@ -1093,41 +1189,42 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 						break;
 			                    case EV_FF:  type = "feedback";     break;
                     			}
-//					printf(" %s", type);
+					//printf(" %s \n", type);
                 		}
             		}
-//            		printf("\n");
-
-			/* If EV_KEY+EV_REP: Add fd into selection AS keyboard. */
-			if( type_ev_key && type_ev_rep ) {
+#if 0 /* Print out input device information */
+            		printf("\n");
+#endif
+			/* XXX If EV_KEY+EV_REP: Add fd into selection AS keyboard. */
+			/* If EV_KEY: Add fd into selection AS keyboard. */
+			if( type_ev_key ) { // && type_ev_rep ) {
 				FD_SET(fd[i],&rfds);
 				if(fd[i] > maxfd)
 					maxfd=fd[i];
 //				printf("KBD fd[%d]: '%s', product id=%u\n", i, devname, devID.product);
 			}
 		}
-		//else
-			//printf("Fail to open '%s', or it doesn't exist.\n", devname);
+//		else
+//			egi_dpstd("Fail to open '%s', or it doesn't exist.\n", devname);
 
 	} /* END for() */
 
-
 	/* 3. If no fd in set. */
 	if(maxfd==0)
-		return -1;
+		return -2;
 
 	/* 4. Clear token */
 	finish_read_key=false;
 
-	/* 5. Init/Clear. kstat->ks, keycode[], press[], tmval[]. !!! Keep kstat->control_key_status. */
+	/* 5. Init/Clear temp. vars: kstat->ks, keycode[], press[], tmval[]. !!! Keep kstat->control_key_status. */
 	kstat->ks=0;
 	memset(kstat->keycode, 0, sizeof(typeof(*kstat->keycode))*KBD_STATUS_BUFSIZE);
 	memset(kstat->press, 0, sizeof(typeof(*kstat->press))*KBD_STATUS_BUFSIZE);
 	memset(kstat->tmval, 0, sizeof(typeof(*kstat->tmval))*KBD_STATUS_BUFSIZE);
 
-	/* 6. Select fd */
+	/* 6. Select and read fd[] */
         tmout.tv_sec=0;
-        tmout.tv_usec=50000; //20000;
+        tmout.tv_usec=10000;
 	sfd=select(maxfd+1, &rfds, NULL, NULL, &tmout);
 
    	if(sfd>0) {
@@ -1143,26 +1240,26 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 
 	    	/* Read out fds[i], break if get KEY_CODE. (at least one KEY_CODE) */
             	while( (rc = read(fd[i], &event, sizeof(struct input_event))) > 0) {
-#if 1 /* Print event time/type  */
+	#if 0 /* Print event time/type  */
 			egi_dpstd("fd[%d]: ",i);
 			egi_dpstd("%-24.24s.%06lu type 0x%04x; code 0x%04x;"
                        		" value 0x%08x; ",
                       		ctime(&event.time.tv_sec),
                        		event.time.tv_usec,
                  		event.type, event.code, event.value);
-#endif
+	#endif
                 	switch (event.type) {
 	                   case EV_KEY:
-#if 1 /* Print key code/value */
+	#if 0 /* Print key code/value */
         	            	if (event.code > BTN_MISC) {
                		        	printf("Button %d %s", event.code & 0xff,
 	                       	       		event.value ? "press" : "release");
 				} else {
-                       			printf("Key %d (0x%x) %s", event.code & 0xff,
+                       			printf("Key %d (0x%x) %s\n", event.code & 0xff,
 	                       			event.code & 0xff, event.value ? "press" : "release");
                	    		}
-#endif
-				/* Buffer key codes */
+	#endif
+				/* Buffer codes/timeval of keyevent. */
 				kstat->keycode[kstat->ks]=event.code & 0xff;
 				kstat->press[kstat->ks]=event.value;
 				kstat->tmval[kstat->ks]=event.time;
@@ -1188,9 +1285,9 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 				//printf("NOT EV_KEY!\n");
 				break;
                 	}
-#if 1 /* Flush to print keys */
+	#if 0 /* Flush to print keys */
                 	printf("\n");
-#endif
+	#endif
 		        /* If got keycode, exit loop. */
      			if(finish_read_key) {
 	     			//printf("Got keycode!\n");
@@ -1198,8 +1295,6 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
     			}
 
 	    	} /* END while( read(fd[i]..) */
-		// else
-		//	printf("rc = %d, (%s)\n", rc, strerror(errno));
 
 	        /* If got keycode, exit for() loop. */
      		if(finish_read_key)
@@ -1209,22 +1304,32 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 
         } /* END if(sfd>0) */
 
-	/* 7. Close all fds */
-     	for (i = 0; i < nk; i++) {
-		if(fd[i]>0)
-			close(fd[i]);
-     	}
-
-	/* 8.Check ks */
+	/* 7.Check ks */
 	if(kstat->ks==0) {
 //		egi_dpstd("No input key detected!\n");
-		return -1;
+		//NOPE!!!  kstat->conkeys.lastkey = 0; /* Keep lastkey!!! */
+		return 0;
 	}
 
-	/* 9. Parse and get key status! */
+	/* 8. Parse and get key status! */
 	for(i=0; i< kstat->ks; i++) {
 		egi_dpstd("keycode[%d]:%d\n", i, kstat->keycode[i]);
+
+		/* 8.1 If an ascii_conkey is already pressed, then STOP/END reading conkey_group!!!
+		 * If not to release the same asciikey, then break to get rid of all followed keycodes! */
+		if( kstat->conkeys.press_asciikey && kstat->press[i] )
+		{
+			egi_dpstd("Conkey ends with an asciikey already, ignore!\n");
+			/* DO NOT 'break' here,  In case the same key with consecutive status: press/press/release...
+  			 * then the last 'release' status will be neglected!
+			 */
+			continue;
+		}
+
+		/* 8.2 Switch keycode[] */
 		switch(kstat->keycode[i]) {
+
+			/* ----- 8.2.1  Prase conkeys ----- */
 
 			case KEY_LEFTCTRL:
 				kstat->conkeys.press_leftctrl=kstat->press[i];
@@ -1259,16 +1364,9 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 				kstat->tm_rightsuper=kstat->tmval[i];
 				break;
 
-//  NOPE! To TTY Escape Sequence
-//			case KEY_PAGEUP:
-//				kstat->conkeys.press_pageup=kstat->press[i];
-//				kstat->tm_pageup=kstat->tmval[i];
-//				break;
-//			case KEY_PAGEDOWN:
-//				kstat->conkeys.press_pagedown=kstat->press[i];
-//				kstat->tm_pagedown=kstat->tmval[i];
-//				break;
-
+			/* ----- 8.2.2  Prase function keys ----- */
+			/* KEY_F1(59) ~ KEY_F10(68), KEY_F11(87), KEY_F12(88)  */
+			/* MAYBE put at lastkey */
 
 			case KEY_F1:
 				kstat->conkeys.press_F1=kstat->press[i];
@@ -1305,25 +1403,59 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 				break;
 			case KEY_F12:
 				kstat->conkeys.press_F12=kstat->press[i];
-				break;
+
+			/* ----- 8.2.3  Prase ascii_conkey ----- */
+
+			/* Assume default all ASCII keys (NOT ASCII codes!!!), include PgDn,PgUp,Home,End,Insert.. */
+			default:
+			    /* IF release the already pressed asciikey */
+			    if( kstat->conkeys.asciikey !=0 ) {  /* Only one asciikey allowed */
+				if( kstat->keycode[i] == kstat->conkeys.asciikey && !kstat->press[i] ) {
+					egi_dpstd("Release ascii_conkey %u\n", kstat->conkeys.asciikey);
+					kstat->conkeys.asciikey=0; /* Release the same ascii key */
+					kstat->conkeys.press_asciikey=false;
+				}
+			    }
+			    /* Else: an asciikey preceded by a non_ASCII conkey */
+			    else if( kstat->press[i] ) {
+				/* An ASCII key will be deemed as a conkey ONLY WHEN preceded by a non_ASCII conkey */
+				if( kstat->conkeys.press_leftctrl || kstat->conkeys.press_rightctrl
+				    || kstat->conkeys.press_leftalt || kstat->conkeys.press_rightalt
+				    || kstat->conkeys.press_leftshift || kstat->conkeys.press_rightshift
+				    || kstat->conkeys.press_leftsuper || kstat->conkeys.press_rightsuper )
+				{
+					kstat->conkeys.asciikey =  kstat->keycode[i];
+					kstat->conkeys.press_asciikey = kstat->press[i];
+					egi_dpstd("Press ascii_conkey %u\n", kstat->conkeys.asciikey);
+				}
+			  }
+
+			  break;
 		}
 
 	} /* End for() */
 
+	/* 8.A Save the lastkey to kstat->conkeys.lastkey, here ks>=1. It returns when ks==0, see 7.
+	 *  Functional keys(media contorl keys, etc.) usually has NO repeating event...
+	 *  A lastkey will be functional ONLY WHEN conkey_group is empty!
+	 */
+	kstat->conkeys.lastkey = kstat->keycode[kstat->ks-1];    /* ks-1: The last index! */
+	kstat->conkeys.press_lastkey = kstat->press[kstat->ks-1];
+	kstat->tm_lastkey=kstat->tmval[kstat->ks-1];
 
-				/* ----- Update conkeyseq[] ----- */
+				/* ----- 9. Update conkeyseq[] ----- */
 
-	/* Clear conkeyseq[] */
+	/* 9.1 Clear conkeyseq[] */
 	for(i=0; i<CONKEYSEQ_MAX+1; i++)  /* +1 for EOF */
-		kstat->conkeys.conkeyseq[i]=KEY_NONE_ID;
+		kstat->conkeys.conkeyseq[i]=CONKEYID_NONE;
 
-	/* Update conkeyseq[] */
+	/* 9.2 Update conkeyseq[] */
 	struct timeval conkeytm[CONKEYSEQ_MAX+1]={0};  /* +1 as EOF */
-
 	i=0; /* CONKEY counter */
-	/* Check KEY_CTRL */
+
+	/* 9.2.1  Check KEY_CTRL */
 	if( kstat->conkeys.press_leftctrl || kstat->conkeys.press_rightctrl ) {
-		kstat->conkeys.conkeyseq[i] = KEY_CTRL_ID;
+		kstat->conkeys.conkeyseq[i] = CONKEYID_CTRL;
 
 		if( kstat->conkeys.press_leftctrl && !kstat->conkeys.press_rightctrl )
 			conkeytm[i] = kstat->tm_leftctrl;
@@ -1342,9 +1474,9 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 
 		i++; /* Count CONKEYs */
 	}
-	/* Check KEY_ALT */
+	/* 9.2.2 Check KEY_ALT */
 	if( kstat->conkeys.press_leftalt || kstat->conkeys.press_rightalt ) {
-		kstat->conkeys.conkeyseq[i] = KEY_ALT_ID;
+		kstat->conkeys.conkeyseq[i] = CONKEYID_ALT;
 
 		if( kstat->conkeys.press_leftalt && !kstat->conkeys.press_rightalt )
 			conkeytm[i] = kstat->tm_leftalt;
@@ -1359,9 +1491,9 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 
 		i++; /* Count CONKEYs */
 	}
-	/* Check KEY_SHIFT */
+	/* 9.2.3 Check KEY_SHIFT */
 	if( kstat->conkeys.press_leftshift || kstat->conkeys.press_rightshift ) {
-		kstat->conkeys.conkeyseq[i] = KEY_SHIFT_ID;
+		kstat->conkeys.conkeyseq[i] = CONKEYID_SHIFT;
 
 		if( kstat->conkeys.press_leftshift && !kstat->conkeys.press_rightshift )
 			conkeytm[i] = kstat->tm_leftshift;
@@ -1376,9 +1508,9 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 
 		i++; /* Count CONKEYs */
 	}
-	/* Check KEY_SUPER */
+	/* 9.2.4 Check KEY_SUPER */
 	if( kstat->conkeys.press_leftsuper || kstat->conkeys.press_rightsuper ) {
-		kstat->conkeys.conkeyseq[i] = KEY_SUPER_ID;
+		kstat->conkeys.conkeyseq[i] = CONKEYID_SUPER;
 
 		if( kstat->conkeys.press_leftsuper && !kstat->conkeys.press_rightsuper )
 			conkeytm[i] = kstat->tm_leftsuper;
@@ -1394,18 +1526,19 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 		i++; /* Count CONKEYs */
 	}
 
-
-	/* NOW: i is the total number of conkeys pressed,   i <= 4! (CONKEYSEQ_MAX), */
+	/* 9.2.5 NOW: i is the total number of conkeys pressed(execpt ascii_conkey),   i <= 4! (CONKEYSEQ_MAX), */
 	kstat->conkeys.nk=i;
 
-/* TEST: -------------print CONKEYs */
-	printf("Unsort CONKEYs: ");
+#if 0 /* TEST: -------------print conkeyseq[], NOT in time sequence. */
+	printf("CONKEYs in conkeyseq[]: ");
 	for(k=0; k < kstat->conkeys.nk; k++) {
 		printf("%s ", CONKEY_NAME[ (int)(kstat->conkeys.conkeyseq[k]) ] );
 	}
 	printf("\n");
+/* TEST: end */
+#endif
 
-	/* InsertSort conkeyseq[] accoring to conkeytm[]: conkeyseq[0] the_first_pressed ---> conkeseq[3] the_last_pressed */
+	/* 9.2.6 InsertSort conkeyseq[] according to conkeytm[]: conkeyseq[0] the_first_pressed ---> conkeseq[3] the_last_pressed */
 	struct timeval tmptm;
 	int tmpseq;
 	for(j=1; j<i; j++) {
@@ -1421,16 +1554,31 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 		conkeytm[k]=tmptm;
 	}
 
+	/* 10. If all CONKEYs released, then the only ascii_conkey is also invalid! */
+	if(i==0) {
+        	kstat->conkeys.asciikey = 0;
+        	kstat->conkeys.press_asciikey = false;
+	}
+	/* Add ascii_conkey to conkeseq[] */
+	else if( kstat->conkeys.press_asciikey ) {
+		kstat->conkeys.conkeyseq[kstat->conkeys.nk] = CONKEYID_ASCII;
+		kstat->conkeys.nk += 1;
+	}
+
+
 /* TEST: ----------- print sorted CONKEYs */
 	printf("Sorted CONKEYs: ");
 	//for(k=0; k<CONKEYSEQ_MAX; k++) {
 	for(k=0; k < kstat->conkeys.nk; k++) {
 		printf("%s ", CONKEY_NAME[ (int)(kstat->conkeys.conkeyseq[k]) ] );
 	}
+	if( kstat->conkeys.asciikey )
+		printf("key_%u", kstat->conkeys.asciikey);
 	printf("\n");
-
+/* TEST: end */
 
     	return 0;
 }
+
 
 

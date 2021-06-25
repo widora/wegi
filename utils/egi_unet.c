@@ -62,7 +62,8 @@ Journal:
 	1. unet_sendmsg()/ering_msg_send(): Add flag MSG_DONTWAIT to make it NON_BLOCKING.
 2021-03-10:
 	1. userv_listen_thread(): Move checking_available_slot after calling_accept().
-
+2021-06-24:
+	1. ering_msg_send(): Consider if(data!=NULL && len!=0)...
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -828,7 +829,7 @@ Send out ERING_MSG through an AF_UNIX socket.
 	 	Assume to be BLOCKING type.
 @emsg	 	Pointer to ERING_MSG.
 @msg_type    	Msg type.
-@data	 	Palyload data in ERING_MSG data, as per MSG type.
+@data	 	Payload data in ERING_MSG data, as per MSG type.
 @len	 	In bytes, lenght of payload data. (Limit: ERING_MSG_DATALEN)
 
 Return:
@@ -858,7 +859,8 @@ int ering_msg_send(int sockfd, ERING_MSG *emsg,  int msg_type, const void *data,
 	tmp=emsg->msghead->msg_iov[1].iov_base;
 	emsg->msghead->msg_iov[1].iov_base=data;
 #else   /* COPY */
-	memcpy(emsg->data, data, len);
+	if(data!=NULL && len!=0)
+		memcpy(emsg->data, data, len);
 #endif
 	emsg->msghead->msg_iov[1].iov_len=ERING_MSG_DATALEN; /* Fixed data length as for data stream transfer. */
 

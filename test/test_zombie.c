@@ -75,7 +75,7 @@ int main(int argc, char **argv)
 	EGI_GIF_CONTEXT ctxt_zombie[ZOMBIE_MAX];
 
 	/* Set FB mode as LANDSCAPE  */
-        fb_position_rotate(&gv_fb_dev, 3); //0);
+        fb_position_rotate(&gv_fb_dev, 0);
     	xres=gv_fb_dev.pos_xres;
     	yres=gv_fb_dev.pos_yres;
 
@@ -88,7 +88,7 @@ int main(int argc, char **argv)
         egi_imgbuf_windisplay( imgbuf_garden, &gv_fb_dev, -1,                   /* img, fb, subcolor */
                                0, 0, 0, 0,                                      /* xp,yp  xw,yw */
                                imgbuf_garden->width, imgbuf_garden->height);    /* winw, winh */
-        fb_page_refresh(&gv_fb_dev);
+	fb_render(&gv_fb_dev);
 
         /* refresh working buffer */
         //clear_screen(&gv_fb_dev, WEGI_COLOR_GRAY);
@@ -285,7 +285,7 @@ while(1) {
 	}
 
 	/* Refresh FB */
-        fb_page_refresh(&gv_fb_dev);
+	fb_render(&gv_fb_dev);
 	tm_delayms(100);
         //usleep(100000);
 }

@@ -5,7 +5,6 @@ published by the Free Software Foundation.
 
 Midas Zhou
 -----------------------------------------------------------------*/
-
 #ifndef __EGI_TIMER_H__
 #define __EGI_TIMER_H__
 
@@ -29,7 +28,7 @@ typedef struct
 
         struct timeval tm_start; /* Start time */
         struct timeval tm_end;   /* End time */
-	struct timeval tm_cost; /* Addup of running time, with each duration of tm_end - tm_start. */
+	struct timeval tm_cost;  /* Addup of running time, with each duration of tm_end - tm_start. */
         struct timeval tm_dur;   /* Preset time duration as tm_end - tm_start. */
 
 } EGI_CLOCK;

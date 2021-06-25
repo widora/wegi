@@ -448,7 +448,7 @@ Load a ASCII symbol_page struct from a font file by calling FreeType2 libs.
 
 Note:
 0. This is for pure western ASCII alphabets font set.
-1. Load ASCII characters from 0 - 127, bitmap data of all unprintable ASCII symbols( 0-31,127)
+1. Load ASCII characters from 0 - 127, bitmap data of all nonprintable ASCII symbols( 0-31,127)
    will not be loaded to symfont_page, and their symwidths are set to 0 accordingly.
 
 2. Take default face_index=0 when call FT_New_Face(), you can modify it if
@@ -654,7 +654,7 @@ int  FTsymbol_load_asciis_from_fontfile(  EGI_SYMPAGE *symfont_page, const char 
 
 	/* 5. Tranverseall ASCIIs to get symfont_page.alpha, ensure that all base_lines are aligned. */
 	/* NOTE:
-	 *	1. TODO: Unprintable ASCII characters will be presented by FT as a box with a cross inside.
+	 *	1. TODO: nonprintable ASCII characters will be presented by FT as a box with a cross inside.
 	 *	   It is not necessary to be allocated in mem????
 	 *	2. For font sympage, only .aplha is available, .data is useless!!!
 	 *	3. Symbol font boundary box [ symheight*bbox_W ] is bigger than each slot->bitmap box !
@@ -813,7 +813,7 @@ int FTsymbol_get_symheight(FT_Face face, const unsigned char *pstr, int fw, int 
 
                 /* convert one character to unicode, return size of utf-8 code */
                 size=char_uft8_to_unicode((unsigned char *)pstr, &wcode);
-		if(size<1) 	/* Maybe unprintable/control char, Supposed they are  at very end of the string! Break then. */
+		if(size<1) 	/* Maybe nonprintable/control char, Supposed they are  at very end of the string! Break then. */
 			break;
 		else
 			pstr +=size;
@@ -1050,9 +1050,9 @@ void FTsymbol_unicode_print(wchar_t wcode)
 /*-----------------------------------------------------------------------------------------------
 1. Render a CJK character presented in UNICODE with the specified face type, then write the
    bitmap to FB.
-2. The caller shall check and skip unprintable symbols, and parse ASCII control codes.
+2. The caller shall check and skip nonprintable symbols, and parse ASCII control codes.
    This function only deal with symbol bitmap if it exists.
-   FTsymbol_cooked_charWidth() is called for self_defined charWidth for some unprintable symbols.
+   FTsymbol_cooked_charWidth() is called for self_defined charWidth for some nonprintable symbols.
 3. Xleft will be subtrated by slot->advance.x first, then check, and write data to FB only if
    Xleft >=0. However, if bitmap data is NULL for the input unicode, xleft will NOT be changed.
 4. Boundary box is defined as bbox_W=MAX(advanceX,bitmap.width) bbox_H=fh.

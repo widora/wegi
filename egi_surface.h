@@ -129,21 +129,22 @@ struct egi_surface_user {
  *	  1.1.1 To accept and add surfusers.
  *    1.2 surfman_request_process_thread(void *surfman):
  *    	  1.2.1 To create and register surfaces, upon surfuser's request.
- *	  1.2.2 To retire surfuser if it disconnets.
+ *	  1.2.2 To retire/unregister surfuser if it disconnets.
  *    1.3 surfman_render_thread:
  *	  1.3.1 Loop rendering all surfaces at regular intervals.
  *	  -----	TEST:  Rendering all surfaces ONLY when SURFMSG_REQUEST_REFRESH is received.
  *    1.4 Main thread (test_surfman.c)
- *	  1.4.1 Monitor mevent/kevent.
- *	  1.4.2 Minimize/Normalize(restore) surfaces.
- *	  1.4.3 Switch between surfaces, shift TOP layer surface.
+ *	  1.4.1 Monitor mevent/kevent (mostat/stdin_chars/conkeys).
+ *	  1.4.2 Minimize/Normalize(restore) surfaces. ---Keyboard shortcut
+ *	  1.4.3 Switch between surfaces, shift TOP layer surface. ---Keyboard shortcut
  *	  1.4.4 ERING mstat/kstat to the TOP(foucsed) surface, and MAYBE other surfaces.
  *	  1.4.5 Desktop MinBar operation.
  *	  1.4.6 Desktop MenuList operation.
  *	  1.4.7 Waitpid child process.
  *
  * 2. The SURFMAN manages all mouse icons(imgbufs)! SURFSHMEM applys a certain mouse icon by setting its ref ID.
- * 3. The SURFMAN controls and dispatchs mouse data, always to the TOP surface only.
+ * 3. The SURFMAN controls and dispatchs input data, always to the TOP surface only.
+ *    NOW: Also send mostat to mouse cursor touched surface.
  *
  */
 struct egi_surface_manager {
@@ -198,7 +199,7 @@ struct egi_surface_manager {
 #define SURFMAN_MINIBAR_HEIGHT	30
 
 	EGI_SURFACE	*minsurfaces[SURFMAN_MAX_SURFACES];	/* Pointers to minimized surfaces
-								 * 1. Push sequence: from [0] to  [SURFMAN_MAX_SURFACES]
+								 * 1. Push sequence: from [0] to  [SURFMAN_MAX_SURFACES-1]
 								 * 2. It's updated each time before surfman renders surfaces[].
 								 */
 	int		mincnt;		  /* Counter of minimized surfaces */
@@ -498,22 +499,23 @@ enum surface_flags {
 
 #if  0 /* NOTE: Following move to egi_unet.h */
 enum ering_request_type {
-        ERING_REQUEST_NONE      =0,
-        ERING_REQUEST_EINPUT    =1,
-        ERING_REQUEST_ESURFACE  =2,  /* Params: int x0, int y0, int w, int h, int pixsize */
+//      ERING_REQUEST_NONE      =0,
+//      ERING_REQUEST_EINPUT    =1,
+//      ERING_REQUEST_ESURFACE  =2,  /* Params: int x0, int y0, int w, int h, int pixsize */
 };
 
 enum ering_msg_type {
-	ERING_SURFMAN_ERR	=0,
-	ERING_SURFACE_BRINGTOP	=1, /* Surfman bring/retire client surface to/from the top */
-	ERING_SURFACE_RETIRETOP =2,
-	ERING_MOUSE_STATUS	=3,
+//	ERING_SURFMAN_ERR	=0,
+//	ERING_SURFACE_BRINGTOP	=1, /* Surfman bring/retire client surface to/from the top */
+//	ERING_SURFACE_RETIRETOP =2,
+//	ERING_SURFACE_CLOSE     =3, /* Surfman request the surface to close.. */
+//	ERING_MOUSE_STATUS	=4,
 };
 
 enum ering_result_type {
-        ERING_RESULT_OK         =0,
-        ERING_RESULT_ERR        =1,
-	ERING_MAX_LIMIT		=2,  	/* Surfaces/... Max limit */
+//      ERING_RESULT_OK         =0,
+//      ERING_RESULT_ERR        =1,
+//	ERING_MAX_LIMIT		=2,  	/* Surfaces/... Max limit */
 };
 #endif /* END */
 
@@ -593,6 +595,9 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID);	/* surfman
 int surfman_xyget_Zseq(EGI_SURFMAN *surfman, int x, int y);
 int surfman_xyget_surfaceID(EGI_SURFMAN *surfman, int x, int y);
 int surfman_get_TopDispSurfaceID(EGI_SURFMAN *surfman);
+
+void surfman_minimize_allSurfaces(EGI_SURFMAN *surfman);	/* no mutex_lock */
+void surfman_normalize_allSurfaces(EGI_SURFMAN *surfman);	/* no mutex_lock */
 
 /* Functions for   --- EGI_RING ---   */
 EGI_SURFSHMEM *ering_request_surface(int sockfd, int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType);

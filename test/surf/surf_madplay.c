@@ -19,6 +19,9 @@ Usage:
 		MENU_OPTION: Click to create a surface for TEST purpose.
 		TODO: MENU_FILE, MENU_OPTION
 
+	4. Support keyboard application control keys:
+		KEY_PALYPAUSE,KEY_VOLUEMUP/DOWN, KEY_PREVIOUSSONG/NEXTSONG
+
 Multi_threads Scheme:
 	1  Main loop:
 	   ----> madplay process:   ---> header(), decode()
@@ -63,6 +66,10 @@ Journal:
 	1. Search all MP3 file in the defaul diretory.
 2021-05-21:
 	1. TEST: To Register/FirstDraw/Sync surface and display it as early as possible.
+2021-06-22:
+	1. my_mouse_event(): Parse keyboard CONKEYs (pmostat->conkeys).
+2021-06-24:
+	1. Apply surface_module default surfuser_ering_routine().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -161,8 +168,8 @@ void menu_help(EGI_SURFSHMEM *surfcaller, int x0, int y0);
 ESURF_BOX *lab_passtime; /* Label for passage of playing time. */
 ESURF_BOX *lab_mp3name;  /* Label for MP3 file name. */
 
-/* ERING routine */
-void            *surfuser_ering_routine(void *args);
+/* ERING routine. Use module default function.  */
+//void            *surfuser_ering_routine(void *args);
 
 /* Apply SURFACE module default function */
 // void  surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex */
@@ -487,13 +494,14 @@ int main(int argc, char **argv)
    /* Play all files 逐个播放MP3文件 */
    for(i=0; i<files; i++) {
 
-while(madSTAT==STAT_PAUSE) {
+while(madSTAT==STAT_PAUSE && surfshmem->usersig!=1) {
        if(madCMD==CMD_PLAY)
-		break;
-       if( surfshmem->usersig==1 )
 		break;
 	usleep(100000);
 };
+	if( surfshmem->usersig==1 )
+		break;
+
 	egi_dpstd("Start to play %s\n", mp3_paths[i]);
 
         /* MAD_: Init filo 建立一个FILO用于存放MP3 HEADER　*/
@@ -558,6 +566,7 @@ madSTAT=STAT_PLAY;
 	if( madCMD == CMD_PREV ) {
         	if(i==0) i=-1;
                 else i-=2;
+		//printf("CMD_PREV, change to i=%d\n", i);
 		madCMD=CMD_NONE;
 	}
 	else if( madCMD==CMD_NEXT ) { /* If CMD_NEXT, just go through. */
@@ -601,6 +610,7 @@ madSTAT=STAT_PLAY;
 }
 
 
+#if 0 ////////////////// Use moude default function  //////////////////////
 /*------------------------------------
     SURFUSER's ERING routine thread.
 ------------------------------------*/
@@ -648,6 +658,10 @@ void *surfuser_ering_routine(void *args)
         	       case ERING_SURFACE_RETIRETOP:
                 	        egi_dpstd("Surface is retired from top!\n");
                         	break;
+                       case ERING_SURFACE_CLOSE:
+                                egi_dpstd("Surfman request to close the surface!\n");
+                                surfuser->surfshmem->usersig =1;
+                                break;
 		       case ERING_MOUSE_STATUS:
 				mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
 				//egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
@@ -668,19 +682,115 @@ void *surfuser_ering_routine(void *args)
 	egi_dpstd("Exit thread.\n");
 	return (void *)0;
 }
+#endif ///////////////////////////////////
 
-
-/*--------------------------------------------------------------
+/*-----------------------------------------------------------------
                 Mouse Event Callback
-             (shmem_mutex locked!)
+               (shmem_mutex locked!)
 
 1. It's a callback function called in surfuser_parse_mouse_event().
 2. pmostat is for whole desk range.
 3. This is for  SURFSHMEM.user_mouse_event() .
----------------------------------------------------------------*/
+------------------------------------------------------------------*/
 void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 {
         int i;
+	int pdelt=0;
+	int pvol=0;  /* Volume [0 100] */
+
+/* --------- E1. Parse Keyboard Event ---------- */
+
+/* Parse CONKEYs F1...F12 */
+if( pmostat->conkeys.press_F1 )
+	printf("Press F1\n");
+
+/* Switch CONKEYS.lastkey  */
+if( pmostat->conkeys.press_lastkey )
+{
+   switch( pmostat->conkeys.lastkey )
+   {
+	case KEY_PLAYPAUSE:
+		if( madSTAT!=STAT_LOAD ) {
+			printf("Press PLAYPAUSE\n");
+
+			/* Toggle btn_play/btn_pause */
+			btn_tmp=btns[BTN_PLAY];
+			btns[BTN_PLAY]=btns[BTN_PLAY_SWITCH];
+			btns[BTN_PLAY_SWITCH]=btn_tmp;
+
+			/* Draw new pressed button */
+		        #if 1 /* Normal btn image + rim OR igmbuf_effect */
+			egi_subimg_writeFB(btns[BTN_PLAY]->imgbuf_effect, vfbdev, 0, -1, btns[BTN_PLAY]->x0, btns[BTN_PLAY]->y0);
+			#else /* Apply imgbuf_pressed */
+			egi_subimg_writeFB(btns[BTN_PLAY]->imgbuf_pressed, vfbdev, 0, -1, btns[BTN_PLAY]->x0, btns[BTN_PLAY]->y0);
+			#endif
+
+			/* Swith MAD COMMAND, madSTAT set in mad_flow header(). */
+			if(madSTAT==STAT_PLAY) {
+				madCMD=CMD_PAUSE;
+			}
+			else if(madSTAT==STAT_PAUSE) {
+				madCMD=CMD_PLAY;
+			}
+	   	}
+		break;
+	case KEY_VOLUMEUP:
+	case KEY_VOLUMEDOWN:
+	   	if( pmostat->conkeys.lastkey == KEY_VOLUMEUP ) {
+			egi_dpstd("KEY_VOLUMEUP\n");
+			pdelt=5;
+		}
+		else if( pmostat->conkeys.lastkey == KEY_VOLUMEDOWN ) {
+			egi_dpstd("KEY_VOLUMEDOWN\n");
+			pdelt=-5;
+		}
+		if(pdelt) {
+			egi_adjust_pcm_volume(pdelt);
+			egi_getset_pcm_volume(&pvol, NULL);
+
+			/* Draw Base Line */
+			fbset_color2(vfbdev, WEGI_COLOR_WHITE);
+			draw_wline_nc(vfbdev, btns[BTN_VOLUME]->x0+5, btns[BTN_VOLUME]->y0+42,
+					      btns[BTN_VOLUME]->x0+5 +40, btns[BTN_VOLUME]->y0+42, 3);
+
+			/* Draw Volume Line */
+			fbset_color2(vfbdev, WEGI_COLOR_ORANGE);
+			draw_wline_nc(vfbdev, btns[BTN_VOLUME]->x0+5, btns[BTN_VOLUME]->y0+42,
+					      btns[BTN_VOLUME]->x0+5 +40*pvol/100, btns[BTN_VOLUME]->y0+42, 3);
+	   	}
+		break;
+	case KEY_PREVIOUSSONG:
+		/* If current it's in STAT_PAUSE, then changes to STAT_PLAY, and switch BTN_PLAY. */
+		if(madSTAT==STAT_PAUSE) {
+			/* Toggle btn_play/btn_pause, and update btn image */
+			btn_tmp=btns[BTN_PLAY];
+			btns[BTN_PLAY]=btns[BTN_PLAY_SWITCH];
+			btns[BTN_PLAY_SWITCH]=btn_tmp;
+			egi_subimg_writeFB(btns[BTN_PLAY]->imgbuf, vfbdev,
+						0, -1, btns[BTN_PLAY]->x0, btns[BTN_PLAY]->y0);
+		}
+		madCMD=CMD_PREV;
+		break;
+	case KEY_NEXTSONG:
+		/* If current it's in STAT_PAUSE, then changes to STAT_PLAY, and switch BTN_PLAY. */
+		if(madSTAT==STAT_PAUSE) {
+			/* Toggle btn_play/btn_pause, and update btn image */
+			btn_tmp=btns[BTN_PLAY];
+			btns[BTN_PLAY]=btns[BTN_PLAY_SWITCH];
+			btns[BTN_PLAY_SWITCH]=btn_tmp;
+			egi_subimg_writeFB(btns[BTN_PLAY]->imgbuf, vfbdev,
+						0, -1, btns[BTN_PLAY]->x0, btns[BTN_PLAY]->y0);
+		}
+		madCMD=CMD_NEXT;
+		break;
+
+	default:
+		break;
+   } /* Switch */
+} /* conkey.press_lastkey */
+
+
+/* --------- E2. Parse Mouse Event ---------- */
 
 	/* --------- Rule out mouse postion out of workarea -------- */
 	#if 0 /* NOTE: MAYBE you DO NOT need it! */
@@ -828,7 +938,7 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
                 switch(mpbtn) {
                         case BTN_PREV:
 
-				/* If current it's in STAT_PAUSE, then changes to STAT_PLAY, and switch BTN_PLAY. */
+				/* If current in STAT_PAUSE, then changes to STAT_PLAY, and switch BTN_PLAY. */
 				if(madSTAT==STAT_PAUSE) {
 					/* Toggle btn_play/btn_pause, and update btn image */
 					btn_tmp=btns[BTN_PLAY];

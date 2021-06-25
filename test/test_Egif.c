@@ -174,7 +174,7 @@ int main(int argc, char **argv)
         /* <<<<------------------  End FB Setup ----------------->>>> */
 
 
-#if 1	/* ------------------  TEST:  egi_gif_playFile()  ------------------ */
+#if 0	/* ------------------  TEST:  egi_gif_playFile()  ------------------ */
 
          // egi_gif_playFile(const char *fpath, bool Silent_Mode, bool ImgTransp_ON, int *ImageCount)
 	while(1) {
@@ -240,7 +240,7 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
 	}
 
         /* Lump context data */
-        gif_ctxt.fbdev=NULL; //&gv_fb_dev;
+        gif_ctxt.fbdev=&gv_fb_dev; // NULL; //&gv_fb_dev;
         gif_ctxt.egif=egif;
         gif_ctxt.nloop=-1;
 	gif_ctxt.delayms=0;
@@ -304,7 +304,7 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
 		mvpic[i]=gif_ctxt.egif->RSimgbuf;
 		gif_ctxt.egif->RSimgbuf=NULL;
 		#else
-		mvpic[i]=egi_imgbuf_resize(gif_ctxt.egif->Simgbuf, egif->RWidth,  egif->RHeight);
+		mvpic[i]=egi_imgbuf_resize(gif_ctxt.egif->Simgbuf, true, egif->RWidth,  egif->RHeight);
 		mvpic[i]->delayms=gif_ctxt.egif->Simgbuf->delayms;
 		#endif
 
@@ -337,11 +337,14 @@ while(1) {  ////////////////////////////////  ---  LOOP TEST  ---  /////////////
 			printf("windisplay2 mvpic\n");
 			egi_imgbuf_windisplay2( mvpic[i], &gv_fb_dev, // -1,
 		                                          xp, yp, xw, yw, gif_ctxt.winw, gif_ctxt.winh);
+#if 0
 			if(logo) {
 				egi_imgbuf_windisplay2( logo, &gv_fb_dev,
 							  0, 0, gv_fb_dev.vinfo.xres-100, gv_fb_dev.vinfo.yres-50,
 									logo->width, logo->height);
 			}
+#endif
+
 			//gettimeofday(&tm_end,NULL);
 			//printf("writeFB time: %dms \n", tms=tm_diffus(tm_start, tm_end)/1000);
 

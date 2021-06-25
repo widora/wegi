@@ -5,9 +5,14 @@ published by the Free Software Foundation.
 
 Test EGI read keyboard status.
 
+Note:
+1. A keyboard device MAY create more than 1 evdev in /dev/input/.
+
 Journal:
 2021-06-12:
 	1. Create test_kbd.c
+2021-06-21:
+	1. Test conkeys and multi_media keys.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -58,7 +63,8 @@ int main(void)
 	printf("Sizeof(EGI_MOUSE_STATUS)=%d\n", sizeof(EGI_MOUSE_STATUS));
 
 	while(1) {
-		if(egi_read_kbdcode(&kstat, "/dev/input/event0")==0) {
+		//if(egi_read_kbdcode(&kstat, "/dev/input/event0")==0) {
+		if(egi_read_kbdcode(&kstat, NULL)==0) {
 
 			#if 0 /* Print keys */
 			printf(" ------ ks=%d:  ", kstat.ks);
@@ -82,21 +88,54 @@ int main(void)
 			if( kstat.conkeys.press_F11 )    printf(" F11 \n");
 			if( kstat.conkeys.press_F12 )    printf(" F12 \n");
 
-#if 0			/* ALT+TAB, in sequence. */
-			if( kstat.conkeys.press_tab && kstat.conkeys.press_leftalt ) {
-					if( timercmp(&kstat.tm_tab, &kstat.tm_leftalt, >) )
-						printf("ALT+TAB\n");
-					else
-						printf("TAB+ALT\n");
+			/* ALT+TAB, in sequence. */
+			if( kstat.conkeys.conkeyseq[0] == CONKEYID_ALT && kstat.conkeys.asciikey == KEY_TAB )
+					printf("ALT+TAB\n");
+
+			/* CTRL+ALT+A  */
+#if 1
+			if( kstat.conkeys.conkeyseq[0] == CONKEYID_CTRL  && kstat.conkeys.conkeyseq[1] == CONKEYID_ALT
+			    && kstat.conkeys.asciikey == KEY_A )
+			{
+				printf("CTRL+ALT+A\n");
+			}
+#else
+			if( ( kstat.conkeys.press_leftctrl || kstat.conkeys.press_rightctrl )
+			    && ( kstat.conkeys.press_leftalt || kstat.conkeys.press_rightalt )
+			    && kstat.keycode[0]==KEY_A)
+			{
+				printf("CTRL+ALT+A\n");
 			}
 #endif
 
-			/* CTRL+ALT+A //DEL */
-			if( ( kstat.conkeys.press_leftctrl || kstat.conkeys.press_rightctrl )
-			    && ( kstat.conkeys.press_leftalt || kstat.conkeys.press_rightalt )
-			    && kstat.keycode[0]==KEY_A)  //KEY_DELETE )
-			{
-				printf("CTRL+ALT+A\n");
+			/* Multi_media function keys: KEY_VOLUMEUP, KEY_VOLUMEDOWN,KEY_MUTE,KEY_PLAYPAUSE,KEY_BACK,KEY_FORWARD    */
+			switch( kstat.conkeys.lastkey ) {
+				case KEY_VOLUMEUP:
+					printf("%s KEY_VOLUMEUP\n",kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_VOLUMEDOWN:
+					printf("%s KEY_VOLUMEDOWN\n", kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_PLAYPAUSE:
+					printf("%s KEY_PLAYPAUSE\n", kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_MUTE:
+					printf("%s KEY_MUTE\n", kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_PREVIOUSSONG:
+					printf("%s KEY_PREVIOUSSONG\n", kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_NEXTSONG:
+					printf("%s KEY_NEXTSONG\n", kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_BACK:
+					printf("%s KEY_BACK\n", kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_FORWARD:
+					printf("%s KEY_FORWARD\n", kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				default:
+					break;
 			}
 
 		}

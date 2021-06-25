@@ -4,12 +4,12 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 Usage:
-1. Press 0-7 to bring indexed SURFACE to top.
-   Keep pressing 0 to traverse all SURFACEs.
-3. Press 'Ctrl+n' to minimize current top SURFACE. //ASCII 14
-4. Press 'Ctrl+o' to maximize current top SURFACE. //ASCII 15
-5. Press 'Ctrl+Q','Ctrl+R','Ctrl+S','Ctrl+T' to move current TOP_SURFACE LEFT,RIGHT,UP,DOWN respectively.
-   //ASCII 11,12,13,14
+
+Keyboard shortcuts:
+	ALT+TAB:	Switch applications.
+	ALT+ESC:	Close current TOP surface.
+	SUPER+D:	Minimize all surfaces.
+	SUPER+W:	Normanlize all surfaces.
 
 Note:
 0. EringMSG from SURFMAN's renderThread(After one surface minimized, to pick next TOP surface and ering BRINGTOP)
@@ -19,12 +19,12 @@ Note:
 1. SURFMAN routine:
    1.1 Parse keyboard input:  Shortcut key functions.
    1.2 Parse Mouse event:     LeftKeyDown to pick TOP surface.
-   1.3 Ering keystat and mostat to the TOP surface.
+   1.3 Ering mostat(packed with mostat+chars[]+conkeys) to the TOP surface.
 2. Before access to surfman->surfaces[x], make sure that there
    are surfaces registered in the surfman. If there is NO surface
    available, it will certainly cause segmentation fault!
 3. If any SURFUSER do NOT receive ERING MSG, then it MAY cause some
-   problem any msg piled up in the kernel space? --'Resource temporarily unavailable'.
+   problem any msg piled up in the kernel space??? --'Resource temporarily unavailable'.
 4. The SURFMAN erings mostat/keystat only to the top surface, so if a surface
    has NO chance to get to TOP layer, then it will always be blocked at
    ering_msg_recv() in surfuser_ering_routine()!
@@ -37,6 +37,7 @@ Note:
 	If a surface is clicked on SURFBTN_MIN and its status is changed to be SURFACE_STATUS_MINIMIZED
         by the SURFUSER itself. SURFMAN's render_thread will then categorize it to minibar menu.
 	In such case,
+6. The SURFMAN requests a surface to close by eringing msg ERING_SURFACE_CLOSE to the surface.
 
 TODO:
 1. Surfman_render_thread DO NOT sync with mouse click_pick operation.
@@ -54,10 +55,10 @@ XXX 6. XXX When a surface is brought to TOP, there may be NO ering msg to the su
    --OK, compare surface->userID to find if the TOP surface changes.X
 XXX 7. If a surface is clicked on SURFBTN_MIN and its status is changed to be SURFACE_STATUS_MINIMIZED by the SURFUSER itself.
    there'll be NO ering msg to the surface!  Necessary???
-
    NOTE: 5.6.7 --- SURFACE_STATUS_MINIMIZED to be sent by surfman_render_thread()!
 8. A mostats MAY be dropped by the surfman before TOP surface clear SURFACE_FLAG_MEVENT!
-9. Read raw KEY_input directly from Keyboard HIDraw, for special KEYs not defined by ASCII.
+9. A kbdstat is read directly from Keyboard input event, kbdstat.conkeys are control_key_status, sequence of key_pressing
+   also recorded. it intends to monitor keyboard shortcut command!
 
 Journal
 2021-03-11:
@@ -123,10 +124,15 @@ Journal
 2021-06-10:
 	1. To clear all buffer chars[] if there is no surface displayed on desk.
 2021-06-16:
-	1. Add:  W.0  Read keyboard shortcut control keys...
+	1. Add:  W.0  Read keyboard shortcut control keys... (CONKEYs)
 2021-06-18:
 	1. Chars of a TTY Escape Sequence are inseparable, we MUST read out
 	   all chars in STDIN buffer at once(at one time), NOT one_by_one!!!
+2021-06-24:
+	1. Avoid to ering pmostat->chars[] and conkeys to a non_TOP_surface in W.2.7.2.
+	2. Add shortcuts:  ALT+TAB, ALT+ESC, SUPER+D, SUPER+W
+2021-06-25:
+	1. Delete old codes for TEST shortcuts, such as Ctrl+n, Ctrl+o ....
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -166,8 +172,12 @@ https://github.com/widora/wegi
 	#define SURFMAN_BKGIMG_PATH	"/mmc/egidesk.jpg"  // "/mmc/linux.jpg"
 #endif
 
-/* Inputs: keyboard, mouse, TTY  */
-static EGI_KBD_STATUS kbdstat;
+#define SHORTCUT_AFT_DELAYMS	200	/* in ms, delay after a shortcut action.
+					 * To avoid repeating actions, let kbdread absort intermediate status.
+					 */
+
+/* Inputs: keyboard, mouse, STDIN  */
+static EGI_KBD_STATUS 	kbdstat;
 static EGI_MOUSE_STATUS mostat;
 static EGI_MOUSE_STATUS *pmostat;
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
@@ -204,6 +214,9 @@ void signal_handler(int signo)
 int nrcv;
 SURFMSG_DATA msgdata;
 
+/* Ering MSG */
+ERING_MSG *emsg;
+
 int main(int argc, char **argv)
 {
 	int j,k;
@@ -212,6 +225,9 @@ int main(int argc, char **argv)
 
 	int opt;
 	int nread;
+	int ret;
+
+	struct timeval  tm_lastkey={0};
 
         /* <<<<<  EGI general initialization   >>>>>> */
 
@@ -245,7 +261,7 @@ int main(int argc, char **argv)
 
 	/* Create an ERING_MSG */
 	printf("Create an ERING_MSG, sizeof(EGI_MOUSE_STATUS)=%d ....\n", sizeof(EGI_MOUSE_STATUS));
-        ERING_MSG *emsg=ering_msg_init();
+        emsg=ering_msg_init();
         if(emsg==NULL) exit(EXIT_FAILURE);
 
 	/* 0. Check directory for ERING_PATH_SURFMAN */
@@ -412,58 +428,89 @@ int main(int argc, char **argv)
 
 KEY_INPUT:
 
-
 		/* W.0  Read keyboard shortcut control keys ...
 		 * Note:
 		 * 1. Capture keyboard chortcut_control_keys first!!!
-		 *    Loop back after control_keys are parsed A.S.A.P, such to avoid key_event missing/omitting
-    		 *    due to long time processing/wating in mouse_event.
+		 *    XXX Loop back after control_keys are parsed A.S.A.P, such to avoid key_event missing/omitting
+    		 *    XXX due to long time processing/wating in mouse_event.
 		 *
 		 */
-#if 1
-		if( egi_read_kbdcode(&kbdstat, "/dev/input/event0") !=0 ) {
-			//egi_dpstd("Fail read_kbdcode!\n");
+		if( (ret=egi_read_kbdcode(&kbdstat, NULL))!=0 ) {  //"/dev/input/event0") !=0 ) {
+			//egi_dpstd("Fail read_kbdcode or no input event, ret=%d!\n", ret);
 		}
 
-#else
-		/* DO NOT memset(&kbdstat,0, sizeof(EGI_KBD_STATUS))! */
-		//if( egi_read_kbdcode(&kbdstat, "/dev/input/event0") == 0 ) {
-		if( egi_read_kbdcode(&kbdstat, NULL) == 0 ) {
-
-                        /* ALT+TAB, in sequence. !!! EV_KEY MAYBE missing !!!  */
-			//printf("ks=%d,  %s + %s \n", kbdstat.ks, kbdstat.press_tab?"TAB":"", kbdstat.press_leftalt?"ALT":"");
-                        //if( kbdstat.conkeys.press_leftalt &&  kbdstat.keycode[0]==KEY_TAB ) {  //kbdstat.press_tab ) {
-                        if( kbdstat.conkeys.press_leftalt &&  kbdstat.keycode[0]==KEY_TAB ) {  //kbdstat.press_tab ) {
-                                        if( timercmp(&kbdstat.tm_tab, &kbdstat.tm_leftalt, >) )
-					{
-                                                //printf("ALT+TAB\n");
-						pthread_mutex_lock(&surfman->surfman_mutex);
+		/* W.0.1  Parse keyboard shortcut for SURFMAN */
+		if( kbdstat.conkeys.nk == 2 && kbdstat.conkeys.asciikey ) {
+		    switch(kbdstat.conkeys.conkeyseq[0]) {
+			case CONKEYID_ALT:
+/*  ALT+TAB ...... Switch surfaces */
+				if( kbdstat.conkeys.asciikey == KEY_TAB ) {
+					pthread_mutex_lock(&surfman->surfman_mutex);
 			/* ------ >>>  Surfman Critical Zone  */
-
+					if(surfman->scnt >0)
 				 		surfman_bringtop_surface_nolock(surfman, SURFMAN_MAX_SURFACES-surfman->scnt);
-
 			/* ------ <<<  Surfman Critical Zone  */
-						pthread_mutex_unlock(&surfman->surfman_mutex);
+					pthread_mutex_unlock(&surfman->surfman_mutex);
+
+					/* Delay and loop back, expecting next read_kbdcode() gets release status. */
+					tm_delayms(SHORTCUT_AFT_DELAYMS);
+					continue;
+				}
+/*  ALT+ESC ...... Close current TOP surface.  */
+				else if( kbdstat.conkeys.asciikey == KEY_ESC ) {
+					pthread_mutex_lock(&surfman->surfman_mutex);
+			/* ------ >>>  Surfman Critical Zone  */
+					if(surfman->scnt >0) {
+					    #if 1 /* unet_sendmsg, emsg type only. */
+					        emsg->type=ERING_SURFACE_CLOSE;
+			                        if( unet_sendmsg( surfman->surfaces[SURFMAN_MAX_SURFACES-1]->csFD, emsg->msghead) <=0 )
+                        		                egi_dpstd("Fail to sednmsg ERING_SURFACE_CLOSE!\n");
+					    #else /* ering_msg_send, with payload. */
+						if( ering_msg_send( surfman->surfaces[SURFMAN_MAX_SURFACES-1]->csFD,
+							emsg, ERING_SURFACE_CLOSE, pmostat, sizeof(EGI_MOUSE_STATUS) ) <=0 ) {
+							egi_dpstd("Fail to sendmsg ERING_SURFACE_CLOSE!\n");
+						}
+					    #endif
 					}
-                        }
+			/* ------ <<<  Surfman Critical Zone  */
+					pthread_mutex_unlock(&surfman->surfman_mutex);
 
-		}
-		//else
-		//	printf("Fail to read kbdcode.\n");
+					/* Delay and loop back */
+					tm_delayms(SHORTCUT_AFT_DELAYMS);
+					continue;
+				}
+				break;
+			case CONKEYID_SUPER:
+/* Super+D ......  Minimize all surface. */
+				if( kbdstat.conkeys.asciikey == KEY_D ) {
+					pthread_mutex_lock(&surfman->surfman_mutex);
+			/* ------ >>>  Surfman Critical Zone  */
+					surfman_minimize_allSurfaces(surfman);
+			/* ------ <<<  Surfman Critical Zone  */
+					pthread_mutex_unlock(&surfman->surfman_mutex);
 
-		/* W.01  If any ALT/SUPER combined shortcut keys pressed, discard all ASCIIs in STDIN and loopback,
-		 *	 DO NOT ering them to surfaces.
-		 * NOTE: TODO & TBD
-		 *  1. General Shortcuts MUST ering to surface: CTRL+C, CTRL+V, CTRL+X, CTRL+S, CTRL+N, CTRL+Z, CTRL+Q, ...
-		 *     It's good ideal to starts with CTRL+ for general shortcut!
-		 *  2. ALT/SUPER keys are ONLY for SURFMAN control shortcut keys!???
-		 */
-		if( kbdstat.press_leftalt || kbdstat.press_rightalt || kbdstat.press_super ) {
-			char tch[8];
-			read(STDIN_FILENO, &tch, 8);
-			continue;
+					/* Delay and loop back */
+					tm_delayms(SHORTCUT_AFT_DELAYMS);
+					continue;
+				}
+/* Super+W ......  Normalize all surface. */
+				else if( kbdstat.conkeys.asciikey == KEY_W ) {
+					pthread_mutex_lock(&surfman->surfman_mutex);
+			/* ------ >>>  Surfman Critical Zone  */
+					surfman_normalize_allSurfaces(surfman);
+			/* ------ <<<  Surfman Critical Zone  */
+					pthread_mutex_unlock(&surfman->surfman_mutex);
+
+					/* Delay and loop back */
+					tm_delayms(SHORTCUT_AFT_DELAYMS);
+					continue;
+				}
+				break;
+			default:
+				break;
+		   } /* switch */
 		}
-#endif
+
 
 		/* W.1  Read Keyboard STDIN  */
 #if 0	/* Read char ONE BY ONE from TTY stdin. */
@@ -481,7 +528,7 @@ KEY_INPUT:
 
 #else	/* Read out all chars from TTY stdin
 	 * Note:
-	 * 1. Since TTY Escape Sequence is also a SINGLE character/command, they MUST be readin together and
+	 * 1. Since TTY Escape Sequence is also a SINGLE character/command, they MUST be read out together and
 	 *    packed in one ERING session. If a surfuser receives broken Escape_Sequence, it will cause ERROR!
          *
          */
@@ -493,98 +540,10 @@ KEY_INPUT:
 			nch +=nread;
 			printf("chars[]: %-32.32s\n", chars);
 		}
+
 	} while( nread>0 );  /* Break nread<=0 */
+
 #endif
-
-
-#if 0	/* TEST--------: Select TOP surface:  !!! WARNING !!! surfman_mutex ignored. !!!! scnt>0 !!! */
-		if(ch >='0' && ch < '8' ) {  /* 1,2,3...9 */
-			pthread_mutex_lock(&surfman->surfman_mutex);
-	/* ------ >>>  Surfman Critical Zone  */
-
-			printf("surfman->scnt=%d \n", surfman->scnt);
-			printf("ch: '%c'(%d)\n",ch, ch);
-			k=ch-0x30;
-			if( k < SURFMAN_MAX_SURFACES ) {
-				/*** NOTE:
-				 * Input k as sequence number of all registered surfaces.
-				 * However, surfman->surfaces[] sorted in ascending Zseq order, some surfaces[]
-				 * are NULL if surfman->scn < SURFMAN_MAX_SURFACES!
-				 * So need to transfer k to actual index of surfman->surfaces[].
-				 */
-				 k=SURFMAN_MAX_SURFACES-surfman->scnt +k;
-				 printf("Try to set surface %d top...\n", k);
-				 //surfman_bringtop_surface(surfman, k);
-				 surfman_bringtop_surface_nolock(surfman, k);
-			}
-
-	/* ------ <<<  Surfman Critical Zone  */
-			pthread_mutex_unlock(&surfman->surfman_mutex);
-		}
-		else {
-
-	/* TEST--------: Move surface, !!! WARNING !!! surfman_mutex ignored. !!!! scnt>0 !!! */
-			switch(ch) {
-				case 17: //Ctrl+Q
-					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->x0 -=10;
-					break;
-				case 18: //Ctrl+R
-					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->x0 +=10;
-					break;
-				case 19:  //Ctrl+S
-					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->y0 -=10;
-					break;
-				case 20: //Ctrl+T
-					surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->y0 +=10;
-					break;
-
-				/* TEST--------: Minimize / Maximize surfaces */
-				case 14: //Ctrl+n : /* Minimize the surface */
-					printf("Minimize surface.\n");
-					pthread_mutex_lock(&surfman->surfman_mutex);
-			/* ------ >>>  Surfman Critical Zone  */
-
-					/* If all surface minimized */
-					if(surfman->scnt == surfman->mincnt) {
-						pthread_mutex_unlock(&surfman->surfman_mutex);
-						break;
-					}
-
-					/* Get index of current toplayer surface */
-					surfID=surfman_get_TopDispSurfaceID(surfman);
-					if(surfID<0) {
-						pthread_mutex_unlock(&surfman->surfman_mutex);
-						break;
-					}
-
-					/* Change status */
-					//surfman->surfaces[surfID]->status=SURFACE_STATUS_MINIMIZED;
-					surfman->surfaces[surfID]->surfshmem->status=SURFACE_STATUS_MINIMIZED;
-
-			/* ------ <<<  Surfman Critical Zone  */
-					pthread_mutex_unlock(&surfman->surfman_mutex);
-					break;
-
-				case 15: //Ctrl+O /* Maximize the surface */
-					printf("Maximize surface.\n");
-					pthread_mutex_lock(&surfman->surfman_mutex);
-
-					if(surfman->minsurfaces[0]) {
-						//surfman->minsurfaces[0]->status=SURFACE_STATUS_NORMAL;
-						surfman->minsurfaces[0]->surfshmem->status=SURFACE_STATUS_NORMAL;
-						/* Bring to TOP */
-						surfman_bringtop_surface_nolock(surfman, surfman->minsurfaces[0]->id);
-					}
-
-					pthread_mutex_unlock(&surfman->surfman_mutex);
-					break;
-
-				default:
-					break;
-			}
-		}
-#endif /* END TEST :----- */
-
 
 
 WAIT_REQUEST:
@@ -599,8 +558,27 @@ WAIT_REQUEST:
 				strncpy(pmostat->chars, chars, nch);
 				pmostat->chars[nch]=0; /* EOF */
 
-				/* 2. Transer kbdstat->conkeys to pmostat->conkeys */
+				/* 2. Transfer kbdstat->conkeys to pmostat->conkeys */
+				/* Copy conkeys to pmostat for ERING */
 				memcpy(&pmostat->conkeys, &kbdstat.conkeys, sizeof(EGI_CONKEY_STATUS));
+
+				/* TEST: for functional lastkey, check timeval to avoid sending reapting status of press_lastkey.
+				 */
+				if( pmostat->conkeys.press_lastkey ) {
+				    if( timercmp(&tm_lastkey, &kbdstat.tm_lastkey, ==) ) {
+					printf("Same tm_lastkey...\n");
+					/* !!! NOTE:
+					 * 1. Reset 'pmostat'->conkeys.press_lastkey, instead of 'kbdstat'.conkeys.press_lastkey!
+					 *    The later will scan in again with different timeval!
+					 * 2. If a key is of repeat_event type, it always brings with different tiemval!
+					 */
+					pmostat->conkeys.press_lastkey=false;
+				    }
+				    else {
+					printf("New tm_lastkey...\n");
+					tm_lastkey = kbdstat.tm_lastkey;
+				    }
+				}
 
 				/* Clear buffer chars[]:  <---- NOPE! NOT here!!!
 				 * Clear AFTER it sends pmostat->chars to the TOP surface!
@@ -608,8 +586,6 @@ WAIT_REQUEST:
 				 */
 				//XXX nch=0;
 				//XXX memset(chars,0, sizeof(chars));
-
-
 			}
 			else
 				egi_dpstd("pmosta==NULL!\n");
@@ -639,8 +615,11 @@ WAIT_REQUEST:
 
 			if( !surfman->minibar_ON  && !pmostat->LeftKeyDownHold ) {  /* to avoid surface_downhold=true */
 				if( pmostat->mouseX < 10 && pmostat->mouseY <10  ) {
+				    /* ONLY if mini_surface is NOT zero! */
+				    if( surfman->mincnt) {
 					surfman->minibar_ON=true;
 					surfman->menulist_ON=false; /* interlocking */
+				    }
 				}
 			}
 			/* Otherwise, disappear it. */
@@ -853,12 +832,16 @@ WAIT_REQUEST:
 						}
 //						egi_dpstd("Ering_msg_send OK! ch=%d\n", pmostat->ch);
 
-						/* Reset/clear pmostat->nch */
+						/* !!! NOTE: CONKEYs and chars[] MAY NOT be cleared here(if SURFACE_FLAG_MEVENT)
+						 *	So have to clear them again in W 2.7.2 if necessary.
+						 */
+
+						/* Reset/clear pmostat->nch and conkeys */
 						pmostat->nch=0;
 						/* Reset/clear pmostat->conkey */
 						memset(&pmostat->conkeys,0,sizeof(EGI_CONKEY_STATUS));
 
-						/* Reset nch/chars[] */
+						/* Reset local nch/chars[] */
 		                                nch=0;
                 		                memset(chars, 0, sizeof(chars));
 
@@ -895,8 +878,8 @@ WAIT_REQUEST:
 			 *	   receive it once the mouse is out of the range.
 			 */
 
-	/* ONLY after chars send to the TOP surface. */
-	if(pmostat->nch==0) {
+	/* ONLY after chars/conkeys cleared by the TOP surface. it only receives mouse status. */
+	if(pmostat->nch==0 && pmostat->conkeys.nk==0 ) {
 			//egi_dpstd("xyget_surfID\n");
 			surfID=surfman_xyget_surfaceID(surfman, surfman->mx, surfman->my );
 			/* Note:

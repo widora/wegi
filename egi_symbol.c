@@ -62,15 +62,15 @@ midaszhou@yahoo.com
 
 /*--------------------(  testfont  )------------------------
   1.  ascii 0-127 symbol width,
-  2.  5-pixel blank space for unprintable symbols, though 0-pixel seems also OK.
+  2.  5-pixel blank space for nonprintable symbols, though 0-pixel seems also OK.
   3.  Please change the 'space' width according to your purpose.
 */
 static int testfont_width[16*8] = /* check with maxnum */
 {
 	/* give return code a 0 width in a txt display  */
-//	5,5,5,5,5,5,5,5,5,5,0,5,5,5,5,5, /* unprintable symbol, give it 5 pixel wide blank */
-//	5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5, /* unprintable symbol, give it 5 pixel wide blank */
-	0,0,0,0,0,0,0,0,0,30,0,0,0,0,0,0, /* 9-TAB 50pixels,  unprintable symbol */
+//	5,5,5,5,5,5,5,5,5,5,0,5,5,5,5,5, /* nonprintable symbol, give it 5 pixel wide blank */
+//	5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5, /* nonprintable symbol, give it 5 pixel wide blank */
+	0,0,0,0,0,0,0,0,0,30,0,0,0,0,0,0, /* 9-TAB 50pixels,  nonprintable symbol */
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 	5,7,8,10,11,15,14,5,6,6,10,10,5,6,5,8, /* space,!"#$%&'()*+,-./ */
 	11,11,11,11,11,11,11,11,11,11,6,6,10,10,10,10, /* 0123456789:;<=>? */
@@ -103,7 +103,7 @@ EGI_SYMPAGE sympg_testfont=
 */
 static int numbfont_width[16*8] = /* check with maxnum */
 {
-	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* unprintable symbol */
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* nonprintable symbol */
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 	15,15,15,15,15,15,15,15,15,15,15,0,0,0,0,0, /* 0123456789: */
