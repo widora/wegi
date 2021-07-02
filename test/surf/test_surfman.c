@@ -57,6 +57,7 @@ XXX 7. If a surface is clicked on SURFBTN_MIN and its status is changed to be SU
    there'll be NO ering msg to the surface!  Necessary???
    NOTE: 5.6.7 --- SURFACE_STATUS_MINIMIZED to be sent by surfman_render_thread()!
 8. A mostats MAY be dropped by the surfman before TOP surface clear SURFACE_FLAG_MEVENT!
+   Such fail to set surfuser->mevent_suspend and update lastX/Y, which leads to surface mis_movement at next LeftKeyDownHold!
 9. A kbdstat is read directly from Keyboard input event, kbdstat.conkeys are control_key_status, sequence of key_pressing
    also recorded. it intends to monitor keyboard shortcut command!
 
@@ -133,6 +134,12 @@ Journal
 	2. Add shortcuts:  ALT+TAB, ALT+ESC, SUPER+D, SUPER+W
 2021-06-25:
 	1. Delete old codes for TEST shortcuts, such as Ctrl+n, Ctrl+o ....
+2021-06-30:
+	1.  W.2.7.2  Correct surfID for a non_TOP surface:
+	    surfID >=0 && surfID!= SURFMAN_MAX_SURFACES && surfID != surfman_get_TopDispSurfaceID(surfman)
+2021-07-01:
+	1. Delete variable 'surface_downhold', no use now.
+	2. W.2.7.2  DO NOT ering LeftKeyDownHold to may non_TOPsurfaces.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -172,7 +179,7 @@ https://github.com/widora/wegi
 	#define SURFMAN_BKGIMG_PATH	"/mmc/egidesk.jpg"  // "/mmc/linux.jpg"
 #endif
 
-#define SHORTCUT_AFT_DELAYMS	200	/* in ms, delay after a shortcut action.
+#define SHORTCUT_AFT_DELAYMS	150	/* in ms, delay after a shortcut action.
 					 * To avoid repeating actions, let kbdread absort intermediate status.
 					 */
 
@@ -187,7 +194,7 @@ int 	lastY;
 int 	nch;
 char 	chars[32];  	/* W.2.7.1A if NO surface displayed, then clear buffer chars[] */
 
-bool	surface_downhold; /* NO USE */
+//bool	surface_downhold; /* NO USE */
 
 EGI_SURFMAN *surfman;
 int	zseq;
@@ -314,7 +321,6 @@ int main(int argc, char **argv)
 		egi_dpstd("Found %d image files for wallpaper.\n", fcount);
 	else
 		egi_dpstd("No image file found for wallpaper!\n");
-
 
 //	pthread_mutex_lock(&surfman->surfman_mutex);
 /* ------ >>>  Surfman Critical Zone  */
@@ -566,7 +572,7 @@ WAIT_REQUEST:
 				 */
 				if( pmostat->conkeys.press_lastkey ) {
 				    if( timercmp(&tm_lastkey, &kbdstat.tm_lastkey, ==) ) {
-					printf("Same tm_lastkey...\n");
+					//printf("Same tm_lastkey...\n");
 					/* !!! NOTE:
 					 * 1. Reset 'pmostat'->conkeys.press_lastkey, instead of 'kbdstat'.conkeys.press_lastkey!
 					 *    The later will scan in again with different timeval!
@@ -575,7 +581,7 @@ WAIT_REQUEST:
 					pmostat->conkeys.press_lastkey=false;
 				    }
 				    else {
-					printf("New tm_lastkey...\n");
+					//printf("New tm_lastkey...\n");
 					tm_lastkey = kbdstat.tm_lastkey;
 				    }
 				}
@@ -688,8 +694,10 @@ WAIT_REQUEST:
 
 				/* A.1  IF: clicked surface already on TOP layer. ( Minimized surfaces NOT considered! ) */
 				/* !!! Exclude surfID <0 && surfman_get_TopDispSurfaceID() <0 */
-				if( surfID >=0 && surfID==surfman_get_TopDispSurfaceID(surfman) ) {
-					surface_downhold=true;
+				//if( surfID >=0 && surfID==surfman_get_TopDispSurfaceID(surfman) ) {
+				/* NOTE: See W2.7.2 */
+				if( surfID >=0 && surfID!=SURFMAN_MAX_SURFACES && surfID == topID ) {
+					//surface_downhold=true;
 
 					/* If A surface is brought to TOP by resorting zseq, after other surface quits.
 					 * ERING MSG TO THE SURFACE!
@@ -711,7 +719,7 @@ WAIT_REQUEST:
 				}
 				/* A.2  Else: If clicked surface is NOT current top surface. */
 				else if(surfID>=0) { /* <0 as bkground */
-					surface_downhold=true;
+					//surface_downhold=true;
 					printf("Bring surfID %d to TOP\n", surfID);
 					/* Bring picked surface to TOP layer */
 					surfman_bringtop_surface_nolock(surfman, surfID);
@@ -768,9 +776,7 @@ WAIT_REQUEST:
 
 	                }
 
-
 			/* W2.4. */
-
 
 			/* W2.5. */
 
@@ -783,7 +789,7 @@ WAIT_REQUEST:
 
                                 surfman->mx  = pmostat->mouseX;
                                 surfman->my  = pmostat->mouseY;
-	
+
 		 /* ------ <<<  Surfman Critical Zone  */
 				pthread_mutex_unlock(&surfman->surfman_mutex);
 
@@ -845,7 +851,7 @@ WAIT_REQUEST:
 		                                nch=0;
                 		                memset(chars, 0, sizeof(chars));
 
-						/* NOPE! MUST NOT clear conkeys! .press_xxx MUST keeps!  XXX Reset/clear kbdstat->conkey. */
+						/* NOPE! MUST NOT clear kbdstat.conkeys! .press_xxx MUST keeps!  XXX Reset/clear kbdstat->conkey. */
 						//memset(&kbdstat.conkeys,0,sizeof(EGI_CONKEY_STATUS));
 
 					    }
@@ -866,7 +872,7 @@ WAIT_REQUEST:
 			}
 
 
-#if 1			/* W.2.7.2  If the mouse cursor hovers over a NON_TOP_surface, ERING mstat to the surface. BUT NOT
+#if 1			/* W.2.7.2  If the mouse cursor hovers over a NON_TOP_surface, ERING mstat to the surface.
 			 * Note:
 			 * 	1. LeftKeyDownHold will move a NOT_TOP_surface!
 			 *      2. 	!!! ----- SEGMENT_FAULT ERROR ----- !!!
@@ -876,20 +882,34 @@ WAIT_REQUEST:
 			 *	   In this case, surfman_xyget_surfaceID() results in surfID=SURFMAN_MAX_SURFACES!
 			 *	3. A NON_TOP_surface receives mstat ONLY WHEN the mouse is within its surface area, and it CAN NOT
 			 *	   receive it once the mouse is out of the range.
+			 *   	4. If the TOP surface is downhold(RESIZing OR MOVing), it MUST NOT ering mostat to any non_TOPsurfaces.
+			 *         any the LeftKeyDownHold will mis_trigger movement....
 			 */
 
-	/* ONLY after chars/conkeys cleared by the TOP surface. it only receives mouse status. */
-	if(pmostat->nch==0 && pmostat->conkeys.nk==0 ) {
+	/* ONLY after chars/conkeys cleared by the TOP surface. Send mouse status ONLY! */
+	if(pmostat->nch==0 && pmostat->conkeys.nk==0 && !pmostat->LeftKeyDownHold) {
 			//egi_dpstd("xyget_surfID\n");
 			surfID=surfman_xyget_surfaceID(surfman, surfman->mx, surfman->my );
+
+			int topID=surfman_get_TopDispSurfaceID(surfman);
 			/* Note:
-			 * Not TOP surface AND surfID != SURFMAN_MAX_SURFACES, which means prev TOP surface unregistered,
-		         * while surfman zbuff[] NOT updated yet!!
+			 *  			----- !!! IMPORTANT !!! -----
+			 *   1.
+			 *      If There is ONLY ONE surface on desktop, and others are MINIMIZED. It's surely the TOP surface,
+			 *	BUT not necessary surfID == SURFMAN_MAX_SURFACES-1! Prev. TOP surface is minimized and carry its surfID.
+			 *      Call surfman_get_TopDispSurfaceID(surfman) instead.
+			 *   2. If surfman_xyget_surfaceID() returns SURFMAN_MAX_SURFACES, it means prev TOP surface just unregistered
+		         *      while surfman zbuff[] NOT updated yet!!
+			 *	OR surfman_xyget_surfaceID() returns SURFMAN_MAX_SURFACES-1 && surfID!=topID, means prev TOP surface just
+			 *	minimized, while zbuff[] NOT updated yet!!
+			 *
+			 *   3. TODO: Put token in pmostat to inform the receiver that it's NOT TOPsurface!
 			 */
-			// XXX if( surfID >=0 && surfID != SURFMAN_MAX_SURFACES-1 && surfID != SURFMAN_MAX_SURFACES ) {
-			if( surfID >=0 && surfID < SURFMAN_MAX_SURFACES-1 ) {
-			//	egi_dpstd("Touch surfID=%d\n", surfID);
-				pmostat->LeftKeyDownHold = false; /* <----- */
+			// XXX if( surfID >=0 && surfID != SURFMAN_MAX_SURFACES-1 && surfID != SURFMAN_MAX_SURFACES && surfID !=topID ) {
+			//if( surfID >=0 && surfID < SURFMAN_MAX_SURFACES-1 ) {
+			if( surfID >=0 && surfID<SURFMAN_MAX_SURFACES-1 && surfID != topID ) {
+				egi_dpstd("Touch nonTOP surfID=%d (toPID=%d)\n", surfID, topID);
+				//pmostat->LeftKeyDownHold = false; /* XXX This will trigger surface_move. OK, LeftKeyDownHold ruled out! */
 				// pmostat->nch = 0;		  /* Ok, cleared in W.2.7.1 */
 				if( ering_msg_send( surfman->surfaces[surfID]->csFD,
 					emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS) ) <=0 ) {

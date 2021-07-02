@@ -5,6 +5,9 @@ published by the Free Software Foundation.
 
 An example of creating a surface for displaying text on it.
 
+Journal:
+
+
 Midas Zhou
 midaszhou@yahoo.com
 https://github.com/widora/wegi
@@ -183,7 +186,7 @@ int main(int argc, char **argv)
 
         /* 4. First draw surface */
         surfshmem->bkgcolor=egi_color_random(color_all); /* OR default BLACK */
-        surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MAX|TOPBTN_MIN); /* Default firstdraw operation */
+        surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MAX|TOPBTN_MIN, 0, NULL); /* Default firstdraw operation */
 
 	/* Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */

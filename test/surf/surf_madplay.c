@@ -70,6 +70,9 @@ Journal:
 	1. my_mouse_event(): Parse keyboard CONKEYs (pmostat->conkeys).
 2021-06-24:
 	1. Apply surface_module default surfuser_ering_routine().
+2021-07-01:
+	1. Apply surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN, MENU_MAX, menu_names)
+	   auto draw menus[].
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -153,11 +156,14 @@ enum {
 	MENU_HELP	=2,
 	MENU_MAX	=3, /* <--- Limit */
 };
-ESURF_BOX	*menus[MENU_MAX];
+//ESURF_BOX	*menus[MENU_MAX];
+
+
 int menuW;	/* var. */
 int menuH=24;
 bool mouseOnMenu;
-int mpmenu=-1;	/* Index of mouse touched menu, <0 invalid */
+//int mpmenu=-1;	/* Index of mouse touched menu, <0 invalid */
+
 
 void menu_file();
 void menu_option(EGI_SURFSHMEM *surfcaller, int x0, int y0);
@@ -227,7 +233,6 @@ int main(int argc, char **argv)
         }
 #endif
 
-
 #if 0	/* Create sysfont buffer, for fw=15,fh=15. */
 	printf("Create buffer for sysfont.bold...\n");
 	egi_fontbuffer=FTsymbol_create_fontBuffer(egi_sysfonts.bold, 15, 15, 0x4E00, 21000);  /* face, fw, fh, unistart, size */
@@ -237,8 +242,8 @@ int main(int argc, char **argv)
 		printf("Fail to create sysfont.bold!\n");
 #endif
 
-	/* Register and FirstDraw */
-#if 1	/* 1. Register/Create a surfuser */
+/* Register and FirstDraw: Here or after all buttons created --------> */
+	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
 	x0=0;y0=0;	sw=240; sh=170;
 	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, pid_lock_file, x0, y0, sw, sh, sw, sh, colorType ); /* Fixed size */
@@ -268,13 +273,11 @@ int main(int argc, char **argv)
 	strncpy(surfshmem->surfname, pname, SURFNAME_MAX-1);
 
 	/* 5. First draw surface. */
-	surfshmem->bkgcolor=WEGI_COLOR_DARKGRAY; /* OR default BLACK */
-	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN); /* Default firstdraw operation */
+	surfshmem->bkgcolor=  WEGI_COLOR_DARKOCEAN; //DRAKGRAY; /* OR default BLACK */
+	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN, MENU_MAX, menu_names); /* Default firstdraw operation */
 
 	/* ----------> Activate image immediately! */
 	surfshmem->sync=true;
-
-#endif
 
 	/* Search all MP3 file in the defaul diretory */
 	mp3_paths=egi_alloc_search_files(DEFAULT_MP3_PATH, "mp3", &files);
@@ -282,7 +285,6 @@ int main(int argc, char **argv)
 		printf("No MP3 found!\n");
 		exit(EXIT_FAILURE);
 	}
-
 
 	/* Set signal handler */
 //	egi_common_sigAction(SIGINT, signal_handler);
@@ -295,7 +297,6 @@ int main(int argc, char **argv)
 		egi_dperr("Fail to make/enter private dir!");
 		exit(EXIT_FAILURE);
 	}
-
 
 	/* Load Noraml Icons */
 	//icons_normal=egi_imgbuf_readfile("/mmc/gray_icons_normal_block.png");
@@ -370,46 +371,7 @@ int main(int argc, char **argv)
 	btns[BTN_PLAY_SWITCH]->imgbuf_pressed = egi_imgbuf_blockCopy(icons_pressed, 25+7*75.5, 145+3*73.5, btnW, btnH);
 	btns[BTN_NEXT]->imgbuf_pressed = egi_imgbuf_blockCopy(icons_pressed, 25+6*75.5, 145+4*73.5, btnW, btnH);
 
-
-#if 0	/* Here OR at beginning:  Register and FirstDraw */
-	/* 1. Register/Create a surfuser */
-	printf("Register to create a surfuser...\n");
-	x0=0;y0=0;	sw=240; sh=170;
-	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, x0, y0, sw, sh, sw, sh, colorType ); /* Fixed size */
-	if(surfuser==NULL) {
-		printf("Fail to register surfuser!\n");
-		exit(EXIT_FAILURE);
-	}
-
-	/* 2. Get ref. pointers to vfbdev/surfimg/surfshmem */
-	vfbdev=&surfuser->vfbdev;
-	surfimg=surfuser->imgbuf;
-	surfshmem=surfuser->surfshmem;
-
-        /* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons etc. */
-	// Defualt: surfuser_ering_routine() calls surfuser_parse_mouse_event();
-        surfshmem->minimize_surface 	= surfuser_minimize_surface;   	/* Surface module default functions */
-	//surfshmem->redraw_surface 	= surfuser_redraw_surface;
-	//surfshmem->maximize_surface 	= surfuser_maximize_surface;   	/* Need resize */
-	//surfshmem->normalize_surface 	= surfuser_normalize_surface; 	/* Need resize */
-        surfshmem->close_surface 	= surfuser_close_surface;
-	surfshmem->user_mouse_event	= my_mouse_event;
-
-	pUserSig = &surfshmem->usersig;
-
-	/* 4. Name for the surface. */
-	pname="MadPlayer";
-	strncpy(surfshmem->surfname, pname, SURFNAME_MAX-1);
-
-	/* 5. First draw surface. */
-	printf("Frist draw...\n");
-	surfshmem->bkgcolor=WEGI_COLOR_DARKGRAY; /* OR default BLACK */
-	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN); /* Default firstdraw operation */
-
-	/* ----------> Activate image immediately! */
-	surfshmem->sync=true;
-
-#endif
+/* <--------- Register and FirstDraw: Here or before all buttons created... */
 
         /* Get surface mutex_lock */
         if( pthread_mutex_lock(&surfshmem->shmem_mutex) !=0 ) {
@@ -418,28 +380,7 @@ int main(int argc, char **argv)
         }
 /* ------ >>>  Surface shmem Critical Zone  */
 
-	printf("Draw top menus...\n");
-	/* 6. Draw/Create top menus */
-	//fbset_color2(vfbdev, WEGI_COLOR_GRAYA);
-	fbset_color2(vfbdev, WEGI_COLOR_DARKBLUE); //FIREBRICK);
-	draw_filled_rect(vfbdev, 1, SURF_TOPBAR_HEIGHT+1, vfbdev->virt_fb->width-2, SURF_TOPBAR_HEIGHT+1+menuH -1);
-	int penx; int startx;
-	penx=1+10;
-	for(i=0; i<MENU_MAX; i++) {
-		startx=penx;
-		FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.regular,   	/* FBdev, fontface */
-               		                  18, 18, (UFT8_PCHAR)menu_names[i],	/* fw,fh, pstr */
-                       		          100, 1, 0,         			/* pixpl, lines, fgap */
-                               		  startx, SURF_TOPBAR_HEIGHT+1,		/* x0,y0, */
-	                                  //WEGI_COLOR_BLACK, -1, 255,     	/* fontcolor, transcolor,opaque */
-	                                  WEGI_COLOR_GRAYC, -1, 200,     	/* fontcolor, transcolor,opaque */
-       		                          NULL, NULL, &penx, NULL);        	/* int *cnt, int *lnleft, int* penx, int* peny */
-
-		/* Create menu/buttons  BTN_FILE, BNT_OPTION, BTN_HELP  (imgbuf, xi, yi,  x0, y0, w, h) */
-		menus[i]=egi_surfBox_create(surfimg, startx-(10), SURF_TOPBAR_HEIGHT+1,  /* 1+10, name offset from box size */
-						     startx-(10), SURF_TOPBAR_HEIGHT+1, (penx+20)-startx, menuH);
-		penx +=20; /* As gap between 2 menu names */
-	}
+	/* 6. BLANK */
 
 	/* 7. Create Lables */
 	/* Create ESURF_BOX lab_mp3name */
@@ -609,80 +550,6 @@ madSTAT=STAT_PLAY;
 	exit(0);
 }
 
-
-#if 0 ////////////////// Use moude default function  //////////////////////
-/*------------------------------------
-    SURFUSER's ERING routine thread.
-------------------------------------*/
-void *surfuser_ering_routine(void *args)
-{
-	EGI_SURFUSER *surfuser=NULL;
-	ERING_MSG *emsg=NULL;
-	EGI_MOUSE_STATUS *mouse_status; /* A ref pointer */
-	int nrecv;
-
-	/* Get surfuser pointer */
-	surfuser=(EGI_SURFUSER *)args;
-	if(surfuser==NULL)
-		return (void *)-1;
-
-	/* Init ERING_MSG */
-	emsg=ering_msg_init();
-	if(emsg==NULL)
-		return (void *)-1;
-
-	/* Hint */
-	egi_dpstd("SURFACE %s starts ERING routine. \n", surfuser->surfshmem->surfname);
-
-	while( surfuser->surfshmem->usersig !=1  ) {
-		/* 1. Waiting for msg from SURFMAN, BLOCKED here if NOT the top layer surface! */
-	        //egi_dpstd("Waiting in recvmsg...\n");
-		nrecv=ering_msg_recv(surfuser->uclit->sockfd, emsg);
-		if(nrecv<0) {
-                	egi_dpstd("unet_recvmsg() fails!\n");
-			continue;
-        	}
-		/* SURFMAN disconnects */
-		else if(nrecv==0) {
-			egi_dperr("ering_msg_recv() nrecv==0! SURFMAN disconnects!!");
-			//continue;
-			exit(EXIT_FAILURE);
-		}
-
-	        /* 2. Parse ering messag */
-        	switch(emsg->type) {
-			/* NOTE: Msg BRINGTOP and MOUSE_STATUS sent by TWO threads, and they MAY reaches NOT in right order! */
-	               case ERING_SURFACE_BRINGTOP:
-                        	egi_dpstd("Surface is brought to top!\n");
-                	        break;
-        	       case ERING_SURFACE_RETIRETOP:
-                	        egi_dpstd("Surface is retired from top!\n");
-                        	break;
-                       case ERING_SURFACE_CLOSE:
-                                egi_dpstd("Surfman request to close the surface!\n");
-                                surfuser->surfshmem->usersig =1;
-                                break;
-		       case ERING_MOUSE_STATUS:
-				mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
-				//egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
-				/* Parse mouse event */
-				surfuser_parse_mouse_event(surfuser,mouse_status);  /* mutex_lock */
-				/* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent. SURFMAN sets MEVENT before ering. */
-				surfuser->surfshmem->flags &= (~SURFACE_FLAG_MEVENT);
-				break;
-	               default:
-        	                egi_dpstd("Undefined MSG from the SURFMAN! data[0]=%d\n", emsg->data[0]);
-        	}
-
-	}
-
-	/* Free EMSG */
-	ering_msg_free(&emsg);
-
-	egi_dpstd("Exit thread.\n");
-	return (void *)0;
-}
-#endif ///////////////////////////////////
 
 /*-----------------------------------------------------------------
                 Mouse Event Callback
@@ -868,48 +735,50 @@ if( pmostat->conkeys.press_lastkey )
 	if( !mouseOnBtn ) {
 		for(i=0; i<MENU_MAX; i++) {
 	                /* A. Check mouse_on_menu */
-                	mouseOnMenu=egi_point_on_surfBox( menus[i], pmostat->mouseX -surfuser->surfshmem->x0,
+                	mouseOnMenu=egi_point_on_surfBox( (ESURF_BOX *)surfshmem->menus[i], pmostat->mouseX -surfuser->surfshmem->x0,
                                                                 	pmostat->mouseY -surfuser->surfshmem->y0 );
 
 			/* B. If the mouse just moves onto a menu */
-		        if(  mouseOnMenu && mpmenu != i ) {
-				egi_dpstd("Touch a MENU mpmenu=%d, i=%d\n", mpmenu, i);
+		        if(  mouseOnMenu && surfshmem->mpmenu != i ) {
+				egi_dpstd("Touch a MENU. prev mpmenu=%d, i=%d\n", surfshmem->mpmenu, i);
                 		/* B.1 In case mouse move from a nearby menu, restore its image. */
-		                if( mpmenu>=0 ) {
-        		        	egi_subimg_writeFB(menus[mpmenu]->imgbuf, vfbdev,
-	        	        	        	0, -1, menus[mpmenu]->x0, menus[mpmenu]->y0);
+		                if( surfshmem->mpmenu>=0 ) {
+        		        	egi_subimg_writeFB( surfshmem->menus[surfshmem->mpmenu]->imgbuf, vfbdev,
+	        	        	        	0, -1, surfshmem->menus[surfshmem->mpmenu]->x0, surfshmem->menus[surfshmem->mpmenu]->y0);
                 		}
 	                        /* B.2 Put effect on the newly touched SURFBTN */
 			   	#if 1 /* Mask */
-	                	draw_blend_filled_rect(vfbdev, menus[i]->x0, menus[i]->y0,
-        	                			menus[i]->x0+menus[i]->imgbuf->width-1,menus[i]->y0+menus[i]->imgbuf->height-1,
+	                	draw_blend_filled_rect(vfbdev, surfshmem->menus[i]->x0, surfshmem->menus[i]->y0,
+        	                			surfshmem->menus[i]->x0+surfshmem->menus[i]->imgbuf->width-1,
+							surfshmem->menus[i]->y0+surfshmem->menus[i]->imgbuf->height-1,
                 	                		WEGI_COLOR_WHITE, 100);
 				#else /* imgbuf_effect */
-				egi_subimg_writeFB(menus[i]->imgbuf_effect, vfbdev,
-                	                               0, -1, menus[i]->x0, menus[i]->y0);
+				egi_subimg_writeFB(surfshmem->menus[i]->imgbuf_effect, vfbdev,
+                	                               0, -1, surfshmem->menus[i]->x0, surfshmem->menus[i]->y0);
 				#endif
 
         	                /* B.3 Update mpmenu */
-                	        mpmenu=i;
+                	        surfshmem->mpmenu=i;
 
                         	/* B.4 Break for() */
 	                        break;
         	 	}
                 	/* C. If the mouse leaves a menu: Clear mpmenu */
-	                else if( !mouseOnMenu && mpmenu == i ) {
+	                else if( !mouseOnMenu && surfshmem->mpmenu == i ) {
 
         	                /* C.1 Draw/Restor original image */
-                	        egi_subimg_writeFB(menus[mpmenu]->imgbuf, vfbdev, 0, -1, menus[mpmenu]->x0, menus[mpmenu]->y0);
+                	        egi_subimg_writeFB(surfshmem->menus[surfshmem->mpmenu]->imgbuf, vfbdev, 0, -1,
+							surfshmem->menus[surfshmem->mpmenu]->x0, surfshmem->menus[surfshmem->mpmenu]->y0);
 
                         	/* C.2 Reset pressed and Clear mpbtn */
 				//menus[mpmenu]->pressed=false;
-        	                mpmenu=-1;
+        	                surfshmem->mpmenu=-1;
 
                 	        /* C.3 Break for() */
                         	break;
 	                }
         	        /* D. Still on the menu, sustain... */
-                	else if( mouseOnMenu && mpmenu == i ) {
+                	else if( mouseOnMenu && surfshmem->mpmenu == i ) {
                         	break;
 	                }
 		} /* EDN for(menus) */
@@ -1012,10 +881,10 @@ if( pmostat->conkeys.press_lastkey )
 
         /* 3. If LeftKeyDown(Click) on menu */
         if( pmostat->LeftKeyDown && mouseOnMenu ) {
-                egi_dpstd("LeftKeyDown mpmenu=%d\n", mpmenu);
+                egi_dpstd("LeftKeyDown mpmenu=%d\n", surfshmem->mpmenu);
 
                 /* If any SURFBTN is touched, do reaction! */
-                switch(mpmenu) {
+                switch(surfshmem->mpmenu) {
                         case MENU_FILE:
 				break;
 			case MENU_OPTION:
@@ -1212,7 +1081,7 @@ SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
 
 	/* 5. First draw surface. */
 	msurfshmem->bkgcolor=WEGI_COLOR_GRAYA; /* OR default BLACK */
-	surfuser_firstdraw_surface(msurfuser, TOPBTN_CLOSE); /* Default firstdraw operation */
+	surfuser_firstdraw_surface(msurfuser, TOPBTN_CLOSE, 0, NULL); /* Default firstdraw operation */
 
 	/* 6. Start Ering routine */
 	printf("start ering routine...\n");
@@ -1318,7 +1187,7 @@ REGISTER_SURFUSER:
 
 	/* 5. First draw surface. */
 	msurfshmem->bkgcolor=WEGI_COLOR_GRAYA; /* OR default BLACK */
-	surfuser_firstdraw_surface(msurfuser, TOPBTN_CLOSE); /* Default firstdraw operation */
+	surfuser_firstdraw_surface(msurfuser, TOPBTN_CLOSE, 0, NULL); /* Default firstdraw operation */
 
 	/* 6. Draw top menus */
 	fbset_color2(mvfbdev, WEGI_COLOR_MAROON); //FIREBRICK);
@@ -1415,6 +1284,7 @@ void testsurf_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 	//msurfimg=surfuser->imgbuf;
 
 	/* 1.A Check if mouse hovers over any menu */
+	/* NOTE: Current surface MAY NOT be the TOP_surface.... */
 	//if(!mouseOnBtn) {
 	if(true) {
 		for(i=0; i<TESTBOX_MAXNUM; i++) {

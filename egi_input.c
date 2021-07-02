@@ -655,17 +655,19 @@ static void *egi_mouse_loopread( void* arg )
         	        	case 0b01:
 	        	                mostatus.LeftKeyDown=true;
         	        	        mostatus.LeftKeyUpHold=false;
+        	        	        mostatus.LeftKeyDownHold=false;
                 	        	printf("-Leftkey Down!\n");
                         		break;
 		                case 0b10:
 	        	                mostatus.LeftKeyUp=true;
 					mostatus.LeftKeyDown=false; /* MAY transfer from 0b01 ! */
-        	        	        mostatus.LeftKeyDownHold=false;
+        	        	        mostatus.LeftKeyDownHold=false;  /* <--------- */
                 	        	printf("-Leftkey Up!\n");
 	                	        break;
 	        	        case 0b11:
         	        	        mostatus.LeftKeyDownHold=true;
 		                        mostatus.LeftKeyDown=false;
+					mostatus.LeftKeyUpHold=false;
 		                        printf("-Leftkey DownHold!\n");
                 		        break;
 		                default:  /* 0b00: Leftkey UpHold */

@@ -33,6 +33,8 @@ Journal:
 	   its normal alignment position.
 2021-6-1:
 	1. Add member 'front_imgbuf" for ESURF_LABEL.
+2021-07-2:
+	1. egi_surfLab_free(); to free (*lab)->imgbuf_effect.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -196,6 +198,8 @@ void egi_surfLab_free(ESURF_LABEL **lab)
 
 	/* Free imgbuf */
 	egi_imgbuf_free((*lab)->imgbuf);
+	/* Free imgbuf_effect */
+	egi_imgbuf_free((*lab)->imgbuf_effect);
 
 	/* Free struct */
 	free(*lab);

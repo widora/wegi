@@ -371,7 +371,7 @@ int main(int argc, char **argv)
 
 	/* 5. First draw surface. */
 	//surfshmem->bkgcolor=WEGI_COLOR_GRAY3; /* OR default BLACK */
-	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN); /* Default firstdraw operation */
+	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN, 0, NULL); /* Default firstdraw operation */
         /* 5A. Set Alpha Frame and Draw outline rim */
         int rad=10;
         egi_imgbuf_setFrame(surfimg, frame_round_rect, -1, 1, &rad);
@@ -1134,7 +1134,7 @@ EGI_16BIT_COLOR  mbkgcolor=WEGI_COLOR_GRAYB;
 	/* 5. First draw ListBox surface. */
 	msurfshmem->bkgcolor=mbkgcolor; /* OR default BLACK */
 	egi_dpstd("First draw surface...\n");
-	surfuser_firstdraw_surface(msurfuser, TOPBTN_CLOSE); /* Default firstdraw operation */
+	surfuser_firstdraw_surface(msurfuser, TOPBTN_CLOSE, 0, NULL); /* Default firstdraw operation */
 //	surfuser_firstdraw_surface(msurfuser, TOPBAR_NONE); /* Default firstdraw operation */
 
 

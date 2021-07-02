@@ -30,6 +30,9 @@ midaszhou@yahoo.com
 #define		SURF_TOPBAR_COLOR	WEGI_COLOR_GRAY5
 #define		SURF_OUTLINE_COLOR	WEGI_COLOR_GRAY
 
+#define 	SURF_TOPMENU_HEIGHT	28
+#define 	SURF_TOPMENU_BKGCOLOR	WEGI_COLOR_GRAY2 //WEGI_COLOR_DARKBLUE
+#define 	SURF_TOPMENU_FONTCOLOR	WEGI_COLOR_BLACK //WEGI_COLOR_GRAYC
 
 #ifdef LETS_NOTE
         #define SURF_MAXW       800
@@ -114,8 +117,15 @@ struct egi_surface_user {
 						 *    it will reset to FALSE.
 						 *  XXX NOT synch/ NOT reliable XXX
 						 */
-	bool		mevent_suspend;		/* As token for starting of a new round of mevent session
-						 * Init as TRUE.
+	bool		mevent_suspend;		/* 
+						 * TRUE:  the surface is suspended. current lastX/Y is obselete and need to update when de_suspend.
+						 * FALSE: sustaining a consecutive mouse_holddown drived action (surface moving/adjusting etc.),
+						 *	  and lastX/Y is effective as to track/measure mouse movement.
+						 * 1. As token for starting of a new round of mevent session.
+						 * 2. Init as TRUE.
+						 * 3. When a surface is clicked on TOPBTN_MIN_INDEX to minimize, set it as TURE.
+						 * 4. mostat LeftKeyDownHold OR LeftKeyDown can reset it as FALSE.
+						 *
 						 * !!! WARNING !!! TODO: NOT correct now, To improve...
 						 */
 
@@ -354,9 +364,23 @@ struct egi_surface_shmem {
 					 * TODO: NOW They are released/freed by the Caller!
 					 */
 
-	int		mpbox;		/* Index of mouse touched sboxes, as index of sboxes[]
+	int		mpbox;		/* Index of touched sboxes, as index of sboxes[]
 					 * <0 invalid.  Init. it as -1 in surfman_register_surface().
 					 */
+
+	/* Top menus */
+	EGI_16BIT_COLOR		topmenu_bkgcolor;     /* Default init. as SURF_TOPMENU_BKGCOLOR */
+	EGI_16BIT_COLOR		topmenu_hltbkgcolor;  /* Highlight bkgcolor, if applys.  Default init. as SURF_TOPMENU_BKGCOLOR */
+
+#define TOPMENU_MAX		8
+	ESURF_LABEL		*menus[TOPMENU_MAX]; /* menus[] allocated/inited in sequence. So menus[0]!=NULL if any menu exits. */
+	int 			mpmenu;  	/* Index of touched menu, as index of menus[]
+						 *  <0 invalid. Init. it as -1 in surfman_register_surface().
+						 * Releases/freed by egi_unregister_surfuser().
+						 */
+
+
+
 	/*** Surface draw Funtions */
  	/* 1. Draw background/canvas, called at beginning of surfuser_firstdraw_surface() */
 	void (*draw_canvas)(EGI_SURFUSER *surfuser);
@@ -565,7 +589,7 @@ int egi_unregister_surfuser(EGI_SURFUSER **surfuser);
 
 	/* Default surface operations; OR use your own tailor_made functions. */
 __attribute__((weak)) void surfuser_draw_canvas(EGI_SURFUSER *surfuser);
-__attribute__((weak)) void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int options);
+__attribute__((weak)) void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int options, int menuc, const char **menuv);
 __attribute__((weak)) void surfuser_move_surface(EGI_SURFUSER *surfuser, int x0, int y0);
 __attribute__((weak)) void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h);
 __attribute__((weak)) void surfuser_maximize_surface(EGI_SURFUSER *surfuser);

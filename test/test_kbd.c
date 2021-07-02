@@ -66,7 +66,7 @@ int main(void)
 		//if(egi_read_kbdcode(&kstat, "/dev/input/event0")==0) {
 		if(egi_read_kbdcode(&kstat, NULL)==0) {
 
-			#if 0 /* Print keys */
+			#if 1 /* Print keys */
 			printf(" ------ ks=%d:  ", kstat.ks);
 			for(i=0; i<kstat.ks; i++) {
 				printf("%s_%u ", kstat.press[i] ? "press":"release", kstat.keycode[i]);
@@ -110,6 +110,30 @@ int main(void)
 
 			/* Multi_media function keys: KEY_VOLUMEUP, KEY_VOLUMEDOWN,KEY_MUTE,KEY_PLAYPAUSE,KEY_BACK,KEY_FORWARD    */
 			switch( kstat.conkeys.lastkey ) {
+				case KEY_J:
+					printf("%s KEY_J\n",kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_K:
+					printf("%s KEY_K\n",kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_D:
+					printf("%s KEY_D\n",kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_F:
+					printf("%s KEY_F\n",kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_G:
+					printf("%s KEY_G\n",kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_H:
+					printf("%s KEY_H\n",kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_APOSTROPHE: /* Select */
+					printf("%s KEY_APOSTROPHE\n",kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
+				case KEY_GRAVE:    /* Start */
+					printf("%s KEY_GRAVE\n",kstat.conkeys.press_lastkey? "Press":"Release");
+					break;
 				case KEY_VOLUMEUP:
 					printf("%s KEY_VOLUMEUP\n",kstat.conkeys.press_lastkey? "Press":"Release");
 					break;
@@ -137,6 +161,9 @@ int main(void)
 				default:
 					break;
 			}
+
+			/* Reset lastkey */
+			kstat.conkeys.lastkey =0;
 
 		}
 	} /* End while() */

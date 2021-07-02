@@ -60,6 +60,8 @@ Journal
 	1. my_mouse_event(): Test CONKEYs group.
 2021-06-24:
 	1. surfuser_ering_routine(): case ERING_SURFACE_CLOSE, surfman request to close the surface.
+2021-07-01:
+	1. Add top menus[].
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -98,6 +100,16 @@ EGI_16BIT_COLOR  bkgcolor;
 					 * Before that, all mostat received will be ignored. This is to get rid of
 					 * LeftKeyDownHold following LeftKeyDown which is to pick the top surface.
 					 */
+/* SURF Menus */
+const char *menu_names[] = { "File", "Option", "Help"};
+enum {
+        MENU_FILE       =0,
+        MENU_OPTION     =1,
+        MENU_HELP       =2,
+        MENU_MAX        =3, /* <--- Limit */
+};
+
+
 /* For text buffer */
 char ptxt[1024];	/* Text */
 int poff;		/* Offset to ptxt */
@@ -225,12 +237,11 @@ START_TEST:
 	else
 		strncpy(surfshmem->surfname, "EGI_SURF", SURFNAME_MAX-1);
 
-	/* 4. First draw surface */
+	/* 4. First draw surface  */
 	surfshmem->bkgcolor=egi_color_random(color_all); /* OR default BLACK */
-	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MAX|TOPBTN_MIN); /* Default firstdraw operation */
-//	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MAX); /* Default firstdraw operation */
-//	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE); /* Default firstdraw operation */
-//	surfuser_firstdraw_surface(surfuser, TOPBTN_MAX|TOPBTN_MIN); /* Default firstdraw operation */
+	surfshmem->topmenu_bkgcolor=egi_color_random(color_light);
+	surfshmem->topmenu_hltbkgcolor=WEGI_COLOR_GRAYA;
+	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MAX|TOPBTN_MIN, MENU_MAX, menu_names); /* Default firstdraw operation */
 
 	/* font color */
 	fcolor=COLOR_COMPLEMENT_16BITS(surfshmem->bkgcolor);
@@ -455,7 +466,7 @@ void my_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
         FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular,   /* FBdev, fontface */
                                         fw, fh, (const UFT8_PCHAR)ptxt, /* fw,fh, pstr */
                                         w-10, (h-SURF_TOPBAR_HEIGHT-10)/(fh+fgap) +1, fgap,  /* pixpl, lines, fgap */
-                                        5, SURF_TOPBAR_HEIGHT+5,        /* x0,y0, */
+                                        5, SURF_TOPBAR_HEIGHT+SURF_TOPMENU_HEIGHT+5,        /* x0,y0, */
                                         fcolor, -1, 255,  		/* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
 }

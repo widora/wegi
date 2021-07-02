@@ -159,7 +159,7 @@ int main(int argc, char **argv)
 
 	/* 5. First draw surface */
 	//surfshmem->bkgcolor=WEGI_COLOR_WHITE;
-	surfuser_firstdraw_surface(surfuser, TOPBAR_NONE); //TOPBTN_CLOSE|TOPBTN_MAX|TOPBTN_MIN); /* Default firstdraw operation */
+	surfuser_firstdraw_surface(surfuser, TOPBAR_NONE, 0, NULL); //TOPBTN_CLOSE|TOPBTN_MAX|TOPBTN_MIN); /* Default firstdraw operation */
 	/* 5A. Set Alpha Frame and Draw outline rim */
 	/* Reset bkgcolor/alpha, default is BLACK/255 */
 	egi_imgbuf_resetColorAlpha(surfimg, WEGI_COLOR_GRAYB, 0);
