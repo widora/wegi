@@ -3413,7 +3413,11 @@ void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
                                         NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
 #endif
 
-	/* 6.5 Redraw topbar SURFBTNs: CLOSE/MIN/MAX. Also refer to surfuser_firstdraw_surface(), case 6. */
+	/* 6.5 Redraw topbar SURFBTNs: CLOSE/MIN/MAX. Also refer to surfuser_firstdraw_surface(), case 6.
+	 * Note:
+	 *	1. 'X_O' position is a little different from which in surfuser_firstdraw_surface().
+	 */
+
 	/* Assume btn imgbuf already set */
         int xs=surfimg->width-20*nbs -3;
 

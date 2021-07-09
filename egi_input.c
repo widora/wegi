@@ -139,7 +139,12 @@ TODO: If mouse is disconnected, the mouse_callback() will be hung up.
 	   1.2 Clear KBD STATUS when it detects an input device becomes disconnected/invalid! <-----
 2021-06-24:
 	1.egi_read_kbdcode():  Add ascii_conkey to conkeseq[].
-
+2021-07-03:
+	1. Add member 'abskey' and 'absvalue' for EGI_CONKEY_STATUS.
+	   Modify egi_read_kbdcode() accordingly.
+2021-07-07:
+	1. (Itme 11.) If abskey value keeps as IDLE(0x7F) aft. readkbd, reset baskey=ABS_MAX to make it invalid!.
+	2. (Item 12.) If press_lastkey keeps FALSE, clear laskey code!
 Midas Zhou
 midaszhou@yahoo.com
 --------------------------------------------------------------------------------------*/
@@ -1100,6 +1105,12 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 	if(kstat==NULL)
 		return -1;
 
+	/* TEST:  Previous abskey value / press_lastkey  */
+	int32_t prev_absvalue;
+	prev_absvalue = kstat->conkeys.absvalue;
+	bool prev_press_lastkey;
+	prev_press_lastkey = kstat->conkeys.press_lastkey;
+
 	/* If input device specified */
 	if(kdev)
 		nk=1;
@@ -1224,6 +1235,8 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 	memset(kstat->press, 0, sizeof(typeof(*kstat->press))*KBD_STATUS_BUFSIZE);
 	memset(kstat->tmval, 0, sizeof(typeof(*kstat->tmval))*KBD_STATUS_BUFSIZE);
 
+	/* 5.1 Init kstat->conkey.abskey ---NOPE!  */
+
 	/* 6. Select and read fd[] */
         tmout.tv_sec=0;
         tmout.tv_usec=10000;
@@ -1273,9 +1286,15 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 
 				break;
 
+	                case EV_ABS:
+				kstat->conkeys.abskey = event.code & 0xff;
+				kstat->conkeys.absvalue = event.value; 	/* NOTE! */
+				egi_dpstd("EV_ABS: abskey=%d %s\n", kstat->conkeys.abskey, kstat->conkeys.abskey==0?"ABS_X":"");
+				//egi_dpstd("abskey=%d, absvalue=%d\n", kstat->conkeys.abskey, kstat->conkeys.absvalue);
+				break;
+
 			#if 0 /*  Discard other event...  */
 	                   case EV_REL: printf("Rel"); break;
-	                   case EV_ABS: printf("ABS"); break;
 	                   case EV_MSC: printf("Misc"); break;
         	           case EV_LED: printf("Led");  break;
                 	   case EV_SND: printf("Snd");  break;
@@ -1306,12 +1325,16 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 
         } /* END if(sfd>0) */
 
-	/* 7.Check ks */
+#if 0	/* XXX 7.Check ks XXX DO NOT, we need EV_ABS key also... */
 	if(kstat->ks==0) {
-//		egi_dpstd("No input key detected!\n");
+ 		//egi_dpstd("No input key detected!\n");
 		//NOPE!!!  kstat->conkeys.lastkey = 0; /* Keep lastkey!!! */
 		return 0;
 	}
+#endif
+
+ /* To process buffered EV_KEY event data */
+ if( kstat->ks >0 ) {
 
 	/* 8. Parse and get key status! */
 	for(i=0; i< kstat->ks; i++) {
@@ -1437,13 +1460,17 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 
 	} /* End for() */
 
-	/* 8.A Save the lastkey to kstat->conkeys.lastkey, here ks>=1. It returns when ks==0, see 7.
+
+
+	/* 8.A Save the lastkey to kstat->conkeys.lastkey, NOPTE!  XXX here ks>=1 assured, otherwise it returns when ks==0, see 7.
 	 *  Functional keys(media contorl keys, etc.) usually has NO repeating event...
 	 *  A lastkey will be functional ONLY WHEN conkey_group is empty!
 	 */
-	kstat->conkeys.lastkey = kstat->keycode[kstat->ks-1];    /* ks-1: The last index! */
-	kstat->conkeys.press_lastkey = kstat->press[kstat->ks-1];
-	kstat->tm_lastkey=kstat->tmval[kstat->ks-1];
+		kstat->conkeys.lastkey = kstat->keycode[kstat->ks-1];    /* ks-1: The last index! */
+		kstat->conkeys.press_lastkey = kstat->press[kstat->ks-1];
+		kstat->tm_lastkey=kstat->tmval[kstat->ks-1];
+
+	/* kstat->conkeys.abskey saved at above 6. at case EV_ABS */
 
 				/* ----- 9. Update conkeyseq[] ----- */
 
@@ -1451,7 +1478,7 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 	for(i=0; i<CONKEYSEQ_MAX+1; i++)  /* +1 for EOF */
 		kstat->conkeys.conkeyseq[i]=CONKEYID_NONE;
 
-	/* 9.2 Update conkeyseq[] */
+	/* 9.2 Update conkeyseq[] with current buffered key data */
 	struct timeval conkeytm[CONKEYSEQ_MAX+1]={0};  /* +1 as EOF */
 	i=0; /* CONKEY counter */
 
@@ -1567,17 +1594,39 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 		kstat->conkeys.nk += 1;
 	}
 
+} /* END of if( kstat->ks >0 ) */
+
+
+/* TEST: ---- 11. If abskey value keeps as IDLE(0x7F) aft. readkbd, reset baskey=ABS_MAX to make it invalid!
+	 TODO: Check abskey CODE also!
+ */
+	if( prev_absvalue==0x7F && kstat->conkeys.absvalue==0x7F ) {
+		//egi_dpstd("abskey released alread!\n");
+		kstat->conkeys.abskey = ABS_MAX;
+	}
+
+	/* 12. If press_lastkey keeps FALSE, clear laskey code!  TODO: Check lastkey CODE also! ... here see lastkey as a func. key. */
+	if( prev_press_lastkey==false  &&  kstat->conkeys.press_lastkey==false )
+		kstat->conkeys.lastkey = 0;
 
 /* TEST: ----------- print sorted CONKEYs */
-	printf("Sorted CONKEYs: ");
-	//for(k=0; k<CONKEYSEQ_MAX; k++) {
+  if(kstat->conkeys.nk>0 || kstat->conkeys.asciikey )
+  {
+	egi_dpstd("Sorted CONKEYs: ");
 	for(k=0; k < kstat->conkeys.nk; k++) {
 		printf("%s ", CONKEY_NAME[ (int)(kstat->conkeys.conkeyseq[k]) ] );
 	}
 	if( kstat->conkeys.asciikey )
 		printf("key_%u", kstat->conkeys.asciikey);
 	printf("\n");
-/* TEST: end */
+  }
+/* TEST: ----------  EV_KEY: lastkey.   ONLY for pressed statu OR the last release statu.  */
+	if(kstat->conkeys.press_lastkey || prev_press_lastkey )  /* now_pressed OR keep_pressed OR now_release(prev_pressed) */
+		egi_dpstd("%s lastkey=%d\n", kstat->conkeys.press_lastkey?"Press":"Release", kstat->conkeys.lastkey);
+
+/* TEST: ----------- EV_ABS: abskey */
+	if(kstat->conkeys.abskey!=ABS_MAX)  /* ABS_MAX as IDLE */
+		egi_dpstd("abskey=%d, absvalue=%d\n", kstat->conkeys.abskey, kstat->conkeys.absvalue);
 
     	return 0;
 }

@@ -86,7 +86,7 @@ https://github.com/widora/wegi
 
 #define LOOP_TEST	0	/* Surface birdth and death loop test */
 
-//const char *pid_lock_file="/var/run/surfman_guider.pid";
+//const char *pid_lock_file="/var/run/test_surfuser.pid";
 
 /* For SURFUSER */
 EGI_SURFUSER     *surfuser=NULL;
@@ -198,6 +198,7 @@ START_TEST:
 		surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, x0, y0, SURF_MAXW,SURF_MAXH, sw, sh, colorType );
 	}
 	else
+		/* Note: Too small vw/vh(for first_draw) will make outside topmenus[] BLACK! */
 		surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, mat_random_range(SURF_MAXW-50)-50, mat_random_range(SURF_MAXH-50),
      	                                SURF_MAXW, SURF_MAXH,  140+mat_random_range(SURF_MAXW/2), 60+mat_random_range(SURF_MAXH/2), colorType );
 	if(surfuser==NULL) {

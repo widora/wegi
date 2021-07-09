@@ -22,6 +22,10 @@ CFLAGS  += -D_FILE_OFFSET_BITS=64
 CFLAGS  += -DENABLE_BACK_BUFFER
 CFLAGS  += -Wno-maybe-uninitialized
 
+## -std=c99 will fail MACRO typeof()
+#CFLAGS  += '-std=c99'
+CFLAGS += '-std=gnu99'
+
 LDFLAGS += -L$(SRC_PATH)/lib -L$(COMMON_USRDIR)/lib
 ##LDFLAGS += -L/home/midas-zhou/giflib-5.2.1/finish/lib
 

@@ -368,7 +368,7 @@ struct egi_surface_shmem {
 					 * <0 invalid.  Init. it as -1 in surfman_register_surface().
 					 */
 
-	/* Top menus */
+	/* Top label/menus */
 	EGI_16BIT_COLOR		topmenu_bkgcolor;     /* Default init. as SURF_TOPMENU_BKGCOLOR */
 	EGI_16BIT_COLOR		topmenu_hltbkgcolor;  /* Highlight bkgcolor, if applys.  Default init. as SURF_TOPMENU_BKGCOLOR */
 

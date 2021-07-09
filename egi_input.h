@@ -48,9 +48,9 @@ struct egi_controlkeys_status {
 
 	int  nk;			/* Total number of CONKEYs pressed */
 
-     	bool press_leftctrl		: 1; 	/* press or keep_pressed */
+     	bool press_leftctrl		: 1; 	/* Ture: pressed; 	False: released */
 	bool press_rightctrl		: 1;
-        bool press_leftalt		: 1;
+	bool press_leftalt		: 1;
         bool press_rightalt		: 1;
         bool press_leftshift		: 1;
 	bool press_rightshift		: 1;
@@ -73,6 +73,24 @@ struct egi_controlkeys_status {
 					 * 2. Usually the key shall NOT be EV_REP type.
 					 * 3. NOW the SURFMAN will reset press_lastkey to false if same keycode and tm_lastkey as last time.
 					 *    so as to ering lastkey press_statu to the surfuser ONLY ONCE.
+					 * 4. For the SURFUSER, check press_lastkey==TRUE first, in case lastkey NOT cleared YET!
+					 */
+	/* ABS type keys.
+	 * NOTE: struct input_event {  struct timeval time;  __u16 type;  __u16 code;  __s32 value; }
+	 * input.h
+		#define ABS_X                   0x00
+		#define ABS_Y                   0x01
+		#define ABS_MAX			0x3F
+		#define ABS_CNT			(ABS_MAX+1)
+		//#define FF_MAX         	  	0x7F  (Force Feedback Max )
+	 */
+	char abskey;			/* ABS key code: ABS_X, ABS_Y, etc. !!! input_event __u16 code;
+					 * ABS_MAX --> invalid.  0 --> ABS_X!
+					 * EV_KEY: KEY_RESERVED ==0
+					 */
+	int32_t absvalue;		/* ABS value: 0xff, 0x00 etc. !!! input_event __s32 value;
+					 * If released, it returns 0x7F ???
+					 * GamePad Conversion: (kstat.conkeys.absvalue -0x7F)>>7; then absvalue results in [1 -1].
 					 */
 
 	/*** Function keys:
@@ -100,12 +118,15 @@ struct egi_keyboard_status {
 	 *  2. Remind to cross check type and size in egi_read_kbdcode(), Sec.5.
 	 */
 #define KBD_STATUS_BUFSIZE	8  //4
-	int	 		ks;	/* Total number of key events (press OR release) got in one read of KBD dev
+	int	 		ks;	/* Total number of EV_KEY events (press OR release) got in one read of KBD dev
 					 * (each call of egi_read_kbdcode()), results are buffered in following arrays.
 					 */
 	struct timeval 		tmval[KBD_STATUS_BUFSIZE];
-	uint16_t 		keycode[KBD_STATUS_BUFSIZE];
+	uint16_t 		keycode[KBD_STATUS_BUFSIZE];  /* For EV_KEY only;   EV_ABS to conkeys.abskey. */
 	bool	 		press[KBD_STATUS_BUFSIZE];
+
+
+//	int			kabs;	/* Total nmber of EV_ABS events */
 
 	/*** Control key status.
 	 *   1. The user MUST NOT clear following date before reading keyboard, they are updated ONLY when EV_KEY happens. see egi_read_kbdcode().
@@ -170,10 +191,11 @@ struct egi_mouse_status {
 	bool cmd_end_loopread_mouse;   /* Request to end mouse loopread, espacially for mouse_callback function,
 					*  which may be trapped in deadlock withou a signal.
 					*/
-
+	/* NOW: From ptty STDIN */
 	int  nch;	/* Used bytes in ch[] */
 	char chars[32];	/* Input ASCII values.  NOT necessary to be null(0) terminated!  */
 
+	/* NOW: From event dev by egi_read_kbdcode() */
 	EGI_CONKEY_STATUS conkeys; /* NOTE: Unlike chars[], conkeys has NO buffer!
 				    * If you hit(press/release) a key with very short time, the press_status
 				    * MAY miss to SURFUSER, when the SURFUSER is too busy(FLAG_MEVENT NOT cleared) and

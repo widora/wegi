@@ -89,6 +89,7 @@ int main(int argc, char **argv)
 	int ret;
 	int x0=0,y0=0; /* Origin coord of the surface */
 	EGI_IMGBUF *bingimg=NULL;
+	char strtmp[256]={0};
 
 #if 1	/* Start EGI log */
         if(egi_init_log("/mmc/surf_wallpaper.log") != 0) {
@@ -212,7 +213,7 @@ curl: (7) Error
 
 
 		EGI_PLOG(LOGLV_TEST, "System ret=%d\n", ret);
-		if( WIFEXITED(ret)			/* However, WIFEXITED(ret) may still fail! */
+		if( ret!=-1 && WIFEXITED(ret) && WEXITSTATUS(ret)==0		/* See MAN of system() for return values */
 		    && (bingimg=egi_imgbuf_readfile(BING_WALLPAPER_PATH))!=NULL  )
 		{
 			EGI_PLOG(LOGLV_TEST, "Editing image...\n");
@@ -248,14 +249,18 @@ curl: (7) Error
 			/* set token */
 			ret_ok=true;
 		}
-		else { /* ELSE !WIFEXITED(ret) */
-			EGI_PLOG(LOGLV_TEST, "Fail to call system()!\n");
+		else if( ret!=-1 && WIFEXITED(ret) ) { /* ELSE if system() succeeds to create a child process to run shell script */
+			EGI_PLOG(LOGLV_TEST, "Shell script fails!\n");
+
+			snprintf(strtmp, sizeof(strtmp)-1, "下载失败！error=%d", WEXITSTATUS(ret));
 
         		pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */
 
+
 			egi_imgbuf_resetColorAlpha(surfimg, WEGI_COLOR_GRAYB, 0);
-			FTsymbol_writeFB(vfbdev, "下载必应壁纸失败！", 14, 14, WEGI_COLOR_GRAYC, 0, 0);
+			//FTsymbol_writeFB(vfbdev, "下载必应壁纸失败！", 14, 14, WEGI_COLOR_GRAYC, 0, 0);
+			FTsymbol_writeFB(vfbdev, strtmp, 14, 14, WEGI_COLOR_GRAYC, 0, 0);
 
 /* ------ <<<  Surface shmem Critical Zone  */
 			pthread_mutex_unlock(&surfshmem->shmem_mutex);
@@ -266,6 +271,8 @@ curl: (7) Error
 			/* set token */
 			ret_ok=true;
 		}
+		else
+			EGI_PLOG(LOGLV_TEST, "Fail to call system()!\n");
 	}
 
         /* Pos_1: Join ering_routine  */

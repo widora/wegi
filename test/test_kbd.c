@@ -13,6 +13,8 @@ Journal:
 	1. Create test_kbd.c
 2021-06-21:
 	1. Test conkeys and multi_media keys.
+2021-07-03:
+	1. Test conkeys.abskey and absvalue.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -55,6 +57,10 @@ int main(void)
 	int i=0;
 	EGI_KBD_STATUS kstat={0};
 
+	/* Init ABS KEY.  Noticed ABS_X ==0!!!  */
+	kstat.conkeys.abskey=ABS_MAX;
+	printf("Init abskey=ABS_MAX=%d \n", ABS_MAX);
+
 	/* Test struct size */
 	printf("Sizeof(pthread_mutex_t)=%d\n", sizeof(pthread_mutex_t));
 	printf("Sizeof(struct timeval)=%d\n", sizeof(struct timeval));
@@ -66,13 +72,15 @@ int main(void)
 		//if(egi_read_kbdcode(&kstat, "/dev/input/event0")==0) {
 		if(egi_read_kbdcode(&kstat, NULL)==0) {
 
-			#if 1 /* Print keys */
-			printf(" ------ ks=%d:  ", kstat.ks);
-			for(i=0; i<kstat.ks; i++) {
-				printf("%s_%u ", kstat.press[i] ? "press":"release", kstat.keycode[i]);
+		#if 1 /* Print keys */
+		       if(kstat.ks) {
+				printf(" ------ ks=%d:  ", kstat.ks);
+				for(i=0; i<kstat.ks; i++) {
+					printf("%s_%u ", kstat.press[i] ? "press":"release", kstat.keycode[i]);
+				}
+				printf("\n");
 			}
-			printf("\n");
-			#endif
+		#endif
 
 			/* Function keys */
 			if( kstat.conkeys.press_F1 )	printf(" F1 \n");
@@ -110,22 +118,23 @@ int main(void)
 
 			/* Multi_media function keys: KEY_VOLUMEUP, KEY_VOLUMEDOWN,KEY_MUTE,KEY_PLAYPAUSE,KEY_BACK,KEY_FORWARD    */
 			switch( kstat.conkeys.lastkey ) {
-				case KEY_J:
+				/* Gamepad keys */
+				case KEY_J:  /* Gamepad L(left) */
 					printf("%s KEY_J\n",kstat.conkeys.press_lastkey? "Press":"Release");
 					break;
-				case KEY_K:
+				case KEY_K:  /* Gamepad R(right) */
 					printf("%s KEY_K\n",kstat.conkeys.press_lastkey? "Press":"Release");
 					break;
-				case KEY_D:
+				case KEY_D:  /* Gamepad X */
 					printf("%s KEY_D\n",kstat.conkeys.press_lastkey? "Press":"Release");
 					break;
-				case KEY_F:
+				case KEY_F:  /* Gamepad A */
 					printf("%s KEY_F\n",kstat.conkeys.press_lastkey? "Press":"Release");
 					break;
-				case KEY_G:
+				case KEY_G:  /* Gamepad B */
 					printf("%s KEY_G\n",kstat.conkeys.press_lastkey? "Press":"Release");
 					break;
-				case KEY_H:
+				case KEY_H:  /* Gamepad Y */
 					printf("%s KEY_H\n",kstat.conkeys.press_lastkey? "Press":"Release");
 					break;
 				case KEY_APOSTROPHE: /* Select */
@@ -134,6 +143,8 @@ int main(void)
 				case KEY_GRAVE:    /* Start */
 					printf("%s KEY_GRAVE\n",kstat.conkeys.press_lastkey? "Press":"Release");
 					break;
+
+				/* Media control keys */
 				case KEY_VOLUMEUP:
 					printf("%s KEY_VOLUMEUP\n",kstat.conkeys.press_lastkey? "Press":"Release");
 					break;
@@ -162,8 +173,23 @@ int main(void)
 					break;
 			}
 
+			/* ABS keys */
+			switch( kstat.conkeys.abskey ) {
+				case ABS_X:
+					printf("ABS_X: %d\n", (kstat.conkeys.absvalue -0x7F)>>7); /* NOW: abs value [1 -1] and same as FB Coord. */
+					break;
+				case ABS_Y:
+					printf("ABS_Y: %d\n", (kstat.conkeys.absvalue -0x7F)>>7);
+					break;
+				default:
+					break;
+			}
+
 			/* Reset lastkey */
-			kstat.conkeys.lastkey =0;
+			kstat.conkeys.lastkey =0;	/* Note: KEY_RESERVED ==0 */
+
+			/* Reset abskey */
+			kstat.conkeys.abskey =ABS_MAX; /* NOTE: ABS_X ==0!!! */
 
 		}
 	} /* End while() */

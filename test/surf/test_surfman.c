@@ -184,7 +184,7 @@ https://github.com/widora/wegi
 					 */
 
 /* Inputs: keyboard, mouse, STDIN  */
-static EGI_KBD_STATUS 	kbdstat;
+static EGI_KBD_STATUS 	kbdstat={  .conkeys={.abskey=ABS_MAX} };  /* 0-->ABS_X ! */
 static EGI_MOUSE_STATUS mostat;
 static EGI_MOUSE_STATUS *pmostat;
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
@@ -370,7 +370,7 @@ int main(int argc, char **argv)
         egi_surfMenuList_addItem(mlist_System, "Control Panel", NULL, "/tmp/surfman_guider");
         egi_surfMenuList_addItem(mlist_System, "工具", mlist_Tools, NULL);
         egi_surfMenuList_addItem(mlist_System, "Program", mlist_Program, NULL); /* Link sub_mlist0 to  mlist_System */
-        egi_surfMenuList_addItem(mlist_System, "Trash Bin", NULL, NULL);
+        egi_surfMenuList_addItem(mlist_System, "Game", NULL, "/tmp/surf_tetris");
 
         /* 4.5 Add items to the ROOT menulist */
         egi_surfMenuList_addItem(surfman->menulist, "Shut Down", NULL, NULL);
@@ -572,7 +572,7 @@ WAIT_REQUEST:
 				 */
 				if( pmostat->conkeys.press_lastkey ) {
 				    if( timercmp(&tm_lastkey, &kbdstat.tm_lastkey, ==) ) {
-					//printf("Same tm_lastkey...\n");
+					printf("Same tm_lastkey, skip...\n");
 					/* !!! NOTE:
 					 * 1. Reset 'pmostat'->conkeys.press_lastkey, instead of 'kbdstat'.conkeys.press_lastkey!
 					 *    The later will scan in again with different timeval!
@@ -837,6 +837,10 @@ WAIT_REQUEST:
 							egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");
 						}
 //						egi_dpstd("Ering_msg_send OK! ch=%d\n", pmostat->ch);
+
+	/* TEST: ------ check lastkey */
+						if(pmostat->conkeys.press_lastkey)
+							egi_dpstd("ering_msg_send  lastkey=%d\n", pmostat->conkeys.lastkey);
 
 						/* !!! NOTE: CONKEYs and chars[] MAY NOT be cleared here(if SURFACE_FLAG_MEVENT)
 						 *	So have to clear them again in W 2.7.2 if necessary.
