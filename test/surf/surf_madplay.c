@@ -1035,7 +1035,7 @@ TODO:
    refreshs the SYS FBDEV, if you happens to click on the father SURFACE at that point,
    the menu SURFACE would then hide behind the father SURFACE, and mstat CAN NOT
    reach to it!
-   ---- OK! Always top the surface with biggest value of level
+   XXX ---- OK! Always top the surface with biggest value of level
 
 ---------------------------------------------------------*/
 void menu_help(EGI_SURFSHMEM *surfcaller, int x0, int y0)

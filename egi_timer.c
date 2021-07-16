@@ -22,28 +22,47 @@ uapi/asm-generic/posix_types.h:40:typedef  __kernel_long_t	__kernel_suseconds_t;
 
 uapi/asm-generic/posix_types.h:14:typedef long		__kernel_long_t;
 
+		(--- Struct of time var. ---)
+
+time_t	=-> long
+
+struct timespec {
+	time_t   tv_sec;     seconds
+        long     tv_nsec;    nanoseconds
+};
+
+struct timeval {
+        time_t      tv_sec;    seconds
+        suseconds_t tv_usec;   microseconds
+};
+
+struct tm {
+        int tm_sec;    Seconds (0-60)
+        int tm_min;    Minutes (0-59)
+        int tm_hour;   Hours (0-23)
+        int tm_mday;   Day of the month (1-31)
+        int tm_mon;    Month (0-11)
+        int tm_year;   Year - 1900
+        int tm_wday;   Day of the week (0-6, Sunday = 0)
+        int tm_yday;   Day in the year (0-365, 1 Jan = 0)
+        int tm_isdst;  Daylight saving time
+};
 
 3. Conversion for 'struct time_t' AND 'struct tm':
    struct tm *localtime(const time_t *timep);
    time_t mktime(struct tm *tm);
-   struct tm {
-          int tm_sec;     Seconds (0-60)
-          int tm_min;     Minutes (0-59)
-          int tm_hour;    Hours (0-23)
-          int tm_mday;    Day of the month (1-31)
-          int tm_mon;     Month (0-11)
-          int tm_year;    Year - 1900
-          int tm_wday;    Day of the week (0-6, Sunday = 0)
-          int tm_yday;    Day in the year (0-365, 1 Jan = 0)
-          int tm_isdst;   Daylight saving time
-    };
+
 4. double difftime(time_t time1, time_t time0);
 
 
 Journal:
 2021-05-03:
 	1. Add egi_clock_restart().
-
+2021-07-10:
+	1. egi_clock_restart(): Force status to be RUNNING before
+	   calling egi_clock_stop(). So an IDLE clock can also restart.
+2021-07-13:
+	1. egi_clock_readCostUsec(), egi_clock_peekCostUsec(): Modified to be long long type.
 
 TODO:
 	--- Critical ---
@@ -438,7 +457,9 @@ Note:
    is ECLOCK_STATUS_STOP.
 
 TODO: To compare with
-	int clock_gettime(clockid_t clk_id, struct timespec *tp);
+      int clock_gettime(clockid_t clk_id, struct timespec *tp);
+   XXX Check clock resolution first
+       clock_getres(CLOCK_REALTIME, &tp)  --> Clock resolution:  0.1 second!!!
 
 Return:
 	0	OK
@@ -478,6 +499,7 @@ int egi_clock_start(EGI_CLOCK *eclock)
 
 			/* Record tm_start and set status */
 			if( gettimeofday(&eclock->tm_start,NULL)<0 ) {
+				egi_dperr("gettimeofday");
 				ret=-3;
 				break;
 			}
@@ -516,8 +538,10 @@ int egi_clock_stop(EGI_CLOCK *eclock)
 		     	break;
 		case ECLOCK_STATUS_RUNNING:
 			/* Record tm_end and set status */
-			if( gettimeofday(&eclock->tm_end,NULL)<0 )
+			if( gettimeofday(&eclock->tm_end,NULL)<0 ) {
+				egi_dperr("gettimeofday");
 				return -3;
+			}
 
 			/* Update tm_cost */
 		        timersub(&eclock->tm_end, &eclock->tm_start, &eclock->tm_cost);
@@ -546,6 +570,10 @@ int egi_clock_stop(EGI_CLOCK *eclock)
 
 /*--------------------------------------
 Restart a clock.
+If current eclock status is IDLE, force
+to be RUNNING to make egi_clock_stop()
+succeed.
+
 Return:
 	0	OK
 	<0	Fails
@@ -554,9 +582,13 @@ int egi_clock_restart(EGI_CLOCK *eclock)
 {
 	int ret=0;
 
+	/* Force status to be RUNNING. */
+	eclock->status=ECLOCK_STATUS_RUNNING;
+
 	ret=egi_clock_stop(eclock);
 	if(ret)
 		return ret;
+	/* NOW status is ECLOCK_STATUS_STOP */
 
 	ret=egi_clock_start(eclock);
 
@@ -642,6 +674,12 @@ A big value of tm_cost will make tus_cost overflow!
 Use this function only when you are sure that tm_cost in eclock
 is fairly small!
 
+# define INT32_MIN              (-2147483647-1)
+# define INT64_MIN              (-9223372036854775807LL-1)
+# define INT32_MAX              (2147483647)
+# define INT64_MAX              (9223372036854775807LL)
+
+
 Note:
 1. TEST Widora_NEO:
    Under light CPU load condition, average Max. error is 100us.
@@ -651,9 +689,9 @@ Return:
 	>=0	OK, time length in us.
 	<0	Fails
 ---------------------------------------------------------*/
-long egi_clock_readCostUsec(EGI_CLOCK *eclock)
+long long egi_clock_readCostUsec(EGI_CLOCK *eclock)
 {
-	long  tus_cost;
+	long long  tus_cost;
 
 	/* Check status */
 	if(eclock==NULL) return -1;
@@ -662,7 +700,7 @@ long egi_clock_readCostUsec(EGI_CLOCK *eclock)
 		return -2;
 	}
 
-	tus_cost=eclock->tm_cost.tv_sec*1000000+eclock->tm_cost.tv_usec;
+	tus_cost=eclock->tm_cost.tv_sec*1000000LL+eclock->tm_cost.tv_usec;
 	return tus_cost;
 }
 
@@ -673,12 +711,18 @@ Read tm_now - tm_start, in us.(microsecond)
 A big value of tm_cost will make tus_cost overflow!
 Use this function only when you are sure that tm_cost in eclock
 is fairly small!
+	2147483647/3600000000 ~= 0.6 hour
+
+# define INT32_MIN              (-2147483647-1)
+# define INT64_MIN              (-9223372036854775807LL-1)
+# define INT32_MAX              (2147483647)
+# define INT64_MAX              (9223372036854775807LL)
 
 Return:
 	>=0	OK, time cost in us.
 	<0	Fails
 ---------------------------------------------------------*/
-long egi_clock_peekCostUsec(EGI_CLOCK *eclock)
+long long egi_clock_peekCostUsec(EGI_CLOCK *eclock)
 {
 	struct timeval tm_now;
 	struct timeval tm_cost;
@@ -686,15 +730,19 @@ long egi_clock_peekCostUsec(EGI_CLOCK *eclock)
 	/* Check status */
 	if(eclock==NULL)
 		return -1;
-	if( !(eclock->status&(ECLOCK_STATUS_RUNNING)) ) {
+	if( !(eclock->status & (ECLOCK_STATUS_RUNNING)) ) {
 		printf("%s: ECLOCK status error, you can ONLY peek a RUNNING eclock!\n",__func__);
 		return -2;
 	}
 
 	/* Timersub */
-	if( gettimeofday(&tm_now,NULL)<0 )
+	if( gettimeofday(&tm_now, NULL)<0 ) {
+		egi_dperr("gettimeofday");
 		return -3;
+	}
+
         timersub(&tm_now, &eclock->tm_start, &tm_cost);
 
-	return tm_cost.tv_sec*1000000+tm_cost.tv_usec;
+	return 1000000LL*tm_cost.tv_sec+tm_cost.tv_usec;
 }
+

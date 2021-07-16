@@ -57,7 +57,14 @@ struct egi_controlkeys_status {
 	bool press_leftsuper		: 1;
 	bool press_rightsuper		: 1;
 	bool press_asciikey		: 1;
-	bool press_lastkey		: 1;  /* TEST: The last key from keyboard input, usually use this as a function key. */
+	bool press_lastkey		: 1;  /* TEST: The last key from keyboard input, usually use this as a function key.
+					       *  No repeating function required.
+					       *  Press statu reset in egi_read_kbdcode().
+					       */
+	bool press_abskey		: 1;  /* TEST: EV_ABS value returns 0x7F(127) as releases? others as press.
+					       *  Repeating function required.
+					       *  Press statu need to be reset by Caller!
+					       */
 
 /* Sequence of combined control keys; [0] the_first_pressed --->[4] the_last_pressed.
  * Note:
@@ -66,9 +73,9 @@ struct egi_controlkeys_status {
  */
 #define  CONKEYSEQ_MAX 	5		/* MAX.5:  SHIFT+ALT+CTRL+SUPER  + 1 ASCII_Conkey */
 	char conkeyseq[CONKEYSEQ_MAX+1];/* +1 for EOF  */
-	unsigned int asciikey;		/* For the ONLY ASCII_conkey, if !=0. */
+	unsigned int asciikey;		/* For the ONLY ASCII_conkey, if !=0. EV_KEY */
 
-	unsigned int lastkey;		/* The last key from keyboard input
+	unsigned int lastkey;		/* The last key from keyboard input, EV_KEY
 					 * 1. Usually use this as a function key when nk==0.
 					 * 2. Usually the key shall NOT be EV_REP type.
 					 * 3. NOW the SURFMAN will reset press_lastkey to false if same keycode and tm_lastkey as last time.
@@ -80,13 +87,14 @@ struct egi_controlkeys_status {
 	 * input.h
 		#define ABS_X                   0x00
 		#define ABS_Y                   0x01
-		#define ABS_MAX			0x3F
+		#define ABS_MAX			0x3F (63)
 		#define ABS_CNT			(ABS_MAX+1)
-		//#define FF_MAX         	  	0x7F  (Force Feedback Max )
+		//#define FF_MAX         	 0x7F  (Force Feedback Max )
 	 */
-	char abskey;			/* ABS key code: ABS_X, ABS_Y, etc. !!! input_event __u16 code;
+	char abskey;			/* EV_ABS, ABS key code: ABS_X, ABS_Y, etc. !!! input_event __u16 code;
 					 * ABS_MAX --> invalid.  0 --> ABS_X!
 					 * EV_KEY: KEY_RESERVED ==0
+					 * Repeating function required!
 					 */
 	int32_t absvalue;		/* ABS value: 0xff, 0x00 etc. !!! input_event __s32 value;
 					 * If released, it returns 0x7F ???

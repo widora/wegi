@@ -201,6 +201,7 @@ START_TEST:
 		/* Note: Too small vw/vh(for first_draw) will make outside topmenus[] BLACK! */
 		surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, mat_random_range(SURF_MAXW-50)-50, mat_random_range(SURF_MAXH-50),
      	                                SURF_MAXW, SURF_MAXH,  140+mat_random_range(SURF_MAXW/2), 60+mat_random_range(SURF_MAXH/2), colorType );
+	/* Retry 3 times */
 	if(surfuser==NULL) {
 		int static ntry=0;
 		ntry++;
@@ -215,14 +216,16 @@ START_TEST:
 	surfimg=surfuser->imgbuf;
 	surfshmem=surfuser->surfshmem;
 
-        /* Get surface mutex_lock */
+        /* Get surface mutex_lock.  ..Usually it's OK to be ignored! */
         if( pthread_mutex_lock(&surfshmem->shmem_mutex) !=0 ) {
         	egi_dperr("Fail to get mutex_lock for surface.");
 		exit(EXIT_FAILURE);
         }
 /* ------ >>>  Surface shmem Critical Zone  */
 
-        /* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons etc. */
+        /* 3. Assign surface OP functions, for CLOSE/MIN./MAX. buttons etc.
+	 *    To be module default ones, OR user defined, OR leave it as NULL.
+         */
 	// Defualt: surfuser_ering_routine() calls surfuser_parse_mouse_event();
         surfshmem->minimize_surface 	= surfuser_minimize_surface;   	/* Surface module default functions */
 	surfshmem->redraw_surface 	= my_redraw_surface;
@@ -232,13 +235,13 @@ START_TEST:
         surfshmem->user_mouse_event     = my_mouse_event;
         //surfshmem->draw_canvas          = my_draw_canvas;
 
-	/* 3. Give a name for the surface. */
+	/* 4. Give a name for the surface. */
 	if(pname)
 		strncpy(surfshmem->surfname, pname, SURFNAME_MAX-1);
 	else
 		strncpy(surfshmem->surfname, "EGI_SURF", SURFNAME_MAX-1);
 
-	/* 4. First draw surface  */
+	/* 5. First draw surface, set up TOPBTNs and TOPMENUs. */
 	surfshmem->bkgcolor=egi_color_random(color_all); /* OR default BLACK */
 	surfshmem->topmenu_bkgcolor=egi_color_random(color_light);
 	surfshmem->topmenu_hltbkgcolor=WEGI_COLOR_GRAYA;
@@ -252,7 +255,7 @@ START_TEST:
 	printf("Shmsize: %zdBytes  Geom: %dx%dx%dBpp  Origin at (%d,%d). \n",
 			surfshmem->shmsize, surfshmem->vw, surfshmem->vh, surf_get_pixsize(colorType), surfshmem->x0, surfshmem->y0);
 
-	/* XXX 5. Create SURFBTNs by blockcopy SURFACE image, after first_drawing the surface! */
+	/* XXX Create SURFBTNs by blockcopy SURFACE image, after first_drawing the surface! */
 
 	/* 6. Start Ering routine */
 	printf("start ering routine...\n");
@@ -309,24 +312,27 @@ START_TEST:
 //        for(i=0; i<3; i++)
 //                egi_surfBtn_free(&surfshmem->sbtns[i]);
 
-        /* Join ering_routine  */
+        /* Post_1: Join ering_routine  */
         /* To force eringRoutine to quit , for sockfd MAY be blocked at ering_msg_recv()! */
 	tm_delayms(200); /* Let eringRoutine to try to exit by itself, at signal surfshmem->usersig =1 */
         if( surfshmem->eringRoutine_running ) {
                 if( pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL) !=0)
                         egi_dperr("Fail to pthread_setcancelstate eringRoutine, it MAY already quit!");
+		/* Note:
+   		 * 	" A thread's cancellation type, determined by pthread_setcanceltype(3), may be either asynchronous or
+		 * 	  deferred (the default for new threads). " ---MAN pthread_setcancelstate
+		 */
                 if( pthread_cancel( surfshmem->thread_eringRoutine ) !=0)
                         egi_dperr( "Fail to pthread_cancel eringRoutine, it MAY already quit!");
                 else
                         egi_dpstd("OK to cancel eringRoutine thread!\n");
         }
-
         /* Make sure mutex unlocked in pthread if any! */
 	printf("Joint thread_eringRoutine...\n");
         if( pthread_join(surfshmem->thread_eringRoutine, NULL)!=0 )
                 egi_dperr("Fail to join eringRoutine");
 
-	/* Unregister and destroy surfuser */
+	/* Post_2: Unregister and destroy surfuser */
 	printf("Unregister surfuser...\n");
 	if( egi_unregister_surfuser(&surfuser)!=0 )
 		egi_dpstd("Fail to unregister surfuser!\n");
@@ -345,7 +351,8 @@ START_TEST:
 
 1. It's a callback function called in surfuser_parse_mouse_event().
 2. pmostat is for whole desk range.
-3. This is for  SURFSHMEM.user_mouse_event() .
+3. This is for  SURFSHMEM.user_mouse_event().
+4. Some vars of pmostat->conkeys will NOT auto. reset!
 --------------------------------------------------------------------*/
 void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 {

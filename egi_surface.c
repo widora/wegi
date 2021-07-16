@@ -117,7 +117,7 @@ TODO:
    SAVE THAT AS DESSERT ;)
 
 6. If a frame of a SURFUSER vfbdev lives with very short time, it may be skipped by surfman_render_thread().
-   (sync)
+   (sync)  <----------
 
 7. Add a list for SURFACE to hook up all control elements.
 
@@ -275,6 +275,9 @@ Journal
 	   1.1 Modify surfuser_firstdraw_surface() accordingly.
 	   1.2 Modifu surfuser_redraw_surface() accordingly.
 	2. surfuser_parse_mouse_event():  2A. If mouse touches topmenus[], refresh its image.
+2021-07-14:
+	1. Add member 'menu_react[]' for EGI_SURFSHMEM
+	2. surfuser_parse_mouse_event(): Call menu_react[surfshmem->mpmenu] if a TOPMENU is clicked.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -2890,9 +2893,26 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
 				break;
 		}
 
+		/* If any TOPMENU is touched, do reaction! */
+		if(surfshmem->mpmenu >=0 ) {
+			egi_dpstd("Do menu_react[%d] >>>>\n", surfshmem->mpmenu);
+			if(surfshmem->menu_react[surfshmem->mpmenu] != NULL) {
+				/* TODO: Will mutex_unlock here do any damage? ! */
+				pthread_mutex_unlock(&surfshmem->shmem_mutex);
+/* ------ <<<  Surface shmem Critical Zone  */
+
+				surfshmem->menu_react[surfshmem->mpmenu](surfuser);
+
+/* ------ >>>  Surface shmem Critical Zone  */
+				pthread_mutex_lock(&surfshmem->shmem_mutex);
+			}
+		}
+
                  /* XXX NOT here!  Update lastX/Y, to compare with next mouseX/Y to get deviation. */
 //		 lastX=pmostat->mouseX; lastY=pmostat->mouseY;
 	}
+
+
 
         /* 4. LeftKeyDownHold: To move surface OR Adjust surface size. */
 	/* Note: If You click a minimized surface on the MiniBar and keep downhold, then mostat LeftKeyDownHold

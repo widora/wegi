@@ -31,8 +31,8 @@ typedef struct
 	struct timeval tm_cost;  /* Addup of running time, with each duration of tm_end - tm_start. */
         struct timeval tm_dur;   /* Preset time duration as tm_end - tm_start. */
 
-} EGI_CLOCK;
-
+} EGI_CLOCK;  /* EGI_WATCH is better */
+#define EGI_WATCH EGI_CLOCK
 
 /* shared data */
 extern struct itimerval tm_val, tm_oval;
@@ -69,7 +69,7 @@ int egi_clock_start(EGI_CLOCK *eclock);
 int egi_clock_stop(EGI_CLOCK *eclock);
 int egi_clock_restart(EGI_CLOCK *eclock);
 int egi_clock_pause(EGI_CLOCK *eclock);
-long egi_clock_readCostUsec(EGI_CLOCK *eclock);
-long egi_clock_peekCostUsec(EGI_CLOCK *eclock);
+long long egi_clock_readCostUsec(EGI_CLOCK *eclock);
+long long egi_clock_peekCostUsec(EGI_CLOCK *eclock);
 
 #endif

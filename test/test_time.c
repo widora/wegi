@@ -13,6 +13,12 @@ https://github.com/widora/wegi
 #include <unistd.h>
 #include <egi_timer.h>
 #include <time.h>
+#include <stdint.h>
+
+long long tm_costus(void);
+long long tm_costus2(void);
+
+
 
 /*----------------------------
 	    Main()
@@ -82,8 +88,13 @@ struct timespec tp;
        #endif
 
 
+/* -----  Clock resolution:  0.1 second !!! ------ */
 clock_getres(CLOCK_REALTIME, &tp);
 printf("Clock resolution:  %ld.%ld second.\n", tp.tv_sec, tp.tv_nsec);
+clock_getres(CLOCK_MONOTONIC, &tp);
+printf("CLOCK_MONOTONIC resolution:  %ld.%ld second.\n", tp.tv_sec, tp.tv_nsec);
+clock_getres(7, &tp);
+printf("CLOCK boottime(7) resolution:  %ld.%ld second.\n", tp.tv_sec, tp.tv_nsec);
 
 
 do {
@@ -106,7 +117,7 @@ do {
 #endif
 
 
-#if 0 /* TEST: EGI_CLOCK    ---------- */
+#if 1 /* TEST: EGI_CLOCK    ---------- */
 int i,n,tm;
 long cost;
 long total;
@@ -114,11 +125,28 @@ int gap;
 EGI_CLOCK eclock={0};
 EGI_CLOCK eclock2={0};
 
+//# define INT32_MIN              (-2147483647-1)
+//# define INT64_MIN              (-9223372036854775807LL-1)
+//# define INT32_MAX              (2147483647)
+//# define INT64_MAX              (9223372036854775807LL)
+long ltmax = INT32_MAX;
+long long lltm;
+
+lltm = ltmax +1;
+printf("lltm=%lld\n", lltm);  /* lltm=-2147483648 !!! */
+lltm = ltmax +1LL;
+printf("lltm=%lld\n", lltm);  /* lltm=2147483648 !!! */
+
+printf("tm_costus()=%lld\n", tm_costus());
+printf("tm_costus2()=%lld\n", tm_costus2());
+
+
+
 	tm=555555;
 	egi_clock_start(&eclock);
 	usleep(tm);
 	egi_clock_stop(&eclock);
-	printf(" eclock clock cost=%ld,  tm=%d, Err=%ld (us)  \n",egi_clock_readCostUsec(&eclock), tm, egi_clock_readCostUsec(&eclock)-tm );
+	printf(" eclock clock cost=%lld,  tm=%d, Err=%lld (us)  \n",egi_clock_readCostUsec(&eclock), tm, egi_clock_readCostUsec(&eclock)-tm );
 
 total=0;
 n=100;
@@ -150,4 +178,23 @@ exit(0);
 
 
 	return 0;
+}
+
+
+
+long long tm_costus(void)
+{
+	long ltmax = INT32_MAX;
+
+	return ltmax*1LL+1;
+}
+
+long long tm_costus2(void)
+{
+	long long costus;
+
+	long ltmax = INT32_MAX;
+
+	costus=ltmax+1LL;
+	return costus;
 }

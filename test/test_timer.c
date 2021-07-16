@@ -126,7 +126,7 @@ int main(int argc, char **argv)
                            printf("usage:  %s [-hsw:t:q] text \n", argv[0]);
                            printf("	-h   help \n");
 			   printf("	-s   to start as server. If shmem exists in /dev/shm/, then it will be removed first.\n");
-			   printf("	-w   to indeicate wav file as for alarm sound, or use default.\n");
+			   printf("	-w   to indicate wav file as for alarm sound, or use default.\n");
 			   printf("	-q   to end the server process.\n");
                            printf("	-t   holdon time, in seconds.\n");
                            printf("	text 	TXT as for command \n");

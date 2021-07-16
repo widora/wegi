@@ -76,7 +76,7 @@ struct egi_surface_label {
 ESURF_LABEL 	*egi_surfLab_create(EGI_IMGBUF *imgbuf, int xi, int yi, int x0, int y0, int w, int h);
 void 	egi_surfLab_free(ESURF_LABEL **lab);
 void 	egi_surfLab_writeFB(FBDEV *fbdev, const ESURF_LABEL *lab, FT_Face face, int fw, int fh, EGI_16BIT_COLOR color, int cx0, int cy0);
-void 	egi_surfLab_updateText( ESURF_LABEL *lab, const char *text );
+void 	egi_surfLab_updateText( ESURF_LABEL *lab, const char *fmt, ... );
 
 /***
 			--- An EGI_SURFACE_BUTTON ---

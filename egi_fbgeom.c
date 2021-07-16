@@ -1333,15 +1333,13 @@ void draw_button_frame( FBDEV *dev, unsigned int type, EGI_16BIT_COLOR color,
 	if(dev==NULL || w==0)
 		return;
 
-	/* Note: R,G,B contributes differently to the luminance, with G the most and B the least !
+	/* Note: R,G,B contributes differently to the luminance, with G the most and B the least!
 	 *       and lum_adjust is NOT a linear brightness adjustment as to human's visual sense.
          */
 	int deltY=egi_color_getY(color)>>2; /* 1/4 of original Y  */
 	if(deltY<50)deltY=75;
 
      	EGI_POINT       points[3];
-
-
 
 	/* 1. Draw lower lines */
         if(type==1) {	/* For pressed button, bright. */

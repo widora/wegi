@@ -372,6 +372,7 @@ struct egi_surface_shmem {
 	EGI_16BIT_COLOR		topmenu_bkgcolor;     /* Default init. as SURF_TOPMENU_BKGCOLOR */
 	EGI_16BIT_COLOR		topmenu_hltbkgcolor;  /* Highlight bkgcolor, if applys.  Default init. as SURF_TOPMENU_BKGCOLOR */
 
+#define TOPMENU_NONE		0
 #define TOPMENU_MAX		8
 	ESURF_LABEL		*menus[TOPMENU_MAX]; /* menus[] allocated/inited in sequence. So menus[0]!=NULL if any menu exits. */
 	int 			mpmenu;  	/* Index of touched menu, as index of menus[]
@@ -379,6 +380,7 @@ struct egi_surface_shmem {
 						 * Releases/freed by egi_unregister_surfuser().
 						 */
 
+	void (*menu_react[TOPMENU_MAX])(EGI_SURFUSER *surfuser);
 
 
 	/*** Surface draw Funtions */

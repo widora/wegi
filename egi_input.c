@@ -1105,7 +1105,7 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 	if(kstat==NULL)
 		return -1;
 
-	/* TEST:  Previous abskey value / press_lastkey  */
+	/* TEST:  Previous abskey value / press_lastkey. NO repeating function required!  */
 	int32_t prev_absvalue;
 	prev_absvalue = kstat->conkeys.absvalue;
 	bool prev_press_lastkey;
@@ -1289,8 +1289,14 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 	                case EV_ABS:
 				kstat->conkeys.abskey = event.code & 0xff;
 				kstat->conkeys.absvalue = event.value; 	/* NOTE! */
-				egi_dpstd("EV_ABS: abskey=%d %s\n", kstat->conkeys.abskey, kstat->conkeys.abskey==0?"ABS_X":"");
-				//egi_dpstd("abskey=%d, absvalue=%d\n", kstat->conkeys.abskey, kstat->conkeys.absvalue);
+				if(kstat->conkeys.absvalue==0x7F)
+					kstat->conkeys.press_abskey=false; /* 0x7F as release? GamePad */
+				else
+					kstat->conkeys.press_abskey=true;
+				//egi_dpstd("%s abskey=%d, absvalue=%d\n", kstat->conkeys.press_abskey?"Press":"Release",
+				//		kstat->conkeys.abskey, kstat->conkeys.absvalue);
+				//egi_dpstd("EV_ABS: abskey=%d %s\n", kstat->conkeys.abskey, kstat->conkeys.abskey==0?"ABS_X":"");
+						/* 0: ABS_X, 1: ABS_Y, ABS_MAX(0x3F): IDLE */
 				break;
 
 			#if 0 /*  Discard other event...  */
@@ -1620,13 +1626,14 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 		printf("key_%u", kstat->conkeys.asciikey);
 	printf("\n");
   }
-/* TEST: ----------  EV_KEY: lastkey.   ONLY for pressed statu OR the last release statu.  */
+/* TEST: ----------  EV_KEY: lastkey.   ONLY for press statu OR the last release statu.  */
 	if(kstat->conkeys.press_lastkey || prev_press_lastkey )  /* now_pressed OR keep_pressed OR now_release(prev_pressed) */
 		egi_dpstd("%s lastkey=%d\n", kstat->conkeys.press_lastkey?"Press":"Release", kstat->conkeys.lastkey);
 
-/* TEST: ----------- EV_ABS: abskey */
+/* TEST: ----------- EV_ABS: abskey. Press statu need to be reset by Caller! */
 	if(kstat->conkeys.abskey!=ABS_MAX)  /* ABS_MAX as IDLE */
-		egi_dpstd("abskey=%d, absvalue=%d\n", kstat->conkeys.abskey, kstat->conkeys.absvalue);
+		egi_dpstd("%s abskey=%d, absvalue=%d\n", kstat->conkeys.press_abskey?"Press/pressed":"Release",
+					kstat->conkeys.abskey, kstat->conkeys.absvalue);
 
     	return 0;
 }

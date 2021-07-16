@@ -35,6 +35,8 @@ Journal:
 	1. Add member 'front_imgbuf" for ESURF_LABEL.
 2021-07-2:
 	1. egi_surfLab_free(); to free (*lab)->imgbuf_effect.
+2021-07-11:
+	1. egi_surfLab_updateText(): to use va_list.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -243,6 +245,8 @@ void egi_surfLab_writeFB(FBDEV *fbdev, const ESURF_LABEL *lab, FT_Face face, int
 
 }
 
+
+#if 0 /* ----- Use strncpy() ----- */
 /*-------------------------------------
 Update Label text.
 
@@ -257,6 +261,28 @@ void egi_surfLab_updateText( ESURF_LABEL *lab, const char *text )
 	strncpy( lab->text, text, ESURF_LABTEXT_MAX-1 );
 	lab->text[ESURF_LABTEXT_MAX-1]='\0';
 }
+#else  /* ----- Use va_list ---- */
+/*-------------------------------------
+Update Label text with format and args.
+
+@lab:	Pointer to ESUR_LABEL
+@fmt:	Format, ...and args.
+-------------------------------------*/
+void egi_surfLab_updateText( ESURF_LABEL *lab, const char *fmt, ... )
+{
+        va_list arg;
+
+	if(lab==NULL || fmt==NULL)
+		return;
+
+	va_start(arg, fmt);
+
+        vsnprintf(lab->text, ESURF_LABTEXT_MAX-1, fmt, arg);
+
+	va_end(arg);
+}
+#endif
+
 
 /*---------------------------------------------------------------
 Create an ESURF_BTN and blockcopy its imgbuf from input imgbuf.

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-all_apps="test_surfman test_surfuser surfman_guider surf_wetradio surf_madplay surf_editor surf_wallpaper surf_book surf_wifiscan"
+all_apps="test_surfman test_surfuser surfman_guider surf_wetradio surf_madplay surf_editor surf_wallpaper surf_book surf_wifiscan surf_tetris"
 
 if [ ${*} == "clean" ]
 then

@@ -267,6 +267,7 @@ REGISTER_SURFUSER:
 1. It's a callback function called in surfuser_parse_mouse_event().
 2. pmostat is for whole desk range.
 3. This is for  SURFSHMEM.user_mouse_event() .
+4. Some vars of pmostat->conkeys will NOT auto. reset!
 --------------------------------------------------------------------*/
 void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 {
