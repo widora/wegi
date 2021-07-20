@@ -3,7 +3,14 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-An Egi_SURF GAME, a test program.
+This program is for testing EGI only!!!
+
+			!!! --- WARNING --- !!!
+
+Since Game,Name and Trademark of 'Tetris' are all registered, you shall
+obtain the License/Agreement from the property Owner before you issue
+the game!
+
 
 
 		--- Concept and Definition ---
@@ -125,6 +132,7 @@ Journal:
 	1. Add Menu_Option surface and its functions.
 2021-07-16:
 	1. Add create_cubeimg_lib(), cubeimg is pointer to cubeimg_lib[].
+	2. End cmd_pause_game when surfshmem->usersig==1!
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -171,6 +179,9 @@ enum {
 };
 void menu_help(EGI_SURFUSER *surfuser);
 void menu_option(EGI_SURFUSER *surfuser);
+void menu_we(EGI_SURFUSER *surfcaller);
+
+const char *about_we="Widora和它的小企鹅们, and EGI is a Linux/GNU player.";
 
 
 /* For PlayArea VFBDEV. */
@@ -317,6 +328,7 @@ void my_redraw_surface(EGI_SURFUSER *surfuser, int w, int h);
 //void  *surfuser_ering_routine(void *args);  /* For LOOP_TEST and ering_test, a little different from module default function. */
 //void  surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex */
 void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
+void my_close_surface(EGI_SURFUSER *surfuer);
 
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
@@ -355,6 +367,9 @@ int main(int argc, char **argv)
                 return -1;
         }
 #endif
+
+        /* SplitWord control */
+        FTsymbol_disable_SplitWord();
 
 	/* Set signal handler */
 //	egi_common_sigAction(SIGINT, signal_handler);
@@ -407,9 +422,10 @@ START_TEST:
 	// Defualt: surfuser_ering_routine() calls surfuser_parse_mouse_event();
         surfshmem->minimize_surface 	= surfuser_minimize_surface;   	/* Surface module default functions */
 	surfshmem->redraw_surface 	= my_redraw_surface;
-	surfshmem->maximize_surface 	= surfuser_maximize_surface;   	/* Need resize */
-	surfshmem->normalize_surface 	= surfuser_normalize_surface; 	/* Need resize */
+	//surfshmem->maximize_surface 	= surfuser_maximize_surface;   	/* Need resize */
+	//surfshmem->normalize_surface 	= surfuser_normalize_surface; 	/* Need resize */
         surfshmem->close_surface 	= surfuser_close_surface;
+	surfshmem->user_close_surface   = my_close_surface;
 #ifndef DIRECT_KBD_READ
         surfshmem->user_mouse_event     = my_mouse_event;
 #endif
@@ -427,6 +443,7 @@ START_TEST:
 	/* 4A. Set menu_react functions */
 	surfshmem->menu_react[MENU_HELP] = menu_help;
 	surfshmem->menu_react[MENU_OPTION] = menu_option;
+	surfshmem->menu_react[MENU_WE] = menu_we;
 
 	/* font color */
 	fcolor=COLOR_COMPLEMENT_16BITS(surfshmem->bkgcolor);
@@ -501,7 +518,8 @@ START_TEST:
 
 		/* M2. If any motion done for the playblock, redraw to workfb and update workimg. */
 		if(motion_status.motions) {
-			/* M2.1 Update/Draw PLAYAREA */
+			/* M2.1 Update/Draw PLAYAREA.
+			   ...NOT necessary, BUT we need to refresh playarea when ctype_index is updated. */
 			draw_bblock(&workfb, playarea, cubeimg);
 
 			/* M2.2 Draw playblock as position renewed */
@@ -535,6 +553,11 @@ START_TEST:
 			refresh_workimg();
 			while( cmd_pause_game ) {
 				usleep(500000);
+
+				/* If surfuser to exit! */
+				if(surfshmem->usersig==1)
+					cmd_pause_game=false;
+
 #ifdef DIRECT_KBD_READ
 				game_input();
 #endif
@@ -546,7 +569,6 @@ START_TEST:
 			egi_imgbuf_copyBlock( workimg, tmpimg, false, workimg->width, workimg->height, 0,0,0,0);
 			egi_imgbuf_free2(&tmpimg);
 			refresh_workimg();
-
 		}
 
 		/* M4. Leave a BLANK here...... */
@@ -1917,9 +1939,9 @@ void  game_input(void)
 	Surface :: Menu_Help
 ======================================*/
 
-const char *help_descript = "    < EGI桌面小游戏 >\n\n\
-This program is under license of GNU GPL v2.\n\
- Enjoy!";
+const char *help_descript = "    < EGI桌面小游戏 >\n\
+This program(codes) is under license of GNU GPL v2.\n\n\
+Enjoy!";
 
 /*----------------------------------------------------------
 To create a SURFACE for menu help.
@@ -1933,8 +1955,8 @@ Note:
 void menu_help(EGI_SURFUSER *surfcaller)
 {
   /* Surface size */
-  int msw=220;
-  int msh=150;
+  int msw=230;
+  int msh=160;
 
   /* Origin coordinate relative to the surfcaller */
   int x0=50;
@@ -1991,8 +2013,8 @@ void menu_help(EGI_SURFUSER *surfcaller)
 
 	/* 7. Write content: FTsymbol_uft8strings_writeFB: input FT_Face is NULL!  */
 	FTsymbol_uft8strings_writeFB( mvfbdev, egi_sysfonts.bold,   	/* FBdev, fontface */
-               	                  15, 15, (UFT8_PCHAR)help_descript,	/* fw,fh, pstr */
-                       	          msw-20, 10, 3,         		/* pixpl, lines, fgap */
+               	                  16, 16, (UFT8_PCHAR)help_descript,	/* fw,fh, pstr */
+                       	          msw-20, 10, 4,         		/* pixpl, lines, fgap */
                                	  10,  40,    		  		/* x0,y0, */
                                   WEGI_COLOR_BLACK, -1, 240,     	/* fontcolor, transcolor,opaque */
        	                          NULL, NULL, NULL, NULL);        	/* int *cnt, int *lnleft, int* penx, int* peny */
@@ -2134,6 +2156,12 @@ void menu_option(EGI_SURFUSER *surfcaller)
 		usleep(100000);
 	};
 
+        /* Post_0:      --- CAVEAT! ---
+         *  If the program happens to be trapped in a loop when surfshem->usersig==1 is invoked (click on X etc.),
+         *  The coder MUST ensure that it can avoid a dead loop under such circumstance (by checking surfshem->usersig in the loop etc.)
+         *  OR the SURFMAN may unregister the surface while the SURFUSER still runs and holds resources!
+         */
+
         /* Post_1: Join ering_routine  */
         /* To force eringRoutine to quit , for sockfd MAY be blocked at ering_msg_recv()! */
         tm_delayms(200); /* Let eringRoutine to try to exit by itself, at signal surfshmem->usersig =1 */
@@ -2159,10 +2187,8 @@ void menu_option(EGI_SURFUSER *surfcaller)
         if( egi_unregister_surfuser(&msurfuser)!=0 )
                 egi_dpstd("Fail to unregister surfuser!\n");
 
-
 	egi_dpstd("Exit OK!\n");
 }
-
 
 
 /*------------------------------------------
@@ -2280,5 +2306,48 @@ void MenuOption_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
         	}
 	}
    }
+
+}
+
+
+/*----------------------------------------------------------
+To create a SURFACE for menu_we.
+
+@surfcaller:	The caller, as a surfuser.
+
+Note:
+1. If it's called in mouse event function, DO NOT forget to
+   unlock shmem_mutex.
+----------------------------------------------------------*/
+void menu_we(EGI_SURFUSER *surfcaller)
+{
+	egi_crun_stdSurfConfirm( (UFT8_PCHAR)"关于我们", (UFT8_PCHAR)about_we,
+			      surfcaller->surfshmem->x0+50, surfcaller->surfshmem->y0+50, 240, 120);
+
+}
+
+
+/*-------------------------------------------------
+User's code in surfuser_close_surface(), as for
+surfshmem->user_close_surface().
+
+@surfuser:      Pointer to EGI_SURFUSER.
+-------------------------------------------------*/
+void my_close_surface(EGI_SURFUSER *surfuer)
+{
+        /* Unlock to let surfman read flags. */
+        pthread_mutex_unlock(&surfuser->surfshmem->shmem_mutex);
+/* ------ >>>  Surface shmem Critical Zone  */
+
+        /* Reset MEVENT to let SURFMAN continue to ering mevent. SURFMAN sets MEVENT before ering. --mutex_unlock! */
+	surfuser->surfshmem->flags &= (~SURFACE_FLAG_MEVENT);
+
+	/* Confirm to close, surfuser->retval =STDSURFCONFIRM_RET_OK if confirmed. */
+        surfuser->retval = egi_crun_stdSurfConfirm( (UFT8_PCHAR)"Caution",
+				     (UFT8_PCHAR)"游戏,是入刺地惊猜!\n大佬,你确定要退出了吗?",
+                                     surfuser->surfshmem->x0+50, surfuser->surfshmem->y0+50, 220, 100);
+
+/* ------ <<<  Surface shmem Critical Zone  */
+        pthread_mutex_lock(&surfuser->surfshmem->shmem_mutex);
 
 }

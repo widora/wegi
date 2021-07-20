@@ -141,6 +141,7 @@ enum {
 
 	BTN_MAX		=7, /* <--- Limit, for allocation. */
 };
+
 ESURF_BTN  * btns[BTN_MAX];
 ESURF_BTN  * btn_tmp=NULL;
 int btnW=50;		/* Button size, same as original icon size. */

@@ -96,6 +96,9 @@ extern EGI_FONT_BUFFER *egi_fontbuffer; /* TODO: NOW only with one face and one 
 
 void	FTsymbol_set_TabWidth( float factor);
 void	FTsymbol_set_SpaceWidth( float factor);
+void 	FTsymbol_enable_SplitWord(void);
+void 	FTsymbol_disable_SplitWord(void);
+bool	FTsymbol_status_SplitWord(void);
 int 	FTsymbol_load_library( EGI_FONTS *symlib );
 FT_Face FTsymbol_create_newFace( EGI_FONTS *symlib, const char *ftpath);
 void 	FTsymbol_release_library( EGI_FONTS *symlib );
@@ -132,7 +135,7 @@ int  	FTsymbol_uft8strings_writeIMG( EGI_IMGBUF *imgbuf, FT_Face face, int fw, i
 
 
 int  	FTsymbol_uft8strings_pixlen( FT_Face face, int fw, int fh, const unsigned char *pstr); /* FTsymbol_uft8string_getAdvances() will call it.*/
-
+int  	FTsymbol_eword_pixlen( FT_Face face, int fw, int fh, const unsigned char *pword);
 
 #endif
 

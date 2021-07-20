@@ -48,6 +48,8 @@ int 	cstr_charlen_uft8(const unsigned char *cp);
 int 	cstr_prevcharlen_uft8(const unsigned char *cp);
 int 	cstr_strlen_uft8(const unsigned char *cp);
 int 	cstr_strcount_uft8(const unsigned char *pstr);
+char* 	cstr_get_peword(const unsigned char *cp);
+int 	cstr_strlen_eword(const unsigned char *cp);
 int 	char_uft8_to_unicode(const unsigned char *src, wchar_t *dest);
 int 	char_unicode_to_uft8(const wchar_t *src, char *dest);
 wchar_t char_unicode_DBC2SBC(wchar_t dbc);
@@ -66,5 +68,7 @@ int 	cstr_extract_ChnUft8TimeStr(const char *src, char *buff, int bufflen);
 int 	cstr_getSecFrom_ChnUft8TimeStr(const char *src,time_t *tp);
 
 long long int cstr_hash_string(const unsigned char *pch, int mod);
+
+
 
 #endif

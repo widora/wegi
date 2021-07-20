@@ -10,6 +10,10 @@ Journal
 	1. Add cstr_hash_string().
 2021-02-09:
 	1. Modify cstr_split_nstr().
+2021-07-17:
+	1. Add cstr_get_peword(), cstr_strlen_eword().
+2021-07-20:
+	1. cstr_strlen_eword():	Include any trailing SPACEs/TABs.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -27,6 +31,7 @@ midaszhou@yahoo.com
 #include "egi_cstring.h"
 #include "egi_log.h"
 #include "egi_utils.h"
+#include "egi_debug.h"
 
 /*----------------------------------------
 Create an EGI_TXTGROUP.
@@ -486,8 +491,10 @@ inline int cstr_charlen_uft8(const unsigned char *cp)
 		return 3;	/* 3 bytes */
 	else if( *cp >= 0b11000000 )
 		return 2;	/* 2 bytes */
-	else
+	else {
+		egi_dpstd("Unrecognizable starting byte for UFT8!\n");
 		return -2;	/* unrecognizable starting byte */
+	}
 }
 
 
@@ -622,6 +629,93 @@ int cstr_strcount_uft8(const unsigned char *pstr)
 	}
 
 	return count;
+}
+
+
+/*------------------------------------------------------
+Get pointer to the first char of an English word.
+An English word is separated by any UFT-8 char which is NOT
+an alphanumeric character.
+
+@cp:	A pointer to a string with UTF-8 encoding, terminated
+	with a '\0'.
+
+Return:
+	!NULL		OK
+	NULL		Fails
+
+----------------------------------------------------*/
+char* cstr_get_peword(const unsigned char *cp)
+{
+	char *p;
+	int len;
+
+	if(cp==NULL)
+		return NULL;
+
+	p= (char *)cp;
+	while(*p){
+		/* Start of an English word: an English alphabet or an number */
+		if( isalnum(*p) )
+			return p;
+
+		/* Shift p to next UFT8 char. */
+		len=cstr_charlen_uft8((const unsigned char *)p);
+		if(len<0) {
+			egi_dpstd("UFT8 coding error, skip 1 byte!\n");
+			len =1;
+		}
+		p+=len;
+	}
+
+	return NULL;
+}
+
+
+/*------------------------------------------------------
+Get byte length of an English word.
+An English word is separated by any UFT-8 char which is NOT
+an alphanumeric character.
+However, any trailing SPACEs/TABs are included in the eword!
+This is to make left side of any word editor aligned.
+
+@cp:	A pointer to a string with UTF-8 encoding, terminated
+	with a '\0'.
+
+Return:
+	>=0	OK, length in bytes.
+	<0	Fails
+----------------------------------------------------*/
+int cstr_strlen_eword(const unsigned char *cp)
+{
+	char *p;
+//	int len;
+
+	if(cp==NULL)
+		return 0;
+
+	p=(char *)cp;
+	while(*p && isalnum(*p)) {
+#if 0		/* XXX Shift p to next UFT8 char. */
+		len=cstr_charlen_uft8((const unsigned char *)p);
+		if(len<0) {
+			egi_dpstd("UFT8 coding error, skip 1 byte!\n");
+			len =1;
+		}
+		p+=len;
+
+#else		/* !!! An alphanumeric character is ALWAYS 1 byte! */
+		p+=1;
+#endif
+	}
+
+	/* Include any trailing SPACEs/TABs */
+	if(*p && p!=(char *)cp) {
+		while( *p && isblank(*p) )
+			p+=1;
+	}
+
+	return p-(char *)cp;
 }
 
 
@@ -2012,3 +2106,5 @@ long long int cstr_hash_string(const unsigned char *pch, int mod)
 
 	return hash;
 }
+
+

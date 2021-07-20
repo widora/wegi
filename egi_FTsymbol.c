@@ -10,7 +10,7 @@ Note:
 2. TODO: Font size class, ratio of fw/fh to be fixed!
 	NOW: font width(fw) is regarded as font size.
 
-Jurnal:
+Journal:
 2021-01-27:
 	1. Add  FTsymbol_create_fontBuffer() and  FTsymbol_free_fontBuffer().
 2021-01-28:
@@ -23,6 +23,16 @@ Jurnal:
 		FTsymbol_load_library()
 		FTsymbol_release_library()
 		FTsymbol_unicode_writeFB()
+2021-07-16:
+	1. Add module private member 'enable_SplitWord' and functions of
+	   FTsymbol_enable_SplitWord()
+	   FTsymbol_disable_SplitWord()
+	   FTsymbol_status_SplitWord()
+2021-07-17:
+	1. Add FTsymbol_eword_pixlen()
+	2. FTsymbol_uft8strings_writeFB(): SplitWord contorl.
+2021-07-20:
+	1. FTsymbol_eword_pixlen(): Count in any SPACEs/TABs.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -49,8 +59,17 @@ EGI_FONTS  egi_sysfonts = {.ftname="sysfonts",};
 EGI_FONTS  egi_appfonts = {.ftname="appfonts",};
 EGI_FONT_BUFFER *egi_fontbuffer;
 
+/*--------------------------------
+   Module Prative Parameters
+
+       --- Caution! ---
+       NOT thread safe!
+---------------------------------*/
 static float  factor_TabWidth=3.0;	/* TabWidth/Font_Width */
 static float  factor_SpaceWidth=1.0;	/* SpaceWidth/FontWidth */
+static bool   enable_SplitWord=true;    /* Enable a word splited into two lines
+					 * NOW affect FTsymbol_uft8strings_writeFB() ONLY!
+					 */
 
 
 /*--------------------------------------
@@ -65,6 +84,21 @@ void FTsymbol_set_SpaceWidth( float factor)
 	factor_SpaceWidth=factor;
 }
 
+/*---------------------------------
+Set enable_SplitWord.
+----------------------------------*/
+void FTsymbol_enable_SplitWord(void)
+{
+	enable_SplitWord=true;
+}
+void FTsymbol_disable_SplitWord(void)
+{
+	enable_SplitWord=false;
+}
+bool FTsymbol_status_SplitWord(void)
+{
+	return enable_SplitWord;
+}
 
 /*--------------------------------------
 Load FreeType2 EGI_FONT egi_sysfonts
@@ -1446,9 +1480,9 @@ int  FTsymbol_unicstrings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 /*-----------------------------------------------------------------------------------------
 Write a string of charaters with UFT-8 encoding to FB.
 
-TODO: 1. Alphabetic words are treated letter by letter, and they may be separated at the end of
+TODO: XXX 1. Alphabetic words are treated letter by letter, and they may be separated at the end of
          a line, so it looks not good.
-
+	 --- OK. SplitWord Control is done.
       2. Apply character functions in <ctype.h> to rule out chars, with consideration of locale setting?
 
 @fbdev:         FB device
@@ -1503,6 +1537,9 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
         int xleft; 		/* available pixels remainded in current line */
         unsigned int ln; 	/* lines used */
  	wchar_t wcstr[1];
+	const unsigned char *pword;	/* Pointer to an English word */
+	int  wordlen;
+	int  wordpixlen;
 
 	/* check input data */
 	if(face==NULL) {
@@ -1527,6 +1564,12 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 	count=0;
 	ln=0;		/* Line index from 0 */
 
+	/* SplitWord control:  Get point to the first Englisth word */
+	if( !enable_SplitWord ) {
+		pword=(UFT8_PCHAR)cstr_get_peword(p);
+		wordlen=cstr_strlen_eword(pword);
+	}
+
 	while( *p ) {
 
 		/* --- check whether lines are used up --- */
@@ -1536,6 +1579,33 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 			/* here ln is the written line number,not index number */
 			goto FUNC_END;
 		}
+
+		/*  SplitWord Control */
+	   	if( !enable_SplitWord && pword!=NULL ) {
+		    /* If start of an English word */
+		    if( p==pword ) {
+			/* TODO if the word's pixlen is > pixpl!!! */
+			/* Check if xleft is enough for the whole word. */
+			wordpixlen=FTsymbol_eword_pixlen(face, fw, fh, pword);
+			if( xleft < wordpixlen ) {
+	                        /* change to next line, +gap */
+        	                ln++;
+                	        xleft=pixpl;
+                        	py+= fh+gap;
+
+				continue;  /* Loop back to while() */
+			}
+
+		    }
+		    /* If end of an English word */
+		    else if ( p==pword+wordlen ) {  /* here pword!=NULL */
+			/* Get pointer to NEXT word and and its len. */
+			pword=(UFT8_PCHAR)cstr_get_peword(p);
+			wordlen=cstr_strlen_eword(pword);
+
+			continue;  /* Loop back to while() */
+		    }
+	   	}
 
 		/* convert one character to unicode, return size of utf-8 code */
 		size=char_uft8_to_unicode(p, wcstr);
@@ -1762,6 +1832,89 @@ int  FTsymbol_uft8strings_pixlen( FT_Face face, int fw, int fh, const unsigned c
 
 	} /* end while() */
 
+	return (1<<30)-xleft;
+}
+
+
+/*-------------------------------------------------------------------------------------
+( In most case, try to call FTsymbol_uft8string_getAdvances() instead, it's faster! )
+
+Get total pixel length of an English word.
+
+Note:
+1. Limit: Max. counter = 1<<30;
+2. For ASCII symbols, results are NOT same as FTsymbol_uft8string_getAdvances()??!
+   Example: abc , . : ..
+   So It will call FTsymbol_uft8strings_pixlen() in that case.
+
+Return:
+	>=0  	length in pixels
+	<0	Fails
+----------------------------------------------------------------------------------------*/
+int  FTsymbol_eword_pixlen( FT_Face face, int fw, int fh, const unsigned char *pword)
+{
+	const unsigned char *p;
+        int xleft=(1<<30); 	/* available pixels remainded in current line */
+ 	wchar_t wcstr[1];
+
+	/* check input data */
+	if(face==NULL) {
+		printf("%s: input FT_Face is NULL!\n",__func__);
+		return -1;
+	}
+
+	if(pword==NULL)
+		return -1;
+
+	/* Addup all pixlen for each char in the eword. */
+	p=pword;
+	while(*p && isalnum(*p)) {
+
+		wcstr[0] = *p;
+
+		/* write unicode bitmap to FB, and get xleft renewed. */
+		FTsymbol_unicode_writeFB(NULL, face, fw, fh, wcstr[0], &xleft,
+							 0, 0, WEGI_COLOR_BLACK, -1, -1 );
+
+		/* --- check line space --- */
+		if(xleft<=0) {
+			if(xleft<0) { /* if <0: writeFB is not done, reel back pointer p */
+				p-=1;
+			}
+			/* if =0: writeFB is done, break */
+			break;
+		}
+
+		/* An English alphanumeric character is ALWAYS 1 byte! */
+		p+=1;
+
+	} /* end while() */
+
+        /* Include any trailing SPACEs/TABs */
+        if(*p && p!=pword) {
+                while( *p && isblank(*p) ) {
+
+			wcstr[0] = *p;
+
+	                /* write unicode bitmap to FB, and get xleft renewed. */
+	                FTsymbol_unicode_writeFB(NULL, face, fw, fh, wcstr[0], &xleft,
+                                                         0, 0, WEGI_COLOR_BLACK, -1, -1 );
+
+        	        /* --- check line space --- */
+                	if(xleft<=0) {
+                        	if(xleft<0) { /* if <0: writeFB is not done, reel back pointer p */
+                                	p-=1;
+                        	}
+                        	/* if =0: writeFB is done, break */
+                        	break;
+                	}
+
+                	/* An English alphanumeric character is ALWAYS 1 byte! */
+                	p+=1;
+		}
+        }
+
+	/* Return occupied pixels. */
 	return (1<<30)-xleft;
 }
 

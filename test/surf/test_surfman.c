@@ -949,7 +949,8 @@ END_MOUSE_EVENT:
 
 		/* W4. Waitpit child */
 		if( (wait_pid=waitpid(-1, &wait_status, WNOHANG)) >0 ) {
-			egi_dpstd("A child process PID=%d exits, wait_status=%d!\n", wait_pid, wait_status);
+			egi_dpstd("A child process PID=%d exits %s, wait_status=%d!\n",
+					wait_pid, WIFEXITED(wait_status)?"NORMALLY":"ABNORMALLY!",  wait_status);
 		}
 
 		tm_delayms(5);

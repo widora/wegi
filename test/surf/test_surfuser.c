@@ -62,6 +62,8 @@ Journal
 	1. surfuser_ering_routine(): case ERING_SURFACE_CLOSE, surfman request to close the surface.
 2021-07-01:
 	1. Add top menus[].
+2021-07-20:
+	1. Apply my_close_surface()
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -123,6 +125,7 @@ void my_redraw_surface(EGI_SURFUSER *surfuser, int w, int h);
 void  *surfuser_ering_routine(void *args);  /* For LOOP_TEST and ering_test, a little different from module default function. */
 //void  surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex */
 void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
+void my_close_surface(EGI_SURFUSER *surfuer);
 
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
@@ -234,6 +237,7 @@ START_TEST:
         surfshmem->close_surface 	= surfuser_close_surface;
         surfshmem->user_mouse_event     = my_mouse_event;
         //surfshmem->draw_canvas          = my_draw_canvas;
+	surfshmem->user_close_surface   = my_close_surface;
 
 	/* 4. Give a name for the surface. */
 	if(pname)
@@ -311,6 +315,12 @@ START_TEST:
         /* Free SURFBTNs, ---- OK, to be released by egi_unregister_surfuser()!  */
 //        for(i=0; i<3; i++)
 //                egi_surfBtn_free(&surfshmem->sbtns[i]);
+
+	/* Post_0:	--- CAVEAT! ---
+	 *  If the program happens to be trapped in a loop when surfshem->usersig==1 is invoked (click on X etc.),
+      	 *  The coder MUST ensure that it can avoid a dead loop under such circumstance (by checking surfshem->usersig in the loop etc.)
+	 *  OR the SURFMAN may unregister the surface while the SURFUSER still runs and holds resources!
+  	 */
 
         /* Post_1: Join ering_routine  */
         /* To force eringRoutine to quit , for sockfd MAY be blocked at ering_msg_recv()! */
@@ -625,4 +635,36 @@ surfuser_parse_mouse_event(): Touch a BTN mpbtn=-1, i=0
 	return (void *)0;
 }
 
+
+/*-------------------------------------------------
+User's code in surfuser_close_surface(), as for
+surfshmem->user_close_surface().
+
+@surfuser:      Pointer to EGI_SURFUSER.
+-------------------------------------------------*/
+void my_close_surface(EGI_SURFUSER *surfuer)
+{
+	int x0,y0;
+	int sw=220, sh=140;
+
+	x0=(SURF_MAXW-sw)/2;
+	y0=(SURF_MAXH-sh)/2; /* sw, sh will adjusted in stdSurfConfimr(), MAY NOT fitted. */
+
+        /* Unlock to let surfman read flags. */
+        pthread_mutex_unlock(&surfuser->surfshmem->shmem_mutex);
+/* ------ >>>  Surface shmem Critical Zone  */
+
+        /* Reset MEVENT to let SURFMAN continue to ering mevent. SURFMAN sets MEVENT before ering. --mutex_unlock! */
+        surfuser->surfshmem->flags &= (~SURFACE_FLAG_MEVENT);
+
+        /* Confirm to close, surfuser->retval =STDSURFCONFIRM_RET_OK if confirmed. */
+        surfuser->retval = egi_crun_stdSurfConfirm( (UFT8_PCHAR)"Caution",
+                                     (UFT8_PCHAR)"感谢测试TaskSurface! \n大佬,你确定要退出了吗?",
+				     x0, y0, sw, sh);
+                                     //surfuser->surfshmem->x0+50, surfuser->surfshmem->y0+50, 220, 100);
+
+/* ------ <<<  Surface shmem Critical Zone  */
+        pthread_mutex_lock(&surfuser->surfshmem->shmem_mutex);
+
+}
 

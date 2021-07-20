@@ -11,6 +11,7 @@ midaszhou@yahoo.com
 #include <wchar.h>
 #include <freetype2/ft2build.h>
 #include <freetype2/ftglyph.h>
+#include <ctype.h>
 #include "egi_common.h"
 #include "egi_utils.h"
 #include "egi_FTsymbol.h"
@@ -26,12 +27,52 @@ int main( int  argc,   char**  argv )
 　　毕竟不知寻出那个取经来，且听下回分解。";
 
 
+#if 1 /////////  cstr_get_peword(), cstr_strlen_eword()  //////////
+    const char *pstr="人心生一念，天地尽皆知HELLOOO WORLD! this is really very,,,, god 徒们变nice ssooooo yes! --++12283NDD";
+
+/* --- Result -----
+len=7 Word: HELLOOO
+len=5 Word: WORLD
+len=4 Word: this
+len=2 Word: is
+len=6 Word: really
+len=4 Word: very
+len=3 Word: god
+len=4 Word: nice
+len=7 Word: ssooooo
+len=3 Word: yes
+len=8 Word: 12283NDD
+
+*/
+    char *pt;
+    int len;
+
+    /* Print out all alphanumeric characters */
+    for(i=0; i<128; i++) {
+	    if( isalnum(i) )
+		printf("%c is an alphanumeric character!\n", i);
+    }
+    exit(0);
+
+
+    pt =(char *)pstr;
+    while( (pt=cstr_get_peword((UFT8_PCHAR)pt)) ) {
+	  len=cstr_strlen_eword((UFT8_PCHAR)pt);
+	  printf("Word: ");
+	  for(i=0; i<len; i++)
+		printf("%c", pt[i]);
+	  printf("   (len=%d) \n", len);
+	  pt +=len;
+    }
+
+    exit(0);
+#endif
 
 #if 1 /////////  cstr_hash_string() //////////
 char buff[1024];
 
 while( fgets(buff, sizeof(buff)-1, stdin)!=NULL ) {
-	printf("String HASH: %lld\n", cstr_hash_string((UFT8_PCHAR)buff));
+	printf("String HASH: %lld\n", cstr_hash_string((UFT8_PCHAR)buff,0));
 }
 
 exit(0);

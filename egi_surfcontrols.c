@@ -37,6 +37,9 @@ Journal:
 	1. egi_surfLab_free(); to free (*lab)->imgbuf_effect.
 2021-07-11:
 	1. egi_surfLab_updateText(): to use va_list.
+2021-07-19/20:
+	1. Add egi_crun_stdSurfInfo().
+	2. Add egi_crun_stdSurfConfirm().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -46,6 +49,7 @@ midaszhou@yahoo.com
 #include "egi_utils.h"
 #include "egi_debug.h"
 #include "egi_log.h"
+#include "egi_timer.h"
 #include <unistd.h>
 
 /*---------------------------------------------------------------
@@ -972,18 +976,32 @@ int egi_surfMenuList_runMenuProg(const ESURF_MENULIST *mlist)
 		return -3;
 	}
 
-
         egi_dpstd("Start vfork ...\n");
         apid=vfork();
 
         /* In PROG */
 	if(apid==0) {
         	egi_dpstd("Start execv prog...\n");
-                execv(prog_path, pargv);
-                /* Warning!!! if fails! it still holds whole copied context data!!! */
-                EGI_PLOG(LOGLV_ERROR, "%s: fail to execv '%s' after vfork(), error:%s",
+                if( execv(prog_path, pargv)!=0 ) {
+	                /* Warning!!! if fails! it still holds whole copied context data!!! */
+        	        EGI_PLOG(LOGLV_ERROR, "%s: fail to execv '%s' after vfork(), error:%s",
                                                             __func__, run_script, strerror(errno) );
-                exit(255); /* 8bits(255) will be passed to parent */
+                	exit(255); /* 8bits(255) will be passed to parent */
+		}
+		else
+			exit(0);
+
+		/*** Note: If the parent process call waitpid() to catch the status, set reutrn value in exit():
+		  See MAN 2 waitpid():
+		   ...
+		   WIFEXITED(status)
+              		returns true if the child terminated normally, that is, by calling exit(3) or _exit(2), or by returning from main().
+	           WEXITSTATUS(status)
+              		returns the exit status of the child.  This consists of the least significant 8 bits of the status
+			argument that the child specified in a call to exit(3) or _exit(2) or as the argument for a return
+			statement in main().  This macro should be employed only if  WIFEX‐ITED returned true.
+		  ...
+		 */
 	}
 
         /* In the caller's context */
@@ -1333,7 +1351,7 @@ int egi_surfListBox_adjustPastPos(ESURF_LISTBOX *listbox, int delt)
 }
 
 
-/*----------------------------------------------------------------------------
+/*-----------------------------------------------------------------------------
 Check if point (px,py) is on ViewItemBar of ListBox, change listbox->SeletIdx
 and Hightlight the selected item then.
 Here selected item is of listbox->var_SelectIdx, NOT listbox->SelectIdx!
@@ -1347,7 +1365,7 @@ mouse_hover = mouse_enter + mouse_over +mouse_leave ??
 Return:
 	>=0	OK, as listbox->var_SelectIdx.
 	<0	Fails
-----------------------------------------------------------------------------*/
+------------------------------------------------------------------------------*/
 int egi_surfListBox_PxySelectItem(EGI_SURFUSER *surfuser, ESURF_LISTBOX *listbox, int px, int py)
 {
 	FBDEV *vfb=NULL;
@@ -1424,4 +1442,471 @@ int egi_surfListBox_PxySelectItem(EGI_SURFUSER *surfuser, ESURF_LISTBOX *listbox
 	}
 
 	return listbox->var_SelectIdx;
+}
+
+
+
+/*  <<<<<<<<<<<<<<<<<<<<<<<<<<<    EGI Standard Common Surfaces    >>>>>>>>>>>>>>>>>>>>>>>>>>> */
+
+         	/*===========================================
+	    	    Standard Surface :: Information Surface
+          	 ============================================*/
+
+/*------------------------------------------------------------
+Create and run a standard surface for information displaying.
+
+@name:		Name/Title of the surface.
+@info:		Information content.
+@x0,y0:		Origin coordinate, relative to SYSFB.
+@sw,sh:		Size of the surface.
+
+Title example: Caution, Info. Warning, Critical....
+
+Return:
+	0	OK
+	<0	Fails
+-------------------------------------------------------------*/
+int egi_crun_stdSurfInfo(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, int sw, int sh)
+{
+	int ret=0;
+
+	/* Reference pointer */
+	EGI_SURFUSER	*psurfuser=NULL;
+	EGI_SURFSHMEM	*psurfshmem=NULL;
+	FBDEV		*vfbdev=NULL;
+
+	/* Surface colorType */
+	SURF_COLOR_TYPE	 scolorType=SURF_RGB565;
+
+	/* 1. Register/Create a surfuser */
+	psurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL,
+					x0, y0, sw, sh, sw, sh, scolorType); /* Fixed size */
+	if(psurfuser==NULL)
+		return -1;
+
+	/* 2. Get ref. pointer */
+	vfbdev=&psurfuser->vfbdev;
+	psurfshmem=psurfuser->surfshmem;
+
+	/* 3. Assign surface OP functions, for CLOSE/MIN/MAX TopButtons etc.
+	 *    To be module default ones, OR user defined, OR leave it as default NULL.
+	 */
+	psurfshmem->close_surface = surfuser_close_surface;	/* ONLY CLOSE TopButton */
+
+	/* 4. Name/Titile of the surface */
+	strncpy(psurfshmem->surfname, (char *)name, SURFNAME_MAX-1);
+
+	/* 5. Firstdraw surface, set up TOPBTNs AND TOPMENUs */
+	psurfshmem->bkgcolor=egi_color_random(color_light);
+	surfuser_firstdraw_surface(psurfuser, TOPBTN_CLOSE, TOPMENU_NONE, NULL);
+
+	/* 6. Start Ering routine */
+	if( pthread_create(&psurfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, psurfuser)!=0 ) {
+		egi_dperr("Fail to launch thread_eringRoutine");
+		if( egi_unregister_surfuser(&psurfuser)!=0 )
+			egi_dpstd("Fail to unregister surfuser!\n");
+		return -2;
+	}
+
+	/* 7. Write information content */
+	FTsymbol_disable_SplitWord();
+	FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.regular,  /* FBDEV, fontface */
+				      18, 18, info,		     /* fw, fh, pstr */
+				      sw-20, 100, 15/5, 	     /* pixpl, lines, fgap */
+				      10,  SURF_TOPBAR_HEIGHT+10,    /* x0, y0, relative to vfbdev */
+				      WEGI_COLOR_BLACK, -1, 240,     /* fontcolor, transcolor, opaque */
+				      NULL, NULL, NULL, NULL);	     /* int *cnt, int *lnleft, int *penx, int *peny */
+
+	/* 8. Activate/Sync. surface */
+	psurfshmem->sync=true;
+
+	/* <<<<<  LOOP >>>>> */
+	while( psurfshmem->usersig !=1 ) {
+		usleep(100000);
+	}
+
+	/* Post_1: Join ering_routine */
+	/* Let eringRoutine to try to exit by itself, at signal psurfshmem->usersig=1 */
+	tm_delayms(200);
+	/* To force eringRoutine to quit, for sockfd MAY be blocked at ering_msg_recv()! */
+	if( psurfshmem->eringRoutine_running ) {
+		if( pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL) !=0 )
+			egi_dperr("Fail to pthread_setcancelstate_eringRoutine, it MAY already quit!");
+                /* Note:
+                 *      " A thread's cancellation type, determined by pthread_setcanceltype(3), may be either asynchronous or
+                 *        deferred (the default for new threads). " ---MAN pthread_setcancelstate
+                 */
+		if( pthread_cancel(psurfshmem->thread_eringRoutine) !=0 ) {
+			egi_dperr("Fail to pthread_cancel eringRoutine, it MAY already quit!");
+			ret -= (1<<8);
+		}
+		else
+			egi_dpstd("OK to cancel eringRoutine thread!\n");
+	}
+
+	/* Make sure mutex_unlocked in pthread if any, before join the thread. */
+	egi_dpstd("Join thread_eringRoutine...\n");
+	if( pthread_join(psurfshmem->thread_eringRoutine, NULL) !=0 ) {
+		egi_dperr("Fail to join eringRoutine!");
+		ret -= (1<<9);
+	}
+
+	/* Post_2: Unregister and destroy surfuser */
+	egi_dpstd("Unregister surfuser...\n");
+	if( egi_unregister_surfuser(&psurfuser) !=0 ) {
+		egi_dpstd("Fail to unregister surfuser!\n");
+		ret -= (1<<10);
+	}
+	else
+		egi_dpstd("Ok to unregister surfuser.\n");
+
+	return ret;
+}
+
+
+	         /*============================================
+		     Standard Surface :: Conformation Surface
+	          =============================================*/
+
+#define STDSURFCONFIRM_BTNIDX_OK	0
+#define STDSURFCONFIRM_BTNIDX_CANCEL	1
+#define STDSURFCONFIRM_BTNIDX_MAX       2
+
+static void stdSurfConfirm_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
+
+/*------------------------------------------------------------
+Create and run a standard surface for operation confirmation.
+Buttons: 'OK' and 'Cancel'
+
+@name:		Name/Title of the surface.
+@info:		Information content.
+@x0,y0:		Origin coordinate, relative to SYSFB.
+@sw,sh:		Size of the surface.
+
+Return:
+	>=0	OK, STDSURFCONFIRM_RETURN_OK/CANCEL
+	<0	Fails, ERR code.
+-------------------------------------------------------------*/
+int egi_crun_stdSurfConfirm(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, int sw, int sh)
+{
+	int err=0;
+	int ret=0;		/* Default as _RETURN_OK */
+	int px, py;
+	int pixlen;
+	int fw=18, fh=18;	/* Font size */
+	int fgap=fh/4;
+	int btnW=80, btnH=34;	/* Button size */
+	int btnGap=30;		/* Space between buttons */
+#if 1
+	UFT8_PCHAR strOk=(UFT8_PCHAR)"OK";
+	UFT8_PCHAR strCancel=(UFT8_PCHAR)"Cancel";
+#else
+	UFT8_PCHAR strOk=(UFT8_PCHAR)"确认";
+	UFT8_PCHAR strCancel=(UFT8_PCHAR)"取消";
+#endif
+
+
+	/* Reference pointer */
+	EGI_SURFUSER	*psurfuser=NULL;
+	EGI_SURFSHMEM	*psurfshmem=NULL;
+	EGI_IMGBUF	*psurfimg=NULL;
+	FBDEV		*vfbdev=NULL;
+
+	EGI_IMGBUF 	*effectimg=NULL;
+
+	/* Surface colorType */
+	SURF_COLOR_TYPE	 scolorType=SURF_RGB565;
+
+	/* Get py and decide surface size */
+	py=SURF_TOPBAR_HEIGHT+10;
+	FTsymbol_uft8strings_writeFB( NULL, egi_sysfonts.regular,  /* FBDEV, fontface */
+				      fw, fh, info,		     /* fw, fh, pstr */
+				      sw-20, 100, fgap, 	     /* pixpl, lines, fgap */
+				      10,  py,    		     /* x0, y0, relative to vfbdev */
+				      WEGI_COLOR_BLACK, -1, 240,     /* fontcolor, transcolor, opaque */
+				      NULL, NULL, NULL, &py);	     /* int *cnt, int *lnleft, int *penx, int *peny */
+
+	/* Move py to next Pen point */
+	py += fh+fgap+10;
+
+	/* Re_adjust sh and sw */
+	if(sh< py+btnH +15)
+		sh=py+btnH+15;
+        if( sw< 2*btnW+btnGap+20 )      /* Taken margins at all sides as 10 */
+                sw=2*btnW+btnGap+20;
+
+
+	/* 1. Register/Create a surfuser */
+	psurfuser=egi_register_surfuser( ERING_PATH_SURFMAN, NULL,
+					 x0, y0, sw, sh, sw, sh, scolorType); /* Fixed size */
+	if(psurfuser==NULL)
+		return -1;
+
+	/* 2. Get ref. pointer */
+	vfbdev=&psurfuser->vfbdev;
+	psurfshmem=psurfuser->surfshmem;
+	psurfimg=psurfuser->imgbuf;
+
+	/* 3. Assign surface OP functions, for CLOSE/MIN/MAX TopButtons etc.
+	 *    To be module default ones, OR user defined, OR leave it as default NULL.
+	 */
+	//psurfshmem->close_surface = surfuser_close_surface;	/* ONLY CLOSE TopButton */
+	psurfshmem->user_mouse_event = stdSurfConfirm_mouse_event;
+
+	/* 4. Name/Titile of the surface */
+	strncpy(psurfshmem->surfname, (char *)name, SURFNAME_MAX-1);
+
+	/* 5. Firstdraw surface, set up TOPBTNs AND TOPMENUs */
+	psurfshmem->bkgcolor=egi_color_random(color_light);
+	surfuser_firstdraw_surface(psurfuser, TOPBTN_NONE, TOPMENU_NONE, NULL);
+
+	/* 5A. Firstdraw OK/Cancel buttons on the surface */
+
+	/* Create private buttons pointer.*/
+	psurfshmem->prvbtnsMAX=STDSURFCONFIRM_BTNIDX_MAX;
+	psurfshmem->prvbtns=calloc(1, STDSURFCONFIRM_BTNIDX_MAX*sizeof(ESURF_BTN*));
+	if(psurfshmem->prvbtns==NULL)
+		goto END_FUNC;
+
+	/* --- Draw button 'OK' --- */
+	px=(sw-2*btnW-btnGap)/2;   /* Start point of the first button */
+	//py see above.
+	pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.regular, fw, fh, strOk);
+
+	/* Draw effective/touched button image */
+	fbset_color2(vfbdev, WEGI_COLOR_GRAYB);	/* Light bkgcolor */
+	draw_filled_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
+	fbset_color2(vfbdev, WEGI_COLOR_BLACK);
+	draw_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
+	FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.regular,  /* FBDEV, fontface */
+				      fw, fh, strOk,		     /* fw, fh, pstr */
+				      btnW, 1, 0, 	     	     /* pixpl, lines, fgap */
+				      px+(btnW-pixlen)/2,  py+(btnH-fh)/2,    /* x0, y0, relative to vfbdev */
+				      WEGI_COLOR_BLACK, -1, 240,     /* fontcolor, transcolor, opaque */
+				      NULL, NULL, NULL, NULL);	     /* int *cnt, int *lnleft, int *penx, int *peny */
+
+	/* egi_imgbuf_blockCopy(inimg, px, py, height, width) */
+	effectimg=egi_imgbuf_blockCopy(psurfimg, px, py, btnH, btnW);
+
+	/* Draw normal/untouched button image */
+	fbset_color2(vfbdev, WEGI_COLOR_GRAY1);	/* Deep bkgcolor */
+	draw_filled_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
+	fbset_color2(vfbdev, WEGI_COLOR_BLACK);
+	draw_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
+	FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.regular,  /* FBDEV, fontface */
+				      fw, fh, strOk,		     /* fw, fh, pstr */
+				      btnW, 1, 0, 	     	     /* pixpl, lines, fgap */
+				      px+(btnW-pixlen)/2,  py+(btnH-fh)/2,    /* x0, y0, relative to vfbdev */
+				      WEGI_COLOR_BLACK, -1, 240,     /* fontcolor, transcolor, opaque */
+				      NULL, NULL, NULL, NULL);	     /* int *cnt, int *lnleft, int *penx, int *peny */
+
+	/* Create STDSURFCONFIRM_BTNIDX_OK */
+	psurfshmem->prvbtns[STDSURFCONFIRM_BTNIDX_OK]=egi_surfBtn_create(psurfimg, px, py, px, py, btnW, btnH);
+	psurfshmem->prvbtns[STDSURFCONFIRM_BTNIDX_OK]->imgbuf_effect=effectimg;
+
+	/* --- Draw button 'Cancel' --- */
+	px += btnW+btnGap;		/* Start point of the second button */
+	pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.regular, fw, fh, strCancel);
+
+	/* Draw effective/touched button image */
+	fbset_color2(vfbdev, WEGI_COLOR_GRAYB);
+	draw_filled_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
+	fbset_color2(vfbdev, WEGI_COLOR_BLACK);
+	draw_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
+	FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.regular,  /* FBDEV, fontface */
+				      fw, fh, strCancel,	     /* fw, fh, pstr */
+				      btnW, 1, 0, 	     	     /* pixpl, lines, fgap */
+				      px+(btnW-pixlen)/2,  py+(btnH-fh)/2, /* x0, y0, relative to vfbdev */
+				      WEGI_COLOR_BLACK, -1, 240,     /* fontcolor, transcolor, opaque */
+				      NULL, NULL, NULL, NULL);	     /* int *cnt, int *lnleft, int *penx, int *peny */
+
+	/* egi_imgbuf_blockCopy(inimg, px, py, height, width) */
+	effectimg=egi_imgbuf_blockCopy(psurfimg, px, py, btnH, btnW);
+
+	/* Draw normal/untouched button image */
+	fbset_color2(vfbdev, WEGI_COLOR_GRAY1);
+	draw_filled_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
+	fbset_color2(vfbdev, WEGI_COLOR_BLACK);
+	draw_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
+	FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.regular,  /* FBDEV, fontface */
+				      fw, fh, strCancel,	     /* fw, fh, pstr */
+				      btnW, 1, 0, 	     	     /* pixpl, lines, fgap */
+				      px+(btnW-pixlen)/2,  py+(btnH-fh)/2, /* x0, y0, relative to vfbdev */
+				      WEGI_COLOR_BLACK, -1, 240,     /* fontcolor, transcolor, opaque */
+				      NULL, NULL, NULL, NULL);	     /* int *cnt, int *lnleft, int *penx, int *peny */
+
+	/* Create STDSURFCONFIRM_BTNIDX_CANCEL */
+	psurfshmem->prvbtns[STDSURFCONFIRM_BTNIDX_CANCEL]=egi_surfBtn_create(psurfimg, px, py, px, py, btnW, btnH);
+	psurfshmem->prvbtns[STDSURFCONFIRM_BTNIDX_CANCEL]->imgbuf_effect=effectimg;
+
+	/* 6. Start Ering routine */
+	if( pthread_create(&psurfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, psurfuser)!=0 ) {
+		egi_dperr("Fail to launch thread_eringRoutine");
+		if( egi_unregister_surfuser(&psurfuser)!=0 )
+			egi_dpstd("Fail to unregister surfuser!\n");
+		return -2;
+	}
+
+	/* 7. Write information content */
+	FTsymbol_disable_SplitWord();
+	FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.regular,  /* FBDEV, fontface */
+				      fw, fh, info,		     /* fw, fh, pstr */
+				      sw-20, 100, fgap, 	     /* pixpl, lines, fgap */
+				      10,  SURF_TOPBAR_HEIGHT+10,    /* x0, y0, relative to vfbdev */
+				      WEGI_COLOR_BLACK, -1, 240,     /* fontcolor, transcolor, opaque */
+				      NULL, NULL, NULL, NULL);	     /* int *cnt, int *lnleft, int *penx, int *peny */
+
+	/* 8. Activate/Sync. surface */
+	psurfshmem->sync=true;
+
+	/* <<<<<  LOOP >>>>> */
+	while( psurfshmem->usersig !=1 ) {
+		usleep(100000);
+	}
+
+END_FUNC:
+	/* Post_1: Join ering_routine */
+	/* Let eringRoutine to try to exit by itself, at signal psurfshmem->usersig=1 */
+	tm_delayms(200);
+	/* To force eringRoutine to quit, for sockfd MAY be blocked at ering_msg_recv()! */
+	if( psurfshmem->eringRoutine_running ) {
+		if( pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL) !=0 )
+			egi_dperr("Fail to pthread_setcancelstate_eringRoutine, it MAY already quit!");
+                /* Note:
+                 *      " A thread's cancellation type, determined by pthread_setcanceltype(3), may be either asynchronous or
+                 *        deferred (the default for new threads). " ---MAN pthread_setcancelstate
+                 */
+		if( pthread_cancel(psurfshmem->thread_eringRoutine) !=0 ) {
+			egi_dperr("Fail to pthread_cancel eringRoutine, it MAY already quit!");
+			err -= (1<<8);
+		}
+		else
+			egi_dpstd("OK to cancel eringRoutine thread!\n");
+	}
+
+	/* Make sure mutex_unlocked in pthread if any, before join the thread. */
+	egi_dpstd("Join thread_eringRoutine...\n");
+	if( pthread_join(psurfshmem->thread_eringRoutine, NULL) !=0 ) {
+		egi_dperr("Fail to join eringRoutine!");
+		err -= (1<<9);
+	}
+
+	/* Post_2: Fetch surfuser->retval before unregister */
+	ret=psurfuser->retval;
+
+	/* Post_3: Unregister and destroy surfuser */
+	egi_dpstd("Unregister surfuser...\n");
+	if( egi_unregister_surfuser(&psurfuser) !=0 ) {
+		egi_dpstd("Fail to unregister surfuser!\n");
+		err -= (1<<10);
+	}
+	else
+		egi_dpstd("Ok to unregister surfuser.\n");
+
+	/* Post_4: Return status value */
+	if(err)
+		return err;
+	else
+		return ret;
+}
+
+
+/*-------------------------------------------------------------------------
+                Mouse Event Callback
+             (shmem_mutex locked!)
+
+This is for egi_crun_stdSurfConfirm().
+Click button to returen STDSURFCONFIRM_BTNIDX_OK or STDSURFCONFIRM_BTNIDX_CANCEL
+to surfuser->retval.
+
+1. It's a callback function called in surfuser_parse_mouse_event().
+2. pmostat is for whole desk range.
+3. This is for  SURFSHMEM.user_mouse_event() .
+-------------------------------------------------------------------------*/
+static void stdSurfConfirm_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
+{
+        int i;
+        bool mouseOnBtn=false;
+
+        /* --------- Rule out mouse postion out of workarea -------- */
+
+        /* Get ref. pointers to vfbdev/surfimg/surfshmem */
+        EGI_SURFSHMEM    *msurfshmem=NULL;        /* Only a ref. to surfuser->surfshmem */
+        FBDEV            *mvfbdev=NULL;           /* Only a ref. to &surfuser->vfbdev  */
+
+        msurfshmem=surfuser->surfshmem;
+        mvfbdev=&surfuser->vfbdev;
+
+        /* 1.A Check if mouse hovers over any private buttons */
+        for(i=0; i< msurfshmem->prvbtnsMAX; i++) {
+        	/* A. Check mouse_on_menu */
+                mouseOnBtn=egi_point_on_surfBox( (ESURF_BOX *)msurfshmem->prvbtns[i], pmostat->mouseX -msurfshmem->x0,
+                                                  pmostat->mouseY -msurfshmem->y0 );
+		//if(mouseOnBtn) egi_dpstd("mouseOnBtn i=%d\n", i);
+
+                /* B. If the mouse just moves onto a menu */
+                if(  mouseOnBtn && msurfshmem->mpprvbtn != i ) {
+                	egi_dpstd("Touch prvbtns[] index from %d to %d\n", msurfshmem->mpprvbtn, i);
+                        /* B.1 In case mouse move from a nearby prvbtn, restore its image first. */
+                        if( msurfshmem->mpprvbtn>=0 ) {
+                        	egi_subimg_writeFB((msurfshmem->prvbtns[msurfshmem->mpprvbtn])->imgbuf, mvfbdev, 0, -1,
+                                                    msurfshmem->prvbtns[msurfshmem->mpprvbtn]->x0,
+					    	msurfshmem->prvbtns[msurfshmem->mpprvbtn]->y0);
+                        }
+
+                        /* B.2 Put effect on the newly touched SURFBTN */
+                        #if 0 /* Mask */
+                        draw_blend_filled_rect(mvfbdev, msurfshmem->prvbtns[i]->x0, msurfshmem->prvbtns[i]->y0,
+						msurfshmem->prvbtns[i]->x0+ msurfshmem->prvbtns[i]->imgbuf->width-1,
+						msurfshmem->prvbtns[i]->y0+ msurfshmem->prvbtns[i]->imgbuf->height-1,
+                                                WEGI_COLOR_WHITE, 100);
+ 			#else /* imgbuf_effect */
+                        egi_subimg_writeFB(msurfshmem->prvbtns[i]->imgbuf_effect, mvfbdev,
+                                              0, -1, msurfshmem->prvbtns[i]->x0, msurfshmem->prvbtns[i]->y0);
+                        #endif
+                        /* B.3 Update mpbox */
+                        msurfshmem->mpprvbtn=i;
+
+                        /* B.4 Break for() */
+                        break;
+ 		}
+
+                /* C. If the mouse leaves a menu: Clear mpbox */
+		else if( !mouseOnBtn && msurfshmem->mpprvbtn == i ) {
+
+                	/* C.1 Draw/Restor original image */
+                        egi_subimg_writeFB(msurfshmem->prvbtns[i]->imgbuf, mvfbdev, 0, -1,
+                                           msurfshmem->prvbtns[i]->x0,
+                                           msurfshmem->prvbtns[i]->y0);
+
+                        /* C.2 Reset pressed and Clear mpbtn */
+                        msurfshmem->mpprvbtn=-1;
+
+                        /* C.3 Break for() */
+                        break;
+		}
+
+                /* D. Still on the menu, sustain... */
+                else if( mouseOnBtn && msurfshmem->mpprvbtn == i ) {
+                        break;
+                }
+        } /* END for() */
+
+        /* 2. If LeftKeyDown(Click) on private buttons */
+        if( pmostat->LeftKeyDown && mouseOnBtn ) {
+                egi_dpstd("LeftKeyDown mpprvbtn=%d\n", msurfshmem->mpprvbtn);
+
+                /* If any SURFBTN is touched, do reaction! */
+                switch(msurfshmem->mpprvbtn) {
+                        case STDSURFCONFIRM_BTNIDX_OK:
+				surfuser->retval = STDSURFCONFIRM_RET_OK;
+				msurfshmem->usersig=1;
+                                break;
+                        case STDSURFCONFIRM_BTNIDX_CANCEL:
+				surfuser->retval = STDSURFCONFIRM_RET_CANCEL;
+				msurfshmem->usersig=1;
+                                break;
+                }
+        }
+
 }

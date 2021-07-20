@@ -324,4 +324,12 @@ int 	egi_surfListBox_adjustFirstIdx(ESURF_LISTBOX *listbox, int delt); /* FirstI
 int 	egi_surfListBox_adjustPastPos(ESURF_LISTBOX *listbox, int delt);  /* pastPos driver FirstIdx */
 int 	egi_surfListBox_PxySelectItem(EGI_SURFUSER *surfuser, ESURF_LISTBOX *listbox, int px, int py);
 
+
+/* <<<<< Standard Common Surfaces >>>>> */
+int egi_crun_stdSurfInfo(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, int sw, int sh);
+
+#define STDSURFCONFIRM_RET_OK        0
+#define STDSURFCONFIRM_RET_CANCEL    1
+int egi_crun_stdSurfConfirm(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, int sw, int sh);
+
 #endif

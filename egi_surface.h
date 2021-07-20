@@ -34,6 +34,8 @@ midaszhou@yahoo.com
 #define 	SURF_TOPMENU_BKGCOLOR	WEGI_COLOR_GRAY2 //WEGI_COLOR_DARKBLUE
 #define 	SURF_TOPMENU_FONTCOLOR	WEGI_COLOR_BLACK //WEGI_COLOR_GRAYC
 
+#define		SURF_MAIN_BKGCOLOR	WEGI_COLOR_GRAY /* Main workarea bkgcolor */
+
 #ifdef LETS_NOTE
         #define SURF_MAXW       800
         #define SURF_MAXH       600
@@ -129,6 +131,7 @@ struct egi_surface_user {
 						 * !!! WARNING !!! TODO: NOT correct now, To improve...
 						 */
 
+	int		retval;			/* SURFUSER Return value. Default as 0, STDxxx_RET_OK */
 };
 
 
@@ -336,6 +339,7 @@ struct egi_surface_shmem {
 #define TOPBAR_NONE	(0)		/* No topbar/topbtn/surfname */
 #define TOPBAR_COLOR	(1<<0)		/* Topbar color band: if firstdraw options >= (1<<0) */
 #define TOPBAR_NAME	(1<<1)		/* Surface name, if firstdraw options >= (1<<1) */
+#define TOPBTN_NONE	TOPBAR_NAME	/* Same, with name/color */
 
 	/* Default buttons on topbar: CLOSE/MINIMIZE/MAXIMIZE */
 #define TOPBTN_CLOSE	(1<<2)		/* button CLOSE */
@@ -382,6 +386,13 @@ struct egi_surface_shmem {
 
 	void (*menu_react[TOPMENU_MAX])(EGI_SURFUSER *surfuser);
 
+
+	/* Private buttons on the surface */
+	int			prvbtnsMAX;	/* MAX. number of private buttons on the surface. */
+	ESURF_BTN 		**prvbtns;	/* Pointer to array of private buttons */
+	int			mpprvbtn;	/* Index of mouse touched private buttons, as index of prvbtns[]
+						 * <0 invalid.  Init. it as -1 in surfman_register_surface().
+						 */
 
 	/*** Surface draw Funtions */
  	/* 1. Draw background/canvas, called at beginning of surfuser_firstdraw_surface() */

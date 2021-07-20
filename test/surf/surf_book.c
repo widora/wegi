@@ -83,11 +83,6 @@ void signal_handler(int signo)
 int main(int argc, char **argv)
 {
 	int i;
-	int opt;
-	char *delim=",";
-	char saveargs[128];
-	char *ps=&saveargs[0];
-
 	int sw=0,sh=0; /* Width and Height of the surface */
 	int x0=0,y0=0; /* Origin coord of the surface */
 	char *pname=NULL;
@@ -107,27 +102,14 @@ int main(int argc, char **argv)
                 return -1;
         }
 #endif
+	/* SplitWord control */
+	FTsymbol_disable_SplitWord();
 
-        /* Parse input option */
-        while( (opt=getopt(argc,argv,"hS:p:n:"))!=-1 ) {
-                switch(opt) {
-			case 'S':
-				sw=atoi(strtok_r(optarg, delim, &ps));
-				sh=atoi(strtok_r(NULL, delim, &ps));
-				printf("Surface size W%dxH%d.\n", sw, sh);
-				break;
-			case 'p':
-				x0=atoi(strtok_r(optarg, delim, &ps));
-				y0=atoi(strtok_r(NULL, delim, &ps));
-				printf("Surface origin (%d,%d).\n", x0,y0);
-				break;
-			case 'n':
-				pname=optarg;
-                        case 'h':
-				printf("%s: [-hsc]\n", argv[0]);
-				break;
-		}
-	}
+
+
+	if(argc>1)
+		fpath=argv[1];
+
 
 	/* Set signal handler */
 //	egi_common_sigAction(SIGINT, signal_handler);

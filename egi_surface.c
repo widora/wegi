@@ -278,6 +278,11 @@ Journal
 2021-07-14:
 	1. Add member 'menu_react[]' for EGI_SURFSHMEM
 	2. surfuser_parse_mouse_event(): Call menu_react[surfshmem->mpmenu] if a TOPMENU is clicked.
+2021-07-19:
+	1. surfman_register_surface(): Init. surfshmem->bkgcolor = SURF_MAIN_BKGCOLOR
+	2. EGI_SURFSHMEM: Add member 'prvbtnsMAX', 'prvbtns', 'mpprvbtn'. Init mpprvbtn=-1 at surfman_register_surface().
+2021-07-20:
+	1. surfuser_close_surface(): check confirmation.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -1432,10 +1437,12 @@ int surfman_register_surface( EGI_SURFMAN *surfman, int userID,
 /* TEST: ----------- */
 	eface->surfshmem->mpbox=-1;	/* No esboxes touched by mouse */
 
-
 	eface->surfshmem->mpmenu=-1;	/* No menu touched by mouse */
+	eface->surfshmem->mpprvbtn=-1;	/* No prvbtns touched by mouse */
+
 	eface->surfshmem->topmenu_bkgcolor = SURF_TOPMENU_BKGCOLOR;
 	eface->surfshmem->topmenu_hltbkgcolor = SURF_TOPMENU_BKGCOLOR; /* Highlight bkgcolor if applys */
+	eface->surfshmem->bkgcolor = SURF_MAIN_BKGCOLOR;
 
 	/* 6.3. Assign Color/Alpha offset for shurfshmem */
 	//eface->off_color = eface->color - (unsigned char *)eface;
@@ -3601,6 +3608,8 @@ void surfuser_minimize_surface(EGI_SURFUSER *surfuser)
 Close a surface.
 Here just put a signal to end main loop!
 
+NOTE: Mutex locked!
+
 @surfuser:      Pointer to EGI_SURFUSER.
 -------------------------------------------------*/
 void surfuser_close_surface(EGI_SURFUSER **surfuser)
@@ -3612,8 +3621,13 @@ void surfuser_close_surface(EGI_SURFUSER **surfuser)
 		return;
 
 	/* User defined close function. it MAY return here. */
-	if( (*surfuser)->surfshmem->user_close_surface )
+	if( (*surfuser)->surfshmem->user_close_surface ) {
 		(*surfuser)->surfshmem->user_close_surface(*surfuser);
+
+		/* Check confirmation! */
+		if( (*surfuser)->retval != STDSURFCONFIRM_RET_OK )
+			return;
+	}
 
 /* <<< ------------------- */
 
