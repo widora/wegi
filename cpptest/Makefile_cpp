@@ -1,0 +1,79 @@
+export STAGING_DIR=/home/midas-zhou/openwrt_widora/staging_dir
+COMMON_USRDIR=/home/midas-zhou/openwrt_widora/staging_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/usr
+
+SRC_PATH=/home/midas-zhou/wegi
+
+CC= $(STAGING_DIR)/toolchain-mipsel_24kec+dsp_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mipsel-openwrt-linux-gcc
+CPP= $(STAGING_DIR)/toolchain-mipsel_24kec+dsp_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mipsel-openwrt-linux-gcc
+
+# !!!--- to be created and cleaned ---!!!
+OBJ_IOT = ../iot/egi_iotclient.o
+
+CPPFLAGS  = -I$(SRC_PATH) -I$(SRC_PATH)/utils  -I$(SRC_PATH)/iot -I$(SRC_PATH)/sound
+CPPFLAGS += -I$(COMMON_USRDIR)/include
+CPPFLAGS += -I$(COMMON_USRDIR)/include/freetype2
+CPPFLAGS += -I$(COMMON_USRDIR)/include/json-c
+CPPFLAGS += -I/home/midas-zhou/helixaac/aac_pub
+
+#-I$(SRC_PATH)/page
+
+CPPFLAGS  += -Wall -O2
+CPPFLAGS  += -D_GNU_SOURCE
+CPPFLAGS  += -D_FILE_OFFSET_BITS=64
+CPPFLAGS  += -DENABLE_BACK_BUFFER
+CPPFLAGS  += -Wno-maybe-uninitialized
+
+
+## -std=c99 will fail MACRO typeof()
+#CFLAGS  += '-std=c99'
+##CFLAGS += '-std=gnu99'
+
+LDFLAGS += -L$(SRC_PATH)/lib -L$(COMMON_USRDIR)/lib
+##LDFLAGS += -L/home/midas-zhou/giflib-5.2.1/finish/lib
+
+LIBS    =  -lstdc++
+LIBS	+=  -lepages
+LIBS    += -lesound
+LIBS	+= -lpng -lz -lm -pthread -ljpeg -lasound -lsndfile
+LIBS	+= -lcurl -lssl -lcrypto -pthread
+LIBS	+= -lubox -lubus -lblobmsg_json -ljson_script -ljson-c
+LIBS    += -lfreetype -lz -lm -lbz2
+LIBS	+= -lsqlite3
+LIBS 	+= -lgif
+LIBS	+= -lrt
+LIBS	+= -lutil
+LIBS	+= -lmad
+
+#--- use static or dynamic libs -----
+EGILIB=dynamic
+
+#### --- use dynamic and static libs in compilation!!! ---
+# 1. Exclude dynamic -legi first.
+# 2. Use -Wl,Bdynamic and -Wl,Bstatic to switch to dynamic/static libs
+# 3. At last, we must switch back to dynamic libs, as default for Linux system runtime setup.
+# 4. Source/obj files must be put before all -Wl.
+
+
+###             ----- A template for making test_cpp app -----
+###     Usage example: make test TEST_NAME=test_resizeimg EGILIB=static
+###
+test_cpp:   $(TEST_NAME).cpp
+ifeq ($(EGILIB),static)
+	$(CPP) $(TEST_NAME).cpp -o $(TEST_NAME) $(CPPFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
+-Wl,-Bstatic -legi -lhelixaac -Wl,-Bdynamic
+else
+	$(CPP) -o $(TEST_NAME) $(TEST_NAME).c $(CPPFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
+endif
+
+###                     ------ template end -----
+
+all:	$(APPS)
+
+### !!! NOTE: put '-o $@  $@.c' ahead of FLAGS and LIBS !!!!
+%:%.c
+	$(CPP) -o $@  $@.c $(CFLAGS) $(LDFLAGS) $(LIBS) -legi
+#	$(CPP)  $(CFLAGS) $(LDFLAGS) $(LIBS)  $@.c -o $@
+
+clean:
+	rm -rf *.o $(APPS) $(OBJ_IOT)
+

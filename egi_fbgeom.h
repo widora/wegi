@@ -26,6 +26,10 @@ midaszhou@yahoo.com
 #include "egi.h"
 #include "egi_filo.h"
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
 /* for draw_dot(), roll back to start if reach boundary of FB mem */
 #define no_FB_DOTOUT_ROLLBACK /* also check FB_SYMBOUT_ROLLBACK in symbol.h */
 
@@ -64,6 +68,8 @@ int	fbget_zbuff(FBDEV *fb_dev, int x, int y);
 ////////////////  Draw function   ///////////////
    /******  NOTE: for 16bit color only!  ******/
 int 	draw_dot(FBDEV *dev,int x,int y);
+void 	draw_line_simple(FBDEV *dev,int x1,int y1,int x2,int y2);
+void 	draw_line_antialias(FBDEV *dev,int x1,int y1,int x2,int y2);
 void 	draw_line(FBDEV *dev,int x1,int y1,int x2,int y2);
 void 	draw_button_frame( FBDEV *dev, unsigned int type, EGI_16BIT_COLOR color,
                         int x0, int y0, unsigned int width, unsigned int height, unsigned int w);
@@ -130,5 +136,8 @@ int egi_numstep_btw2p(int step, const EGI_POINT *pa, const EGI_POINT *pb);
 int egi_randp_inbox(EGI_POINT *pr, const EGI_BOX *box);
 int egi_randp_boxsides(EGI_POINT *pr, const EGI_BOX *box);
 
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

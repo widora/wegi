@@ -48,6 +48,7 @@ struct egi_controlkeys_status {
 
 	int  nk;			/* Total number of CONKEYs pressed */
 
+#ifndef XXXLETS_NOTE
      	bool press_leftctrl		: 1; 	/* Ture: pressed; 	False: released */
 	bool press_rightctrl		: 1;
 	bool press_leftalt		: 1;
@@ -65,6 +66,25 @@ struct egi_controlkeys_status {
 					       *  Repeating function required.
 					       *  Press statu need to be reset by Caller!
 					       */
+#else
+     	bool press_leftctrl		; 	/* Ture: pressed; 	False: released */
+	bool press_rightctrl		;
+	bool press_leftalt		;
+        bool press_rightalt		;
+        bool press_leftshift		;
+	bool press_rightshift		;
+	bool press_leftsuper		;
+	bool press_rightsuper		;
+	bool press_asciikey		;
+	bool press_lastkey		;  /* TEST: The last key from keyboard input, usually use this as a function key.
+					       *  No repeating function required.
+					       *  Press statu reset in egi_read_kbdcode().
+					       */
+	bool press_abskey		;  /* TEST: EV_ABS value returns 0x7F(127) as releases? others as press.
+					       *  Repeating function required.
+					       *  Press statu need to be reset by Caller!
+					       */
+#endif
 
 /* Sequence of combined control keys; [0] the_first_pressed --->[4] the_last_pressed.
  * Note:
@@ -104,6 +124,7 @@ struct egi_controlkeys_status {
 	/*** Function keys:
 	 * 1. Function key is EV_REP type.
 	 */
+#ifndef XXXLETS_NOTE
 	bool press_F1			: 1;
 	bool press_F2			: 1;
 	bool press_F3			: 1;
@@ -116,6 +137,22 @@ struct egi_controlkeys_status {
 	bool press_F10			: 1;
 	bool press_F11			: 1;
 	bool press_F12			: 1;
+
+#else	/* ------*/
+	bool press_F1			;
+	bool press_F2			;
+	bool press_F3			;
+	bool press_F4			;
+	bool press_F5			;
+	bool press_F6			;
+	bool press_F7			;
+	bool press_F8			;
+	bool press_F9			;
+	bool press_F10			;
+	bool press_F11			;
+	bool press_F12			;
+#endif
+
 };
 
 /*  Keyboard status,  EGI_KBD_STATUS  */
@@ -162,6 +199,7 @@ struct egi_keyboard_status {
 struct egi_mouse_status {
         pthread_mutex_t mutex;      /* mutex lock, 24bytes */
 
+#ifndef XXXLETS_NOTE
 	/* OR use bitwise to store status:
 	 * 	 	!!! WARNING !!!
 	 * 	Bitfields may NOT be portable!
@@ -183,6 +221,26 @@ struct egi_mouse_status {
 
 	bool KeysIdle		:1;	/* All keys are uphold */
 	/* MouseIdle: KeysIdle + mouseDX/YZ==0 */
+#else
+
+        bool LeftKeyDown	;
+        bool LeftKeyUp		;
+        bool LeftKeyDownHold	;
+        bool LeftKeyUpHold	;
+
+        bool RightKeyDown	;
+        bool RightKeyUp		;
+        bool RightKeyDownHold	;
+        bool RightKeyUpHold	;
+
+        bool MidKeyDown		;
+        bool MidKeyUp		;
+        bool MidKeyDownHold	;
+        bool MidKeyUpHold	;
+
+	bool KeysIdle		;	/* All keys are uphold */
+#endif
+
 
         int  mouseX;	/* Of FB_POS */
         int  mouseY;

@@ -307,6 +307,8 @@ START_TEST:
 	/* Main loop */
 	while( surfshmem->usersig != 1 ) {
 		tm_delayms(100);
+
+		surfshmem->flags &= (~SURFACE_FLAG_MEVENT);
 		//sleep(1);
 	}
 
@@ -370,7 +372,7 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 	char strtmp[128];
 
 
-#if 1 /* --------- E1. Parse Keyboard Event ---------- */
+#if 0 /* --------- E1. Parse Keyboard Event ---------- */
 
    	/* ------TEST:  CONKEY group */
 	/* Get CONKEYs input */
@@ -532,7 +534,8 @@ void *surfuser_ering_routine(void *args)
 			exit(EXIT_FAILURE);
 		    #endif
 		}
-//		egi_dpstd("Ering_msg_recv OK\n");
+
+		egi_dpstd("Ering_msg_recv OK\n");
 
 	        /* 2. Parse ering messag */
         	switch(emsg->type) {
@@ -613,7 +616,7 @@ surfuser_parse_mouse_event(): Touch a BTN mpbtn=-1, i=0
 				mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
 				if(mouse_status->nch !=0)
 					egi_dpstd("Input chars: %-32.32s\n", mouse_status->chars);
-				//egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
+				egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
 				/* Parse mouse event */
 				surfuser_parse_mouse_event(surfuser,mouse_status);  /* mutex_lock */
 				/* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent. SURFMAN sets MEVENT before ering. */

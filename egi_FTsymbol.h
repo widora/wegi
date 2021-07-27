@@ -16,6 +16,10 @@ Midas Zhou
 #include <arpa/inet.h>
 #include FT_FREETYPE_H
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
 typedef unsigned char   UFT8_CHAR;
 typedef unsigned char * UFT8_PCHAR;
 typedef wchar_t         EGI_UNICODE;
@@ -136,6 +140,10 @@ int  	FTsymbol_uft8strings_writeIMG( EGI_IMGBUF *imgbuf, FT_Face face, int fw, i
 
 int  	FTsymbol_uft8strings_pixlen( FT_Face face, int fw, int fh, const unsigned char *pstr); /* FTsymbol_uft8string_getAdvances() will call it.*/
 int  	FTsymbol_eword_pixlen( FT_Face face, int fw, int fh, const unsigned char *pword);
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif
 

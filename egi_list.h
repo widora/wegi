@@ -13,6 +13,10 @@ Midas Zhou
 #include "egi.h"
 #include "egi_symbol.h"
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
 #define  LIST_ITEM_MAXLINES  10 /* MAX number of txt line for each list item */
 #define  LIST_DEFAULT_BKCOLOR	WEGI_COLOR_GRAY /*default list item bkcolor */
 
@@ -34,12 +38,14 @@ EGI_EBOX *egi_listbox_new (
         int iconoffy
 );
 
-
-
 void egi_free_data_list(EGI_DATA_LIST *data_list);
 int egi_listbox_activate(EGI_EBOX *ebox);
 int egi_listbox_refresh(EGI_EBOX *ebox);
 int egi_listbox_updateitem(EGI_EBOX *ebox, int n, int prmcolor, const char **txt);
 // static int egi_itembox_decorate(EGI_EBOX *ebox);
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

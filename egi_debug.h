@@ -17,7 +17,9 @@ midaszhou@yahoo.com
 #include <stdio.h>
 #include <errno.h>
 
-//#define EGI_DEBUG
+#ifdef __cplusplus
+ extern "C" {
+#endif
 
 /* debug flags */
 #define DBG_NONE	(0<<0)
@@ -89,5 +91,9 @@ midaszhou@yahoo.com
 		fprintf(stdout,"%s(): "fmt, __func__, ## args); 	\
 	} while(0)
 
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

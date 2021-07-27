@@ -40,6 +40,9 @@ Journal:
 2021-07-19/20:
 	1. Add egi_crun_stdSurfInfo().
 	2. Add egi_crun_stdSurfConfirm().
+2021-07-23:
+	1 egi_point_on_surfBox(), egi_point_on_surfBtn(), egi_point_on_surfTickBox():
+          For touched point, also check imgbuf->alpha value of the surfBox.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -111,17 +114,20 @@ void egi_surfBox_free(ESURF_BOX **box)
 	*box=NULL;
 }
 
-/*-------------------------------------------------
+/*-----------------------------------------------------
 Check if point (x,y) in on the SURFBOX.
+If box->imgbuf has ALPHA values, then it returns FALSE
+if alpha value of the point is ZERO!
 
 @box	pointer to ESURF_BOX
 @x,y	Point coordinate, relative to its contaier!
 
 Return:
 	True or False.
--------------------------------------------------*/
+------------------------------------------------------*/
 inline bool egi_point_on_surfBox(const ESURF_BOX *box, int x, int y)
 {
+	int off;
 	if( box==NULL || box->imgbuf==NULL )
 		return false;
 
@@ -129,6 +135,14 @@ inline bool egi_point_on_surfBox(const ESURF_BOX *box, int x, int y)
 		return false;
 	if( y < box->y0 || y > box->y0 + box->imgbuf->height -1 )
 		return false;
+
+	/* If alpha is 0 */
+	if( box->imgbuf->alpha ) {
+		off=(y-box->y0)*box->imgbuf->width+(x-box->x0);
+		if(box->imgbuf->alpha[off]==0)
+			return false;
+	}
+
 
 	return true;
 }
@@ -381,7 +395,7 @@ void egi_surfBtn_writeFB(FBDEV *fbdev, const ESURF_BTN *btn, int type, int cx0, 
 }
 
 
-/*---------------------------------------
+/* ------------ :: To call egi_point_on_surfBox() intead! -----------
 Check if point (x,y) in on the SURFBTN.
 
 @sbtn	pointer to ESURF_BTN
@@ -389,9 +403,16 @@ Check if point (x,y) in on the SURFBTN.
 
 Return:
 	True or False.
-----------------------------------------*/
+-----------------------------------------------------------------------*/
 inline bool egi_point_on_surfBtn(const ESURF_BTN *sbtn, int x, int y)
 {
+
+#if 1 /* Call egi_point_on_surfBox() intead! */
+	return egi_point_on_surfBox((ESURF_BOX *)sbtn, x,y);
+
+#else
+	int off;
+
 	if( sbtn==NULL || sbtn->imgbuf==NULL )
 		return false;
 
@@ -400,7 +421,15 @@ inline bool egi_point_on_surfBtn(const ESURF_BTN *sbtn, int x, int y)
 	if( y < sbtn->y0 || y > sbtn->y0 + sbtn->imgbuf->height -1 )
 		return false;
 
+        /* If alpha is 0 */
+        if( box->imgbuf->alpha ) {
+                off=(y-box->y0)*box->imgbuf->width+(x-box->x0);
+                if(box->imgbuf->alpha[off]==0)
+                        return false;
+        }
+
 	return true;
+#endif
 }
 
 
@@ -482,6 +511,13 @@ Return:
 --------------------------------------------*/
 inline bool egi_point_on_surfTickBox(const ESURF_TICKBOX *tbox, int x, int y)
 {
+
+#if 1 /* Call egi_point_on_surfBox() instead! */
+
+	return egi_point_on_surfBox((ESURF_BOX *)tbox, x, y);
+#else
+	int off;
+
 	if( tbox==NULL || tbox->imgbuf_unticked==NULL )
 		return false;
 
@@ -490,7 +526,15 @@ inline bool egi_point_on_surfTickBox(const ESURF_TICKBOX *tbox, int x, int y)
 	if( y < tbox->y0 || y > tbox->y0 + tbox->imgbuf_unticked->height -1 )
 		return false;
 
+        /* If alpha is 0 */
+        if( box->imgbuf->alpha ) {
+                off=(y-box->y0)*box->imgbuf->width+(x-box->x0);
+                if(box->imgbuf->alpha[off]==0)
+                        return false;
+        }
+
 	return true;
+#endif
 }
 
 /*-----------------------------------------
@@ -1689,7 +1733,7 @@ int egi_crun_stdSurfConfirm(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, in
 	effectimg=egi_imgbuf_blockCopy(psurfimg, px, py, btnH, btnW);
 
 	/* Draw normal/untouched button image */
-	fbset_color2(vfbdev, WEGI_COLOR_GRAY1);	/* Deep bkgcolor */
+	fbset_color2(vfbdev, WEGI_COLOR_GRAYA);	/* Deep bkgcolor */
 	draw_filled_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
 	fbset_color2(vfbdev, WEGI_COLOR_BLACK);
 	draw_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
@@ -1724,7 +1768,7 @@ int egi_crun_stdSurfConfirm(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, in
 	effectimg=egi_imgbuf_blockCopy(psurfimg, px, py, btnH, btnW);
 
 	/* Draw normal/untouched button image */
-	fbset_color2(vfbdev, WEGI_COLOR_GRAY1);
+	fbset_color2(vfbdev, WEGI_COLOR_GRAYA);
 	draw_filled_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
 	fbset_color2(vfbdev, WEGI_COLOR_BLACK);
 	draw_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
@@ -1871,7 +1915,7 @@ static void stdSurfConfirm_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS 
                         break;
  		}
 
-                /* C. If the mouse leaves a menu: Clear mpbox */
+                /* C. If the mouse leaves a menu: Clear mpprvbtn */
 		else if( !mouseOnBtn && msurfshmem->mpprvbtn == i ) {
 
                 	/* C.1 Draw/Restor original image */
@@ -1879,7 +1923,7 @@ static void stdSurfConfirm_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS 
                                            msurfshmem->prvbtns[i]->x0,
                                            msurfshmem->prvbtns[i]->y0);
 
-                        /* C.2 Reset pressed and Clear mpbtn */
+                        /* C.2 Reset pressed and Clear mpprvbtn */
                         msurfshmem->mpprvbtn=-1;
 
                         /* C.3 Break for() */
@@ -1896,7 +1940,7 @@ static void stdSurfConfirm_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS 
         if( pmostat->LeftKeyDown && mouseOnBtn ) {
                 egi_dpstd("LeftKeyDown mpprvbtn=%d\n", msurfshmem->mpprvbtn);
 
-                /* If any SURFBTN is touched, do reaction! */
+                /* If any SURFBTN is touched, (XXX do reaction!) Set retval and usersig to quit. */
                 switch(msurfshmem->mpprvbtn) {
                         case STDSURFCONFIRM_BTNIDX_OK:
 				surfuser->retval = STDSURFCONFIRM_RET_OK;

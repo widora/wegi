@@ -6,7 +6,7 @@ published by the Free Software Foundation.
 Usage:
 	./surf_wetradio  ( /home/texture/metal_v.png )
 
-   Volum adjust: Put mouse cursor on PLAY button and roll mouse wheel.
+   Volume adjust: Put mouse cursor on PLAY button and roll mouse wheel.
    Radio select: Click on the panel and select in ListBox.
 
 Note:
@@ -61,6 +61,8 @@ Journal:
 	1. Try to scroll radio_station_name if its too long for displaying panel.
 2021-05-30:
 	1. Update pixlen after each egi_surfLab_updateText(labels[LAB_RSNAME]...)
+2021-07-21:
+	1. Sound DAC Polarity set.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -120,6 +122,11 @@ int load_playlist(const char *fpath, struct radio_info **infoList,  int *listCnt
 void stop_radio(void);
 void start_radio(const char *address);
 
+/* DAC Polarity set.   True: Left or Right Inverted;  False: No Inversion */
+bool DAC_polarity_ON;
+/* 3D Sound effect */
+bool Sound_3D_ON;
+
 /* Play status/signals */
 enum {
         STAT_PLAY,
@@ -131,6 +138,8 @@ enum {
 	SIG_STOP,
 	SIG_PREV,
 	SIG_NEXT,
+	SIG_POL,
+	SIG_3D,
 	SIG_SWITCH,	/* Select a new radio station */
 };
 int radioSTAT=STAT_STOP;
@@ -146,7 +155,7 @@ FBDEV            *vfbdev=NULL;           /* Only a ref. to &surfuser->vfbdev  */
 EGI_IMGBUF       *surfimg=NULL;          /* Only a ref. to surfuser->imgbuf */
 SURF_COLOR_TYPE  colorType=SURF_RGB565_A8;  /* surfuser->vfbdev color type */
 EGI_16BIT_COLOR  bkgcolor;
-EGI_IMGBUF 	*surftexture=NULL;
+EGI_IMGBUF 	 *surftexture=NULL;
 int        	 *pUserSig;                   /* Pointer to surfshmem->usersig, ==1 for quit. */
 
 /* For SURF Buttons */
@@ -155,11 +164,13 @@ enum {
         BTN_PREV        =0,
         BTN_PLAY        =1,
         BTN_NEXT        =2,
-        BTN_VALID_MAX   =3, /* <--- Max number of working buttons. */
+	BTN_POL		=3,  /* Polarity */
+	BTN_3D		=4,  /* 3D sound effect */
+        BTN_VALID_MAX   =5, /* <--- Max number of working buttons. */
 
-        BTN_PLAY_SWITCH =4,  /* To switch with BTN_PLAY */
+        BTN_PLAY_SWITCH =6,  /* To switch with BTN_PLAY */
 
-        BTN_MAX         =5, /* <--- Limit, for allocation. */
+        BTN_MAX         =7, /* <--- Limit, for allocation. */
 };
 ESURF_BTN  * btns[BTN_MAX];
 ESURF_BTN  * btn_tmp=NULL;
@@ -169,6 +180,8 @@ int btnGap=5;
 
 int btnW2=45;		/* Small buttons */
 int btnH2=45;
+int btnW3=24;		/* Smaller buttons */
+int btnH3=24;
 
 //bool mouseOnBtn;
 int mpbtn=-1;   /* Index of mouse touched button, <0 invalid. */
@@ -180,7 +193,9 @@ enum {
 	LAB_STATUS	=0,	/* Status: connecting, playing, stop */
 	LAB_RSNAME	=1,	/* Radio station name */
 	LAB_PARAMS	=2,	/* Detail of data stream */
-	LAB_MAX		=3	/* <--- Limit */
+	LAB_POL		=3,	/* DAC Polarity set */
+	LAB_3D		=4,	/* 3D sound effect */
+	LAB_MAX		=5	/* <--- Limit */
 };
 ESURF_LABEL *labels[LAB_MAX];
 int mplab=-1;   /* Index of mouse touched lab, <0 invalid. */
@@ -260,6 +275,12 @@ int main(int argc, char **argv)
 #endif
 	/* Prepare mixer simple element for volume preparation */
   	egi_getset_pcm_volume(NULL,NULL);
+	/* Set 3D effect */
+	system("amixer set 3D on; amixer set 3D 93%");
+	Sound_3D_ON=true;
+	/* Set DAC Polarity */
+	system("amixer set 'DAC Polarity' 'No Inversion'");
+	DAC_polarity_ON=false;
 
 /*  TEST: -------- MSG QUEUE ----------- */
         int msglen;
@@ -311,6 +332,12 @@ int main(int argc, char **argv)
 					   sw-( (sw-btnW)/4 +btnW2/2 ) -10, SURF_TOPBAR_HEIGHT+5+80+5 +btnH/2 -btnH2/2, btnW, btnH);
 	egi_imgbuf_resize_update(&btns[BTN_NEXT]->imgbuf, true, btnW2, btnH2); /* Resize */
 
+	btns[BTN_3D]=egi_surfBtn_create(icons_normal, 0, 0, (sw-btnW)/2+btnW -6, sh-btnW3-8, btnW, btnH);
+	egi_imgbuf_resize_update(&btns[BTN_3D]->imgbuf, true, btnW3, btnH3); /* Resize */
+
+	btns[BTN_POL]=egi_surfBtn_create(icons_normal, 0, 0, (sw-btnW)/2-btnW3 +6, sh-btnW3-8, btnW, btnH);
+	egi_imgbuf_resize_update(&btns[BTN_POL]->imgbuf, true, btnW3, btnH3); /* Resize */
+
 	/* TEST: -------- */
 	if(btns[BTN_PLAY]->imgbuf==NULL)
 		printf("-----Normal imgbuf NULL!!!\n");
@@ -327,6 +354,12 @@ int main(int argc, char **argv)
 
 	btns[BTN_NEXT]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, btnW+btnGap, btnW+btnGap, btnW, btnH);
 	egi_imgbuf_resize_update(&btns[BTN_NEXT]->imgbuf_effect, true, btnW2, btnH2); /* Resize */
+
+	btns[BTN_POL]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 0,0, btnW, btnH);
+	egi_imgbuf_resize_update(&btns[BTN_POL]->imgbuf_effect, true, btnW3, btnH3); /* Resize */
+
+	btns[BTN_3D]->imgbuf_effect = egi_imgbuf_blockCopy(icons_effect, 0,0, btnW, btnH);
+	egi_imgbuf_resize_update(&btns[BTN_3D]->imgbuf_effect, true, btnW3, btnH3); /* Resize */
 
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
@@ -385,6 +418,8 @@ int main(int argc, char **argv)
 	egi_surfBtn_writeFB(vfbdev, btns[BTN_PLAY], SURFBTN_IMGBUF_NORMAL, 0, 0);
 	egi_surfBtn_writeFB(vfbdev, btns[BTN_PREV], SURFBTN_IMGBUF_NORMAL, 0, 0);
 	egi_surfBtn_writeFB(vfbdev, btns[BTN_NEXT], SURFBTN_IMGBUF_NORMAL, 0, 0);
+	egi_surfBtn_writeFB(vfbdev, btns[BTN_POL], SURFBTN_IMGBUF_NORMAL, 0, 0);
+	egi_surfBtn_writeFB(vfbdev, btns[BTN_3D], SURFBTN_IMGBUF_NORMAL, 0, 0);
 
 	/* 7. Draw displaying panel */
 	draw_blend_filled_roundcorner_rect(vfbdev, 10, SURF_TOPBAR_HEIGHT+5, 10+panW, SURF_TOPBAR_HEIGHT+5+panH, 5, /* x1,y1,x2,y2,r */
@@ -393,7 +428,7 @@ int main(int argc, char **argv)
 
 	/* 9. Draw/Create Lables */
 	/* 9.1 Play statu */
-	labels[LAB_STATUS]=egi_surfLab_create(surfimg,20,SURF_TOPBAR_HEIGHT+5+2,20,SURF_TOPBAR_HEIGHT+5+2, panW-20, 25); /* img,xi,yi,x0,y0,w,h */
+	labels[LAB_STATUS]=egi_surfLab_create(surfimg,20,SURF_TOPBAR_HEIGHT+5+2,20,SURF_TOPBAR_HEIGHT+5+2, panW-100, 25); /* img,xi,yi,x0,y0,w,h */
 	egi_surfLab_updateText(labels[LAB_STATUS], "Stop");
 	egi_surfLab_writeFB(vfbdev, labels[LAB_STATUS], egi_sysfonts.regular, 18, 18, WEGI_COLOR_LTYELLOW, 0, 0);
 	/* 9.2 Station Name */
@@ -406,6 +441,16 @@ int main(int argc, char **argv)
 	labels[LAB_PARAMS]=egi_surfLab_create(surfimg,20,SURF_TOPBAR_HEIGHT+5+60,20,SURF_TOPBAR_HEIGHT+5+60, panW-20, 20); /* img,xi,yi,x0,y0,w,h */
 	egi_surfLab_updateText(labels[LAB_PARAMS], "Params...");
 	egi_surfLab_writeFB(vfbdev, labels[LAB_PARAMS], egi_sysfonts.regular, 14, 14, WEGI_COLOR_GREEN, 0, 0);
+
+	/* 9.4 DAC Polarity */
+	labels[LAB_POL]=egi_surfLab_create(surfimg, sw-75, SURF_TOPBAR_HEIGHT+5+6, sw-75,SURF_TOPBAR_HEIGHT+5+6, 40, 20); /* img,xi,yi,x0,y0,w,h */
+	egi_surfLab_updateText(labels[LAB_POL], " "); //POL_Off");
+	egi_surfLab_writeFB(vfbdev, labels[LAB_POL], egi_sysfonts.regular, 14, 14, WEGI_COLOR_LTBLUE, 0, 0);
+
+	/* 9.4 Sound 3D effect */
+	labels[LAB_3D]=egi_surfLab_create(surfimg, sw-35, SURF_TOPBAR_HEIGHT+5+6, sw-35,SURF_TOPBAR_HEIGHT+5+6, 40, 20); /* img,xi,yi,x0,y0,w,h */
+	egi_surfLab_updateText(labels[LAB_3D], "3D");
+	egi_surfLab_writeFB(vfbdev, labels[LAB_3D], egi_sysfonts.regular, 14, 14, WEGI_COLOR_LTYELLOW, 0, 0);
 
 	/* 10. Start Ering routine: Use module default routine function. */
 	printf("start ering routine...\n");
@@ -424,7 +469,7 @@ int main(int argc, char **argv)
 	struct stat     sb;
 	while( surfshmem->usersig != 1 ) {
 
-		/* Parse signal */
+		/* M1. Parse signal */
 		if( ( radioSIG == SIG_NEXT || radioSIG == SIG_PREV) && (radioSTAT == STAT_PLAY || radioSTAT == STAT_CONNECT) ) {
 			/* Stop it first */
 			stop_radio();
@@ -462,7 +507,7 @@ int main(int argc, char **argv)
 			start_radio(playlist[playlist_idx].address);
 
 			radioSTAT = STAT_CONNECT;  /* Main loop to check STAT_PLAY, if stream file found. */
-			radioSIG = SIG_NONE;
+//			radioSIG = SIG_NONE;
 		}
 		if(  radioSIG == SIG_PLAY && radioSTAT != STAT_PLAY ) {
 			egi_surfLab_updateText(labels[LAB_STATUS], "Connecting...");
@@ -480,7 +525,7 @@ int main(int argc, char **argv)
 			start_radio(playlist[playlist_idx].address);
 
 			radioSTAT = STAT_CONNECT;  /* Main loop to check STAT_PLAY, if stream file found. */
-			radioSIG = SIG_NONE;
+//			radioSIG = SIG_NONE;
 		}
 		else if( radioSIG == SIG_STOP ) {
 			egi_surfLab_updateText(labels[LAB_STATUS], "Stop");
@@ -492,7 +537,7 @@ int main(int argc, char **argv)
 
 			stop_radio();
 			radioSTAT = STAT_STOP;
-			radioSIG = SIG_NONE;
+//			radioSIG = SIG_NONE;
 		}
 		else if( radioSIG == SIG_SWITCH ) { /* Switch/Change station, playlist_idx changed by surf_ListBox() */
 			/* Clear LAB */
@@ -526,13 +571,56 @@ int main(int argc, char **argv)
 				radioSTAT = STAT_CONNECT;  /* Main loop to check STAT_PLAY, if stream file found. */
 			}
 
-			radioSIG = SIG_NONE;
+//			radioSIG = SIG_NONE;
+		}
+		else if( radioSIG == SIG_POL ) {
+
+			if(DAC_polarity_ON) {
+				system("amixer set 'DAC Polarity' 'Stereo Inversion'");
+				DAC_polarity_ON=false;
+				egi_surfLab_updateText(labels[LAB_POL], " "); //POL_Off");
+			}
+			else {
+				system("amixer set 'DAC Polarity' 'Left Inverted'");
+				DAC_polarity_ON=true;
+				egi_surfLab_updateText(labels[LAB_POL], "POL"); //_On");
+			}
+
+        		pthread_mutex_lock(&surfshmem->shmem_mutex);
+/* ------ >>>  Surface shmem Critical Zone  */
+			egi_surfLab_writeFB(vfbdev, labels[LAB_POL], egi_sysfonts.regular, 14, 14, WEGI_COLOR_LTBLUE, 0, 0);
+/* ------ <<<  Surface shmem Critical Zone  */
+	                pthread_mutex_unlock(&surfshmem->shmem_mutex);
+
+//			radioSIG = SIG_NONE;
+		}
+		else if( radioSIG == SIG_3D ) {
+			if(Sound_3D_ON) {
+				system("amixer set 3D off");
+				Sound_3D_ON=false;
+				egi_surfLab_updateText(labels[LAB_3D], " ");
+			}
+			else {
+				system("amixer set 3D on; amixer set 3D 93%");
+				Sound_3D_ON=true;
+				egi_surfLab_updateText(labels[LAB_3D], "3D");
+			}
+        		pthread_mutex_lock(&surfshmem->shmem_mutex);
+/* ------ >>>  Surface shmem Critical Zone  */
+			egi_surfLab_writeFB(vfbdev, labels[LAB_3D], egi_sysfonts.regular, 14, 14, WEGI_COLOR_LTYELLOW, 0, 0);
+/* ------ <<<  Surface shmem Critical Zone  */
+	                pthread_mutex_unlock(&surfshmem->shmem_mutex);
+
+//			radioSIG=SIG_NONE;
 		}
 		else {  /* SIG_NEXT/PREV + STAT_STOP, In this case radioSIG will NEVER be cleared by auto! */
 			radioSIG = SIG_NONE;
 		}
 
-		/* Check RADIO status */
+		/* M2. Clear sig */
+		radioSIG = SIG_NONE;
+
+		/* M3. Check RADIO status */
 		if( radioSTAT == STAT_CONNECT ) {
 			if( stat("/tmp/a.stream", &sb)==0 && sb.st_size>0 ) {
 				radioSTAT = STAT_PLAY;
@@ -852,6 +940,23 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 				egi_surfBtn_writeFB(vfbdev, btns[mpbtn], SURFBTN_IMGBUF_EFFECT, 0, 1);
 				radioSIG = SIG_NEXT;
 				break;
+			case BTN_POL:
+				if(radioSIG != SIG_NONE)
+					break;
+
+				/* Inch down to make some effect */
+				egi_surfBtn_writeFB(vfbdev, btns[mpbtn], SURFBTN_IMGBUF_EFFECT, 0, 1);
+				radioSIG = SIG_POL;
+				break;
+			case BTN_3D:
+				if(radioSIG != SIG_NONE)
+					break;
+
+				/* Inch down to make some effect */
+				egi_surfBtn_writeFB(vfbdev, btns[mpbtn], SURFBTN_IMGBUF_EFFECT, 0, 1);
+				radioSIG = SIG_3D;
+				break;
+
 		}
 
 	   } /* End mouseOnBtn */

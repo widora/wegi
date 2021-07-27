@@ -135,7 +135,7 @@ int main(int argc, char ** argv)
 
 
 
-#if 1  /* <<<<<<<<<<<<<<  3. test draw triangle  <<<<<<<<<<<<<<<*/
+#if 0  /* <<<<<<<<<<<<<<  3. test draw triangle  <<<<<<<<<<<<<<<*/
 	int i;
 	int j, k; /* j -- pixlen moved, 0 from right most, k -- triangles drawn before putting slagon */
 	int count;
@@ -196,7 +196,7 @@ while(1) {
                                 	        320-j, 110,                 /* x0,y0, */
                                         	WEGI_COLOR_WHITE, -1, 255,        /* fontcolor, transcolor,opaque */
 	                                        NULL, NULL, NULL, NULL);          /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
-#if 1
+   #if 1
 		if( j > 320 + pixlen ) {
 			j=j-pixlen-320/2;
 			/* Redraw, since above writeFB is invisiable */
@@ -217,7 +217,7 @@ while(1) {
 
 		}
 
-#endif
+   #endif
 
 		fb_render(&gv_fb_dev);
 		//usleep(60000);
@@ -235,7 +235,7 @@ while(1) {
 #endif
 
 
-#if 0  /* <<<<<<<<<<<<<<  test anti_aliasing effect  <<<<<<<<<<<<<<<*/
+#if 1  /* <<<<<<<<<<<<<<  test anti_aliasing effect  <<<<<<<<<<<<<<<*/
 	int i,k;
 	int r=200;//75,180
 	int xc=160,yc=120;
@@ -250,14 +250,20 @@ while(1) {
         }
 
 while(1) {
-	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY2);
+	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY);
 
-	/* Draw lines without anti_aliasing effect */
-	for(i=0; i<180; i+=2) {
+	/* Tip */
+       	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
+        	                        24, 24,				  /* fw,fh */
+					antialias_on?(UFT8_PCHAR)"Antialias_ON":(UFT8_PCHAR)"Antialias_OFF", /* pstr */
+       	        	                300, 1, 0,                        /* pixpl, lines, fgap */
+               	        	        10, 6, 	               		  /* x0,y0, */
+                              	        WEGI_COLOR_WHITE, -1, 255,        /* fontcolor, transcolor,opaque */
+	                               	NULL, NULL, NULL, NULL );         /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
 
-//	for(k=0; k<4; k++) {
-//		i=tmp[k];
-
+	/* Draw lines with/without anti_aliasing effect */
+	fbset_color(egi_color_random(color_deep));
+	for(i=0; i<180; i+=3) {
 		x1=xc+(r*fp16_cos[i]>>16);
 		y1=yc-(r*fp16_sin[i]>>16);
 		x2=xc+(r*fp16_cos[i+180]>>16);
@@ -266,15 +272,33 @@ while(1) {
 		printf("i=%d: line (%d,%d)-(%d,%d) \n", i,x1,y1,x2,y2);
 
 		gv_fb_dev.antialias_on=antialias_on;
-		fbset_color(egi_color_random(color_deep));
-		draw_line(&gv_fb_dev, x1,y1, x2,y2);	/* Note: LCD coord sys! */
+		//fbset_color(egi_color_random(color_deep));
+		if(antialias_on) {
+			draw_line_antialias(&gv_fb_dev, x1,y1, x2,y2);	/* Note: LCD coord sys! */
+			//draw_wline(&gv_fb_dev, x1,y1, x2,y2,5);
+		}
+		else
+			draw_line(&gv_fb_dev, x1,y1, x2,y2);	/* Note: LCD coord sys! */
 		gv_fb_dev.antialias_on=false;
 
 		fb_render(&gv_fb_dev);
 	}
 
+	/* Tip */
+       	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
+        	                        24, 24,				  /* fw,fh */
+					antialias_on?(UFT8_PCHAR)"Antialias_ON":(UFT8_PCHAR)"Antialias_OFF", /* pstr */
+       	        	                300, 1, 0,                        /* pixpl, lines, fgap */
+               	        	        10, 6, 	                  /* x0,y0, */
+                              	        WEGI_COLOR_WHITE, -1, 255,        /* fontcolor, transcolor,opaque */
+	                               	NULL, NULL, NULL, NULL);          /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+	fb_render(&gv_fb_dev);
+
+	/* Hold on */
+	sleep(2);
+
+	/* Toggle */
 	antialias_on=!antialias_on;
-	sleep(5);
 }
 
 	fb_render(&gv_fb_dev);

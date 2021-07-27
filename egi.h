@@ -21,9 +21,13 @@ midaszhou@yahoo.com
 #include "egi_filo.h"
 //#include <freetype2/ft2build.h>
 
-#define EGI_NOPRIM_COLOR -1 /* Do not draw primer color for an egi object */
-#define EGI_TAG_LENGTH 30 /* ebox tag string length */
-#define EGI_PAGE_MAXTHREADS 5 /* MAX. number of threads in a page routine job */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define EGI_NOPRIM_COLOR -1 	/* Do not draw primer color for an egi object */
+#define EGI_TAG_LENGTH 30 	/* ebox tag string length */
+#define EGI_PAGE_MAXTHREADS 5   /* MAX. number of threads in a page routine job */
 
 typedef struct egi_point_coord  EGI_POINT;
 typedef struct egi_box_coords 	EGI_BOX;
@@ -713,5 +717,9 @@ int 	egi_ebox_free(EGI_EBOX *ebox);
 
 /* for egi page */
 int 	egi_page_disappear(EGI_EBOX *ebox);
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

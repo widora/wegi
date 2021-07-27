@@ -13,7 +13,8 @@ TODO: Using pointer params is better than just adding inline qualifier ?
 
 EGI Color Functions
 
-Midas ZHou
+Midas Zhou
+midaszhou@yahoo.com
 -----------------------------------------------------------------------*/
 
 #include "egi_color.h"

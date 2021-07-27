@@ -267,7 +267,7 @@ int main(int argc, char **argv)
 //  	tm_start_egitick();
 
 	/* Create an ERING_MSG */
-	printf("Create an ERING_MSG, sizeof(EGI_MOUSE_STATUS)=%d ....\n", sizeof(EGI_MOUSE_STATUS));
+	printf("Create an ERING_MSG, sizeof(EGI_MOUSE_STATUS)=%zd ....\n", sizeof(EGI_MOUSE_STATUS));
         emsg=ering_msg_init();
         if(emsg==NULL) exit(EXIT_FAILURE);
 
@@ -836,7 +836,7 @@ WAIT_REQUEST:
 							emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS) ) <=0 ) {
 							egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");
 						}
-//						egi_dpstd("Ering_msg_send OK! ch=%d\n", pmostat->ch);
+						egi_dpstd("Ering_msg_send OK! Mxy(%d,%d)\n",pmostat->mouseX, pmostat->mouseY);
 
 	/* TEST: ------ check lastkey */
 						if(pmostat->conkeys.press_lastkey)

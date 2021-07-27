@@ -27,6 +27,10 @@ midaszhou@yahoo.com
 #include "egi_color.h"
 //#include "egi_image.h" /* definition conflict */
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
 /* See FBDEV.devname, or use gv_fb_dev.devname="/dev/fb0" as default. */
 //#ifdef LETS_NOTE
 //#define EGI_FBDEV_NAME "/dev/fb0" //1
@@ -205,5 +209,9 @@ void    fb_filo_off(FBDEV *dev);
 void    fb_filo_flush(FBDEV *dev);
 void    fb_filo_dump(FBDEV *dev);
 void	fb_position_rotate(FBDEV *dev, unsigned char pos);
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

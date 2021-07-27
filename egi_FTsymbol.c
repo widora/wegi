@@ -43,7 +43,7 @@ midaszhou@yahoo.com
 #include "egi_cstring.h"
 #include "egi_utils.h"
 #include "egi_debug.h"
-#include "sys_list.h"  /* container_of() */
+//#include "sys_list.h"  /* container_of() */
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <freetype2/ft2build.h>

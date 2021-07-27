@@ -2,9 +2,35 @@
 list.h modified from Linux kernel codes.
 
 Refering to https://blog.csdn.net/chrovery/article/details/40475791
+
+
+Journal:
+2021-07-27:
+	For __cpluspus notation:
+	1. To avoid CPP key name 'new':
+		struct list_head *'new' rename to be 'pnew'
+
+	2. static inline void list_del(struct list_head *entry):
+		- entry->next = LIST_POISON1;
+		- entry->prev = LIST_POISON2;
+		+ entry->next = (list_head*)LIST_POISON1;
+		+ entry->prev = (list_head*)LIST_POISON2;
+
+ 	3. static inline void hlist_del(struct hlist_node *n)
+		- n->next = LIST_POISON1;
+		- n->pprev = LIST_POISON2;
+		+ n->next = (hlist_node*)LIST_POISON1;
+		+ n->pprev = (hlist_node**)LIST_POISON2;
+
+Midas Zhou
 ------------------------------------------------------------------*/
 #ifndef _LINUX_LIST_H_
 #define _LINUX_LIST_H_
+
+/* --- For CPP: Ignor this header file! ---- */
+#ifdef __cplusplus
+ extern "C" {
+#endif
 
 #define offset_of(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
 
@@ -37,14 +63,14 @@ struct list_head name = LIST_HEAD_INIT(name)
  * This is only for internal list manipulation where we know
  * the prev/next entries already!
  */
-static inline void __list_add(struct list_head *new,
-      struct list_head *prev,
-      struct list_head *next)
+static inline void __list_add(struct list_head *pnew,
+		struct list_head *prev,
+		struct list_head *next )
 {
-next->prev = new;
-new->next = next;
-new->prev = prev;
-prev->next = new;
+next->prev = pnew;
+pnew->next = next;
+pnew->prev = prev;
+prev->next = pnew;
 }
 
 /**
@@ -55,9 +81,9 @@ prev->next = new;
  * Insert a new entry after the specified head.
  * This is good for implementing stacks.
  */
-static inline void list_add(struct list_head *new, struct list_head *head)
+static inline void list_add(struct list_head *pnew, struct list_head *head)
 {
-__list_add(new, head, head->next);
+__list_add(pnew, head, head->next);
 }
 
 /**
@@ -68,9 +94,9 @@ __list_add(new, head, head->next);
  * Insert a new entry before the specified head.
  * This is useful for implementing queues.
  */
-static inline void list_add_tail(struct list_head *new, struct list_head *head)
+static inline void list_add_tail(struct list_head *pnew, struct list_head *head)
 {
-__list_add(new, head->prev, head);
+__list_add(pnew, head->prev, head);
 }
 
 static inline void __list_del(struct list_head * prev, struct list_head * next)
@@ -82,8 +108,8 @@ prev->next = next;
 static inline void list_del(struct list_head *entry)
 {
 __list_del(entry->prev, entry->next);
-entry->next = LIST_POISON1;
-entry->prev = LIST_POISON2;
+entry->next = (list_head*)LIST_POISON1;
+entry->prev = (list_head*)LIST_POISON2;
 }
 
 static inline void list_del_init(struct list_head *entry)
@@ -235,8 +261,8 @@ next->pprev = pprev;
 static inline void hlist_del(struct hlist_node *n)
 {
 __hlist_del(n);
-n->next = LIST_POISON1;
-n->pprev = LIST_POISON2;
+n->next = (hlist_node*)LIST_POISON1;
+n->pprev = (hlist_node**)LIST_POISON2;
 }
 
 static inline void hlist_del_init(struct hlist_node *n)
@@ -311,5 +337,9 @@ for (pos = (head)->first;	 \
      pos && ({ n = pos->next; 1; }) && 	 \
 ({ tpos = hlist_entry(pos, typeof(*tpos), member); 1;}); \
      pos = n)
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

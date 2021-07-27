@@ -19,12 +19,17 @@ TODO:
    color nearby ....
 
 Midas Zhou
+midaszhou@yahoo.com
 -------------------------------------------------------------------*/
 #ifndef	__EGI_COLOR_H__
 #define __EGI_COLOR_H__
 
 #include <stdint.h>
 #include <stdbool.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* color definition */
 typedef uint16_t		EGI_16BIT_COLOR;
@@ -60,7 +65,7 @@ typedef struct egi_color_band_map 	EGI_COLOR_BANDMAP;
 
 
 /* get 16bit complementary colour for a 16bit color
- * !!! NOTE: For 16bit color, it's NOT possible to get a ture complementary color !!!
+ * !!! NOTE: For 16bit color, it's NOT possible to get a true complementary color !!!
  */
 #define COLOR_COMPLEMENT_16BITS(rgb)	 ( 0xFFFF-(rgb) )
 
@@ -231,4 +236,10 @@ int  egi_colorBandMap_insertBand(EGI_COLOR_BANDMAP *map, unsigned int pos, unsig
 int  egi_colorBandMap_combineBands(EGI_COLOR_BANDMAP *map, unsigned int pos, unsigned int len, EGI_16BIT_COLOR color);
 int  egi_colorBandMap_deleteBands(EGI_COLOR_BANDMAP *map, unsigned int pos, unsigned int len);
 
+#ifdef __cplusplus
+ }
 #endif
+
+#endif
+
+

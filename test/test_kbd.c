@@ -188,7 +188,7 @@ int main(void)
 			/* Reset lastkey:  Every EV_KEY read ONLY ONCE */
 			kstat.conkeys.lastkey =0;	/* Note: KEY_RESERVED ==0 */
 
-			/* Reset abskey: Every EV_ABS read ONLY ONCE */ */
+			/* Reset abskey: Every EV_ABS read ONLY ONCE */
 			kstat.conkeys.abskey =ABS_MAX; /* NOTE: ABS_X ==0!!! */
 
 		}

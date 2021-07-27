@@ -15,6 +15,9 @@ Midas Zhou
 #include "egi_fbgeom.h"
 #include "egi.h"
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
 
 /* symbol image size */
 #define SYM_IMGPAGE_WIDTH 240
@@ -172,6 +175,8 @@ void symbol_motion_string(FBDEV *fb_dev, int dt, const EGI_SYMPAGE *sym_page,   
 void symbol_rotate(const EGI_SYMPAGE *sym_page,	\
                                                  int x0, int y0, int sym_code);
 
-
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

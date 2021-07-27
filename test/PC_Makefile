@@ -28,6 +28,7 @@ LIBS    += -lasound
 LIBS    += -lsndfile
 LIBS    += -lmad
 LIBS	+= -lrt  #for shm_open()
+LIBS    += -lutil  #for forpty()
 
 LIBS    += -lpng12
 LIBS    += -lz -lm -pthread -ljpeg

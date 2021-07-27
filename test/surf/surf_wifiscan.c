@@ -233,7 +233,7 @@ int main(int argc, char** argv)
 
         /* 5. First draw surface */
         //surfshmem->bkgcolor= WEGI_COLOR_DARKGRAY1; /* OR default BLACK */
-        surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN|TOPBTN_MAX); /* Default firstdraw operation */
+        surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN|TOPBTN_MAX, 0, NULL); /* Default firstdraw operation */
 
 	/* Create displaying window */
 	draw_bkg(&workfb);
@@ -664,7 +664,7 @@ START_PARSE:
 	workfb.antialias_on=false;
 //	workfb.pixcolor_on=false;
 
-	draw_filled_spline(&workfb, 3,pts, 2, 1, blpy, color, 50); /* baseY, color, alpha */
+//	draw_filled_spline(&workfb, 3,pts, 2, 1, blpy, color, 50); /* baseY, color, alpha */
 
 	/* Mark SSID */
 	int pixlen=FTsymbol_uft8strings_pixlen(egi_appfonts.regular, fw, fh, ssid);
@@ -808,7 +808,7 @@ void draw_cpuload(FBDEV *fbdev)
 	draw_spline(fbdev, st, pts, 2, 1);
 	fbdev->antialias_on=false;
 
-	draw_filled_spline(fbdev, st, pts, 2, 1, blpy, WEGI_COLOR_RED, 60); /* baseY, color, alpha */
+	//draw_filled_spline(fbdev, st, pts, 2, 1, blpy, WEGI_COLOR_RED, 60); /* baseY, color, alpha */
 
 	/* Write avgload */
 	printf("Write avgload %.1f\n", avgload[0]);

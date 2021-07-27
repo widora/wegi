@@ -4,6 +4,7 @@ COMMON_USRDIR=/home/midas-zhou/openwrt_widora/staging_dir/target-mipsel_24kec+ds
 SRC_PATH=/home/midas-zhou/wegi
 
 CC= $(STAGING_DIR)/toolchain-mipsel_24kec+dsp_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mipsel-openwrt-linux-gcc
+CPP= $(STAGING_DIR)/toolchain-mipsel_24kec+dsp_gcc-4.8-linaro_uClibc-0.9.33.2/bin/mipsel-openwrt-linux-gcc
 
 # !!!--- to be created and cleaned ---!!!
 OBJ_IOT = ../iot/egi_iotclient.o
@@ -66,6 +67,7 @@ else
 endif
 
 ### 			------ template end -----
+
 
 
 all:	$(APPS)

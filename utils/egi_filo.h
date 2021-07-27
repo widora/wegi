@@ -13,6 +13,10 @@ Midas Zhou
 #include <stdlib.h>
 #include <pthread.h>
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
 #define FILO_AUTO_DOUBLE	0b01
 #define FILO_AUTO_HALVE		0b10
 
@@ -51,5 +55,9 @@ int 	egi_filo_pop(EGI_FILO *filo, void* data);
 int 	egi_filo_read(const EGI_FILO *filo, int pn, void* data);
 int 	egi_filo_itemtotal(const EGI_FILO *filo);
 void* 	egi_filo_get_flatData(const EGI_FILO *filo);
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

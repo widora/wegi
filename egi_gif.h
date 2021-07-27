@@ -17,6 +17,10 @@ Midas-Zhou
 #include "gif_lib.h"
 #include "egi_imgbuf.h"
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
 typedef struct fbdev FBDEV;  /* Just a declaration, referring to definition in egi_fbdev.h */
 
 /*** GIF saved images with uncompressed data   */
@@ -178,5 +182,9 @@ void	  egi_gif_free(EGI_GIF **egif);
 void 	  egi_gif_displayGifCtxt( EGI_GIF_CONTEXT *gif_ctxt );		/* img_mutex lock */
 int 	  egi_gif_runDisplayThread(EGI_GIF_CONTEXT *gif_ctxt);
 int 	  egi_gif_stopDisplayThread(EGI_GIF *egif);
+
+#ifdef __cplusplus
+ extern "C" {
+#endif
 
 #endif

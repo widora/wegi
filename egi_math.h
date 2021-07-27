@@ -17,6 +17,11 @@ Midas Zhou
 #include <inttypes.h>
 #include <unistd.h> /* usleep */
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
+
 #define MATH_E		2.7182818284590452
 #define MATH_PI 	3.1415926535897932
 #define MATH_DIVEXP   	11  /* An odd number!!  exponent of 2, as for divisor of fixed point number */
@@ -157,5 +162,8 @@ typedef struct {
 #define VECTOR2D_CROSSPD(a, b)	( a.x*b.y - b.x*a.y )			/* Cross product */
 
 
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

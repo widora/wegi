@@ -12,8 +12,10 @@ Referring to: http://blog.chinaunix.net/uid-22666248-id-285417.html
 Note:
 1. Not thread safe.
 2. TODO: For all lines drawing functions: if distance between two input points
-   is too big, it may take too long time! To avoid such case.
-
+   is too big, it may take too long time! The Caller should avoid such case.
+3. TODO: For all curve drawing functions: Current step/segment is too big, the
+	 resutl of draw_line()/draw_wline() segment is NOT so smooth.
+	 Call draw_dot() and apply anti_aliasing to improve it.
 
 Jurnal
 2021-1-10:
@@ -54,6 +56,9 @@ Jurnal
 2021-05-22/23:
 	1. Add point_intriangle().
 	2. Add pxy_online(), point_online().
+2021-07-26:
+	1. Add draw_line_antialias().
+	2. draw_line(): Wrap with draw_line_simple() and draw_line_antialias().
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -315,11 +320,11 @@ inline bool point_incircle(const EGI_POINT *pxy, const EGI_POINT *pc, int r)
 inline bool point_intriangle(const EGI_POINT *pxy, const EGI_POINT *tripts)
 {
 	MAT_VECTOR2D vt[4];
-	float s;
+//	float s;
 	float dp00, dp01, dp02, dp11, dp12;
 	float denom;
 	float u,v;
-	float len;
+//	float len;
 
 	if(pxy==NULL || tripts==NULL)
 		return false;
@@ -986,15 +991,12 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 }
 
 
-/*---------------------------------------------------
-		Draw a simple line
-Modified.
-TODO: To improve accuracy and anti_alising.
+/*-----------------------------------------------------------
+ Draw a line with simple method (without anti-aliasing effect)
 
 Midas Zhou
----------------------------------------------------*/
-#if 0
-void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
+-----------------------------------------------------------*/
+void draw_line_simple(FBDEV *dev,int x1,int y1,int x2,int y2)
 {
         int i=0;
         int j=0;
@@ -1003,21 +1005,26 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
         int tekyy=y2-y1;
 	int tmp;
 
+	/* 1. An oblique line with X2>X1 */
         if(x2>x1) {
 	    tmp=y1;
+	    /* Traverse x1 (+)-> x2 */
             for(i=x1;i<=x2;i++) {
+		/* j as pY */
                 j=(i-x1)*tekyy/tekxx+y1;		/* TODO: fround() to improve accuracy. */
 		if(y2>=y1) {
+			/* Traverse tmp (+)-> pY */
 			for(k=tmp;k<=j;k++)		/* fill uncontinous points */
 		                draw_dot(dev,i,k);
 		}
-		else { /* y2<y1 */
+		else { /* y2<y1, Traverse tmp (-)-> pY*/
 			for(k=tmp;k>=j;k--)
 				draw_dot(dev,i,k);
 		}
-		tmp=j;
+		tmp=j; /* Renew tmp as j(pY) */
             }
         }
+	/* 2. A vertical straight line X1==X2 */
 	else if(x2 == x1) {
 	   if(y2>=y1) {
 		for(i=y1;i<=y2;i++)
@@ -1028,22 +1035,40 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 			draw_dot(dev,x1,i);
 	   }
 	}
+	/* 3. An oblique line with X1>X2 */
         else /* x1>x2 */
         {
 	    tmp=y2;
+	    /* Traverse x2 (+)-> x1 */
             for(i=x2;i<=x1;i++) {
+		/* j as pY */
                 j=(i-x2)*tekyy/tekxx+y2;
 		if(y1>=y2) {
+			/* Traverse tmp (+)-> pY */
 			for(k=tmp;k<=j;k++)		/* fill uncontinous points */
 		        	draw_dot(dev,i,k);
 		}
-		else {  /* y2>y1 */
+		else {  /* y2>y1, Traverse tmp (-)-> pY */
 			for(k=tmp;k>=j;k--)		/* fill uncontinous points */
 		        	draw_dot(dev,i,k);
 		}
-		tmp=j;
+		tmp=j; /* Renew tmp as j(pY) */
             }
         }
+}
+
+
+/* ---------------- draw_line() ------------- */
+
+#if  0 ///////////////////  Without anti-aliasing effect  /////////////////////
+/*---------------------------------------------------
+		Draw a simple line
+
+Midas Zhou
+---------------------------------------------------*/
+void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
+{
+	draw_line_simple(dev, x1, y1, x2, y2);
 }
 
 #else ///////////////////  With anti-aliasing effect  /////////////////////
@@ -1062,6 +1087,14 @@ deminished. ???!!
 ------------------------------------------------------*/
 void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 {
+  #if 1 ///////// Call draw_line_antialias() //////////////////
+
+	if(dev->antialias_on)
+		draw_line_antialias(dev, x1, y1, x2, y2);
+	else
+		draw_line_simple(dev, x1, y1, x2, y2);
+
+  #else //////////////////////////////////////////////////////
         int i=0;
         int j=0;
 	int k;
@@ -1306,8 +1339,177 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 	        dev->pixalpha=255;
 	}
 
+  #endif //////////////////////////////////////////////////////
 }
 #endif
+
+
+/*----------------------------------------------------------------
+Draw a simple line with anti_aliasing effect.
+
+Note:
+1. The caller shall apply dev->pixcolor, by calling fbset_color2(),
+   OR the function will set dev->pixcolor_on and use FB sys color
+   as dev->pixcolor.
+
+Midas Zhou
+---------------------------------------------------------------*/
+void draw_line_antialias(FBDEV *dev,int x1,int y1,int x2,int y2)
+{
+        int i=0;
+        int j=0;
+	float px,py;
+	int step;
+	int pxl, pxr, pyu, pyd;
+	int k;
+        int tekxx=x2-x1;
+        int tekyy=y2-y1;
+	float slope;
+	int tmp, tmpx, tmpy;
+	bool save_pixcolor_on;
+	EGI_16BIT_COLOR save_pixcolor;
+	EGI_16BIT_COLOR backcolor;
+	EGI_16BIT_COLOR backcolor_pyu,backcolor_pyd;
+	EGI_16BIT_COLOR backcolor_pxl,backcolor_pxr;
+
+	/* Make always x2>x1 OR x2==x1 */
+	if(x1>x2) {
+		/* Swap (x1,y1)  (x2,y2) */
+		tmpx=x2;   tmpy=y2;
+		x2=x1;     y2=y1;
+		x1=tmpx;   y1=tmpy;
+	}
+
+	/* Save pixcolor */
+        if(dev->pixcolor_on)    /* As private pixcolor */
+                save_pixcolor=dev->pixcolor;
+        else                    /* As public pixcolor */
+                save_pixcolor=fb_color;
+        /* Turn on FBDEV pixcolor_on anyway..... */
+	save_pixcolor_on=dev->pixcolor_on;
+        dev->pixcolor_on=true;
+        dev->pixalpha=255;  /* No dev->pixalpha_on! */
+
+	/* Cal. Step */
+	if(y2>y1)
+		step=1;
+	else if(y2<y1)
+		step=-1;
+	else
+		step=0;
+
+	/* NOW: x2 >= x1 */
+
+	/* 1. An oblique line with X2>X1  (But Y2!=Y1) */
+        if(x2>x1 && y2!=y1 ) {
+	    slope = 1.0*(y2-y1)/(x2-x1);
+	    tmp=y1;
+	    /* Traverse x1 (+)-> x2 */
+            for(i=x1;i<=x2;i++) {
+
+		/* Calculate j as pY */
+       	        //j=(i-x1)*tekyy/tekxx+y1;
+		j=roundf(slope*(i-x1)+y1); /* A litte better */
+
+                /* Traverse tmp -> pY by step, as for k++ OR k--. */
+                for(k=tmp; (step>0)?(k<=j):(k>=j); k+=step ) {            /* fill uncontinous points */
+			py=y1+slope*(i-x1);
+			pyd=floorf(py);
+			pyu=ceil(py);
+
+			/* Note: if py happens to be an integer, then pyd==pyu!, see following if(pyd==pyu){..}. */
+
+			//if( 255*(pyu-py) == 0)
+			//	egi_dpstd("pyu-py=0: xi=%d, x1=%d, y1=%d, pyu=%d, py=%f, slope=%f\n", i,x1,y1,pyu,py,slope);
+			//if( 255*(py-pyd) == 0)
+			//	egi_dpstd("py-pyd=0: xi=%d, x1=%d, y1=%d, pyd=%d, py=%f, slope=%f\n", i,x1,y1,pyd,py,slope);
+
+			/* PY IS an Integer, (i,py) just on pixel grid! */
+			if( pyd==pyu ) {
+				dev->pixcolor=save_pixcolor;
+				draw_dot(dev,i,pyd);
+			}
+			/* (i,py) NOT on pixel grid */
+			else {
+			   /* Get backcolr at first */
+			   backcolor_pyd=fbget_pixColor(dev, i, pyd);
+			   backcolor_pyu=fbget_pixColor(dev, i, pyu);
+
+			   /* Draw Pxyd */
+			   dev->pixcolor=COLOR_16BITS_BLEND(save_pixcolor, backcolor_pyd, (uint16_t)(255*(pyu-py))); /* !!! pyu-py */
+			   //dev->pixcolor=egi_16bitColor_blend(save_pixcolor, backcolor_pyd, (uint16_t)(255*(pyu-py))); /* !!! pyu-py */
+               		   draw_dot(dev,i,pyd);
+			   /* Draw Pxyu */
+			   dev->pixcolor=COLOR_16BITS_BLEND(save_pixcolor, backcolor_pyu, (uint16_t)(255*(py-pyd))); /* !!! py-pyd */
+			   //dev->pixcolor=egi_16bitColor_blend(save_pixcolor, backcolor_pyu, (uint16_t)(255*(py-pyd))); /* !!! py-pyd */
+               		   draw_dot(dev,i,pyu);
+			}
+
+			/* Draw pxl/pxr */
+			if( slope!=0.0 ) {
+				px=x1+1.0*(k-y1)/slope;
+				pxl=floorf(px);
+				pxr=ceil(px);
+
+				/* PX is an Integer, (px,k) just on pixel grid! */
+				if(pxl==pxr) {
+				   dev->pixcolor=save_pixcolor;
+				   draw_dot(dev,pxl,k);
+				}
+				/* (px,k) NOT on pixel grid */
+				else {
+				   /* Get backcolor at first */
+				   backcolor_pxl=fbget_pixColor(dev, pxl, k);
+				   backcolor_pxr=fbget_pixColor(dev, pxr, k);
+
+				   /* Draw pxyl */
+				   dev->pixcolor=COLOR_16BITS_BLEND(save_pixcolor, backcolor_pxl, (uint16_t)(255*(pxr-px))); /* !!! pxr-px */
+				   //dev->pixcolor=egi_16bitColor_blend(save_pixcolor, backcolor_pxl, (uint16_t)(255*(pxr-px))); /* !!! pxr-px */
+               			   draw_dot(dev,pxl,k);
+				   /* Draw Pxyr */
+				   dev->pixcolor=COLOR_16BITS_BLEND(save_pixcolor, backcolor_pxr, (uint16_t)(255*(px-pxl))); /* !!! py-pyd */
+				   //dev->pixcolor=egi_16bitColor_blend(save_pixcolor, backcolor_pxr, (uint16_t)(255*(px-pxl))); /* !!! py-pyd */
+               			   draw_dot(dev,pxr,k);
+				}
+			}
+		}
+
+		/* Renew tmp as j(pY) */
+		tmp=j;
+
+            } /* End for(i) */
+        }
+	/* 2. A horizontal straight line Y1==Y2 */
+	else if(y2 == y1) {
+	   /* NOW: always x2 >= x1 ! */
+	   for(i=x1;i<=x2;i++) {
+		   dev->pixcolor=save_pixcolor;
+		   draw_dot(dev,i,y1);
+	   }
+	}
+	/* 3. A vertical straight line X1==X2 */
+	else if(x2 == x1) {
+	   if(y2>=y1) {
+		for(i=y1;i<=y2;i++) {
+		   dev->pixcolor=save_pixcolor;
+		   draw_dot(dev,x1,i);
+		}
+	    }
+	    else {
+		for(i=y2;i<=y1;i++) {
+			dev->pixcolor=save_pixcolor;
+			draw_dot(dev,x1,i);
+		}
+	   }
+	}
+	/* XXX 4. An oblique line with X1>X2  --- Ruled out! */
+
+        /* Restore FBDEV pixcolor/pixcolor_on */
+	dev->pixcolor=save_pixcolor;
+	dev->pixcolor_on=save_pixcolor_on;
+	dev->pixalpha=255; /* Always default */
+}
+
 
 /*-----------------------------------------------------
 Only draw a frame for rectangluar button, to illustrate
@@ -3297,8 +3499,8 @@ int egi_numstep_btw2p(int step, const EGI_POINT *pa, const EGI_POINT *pb)
 /*--------------------------------------------------------
 pick a random point within a box
 
-pr:	pointer to a point wihin the box.
-box:	the box.
+pr:	pointer to a point.
+box:	the limit box.
 
 return:
 	0	OK

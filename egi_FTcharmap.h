@@ -98,6 +98,9 @@ midaszhou@yahoo.com
 #include <arpa/inet.h>
 #include FT_FREETYPE_H
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
 
 typedef enum FTcharmap_errcode FTCHARMAP_ERRCODE;
 enum FTcharmap_errcode {
@@ -388,5 +391,8 @@ int 	FTcharmap_cut_to_syspad( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request 
 
 int 	FTcharmap_save_words( EGI_FTCHAR_MAP *chmap, const char *fpath );
 
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

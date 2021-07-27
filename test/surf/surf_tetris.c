@@ -395,8 +395,8 @@ int main(int argc, char **argv)
 START_TEST:
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
-	sw=SURF_MAXW;  sh=SURF_MAXH;
-	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, pid_lock_file, x0, y0, SURF_MAXW,SURF_MAXH, sw, sh, colorType );
+	sw=320;  sh=240;
+	surfuser=egi_register_surfuser(ERING_PATH_SURFMAN, pid_lock_file, x0, y0, 320,240, sw, sh, colorType );
 	if(surfuser==NULL) {
 		int static ntry=0;
 		ntry++;
@@ -467,7 +467,7 @@ START_TEST:
 			      (surfimg->width-PlayAreaW)/2, surfimg->height-5-PlayAreaH, 0, 0);    /* xd, yd, xs,ys */
 	/* 5B. Draw a division line above playarea */
 	fbset_color2(vfbdev,WEGI_COLOR_BLACK);
-	draw_wline_nc(vfbdev, 5, SURF_MAXH-5-PlayAreaH-5, SURF_MAXW-5, SURF_MAXH-5-PlayAreaH-5, 3);
+	draw_wline_nc(vfbdev, 5, 240-5-PlayAreaH-5, 320-5, 240-5-PlayAreaH-5, 3);
 #if 0 	/* 5C. Draw outer rim of playarea */
 	fbset_color2(vfbdev,WEGI_COLOR_BLACK);
 	draw_rect(vfbdev, (surfimg->width-PlayAreaW)/2-2, 		(surfimg->height-5-PlayAreaH)-2,
@@ -1933,14 +1933,12 @@ void  game_input(void)
 }
 
 
-
-
 /*=====================================
 	Surface :: Menu_Help
 ======================================*/
 
 const char *help_descript = "    < EGI桌面小游戏 >\n\
-This program(codes) is under license of GNU GPL v2.\n\n\
+This program(codes) is under license of GNU GPL v2.\n\
 Enjoy!";
 
 /*----------------------------------------------------------
@@ -2000,7 +1998,7 @@ void menu_help(EGI_SURFUSER *surfcaller)
 	strncpy(msurfshmem->surfname, "Help", SURFNAME_MAX-1);
 
 	/* 5. First draw surface, set up TOPBTNs and TOPMENUs. */
-	msurfshmem->bkgcolor=WEGI_COLOR_LTGREEN; /* OR default BLACK */
+	msurfshmem->bkgcolor=egi_color_random(color_light);	//WEGI_COLOR_LTGREEN; /* OR default SURF_MAIN_BKGCOLOR */
 	surfuser_firstdraw_surface(msurfuser, TOPBTN_CLOSE, TOPMENU_NONE, NULL); /* Default firstdraw operation */
 
 	/* 6. Start Ering routine */
