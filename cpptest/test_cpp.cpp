@@ -5,8 +5,21 @@ published by the Free Software Foundation.
 
 A program to test EGI C libs, and a simple ETriangle class operation.
 
-Journal:
 
+Reference:
+include/sys/cdefs.h:# define __BEGIN_NAMESPACE_STD	namespace std {
+include/sys/cdefs.h:# define __END_NAMESPACE_STD	}
+include/sys/cdefs.h:# define __USING_NAMESPACE_STD(name) using std::name;
+include/sys/cdefs.h:# define __BEGIN_NAMESPACE_STD
+include/sys/cdefs.h:# define __END_NAMESPACE_STD
+include/sys/cdefs.h:# define __USING_NAMESPACE_STD(name)
+
+include/sys/cdefs.h: #ifdef	__cplusplus
+lib/gcc/mipsel-openwrt-linux-uclibc/4.8.3/include/stddef.h:  || (defined(__cplusplus) && __cplusplus >= 201103L)
+
+
+
+Journal:
 2021-07-27:
 	1. Create test_cpp.cpp
 
@@ -18,7 +31,15 @@ https://github.com/widora/wegi
 #include "egi_fbdev.h"
 #include "egi_math.h"
 #include "egi_FTsymbol.h"
+#include "egi_vector3D.h"
 
+#include <iostream>
+using namespace std;
+
+
+/*-------------------------------
+	Class Definition
+-------------------------------*/
 class ETriangle
 {
 	public:
@@ -84,8 +105,6 @@ int main(void)
                 return -2;
         }
 
-
-
         //FTsymbol_set_SpaceWidth(1);
 
         /* Initilize sys FBDEV */
@@ -107,11 +126,10 @@ int main(void)
 	/* <<<<<  End of EGI general init  >>>>>> */
 
 
-
-
 	/* ===== MAIN PROG ===== */
 
 	egi_dpstd("Hello, this is C++!\n");
+	cout << "Hello, this is C++!\n" << endl;
 
         int i,k;
         int r=200;//75,180
@@ -127,8 +145,10 @@ int main(void)
         }
 
 
+while(1) {   /////////    LOOP TEST   //////////
+
 /* ----- 1. TEST:   Call EGI C libs to write/draw  --------------------- */
-for(k=0; k<2; k++) {
+   for(k=0; k<2; k++) {
 	if(!antialias_on) {
 	        fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY);
 
@@ -177,11 +197,9 @@ for(k=0; k<2; k++) {
                 //fbset_color(egi_color_random(color_deep));
                 if(antialias_on) {
                         draw_line_antialias(&gv_fb_dev, x1,y1, x2,y2);  /* Note: LCD coord sys! */
-                        //draw_wline(&gv_fb_dev, x1,y1, x2,y2,5);
                 }
                 else
-                        draw_line(&gv_fb_dev, x1,y1, x2,y2);    /* Note: LCD coord sys! */
-                gv_fb_dev.antialias_on=false;
+                        draw_line_simple(&gv_fb_dev, x1,y1, x2,y2);    /* Note: LCD coord sys! */
 
                 fb_render(&gv_fb_dev);
         }
@@ -203,7 +221,7 @@ for(k=0; k<2; k++) {
 
         /* Toggle */
         antialias_on=!antialias_on;
-}
+  }
 
 
 /* ----- 2. TEST:  C++ Class ETriangle --------------------- */
@@ -230,7 +248,7 @@ for(k=0; k<2; k++) {
 
 	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
 
-	while(1) {
+	for(k=0; k<500; k++) {
 
 		fbset_color2(&gv_fb_dev, egi_color_random(color_all));
 
@@ -241,6 +259,7 @@ for(k=0; k<2; k++) {
 		//sleep(1);
 	}
 
+} /////////   END LOOP   /////////
 
 	/* <<<<<  EGI general release >>>>> */
         //printf("FTsymbol_release_allfonts()...\n");
