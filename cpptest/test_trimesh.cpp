@@ -5,6 +5,17 @@ published by the Free Software Foundation.
 
 Test E3D TriMesh
 
+teapot.obj -r -s 1.5
+fish.obj -s 45
+deer.obj -s .2 -y 400
+bird.obj -s 45 -y 100
+chick.obj -s 40
+myPack.obj -s 1.5 -y 150
+
+Note:
+1. meshModel holds the original model data, and meshWork is transformed
+   for displaying at different positions.
+
 Journal:
 2021-07-31:
 	1. Create the file.
@@ -33,6 +44,14 @@ int main(int argc, char **argv)
         int             textureCount=0;
         int             faceCount=0;
 
+	char 		strtmp[256]={0};
+	const char 	*fobj;
+
+	float		scale=1.0f;
+	float		offx=0.0f, offy=0.0f;
+	float		rotX=0.0f;
+
+	bool		reverseNormal=false;
 #if 0
 	readObjFileInfo("/tmp/Chick.obj", vertexCount, triangleCount,normalCount,textureCount,faceCount);
         egi_dpstd("Statistics:  Vertices %d;  Normals %d;  Texture %d; Faces %d; Triangle %d.\n",
@@ -40,7 +59,44 @@ int main(int argc, char **argv)
 
 #endif
 
-#if 1 /*----- TEST: E3D_TriMesh ------------------------*/
+
+        /* Parse input option */
+	int opt;
+        while( (opt=getopt(argc,argv,"hrs:x:y:"))!=-1 ) {
+                switch(opt) {
+                        case 'h':
+				printf("Usage: %s obj_file [-hrs:x:y:]\n", argv[0]);
+				printf("-h     Help\n");
+				printf("-r     Reverse normals\n");
+				printf("-s:    Scale the mesh\n");
+				printf("-x:    X_offset for display\n");
+				printf("-y:    Y_offset for display\n");
+				printf("-X:    X_rotate for display\n");
+                                exit(0);
+                                break;
+                        case 'r':
+                                reverseNormal=true;
+                                break;
+                        case 's':
+				scale=atof(optarg);
+				if(scale<0) scale=1.0;
+                                break;
+			case 'x':
+				offx=atoi(optarg);
+				break;
+			case 'y':
+				offy=atoi(optarg);
+				break;
+			case 'X':
+				rotX=atof(optarg);
+				break;
+		}
+	}
+        fobj=argv[optind];
+        if(fobj==NULL) {
+		printf("Usage: %s obj_file [-hrs:x:y:]\n", argv[0]);
+                exit(-1);
+        }
 
         /* Initilize sys FBDEV */
         printf("init_fbdev()...\n");
@@ -50,6 +106,7 @@ int main(int argc, char **argv)
         /* Set sys FB mode */
         fb_set_directFB(&gv_fb_dev,false);
         fb_position_rotate(&gv_fb_dev,0);
+	gv_fb_dev.pixcolor_on=true;
 
         /* Load freetype appfonts */
         if(FTsymbol_load_appfonts() !=0 ) {     /* load FT fonts LIBS */
@@ -57,135 +114,120 @@ int main(int argc, char **argv)
                 return -2;
         }
 
+	/* Set global light vector */
+	E3D_Vector vLight(1,1,4);
+	vLight.normalize();
+	gv_vLight=vLight;
 
-	/* meshCube (under local COORD) */
-	int num_vertices=8;
-	int num_faces=12;
-	float s=140.;  /* Side of the cube */
+#if 0	/* Read obj file to meshModel */
+	E3D_TriMesh	meshModel(fobj);
+	meshModel.printAllVertices("meshModel");
+	meshModel.printAllTriangles("meshModel");
 
-#if 0 ////////////////// CUBE MESH  ////////////////////////
-	E3D_TriMesh	meshCube(num_vertices, num_faces);
-
-	E3D_POINT pts[8]= {
-/* 0 -3  */
-0, 0, 0,
-s, 0, 0,
-s, s, 0,
-0, s, 0,
-
-/* 4 - 7 */
-0, 0, s,
-s, 0, s,
-s, s, s,
-0, s, s,
-};
-
-/* Vertex Index Group,  to form Triangles */
-int VtxIndices[12*3]={
-/* Bottom */
-0,2,1,
-0,3,2,
-/* Sides */
-0,5,4,
-0,1,5,
-1,6,5,
-1,2,6,
-2,3,6,
-3,7,6,
-7,3,0,
-0,4,7,
-/* Up */
-4,5,6,
-4,6,7,
-};
-
-
-	meshCube.addVertexFromPoints(pts,8);
-	meshCube.addTriangleFromVtxIndx(VtxIndices, 12);
-
-	meshCube.printAllVertices("meshCube");
-	meshCube.printAllTriangles("meshCube");
-
-#else //////////////////  Read mesh from *.obj file  ////////////////////////
-	char strtmp[256]={0};
-	const char *fobj;
-	if(argc>1)
-		fobj=argv[1];
-	else
-		fobj="/tmp/Chick.obj";
-
-	E3D_TriMesh	meshCube(fobj);
-	meshCube.printAllVertices("meshCube");
-	meshCube.printAllTriangles("meshCube");
-
+	/* Get meshModel statistics */
 	readObjFileInfo(fobj, vertexCount, triangleCount,normalCount,textureCount,faceCount);
 	sprintf(strtmp,"Vertex: %d\nTriangle: %d", vertexCount, triangleCount);
 
-//	exit(0);
+#else  /* TEST: BALLs--------- */
+	E3D_TriMesh	mesh20(fobj);
+	E3D_TriMesh     mesh80(mesh20, sqrt(100.0f*100.0f+61.8f*61.8f));
+	E3D_TriMesh     mesh320(mesh80, sqrt(100.0f*100.0f+61.8f*61.8f));
+	E3D_TriMesh     meshModel(mesh320, sqrt(100.0f*100.0f+61.8f*61.8f)); /* */
+	meshModel.printAllVertices("meshModel");
+	meshModel.printAllTriangles("meshModel");
 
-	#if 0/* TEST: ---- */
-	meshCube.setVtxCount(20);
-	meshCube.setTriCount(20);
-	#endif
+	/* Re_get meshModel statistics */
+	vertexCount=meshModel.vtxCount();
+	triangleCount=meshModel.triCount();
+	sprintf(strtmp,"Vertex: %d\nTriangle: %d", vertexCount, triangleCount);
+
+#endif //////////////////////
+
+
 
 	/* Scale up */
-	meshCube.scaleMesh(1.5f);
-	//meshCube.printAllVertices("meshCube scaled");
+	meshModel.scaleMesh(scale);
+	//meshModel.printAllVertices("meshModel scaled");
 
-#endif
-
-	/* Init. meshCube postion. (under local Coord.) */
+	/* Init. meshModel postion. (under local Coord.) */
 	/* Rotation axis */
-//	E3D_Vector axis(1,1,1);
 	E3D_Vector axis(1,0,0);
 	axis.normalize();
 
 	/* Prepare Transform Matrix */
 	E3D_RTMatrix RTmat;
 	RTmat.identity(); /* !!! setTranslation(0,0,0); */
-//	RTmat.setRotation(axis, 30.0/180*MATH_PI);
-
-//	RTmat.setRotation(axis, -150.0/180*MATH_PI);
-	//RTmat.setTranslation((320-s)/2, (240-s)/2, 0); /* !!! this will affect later Rotation/Translation center */
 
 	/* Mesh Local Position: Transform the MESH :: 0,0,0 as local center */
-	meshCube.transformVertices(RTmat);
-	meshCube.printAllVertices("Transformed meshCube");
+	meshModel.transformVertices(RTmat);
+	meshModel.printAllVertices("Transformed meshModel");
+
+        /* Now compute all triangle normals */
+        meshModel.updateAllTriNormals();
+	if(reverseNormal)
+		meshModel.reverseAllTriNormals();
+
+	/* Draw wireframe under local coord. */
+        fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_DARKPURPLE);
+	fbset_color2(&gv_fb_dev, WEGI_COLOR_PINK);
+	meshModel.drawMeshWire(&gv_fb_dev);
+	fb_render(&gv_fb_dev);
+	sleep(2);
 
 	/* ------ WorkMesh (Under global Coord ) ------ */
 	float angle=0.0;
-	E3D_TriMesh *workMesh=new E3D_TriMesh(meshCube.vtxCount(), meshCube.triCount());
-
+	E3D_TriMesh *workMesh=new E3D_TriMesh(meshModel.vtxCount(), meshModel.triCount());
 	E3D_Vector axis2(0,1,0);
 
 while(1) {
 
-	//workMesh = new E3D_TriMesh(meshCube); /* meshCube under local Coord! */
-	workMesh->cloneMesh(meshCube);
+	/* Clone meshModel to workMesh, with vertices/triangles/normals */
+	workMesh->cloneMesh(meshModel);
 	cout <<"workMesh cloned!\n";
 
 	angle +=MATH_PI/90; //180;
 
 	/* Transform workMesh */
-//	RTmat.setRotation(axis, angle);
-//	RTmat.setTranslation((320-s)/2, (240-s)/2, 0);
-
+	/* Rotate around axis_Y under its local coord. */
 	RTmat.setRotation(axis2, angle);
+	#if 0
 	workMesh->transformVertices(RTmat);
+	workMesh->transformTriNormals(RTmat);
+	#else
+	workMesh->transformMesh(RTmat);
+	#endif
 
-	RTmat.setRotation(axis, -140.0/180*MATH_PI);
-	//RTmat.setTranslation(160, 120, 0);
-	RTmat.setTranslation(80, 480*1.2, 0);
+	/* Rotate around axis_X and Move to LCD center */
+	RTmat.setRotation(axis, -140.0/180*MATH_PI+rotX);  /* AntiCloswise */
+//	RTmat.setRotation(axis, 60.0/180*MATH_PI);    /* Clockwise, offX offY!!! */
+	RTmat.setTranslation(80 +offx, 240*2.4 +offy, 0);
+	#if 0
 	workMesh->transformVertices(RTmat);
+	workMesh->transformTriNormals(RTmat);
+	#else
+	workMesh->transformMesh(RTmat);
+	#endif
 
 	cout << "workMesh transformed!\n";
 
-	/* Draw wires of the workMesh */
+	/* Clear FB work_buffer */
         fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_DARKPURPLE);
+
+#if 1   /* Solid */
 	fbset_color2(&gv_fb_dev, WEGI_COLOR_PINK);
+
+        /* OR  Compute all normals */
+//      workMesh->updateAllTriNormals();
+
+        cout << "Render mesh ...\n";
+        workMesh->renderMesh(&gv_fb_dev);
+#endif
+#if 1  /* WireFrame */
+	fbset_color2(&gv_fb_dev, WEGI_COLOR_DARKGRAY);
+
 	cout << "Draw meshwire ...\n";
 	workMesh->drawMeshWire(&gv_fb_dev);
-
+#endif
 	/* Note */
         FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
                                         20, 20,                         /* fw,fh */
@@ -194,7 +236,7 @@ while(1) {
                                         320-125, 240-30,                            /* x0,y0, */
                                         WEGI_COLOR_GRAYA, -1, 255,        /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );         /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
-
+	/* Statistics */
         FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
                                         16, 16,                           /* fw,fh */
                                         (UFT8_PCHAR)strtmp, 		  /* pstr */
@@ -203,15 +245,11 @@ while(1) {
                                         WEGI_COLOR_GREEN, -1, 255,        /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );         /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
 
-
 	fb_render(&gv_fb_dev);
 
 
 	usleep(50000);
-	//delete workMesh;
-	//exit(1);
-}
+   }
 
-#endif
 	return 0;
 }

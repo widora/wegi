@@ -62,6 +62,8 @@ public:
 			y *= osqrt;
 			z *= osqrt;
 		}
+		else
+			egi_dpstd("!!!WARNING!!! normalize error! sumsq==0!\n");
 	}
 
 	/* Overload operator '=' */
@@ -86,7 +88,8 @@ public:
 
 	/* Overload operator '==' */
 	bool operator ==(const E3D_Vector &v) const {
-		return ( x==v.x && y==v.y && z==v.z );
+		//return ( x==v.x && y==v.y && z==v.z );
+		return ( fabs(x-v.x)<1.0e-8 && fabs(y-v.y)<1.0e-8 && fabs(z-v.z)<1.0e-8);
 	}
 
  	/* Overload operator '!=' */
@@ -225,7 +228,7 @@ public:
 	/* Destructor */
 	~E3D_RTMatrix() {
 		delete [] pmat;
-		 printf("E3D_RTMatrix destructed!\n");
+		printf("E3D_RTMatrix destructed!\n");
 	}
 
 	/* Print */
