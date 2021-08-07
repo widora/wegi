@@ -998,12 +998,12 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev)
 		if ( vProduct <= 0.0f )
                         continue;
 
-		/* 2. To calculate light reflect strength */
+		/* 2. To calculate light reflect strength:  TODO: this is ONLY demo.  */
 		vProduct=gv_vLight*(triList[i].normal)*(-1.0f); // -vLight as *(-1.0f);
 		if( vProduct <= 0.0f )
 			continue;
 
-		/* 3. Adjust luma for pixcolor */
+		/* 3. Adjust luma for pixcolor as per vProduct. */
 		//cout <<"vProduct: "<< vProduct;
 		fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
 		//cout <<" getY: " << (unsigned int)egi_color_getY(fbdev->pixcolor) << endl;
@@ -1138,15 +1138,16 @@ void ttest(const E3D_TriMesh &smesh, int n, float r)
 }
 */
 
-/*----------------------------------------------------------
-To create a sphere mesh by growing input shpere mesh n times.
-each growth will increase number of triMesh to 4 times, and
-number of vertices to 2 times.
+/*-------------------------------------------------------------
+To refine a regular sphere mesh by adding a new vertex at middle
+of each edge of a triangle, then subdividing the triangle into
+4 trianlges.
+Here, the most simple regular sphere is an icosahedron!
 
-@smesh:	Input sphere_mesh, to be an icosahedron!
+@smesh:	A standard regular sphere_mesh derived from an icosahedron.
 @r:	Radius of the icosahedron.
 
------------------------------------------------------------*/
+-------------------------------------------------------------*/
 E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh &smesh, float r)
 {
 	int k;

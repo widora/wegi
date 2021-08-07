@@ -3,23 +3,14 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-Test E3D TriMesh
-
-teapot.obj -r -s 1.5
-fish.obj -s 45
-deer.obj -s .2 -y 120
-bird.obj -s 45
-chick.obj -s 40
-myPack.obj -s 1.5 -y 50
+Test sphere as regular polyedron.
 
 Note:
 1. meshModel holds the original model data, and meshWork is transformed
    for displaying at different positions.
 
 Journal:
-2021-07-31:
-	1. Create the file.
-
+2021-8-5: Create the file.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -52,12 +43,6 @@ int main(int argc, char **argv)
 	float		rotX=0.0f;
 
 	bool		reverseNormal=false;
-#if 0
-	readObjFileInfo("/tmp/Chick.obj", vertexCount, triangleCount,normalCount,textureCount,faceCount);
-        egi_dpstd("Statistics:  Vertices %d;  Normals %d;  Texture %d; Faces %d; Triangle %d.\n",
-                                vertexCount, normalCount, textureCount, faceCount, triangleCount );
-
-#endif
 
 
         /* Parse input option */
@@ -119,13 +104,19 @@ int main(int argc, char **argv)
 	vLight.normalize();
 	gv_vLight=vLight;
 
-	/* Read obj file to meshModel */
-	E3D_TriMesh	meshModel(fobj);
+
+	/* Create sphere mesh */
+	E3D_TriMesh	mesh20(fobj);
+	E3D_TriMesh     mesh80(mesh20, sqrt(100.0f*100.0f+61.8f*61.8f));
+	E3D_TriMesh     mesh320(mesh80, sqrt(100.0f*100.0f+61.8f*61.8f));
+	E3D_TriMesh     meshModel(mesh320, sqrt(100.0f*100.0f+61.8f*61.8f));
+
 	meshModel.printAllVertices("meshModel");
 	meshModel.printAllTriangles("meshModel");
 
-	/* Get meshModel statistics */
-	readObjFileInfo(fobj, vertexCount, triangleCount,normalCount,textureCount,faceCount);
+	/* Re_get meshModel statistics */
+	vertexCount=meshModel.vtxCount();
+	triangleCount=meshModel.triCount();
 	sprintf(strtmp,"Vertex: %d\nTriangle: %d", vertexCount, triangleCount);
 
 	/* Scale up */
@@ -172,7 +163,7 @@ while(1) {
 
 	/* Transform workMesh */
 	/* Rotate around axis_Y under its local coord. */
-	RTmat.identity(); /* !!!Reset */
+	RTmat.identity(); /* !!! reset RTmat*/
 	RTmat.setRotation(axis2, angle);
 	#if 0
 	workMesh->transformVertices(RTmat);
@@ -182,7 +173,7 @@ while(1) {
 	#endif
 
 	/* Rotate around axis_X and Move to LCD center */
-	RTmat.identity(); /* !!!Reset */
+	RTmat.identity(); /* !!! setTranslation(0,0,0); */
 	RTmat.setRotation(axis, -140.0/180*MATH_PI+rotX);  /* AntiCloswise */
 	RTmat.setTranslation(320/2 +offx, 240/2 +offy, 0);
 	#if 0
@@ -206,7 +197,7 @@ while(1) {
         cout << "Render mesh ...\n";
         workMesh->renderMesh(&gv_fb_dev);
 #endif
-#if 0  /* WireFrame */
+#if 1  /* WireFrame */
 	fbset_color2(&gv_fb_dev, WEGI_COLOR_DARKGRAY);
 
 	cout << "Draw meshwire ...\n";
@@ -230,7 +221,6 @@ while(1) {
                                         NULL, NULL, NULL, NULL );         /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
 
 	fb_render(&gv_fb_dev);
-
 
 	usleep(50000);
    }
