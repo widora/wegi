@@ -1,0 +1,76 @@
+SRC_PATH=/home/midas-zhou/wegi
+
+# !!!--- to be created and cleaned ---!!!
+CPPFLAGS  = -I$(SRC_PATH) -I$(SRC_PATH)/utils -I$(SRC_PATH)/sound
+## for libasound.h
+#CFLAGS += -I/home/midas-zhou/openwrt_widora/staging_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/usr/include
+
+## for alsa/asoundlib.h
+CPPFLAGS += -I/home/midas-zhou/openwrt_widora/staging_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/usr/include
+CPPFLAGS += -I/home/midas-zhou/shine-3.1.0/finish/include
+
+CPPFLAGS += -I/usr/local/include/freetype2
+CPPFLAGS += -I/usr/local/include/libpng12
+CPPFLAGS += -I/usr/local/include
+
+CPPFLAGS  += -Wall -O2
+CPPFLAGS  += -D_GNU_SOURCE -DLETS_NOTE
+
+LDFLAGS = -L$(SRC_PATH)/pclib
+LDFLAGS += -L/usr/local/lib/
+LDFLAGS += -L/usr/lib
+LDFLAGS += -L/lib
+LDFLAGS += -L/usr/lib/i386-linux-gnu
+
+LIBS    =  -lstdc++
+#LIBS	=  -lepages
+LIBS    += -lesound
+LIBS    += -lasound
+LIBS    += -lsndfile
+LIBS    += -lmad
+LIBS	+= -lrt  #for shm_open()
+LIBS    += -lutil  #for forpty()
+
+LIBS    += -lpng12
+LIBS    += -lz -lm -pthread -ljpeg
+LIBS    += -lfreetype
+LIBS	+= -lgif
+
+#--- use static or dynamic libs -----
+EGILIB=dynamic
+
+#### --- use dynamic and static libs in compilatoin!!! ---
+# 1. Exclude dynamic -legi first.
+# 2. Use -Wl,Bdynamic and -Wl,Bstatic to switch to dynamic/static libs
+# 3. At last, we must switch back to dynamic libs, as default for Linux system runtime setup.
+# 4. Source/obj files must be put before all -Wl.
+
+### 		----- A template for making test app -----
+###	Usage example: make test TEST_NAME=test_resizeimg EGILIB=static
+###
+
+CPP=gcc
+
+test_cpp:	$(TEST_NAME).cpp
+ifeq ($(EGILIB),static)
+	$(CPP) $(TEST_NAME).cpp -o $(TEST_NAME) $(CPPFLAGS) $(LDFLAGS) \
+-Wl,-Bstatic -legi -Wl,-Bdynamic $(LIBS)
+else
+	$(CPP) -o $(TEST_NAME) $(TEST_NAME).c $(CPPFLAGS) $(LDFLAGS) -legi $(LIBS)
+endif
+
+
+### 			------ template end -----
+
+
+
+### !!! NOTE: put '-o $@  $@.c' ahead of FLAGS and LIBS !!!!
+# xxx--	$(CC)  $(CFLAGS) $(LDFLAGS) $(LIBS)  $@.c -o $@  ---xxx
+
+#%:%.c
+#	$(CC) -o $@  $@.c $(CFLAGS) $(LDFLAGS) $(LIBS) -legi
+
+
+clean:
+	rm -rf *.o $(APPS)
+

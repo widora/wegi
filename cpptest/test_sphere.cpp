@@ -47,10 +47,10 @@ int main(int argc, char **argv)
 
         /* Parse input option */
 	int opt;
-        while( (opt=getopt(argc,argv,"hrs:x:y:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hrs:x:y:X:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
-				printf("Usage: %s obj_file [-hrs:x:y:]\n", argv[0]);
+				printf("Usage: %s obj_file [-hrs:x:y:X:]\n", argv[0]);
 				printf("-h     Help\n");
 				printf("-r     Reverse normals\n");
 				printf("-s:    Scale the mesh\n");

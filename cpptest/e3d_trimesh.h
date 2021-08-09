@@ -36,6 +36,16 @@ Journal:
 2021-08-05:
 	1. Add E3D_TriMesh(const E3D_TriMesh &smesh, int n, float r);
 	   to create regular_80_aspects solid ball.
+2021-08-07:
+	1. E3D_TriMesh(const char *fobj):
+	   1.1 If A face data line uses '/' as delim, and ends with a SPACE ' '
+	   	, it would be parsed as a new vertex!!!  ---OK, corrected!
+	   	example: f 3/3/3 2/2/2 5/5/5 ' '.
+	   1.2 To subdivide a 4_edge_polygon to TWO triangles correctly!
+	2. Add updateVtxsCenter().
+	3. Add moveVtxsCenterToOrigin()
+	4. E3D_TriMesh::renderMesh(): A simple Zbuff test.
+	   E3D_TriMesh::drawMeshWire(): A simple zbuff test.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -48,6 +58,7 @@ midaszhou@yahoo.com
 #include <math.h>
 #include <iostream>
 #include <fstream>
+#include <string.h>
 #include "egi_debug.h"
 #include "e3d_vector.h"
 #include "egi.h"
@@ -147,13 +158,49 @@ public:
 	void setVtxCount(int cnt) { if(cnt>=0) vcnt=cnt; };
 	void setTriCount(int cnt) { if(cnt>=0) tcnt=cnt; };
 
-
 	/* Function: Count vertices and triangles */
 	int vtxCount() const { return vcnt; };
 	int triCount() const { return tcnt; };
 
 	/* Function: Retrun ref. of indexed vertex */
 	E3D_Vector & vertex(int vtxIndex) const;
+
+	/* Function: Calculate center point of all vertices */
+	void updateVtxsCenter()
+	{
+		float sumX=0;
+		float sumY=0;
+		float sumZ=0;
+		for(int i=0; i<vcnt; i++) {
+			sumX += vtxList[i].pt.x;
+			sumY += vtxList[i].pt.y;
+			sumZ += vtxList[i].pt.z;
+		}
+
+		vtxscenter.x = sumX/vcnt;
+		vtxscenter.y = sumY/vcnt;
+		vtxscenter.z = sumZ/vcnt;
+	}
+	/* Function: Move VtxsCenter to current origin. */
+	void moveVtxsCenterToOrigin()
+	{
+		for(int i=0; i<vcnt; i++) {
+			vtxList[i].pt.x -=vtxscenter.x;
+			vtxList[i].pt.y -=vtxscenter.y;
+			vtxList[i].pt.z -=vtxscenter.z;
+		}
+
+		vtxscenter.x =0.0;
+		vtxscenter.y =0.0;
+		vtxscenter.z =0.0;
+	}
+
+	/* Function: Calculate certer point of all vertices */
+	void updateCenterPoint()
+	{
+
+	}
+
 
 	/* Function: Add vertices into vtxList[] */
 	int addVertex(const Vertex &v);
@@ -186,6 +233,7 @@ public:
 
 private:
 	/* All members inited at E3D_TriMesh() */
+	E3D_Vector 	vtxscenter;	/* Center of all vertices */
 
 	#define		TRIMESH_GROW_SIZE	64	/* Growsize for vtxList and triList */
 	int		vCapacity;	/* MemSpace capacity for vtxList[] */
@@ -378,6 +426,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
         char *savept2;
         char *pt, *pt2;
         char strline[1024];
+        char strline2[1024];
 
 	int		k;		    /* triangle index in a face, [0  MAX.3] */
         int             m;                  /* 0: vtxIndex, 1: texutreIndex 2: normalIndex  */
@@ -480,6 +529,12 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 			/* Change frist char 'f' to ' ' */
 			strline[0] = ' ';
 
+			/* Copy for test */
+			strline[1024-1]=0;
+			strline2[1024-1]=0;
+			strncpy(strline2, strline, 1024-1);
+			//cout<<"Face line: " <<strline2 <<endl;
+
 		   	/* Case A. --- ONLY vtxIndex
 		    	 * Example: f 61 21 44
 		    	 */
@@ -518,7 +573,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 		   	/* Case B. --- NOT only vtxIndex, maybe ALSO with textureIndex,normalIndex, with delim '/',
 		         * Example: f 69//47 68//47 43//47 52//47
 		         */
-		        else {
+		        else {    /* ELSE: strstr(strline, "/")!=NULL */
 
 			   /* To replace "//" with "/0/", to avoid strtok() returns only once!
 			    * However, it can NOT rule out conditions like "/0/5" and "5/0/",
@@ -532,16 +587,28 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 			   }
 
 			   /* To extract face vertex indices */
-			   pt=strtok_r(strline+1, " ", &savept); /* +1 skip first ch */	
+			   pt=strtok_r(strline+1, " ", &savept); /* +1 skip first ch */
 			   for(k=0; pt!=NULL && k<4; k++) {
 				//cout << "Index group: " << pt<<endl;
+				/* If no more "/"... example: '2/3/4 5/6/4 34 ', cast last '34 '
+				 * This must befor strtok_r(pt, ...)
+				 */
+				if( strstr(pt, "/")==NULL) {
+					//printf("No '/' when k=%d\n", k);
+					break;
+				}
+
 				/* Parse vtxIndex/textureIndex/normalIndex */
 				pt2=strtok_r(pt, "/", &savept2);
+
 				for(m=0; pt2!=NULL && m<3; m++) {
 					//cout <<"pt2: "<<pt2<<endl;
 					switch(m) {
 					   case 0:
 						vtxIndex[k]=atoi(pt2)-1;
+						//if( vtxIndex[k]<0 )
+						//egi_dpstd("!!!WARNING!!!\nLine '%s' parsed as vtxIdex[%d]=%d <0!\n",
+						//					strline2, k, vtxIndex[k]);
 						break;
 					   case 1:
 						textureIndex[k]=atoi(pt2)-1;
@@ -554,13 +621,15 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 					/* Next param */
 					pt2=strtok_r(NULL, "/", &savept2);
 				}
+
 				/* In case  "/0/5", -- Invalid, vtxIndex MUST NOT be omitted! */
 				if(pt[0]=='/' ) {
 					egi_dpstd("!!!WARNING!!!  vtxIndex omitted!\n");
-					/* Reorder */
+					/* Need to reorder data from to vtxIndex/textureIndex(WRONG!, it's textureIndex/normalIndex)
+					   vtxIndex/textureIndex/normalIndex(CORRECT!) */
 					normalIndex[k]=textureIndex[k];
 					textureIndex[k]=vtxIndex[k];
-					vtxIndex[k]=-1;
+					vtxIndex[k]=-1;		/* vtxIndex omitted!!! */
 				}
 				/* In case "5/0/", -- m==2, normalIndex omitted!  */
 				else if( m==2 ) { /* pt[0]=='/' also has m==2! */
@@ -569,6 +638,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 				/* Get next indices */
 				pt=strtok_r(NULL, " ", &savept);
+
 			   } /* End for(k) */
 
 			   /*  Assign to triangle vtxindex */
@@ -579,11 +649,21 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 				tcnt++;
 			   }
 			   if( k==4 ) {  /* Divide into 2 triangles */
-				triList[tcnt].vtx[0].index=vtxIndex[1];
-				triList[tcnt].vtx[1].index=vtxIndex[2];
-				triList[tcnt].vtx[2].index=vtxIndex[3];
+				triList[tcnt].vtx[0].index=vtxIndex[2];
+				triList[tcnt].vtx[1].index=vtxIndex[3];
+				triList[tcnt].vtx[2].index=vtxIndex[0];
 				tcnt++;
 			   }
+
+			   /* TEST: ------ */
+			  if( vtxIndex[0]<0 || vtxIndex[1]<0 ||vtxIndex[2]<0 || (k==4 && vtxIndex[3]<0 ) ) {
+
+				cout<<"Face line: "<<strline2<<endl;
+				printf("%s: k=%d has parsed vtxIndex <0! vtxIndex[0,1,2,3]: %d, %d, %d, %d \n",
+				 	strline2, k, vtxIndex[0],vtxIndex[1],vtxIndex[2],vtxIndex[3] );
+				//printf("!!!WARNING!!!\nLine '%s', has vtxIndex <0!\n", strline2);
+				exit(0);
+			  }
 
 			   /* TODO:  textrueIndex[] and normalIndex[], value <0 as omitted. */
 
@@ -949,6 +1029,12 @@ void E3D_TriMesh::drawMeshWire(FBDEV *fbdev)
 		vtidx[1]=triList[i].vtx[1].index;
 		vtidx[2]=triList[i].vtx[2].index;
 
+		/* ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
+		/* A simple test: Triangle center point Z for all pixles on the triangle. */
+		gv_fb_dev.pixz=(vtxList[vtidx[0]].pt.z+vtxList[vtidx[1]].pt.z+vtxList[vtidx[2]].pt.z)/3.0;
+		/* !!!! Views from -z ----> +z */
+		gv_fb_dev.pixz = -gv_fb_dev.pixz;
+
 		/* draw_line_antialias() */
 		draw_line(fbdev, vtxList[vtidx[0]].pt.x, vtxList[vtidx[0]].pt.y,
 				 vtxList[vtidx[1]].pt.x, vtxList[vtidx[1]].pt.y);
@@ -995,20 +1081,20 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev)
 
 		/* 1. To pick out back faces.  */
 		vProduct=vView*(triList[i].normal)*(-1.0f); // -vView as *(-1.0f);
-		if ( vProduct <= 0.0f )
+		if ( vProduct < 0.0f )
                         continue;
 
 		/* 2. To calculate light reflect strength:  TODO: this is ONLY demo.  */
 		vProduct=gv_vLight*(triList[i].normal)*(-1.0f); // -vLight as *(-1.0f);
-		if( vProduct <= 0.0f )
-			continue;
+		if( vProduct < 0.0f )
+			vProduct=0.0f;
 
 		/* 3. Adjust luma for pixcolor as per vProduct. */
 		//cout <<"vProduct: "<< vProduct;
 		fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
 		//cout <<" getY: " << (unsigned int)egi_color_getY(fbdev->pixcolor) << endl;
 
-		/* 4. Draw triangle faces. */
+		/* 4. Get triangle pts. */
 		pts[0].x=vtxList[vtidx[0]].pt.x;
 		pts[0].y=vtxList[vtidx[0]].pt.y;
 		pts[1].x=vtxList[vtidx[1]].pt.x;
@@ -1016,6 +1102,13 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev)
 		pts[2].x=vtxList[vtidx[2]].pt.x;
 		pts[2].y=vtxList[vtidx[2]].pt.y;
 
+		/* 5. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
+		/* A simple test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
+		gv_fb_dev.pixz=(vtxList[vtidx[0]].pt.z+vtxList[vtidx[1]].pt.z+vtxList[vtidx[2]].pt.z)/3.0;
+		/* !!!! Views from -z ----> +z */
+		gv_fb_dev.pixz = -gv_fb_dev.pixz;
+
+		/* 6. Draw triangle */
 		//draw_triangle(&gv_fb_dev, pts);
 		draw_filled_triangle(&gv_fb_dev, pts);
 	}

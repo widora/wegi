@@ -59,6 +59,9 @@ Jurnal
 2021-07-26:
 	1. Add draw_line_antialias().
 	2. draw_line(): Wrap with draw_line_simple() and draw_line_antialias().
+2021-08-08:
+	1. draw_filled_triangle(): Use draw_line_simple().
+
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -2571,7 +2574,7 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 		yu=points[nl].y+klr*i;
 		yd=points[nl].y+klm*i;
 		//printf("part1: x=%d	yu=%d	yd=%d \n", points[nl].x+i, yu, yd);
-		draw_line(dev, points[nl].x+i, yu, points[nl].x+i, yd);
+		draw_line_simple(dev, points[nl].x+i, roundf(yu), points[nl].x+i, roundf(yd));
 	}
 	ymu=yu;
 	for( i=0; i<points[nr].x-points[nm].x+1; i++)
@@ -2579,7 +2582,7 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 		yu=ymu+klr*i;
 		yd=points[nm].y+kmr*i;
 		//printf("part2: x=%d	yu=%d	yd=%d \n", points[nm].x+i, yu, yd);
-		draw_line(dev, points[nm].x+i, yu, points[nm].x+i, yd);
+		draw_line_simple(dev, points[nm].x+i, roundf(yu), points[nm].x+i, roundf(yd));
 	}
 
 	/* Draw outline: NOTE: draw_triangle() gives a litter bigger outline. */

@@ -18,6 +18,8 @@ Journal
 	   and accordingly revise following functions:
 	   init_virt_fbdev(), init_virt_fbdev2(), release_virt_fbdev(), reinit_virt_fbdev()
 	   int vfb_render().
+2021-08-07:
+	1. Add fb_init_zbuff().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -736,6 +738,21 @@ void fb_reset_zbuff(FBDEV *fb_dev)
 
 	if(fb_dev->zbuff)
 		memset( fb_dev->zbuff, 0, xres*yres*sizeof(typeof(*(fb_dev->zbuff))) );
+}
+
+
+/*---------------------------------
+Init. all zbuff[] to be z0.
+---------------------------------*/
+void fb_init_zbuff(FBDEV *fb_dev, int z0)
+{
+	int i;
+	unsigned int xres=fb_dev->vinfo.xres;
+	unsigned int yres=fb_dev->vinfo.yres;
+
+	for(i=0; i<xres*yres; i++)
+		fb_dev->zbuff[i]=z0;
+
 }
 
 
