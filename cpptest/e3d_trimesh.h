@@ -46,6 +46,16 @@ Journal:
 	3. Add moveVtxsCenterToOrigin()
 	4. E3D_TriMesh::renderMesh(): A simple Zbuff test.
 	   E3D_TriMesh::drawMeshWire(): A simple zbuff test.
+2021-08-10:
+	1. Rename: transformTriNormals() TO transformAllTriNormals()!
+	2. Add E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_RTMatrix & ViewRTmatrix);
+2021-08-11:
+	1. Add E3D_TriMesh::AABB class, and its functions.
+	2. Add E3D_TriMesh::drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix);
+	3. Apply ScaleMatrix for transformMesh() and renderMesh().
+2021-08-13:
+	1. Correct transform matrixces processing, let Caller to flip
+	   Screen_Y with fb_position_rotate().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -72,6 +82,8 @@ int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
 
 /* Global light vector */
 E3D_Vector gv_vLight(0, 0, 1);
+
+/* Global View TransformMatrix */
 
 /*-------------------------------------------------------
         Class: E3D_TriMesh
@@ -140,6 +152,21 @@ public:
 
 	/* :: Class OptimationParameters */
 
+	/* :: Class AABB (axially aligned bounding box */
+	class AABB {
+	public:
+		E3D_Vector vmin;
+		E3D_Vector vmax;
+		void print() {
+			egi_dpstd("AABDD: vmin{%f,%f,%f}, vmax{%f,%f,%f}.\n",
+						vmin.x,vmin.y,vmin.z, vmax.x,vmax.y,vmax.z);
+		}
+		float xSize() const { return vmax.x -vmin.x; }
+		float ySize() const { return vmax.y -vmin.y; }
+		float zSize() const { return vmax.z -vmin.z; }
+		void toHoldPoint(const E3D_Vector &vpt);		/* Revise vmin/vmax to make AABB contain the point. */
+	};
+
 	/* Constructor E3D_TriMesh() */
 	E3D_TriMesh();
 	E3D_TriMesh(const E3D_TriMesh &tmesh);
@@ -153,6 +180,7 @@ public:
 	/* Functions: Print for debug */
 	void printAllVertices(const char *name);
 	void printAllTriangles(const char *name);
+	void printAABB(const char *name);
 
 	/* TEST FUNCTIONS: */
 	void setVtxCount(int cnt) { if(cnt>=0) vcnt=cnt; };
@@ -195,12 +223,15 @@ public:
 		vtxscenter.z =0.0;
 	}
 
-	/* Function: Calculate certer point of all vertices */
-	void updateCenterPoint()
-	{
-
+	/* Function: Calculate AABB aabbox */
+	void updateAABB(void) {
+		/* Reset first */
+		aabbox.vmin.zero();
+		aabbox.vmax.zero();
+		/* To hold all vertices */
+		for( int i=0; i<vcnt; i++ )
+			aabbox.toHoldPoint(vtxList[i].pt);
 	}
-
 
 	/* Function: Add vertices into vtxList[] */
 	int addVertex(const Vertex &v);
@@ -215,8 +246,9 @@ public:
 
 	/* Function: Transform vertices/normals */
 	void transformVertices(const E3D_RTMatrix  &RTMatrix);
-	void transformTriNormals(const E3D_RTMatrix  &RTMatrix);
-	void transformMesh(const E3D_RTMatrix  &RTMatrix); /* Vertices+TriNormals*/
+	void transformAllTriNormals(const E3D_RTMatrix  &RTMatrix);
+	void transformAABB(const E3D_RTMatrix  &RTMatrix);
+	void transformMesh(const E3D_RTMatrix  &RTMatrix, const E3D_RTMatrix &ScaleMatrix); /* Vertices+TriNormals*/
 
 	/* Function: Calculate normals for all triangles */
 	void updateAllTriNormals();
@@ -226,16 +258,21 @@ public:
 	void cloneMesh(const E3D_TriMesh &tmesh);
 
 	/* Function: Draw wires/faces */
-	void drawMeshWire(FBDEV *fbdev);
+	void drawMeshWire(FBDEV *fbdev) const ;
+	void drawMeshWire(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix) const;
+
+	/* Function: Draw AABB as wire. */
+	void drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix) const ;
 
 	/* Function: Render all triangles */
-	void renderMesh(FBDEV *fbdev);
+	void renderMesh(FBDEV *fbdev) const ;
+	void renderMesh(FBDEV *fbdev, const E3D_RTMatrix &VRTmatrix, const E3D_RTMatrix &ScaleMatrix) const;
 
 private:
 	/* All members inited at E3D_TriMesh() */
-	E3D_Vector 	vtxscenter;	/* Center of all vertices */
+	E3D_Vector 	vtxscenter;	/* Center of all vertices, NOT AABB center! */
 
-	#define		TRIMESH_GROW_SIZE	64	/* Growsize for vtxList and triList */
+	#define		TRIMESH_GROW_SIZE	64	/* Growsize for vtxList and triList --NOT applied!*/
 	int		vCapacity;	/* MemSpace capacity for vtxList[] */
 	int		vcnt;		/* Vertex counter */
 	Vertex  	*vtxList;	/* Vertex array */
@@ -244,6 +281,7 @@ private:
 	int		tcnt;		/* Triangle counter  */
 	Triangle	*triList;	/* Triangle array */
 
+	AABB		aabbox;		/* Axially aligned bounding box */
 	//int mcnt;
 	//Material  *mList;
 
@@ -264,6 +302,17 @@ void E3D_TriMesh::Triangle::setDefaults()
 	/* Not necessary ? */
 	E3D_TriMesh::Triangle::mark=0;
 
+}
+
+/* Revise vmin/vmax to make AABB contain the point. */
+void E3D_TriMesh::AABB::toHoldPoint(const E3D_Vector &pt)
+{
+	if(pt.x<vmin.x) vmin.x=pt.x;
+	if(pt.x>vmax.x) vmax.x=pt.x;
+	if(pt.y<vmin.y) vmin.y=pt.y;
+	if(pt.y>vmax.y) vmax.y=pt.y;
+	if(pt.z<vmin.z) vmin.z=pt.z;
+	if(pt.z>vmax.z) vmax.z=pt.z;
 }
 
 
@@ -414,7 +463,7 @@ To create by reading from a *.obj file.
 
 Note:
 1. A face has MAX.4 vertices!(a quadrilateral)
-   and a auadrilateral will be stored as 2
+   and a quadrilateral will be stored as 2
    triangles.
 --------------------------------------------*/
 E3D_TriMesh::E3D_TriMesh(const char *fobj)
@@ -706,7 +755,7 @@ E3D_TriMesh:: ~E3D_TriMesh()
 /*---------------------
 Print out all Vertices.
 ---------------------*/
-void E3D_TriMesh::printAllVertices(const char *name)
+void E3D_TriMesh::printAllVertices(const char *name=NULL)
 {
 	printf("\n   <<< %s Vertices List >>>\n", name);
 	if(vcnt<=0) {
@@ -722,7 +771,7 @@ void E3D_TriMesh::printAllVertices(const char *name)
 /*------------------------
 Print out all Triangels.
 ------------------------*/
-void E3D_TriMesh::printAllTriangles(const char *name)
+void E3D_TriMesh::printAllTriangles(const char *name=NULL)
 {
 	printf("\n   <<< %s Triangle List >>>\n", name);
 	if(tcnt<=0) {
@@ -737,6 +786,16 @@ void E3D_TriMesh::printAllTriangles(const char *name)
 	}
 }
 
+/*------------------------
+Print out AABB.
+------------------------*/
+void E3D_TriMesh::printAABB(const char *name=NULL)
+{
+	printf("\n   <<< %s AABB >>>\n", name);
+	printf(" vmin{%f, %f, %f}\n vmax{%f, %f, %f}\n",
+			aabbox.vmin.x, aabbox.vmin.y, aabbox.vmin.z,
+			aabbox.vmax.x, aabbox.vmax.y, aabbox.vmax.z );
+}
 
 /*-----------------------------------------
   Return refrence of the indexed vertex
@@ -870,11 +929,11 @@ void E3D_TriMesh::transformVertices(const E3D_RTMatrix  &RTMatrix)
 }
 
 /*--------------------------------------------------------------
-Transform all triangle normals.
+Transform all triangle normals. NO translation component!
 
 @RTMatrix:	RotationTranslation Matrix
 ----------------------------------------------------------------*/
-void E3D_TriMesh::transformTriNormals(const E3D_RTMatrix  &RTMatrix)
+void E3D_TriMesh::transformAllTriNormals(const E3D_RTMatrix  &RTMatrix)
 {
 	float xx;
 	float yy;
@@ -884,23 +943,57 @@ void E3D_TriMesh::transformTriNormals(const E3D_RTMatrix  &RTMatrix)
 		xx=triList[j].normal.x;
 		yy=triList[j].normal.y;
 		zz=triList[j].normal.z;
-		triList[j].normal.x = xx*RTMatrix.pmat[0]+yy*RTMatrix.pmat[3]+zz*RTMatrix.pmat[6]; /* Ignor translation */
+		triList[j].normal.x = xx*RTMatrix.pmat[0]+yy*RTMatrix.pmat[3]+zz*RTMatrix.pmat[6]; /* Ignor translation!!! */
 		triList[j].normal.y = xx*RTMatrix.pmat[1]+yy*RTMatrix.pmat[4]+zz*RTMatrix.pmat[7];
 		triList[j].normal.z = xx*RTMatrix.pmat[2]+yy*RTMatrix.pmat[5]+zz*RTMatrix.pmat[8];
 	}
 
 }
 
+/*-----------------------------------------------------------
+Transform AABB (axially aligned bounding box).
+
+@RTMatrix:	RotationTranslation Matrix
+-----------------------------------------------------------*/
+void E3D_TriMesh::transformAABB(const E3D_RTMatrix  &RTMatrix)
+{
+#if 0
+	float xx;
+	float yy;
+	float zz;
+
+	xx=aabbox.vmin.x;
+	yy=aabbox.vmin.y;
+	zz=aabbox.vmin.z;
+	aabbox.vmin.x = xx*RTMatrix.pmat[0]+yy*RTMatrix.pmat[3]+zz*RTMatrix.pmat[6] +RTMatrix.pmat[9];
+	aabbox.vmin.y = xx*RTMatrix.pmat[1]+yy*RTMatrix.pmat[4]+zz*RTMatrix.pmat[7] +RTMatrix.pmat[10];
+	aabbox.vmin.z = xx*RTMatrix.pmat[2]+yy*RTMatrix.pmat[5]+zz*RTMatrix.pmat[8] +RTMatrix.pmat[11];
+
+	xx=aabbox.vmax.x;
+	yy=aabbox.vmax.y;
+	zz=aabbox.vmax.z;
+	aabbox.vmax.x = xx*RTMatrix.pmat[0]+yy*RTMatrix.pmat[3]+zz*RTMatrix.pmat[6] +RTMatrix.pmat[9];
+	aabbox.vmax.y = xx*RTMatrix.pmat[1]+yy*RTMatrix.pmat[4]+zz*RTMatrix.pmat[7] +RTMatrix.pmat[10];
+	aabbox.vmax.z = xx*RTMatrix.pmat[2]+yy*RTMatrix.pmat[5]+zz*RTMatrix.pmat[8] +RTMatrix.pmat[11];
+#endif
+
+	aabbox.vmin =aabbox.vmin*RTMatrix;
+	aabbox.vmax =aabbox.vmax*RTMatrix;
+}
 
 /*--------------------------------------------------------------
 Transform all triangle normals.
 
 @RTMatrix:	RotationTranslation Matrix
+@ScaleMatrix:	ScaleMatrix
 ----------------------------------------------------------------*/
-void E3D_TriMesh::transformMesh(const E3D_RTMatrix  &RTMatrix)
+void E3D_TriMesh::transformMesh(const E3D_RTMatrix  &RTMatrix, const E3D_RTMatrix &ScaleMatrix)
 {
-	transformVertices(RTMatrix);
-	transformTriNormals(RTMatrix);
+	E3D_RTMatrix  cmatrix=RTMatrix*ScaleMatrix;
+
+	transformVertices(cmatrix);
+	transformAllTriNormals(RTMatrix); /* normals should NOT apply scale_matrix ! */
+	transformAABB(cmatrix);
 }
 
 /*-----------------------------------------
@@ -913,6 +1006,10 @@ void E3D_TriMesh::scaleMesh(float scale)
 		vtxList[i].pt.y *= scale;
 		vtxList[i].pt.z *= scale;
 	}
+
+	/* Scale AABB accrodingly */
+	aabbox.vmin *= scale;
+	aabbox.vmax *= scale;
 }
 
 /*------------------------------------
@@ -937,7 +1034,12 @@ void E3D_TriMesh::updateAllTriNormals()
 	   v12=vtxList[vtxIndex[2]].pt-vtxList[vtxIndex[1]].pt;
 
 	   triList[i].normal=E3D_vector_crossProduct(v01,v12);
-	   triList[i].normal.normalize();
+	   if( triList[i].normal.normalize() <0 ) {
+		egi_dpstd("Triangle triList[%d] error! or degenerated!\n", i);
+		vtxList[vtxIndex[0]].pt.print();
+		vtxList[vtxIndex[1]].pt.print();
+		vtxList[vtxIndex[2]].pt.print();
+	   }
 
    	}
 }
@@ -1004,15 +1106,14 @@ void E3D_TriMesh::cloneMesh(const E3D_TriMesh &tmesh)
 
 }
 
+
 /*-----------------------------------------------------
 Draw mesh wire.
 View direction: Screen Coord. Z axis.
 -----------------------------------------------------*/
-void E3D_TriMesh::drawMeshWire(FBDEV *fbdev)
+void E3D_TriMesh::drawMeshWire(FBDEV *fbdev) const
 {
 	int vtidx[3];	    /* vtx index of a triangle */
-	E3D_POINT cpt;	    /* Center of triangle */
-	float nlen=20.0f;   /* Normal line length */
 	E3D_Vector  vView(0.0f, 0.0f, 1.0f); /* View direction */
 	float	    vProduct;   /* dot product */
 
@@ -1029,13 +1130,14 @@ void E3D_TriMesh::drawMeshWire(FBDEV *fbdev)
 		vtidx[1]=triList[i].vtx[1].index;
 		vtidx[2]=triList[i].vtx[2].index;
 
-		/* ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
+#if 0		/* ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
 		/* A simple test: Triangle center point Z for all pixles on the triangle. */
 		gv_fb_dev.pixz=(vtxList[vtidx[0]].pt.z+vtxList[vtidx[1]].pt.z+vtxList[vtidx[2]].pt.z)/3.0;
 		/* !!!! Views from -z ----> +z */
 		gv_fb_dev.pixz = -gv_fb_dev.pixz;
+#endif
 
-		/* draw_line_antialias() */
+		/* Draw line: OR draw_line_antialias() */
 		draw_line(fbdev, vtxList[vtidx[0]].pt.x, vtxList[vtidx[0]].pt.y,
 				 vtxList[vtidx[1]].pt.x, vtxList[vtidx[1]].pt.y);
 
@@ -1047,6 +1149,8 @@ void E3D_TriMesh::drawMeshWire(FBDEV *fbdev)
 
 
 		#if 0 /* TEST: draw triangle normals -------- */
+		E3D_POINT cpt;	    /* Center of triangle */
+		float nlen=20.0f;   /* Normal line length */
 		cpt.x=(vtxList[vtidx[0]].pt.x+vtxList[vtidx[1]].pt.x+vtxList[vtidx[2]].pt.x)/3.0f;
 		cpt.y=(vtxList[vtidx[0]].pt.y+vtxList[vtidx[1]].pt.y+vtxList[vtidx[2]].pt.y)/3.0f;
 		cpt.z=(vtxList[vtidx[0]].pt.z+vtxList[vtidx[1]].pt.z+vtxList[vtidx[2]].pt.z)/3.0f;
@@ -1057,12 +1161,152 @@ void E3D_TriMesh::drawMeshWire(FBDEV *fbdev)
 
 }
 
+/*---------------------------------------------------------------------
+Draw mesh wire.
+
+Note:
+1. View direction: from -z ----> +z, of Veiw_Coord Z axis.
+2. Each triangle in mesh is transformed as per VRTMatrix, and then draw
+   to FBDEV, TriMesh data keeps unchanged!
+3. !!! CAUTION !!!
+   Normals will also be scaled here if VRTMatrix has scale matrix combined!
+
+@fbdev:		Pointer to FB device.
+@VRTmatrix:	View_Coord transform matrix, from same as Global_Coord
+		to expected view position.
+		OR: --- View_Coord relative to Global_Coord ---.
+
+-----------------------------------------------------------------------*/
+void E3D_TriMesh::drawMeshWire(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix) const
+{
+	E3D_Vector  vView(0.0f, 0.0f, 1.0f);    /* View direction -z--->+z */
+	float	    vProduct;   		/* dot product */
+
+	/* For EACH traversing triangle */
+	int vtidx[3];  		/* vtx index of a triangle, as of triList[].vtx[0~2].index */
+	E3D_Vector  trivtx[3];	/* 3 vertices of transformed triangle. */
+	E3D_Vector  trinormal;  /* Normal of transformed triangle */
+
+	/* NOTE: Set fbdev->flipZ, as we view from -z---->+z */
+	fbdev->flipZ=true;
+
+	/* TEST: Project to Z plane, Draw X,Y only */
+	for(int i=0; i<tcnt; i++) {
+		/* Transform triangle vertices to under View_Coord */
+		for(int k=0; k<3; k++) {
+			/* Get indices of triangle vertices */
+			vtidx[k]=triList[i].vtx[k].index;
+			/* To transform vertices to under View_Coord */
+			//trivtx[k] = -(vtxList[vtidx[k]].pt*VRTMatrix); /* -1, to flip XYZ to fit Screen coord XY */
+			trivtx[k] = vtxList[vtidx[k]].pt*VRTMatrix;
+		}
+
+		/* Transform triangle normal. !!! WARNING !!! normal is also scaled here if VRTMatrix has scalematrix combined! */
+		//trinormal = -(triList[i].normal*VRTMatrix); /* -1, same as above trivtx[] to flip  */
+		trinormal = triList[i].normal*VRTMatrix;
+
+#if 1		/* To pick out back faces.  */
+		vProduct=vView*trinormal; /* -vView as *(-1.0f), -z ---> +z */
+		if ( vProduct >= 0.0f )
+                        continue;
+#endif
+
+		/* 5. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
+		/* A simple ZBUFF test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
+		gv_fb_dev.pixz=(trivtx[0].z+trivtx[1].z+trivtx[2].z)/3.0;
+
+		/* !!!! Views from -z ----> +z */
+		// gv_fb_dev.pixz = -gv_fb_dev.pixz; /* OR set fbdev->flipZ=true */
+
+		/* Draw line: OR draw_line_antialias() */
+		draw_line(fbdev, trivtx[0].x, trivtx[0].y, trivtx[1].x, trivtx[1].y);
+		draw_line(fbdev, trivtx[1].x, trivtx[1].y, trivtx[2].x, trivtx[2].y);
+		draw_line(fbdev, trivtx[0].x, trivtx[0].y, trivtx[2].x, trivtx[2].y);
+
+		#if 0 /* TEST: draw triangle normals -------- */
+		E3D_POINT cpt;	    /* Center of triangle */
+		float nlen=20.0f;   /* Normal line length */
+		cpt.x=(trivtx[0].x+trivtx[1].x+trivtx[2].x)/3.0f;
+		cpt.y=(trivtx[0].y+trivtx[1].y+trivtx[2].y)/3.0f;
+		cpt.z=(trivtx[0].z+trivtx[1].z+trivtx[2].z)/3.0f;
+		trinormal.normalize();
+		draw_line(fbdev, cpt.x, cpt.y, cpt.x+nlen*(trinormal.x), cpt.y+nlen*(trinormal.y) );
+		#endif
+	}
+
+	/* Reset fbdev->flipZ */
+	fbdev->flipZ=false;
+}
+
+
+/*------------------------------------------------------------------
+Draw AABB of the mesh as wire.
+
+Note:
+1. View direction: from -z ----> +z, of Veiw_Coord Z axis.
+
+@fbdev:		Pointer to FB device.
+@VRTmatrix:	View_Coord transform matrix, from same as Global_Coord
+		to expected view position.
+		OR: --- View_Coord relative to Global_Coord ---.
+---------------------------------------------------------------------*/
+void E3D_TriMesh::drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix) const
+{
+	E3D_Vector vctMin;
+	E3D_Vector vctMax;
+	E3D_Vector vpt[8];
+
+	float xsize=aabbox.xSize();
+	float ysize=aabbox.ySize();
+	float zsize=aabbox.zSize();
+
+	vpt[0]=aabbox.vmin;
+	vpt[1]=vpt[0]; vpt[1].x +=xsize;
+	vpt[2]=vpt[1]; vpt[2].y +=ysize;
+	vpt[3]=vpt[0]; vpt[3].y +=ysize;
+
+	vpt[4]=vpt[0]; vpt[4].z +=zsize;
+	vpt[5]=vpt[4]; vpt[5].x +=xsize;
+	vpt[6]=vpt[5]; vpt[6].y +=ysize;
+	vpt[7]=vpt[4]; vpt[7].y +=ysize;
+
+	/* Transform vpt[] */
+	for( int i=0; i<8; i++) {
+		vpt[i]= vpt[i]*VRTMatrix;
+	}
+
+	/* Notice: Viewing from z- --> z+ */
+	fbdev->flipZ=true;
+
+	/* Draw lines 0-1, 1-2, 2-3, 3-0 */
+	E3D_draw_line(fbdev, vpt[0], vpt[1]);
+	E3D_draw_line(fbdev, vpt[1], vpt[2]);
+	E3D_draw_line(fbdev, vpt[2], vpt[3]);
+	E3D_draw_line(fbdev, vpt[3], vpt[0]);
+	/* Draw lines 4-5, 5-6, 6-7, 7-4 */
+	E3D_draw_line(fbdev, vpt[4], vpt[5]);
+	E3D_draw_line(fbdev, vpt[5], vpt[6]);
+	E3D_draw_line(fbdev, vpt[6], vpt[7]);
+	E3D_draw_line(fbdev, vpt[7], vpt[4]);
+	/* Draw lines 0-4, 1-5, 2-6, 3-7 */
+	E3D_draw_line(fbdev, vpt[0], vpt[4]);
+	E3D_draw_line(fbdev, vpt[1], vpt[5]);
+	E3D_draw_line(fbdev, vpt[2], vpt[6]);
+	E3D_draw_line(fbdev, vpt[3], vpt[7]);
+
+	/* Reset flipZ */
+	fbdev->flipZ=false;
+}
 
 /*---------------------------------------------
 Render the whole mesh.
-View direction: Screen Coord. Z axis.
+View_Coord:	Same as Global_Coord.
+View direction: View_Coord Z axis.
+
+@fbdev:	Pointer to FB device.
+
 ---------------------------------------------*/
-void E3D_TriMesh::renderMesh(FBDEV *fbdev)
+void E3D_TriMesh::renderMesh(FBDEV *fbdev) const
 {
 	int vtidx[3];  	/* vtx index of a triangel */
 	EGI_POINT   pts[3];
@@ -1071,20 +1315,21 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev)
 
 	/* Default color */
 	EGI_16BIT_COLOR color=fbdev->pixcolor;
-	EGI_8BIT_CCODE codeY=egi_color_getY(color);
+	//EGI_8BIT_CCODE codeY=egi_color_getY(color);
 
-	/* TEST: Project to Z plane, Draw X,Y only */
+	/* -------TEST: Project to Z plane, Draw X,Y only */
+	/* Traverse and render all triangles */
 	for(int i=0; i<tcnt; i++) {
 		vtidx[0]=triList[i].vtx[0].index;
 		vtidx[1]=triList[i].vtx[1].index;
 		vtidx[2]=triList[i].vtx[2].index;
 
-		/* 1. To pick out back faces.  */
+		/* 1. Pick out back_facing triangles.  */
 		vProduct=vView*(triList[i].normal)*(-1.0f); // -vView as *(-1.0f);
 		if ( vProduct < 0.0f )
                         continue;
 
-		/* 2. To calculate light reflect strength:  TODO: this is ONLY demo.  */
+		/* 2. Calculate light reflect strength:  TODO: not correct, this is ONLY demo.  */
 		vProduct=gv_vLight*(triList[i].normal)*(-1.0f); // -vLight as *(-1.0f);
 		if( vProduct < 0.0f )
 			vProduct=0.0f;
@@ -1108,10 +1353,131 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev)
 		/* !!!! Views from -z ----> +z */
 		gv_fb_dev.pixz = -gv_fb_dev.pixz;
 
+		/* 6. Draw filled triangle */
+		//draw_triangle(&gv_fb_dev, pts);
+		draw_filled_triangle(&gv_fb_dev, pts);
+	}
+
+	/* Restore pixcolor */
+	fbset_color2(&gv_fb_dev, color);
+}
+
+
+/*--------------------------------------------------------------------
+Render the whole mesh.
+
+Note:
+1. View direction: from -z ----> +z, of Veiw_Coord Z axis.
+2. Each triangle in mesh is transformed as per VRTMatrix, and then draw
+   to FBDEV, TriMesh data keeps unchanged!
+
+View_Coord: 	Transformed from same as Global_Coord by RTmatrix.
+View direction: Frome -z ---> +z, of View_Coord Z axis.
+
+@fbdev:		Pointer to FB device.
+@VRTmatrix	View_Coord tranform matrix, from same as Global_Coord.
+		OR: View_Coord relative to Global_Coord.
+---------------------------------------------------------------------*/
+void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const E3D_RTMatrix &ScaleMatrix) const
+{
+	E3D_RTMatrix CompMatrix; /* Combined with VRTMatrix and ScaleMatrix */
+
+        float xx;
+       	float yy;
+       	float zz;
+
+	EGI_POINT   pts[3];
+
+	E3D_Vector  vView(0.0f, 0.0f, 1.0f); /* View direction */
+	float	    vProduct;   /* dot product */
+
+	/* For EACH traversing triangle */
+	int vtidx[3];  		/* vtx index of a triangle, as of triList[].vtx[0~2].index */
+	E3D_Vector  trivtx[3];	/* 3 vertices of transformed triangle. */
+	E3D_Vector  trinormal;  /* Normal of transformed triangle */
+
+	/* Default color and Y */
+	EGI_16BIT_COLOR color=fbdev->pixcolor;
+	//EGI_8BIT_CCODE  codeY=egi_color_getY(color);
+
+	/* Final transform Matrix for vertices */
+	CompMatrix.identity();
+	CompMatrix = VRTMatrix*ScaleMatrix;
+
+	/* NOTE: Set fbdev->flipZ, as we view from -z---->+z */
+	fbdev->flipZ=true;
+
+	/* -------TEST: Project to Z plane, Draw X,Y only */
+	/* Traverse and render all triangles */
+	for(int i=0; i<tcnt; i++) {
+		/* 1. Get indices of 3 vertices to define current triangle */
+		vtidx[0]=triList[i].vtx[0].index;
+		vtidx[1]=triList[i].vtx[1].index;
+		vtidx[2]=triList[i].vtx[2].index;
+
+		/* 2. Transform 3 vertices of the triangle to under View_Coord */
+        	for( int k=0; k<3; k++) {
+                	xx=vtxList[ vtidx[k] ].pt.x;
+	                yy=vtxList[ vtidx[k] ].pt.y;
+        	        zz=vtxList[ vtidx[k] ].pt.z;
+
+			/* Get transformed trivtx[] under View_Coord, with scale matrix! */
+			/* With Scale matrix */
+                	trivtx[k].x = xx*CompMatrix.pmat[0]+yy*CompMatrix.pmat[3]+zz*CompMatrix.pmat[6] +CompMatrix.pmat[9];
+	                trivtx[k].y = xx*CompMatrix.pmat[1]+yy*CompMatrix.pmat[4]+zz*CompMatrix.pmat[7] +CompMatrix.pmat[10];
+        	        trivtx[k].z = xx*CompMatrix.pmat[2]+yy*CompMatrix.pmat[5]+zz*CompMatrix.pmat[8] +CompMatrix.pmat[11];
+        	}
+
+		/* 3. Transforme normal of the triangle to under View_Coord */
+		/* Note:
+		 *	1. -1() to flip XYZ to fit Screen coord XY
+		 *	2. Normal should NOT apply ScaleMatrix!!
+		 *         If scaleX/Y/Z is NOT same,  then ALL normals to be recalcualted/updated!
+	 	 */
+		xx=triList[i].normal.x;
+		yy=triList[i].normal.y;
+		zz=triList[i].normal.z;
+		trinormal.x = xx*VRTMatrix.pmat[0]+yy*VRTMatrix.pmat[3]+zz*VRTMatrix.pmat[6]; /* Ignor translation */
+		trinormal.y = xx*VRTMatrix.pmat[1]+yy*VRTMatrix.pmat[4]+zz*VRTMatrix.pmat[7];
+		trinormal.z = xx*VRTMatrix.pmat[2]+yy*VRTMatrix.pmat[5]+zz*VRTMatrix.pmat[8];
+
+		/* 4. Pick out back_facing triangles.  */
+		vProduct=vView*trinormal*(-1.0f);  /* !!! -vView as *(-1.0f) */
+		if ( vProduct < 0.0f )
+                        continue;
+
+		/* 5. Calculate light reflect strength, a simple/approximate way.  TODO: not correct, this is ONLY demo.  */
+		vProduct=gv_vLight*trinormal*(-1.0f); // -vLight as *(-1.0f);
+		if( vProduct < 0.0f )
+			vProduct=0.0f;
+
+		/* 6. Adjust luma for pixcolor as per vProduct. */
+		//cout <<"vProduct: "<< vProduct;
+		fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+		//cout <<" getY: " << (unsigned int)egi_color_getY(fbdev->pixcolor) << endl;
+
+		/* 7. Get triangle pts. */
+		pts[0].x=trivtx[0].x;
+		pts[0].y=trivtx[0].y;
+		pts[1].x=trivtx[1].x;
+		pts[1].y=trivtx[1].y;
+		pts[2].x=trivtx[2].x;
+		pts[2].y=trivtx[2].y;
+
+		/* 5. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
+		/* A simple ZBUFF test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
+		gv_fb_dev.pixz=(trivtx[0].z+trivtx[1].z+trivtx[2].z)/3.0;
+
+		/* !!!! Views from -z ----> +z   */
+		//gv_fb_dev.pixz = -gv_fb_dev.pixz; /* OR set fbdev->flipZ=true */
+
 		/* 6. Draw triangle */
 		//draw_triangle(&gv_fb_dev, pts);
 		draw_filled_triangle(&gv_fb_dev, pts);
 	}
+
+	/* Reset fbdev->flipZ */
+	fbdev->flipZ=false;
 
 	/* Restore pixcolor */
 	fbset_color2(&gv_fb_dev, color);
@@ -1219,7 +1585,6 @@ int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
 
 	egi_dpstd("Statistics:  Vertices %d;  Normals %d;  Texture %d; Faces %d; Triangle %d.\n",
 				vertexCount, normalCount, textureCount, faceCount, triangleCount );
-
 
 	return 0;
 }

@@ -1,5 +1,6 @@
 /*------------------------------------------------------
-	 EGI 3D Vector Class
+EGI 3D Vector Class
+
 
 Refrence:
 1. "3D Math Primer for Graphics and Game Development"
@@ -10,6 +11,15 @@ Journal:
 2021-07-28:	Create egi_vector3D.h
 2021-07-29:
 	1. Class E3D_RTMatrix.
+2021-08-10:
+	1. Add E3D_RTMatrix operator*();
+	2. Add E3D_RTMatrix operator+();
+	3. Add setupProject().
+	4. For Class E3D_RTMatrix
+	   If a function has a E3D_RTMatrix to return, then it will Segmentfault!
+	   float *pmat; ----> float pmat[4*3];
+2021-08-11:
+	1. Add E3D_Vector operator * (const E3D_Vector &va, const E3D_RTMatrix  &ma)
 
 Midas Zhou
 -------------------------------------------------------*/
@@ -20,6 +30,8 @@ Midas Zhou
 #include <math.h>
 #include <iostream>
 #include "egi_debug.h"
+#include "egi_fbdev.h"
+#include "egi_fbgeom.h"
 using namespace std;
 
 typedef struct
@@ -41,19 +53,21 @@ public:
 	/* Constructor */
 	E3D_Vector() {
 		/* Necessary? */
-		//x=0.0; y=0.0; z=0.0;
+		x=0.0; y=0.0; z=0.0;
 	}
 	E3D_Vector(const E3D_Vector &v) : x(v.x), y(v.y), z(v.z) { }
 	E3D_Vector(float ix, float iy, float iz): x(ix), y(iy), z(iz) { }
 
 	/* Destructor */
-	~E3D_Vector() { printf("E3D_Vector destructed!\n"); }
+	~E3D_Vector() {
+		//printf("E3D_Vector destructed!\n");
+	}
 
 	/* Vector operator: zero */
 	void zero(void) { x=0; y=0; z=0; }
 
 	/* Vector normalize */
-	void normalize(void) {
+	int normalize(void) {
 		float sumsq, osqrt;
 		sumsq=x*x+y*y+z*z;
 		if( sumsq > 0.0f ) {
@@ -61,9 +75,13 @@ public:
 			x *= osqrt;
 			y *= osqrt;
 			z *= osqrt;
+
+			return 0;
 		}
-		else
+		else {
 			egi_dpstd("!!!WARNING!!! normalize error! sumsq==0!\n");
+			return -1;
+		}
 	}
 
 	/* Overload operator '=' */
@@ -162,8 +180,8 @@ public:
 	}
 
 	/* Print */
-	void print() { printf("V(%f, %f, %f)\n",x,y,z); };
-	void print(const char *name) { printf("%s(%f, %f, %f)\n",name, x,y,z); };
+	//void print() { printf("V(%f, %f, %f)\n",x,y,z); };
+	void print(const char *name=NULL) { printf("%s(%f, %f, %f)\n",name, x,y,z); };
 };
 
 
@@ -203,14 +221,15 @@ inline float E3D_vector_distance(const E3D_Vector &va, const E3D_Vector &vb)
 
 
 /*---------------------------------------------
-       Class: E3D_RTMatrix
-3D Transform Matrix (4x3)
+       		Class: E3D_RTMatrix
+3D Transform Matrix (4x3)  (Rotation+Translation)
 ----------------------------------------------*/
 class E3D_RTMatrix {
 public:
         //const int nr=4;         /* Rows */
         //const int nc=3;         /* Columns */
-        float* pmat;
+        //float* pmat;		/* If a function has a E3D_RTMatrix to retrun, then it will Segmentfault!!! */
+	float pmat[4*3];
 	/*** Note:
 	 * Rotation Matrix:
 		   pmat[0,1,2]: m11, m12, m13
@@ -222,17 +241,17 @@ public:
 
 	/* Constructor */
 	E3D_RTMatrix() {
-		pmat = new float[4*3];
+		//pmat = new float[4*3];
 	}
 
 	/* Destructor */
 	~E3D_RTMatrix() {
-		delete [] pmat;
-		printf("E3D_RTMatrix destructed!\n");
+		//delete [] pmat;
+		//printf("E3D_RTMatrix destructed!\n");
 	}
 
 	/* Print */
-	void print(const char *name) {
+	void print(const char *name=NULL) {
 		int i,j;
 		printf("   <<< %s >>>\nRotation_Matrix[3x3]: \n",name);
 		for(i=0; i<3; i++) {
@@ -250,10 +269,12 @@ public:
 	/* Matrix identity: Zero Translation and Zero Rotation */
 	void identity() {
 		pmat[0]=1.0f; pmat[1]=0;    pmat[2]=0;     /* m11 =1 */
-		pmat[3]=0;    pmat[4]=1.0f; pmat[5]=0;     /* m22 =1*/
+		pmat[3]=0;    pmat[4]=1.0f; pmat[5]=0;     /* m22 =1 */
 		pmat[6]=0;    pmat[7]=0;    pmat[8]=1.0f;  /* m33 =1 */
 		pmat[9]=0;    pmat[10]=0;   pmat[11]=0;    /* tz=1 */
 	}
+
+	E3D_RTMatrix & operator * (float a);
 
 	/* Zero Translation */
 	void zeroTranslation() {
@@ -263,6 +284,11 @@ public:
 	/* Set part of Translation TxTyTz in pmat[] */
 	void setTranslation( const E3D_Vector &tv ){
 		pmat[9]=tv.x;    pmat[10]=tv.y;   pmat[11]=tv.z;    /* tx/ty/tz */
+	}
+
+	/* Set part of Translation TxTyTz in pmat[] */
+	void setScaleXYZ( float sx, float sy, float sz) {
+		pmat[0]=sx;    pmat[4]=sy;    pmat[8]=sz;
 	}
 
 	/* Set part of Translation TxTyTz in pmat[] */
@@ -302,11 +328,149 @@ public:
 		pmat[6]=az*axis.x+axis.y*vsin;	//m31
 		pmat[7]=az*axis.y-axis.x*vsin;	//m32
 		pmat[8]=az*axis.z+vcos;	        //m33
+
 	}
 
+	/* Set projection Matrix, move to let XY as normal to n
+	 * and the projection plan contains original origin.
+         * @n: Normal of projection plan
+	 */
+	void setupProject(const E3D_Vector &n) {
+		if( fabs(n*n-1.0f)>0.01f ) {
+			egi_dpstd("Input axis is NOT normalized!\n");
+			return;
+		}
+
+		pmat[0]=1.0f-n.x*n.x;
+		pmat[4]=1.0f-n.y*n.y;
+		pmat[8]=1.0f-n.z*n.z;
+
+		pmat[1]=pmat[3]=-n.x*n.y;
+		pmat[2]=pmat[6]=-n.x*n.z;
+		pmat[5]=pmat[7]=-n.y*n.z;
+
+		pmat[9]=0.0f; pmat[10]=0.0f; pmat[11]=0.0f;
+	}
 };
 
 
+/*--------------------  NON_CLASS_MEMBERE FUNCTIONS  ------------------*/
+/*----------------------------------------------
+Multiply a matrix with a float
+mc=ma*mb;
+-----------------------------------------------*/
+E3D_RTMatrix & E3D_RTMatrix:: operator * (float a)
+{
+	/*** Note:
+	 * Rotation Matrix:
+	   pmat[0,1,2]: m11, m12, m13
+	   pmat[3,4,5]: m21, m22, m23
+	   pmat[6,7,8]: m31, m32, m33
+	 * Translation:
+	   pmat[9,10,11]: tx,ty,tz
+	 */
 
+	for(int i=0; i<12; i++)
+		pmat[i] *= a;
+
+	return *this;
+}
+
+/*----------------------------------------------
+Multiply two matrix
+mc=ma*mb;
+-----------------------------------------------*/
+E3D_RTMatrix operator* (const E3D_RTMatrix &ma, const E3D_RTMatrix &mb)
+{
+	/*** Note:
+	 * Rotation Matrix:
+	   pmat[0,1,2]: m11, m12, m13
+	   pmat[3,4,5]: m21, m22, m23
+	   pmat[6,7,8]: m31, m32, m33
+	 * Translation:
+	   pmat[9,10,11]: tx,ty,tz
+	 */
+	E3D_RTMatrix mc;
+
+	/* Rotation */
+	mc.pmat[0]=ma.pmat[0]*mb.pmat[0] + ma.pmat[1]*mb.pmat[3] + ma.pmat[2]*mb.pmat[6];
+	mc.pmat[1]=ma.pmat[0]*mb.pmat[1] + ma.pmat[1]*mb.pmat[4] + ma.pmat[2]*mb.pmat[7];
+	mc.pmat[2]=ma.pmat[0]*mb.pmat[2] + ma.pmat[1]*mb.pmat[5] + ma.pmat[2]*mb.pmat[8];
+
+	mc.pmat[3]=ma.pmat[3]*mb.pmat[0] + ma.pmat[4]*mb.pmat[3] + ma.pmat[5]*mb.pmat[6];
+	mc.pmat[4]=ma.pmat[3]*mb.pmat[1] + ma.pmat[4]*mb.pmat[4] + ma.pmat[5]*mb.pmat[7];
+	mc.pmat[5]=ma.pmat[3]*mb.pmat[2] + ma.pmat[4]*mb.pmat[5] + ma.pmat[5]*mb.pmat[8];
+
+	mc.pmat[6]=ma.pmat[6]*mb.pmat[0] + ma.pmat[7]*mb.pmat[3] + ma.pmat[8]*mb.pmat[6];
+	mc.pmat[7]=ma.pmat[6]*mb.pmat[1] + ma.pmat[7]*mb.pmat[4] + ma.pmat[8]*mb.pmat[7];
+	mc.pmat[8]=ma.pmat[6]*mb.pmat[2] + ma.pmat[7]*mb.pmat[5] + ma.pmat[8]*mb.pmat[8];
+
+	/* Translation */
+	mc.pmat[9] =ma.pmat[9]*mb.pmat[0] + ma.pmat[10]*mb.pmat[3] + ma.pmat[11]*mb.pmat[6] +mb.pmat[9];
+	mc.pmat[10] =ma.pmat[9]*mb.pmat[1] + ma.pmat[10]*mb.pmat[4] + ma.pmat[11]*mb.pmat[7] +mb.pmat[10];
+	mc.pmat[11] =ma.pmat[9]*mb.pmat[2] + ma.pmat[10]*mb.pmat[5] + ma.pmat[11]*mb.pmat[8] +mb.pmat[11];
+
+	return mc;
+}
+
+
+/*----------------------------------------------
+Add two matrix
+mc=ma+mb;
+-----------------------------------------------*/
+E3D_RTMatrix operator+ (const E3D_RTMatrix &ma, const E3D_RTMatrix &mb)
+{
+	/*** Note:
+	 * Rotation Matrix:
+	   pmat[0,1,2]: m11, m12, m13
+	   pmat[3,4,5]: m21, m22, m23
+	   pmat[6,7,8]: m31, m32, m33
+	 * Translation:
+	   pmat[9,10,11]: tx,ty,tz
+	 */
+	E3D_RTMatrix mc;
+
+	for(int i=0; i<12; i++)
+		mc.pmat[i]=ma.pmat[i]+mb.pmat[i];
+
+	return mc;
+
+}
+
+/*----------------------------------------------
+Multiply va and ma
+vb=va*ma;
+-----------------------------------------------*/
+E3D_Vector operator * (const E3D_Vector &va, const E3D_RTMatrix  &ma)
+{
+	E3D_Vector vb;
+
+        float xx;
+        float yy;
+        float zz;
+
+        xx=va.x;
+        yy=va.y;
+        zz=va.z;
+
+        vb.x = xx*ma.pmat[0]+yy*ma.pmat[3]+zz*ma.pmat[6] +ma.pmat[9];
+        vb.y = xx*ma.pmat[1]+yy*ma.pmat[4]+zz*ma.pmat[7] +ma.pmat[10];
+        vb.z = xx*ma.pmat[2]+yy*ma.pmat[5]+zz*ma.pmat[8] +ma.pmat[11];
+
+	return vb;
+}
+
+
+/*----------------------------------------------
+Draw a 3D line between va and vb. zbuff applied.
+@fbdev:	  Pointer to FBDEV.
+@va,vb:	  Two E3D_Vectors as two points.
+-----------------------------------------------*/
+inline void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb)
+{
+	draw3D_line( fbdev, roundf(va.x), roundf(va.y), roundf(va.z),
+		            roundf(vb.x), roundf(vb.y), roundf(vb.z) );
+}
 
 #endif
+

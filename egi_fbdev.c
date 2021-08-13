@@ -20,6 +20,8 @@ Journal
 	   int vfb_render().
 2021-08-07:
 	1. Add fb_init_zbuff().
+2021-08-12:
+	1. Add memeber FBDEV.flipZ
 
 Midas Zhou
 midaszhou@yahoo.com

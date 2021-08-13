@@ -69,8 +69,10 @@ int	fbget_zbuff(FBDEV *fb_dev, int x, int y);
    /******  NOTE: for 16bit color only!  ******/
 int 	draw_dot(FBDEV *dev,int x,int y);
 void 	draw_line_simple(FBDEV *dev,int x1,int y1,int x2,int y2);
+void 	draw3D_line_simple(FBDEV *dev, int x1,int y1, int z1, int x2,int y2, int z2);
 void 	draw_line_antialias(FBDEV *dev,int x1,int y1,int x2,int y2);
 void 	draw_line(FBDEV *dev,int x1,int y1,int x2,int y2);
+void 	draw3D_line(FBDEV *dev, int x1,int y1,int z1, int x2,int y2,int z2);
 void 	draw_button_frame( FBDEV *dev, unsigned int type, EGI_16BIT_COLOR color,
                         int x0, int y0, unsigned int width, unsigned int height, unsigned int w);
 void 	draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w);

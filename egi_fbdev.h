@@ -74,7 +74,8 @@ typedef struct fbdev{
 					 * TODO: Init as  INT32_MIN (-2147483648) OR INT64_MIN (-__INT64_C(9223372036854775807)-1)
 					 */
 	bool		zbuff_on;
-	int		pixz;		/* Pixel z value, 0 as bkground layer. */
+	bool		flipZ;		/* If ture, pixz will be flipped to be -pixz before compare and buffer to zbuff[] */
+	int		pixz;		/* Pixel z value, 0 as bkground layer If DEFAULT!(surfaces) */
 
         unsigned long 	screensize;	/* in bytes */
 					/* TODO: To hook up map_fb and map_buff[] with EGI_IMGBUFs */

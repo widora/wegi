@@ -61,7 +61,9 @@ Jurnal
 	2. draw_line(): Wrap with draw_line_simple() and draw_line_antialias().
 2021-08-08:
 	1. draw_filled_triangle(): Use draw_line_simple().
-
+2021-08-12:
+	1. Add draw3D_line(), draw3D_simple_line(), dist_points(), dist3D_points()
+	2. draw_dot(): apply fb_dev->flipZ.
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -95,6 +97,16 @@ static uint32_t fb_rgb=0x0000ff;				/* For 24/32 bpp */
 
 /* default usleep time after each draw_point() */
 static unsigned int fb_drawdot_usleep;
+
+/* Ancillary functions */
+static inline int dist_points(int x1, int y1, int x2, int y2)
+{
+	return roundf(sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1)));
+}
+static inline int dist3D_points(int x1, int y1, int z1, int x2, int y2, int z2)
+{
+	return roundf(sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1)+(z2-z1)*(z2-z1)));
+}
 
 /* Set drawing speed: 1 - 10, 0==10  */
 void fbset_speed(unsigned int speed)
@@ -152,7 +164,6 @@ inline void fbreset_alpha(FBDEV *dev)
         dev->pixalpha_hold=false;
         dev->pixalpha=255;
 }
-
 
 /*--------------------------------------------
  check if (px,py) in box(x1,y1,x2,y2)
@@ -777,13 +788,24 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 	}
 #endif
 
-   /* Check Z */
+   /* Check Z if zbuff_on */
    if( fb_dev->zbuff_on ) {
 	pixoff=fy*xres+fx;
-	if( fb_dev->zbuff[pixoff] > fb_dev->pixz )
-		return 0;
+
+	/* flipZ==ture */
+	if( fb_dev->flipZ ) {
+		//fb_dev->pixz = -fb_dev->pixz;
+		if( fb_dev->zbuff[pixoff] > -fb_dev->pixz )
+			return 0;
+		else
+		    fb_dev->zbuff[pixoff]= -fb_dev->pixz;
+	}
+	/* flipZ==false */
 	else {
-	    fb_dev->zbuff[pixoff]=fb_dev->pixz;
+		if( fb_dev->zbuff[pixoff] > fb_dev->pixz )
+			return 0;
+		else
+		    fb_dev->zbuff[pixoff]=fb_dev->pixz;
 	}
    }
 
@@ -1054,6 +1076,97 @@ void draw_line_simple(FBDEV *dev,int x1,int y1,int x2,int y2)
 		else {  /* y2>y1, Traverse tmp (-)-> pY */
 			for(k=tmp;k>=j;k--)		/* fill uncontinous points */
 		        	draw_dot(dev,i,k);
+		}
+		tmp=j; /* Renew tmp as j(pY) */
+            }
+        }
+}
+
+/*-----------------------------------------------------------
+Draw a line with simple method (without anti-aliasing effect)
+FBDEV.pixz is applied.
+
+@fev:		Pointer to FBDEV
+@flipZ: 	If true: fbdev->pixz will flippted to be -pixz.
+@x1,y1,z1,x2,y2,z2:  Coords of two points under FB SYS.
+
+Midas Zhou
+-----------------------------------------------------------*/
+void draw3D_line_simple(FBDEV *dev, int x1,int y1, int z1, int x2,int y2, int z2)
+{
+        int i=0;
+        int j=0;
+	int k;
+        int tekxx=x2-x1;
+        int tekyy=y2-y1;
+	int len=dist_points(x1,y1,x2,y2); /* 2D length! */
+	int tmp;
+
+	/* A point, Take MAX(z1,z2) as pixz value. */
+	if(len==0) {
+		dev->pixz=(z1>z2?z1:z2);
+		draw_dot(dev,x1,y1);
+		return;
+	}
+
+	/* 1. An oblique line with X2>X1 */
+        if(x2>x1) {
+	    tmp=y1;
+	    /* Traverse x1 (+)-> x2 */
+            for(i=x1;i<=x2;i++) {
+		/* j as pY */
+                j=(i-x1)*tekyy/tekxx+y1;		/* TODO: fround() to improve accuracy. */
+		if(y2>=y1) {
+			/* Traverse tmp (+)-> pY */
+			for(k=tmp;k<=j;k++) {		/* fill uncontinous points */
+				dev->pixz=z1+dist_points(x1,y1, i,k)*(z2-z1)/len;
+		                draw_dot(dev,i,k);
+			}
+		}
+		else { /* y2<y1, Traverse tmp (-)-> pY*/
+			for(k=tmp;k>=j;k--) {
+				dev->pixz=z1+dist_points(x1,y1, i,k)*(z2-z1)/len;
+				draw_dot(dev,i,k);
+			}
+		}
+		tmp=j; /* Renew tmp as j(pY) */
+            }
+        }
+	/* 2. A vertical straight line X1==X2 */
+	else if(x2 == x1) {
+	   if(y2>=y1) {
+		for(i=y1;i<=y2;i++) {
+		   dev->pixz=z1+dist_points(x1,y1, x1,i)*(z2-z1)/len;
+		   draw_dot(dev,x1,i);
+		}
+	    }
+	    else {
+		for(i=y2;i<=y1;i++) {
+		   	dev->pixz=z1+dist_points(x1,y1, x1,i)*(z2-z1)/len;
+			draw_dot(dev,x1,i);
+		}
+	   }
+	}
+	/* 3. An oblique line with X1>X2 */
+        else /* x1>x2 */
+        {
+	    tmp=y2;
+	    /* Traverse x2 (+)-> x1 */
+            for(i=x2;i<=x1;i++) {
+		/* j as pY */
+                j=(i-x2)*tekyy/tekxx+y2;
+		if(y1>=y2) {
+			/* Traverse tmp (+)-> pY */
+			for(k=tmp;k<=j;k++)  {	/* fill uncontinous points */
+			   	dev->pixz=z2+dist_points(x2,y2, i,k)*(z1-z2)/len;
+		        	draw_dot(dev,i,k);
+			}
+		}
+		else {  /* y2>y1, Traverse tmp (-)-> pY */
+			for(k=tmp;k>=j;k--)  {  /* fill uncontinous points */
+			   	dev->pixz=z2+dist_points(x2,y2, i,k)*(z1-z2)/len;
+		        	draw_dot(dev,i,k);
+			}
 		}
 		tmp=j; /* Renew tmp as j(pY) */
             }
@@ -1346,6 +1459,14 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 }
 #endif
 
+/*----------------------------------------------------
+Draw a simple 3D line, apply FBDEV.pixz for zbuff.
+NO anti_aliasing effect.
+------------------------------------------------------*/
+void draw3D_line(FBDEV *dev, int x1,int y1,int z1, int x2,int y2,int z2)
+{
+	draw3D_line_simple(dev, x1,y1,z1, x2,y2,z2);
+}
 
 /*----------------------------------------------------------------
 Draw a simple line with anti_aliasing effect.
@@ -1365,13 +1486,13 @@ void draw_line_antialias(FBDEV *dev,int x1,int y1,int x2,int y2)
 	int step;
 	int pxl, pxr, pyu, pyd;
 	int k;
-        int tekxx=x2-x1;
-        int tekyy=y2-y1;
+//      int tekxx=x2-x1;
+//      int tekyy=y2-y1;
 	float slope;
 	int tmp, tmpx, tmpy;
 	bool save_pixcolor_on;
 	EGI_16BIT_COLOR save_pixcolor;
-	EGI_16BIT_COLOR backcolor;
+//	EGI_16BIT_COLOR backcolor;
 	EGI_16BIT_COLOR backcolor_pyu,backcolor_pyd;
 	EGI_16BIT_COLOR backcolor_pxl,backcolor_pxr;
 
