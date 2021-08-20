@@ -1,6 +1,7 @@
 /*------------------------------------------------------
 EGI 3D Vector Class
-
+EGI 3D RotationTranslation Matrix Class
+EGI 3D Projection Matrix (Struct)
 
 Refrence:
 1. "3D Math Primer for Graphics and Game Development"
@@ -20,8 +21,17 @@ Journal:
 	   float *pmat; ----> float pmat[4*3];
 2021-08-11:
 	1. Add E3D_Vector operator * (const E3D_Vector &va, const E3D_RTMatrix  &ma)
+2021-08-18:
+	1. Add struct E3D_ProjectFrustum, as E3D_ProjMatrix.
+
+2021-08-19:
+	1. Add E3D_draw_circle(),  +E3D_draw_line().
+2021-08-20:
+	1. Move E3D_draw_xxx functions to e3d_trimesh.h
+	2. Add E3D_RTMatrix::zeroRotation()
 
 Midas Zhou
+midaszhou@yahoo.com
 -------------------------------------------------------*/
 #ifndef __E3D_VECTOR_H__
 #define __E3D_VECTOR_H__
@@ -32,6 +42,7 @@ Midas Zhou
 #include "egi_debug.h"
 #include "egi_fbdev.h"
 #include "egi_fbgeom.h"
+#include "egi_math.h"
 using namespace std;
 
 typedef struct
@@ -280,6 +291,12 @@ public:
 	void zeroTranslation() {
 		pmat[9]=0;    pmat[10]=0;   pmat[11]=0;    /* tx/ty/tz */
 	}
+	/* Zero Rotation */
+	void zeroRotation() {
+		pmat[0]=1.0f; pmat[1]=0;    pmat[2]=0;     /* m11 =1 */
+		pmat[3]=0;    pmat[4]=1.0f; pmat[5]=0;     /* m22 =1 */
+		pmat[6]=0;    pmat[7]=0;    pmat[8]=1.0f;  /* m33 =1 */
+	}
 
 	/* Set part of Translation TxTyTz in pmat[] */
 	void setTranslation( const E3D_Vector &tv ){
@@ -299,6 +316,7 @@ public:
 	/* Set part of RotationMatrix in pmat[]
          * @axis:  Rotation axis, MUST be normalized!
 	 * @angle: Rotation angle, in radian
+	 * Note: Translation keeps!
 	 */
 	void setRotation( const E3D_Vector &axis, float angle) {
 		float vsin, vcos;
@@ -438,7 +456,7 @@ E3D_RTMatrix operator+ (const E3D_RTMatrix &ma, const E3D_RTMatrix &mb)
 }
 
 /*----------------------------------------------
-Multiply va and ma
+Multiply Vector_va and RTMatrix_ma
 vb=va*ma;
 -----------------------------------------------*/
 E3D_Vector operator * (const E3D_Vector &va, const E3D_RTMatrix  &ma)
@@ -461,16 +479,52 @@ E3D_Vector operator * (const E3D_Vector &va, const E3D_RTMatrix  &ma)
 }
 
 
-/*----------------------------------------------
-Draw a 3D line between va and vb. zbuff applied.
-@fbdev:	  Pointer to FBDEV.
-@va,vb:	  Two E3D_Vectors as two points.
------------------------------------------------*/
-inline void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb)
-{
-	draw3D_line( fbdev, roundf(va.x), roundf(va.y), roundf(va.z),
-		            roundf(vb.x), roundf(vb.y), roundf(vb.z) );
-}
+
+/*--------------------------------------------------
+DONT fully understand projection matrix under NDC,
+so use this struct first!  :)))))))
+
+Projection frustum ---> Projectoin matrix
+
+TODO:
+1. other parameters to define the shape of the frustum.
+2. Replace struct E3D_ProjMatrix with a class Matrix
+   under Normalized Device Coordinates(NDC).
+   Ref. OpenGL Projection Matrix.
+
+
+-------------------------------------------------*/
+enum {
+	E3D_ISOMETRIC_VIEW	=0,
+	E3D_PERSPECTIVE_VIEW    =1,
+};
+typedef struct E3D_ProjectFrustum  E3D_ProjMatrix;
+struct E3D_ProjectFrustum {
+	/* Projectoin type, for quick response. */
+	int type;		/*  0:	Isometric projectoin(default).
+				 *  1:  Perspective projectoin
+				 *  Others: ...
+				 */
+
+	/* Distance from the Foucs to viewPlane/projetingPlane */
+	int	dv;
+
+	/* Define the shape of the Viewing Frustum */
+	int	dnear;		/* Distancd from the Foucs to the Near_clip_plane */
+	int	dfar;		/* Distancd from the Foucs to the Far_clip_plane */
+	//TODO: other parameters to define the shape of the frustum */
+
+	/* Define the displaying window */
+	int	winW;
+	int 	winH;
+
+	/* TODO: a projection matrix under Normalized Device Coordinates:
+	 *  	 The viewing frustum space is mapped to a 2x2x2 cube, with origin
+	 *       at the center of the cube. Any mapped point out of the cube will be clipped then.
+	 */
+};
+
 
 #endif
+
 

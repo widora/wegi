@@ -1017,7 +1017,9 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 
 
 /*-----------------------------------------------------------
- Draw a line with simple method (without anti-aliasing effect)
+Draw a line with simple method (without anti-aliasing effect)
+Note:
+  1. fround() to improve accuracy, NOT not speed.
 
 Midas Zhou
 -----------------------------------------------------------*/
@@ -2633,6 +2635,9 @@ void draw_triangle(FBDEV *dev, EGI_POINT *points)
 /*-----------------------------------------------------------------
 Draw a a filled triangle.
 
+Note:
+  1. fround() to improve accuracy, but NOT speed.
+
 @points:  A pointer to 3 EGI_POINTs / Or an array;
 
 Midas Zhou
@@ -2647,9 +2652,11 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 	int nm; /* mid point index */
 
 	float klr,klm,kmr;
-	int yu=0;
-	int yd=0;
-	int ymu=0;
+
+	/* OR use INT type */
+	float yu=0;
+	float yd=0;
+	float ymu=0;
 
 	for(i=1;i<3;i++) {
 		if(points[i].x < points[nl].x) nl=i;
@@ -2669,11 +2676,12 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 	//printf("points[nm=%d] x=%d, y=%d \n", nm,points[nm].x,points[nm].y);
 	//printf("points[nr=%d] x=%d, y=%d \n", nr,points[nr].x,points[nr].y);
 
-	if(points[nr].x != points[nl].x) {
+
+//	if(points[nr].x != points[nl].x) { /* Ruled out */
 		klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
-	}
-	else
-		klr=1000000.0; /* a big value */
+//	}
+//	else
+//		klr=1000000.0; /* a big value */
 
 	if(points[nm].x != points[nl].x) {
 		klm=1.0*(points[nm].y-points[nl].y)/(points[nm].x-points[nl].x);
@@ -2692,16 +2700,16 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 	/* draw lines for two tri */
 	for( i=0; i<points[nm].x-points[nl].x+1; i++)
 	{
-		yu=points[nl].y+klr*i;
-		yd=points[nl].y+klm*i;
+		yu=klr*i+points[nl].y;	//points[nl].y+klr*i;
+		yd=klm*i+points[nl].y;	//points[nl].y+klm*i;
 		//printf("part1: x=%d	yu=%d	yd=%d \n", points[nl].x+i, yu, yd);
 		draw_line_simple(dev, points[nl].x+i, roundf(yu), points[nl].x+i, roundf(yd));
 	}
 	ymu=yu;
 	for( i=0; i<points[nr].x-points[nm].x+1; i++)
 	{
-		yu=ymu+klr*i;
-		yd=points[nm].y+kmr*i;
+		yu=klr*i+ymu;          //yu=ymu+klr*i;
+		yd=kmr*i+points[nm].y; //yd=points[nm].y+kmr*i;
 		//printf("part2: x=%d	yu=%d	yd=%d \n", points[nm].x+i, yu, yd);
 		draw_line_simple(dev, points[nm].x+i, roundf(yu), points[nm].x+i, roundf(yd));
 	}

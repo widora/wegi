@@ -135,7 +135,7 @@ int main(int argc, char ** argv)
 
 
 
-#if 0  /* <<<<<<<<<<<<<<  3. test draw triangle  <<<<<<<<<<<<<<<*/
+#if 1  /* <<<<<<<<<<<<<<  3. test draw triangle  <<<<<<<<<<<<<<<*/
 	int i;
 	int j, k; /* j -- pixlen moved, 0 from right most, k -- triangles drawn before putting slagon */
 	int count;
@@ -151,8 +151,19 @@ int main(int argc, char ** argv)
 	int pixlen=FTsymbol_uft8strings_pixlen(egi_appfonts.regular, fw, fh, slogan);
 
 	//fb_set_directFB(&gv_fb_dev,true);
+	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_DARKGRAY);
+	fb_render(&gv_fb_dev);
 
-	//fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
+    #if 1 /* TEST draw_filled_triangle() and draw_triangle()  -----------*/
+	EGI_POINT ps[3]={ {160,50}, {50, 200}, {320-50, 200} };
+	fbset_color(WEGI_COLOR_PINK);
+	draw_filled_triangle(&gv_fb_dev, ps);
+	fbset_color(WEGI_COLOR_BLACK);
+	draw_triangle(&gv_fb_dev, ps);
+
+	fb_render(&gv_fb_dev);
+	exit(0);
+    #endif
 
 	fbset_color(WEGI_COLOR_BLACK);
 	draw_filled_rect(&gv_fb_dev, 0,0,320-1,240-1);
@@ -235,7 +246,7 @@ while(1) {
 #endif
 
 
-#if 1  /* <<<<<<<<<<<<<<  test anti_aliasing effect  <<<<<<<<<<<<<<<*/
+#if 0  /* <<<<<<<<<<<<<<  test anti_aliasing effect  <<<<<<<<<<<<<<<*/
 	int i,k;
 	int r=200;//75,180
 	int xc=160,yc=120;

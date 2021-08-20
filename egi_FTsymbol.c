@@ -1480,10 +1480,10 @@ int  FTsymbol_unicstrings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 /*-----------------------------------------------------------------------------------------
 Write a string of charaters with UFT-8 encoding to FB.
 
-TODO: XXX 1. Alphabetic words are treated letter by letter, and they may be separated at the end of
+XXXTODO: 1. Alphabetic words are treated letter by letter, and they may be separated at the end of
          a line, so it looks not good.
 	 --- OK. SplitWord Control is done.
-      2. Apply character functions in <ctype.h> to rule out chars, with consideration of locale setting?
+          2. Apply character functions in <ctype.h> to rule out chars, with consideration of locale setting?
 
 @fbdev:         FB device
 @face:          A face object in FreeType2 library.
@@ -1584,9 +1584,11 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 	   	if( !enable_SplitWord && pword!=NULL ) {
 		    /* If start of an English word */
 		    if( p==pword ) {
-			/* TODO if the word's pixlen is > pixpl!!! */
 			/* Check if xleft is enough for the whole word. */
 			wordpixlen=FTsymbol_eword_pixlen(face, fw, fh, pword);
+			/* TODO if the word's pixlen is > pixpl!!! */
+			if(wordpixlen>pixpl)
+				egi_dpstd("!!!WARNING!!! wordpixlen >pixpl! The word is too long!\n");
 			if( xleft < wordpixlen ) {
 	                        /* change to next line, +gap */
         	                ln++;

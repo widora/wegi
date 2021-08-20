@@ -11,7 +11,23 @@ Refrence:
                         by Fletcher Dunn, Ian Parberry
 
 Note:
-1. E3D Right_hand COORD system.
+1. E3D default as Right_Hand coordinating system.
+   1.1 Screen XY plane sees the Origin at the upper_left corner, +X axis at the upper side,
+       +Y axis at the left side, while the +Z axis pointing to the back of the screen.
+   1.2 If the 3D object looks up_right at Normal XY plane(Origin at lower_left corner),
+       it shall rotates 180Deg around X-axis in order to show up_right face at Screen XY plane.
+       OR to rotate the ViewPlane(-z --> +z) 180Deg around X-axis.
+   1.3 Usually the origin is located at the center of the object, OR offset X/Y
+       to move the projected image to center of the Screen.
+
+2. Matrix as an input paramter in functions:
+   E3D_RTMatrix:    Transform(Rotation+Translation) matrix, to transform
+		    objects to the expected postion.
+   E3D_ProjMatrix:  Projection Matrix, to project/map objects in a defined
+		    frustum space to the Screen.
+
+3. Since view direction set as ViewCoord(Camera) -Z ---> +Z, it needs to set FBDEV.flipZ=true
+   to flip zbuff[] values.
 
 
 TODO:
@@ -56,6 +72,28 @@ Journal:
 2021-08-13:
 	1. Correct transform matrixces processing, let Caller to flip
 	   Screen_Y with fb_position_rotate().
+2021-08-15:
+	1. TEST_PERSPECTIVE for:
+	   E3D_TriMesh:: drawMeshWire(FBDEV *fbdev)/drawAABB()/renderMesh(FBDEV *fbdev)
+2021-08-16:
+	1. drawMeshWire(FBDEV *fbdev): roundf for pts[].
+2021-08-17:
+	1. Modify: E3D_TriMesh::reverseAllTriNormals(bool reverseVtxIndex);
+	2. Add: E3D_TriMesh::reverseAllVtxZ()
+2021-08-18:
+	1. Modify E3D_TriMesh::E3D_TriMesh(const char *fobj): To parse max.64 vertices in a face.
+	2. Add  E3D_TriMesh::float AABBdSize()
+	3. Add  E3D_TriMesh::projectPoints()
+			--- Apply Projection Matrix ---
+	4. Modify E3D_TriMesh::renderMesh() with ProjMatrix.
+	5. Modify E3D_TriMesh::drawAABB() with ProjMatrix
+2021-08-19:
+	1. Add E3D_TriMesh::moveAabbCenterToOrigin().
+2021-08-20:
+	1. Function projectPoints() NOT an E3D_TriMesh member.
+	2. Add E3D_draw_line() E3D_draw_circle() form e3d_vector.h
+	3. Add E3D_draw_coordNavSphere()
+	4. Add E3D_draw_line(FBDEV *, const E3D_Vector &, const E3D_RTMatrix &, const E3D_ProjMatrix &)
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -77,8 +115,18 @@ midaszhou@yahoo.com
 
 using namespace std;
 
+
+#define TEST_PERSPECTIVE  	1
+#define VPRODUCT_EPSILON	(1.0e-6)  /* -6, Unit vector vProduct=vct1*vtc2 */
+
 int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
 				        int & normalCount, int & textureCount, int & faceCount);
+
+
+////////////////////////////////////  E3D_Draw Function  ////////////////////////////////////////
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb);
+void E3D_draw_circle(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
+
 
 /* Global light vector */
 E3D_Vector gv_vLight(0, 0, 1);
@@ -190,8 +238,31 @@ public:
 	int vtxCount() const { return vcnt; };
 	int triCount() const { return tcnt; };
 
+	/* Function: Get AABB size */
+	float AABBxSize() {
+		return aabbox.xSize();
+	}
+	float AABBySize() {
+		return aabbox.ySize();
+	}
+	float AABBzSize() {
+		return aabbox.zSize();
+	}
+	float AABBdSize() {  /* diagonal size */
+		float x=aabbox.xSize();
+		float y=aabbox.ySize();
+		float z=aabbox.zSize();
+		return sqrt(x*x+y*y+z*z);
+	}
+
 	/* Function: Retrun ref. of indexed vertex */
 	E3D_Vector & vertex(int vtxIndex) const;
+	E3D_Vector vtxsCenter(void) const {
+		return vtxscenter;
+	}
+	E3D_Vector aabbCenter(void) const {
+		return 0.5*(aabbox.vmax-aabbox.vmin);
+	}
 
 	/* Function: Calculate center point of all vertices */
 	void updateVtxsCenter()
@@ -212,12 +283,22 @@ public:
 	/* Function: Move VtxsCenter to current origin. */
 	void moveVtxsCenterToOrigin()
 	{
+		/* Update all vertex XYZ */
 		for(int i=0; i<vcnt; i++) {
 			vtxList[i].pt.x -=vtxscenter.x;
 			vtxList[i].pt.y -=vtxscenter.y;
 			vtxList[i].pt.z -=vtxscenter.z;
 		}
 
+		/* Update AABB */
+		aabbox.vmax.x-=vtxscenter.x;
+		aabbox.vmax.y-=vtxscenter.y;
+		aabbox.vmax.z-=vtxscenter.z;
+		aabbox.vmin.x-=vtxscenter.x;
+		aabbox.vmin.y-=vtxscenter.y;
+		aabbox.vmin.z-=vtxscenter.z;
+
+		/* Reset vtxscenter */
 		vtxscenter.x =0.0;
 		vtxscenter.y =0.0;
 		vtxscenter.z =0.0;
@@ -232,10 +313,38 @@ public:
 		for( int i=0; i<vcnt; i++ )
 			aabbox.toHoldPoint(vtxList[i].pt);
 	}
+	/* Function: Move VtxsCenter to current origin. */
+	void moveAabbCenterToOrigin()
+	{
+		float xc=0.5*(aabbox.vmax.x+aabbox.vmin.x);
+		float yc=0.5*(aabbox.vmax.y+aabbox.vmin.y);
+		float zc=0.5*(aabbox.vmax.z+aabbox.vmin.z);
+
+		for(int i=0; i<vcnt; i++) {
+			vtxList[i].pt.x -=xc;
+			vtxList[i].pt.y -=yc;
+			vtxList[i].pt.z -=zc;
+		}
+
+		/* Move AABB */
+		aabbox.vmax.x-=xc;
+		aabbox.vmax.y-=yc;
+		aabbox.vmax.z-=zc;
+
+		aabbox.vmin.x-=xc;
+		aabbox.vmin.y-=yc;
+		aabbox.vmin.z-=zc;
+
+		/* Move vtxscenter */
+                vtxscenter.x -=xc;
+                vtxscenter.y -=yc;
+                vtxscenter.z -=zc;
+	}
 
 	/* Function: Add vertices into vtxList[] */
 	int addVertex(const Vertex &v);
 	int addVertexFromPoints(const E3D_POINT *pts, int n); /* Add veterx from points */
+	void reverseAllVtxZ(void);  /* Reverse Z value/direction for all vertices, for coord system conversion */
 
 	/* Function: Add triangle into triList[] */
 	int addTriangle(const Triangle *t);
@@ -252,25 +361,28 @@ public:
 
 	/* Function: Calculate normals for all triangles */
 	void updateAllTriNormals();
-	void reverseAllTriNormals();
+	void reverseAllTriNormals(bool reverseVtxIndex);
 
 	/* Function: clone vertices/trianges from the tmesh.  */
 	void cloneMesh(const E3D_TriMesh &tmesh);
 
+	/* Function: Project according to Projection matrix */
+	// int  projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix &projMatrix) const;
+
 	/* Function: Draw wires/faces */
-	void drawMeshWire(FBDEV *fbdev) const ;
+	void drawMeshWire(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const ;
 	void drawMeshWire(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix) const;
 
 	/* Function: Draw AABB as wire. */
-	void drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix) const ;
+	void drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const E3D_ProjMatrix projMatrix) const ;
 
 	/* Function: Render all triangles */
-	void renderMesh(FBDEV *fbdev) const ;
+	void renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const ;
 	void renderMesh(FBDEV *fbdev, const E3D_RTMatrix &VRTmatrix, const E3D_RTMatrix &ScaleMatrix) const;
 
 private:
 	/* All members inited at E3D_TriMesh() */
-	E3D_Vector 	vtxscenter;	/* Center of all vertices, NOT AABB center! */
+	E3D_Vector 	vtxscenter;	/* Center of all vertices, NOT necessary to be sAABB center! */
 
 	#define		TRIMESH_GROW_SIZE	64	/* Growsize for vtxList and triList --NOT applied!*/
 	int		vCapacity;	/* MemSpace capacity for vtxList[] */
@@ -303,6 +415,8 @@ void E3D_TriMesh::Triangle::setDefaults()
 	E3D_TriMesh::Triangle::mark=0;
 
 }
+
+
 
 /* Revise vmin/vmax to make AABB contain the point. */
 void E3D_TriMesh::AABB::toHoldPoint(const E3D_Vector &pt)
@@ -477,12 +591,12 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
         char strline[1024];
         char strline2[1024];
 
-	int		k;		    /* triangle index in a face, [0  MAX.3] */
+	int		j,k;		    /* triangle index in a face, [0  MAX.3] */
         int             m;                  /* 0: vtxIndex, 1: texutreIndex 2: normalIndex  */
 	float		xx,yy,zz;
-	int		vtxIndex[4]={0};    /* To store vtxIndex for 4_side face */
-	int		textureIndex[4]={0};
-	int		normalIndex[4]={0};
+	int		vtxIndex[64]={0};    	/* To store vtxIndex for MAX. 4x16_side/vertices face */
+	int		textureIndex[64]={0};
+	int		normalIndex[64]={0};
 
 	int		vertexCount=0;
 	int		triangleCount=0;
@@ -542,6 +656,11 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 			switch(ch) {
 			   case ' ':  /* Read vertices X.Y.Z. */
+				if(vcnt==vCapacity) {
+					egi_dpstd("tCapacity used up!\n");
+					goto END_FUNC;
+				}
+
 				sscanf( strline+2, "%f %f %f", &xx, &yy, &zz);
 				vtxList[vcnt].pt.x=xx;
 				vtxList[vcnt].pt.y=yy;
@@ -590,11 +709,14 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 			if( strstr(strline, "/")==NULL ) {
 			   /* To extract face vertex indices */
 			   pt=strtok(strline+1, " ");
-			   for(k=0; pt!=NULL && k<4; k++) {
+			   for(k=0; pt!=NULL && k<64; k++) {
 				vtxIndex[k]=atoi(pt) -1;
 				pt=strtok(NULL, " ");
 			   }
 
+			   /* NOW: k is total number of vertices in this face. */
+
+#if 0 ////////////////////////////////////////////////////////////////////////
 			   /*  Assign to triangle vtxindex: triList[tcnt].vtx[i].index */
 			   if( k>=3 ) {
 				triList[tcnt].vtx[0].index=vtxIndex[0];
@@ -608,7 +730,24 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 				triList[tcnt].vtx[2].index=vtxIndex[3];
 				tcnt++;
 			   }
+#endif /////////////////////////////////////////////////////////////////////////
 			   /* TODO:  textrueIndex[] and normalIndex[], value <0 as omitted.  */
+
+			   /*  Assign to triangle vtxindex: triList[tcnt].vtx[i].index */
+			   if( k>2 ) {
+				/* To divide the face into triangles in way of a fan. */
+				for( j=0; j<k-2; j++ ) {
+					if(tcnt==tCapacity) {
+						egi_dpstd("tCapacity used up!\n");
+						goto END_FUNC;
+					}
+
+					triList[tcnt].vtx[0].index=vtxIndex[0];
+	                                triList[tcnt].vtx[1].index=vtxIndex[j+1];
+        	                        triList[tcnt].vtx[2].index=vtxIndex[j+2];
+					tcnt++;
+				}
+			   }
 
 			   #if 0 /* TEST:----- Print all vtxIndex[] */
 			   egi_dpstd("vtxIndex[]:");
@@ -637,7 +776,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 			   /* To extract face vertex indices */
 			   pt=strtok_r(strline+1, " ", &savept); /* +1 skip first ch */
-			   for(k=0; pt!=NULL && k<4; k++) {
+			   for(k=0; pt!=NULL && k<4*6; k++) {
 				//cout << "Index group: " << pt<<endl;
 				/* If no more "/"... example: '2/3/4 5/6/4 34 ', cast last '34 '
 				 * This must befor strtok_r(pt, ...)
@@ -690,6 +829,9 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 			   } /* End for(k) */
 
+			   /* NOW: k is total number of vertices in this face. */
+
+#if 0 ////////////////////////////////////////////////////////////
 			   /*  Assign to triangle vtxindex */
 			   if( k>=3 ) {
 				triList[tcnt].vtx[0].index=vtxIndex[0];
@@ -703,6 +845,23 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 				triList[tcnt].vtx[2].index=vtxIndex[0];
 				tcnt++;
 			   }
+#endif //////////////////////////////////////////////////////////////
+			   /*  Assign to triangle vtxindex */
+			   if( k>2 ) {
+				/* To divide the face into triangles in way of a fan. */
+				for( j=0; j<k-2; j++ ) {
+					if(tcnt==tCapacity) {
+						egi_dpstd("tCapacity used up!\n");
+						goto END_FUNC;
+					}
+
+					triList[tcnt].vtx[0].index=vtxIndex[0];
+	                                triList[tcnt].vtx[1].index=vtxIndex[j+1];
+        	                        triList[tcnt].vtx[2].index=vtxIndex[j+2];
+					tcnt++;
+				}
+			   }
+
 
 			   /* TEST: ------ */
 			  if( vtxIndex[0]<0 || vtxIndex[1]<0 ||vtxIndex[2]<0 || (k==4 && vtxIndex[3]<0 ) ) {
@@ -733,6 +892,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 	} /* End while() */
 
+END_FUNC:
 	/* Close file */
 	fin.close();
 
@@ -851,6 +1011,15 @@ int E3D_TriMesh::addVertexFromPoints(const E3D_POINT *pts, int n)
 	return n;
 }
 
+/*----------------------------------------
+Reverse Z value/direction for all vertices,
+for Coord system conversion.
+-----------------------------------------*/
+void E3D_TriMesh::reverseAllVtxZ(void)
+{
+	for(int i=0; i<vcnt; i++)
+		vtxList[i].pt.z = -vtxList[i].pt.z;
+}
 
 /*-----------------------------------------------------------
 Create triangles with input vertex indexes, and add into
@@ -952,6 +1121,9 @@ void E3D_TriMesh::transformAllTriNormals(const E3D_RTMatrix  &RTMatrix)
 
 /*-----------------------------------------------------------
 Transform AABB (axially aligned bounding box).
+	  		!!! CAUTION !!!
+1. The function ONLY transform the ORIGINAL two Vectors(vmin/vmax)
+   that  defined the AABB.
 
 @RTMatrix:	RotationTranslation Matrix
 -----------------------------------------------------------*/
@@ -975,14 +1147,15 @@ void E3D_TriMesh::transformAABB(const E3D_RTMatrix  &RTMatrix)
 	aabbox.vmax.x = xx*RTMatrix.pmat[0]+yy*RTMatrix.pmat[3]+zz*RTMatrix.pmat[6] +RTMatrix.pmat[9];
 	aabbox.vmax.y = xx*RTMatrix.pmat[1]+yy*RTMatrix.pmat[4]+zz*RTMatrix.pmat[7] +RTMatrix.pmat[10];
 	aabbox.vmax.z = xx*RTMatrix.pmat[2]+yy*RTMatrix.pmat[5]+zz*RTMatrix.pmat[8] +RTMatrix.pmat[11];
-#endif
+#else
 
 	aabbox.vmin =aabbox.vmin*RTMatrix;
 	aabbox.vmax =aabbox.vmax*RTMatrix;
+#endif
 }
 
 /*--------------------------------------------------------------
-Transform all triangle normals.
+Transform all vertices, all triangle normals and AABB
 
 @RTMatrix:	RotationTranslation Matrix
 @ScaleMatrix:	ScaleMatrix
@@ -994,6 +1167,11 @@ void E3D_TriMesh::transformMesh(const E3D_RTMatrix  &RTMatrix, const E3D_RTMatri
 	transformVertices(cmatrix);
 	transformAllTriNormals(RTMatrix); /* normals should NOT apply scale_matrix ! */
 	transformAABB(cmatrix);
+
+	/*transform vtxscenter */
+	vtxscenter = vtxscenter*cmatrix;
+
+//	cmatrix.print("cmatrix");
 }
 
 /*-----------------------------------------
@@ -1047,10 +1225,20 @@ void E3D_TriMesh::updateAllTriNormals()
 /*------------------------------------
 Reverse normals of all triangles
 ------------------------------------*/
-void E3D_TriMesh::reverseAllTriNormals()
+void E3D_TriMesh::reverseAllTriNormals(bool reverseVtxIndex)
 {
-	for(int i=0; i<tcnt; i++)
-		triList[i].normal *= -1.0f;
+	int td;
+	for(int i=0; i<tcnt; i++) {
+	   /* Reverse normal */
+	   triList[i].normal *= -1.0f;
+
+	   /*  Reverse vtx index */
+	   if(reverseVtxIndex) {
+		triList[i].vtx[0].index=td;
+		triList[i].vtx[0].index=triList[i].vtx[2].index;
+		triList[i].vtx[2].index=td;
+    	   }
+	}
 }
 
 
@@ -1104,49 +1292,125 @@ void E3D_TriMesh::cloneMesh(const E3D_TriMesh &tmesh)
 		triList[i].mark=tmesh.triList[i].mark;
 	}
 
+	/* Clone AABB */
+	aabbox=tmesh.aabbox;
+
+	/* Clone vtxscenter */
+	vtxscenter=tmesh.vtxscenter;
+}
+
+
+/*--------------------------------------------------------------
+Project an array of 3D vpts according to the projection matrix,
+and all vpts[] will be modified after calling.
+
+Note:
+1. Values of all vpts[] will be updated/projected!
+
+@Tri:		Input triangle.
+@np:		Number of points.
+@projMatrix:	The projectio matrix.
+
+Return:
+	0	OK
+	>0 	Point out of the viewing frustum!
+	<0	Fails
+---------------------------------------------------------------*/
+int projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix)
+{
+	/* 0. Check input */
+	if(np<1)
+	   return -1;
+
+	/* 1. If Isometric projection */
+	if( projMatrix.type==0 ) {
+		/* Just adjust viewplane origin to Window center */
+		for(int k=0; k<np; k++) {
+			vpts[k].x = vpts[k].x+projMatrix.winW/2;
+			vpts[k].y = vpts[k].y+projMatrix.winH/2;
+		}
+		return 0;
+	}
+
+        /* 2. Projecting point onto the viewPlane/screen  */
+        for(int k=0; k<np; k++) {
+		/* Check */
+		if( abs(vpts[k].z) < VPRODUCT_EPSILON ) {
+			egi_dpstd("Some points out of the viewing frustum!\n");
+			return 1;
+		}
+
+         	vpts[k].x = roundf( vpts[k].x/vpts[k].z*projMatrix.dv  /* Xv=Xs/Zs*d */
+                                    +projMatrix.winW/2 );              /* Adjust viewplane origin to window X center */
+
+         	vpts[k].y = roundf( vpts[k].y/vpts[k].z*projMatrix.dv  /* Xv=Xs/Zs*d */
+                                    +projMatrix.winH/2 );              /* Adjust viewplane origin to window Y center */
+		//Keep vpts[k].z
+	}
+
+	/* 3. Clip if out of frustum. plan view_z==0 */
+	for( int i=0; i<np; i++) {
+		if( vpts[i].z < projMatrix.dv)
+			return 1;
+	}
+
+	return 0;
 }
 
 
 /*-----------------------------------------------------
 Draw mesh wire.
-View direction: Screen Coord. Z axis.
+fbdev:		Pointer to FBDEV
+projMatrix:	Projection Matrix
+
+View direction: TriMesh Global_Coord. Z axis.
 -----------------------------------------------------*/
-void E3D_TriMesh::drawMeshWire(FBDEV *fbdev) const
+void E3D_TriMesh::drawMeshWire(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
 {
 	int vtidx[3];	    /* vtx index of a triangle */
+	EGI_POINT   pts[3];
+	E3D_Vector  vpts[3];
 	E3D_Vector  vView(0.0f, 0.0f, 1.0f); /* View direction */
 	float	    vProduct;   /* dot product */
+
+	/* NOTE: Set fbdev->flipZ, as we view from -z---->+z */
+	fbdev->flipZ=true;
 
 	/* TEST: Project to Z plane, Draw X,Y only */
 	for(int i=0; i<tcnt; i++) {
 
-#if 1		/* To pick out back faces.  */
-		vProduct=vView*(triList[i].normal)*(-1.0f); // -vView as *(-1.0f);
-		if ( vProduct <= 0.0f )
+		/* 1. To pick out back faces.  */
+		/* Note: For perspective view, this is NOT always correct!
+		 * XXX A triangle visiable in ISOmetric view maynot NOT visiable in perspective view! XXX
+		 */
+		vProduct=vView*(triList[i].normal); // *(-1.0f); // -vView as *(-1.0f);
+		if( vProduct > -VPRODUCT_EPSILON ) {  /* >=0.0f */
+			//egi_dpstd("triList[%d] vProduct=%f >=0 \n",i, vProduct);
                         continue;
-#endif
+		}
+		//egi_dpstd("triList[%d] vProduct=%f \n",i, vProduct);
 
+		/* 2. Get vtxindex */
 		vtidx[0]=triList[i].vtx[0].index;
 		vtidx[1]=triList[i].vtx[1].index;
 		vtidx[2]=triList[i].vtx[2].index;
 
-#if 0		/* ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
-		/* A simple test: Triangle center point Z for all pixles on the triangle. */
-		gv_fb_dev.pixz=(vtxList[vtidx[0]].pt.z+vtxList[vtidx[1]].pt.z+vtxList[vtidx[2]].pt.z)/3.0;
-		/* !!!! Views from -z ----> +z */
-		gv_fb_dev.pixz = -gv_fb_dev.pixz;
-#endif
+		/* 3. Copy triangle vertices, and project to viewPlan COORD. */
+		vpts[0]=vtxList[vtidx[0]].pt;
+		vpts[1]=vtxList[vtidx[1]].pt;
+		vpts[2]=vtxList[vtidx[2]].pt;
 
-		/* Draw line: OR draw_line_antialias() */
-		draw_line(fbdev, vtxList[vtidx[0]].pt.x, vtxList[vtidx[0]].pt.y,
-				 vtxList[vtidx[1]].pt.x, vtxList[vtidx[1]].pt.y);
+		if( projectPoints(vpts, 3, projMatrix) !=0 )
+			continue;
 
-		draw_line(fbdev, vtxList[vtidx[1]].pt.x, vtxList[vtidx[1]].pt.y,
-				 vtxList[vtidx[2]].pt.x, vtxList[vtidx[2]].pt.y);
+		/* 4. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
+		/* A simple ZBUFF test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
+		gv_fb_dev.pixz=roundf((vpts[0].z+vpts[1].z+vpts[2].z)/3.0);
 
-		draw_line(fbdev, vtxList[vtidx[0]].pt.x, vtxList[vtidx[0]].pt.y,
-				 vtxList[vtidx[2]].pt.x, vtxList[vtidx[2]].pt.y);
-
+		/* 5. Draw line one View plan, OR draw_line_antialias() */
+		for(int k=0; k<3; k++)
+			draw_line(fbdev, roundf(vpts[k].x), roundf(vpts[k].y),
+					 roundf(vpts[(k+1)%3].x), roundf(vpts[(k+1)%3].y) );
 
 		#if 0 /* TEST: draw triangle normals -------- */
 		E3D_POINT cpt;	    /* Center of triangle */
@@ -1159,6 +1423,8 @@ void E3D_TriMesh::drawMeshWire(FBDEV *fbdev) const
 		#endif
 	}
 
+	/* Reset fbdev->flipZ */
+	fbdev->flipZ=false;
 }
 
 /*---------------------------------------------------------------------
@@ -1173,9 +1439,8 @@ Note:
 
 @fbdev:		Pointer to FB device.
 @VRTmatrix:	View_Coord transform matrix, from same as Global_Coord
-		to expected view position.
+		to expected view position. (Combined with ScaleMatrix)
 		OR: --- View_Coord relative to Global_Coord ---.
-
 -----------------------------------------------------------------------*/
 void E3D_TriMesh::drawMeshWire(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix) const
 {
@@ -1213,7 +1478,7 @@ void E3D_TriMesh::drawMeshWire(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix) cons
 
 		/* 5. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
 		/* A simple ZBUFF test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
-		gv_fb_dev.pixz=(trivtx[0].z+trivtx[1].z+trivtx[2].z)/3.0;
+		gv_fb_dev.pixz=roundf((trivtx[0].z+trivtx[1].z+trivtx[2].z)/3.0);
 
 		/* !!!! Views from -z ----> +z */
 		// gv_fb_dev.pixz = -gv_fb_dev.pixz; /* OR set fbdev->flipZ=true */
@@ -1244,74 +1509,193 @@ Draw AABB of the mesh as wire.
 
 Note:
 1. View direction: from -z ----> +z, of Veiw_Coord Z axis.
+2.		!!! CAUTION !!!
+  This functions works ONLY WHEN original AABB is aligned with
+  the global_coord! otherwise is NOT possible to get vpt[8]!
 
 @fbdev:		Pointer to FB device.
 @VRTmatrix:	View_Coord transform matrix, from same as Global_Coord
 		to expected view position.
 		OR: --- View_Coord relative to Global_Coord ---.
 ---------------------------------------------------------------------*/
-void E3D_TriMesh::drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix) const
+void E3D_TriMesh::drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const E3D_ProjMatrix projMatrix) const
 {
 	E3D_Vector vctMin;
 	E3D_Vector vctMax;
-	E3D_Vector vpt[8];
+	E3D_Vector vpts[8];
 
 	float xsize=aabbox.xSize();
 	float ysize=aabbox.ySize();
 	float zsize=aabbox.zSize();
 
-	vpt[0]=aabbox.vmin;
-	vpt[1]=vpt[0]; vpt[1].x +=xsize;
-	vpt[2]=vpt[1]; vpt[2].y +=ysize;
-	vpt[3]=vpt[0]; vpt[3].y +=ysize;
+	/* Get all vertices of the AABB */
+	vpts[0]=aabbox.vmin;
+	vpts[1]=vpts[0]; vpts[1].x +=xsize;
+	vpts[2]=vpts[1]; vpts[2].y +=ysize;
+	vpts[3]=vpts[0]; vpts[3].y +=ysize;
 
-	vpt[4]=vpt[0]; vpt[4].z +=zsize;
-	vpt[5]=vpt[4]; vpt[5].x +=xsize;
-	vpt[6]=vpt[5]; vpt[6].y +=ysize;
-	vpt[7]=vpt[4]; vpt[7].y +=ysize;
+	vpts[4]=vpts[0]; vpts[4].z +=zsize;
+	vpts[5]=vpts[4]; vpts[5].x +=xsize;
+	vpts[6]=vpts[5]; vpts[6].y +=ysize;
+	vpts[7]=vpts[4]; vpts[7].y +=ysize;
 
-	/* Transform vpt[] */
-	for( int i=0; i<8; i++) {
-		vpt[i]= vpt[i]*VRTMatrix;
+	/* 2. Transform vpt[] */
+	for( int k=0; k<8; k++)
+		vpts[k]= vpts[k]*VRTMatrix;
+
+	/* 3. Project to viewPlan COORD. */
+        projectPoints(vpts, 8, projMatrix); /* Do NOT check clipping */
+
+#if 0//////////////////////////////////////
+	#if TEST_PERSPECTIVE  /* TEST: --Perspective matrix processing.
+	        * Note: without setTranslation(x,y,.), Global XY_origin and View XY_origin coincide!
+		*/
+		if( abs(vpts[k].z) <1.0f ) {
+			egi_dpstd("Point Z too samll, out of the Frustum?\n");
+			return;
+		}
+
+		vpts[k].x = vpts[k].x/vpts[k].z*500  /* Xv=Xs/Zs*d, d=300 */
+			   +160;	       /* Adjust to FB/Screen X center */
+		vpts[k].y = vpts[k].y/vpts[k].z*500  /* Yv=Ys/Zs*d */
+			   +120;  	       /* Adjust to FB/Screen Y center */
+		/* keep vpt[k].z */
+	#endif
 	}
+#endif /////////////////////////////////////
 
 	/* Notice: Viewing from z- --> z+ */
 	fbdev->flipZ=true;
 
-	/* Draw lines 0-1, 1-2, 2-3, 3-0 */
-	E3D_draw_line(fbdev, vpt[0], vpt[1]);
-	E3D_draw_line(fbdev, vpt[1], vpt[2]);
-	E3D_draw_line(fbdev, vpt[2], vpt[3]);
-	E3D_draw_line(fbdev, vpt[3], vpt[0]);
+	/* E3D_draw lines 0-1, 1-2, 2-3, 3-0 */
+	E3D_draw_line(fbdev, vpts[0], vpts[1]);
+	E3D_draw_line(fbdev, vpts[1], vpts[2]);
+	E3D_draw_line(fbdev, vpts[2], vpts[3]);
+	E3D_draw_line(fbdev, vpts[3], vpts[0]);
 	/* Draw lines 4-5, 5-6, 6-7, 7-4 */
-	E3D_draw_line(fbdev, vpt[4], vpt[5]);
-	E3D_draw_line(fbdev, vpt[5], vpt[6]);
-	E3D_draw_line(fbdev, vpt[6], vpt[7]);
-	E3D_draw_line(fbdev, vpt[7], vpt[4]);
+	E3D_draw_line(fbdev, vpts[4], vpts[5]);
+	E3D_draw_line(fbdev, vpts[5], vpts[6]);
+	E3D_draw_line(fbdev, vpts[6], vpts[7]);
+	E3D_draw_line(fbdev, vpts[7], vpts[4]);
 	/* Draw lines 0-4, 1-5, 2-6, 3-7 */
-	E3D_draw_line(fbdev, vpt[0], vpt[4]);
-	E3D_draw_line(fbdev, vpt[1], vpt[5]);
-	E3D_draw_line(fbdev, vpt[2], vpt[6]);
-	E3D_draw_line(fbdev, vpt[3], vpt[7]);
+	E3D_draw_line(fbdev, vpts[0], vpts[4]);
+	E3D_draw_line(fbdev, vpts[1], vpts[5]);
+	E3D_draw_line(fbdev, vpts[2], vpts[6]);
+	E3D_draw_line(fbdev, vpts[3], vpts[7]);
 
 	/* Reset flipZ */
 	fbdev->flipZ=false;
 }
 
-/*---------------------------------------------
-Render the whole mesh.
+/*--------------------------------------------------
+Render/draw the whole mesh by filling all triangles
+with FBcolor.
 View_Coord:	Same as Global_Coord.
 View direction: View_Coord Z axis.
 
-@fbdev:	Pointer to FB device.
 
----------------------------------------------*/
+Note:
+1.
+
+@fbdev:			Pointer to FB device.
+@projectMatrix:		Projection matrix.
+--------------------------------------------------*/
+#if 0 //////////////////////////////////////////////////
 void E3D_TriMesh::renderMesh(FBDEV *fbdev) const
 {
 	int vtidx[3];  	/* vtx index of a triangel */
 	EGI_POINT   pts[3];
-	E3D_Vector  vView(0.0f, 0.0f, 1.0f); /* View direction */
-	float	    vProduct;   /* dot product */
+	E3D_Vector  vView(0.0f, 0.0f, 1.0f); 	/* View direction */
+	float	    vProduct;   		/* dot product */
+	Triangle    Tri;
+
+	/* Default color */
+	EGI_16BIT_COLOR color=fbdev->pixcolor;
+	//EGI_8BIT_CCODE codeY=egi_color_getY(color);
+
+	/* -------TEST: Project to Z plane, Draw X,Y only */
+	/* Traverse and render all triangles */
+	for(int i=0; i<tcnt; i++) {
+		vtidx[0]=triList[i].vtx[0].index;
+		vtidx[1]=triList[i].vtx[1].index;
+		vtidx[2]=triList[i].vtx[2].index;
+
+	   #if TEST_PERSPECTIVE  /* TEST: ---Clip triangles out of frustum. plan view_z==0 */
+		if( vtxList[vtidx[0]].pt.z <500 || vtxList[vtidx[1]].pt.z <500 || vtxList[vtidx[2]].pt.z <500 )
+			continue;
+	   #endif
+
+		/* 1. Pick out back_facing triangles.  */
+		vProduct=vView*(triList[i].normal); // *(-1.0f); // -vView as *(-1.0f);
+		/* Note: Because of float precision limit, vProduct==0.0f is NOT possible. */
+		if ( vProduct > -VPRODUCT_EPSILON ) {  /* >=0.0f */
+			//egi_dpstd("triList[%d] vProduct=%e >=0 \n",i, vProduct);
+	                continue;
+		}
+		//egi_dpstd("triList[%d] vProduct=%f \n",i, vProduct);
+
+		/* 2. Calculate light reflect strength:  TODO: not correct, this is ONLY demo.  */
+		vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+		//if( vProduct >= 0.0f )
+		if( vProduct > -VPRODUCT_EPSILON )
+			vProduct=0.0f;
+		else /* Flip to get vProduct absolute value for luma */
+			vProduct=-vProduct;
+
+		/* 3. Adjust luma for pixcolor as per vProduct. */
+		//cout <<"vProduct: "<< vProduct;
+		fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+		//cout <<" getY: " << (unsigned int)egi_color_getY(fbdev->pixcolor) << endl;
+
+		/* 4. Get triangle pts. */
+		for(int k=0; k<3; k++) {
+		   #if TEST_PERSPECTIVE  /* TEST: --Perspective matrix processing.
+		        * Note: If no setTranslation(x,y,.) Global XY_origin and View XY_origin coincide!
+			*       Here to adjust/map Global origin to center of View window center.
+			*       However vanshing point....
+			*/
+			if(vtxList[vtidx[k]].pt.z <1.0f ) {
+				egi_dpstd("Point Z too samll, out of the Frustum?\n");
+				return;
+			}
+			pts[k].x = roundf( vtxList[vtidx[k]].pt.x/vtxList[vtidx[k]].pt.z*500  /* Xv=Xs/Zs*d, d=300 */
+				   +160 );				/* Adjust to FB/Screen X center */
+			pts[k].y = roundf( vtxList[vtidx[k]].pt.y/vtxList[vtidx[k]].pt.z*500  /* Yv=Ys/Zs*d */
+				   +120 );				/* Adjust to FB/Screen Y center */
+//			pts[k].z = Zfar*(1.0f-Znear/pts[k].z)/(Zfar-Znear);
+		  #else
+			/* 4.1 Get pts[].x/y */
+			pts[k].x=roundf( vtxList[vtidx[k]].pt.x );
+			pts[k].y=roundf( vtxList[vtidx[k]].pt.y );
+		  #endif
+		}
+
+		/* 5. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
+		/* A simple test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
+		gv_fb_dev.pixz=roundf((vtxList[vtidx[0]].pt.z+vtxList[vtidx[1]].pt.z+vtxList[vtidx[2]].pt.z)/3.0);
+		/* !!!! Views from -z ----> +z */
+		gv_fb_dev.pixz = -gv_fb_dev.pixz;
+
+		/* 6. Draw filled triangle */
+		//draw_triangle(&gv_fb_dev, pts);
+		draw_filled_triangle(&gv_fb_dev, pts);
+	}
+
+	/* Restore pixcolor */
+	fbset_color2(&gv_fb_dev, color);
+}
+#else //////////////////////////////////////////////
+
+void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
+{
+	int vtidx[3];  	/* vtx index of a triangel */
+	EGI_POINT   pts[3];
+	E3D_Vector  vpts[3];
+	E3D_Vector  vView(0.0f, 0.0f, 1.0f); 	/* View direction */
+	float	    vProduct;   		/* dot product */
+	//Triangle    Tri;
+
+//	E3D_ProjMatrix projMatrix={ .type=1, .dv=500, .dnear=500, .dfar=10000000, .winW=320, .winH=240};
 
 	/* Default color */
 	EGI_16BIT_COLOR color=fbdev->pixcolor;
@@ -1325,31 +1709,44 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev) const
 		vtidx[2]=triList[i].vtx[2].index;
 
 		/* 1. Pick out back_facing triangles.  */
-		vProduct=vView*(triList[i].normal)*(-1.0f); // -vView as *(-1.0f);
-		if ( vProduct < 0.0f )
-                        continue;
+		vProduct=vView*(triList[i].normal); // *(-1.0f); // -vView as *(-1.0f);
+		/* Note: Because of float precision limit, vProduct==0.0f is NOT possible. */
+		if ( vProduct > -VPRODUCT_EPSILON ) {  /* >=0.0f */
+			//egi_dpstd("triList[%d] vProduct=%e >=0 \n",i, vProduct);
+	                continue;
+		}
+		//egi_dpstd("triList[%d] vProduct=%f \n",i, vProduct);
 
-		/* 2. Calculate light reflect strength:  TODO: not correct, this is ONLY demo.  */
-		vProduct=gv_vLight*(triList[i].normal)*(-1.0f); // -vLight as *(-1.0f);
-		if( vProduct < 0.0f )
+		/* 2. Copy triangle vertices, and project to viewPlan COORD. */
+		vpts[0]=vtxList[vtidx[0]].pt;
+		vpts[1]=vtxList[vtidx[1]].pt;
+		vpts[2]=vtxList[vtidx[2]].pt;
+
+		if( projectPoints(vpts, 3, projMatrix) !=0 )
+			continue;
+
+		/* 3. Get 2D points */
+		pts[0].x=vpts[0].x; pts[0].y=vpts[0].y;
+		pts[1].x=vpts[1].x; pts[1].y=vpts[1].y;
+		pts[2].x=vpts[2].x; pts[2].y=vpts[2].y;
+
+		/* 4. Calculate light reflect strength:  TODO: not correct, this is ONLY demo.  */
+		vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+		//if( vProduct >= 0.0f )
+		if( vProduct > -VPRODUCT_EPSILON )
 			vProduct=0.0f;
+		else /* Flip to get vProduct absolute value for luma */
+			vProduct=-vProduct;
 
-		/* 3. Adjust luma for pixcolor as per vProduct. */
+		/* 4. Adjust luma for pixcolor as per vProduct. */
 		//cout <<"vProduct: "<< vProduct;
 		fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
 		//cout <<" getY: " << (unsigned int)egi_color_getY(fbdev->pixcolor) << endl;
 
-		/* 4. Get triangle pts. */
-		pts[0].x=vtxList[vtidx[0]].pt.x;
-		pts[0].y=vtxList[vtidx[0]].pt.y;
-		pts[1].x=vtxList[vtidx[1]].pt.x;
-		pts[1].y=vtxList[vtidx[1]].pt.y;
-		pts[2].x=vtxList[vtidx[2]].pt.x;
-		pts[2].y=vtxList[vtidx[2]].pt.y;
-
-		/* 5. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
+		/* 6. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
 		/* A simple test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
-		gv_fb_dev.pixz=(vtxList[vtidx[0]].pt.z+vtxList[vtidx[1]].pt.z+vtxList[vtidx[2]].pt.z)/3.0;
+		//gv_fb_dev.pixz=roundf((vtxList[vtidx[0]].pt.z+vtxList[vtidx[1]].pt.z+vtxList[vtidx[2]].pt.z)/3.0);
+		gv_fb_dev.pixz=roundf((vpts[0].z+vpts[1].z+vpts[2].z)/3.0);
 		/* !!!! Views from -z ----> +z */
 		gv_fb_dev.pixz = -gv_fb_dev.pixz;
 
@@ -1361,15 +1758,21 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev) const
 	/* Restore pixcolor */
 	fbset_color2(&gv_fb_dev, color);
 }
+#endif
+
 
 
 /*--------------------------------------------------------------------
-Render the whole mesh.
+Render/draw the whole mesh by filling all triangles with FBcolor.
 
 Note:
 1. View direction: from -z ----> +z, of Veiw_Coord Z axis.
-2. Each triangle in mesh is transformed as per VRTMatrix, and then draw
-   to FBDEV, TriMesh data keeps unchanged!
+2. Each triangle in mesh is transformed as per VRTMatrix+ScaleMatrix, and
+   then draw to FBDEV, TriMesh data keeps unchanged!
+3. !!! CAUTION !!!
+   3.1 ScaleMatrix does NOT apply to triangle normals!
+   3.2 Translation component in VRTMatrix is ignored for triangle normals!
+       
 
 View_Coord: 	Transformed from same as Global_Coord by RTmatrix.
 View direction: Frome -z ---> +z, of View_Coord Z axis.
@@ -1377,6 +1780,8 @@ View direction: Frome -z ---> +z, of View_Coord Z axis.
 @fbdev:		Pointer to FB device.
 @VRTmatrix	View_Coord tranform matrix, from same as Global_Coord.
 		OR: View_Coord relative to Global_Coord.
+		NOT combined with scaleMatrix here!
+@ScaleMatrix    Scale Matrix.
 ---------------------------------------------------------------------*/
 void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const E3D_RTMatrix &ScaleMatrix) const
 {
@@ -1426,6 +1831,15 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const 
                 	trivtx[k].x = xx*CompMatrix.pmat[0]+yy*CompMatrix.pmat[3]+zz*CompMatrix.pmat[6] +CompMatrix.pmat[9];
 	                trivtx[k].y = xx*CompMatrix.pmat[1]+yy*CompMatrix.pmat[4]+zz*CompMatrix.pmat[7] +CompMatrix.pmat[10];
         	        trivtx[k].z = xx*CompMatrix.pmat[2]+yy*CompMatrix.pmat[5]+zz*CompMatrix.pmat[8] +CompMatrix.pmat[11];
+
+			#if TEST_PERSPECTIVE  /* Perspective matrix processing */
+			if(trivtx[k].z <10) {
+				egi_dpstd("Point Z too samll, out of the Frustum?\n");
+				return;
+			}
+			trivtx[k].x = trivtx[k].x/trivtx[k].z*300;  /* Xv=Xs/Zs*d */
+			trivtx[k].y = trivtx[k].y/trivtx[k].z*300;  /* Yv=Ys/Zs*d */
+			#endif
         	}
 
 		/* 3. Transforme normal of the triangle to under View_Coord */
@@ -1442,14 +1856,16 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const 
 		trinormal.z = xx*VRTMatrix.pmat[2]+yy*VRTMatrix.pmat[5]+zz*VRTMatrix.pmat[8];
 
 		/* 4. Pick out back_facing triangles.  */
-		vProduct=vView*trinormal*(-1.0f);  /* !!! -vView as *(-1.0f) */
-		if ( vProduct < 0.0f )
+		vProduct=vView*trinormal; // *(-1.0f);  /* !!! -vView as *(-1.0f) */
+		if ( vProduct >= 0.0f )
                         continue;
 
 		/* 5. Calculate light reflect strength, a simple/approximate way.  TODO: not correct, this is ONLY demo.  */
-		vProduct=gv_vLight*trinormal*(-1.0f); // -vLight as *(-1.0f);
-		if( vProduct < 0.0f )
+		vProduct=gv_vLight*trinormal;  // *(-1.0f); // -vLight as *(-1.0f);
+		if( vProduct > 0.0f )
 			vProduct=0.0f;
+		else	/* Flip to get vProduct absolute value for luma */
+			vProduct=-vProduct;
 
 		/* 6. Adjust luma for pixcolor as per vProduct. */
 		//cout <<"vProduct: "<< vProduct;
@@ -1457,16 +1873,14 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const 
 		//cout <<" getY: " << (unsigned int)egi_color_getY(fbdev->pixcolor) << endl;
 
 		/* 7. Get triangle pts. */
-		pts[0].x=trivtx[0].x;
-		pts[0].y=trivtx[0].y;
-		pts[1].x=trivtx[1].x;
-		pts[1].y=trivtx[1].y;
-		pts[2].x=trivtx[2].x;
-		pts[2].y=trivtx[2].y;
+		for(int k=0; k<3; k++) {
+			pts[k].x=roundf(trivtx[k].x);
+			pts[k].y=roundf(trivtx[k].y);
+		}
 
 		/* 5. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
 		/* A simple ZBUFF test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
-		gv_fb_dev.pixz=(trivtx[0].z+trivtx[1].z+trivtx[2].z)/3.0;
+		gv_fb_dev.pixz=roundf((trivtx[0].z+trivtx[1].z+trivtx[2].z)/3.0);
 
 		/* !!!! Views from -z ----> +z   */
 		//gv_fb_dev.pixz = -gv_fb_dev.pixz; /* OR set fbdev->flipZ=true */
@@ -1770,6 +2184,208 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh &smesh, float r)
 	}
 
 }
+
+
+////////////////////////////////////  E3D_Draw Function  ////////////////////////////////////////
+
+/*----------------------------------------------
+Draw a 3D line between va and vb. zbuff applied.
+@fbdev:	  Pointer to FBDEV.
+@va,vb:	  Two E3D_Vectors as two points.
+-----------------------------------------------*/
+inline void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb)
+{
+	draw3D_line( fbdev, roundf(va.x), roundf(va.y), roundf(va.z),
+		            roundf(vb.x), roundf(vb.y), roundf(vb.z) );
+}
+
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix)
+{
+	E3D_Vector vpts[2];
+
+	vpts[0].zero();
+	vpts[1]=va;
+
+	vpts[0]=vpts[0]*RTmatrix;
+	vpts[1]=vpts[1]*RTmatrix;
+
+	/* Project vpts */
+	if( projectPoints(vpts, 2, projMatrix) !=0)
+		return;
+
+	draw3D_line( fbdev, roundf(vpts[0].x), roundf(vpts[0].y), roundf(vpts[0].z),
+		            roundf(vpts[1].x), roundf(vpts[1].y), roundf(vpts[1].z) );
+}
+
+
+/*-------------------------------------------------------
+Draw a 3D Circle. (Zbuff applied as in draw_line)
+Draw a circle at XY plane then transform it by RTmatrix.
+
+@fbdev:	  	Pointer to FBDEV.
+@r:	  	Radius.
+@RTmatrix: 	Transform matrix.
+-------------------------------------------------------*/
+void E3D_draw_circle(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix)
+{
+	if(r<=0) return;
+
+	/* Angle increment step */
+	float astep= asinf(0.5/r)*2;
+	int   nstep= MATH_PI*2/astep;
+
+	//float astart;
+	float aend;	/* segmental arc start/end angle at XY plan. */
+	E3D_Vector  vstart, vend; /* segmental arc start/end point at 3D space */
+	E3D_Vector  vpts[2];
+
+	/* Draw segment arcs */
+	for( int i=0; i<nstep+1; i++) {
+		/* Assign aend to astart */
+		//astart=aend;
+		vstart=vend;
+
+		/* Update aend and vend */
+		aend= i*astep;
+		vend.x=cos(aend)*r;
+		vend.y=sin(aend)*r;
+		vend.z=0;
+
+		/* Transform vend as per Nmatrix */
+		vend=vend*RTmatrix;
+
+		/* Projection to vpts */
+		vpts[0]=vstart; vpts[1]=vend;
+
+		if(i>0) {
+			/* Project mat */
+			if( projectPoints(vpts, 2, projMatrix) !=0)
+				continue;
+			/* Draw segmental arc */
+			E3D_draw_line(fbdev, vpts[0], vpts[1]);
+		}
+	}
+
+}
+
+
+/*---------------------------------------------------------------
+Draw the Coordinate_Navigating_Sphere(Frame).
+Draw a circle at Global XY plane then transform it by RTmatrix.
+
+@fbdev:	 	Pointer to FBDEV.
+@r:	  	Radius.
+@RTmatrix: 	Transform matrix.
+----------------------------------------------------------------*/
+void E3D_draw_coordNavSphere(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix)
+{
+	if(r<=0)
+		return;
+
+        E3D_Vector axisX(1,0,0);
+        E3D_Vector axisY(0,1,0);
+	E3D_RTMatrix TMPmat;
+        TMPmat.identity();
+
+    gv_fb_dev.flipZ=true;
+
+        /* XY plane -->Z */
+        //cout << "Draw XY circle\n";
+        fbset_color2(&gv_fb_dev, WEGI_COLOR_RED);
+        E3D_draw_circle(&gv_fb_dev, r, RTmatrix, projMatrix); /* AdjustMat to Center screen */
+
+        /* XZ plane -->Y */
+        //cout << "Draw XZ circle\n";
+        TMPmat.setRotation(axisX, -0.5*MATH_PI);
+        fbset_color2(&gv_fb_dev, WEGI_COLOR_GREEN);
+        E3D_draw_circle(&gv_fb_dev, r, TMPmat*RTmatrix, projMatrix);
+
+        /* YZ plane -->X */
+        //cout << "Draw YZ circle\n";
+        TMPmat.setRotation(axisY, 0.5*MATH_PI);
+        fbset_color2(&gv_fb_dev, WEGI_COLOR_BLUE);
+        E3D_draw_circle(&gv_fb_dev, r, TMPmat*RTmatrix, projMatrix);
+
+        /* Envelope circle, which is perpendicular to the ViewDirection */
+        //cout << "Draw envelope circle\n";
+	TMPmat=RTmatrix;
+        TMPmat.zeroRotation();
+        fbset_color2(&gv_fb_dev, WEGI_COLOR_GRAY);
+        E3D_draw_circle(&gv_fb_dev, r, TMPmat, projMatrix);
+
+    gv_fb_dev.flipZ=false;
+}
+
+/*---------------------------------------------------------------
+Draw the Coordinate_Navigating_Sphere(Frame).
+Draw a circle at Global XY plane then transform it by RTmatrix.
+
+@fbdev:	 	Pointer to FBDEV.
+@r:	  	Radius.
+@RTmatrix: 	Transform matrix.
+----------------------------------------------------------------*/
+#include "egi_FTsymbol.h"
+void E3D_draw_coordNavFrame(FBDEV *fbdev, int size, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix)
+{
+	if( size<=0 )
+		return;
+
+        E3D_Vector axisX(size,0,0);
+        E3D_Vector axisY(0,size,0);
+        E3D_Vector axisZ(0,0,size);
+        E3D_Vector vpt;
+
+    gv_fb_dev.flipZ=true;
+
+        /* Axis_Z */
+        fbset_color2(&gv_fb_dev, WEGI_COLOR_RED);
+	E3D_draw_line(&gv_fb_dev, axisZ, RTmatrix, projMatrix);
+
+	vpt=axisZ*RTmatrix;
+        if( projectPoints(&vpt, 1, projMatrix)==0) {
+	        FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
+                                     16, 16,                         /* fw,fh */
+                                     (UFT8_PCHAR)"Z", 		     /* pstr */
+                                     300, 1, 0,                      /* pixpl, lines, fgap */
+                                     -8+vpt.x, -8+vpt.y,                   /* x0,y0, */
+                                     WEGI_COLOR_RED, -1, 255,        /* fontcolor, transcolor,opaque */
+                                     NULL, NULL, NULL, NULL );       /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+	}
+
+        /* Axis_Y */
+        fbset_color2(&gv_fb_dev, WEGI_COLOR_GREEN);
+	E3D_draw_line(&gv_fb_dev, axisY, RTmatrix, projMatrix);
+
+	vpt=axisY*RTmatrix;
+        if( projectPoints(&vpt, 1, projMatrix)==0) {
+	        FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
+                                     16, 16,                         /* fw,fh */
+                                     (UFT8_PCHAR)"Y", 		     /* pstr */
+                                     300, 1, 0,                      /* pixpl, lines, fgap */
+                                     -8+vpt.x, -8+vpt.y,                   /* x0,y0, */
+                                     WEGI_COLOR_GREEN, -1, 255,        /* fontcolor, transcolor,opaque */
+                                     NULL, NULL, NULL, NULL );       /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+	}
+
+        /* Axis_X */
+        fbset_color2(&gv_fb_dev, WEGI_COLOR_BLUE);
+	E3D_draw_line(&gv_fb_dev, axisX, RTmatrix, projMatrix);
+
+	vpt=axisX*RTmatrix;
+        if( projectPoints(&vpt, 1, projMatrix)==0) {
+	        FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
+                                     16, 16,                         /* fw,fh */
+                                     (UFT8_PCHAR)"X", 		     /* pstr */
+                                     300, 1, 0,                      /* pixpl, lines, fgap */
+                                     -8+vpt.x, -8+vpt.y,                   /* x0,y0, */
+                                     WEGI_COLOR_BLUE, -1, 255,        /* fontcolor, transcolor,opaque */
+                                     NULL, NULL, NULL, NULL );       /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+	}
+
+
+    gv_fb_dev.flipZ=false;
+}
+
 
 #endif
 

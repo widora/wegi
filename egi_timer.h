@@ -12,10 +12,12 @@ Midas Zhou
 #include <time.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
 
 #define TM_TICK_INTERVAL	2000 //5000  /* us */
 #define TM_DBCLICK_INTERVAL	400000 /*in us,  Max for double click   */
-
 
 /* An EGI_CLOCK: to record/estimate time pasted(timeout). NOT for measuring time cost for a process!!! */
 typedef struct
@@ -71,5 +73,9 @@ int egi_clock_restart(EGI_CLOCK *eclock);
 int egi_clock_pause(EGI_CLOCK *eclock);
 long long egi_clock_readCostUsec(EGI_CLOCK *eclock);
 long long egi_clock_peekCostUsec(EGI_CLOCK *eclock);
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif
