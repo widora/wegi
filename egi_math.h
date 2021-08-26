@@ -26,6 +26,9 @@ Midas Zhou
 #define MATH_PI 	3.1415926535897932
 #define MATH_DIVEXP   	11  /* An odd number!!  exponent of 2, as for divisor of fixed point number */
 
+#define MATH_EPSILON	1.0*e-8;
+/* Min. value for a positive float retaining full precision:FLT_MIN  32bits system = 1*2^(0-127+1) = 2^(-126)= 1.175494e-38 */
+
 extern int fp16_sin[360];
 extern int fp16_cos[360];
 
@@ -111,6 +114,8 @@ void 		mat_floatArray_limits(float *data, int num, float *min, float *max);
 int 		mat_random_range(int max);
 void 		mat_insert_sort( int *array, int n );
 void 		mat_quick_sort( int *array, int start, int end, int cutoff );
+int		mat_max(int a, int b);
+float		mat_fmax(float a, float b);
 
 /*
 void mat_pointrotate_SQMap(int n, int angle, struct egi_point_coord centxy,

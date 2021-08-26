@@ -4,6 +4,7 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 Test E3D TriMesh
+3D model reference: www.cgmodel.com
 
 ISOmetric TEST:
 teapot.obj -r -s 1.75 -X -5
@@ -28,6 +29,20 @@ cats.obj -y -100 -X -10 -a -15 -b
 Bust_man.obj -s 10 -z 500 -c -y -10 -X -10 -b
 cube.obj -z 650 -c -w    !!!--- Perspective view at angle=95 to demo hiding failure,  -a 10 to diminish. ---!!!
 cats.obj -z 500 -c -X -40 -y 20 -a 11 -b
+cube.obj -c -z 130 -P -T /mmc/login1.jpg
+cube.obj -c -z 150 -X -5 -P -T cubetexture2.png
+cube.obj -c -z 150 -X -15 -P -T cubetexture3.png -a 5
+
+jaguar.obj -s 5 -c -X -170 -T texture_jaguar.png -P -a 10
+
+dog.obj -c -s 400 -X -175 -T texdog.png -a 5 -P -b
+mingren.obj -c -s 4 -A 0 -Y 90 -X 90 -x -15 -T texmingren.png -a 10
+
+ding.obj -c -s 300 -A 2 -X 110 -P -T texding.png
+ding.obj -c -s 250 -A 2 -X 120 -P -T texding.png -a 5 -t -p 2000
+juese.obj  -s 8 -y 520 -X -40 -T texjuese.png -a 15
+juese.obj -c -s 4 -A 1 -Z -90 -x 30 -T texjuese.png -a 25
+
 deer.obj -s 1 -y -100 -z 3500 -c -b -X -20
 myPack.obj -s 1.5 -z 1000 -X -30 -y 100 -b
 myPack.obj -s 1.5 -c -z 750 -X -30 -b -y -25  	!!! --- Check frustum clipping --- !!!
@@ -35,6 +50,7 @@ bird.obj -s 80 -z 800 -b -w -X -20    		!!! --- Check frustum clipping --- !!!
 bird.obj -c -s 80 -b -X -25  Auto_z
 sail.obj -z 40 -c -X -60 -R -b -y 2   !!! --- Mesh between Foucs and View_plane --- !!!
 sail.obj -s 20 -z 700 -c -X -40 -b -a 5 -y 40
+lion.obj -s 0.025 -c -X -30
 
 	----- Test FLOAT_EPSILON -----
 Render mesh ... angle=0
@@ -113,6 +129,8 @@ XXX 5. For Perspective View, wiremesh may NOT shown properly.
 
    7.1 Keep workMesh static, move ViewCoord(Camera), View direction as View_COORD_Z (-z-->+z).
        The Foucus is behind Viewplane(View_COORD_Z==0).
+8. Try to show the mesh at first using a small scale factor, which will greatly
+   improve rending speed.
 
 TODO:
 1. NOW it uses integer type zbuff[]. ---> Should be float/double type.
@@ -144,6 +162,10 @@ Journal:
 	Test: Perspectiveiew, E3D_draw_circle().
 2021-08-20:
 	Test coordinate navigating sphere/frame.
+2021-08-23:
+	Test texture mapping.
+2021-08-24:
+	OPTION_1: Rotating_axis selection.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -165,9 +187,11 @@ using namespace std;
 
 void print_help(const char *name)
 {
-	printf("Usage: %s obj_file [-hrRPwbtcs:x:y:z:A:X:Y:Z:a:p:]\n", name);
+	printf("Usage: %s obj_file [-hrDNRPwbtcf:s:x:y:z:A:X:Y:Z:T:a:p:]\n", name);
 	printf("-h     Help\n");
 	printf("-r     Reverse trianlge normals\n");
+	printf("-D     Show mesh detail statistics and other info.\n");
+	printf("-N     Show coordinate navigating sphere/frame.\n");
 	printf("-R     Reverse vertex Z direction.\n");
 	printf("-P     Perspective ON\n");
 	printf("-w     Wireframe ON\n");
@@ -178,13 +202,14 @@ void print_help(const char *name)
 	printf("-x:    X_offset for display\n");
 	printf("-y:    Y_offset for display\n");
 	printf("-z:    Z_offset for display\n");
-	printf("-d:    Delt angle for rotation\n");
-	printf("-A:    Rotation axis, default FB_COORD_Y, 0_X, 1_Y, 2_Z \n");
+	printf("-A:    0,1,2 Rotation axis, default FB_COORD_Y, 0_X, 1_Y, 2_Z \n");
 	printf("-X:    X delta angle for display\n");
 	printf("-Y:    Y delta angle display\n");
 	printf("-Z:    Z delta angle for display\n");
-	printf("-a:    delt angle for each move\n");
-	printf("-p:    Pause seconds\n");
+	printf("-T:    Texture image file(jpg,png).\n");
+	printf("-f:     Texture resize factor.\n");
+	printf("-a:    delt angle for each move/rotation.\n");
+	printf("-p:    Pause mseconds\n");
         exit(0);
 }
 
@@ -203,6 +228,12 @@ int main(int argc, char **argv)
 	EGI_16BIT_COLOR	  faceColor=WEGI_COLOR_PINK;
 	EGI_16BIT_COLOR	  wireColor=WEGI_COLOR_BLACK; //DARKGRAY;
 	EGI_16BIT_COLOR	  aabbColor=WEGI_COLOR_LTBLUE;
+	EGI_16BIT_COLOR	  fontColor=WEGI_COLOR_GREEN;
+	EGI_16BIT_COLOR	  fontColor2=WEGI_COLOR_ORANGE;
+
+
+	char 		*textureFile=NULL;	/* Fpath */
+	EGI_IMGBUF	*textureImg=NULL;
 
 	unsigned int	xres,yres;
 	char 		strtmp[256]={0};
@@ -215,6 +246,7 @@ int main(int argc, char **argv)
 	int		psec=0;		/* Pause second */
 
 	int		rotAxis=1;	/* Under FB_COORD, 0-X, 1-Y, 2-Z */
+	float		texScale=-1.0;   /* Texture image resize factor, valid only >0.0f!  */
 	bool		reverseNormal=false;	/* Adjust after obj input */
 	bool		reverseZ=false;		/* Adjust after obj input */
 	bool		perspective_on=false;
@@ -223,16 +255,18 @@ int main(int argc, char **argv)
 	bool		process_on=false;       /* FB_direct to show rendering process */
 	bool		AABB_on =false;		/* Draw axially aligned bounding box */
 	bool		flipXYZ_on =false;	/* Flip XYZ for screen coord */
+	bool		coordNavigate_on=false; /* Show coordinate navigating sphere/frame */
+	bool		showInfo_on=false;	/* Show mesh detail statistics and other info. */
 
 	/* Projectionn matrix */
-	float		dview;		/* Distance from the Focus to the Screen/ViewPlane */
+	float		dview;		/* Distance from the Focus(usually originZ) to the Screen/ViewPlane */
 	float		dvv;		/* varying of dview */
 	float		dstep;
 	E3D_ProjMatrix projMatrix={ .type=E3D_ISOMETRIC_VIEW, .dv=500, .dnear=500, .dfar=10000000, .winW=320, .winH=240};
 
         /* Parse input option */
 	int opt;
-        while( (opt=getopt(argc,argv,"hrRPwbtcs:x:y:z:A:X:Y:Z:a:p:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hrDNRPwbtcf:s:x:y:z:A:X:Y:Z:T:a:p:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
 				print_help(argv[0]);
@@ -240,6 +274,12 @@ int main(int argc, char **argv)
                         case 'r':
                                 reverseNormal=true;
                                 break;
+			case 'D':
+				showInfo_on=true;
+				break;
+			case 'N':
+				coordNavigate_on=true;
+				break;
 			case 'R':
 				reverseZ=true;
 				break;
@@ -258,6 +298,9 @@ int main(int argc, char **argv)
 			case 't':
 				process_on=true;
 				break;
+			case 'f':
+				texScale=atof(optarg);
+				break;
                         case 's':
 				scale=atof(optarg);
 				if(scale<0) scale=1.0;
@@ -271,9 +314,6 @@ int main(int argc, char **argv)
 			case 'z':
 				offz=atoi(optarg);
 				break;
-			case 'a':
-				da=atoi(optarg);
-				break;
 			case 'A':
 				rotAxis=atoi(optarg);
 				if(rotAxis<0 || rotAxis>2) rotAxis=1;
@@ -286,6 +326,12 @@ int main(int argc, char **argv)
 				break;
 			case 'Z':
 				rotZ=atof(optarg);
+				break;
+			case 'T':
+				textureFile=optarg;
+				break;
+			case 'a':
+				da=atoi(optarg);
 				break;
 			case 'p':
 				psec=atoi(optarg);
@@ -336,6 +382,9 @@ int main(int argc, char **argv)
 #if 0  /* TEST: -------- */
 	meshModel.printAllVertices("meshModel");
 	meshModel.printAllTriangles("meshModel");
+	meshModel.printAllTextureVtx("meshModel");
+
+	exit(0);
 #endif
 	/* Calculate/update AABB */
 	meshModel.updateAABB();
@@ -346,9 +395,10 @@ int main(int argc, char **argv)
 		projMatrix.type=E3D_PERSPECTIVE_VIEW;
 	else
 		projMatrix.type=E3D_ISOMETRIC_VIEW;
+
 	/* Set projection screen size */
-	projMatrix.winW=gv_fb_dev.pos_xres;
-	projMatrix.winH=gv_fb_dev.pos_yres;
+	projMatrix.winW=xres;
+	projMatrix.winH=yres;
 
 	/* Get meshModel statistics */
 	//readObjFileInfo(fobj, vertexCount, triangleCount,normalCount,textureCount,faceCount);
@@ -357,6 +407,19 @@ int main(int argc, char **argv)
 	sprintf(strtmp,"Vertex: %d\nTriangle: %d\n%s", vertexCount, triangleCount,
 				projMatrix.type?(UFT8_PCHAR)"Perspective":(UFT8_PCHAR)"ISOmetric" );
 
+
+	/* Rotation axis/ Normalized. */
+	E3D_Vector axisX(1,0,0);
+	E3D_Vector axisY(0,1,0);
+	E3D_Vector axisZ(0,0,1);
+	E3D_Vector vctXY;  /* z==0 */
+
+	/* Prepare View_Coord VRTMatrix as relative to Global_Coord. */
+	E3D_RTMatrix RXmat, RYmat, RZmat;	/* Rotation only */
+	E3D_RTMatrix VRTmat;			/* Combined RTMatrix */
+	E3D_RTMatrix ScaleMat;
+	E3D_RTMatrix AdjustMat;  		/* For adjust */
+	float angle=0.0;
 
 #if 1 //////////////////////  OPTION_1. Move/Scale workMesh and Keep View Direction as Global_COORD_Z (-z-->+z)  /////////////////////////
 			   /*  Loop Rendering: renderMesh(fbdev)  */
@@ -379,15 +442,17 @@ int main(int argc, char **argv)
 #if 1   /* 4. Draw mesh wireframe. */
 	cout<< "Draw wireframe..."<<endl;
         fb_clear_workBuff(&gv_fb_dev, bkgColor); //DARKPURPLE);
+  gv_fb_dev.zbuff_on=false;
 	fbset_color2(&gv_fb_dev, WEGI_COLOR_PINK);
 	meshModel.drawMeshWire(&gv_fb_dev, projMatrix);
 	fb_render(&gv_fb_dev);
+  gv_fb_dev.zbuff_on=true;
 	cout<< "Finish wireframe under local coord..."<<endl;
 	sleep(2);
 #endif
 	/* 5. Move meshModel center to its local Origin.  */
 	if(autocenter_on) {
-		#if 0
+		#if 1
 		meshModel.updateVtxsCenter();
 		meshModel.moveVtxsCenterToOrigin(); /* AABB updated also */
 		#else
@@ -399,33 +464,34 @@ int main(int argc, char **argv)
 
 	/* 6. Calculate dview, as distance from the Focus to the Screen */
 	dview=meshModel.AABBdSize();  /* Taken dview == objSize */
-	dvv=dview*2; //dview/5;		      /* To change dvv by dstep later... */
+	dvv=dview; //dview/5;	       /* To change dvv by dstep later... */
 	dstep=0; //dview/40;
 	projMatrix.dv=dview;
 	cout << "dview=" <<dview<<endl;
 	sleep(1);
 
 	/* 7. Init. E3D Vector and Matrixes for meshModel position. */
-	E3D_Vector axisX(1,0,0);
-	E3D_Vector axisY(0,1,0);
-
-	/* Prepare Transform Matrix */
-	E3D_RTMatrix RTYmat, RTXmat;
-	E3D_RTMatrix ScaleMat;
-	E3D_RTMatrix AdjustMat;
-	E3D_RTMatrix TMPmat;
-
-	RTXmat.identity(); /* !!! setTranslation(0,0,0); */
-	RTYmat.identity();
+	RXmat.identity(); 	/* !!! setTranslation(0,0,0); */
+	RYmat.identity();
+	RZmat.identity();
+	VRTmat.identity();
 	ScaleMat.identity();
-	TMPmat.identity();
 	AdjustMat.identity();
 
-	AdjustMat.setTranslation(gv_fb_dev.pos_xres/2, gv_fb_dev.pos_yres/2,0);
-
 	/* 8. Prepare WorkMesh (Under global Coord ) */
-	int angle=0;
 	E3D_TriMesh *workMesh=new E3D_TriMesh(meshModel.vtxCount(), meshModel.triCount());
+	/* Read textureFile */
+	if( textureFile ) {
+		workMesh->readTextureImage(textureFile, -1); //xres);
+		if(workMesh->textureImg) {
+			workMesh->shadeType=E3D_TEXTURE_MAPPING;
+			if(egi_imgbuf_scale_update(&workMesh->textureImg,
+					    texScale*workMesh->textureImg->width, texScale*workMesh->textureImg->height)==0)
+			    egi_dpstd("Scale texture image size to %dx%d\n",workMesh->textureImg->width, workMesh->textureImg->height);
+			else
+			   egi_dpstd("Fail to scale texture image!\n");
+		}
+	}
 
   while(1) {
 
@@ -433,6 +499,7 @@ int main(int argc, char **argv)
 	cout <<"Clone workMesh... \n";
 	workMesh->cloneMesh(meshModel); /* include AABB */
 
+#if 0 ///////////////////////////////////////////////
 	/* W2. Prepare transform matrix */
 	/* W2.1 Rotate around axis_Y under its local coord. */
 	RTYmat.identity(); /* !!!Reset */
@@ -447,12 +514,56 @@ int main(int argc, char **argv)
 	 * 1. without setTranslation(x,y,.), Global XY_origin and View/Screen XY_origin coincide!
 	 * 2. For TEST_PERSPECTIVE,
 	 */
-	//RTmat.setTranslation(xres/2 +offx, yres/2 +offy, offz);
 	RTXmat.setTranslation(offx, offy, offz +dview*2); /* take Focus to obj center=2*dview */
+#endif /////////////////////////////////
+
+	/* W2. Prepare transform matrix */
+
+	/* W2.1 Rotation Matrix combining computation
+	 *			---- PRACTICE!! ---
+	 * Note:
+	 * 1. For tranforming objects, sequence of Matrix multiplication matters!!
+	 * 2. If rotX/Y/Z is the rotating axis, the it will added as AdjustMat.
+	 * Considering distances for vertices to the center are NOT the same!
+	 *  Rotation ONLY.
+	 */
+	cout<<"rotAxis="<<rotAxis<<endl;
+	if( rotAxis==0 )  { /* 0 FB_COORD_X */
+		RXmat.setRotation(axisX, 1.0*angle/180*MATH_PI);
+		AdjustMat.setRotation(axisX, rotX/180*MATH_PI);
+		RYmat.setRotation(axisY, rotY/180*MATH_PI);
+		RZmat.setRotation(axisZ, rotZ/180*MATH_PI);
+		VRTmat=(RYmat*RZmat)*AdjustMat*RXmat; /* Xadjust and RXmat at last */
+		//VRTmat=AdjustMat*RXmat*(RYmat*RZmat); /* Xadjust and RXmat at first */
+	}
+	else if( rotAxis==2 ) { /* 2 FB_COORD_Z */
+		RZmat.setRotation(axisZ, 1.0*angle/180*MATH_PI);
+		AdjustMat.setRotation(axisZ, rotZ/180*MATH_PI);
+		RXmat.setRotation(axisX, rotX/180*MATH_PI);
+		RYmat.setRotation(axisY, rotY/180*MATH_PI);
+		//VRTmat=(RXmat*RYmat)*AdjustMat*RZmat; /* Zadjust and RZmat at last */
+		VRTmat=AdjustMat*RZmat*(RXmat*RYmat); /* Zadjust and RZmat at first */
+	}
+	else { /* whatever, 1 FB_COORD_Y */
+		RYmat.setRotation(axisY, 1.0*angle/180*MATH_PI);
+		AdjustMat.setRotation(axisY, rotY/180*MATH_PI);
+		RXmat.setRotation(axisX, rotX/180*MATH_PI);
+		RZmat.setRotation(axisZ, rotZ/180*MATH_PI);
+		//VRTmat=(RXmat*RZmat)*AdjustMat*RYmat; /* Yadjust and RYmat at last */
+		VRTmat=AdjustMat*RYmat*(RXmat*RZmat); /* Yadjust and RYmat at first */
+	}
+
+	/* XXX W2.3: Rotate around X to make SCREEN COORD upright! XXX */
+	//AdjustMat.setRotation(axisX, (-140.0+rotX)/180*MATH_PI);  /* AntiCloswise. -140 for Screen XYZ flip.  */
+	//VRTmat=VRTmat*AdjustMat;
+
+	/* W2.2: Set translation ONLY. */
+	VRTmat.setTranslation(offx, offy, offz +dview*2); /* take Focus to obj center=2*dview */
 
 	/* W3. Transform workMesh */
 	cout << "Transform workMesh...\n";
-	workMesh->transformMesh(RTYmat*RTXmat, ScaleMat); /* Here, scale ==1 */
+	//workMesh->transformMesh(RTYmat*RTXmat, ScaleMat); /* Here, scale ==1 */
+	workMesh->transformMesh(VRTmat, ScaleMat); /* Here, scale ==1 */
 
 	/* W4. Update Projectoin Matrix */
 	dvv += dstep;
@@ -497,41 +608,58 @@ int main(int argc, char **argv)
 	        cout << "Draw AABB ...\n";
 		fbset_color2(&gv_fb_dev, aabbColor);
 		/* Use meshModel to draw AABB! */
-		meshModel.drawAABB(&gv_fb_dev, RTYmat*RTXmat, projMatrix);
+		//meshModel.drawAABB(&gv_fb_dev, RTYmat*RTXmat, projMatrix);
+		meshModel.drawAABB(&gv_fb_dev, VRTmat, projMatrix);
 	}
 
 	/* W9. Draw the Coordinate Navigating_Sphere/Frame (coordNavSphere/coordNavFrame) */
-	E3D_draw_coordNavSphere(&gv_fb_dev, 0.3*workMesh->AABBdSize(), RTYmat*RTXmat, projMatrix);
-	E3D_draw_coordNavFrame(&gv_fb_dev, 0.5*workMesh->AABBdSize(), RTYmat*RTXmat, projMatrix);
+	if(coordNavigate_on) {
+	   E3D_draw_coordNavSphere(&gv_fb_dev, 0.4*workMesh->AABBdSize(), VRTmat, projMatrix);
+	   E3D_draw_coordNavFrame(&gv_fb_dev, 0.5*workMesh->AABBdSize(), VRTmat, projMatrix);
+	}
 
 	/* W10. Write note & statistics */
-	sprintf(strtmp,"Vertex: %d\nTriangle: %d\n%s\ndvv=%d%%",
+	gv_fb_dev.zbuff_on=false;
+	if(showInfo_on) {
+	   sprintf(strtmp,"Vertex: %d\nTriangle: %d\n%s\ndvv=%d%%",
 			vertexCount, triangleCount,
 			projMatrix.type?(UFT8_PCHAR)"Perspective":(UFT8_PCHAR)"Isometric",
-			(int)roundf(dvv*100.0f/dview));
+			(int)roundf(dvv*100.0f/dview) );
 			//dvv*100.0f/dview); /* !!! (int) or fail to d% */
-
-	gv_fb_dev.zbuff_on=false;
-        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
-                                        20, 20,                         /* fw,fh */
-                                        (UFT8_PCHAR)"E3D MESH", /* pstr */
-                                        300, 1, 0,                        /* pixpl, lines, fgap */
-                                        xres-130, yres-28,                /* x0,y0, */
-                                        WEGI_COLOR_OCEAN, -1, 255,        /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL );         /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
-        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
+           FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
                                         16, 16,                           /* fw,fh */
                                         (UFT8_PCHAR)strtmp, 		  /* pstr */
                                         300, 4, 4,                        /* pixpl, lines, fgap */
                                         5, 4,                             /* x0,y0, */
-                                        WEGI_COLOR_GREEN, -1, 200,        /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL );         /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+                                        fontColor, -1, 200,        	  /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL );         /* int *cnt, int *lnleft, int* penx, int* peny */
+	}
+
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
+                                        20, 20,                         /* fw,fh */
+                                        (UFT8_PCHAR)"E3D MESH", 	/* pstr */
+                                        300, 1, 0,                      /* pixpl, lines, fgap */
+                                        xres-120, yres-28,              /* x0,y0, */
+                                        fontColor2, -1, 255,            /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
+	/*  Face color */
+	if(workMesh->shadeType==E3D_FLAT_SHADING) {
+		sprintf(strtmp,"0x%06X", COLOR_16TO24BITS(faceColor));
+        	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
+                                        16, 16,                     	/* fw,fh */
+                                        (UFT8_PCHAR)strtmp, 		/* pstr */
+                                        300, 1, 0,                      /* pixpl, lines, fgap */
+                                        5, yres-20,              	/* x0,y0, */
+                                        fontColor, -1, 255,             /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
+	}
+
 	gv_fb_dev.zbuff_on=true;
 
 	/* W12. Render to FBDEV */
 	fb_render(&gv_fb_dev);
 	usleep(50000);
-	if(psec) usleep(psec*1000);
+	if(psec) tm_delayms(psec);//usleep(psec*1000);
 
 	/* W13. Update angle */
 	angle +=(5+da); // *MATH_PI/180;
@@ -541,6 +669,12 @@ int main(int argc, char **argv)
 		if(angle<-360) angle +=360;
 		faceColor=egi_color_random(color_all);
 //		projMatrix.type=!projMatrix.type; /* Switch projection type */
+
+		/* Switch shadeType */
+		if(workMesh->shadeType==E3D_FLAT_SHADING)
+			workMesh->shadeType=E3D_TEXTURE_MAPPING;
+		else
+			workMesh->shadeType=E3D_FLAT_SHADING;
 	}
 
 	/* W14. Update dvv: Distance from the Focus to the Screen/ViewPlane */
@@ -553,16 +687,16 @@ int main(int argc, char **argv)
 			   /*  Loop Rendering: renderMesh(fbdev, &VRTMatrix)  */
 
 	/* Rotation axis/ Normalized. */
-	E3D_Vector axisX(1,0,0);
-	E3D_Vector axisY(0,1,0);
-	E3D_Vector axisZ(0,0,1);
-	E3D_Vector vctXY;  /* z==0 */
+//	E3D_Vector axisX(1,0,0);
+//	E3D_Vector axisY(0,1,0);
+//	E3D_Vector axisZ(0,0,1);
+//	E3D_Vector vctXY;  /* z==0 */
 
 	/* Prepare View_Coord VRTMatrix as relative to Global_Coord. */
-	E3D_RTMatrix VRTmat;
-	E3D_RTMatrix RXmat, RYmat, RZmat;
-	E3D_RTMatrix ScaleMat;
-	float angle=0.0;
+//	E3D_RTMatrix VRTmat;
+//	E3D_RTMatrix RXmat, RYmat, RZmat;
+//	E3D_RTMatrix ScaleMat;
+//	float angle=0.0;
 
 	/* Scale matrix. NOTE: If ScaleX/Y/Z is NOT the same, then all normals should be re-calculated, see in renderMesh(). */
 	ScaleMat.identity();
@@ -615,6 +749,7 @@ int main(int argc, char **argv)
 	/* Note: Sequence of Matrix multiplication matters!!!
 	 * Considering distances for vertices to the center are NOT the same!
 	 */
+	cout<<"rotAxis="<<rotAxis<<endl;
 	if( rotAxis==0 )  { /* 0 FB_COORD_X */
 		RXmat.setRotation(axisX, angle);
 		RYmat.setRotation(axisY, rotY/180*MATH_PI);
@@ -688,19 +823,19 @@ int main(int argc, char **argv)
         fb_position_rotate(&gv_fb_dev, 0);
 	/* Zbuff OFF */
 	gv_fb_dev.zbuff_on=false;
-        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
-                                        20, 20,                         /* fw,fh */
-                                        (UFT8_PCHAR)"E3D MESH", /* pstr */
-                                        300, 1, 0,                        /* pixpl, lines, fgap */
-                                        xres-130, yres-28,                /* x0,y0, */
-                                        WEGI_COLOR_OCEAN, -1, 255,        /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL );         /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
         FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
                                         16, 16,                           /* fw,fh */
                                         (UFT8_PCHAR)strtmp, 		  /* pstr */
                                         300, 4, 4,                        /* pixpl, lines, fgap */
                                         5, 4,                             /* x0,y0, */
-                                        WEGI_COLOR_GREEN, -1, 255,        /* fontcolor, transcolor,opaque */
+                                        fontColor, -1, 255,        /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL );         /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
+                                        20, 20,                         /* fw,fh */
+                                        (UFT8_PCHAR)"E3D MESH", /* pstr */
+                                        300, 1, 0,                        /* pixpl, lines, fgap */
+                                        xres-120, yres-28,                /* x0,y0, */
+                                        fontcolor2, -1, 255,        /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );         /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
 	gv_fb_dev.zbuff_on=true;
 

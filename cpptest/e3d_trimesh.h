@@ -29,6 +29,14 @@ Note:
 3. Since view direction set as ViewCoord(Camera) -Z ---> +Z, it needs to set FBDEV.flipZ=true
    to flip zbuff[] values.
 
+4. The origin of texture vertex coordinates(uv) may be different:
+   E3D: Left_TOP corner
+   3ds: Left_BOTTOM corner.
+
+5. Size of texture image should be approriate:
+   Function egi_imgbuf_mapTriWriteFB() maps pixels one by one, if the texture image
+   size is too big, the two mapped pixels may be located far between each other!
+   so the result looks NOT smooth.
 
 TODO:
 	1. Grow vtxList[] and triList[].
@@ -94,6 +102,16 @@ Journal:
 	2. Add E3D_draw_line() E3D_draw_circle() form e3d_vector.h
 	3. Add E3D_draw_coordNavSphere()
 	4. Add E3D_draw_line(FBDEV *, const E3D_Vector &, const E3D_RTMatrix &, const E3D_ProjMatrix &)
+2021-08-21:
+	1. readObjFileInfo(): Some obj txt may have '\r' at line end.
+2021-08-22:
+	1. Rename NormalCount-->vtxNormalCount, textureCount--->textureVtxCount.
+	2. Modify E3D_TriMesh::E3D_TriMesh(const char *fobj):
+	   Read texture vertices into TriMesh.
+	3. Add E3D_TriMesh::readTextureImage(const char *fpath).
+	4. E3D_TriMesh::renderMesh(): map texture.
+2021-08-24:
+	1.E3D_TriMesh::shadeType
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -112,20 +130,26 @@ midaszhou@yahoo.com
 #include "egi.h"
 #include "egi_fbgeom.h"
 #include "egi_color.h"
+#include "egi_image.h"
 
 using namespace std;
-
 
 #define TEST_PERSPECTIVE  	1
 #define VPRODUCT_EPSILON	(1.0e-6)  /* -6, Unit vector vProduct=vct1*vtc2 */
 
 int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
-				        int & normalCount, int & textureCount, int & faceCount);
-
+				       int & vtxNormalCount, int & textureVtxCount, int & faceCount);
 
 ////////////////////////////////////  E3D_Draw Function  ////////////////////////////////////////
 void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb);
 void E3D_draw_circle(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
+
+
+enum E3D_SHADE_TYPE {
+	E3D_FLAT_SHADING	=0,
+	E3D_GOURAUD_SHADING	=1,
+	E3D_TEXTURE_MAPPING	=2,
+};
 
 
 /* Global light vector */
@@ -175,7 +199,7 @@ public:
 		/* Sturct Vertx */
 		struct Vertx {
 			int   index;	/* index as of */
-			float u,v;	/* Ref coord. */
+			float u,v;	/* Ref coord. for texture. */
 		};
 		Vertx vtx[3];		/* 3 points to form a triangle */
 
@@ -228,6 +252,7 @@ public:
 	/* Functions: Print for debug */
 	void printAllVertices(const char *name);
 	void printAllTriangles(const char *name);
+	void printAllTextureVtx(const char *name);
 	void printAABB(const char *name);
 
 	/* TEST FUNCTIONS: */
@@ -369,6 +394,9 @@ public:
 	/* Function: Project according to Projection matrix */
 	// int  projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix &projMatrix) const;
 
+	/* Funtion: Read texture image into textureImg */
+	void readTextureImage(const char *fpath, int nw);
+
 	/* Function: Draw wires/faces */
 	void drawMeshWire(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const ;
 	void drawMeshWire(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix) const;
@@ -397,6 +425,9 @@ private:
 	//int mcnt;
 	//Material  *mList;
 
+public:
+	E3D_SHADE_TYPE   shadeType;
+	EGI_IMGBUF 	*textureImg;	/* Texture imgbuf */
 };
 
 
@@ -457,6 +488,9 @@ E3D_TriMesh::E3D_TriMesh()
 		return;
 	}
 
+	/* Init other params */
+	textureImg=NULL;
+	shadeType=E3D_FLAT_SHADING;
 }
 
 /*--------------------------------------
@@ -498,13 +532,20 @@ E3D_TriMesh::E3D_TriMesh(int nv, int nt)
 	tcnt=0;
 	tCapacity=nt;
 
+        /* Init other params */
+        textureImg=NULL;
+        shadeType=E3D_FLAT_SHADING;
 }
 
-/*------------------------------------------
+/*------------------------------------------------
           E3D_TriMesh  Constructor
 
- To create by copying from another TriMesh
- -------------------------------------------*/
+To create by copying from another TriMesh
+
+Note:
+1. The textureImg and shadeType keep unchanged!
+   so copy trimesh just before loading texture!
+------------------------------------------------*/
 E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh & tmesh)
 {
 	int nv=tmesh.vCapacity;
@@ -566,6 +607,7 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh & tmesh)
 		triList[i].mark=tmesh.triList[i].mark;
 	}
 
+	/* TODO: Set texturerImg */
 }
 
 
@@ -591,26 +633,30 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
         char strline[1024];
         char strline2[1024];
 
-	int		j,k;		    /* triangle index in a face, [0  MAX.3] */
-        int             m;                  /* 0: vtxIndex, 1: texutreIndex 2: normalIndex  */
-	float		xx,yy,zz;
-	int		vtxIndex[64]={0};    	/* To store vtxIndex for MAX. 4x16_side/vertices face */
-	int		textureIndex[64]={0};
-	int		normalIndex[64]={0};
+	int	j,k;		    /* triangle index in a face, [0  MAX.3] */
+        int     m;                  /* 0: vtxIndex, 1: texutreIndex 2: normalIndex  */
+	float	xx,yy,zz;
+	int	vtxIndex[64]={0};    	/* To Buffer each input line:  store vtxIndex for MAX. 4x16_side/vertices face */
+	int	textureIndex[64]={0};
+	int	normalIndex[64]={0};
 
-	int		vertexCount=0;
-	int		triangleCount=0;
-	int		normalCount=0;
-	int		textureCount=0;
-	int		faceCount=0;
+	int	vertexCount=0;
+	int	triangleCount=0;
+	int	vtxNormalCount=0;
+	int	textureVtxCount=0;
+	int	faceCount=0;
 
+//	struct textrueVtx_uv { float u; float v; };
+//	struct textrueVtx_uv *tuvList;
+	E3D_Vector *tuvList;  /* Texture vertices uv list */
+	int	    tuvListCnt=0;
 
 	/* 1. Read statistic of obj data */
-	if( readObjFileInfo(fobj, vertexCount, triangleCount, normalCount, textureCount, faceCount) !=0 )
+	if( readObjFileInfo(fobj, vertexCount, triangleCount, vtxNormalCount, textureVtxCount, faceCount) !=0 )
 		return;
 
-	egi_dpstd("'%s' Statistics:  Vertices %d;  Normals %d;  Texture %d; Faces %d; Triangle %d.\n",
-				fobj, vertexCount, normalCount, textureCount, faceCount, triangleCount );
+	egi_dpstd("'%s' Statistics:  Vertices %d;  vtxNormals %d;  TextureVtx %d; Faces %d; Triangles %d.\n",
+				fobj, vertexCount, vtxNormalCount, textureVtxCount, faceCount, triangleCount );
 
 	/* 2. Allocate vtxList[] and triList[] */
 	/* 2.1 New vtxList[] */
@@ -636,6 +682,9 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 	}
 	tcnt=0;
 	tCapacity=triangleCount;
+
+	/* 2.3 New uvList */
+	tuvList = new E3D_Vector[textureVtxCount];
 
 	/* 3. Open obj file */
 	fin.open(fobj);
@@ -673,12 +722,13 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 				     << "z "<< vtxList[vcnt].pt.z
 				     << endl;
 				#endif
-
 				vcnt++;
 
 				break;
 			   case 't':  /* Read texture vertices, uv coordinates */
-				/* TODO  */
+				sscanf( strline+2, "%f %f %f",
+					&tuvList[tuvListCnt].x, &tuvList[tuvListCnt].y, &tuvList[tuvListCnt].z);
+				tuvListCnt++;
 				break;
 			   case 'n':  /* Read vertex normals, (for vertices of each face ) */
 				/* TODO */
@@ -716,7 +766,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 			   /* NOW: k is total number of vertices in this face. */
 
-#if 0 ////////////////////////////////////////////////////////////////////////
+#if 0 ///////////////////////// Max 4_edge faces ////////////////////////////////////
 			   /*  Assign to triangle vtxindex: triList[tcnt].vtx[i].index */
 			   if( k>=3 ) {
 				triList[tcnt].vtx[0].index=vtxIndex[0];
@@ -776,7 +826,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 			   /* To extract face vertex indices */
 			   pt=strtok_r(strline+1, " ", &savept); /* +1 skip first ch */
-			   for(k=0; pt!=NULL && k<4*6; k++) {
+			   for(k=0; pt!=NULL && k<6*4; k++) {
 				//cout << "Index group: " << pt<<endl;
 				/* If no more "/"... example: '2/3/4 5/6/4 34 ', cast last '34 '
 				 * This must befor strtok_r(pt, ...)
@@ -789,11 +839,12 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 				/* Parse vtxIndex/textureIndex/normalIndex */
 				pt2=strtok_r(pt, "/", &savept2);
 
+				/* Read vtxIndex/textureIndex/normalIndex; as separated by '/' */
 				for(m=0; pt2!=NULL && m<3; m++) {
 					//cout <<"pt2: "<<pt2<<endl;
 					switch(m) {
 					   case 0:
-						vtxIndex[k]=atoi(pt2)-1;
+						vtxIndex[k]=atoi(pt2)-1;  /* In obj, it starts from 1, NOT 0! */
 						//if( vtxIndex[k]<0 )
 						//egi_dpstd("!!!WARNING!!!\nLine '%s' parsed as vtxIdex[%d]=%d <0!\n",
 						//					strline2, k, vtxIndex[k]);
@@ -821,6 +872,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 				}
 				/* In case "5/0/", -- m==2, normalIndex omitted!  */
 				else if( m==2 ) { /* pt[0]=='/' also has m==2! */
+					egi_dpstd("normalIndex omitted!\n");
 					normalIndex[k]=0-1;
 				}
 
@@ -831,7 +883,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 			   /* NOW: k is total number of vertices in this face. */
 
-#if 0 ////////////////////////////////////////////////////////////
+#if 0 /////////////////////  Max 4_edge faces //////////////////////////////////
 			   /*  Assign to triangle vtxindex */
 			   if( k>=3 ) {
 				triList[tcnt].vtx[0].index=vtxIndex[0];
@@ -848,20 +900,29 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 #endif //////////////////////////////////////////////////////////////
 			   /*  Assign to triangle vtxindex */
 			   if( k>2 ) {
-				/* To divide the face into triangles in way of a fan. */
+				/* To divide the face into triangles in way of folding a fan. */
 				for( j=0; j<k-2; j++ ) {
 					if(tcnt==tCapacity) {
 						egi_dpstd("tCapacity used up!\n");
 						goto END_FUNC;
 					}
 
-					triList[tcnt].vtx[0].index=vtxIndex[0];
+					triList[tcnt].vtx[0].index=vtxIndex[0]; /* Fix first vertex! */
 	                                triList[tcnt].vtx[1].index=vtxIndex[j+1];
         	                        triList[tcnt].vtx[2].index=vtxIndex[j+2];
+
+					if(textureIndex[j+1]>-1) {
+						triList[tcnt].vtx[0].u=tuvList[textureIndex[0]].x;
+						triList[tcnt].vtx[0].v=tuvList[textureIndex[0]].y;
+						triList[tcnt].vtx[1].u=tuvList[textureIndex[j+1]].x;
+						triList[tcnt].vtx[1].v=tuvList[textureIndex[j+1]].y;
+						triList[tcnt].vtx[2].u=tuvList[textureIndex[j+2]].x;
+						triList[tcnt].vtx[2].v=tuvList[textureIndex[j+2]].y;
+					}
+
 					tcnt++;
 				}
 			   }
-
 
 			   /* TEST: ------ */
 			  if( vtxIndex[0]<0 || vtxIndex[1]<0 ||vtxIndex[2]<0 || (k==4 && vtxIndex[3]<0 ) ) {
@@ -896,7 +957,16 @@ END_FUNC:
 	/* Close file */
 	fin.close();
 
-	egi_dpstd("Finish reading obj file: %d Vertices, %d Triangels.\n", vcnt, tcnt);
+	egi_dpstd("Finish reading obj file: %d Vertices, %d Triangels. %d TextureVertices.\n", vcnt, tcnt, tuvListCnt);
+
+#if 0	/* TEST: ---------print all textureVtx tuvList[] */
+	for(int k=0; k<tuvListCnt; k++)
+		printf("tuvList[%d]: %f,%f,%f\n", k, tuvList[k].x, tuvList[k].y, tuvList[k].z);
+#endif
+
+        /* Init other params */
+        textureImg=NULL;
+        shadeType=E3D_FLAT_SHADING;
 }
 
 
@@ -907,6 +977,8 @@ E3D_TriMesh:: ~E3D_TriMesh()
 {
 	delete [] vtxList;
 	delete [] triList;
+
+	egi_imgbuf_free2(&textureImg);
 
 	egi_dpstd("TriMesh destructed!\n");
 }
@@ -943,6 +1015,26 @@ void E3D_TriMesh::printAllTriangles(const char *name=NULL)
 		/* Each triangle has 3 vertex index, as */
 		printf("[%d]:  vtxIdx{%d, %d, %d}\n",
 			i, triList[i].vtx[0].index, triList[i].vtx[1].index, triList[i].vtx[2].index);
+	}
+}
+
+/*---------------------------------
+Print out all texture vertices(UV).
+----------------------------------*/
+void E3D_TriMesh::printAllTextureVtx(const char *name=NULL)
+{
+	printf("\n   <<< %s Texture Vertices List >>>\n", name);
+	if(tcnt<=0) {
+		printf("No triangle in the TriMesh!\n");
+		return;
+	}
+
+	for(int i=0; i<tcnt; i++) {
+		/* Each triangle has 3 vertex index, each has texture vertices as [u,v] //,w] */
+		printf("[%d]:  [0]{%f, %f}, [1]{%f, %f}, [2]{%f, %f}\n",
+			i, triList[i].vtx[0].u, triList[i].vtx[0].v,
+			   triList[i].vtx[1].u, triList[i].vtx[1].v,
+			   triList[i].vtx[2].u, triList[i].vtx[2].v  );
 	}
 }
 
@@ -1300,6 +1392,27 @@ void E3D_TriMesh::cloneMesh(const E3D_TriMesh &tmesh)
 }
 
 
+/*-----------------------------------
+Read texture image into textureImg
+@fpath: Path to image file.
+@nw:    >0 As new image width
+	<=0 Ignore.
+-----------------------------------*/
+void E3D_TriMesh::readTextureImage(const char *fpath, int nw)
+{
+	textureImg=egi_imgbuf_readfile(fpath);
+	if(textureImg==NULL)
+		egi_dpstd("Fail to read texture image from '%s'.\n", fpath);
+
+	if( nw>0 ) {
+		if( egi_imgbuf_resize_update(&textureImg, true, nw, -1)==0 )
+			egi_dpstd("Succeed to resize image to %dx%d.\n", textureImg->width, textureImg->height);
+		else
+			egi_dpstd("Fail to resize image! keep size %dx%d.\n", textureImg->width, textureImg->height);
+	}
+}
+
+
 /*--------------------------------------------------------------
 Project an array of 3D vpts according to the projection matrix,
 and all vpts[] will be modified after calling.
@@ -1324,6 +1437,8 @@ int projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix)
 
 	/* 1. If Isometric projection */
 	if( projMatrix.type==0 ) {
+		/* TODO: Check range */
+
 		/* Just adjust viewplane origin to Window center */
 		for(int k=0; k<np; k++) {
 			vpts[k].x = vpts[k].x+projMatrix.winW/2;
@@ -1334,7 +1449,7 @@ int projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix)
 
         /* 2. Projecting point onto the viewPlane/screen  */
         for(int k=0; k<np; k++) {
-		/* Check */
+		/* Check range */
 		if( abs(vpts[k].z) < VPRODUCT_EPSILON ) {
 			egi_dpstd("Some points out of the viewing frustum!\n");
 			return 1;
@@ -1697,18 +1812,18 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 
 //	E3D_ProjMatrix projMatrix={ .type=1, .dv=500, .dnear=500, .dfar=10000000, .winW=320, .winH=240};
 
-	/* Default color */
+	/* Default color, OR use mesh color. */
 	EGI_16BIT_COLOR color=fbdev->pixcolor;
 	//EGI_8BIT_CCODE codeY=egi_color_getY(color);
 
 	/* -------TEST: Project to Z plane, Draw X,Y only */
-	/* Traverse and render all triangles */
+	/* Traverse and render all triangles. TODO: sorting, render Tris from near to far field.... */
 	for(int i=0; i<tcnt; i++) {
 		vtidx[0]=triList[i].vtx[0].index;
 		vtidx[1]=triList[i].vtx[1].index;
 		vtidx[2]=triList[i].vtx[2].index;
 
-		/* 1. Pick out back_facing triangles.  */
+		#if 1 /* 1. Pick out back_facing triangles.  */
 		vProduct=vView*(triList[i].normal); // *(-1.0f); // -vView as *(-1.0f);
 		/* Note: Because of float precision limit, vProduct==0.0f is NOT possible. */
 		if ( vProduct > -VPRODUCT_EPSILON ) {  /* >=0.0f */
@@ -1716,6 +1831,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	                continue;
 		}
 		//egi_dpstd("triList[%d] vProduct=%f \n",i, vProduct);
+		#endif
 
 		/* 2. Copy triangle vertices, and project to viewPlan COORD. */
 		vpts[0]=vtxList[vtidx[0]].pt;
@@ -1724,6 +1840,12 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 
 		if( projectPoints(vpts, 3, projMatrix) !=0 )
 			continue;
+		/* TEST: Check range, ONLY simple way.... TODO: by projectPoints() */
+		for( int j=0; j<3; j++) {
+		     if(  (vpts[j].x < 0.0 || vpts[j].x > projMatrix.winW-1 )
+		          || (vpts[j].y < 0.0 || vpts[j].y > projMatrix.winH-1 ) )
+			continue;
+		}
 
 		/* 3. Get 2D points */
 		pts[0].x=vpts[0].x; pts[0].y=vpts[0].y;
@@ -1746,13 +1868,58 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		/* 6. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
 		/* A simple test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
 		//gv_fb_dev.pixz=roundf((vtxList[vtidx[0]].pt.z+vtxList[vtidx[1]].pt.z+vtxList[vtidx[2]].pt.z)/3.0);
-		gv_fb_dev.pixz=roundf((vpts[0].z+vpts[1].z+vpts[2].z)/3.0);
+		fbdev->pixz=roundf((vpts[0].z+vpts[1].z+vpts[2].z)/3.0);
 		/* !!!! Views from -z ----> +z */
-		gv_fb_dev.pixz = -gv_fb_dev.pixz;
+		fbdev->pixz = -fbdev->pixz;
 
-		/* 6. Draw filled triangle */
-		//draw_triangle(&gv_fb_dev, pts);
-		draw_filled_triangle(&gv_fb_dev, pts);
+		/* 6. Draw triangles with specified shading type. */
+		switch( shadeType ) {
+		   case E3D_FLAT_SHADING:
+			draw_filled_triangle(fbdev, pts);
+			break;
+		   case E3D_GOURAUD_SHADING:
+			draw_filled_triangle(fbdev, pts);
+			break;
+		   case E3D_TEXTURE_MAPPING:
+			if( textureImg==NULL ) {
+			   draw_filled_triangle(fbdev, pts);
+			} else {
+			   /* Adjust side luma according to vProudct. TODO: For demo only. */
+			   fbdev->lumadelt=(vProduct-0.75)*100+50;
+			   //printf("lumadelt=%d\n", fbdev->lumadelt);
+
+				/* Map texture.
+				*	  !!! --- CAUTION --- !!!
+				 *  Noticed that UV ORIGIN is different!
+				 * EGI: uv ORIGIN at Left_TOP corner
+				 * 3DS: uv ORIGIN at Left_BOTTOM corner.
+				 */
+			   #if 0  /* OPTION_1: Matrix Mapping. TODO: cube shows a white line at bottom side!?? */
+		        	egi_imgbuf_mapTriWriteFB(textureImg, fbdev,
+					/* u0,v0,u1,v1,u2,v2,  x0,y0,z0,  x1,y1,z1, x2,y2,z2 */
+        	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,
+                	                triList[i].vtx[1].u, 1.0-triList[i].vtx[1].v,
+                        	        triList[i].vtx[2].u, 1.0-triList[i].vtx[2].v,
+                                	pts[0].x, pts[0].y, 0,  /* NOTE: z values NOT to be 0/0/0!  */
+	                                pts[1].x, pts[1].y, 0,
+        	                        pts[2].x, pts[2].y, 1
+                	        );
+			  #else /* OPTION_2: Barycentric coordinates mapping */
+		        	egi_imgbuf_mapTriWriteFB2(textureImg, fbdev,
+					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2*/
+        	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,
+                	                triList[i].vtx[1].u, 1.0-triList[i].vtx[1].v,
+                        	        triList[i].vtx[2].u, 1.0-triList[i].vtx[2].v,
+                                	pts[0].x, pts[0].y,
+	                                pts[1].x, pts[1].y,
+        	                        pts[2].x, pts[2].y
+                	        );
+			  #endif
+			}
+
+		   default:
+			break;
+		}
 	}
 
 	/* Restore pixcolor */
@@ -1902,6 +2069,9 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const 
 Read Vertices and other information from an obj file.
 All faces are divided into triangles.
 
+@vtxNormalCount:	Normal list count.
+@textureVtxCount:	Texture uv count;
+
 Note:
 1. A description sentence MUST be put in one line in
    *.obj file!
@@ -1914,7 +2084,7 @@ Return:
 	<0	Fails
 ----------------------------------------------------*/
 int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
-				        int & normalCount, int & textureCount, int & faceCount)
+				        int & vtxNormalCount, int & textureVtxCount, int & faceCount)
 {
 	ifstream	fin;
 	char		ch;
@@ -1923,8 +2093,8 @@ int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
 	/* Init vars */
 	vertexCount=0;
 	triangleCount=0;
-	normalCount=0;
-	textureCount=0;
+	vtxNormalCount=0;
+	textureVtxCount=0;
 	faceCount=0;
 
 	/* Read statistic of obj data */
@@ -1943,10 +2113,10 @@ int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
 				vertexCount++;
 				break;
 			   case 't':
-				textureCount++;
+				textureVtxCount++;
 				break;
 			   case 'n':
-				normalCount++;
+				vtxNormalCount++;
 				break;
 			}
 			break;
@@ -1961,15 +2131,16 @@ int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
 				while(1) {
 				   /* F.1 Get rid of following BLANKs */
 				   while( ch==' ' ) fin.get(ch);
-				   if( ch== '\n' || fin.eof() ) break; /* break while() */
+				   /* Some obj txt may have '\r' as line end. */
+				   if( ch== '\n' || ch=='\r' || fin.eof() ) break; /* break while() */
 				   /* F.2 If is non_BLANK char */
 				   fvcount ++;
 				   /* F.3 Get rid of following non_BLANK char. */
 				   while( ch!=' ' ) {
 					fin.get(ch);
-					if(ch== '\n' || fin.eof() )break;
+					if(ch== '\n' || ch=='\r' || fin.eof() )break;
 				   }
-				   if( ch== '\n' || fin.eof() )break; /* break while() */
+				   if( ch== '\n' || ch=='\r' || fin.eof() )break; /* break while() */
 				}
 
 				/* Add up triangle, face divided into triangles. */
@@ -1998,7 +2169,7 @@ int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
 	fin.close();
 
 	egi_dpstd("Statistics:  Vertices %d;  Normals %d;  Texture %d; Faces %d; Triangle %d.\n",
-				vertexCount, normalCount, textureCount, faceCount, triangleCount );
+				vertexCount, vtxNormalCount, textureVtxCount, faceCount, triangleCount );
 
 	return 0;
 }

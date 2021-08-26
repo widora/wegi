@@ -720,7 +720,7 @@ float* Matrix_Determ( const struct float_Matrix *matA,
 /*--------------------     MATRIX INVERSE    ---------------------
 Compute the inverse of a SQUARE matrix
 
-@matA: the sqaure matrix,
+@matA: the square matrix,
 @matAdj: for adjugate matrix, also for the final inversed square matrix!!!
 
 Return:

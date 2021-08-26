@@ -32,6 +32,9 @@ DBL_MAX:        Max. value for a positive double: 17976931348623153000000.......
 DBL_EPSILON:    Diff. between 1.00 and the leaset double value greater than 1.00: 0.00000000000000022204=2.220446e-16
  1/(2^(DBL_MANT_DIG-1)) = 0.00000000000000022204
 
+Journal:
+2021-08-18:
+	1. Add  mat_max() mat_maxf().
 
 Midas-Zhou
 --------------------------------------------------------------------*/
@@ -1357,6 +1360,18 @@ void mat_quick_sort( int *array, int start, int end, int cutoff )
 	else
 		mat_insert_sort( array+start, end-start+1 );
 
+}
+
+/*------------------------------------
+Return MAX. of a and b.
+------------------------------------*/
+inline int mat_max(int a, int b)
+{
+	return (a>b?a:b);
+}
+inline float  mat_maxf(float a, float b)
+{
+	return (a>b?a:b);
 }
 
 /*---------------------------------------------------

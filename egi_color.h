@@ -192,6 +192,12 @@ struct egi_hsv_color {
 void 		egi_16bitColor_interplt( EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2,
                        	                 unsigned char alpha1,  unsigned char alpha2,
                                	         int f15_ratio, EGI_16BIT_COLOR* color, unsigned char *alpha);
+void 		egi_16bitColor_interplt4p( EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2,
+                                      	   EGI_16BIT_COLOR color3, EGI_16BIT_COLOR color4,
+                                           unsigned char alpha1,  unsigned char alpha2,
+                                           unsigned char alpha3,  unsigned char alpha4,
+                                           int f15_ratioX, int f15_ratioY,
+                                           EGI_16BIT_COLOR* color, unsigned char *alpha );
 EGI_16BIT_COLOR 	egi_256color_code(unsigned int code);
 EGI_16BIT_COLOR 	egi_16bitColor_avg(EGI_16BIT_COLOR *colors, int n);
 EGI_16BIT_COLOR 	egi_color_random(enum egi_color_range range);

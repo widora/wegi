@@ -15,6 +15,11 @@ midaszhou@yahoo.com
 #include <freetype2/ft2build.h>
 #include <freetype2/ftglyph.h>
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
+
 enum imgframe_type {
 	frame_simple=0,		/* <100 , outline frame defined by ebox type, check in egi_btn.c, egi_txt.c...  */
 	frame_dbline=1,
@@ -124,5 +129,26 @@ int egi_imgbuf_flipX( EGI_IMGBUF *eimg );		/* mutex_lock inside */
 int  egi_imgbuf_showRBG888( const unsigned char *rgb, int width, int height,
                             FBDEV *fb_dev, int x0, int y0 );
 
+int egi_imgbuf_uvToPixel(EGI_IMGBUF *imgbuf, float u, float v, EGI_16BIT_COLOR* color, unsigned char *alpha );
+void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
+                                      float u0, float v0,
+                                      float u1, float v1,
+                                      float u2, float v2,
+                                      float x0, float y0, float z0,
+                                      float x1, float y1, float z1,
+                                      float x2, float y2, float z2  );
+
+void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
+                                      float u0, float v0,
+                                      float u1, float v1,
+                                      float u2, float v2,
+                                      float x0, float y0,
+                                      float x1, float y1,
+                                      float x2, float y2 );
+
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

@@ -13,10 +13,13 @@ TODO: Using pointer params is better than just adding inline qualifier ?
 
 EGI Color Functions
 
+Journal:
+2021-08-25:
+	1. Add egi_16bitColor_interplt4p().
+
 Midas Zhou
 midaszhou@yahoo.com
 -----------------------------------------------------------------------*/
-
 #include "egi_color.h"
 #include "egi_debug.h"
 #include "egi_utils.h"
@@ -28,7 +31,6 @@ midaszhou@yahoo.com
 #include <stdio.h>
 #include <sys/time.h> /*gettimeofday*/
 #include <stdint.h>
-
 
 
 /*------------------------------------------------------------------------------------
@@ -74,6 +76,37 @@ inline void egi_16bitColor_interplt( EGI_16BIT_COLOR color1, EGI_16BIT_COLOR col
 	}
 }
 
+/*--------------------------------------------------------------------------------
+Interpolation within 4 pixels.
+@color1-4:  16bit color values. ( 1,2 at upper side, 3,4 at lower side )
+@alpah1-4:  8bit alpha values.
+@f15_ratioX:		Ratio for interpolation at X side, in fixed point type f15.
+@f15_ratioY:		Ratio for interpolation at Y sied, in fixed point type f15.
+			that is [0-1]*(2^15);
+@colro, alpha		Pointer to pass output color and alpha.
+			Ignore if NULL.
+---------------------------------------------------------------------------------*/
+inline void egi_16bitColor_interplt4p( EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2,
+				       EGI_16BIT_COLOR color3, EGI_16BIT_COLOR color4,
+                                       unsigned char alpha1,  unsigned char alpha2,
+                                       unsigned char alpha3,  unsigned char alpha4,
+                                       int f15_ratioX, int f15_ratioY,
+				       EGI_16BIT_COLOR* color, unsigned char *alpha )
+{
+	EGI_16BIT_COLOR	 Cu, Cd; //Cl, Cr; /* interpolated color at 4 sides. */
+	EGI_8BIT_ALPHA	 Au, Ad; //Al, Ar; /* interpolated alpha at 4 sides. */
+
+	/* Get interpolation at upper and lower side. */
+	egi_16bitColor_interplt( color1, color2, alpha1, alpha2, f15_ratioX, &Cu, &Au);
+	egi_16bitColor_interplt( color3, color4, alpha1, alpha2, f15_ratioX, &Cd, &Ad);
+
+	/* OR: Get interpolation at left and right side. */
+	//egi_16bitColor_interplt( color1, color3, alpha1, alpha3, f15_ratioY, &Cl, &Al);
+	//egi_16bitColor_interplt( color2, color4, alpha2, alpha4, f15_ratioY, &Cr, &Ar);
+
+	/* Interpolate between Cu/Cd and Au/Ad */
+	egi_16bitColor_interplt( Cu, Cd, Au, Ad, f15_ratioY, color, alpha);
+}
 
 /*---------------------------------------------------------------------
 To generate Xterm 256 colors as defined by ISO/IEC-6429.

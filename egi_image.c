@@ -18,6 +18,11 @@ Jurnal
 	1. Modify egi_imgbuf_resize(): if ineimg and outeimg is same size, then goto CREATE_OUTEIMG.
 	2. Add  egi_imgbuf_resize_nolock().
 	3. Add  egi_imgbuf_scale(), egi_imgbuf_scale_update().
+2021-08-21/22:
+	1. Add egi_imgbuf_mapTriWriteFB()
+	2. Add egi_imgbuf_mapTriWriteFB2()
+2021-08-25:
+	1. Add egi_imgbuf_uvToPixel();
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -33,6 +38,7 @@ midaszhou@yahoo.com
 #include "egi_log.h"
 #include "egi_timer.h"
 #include "egi_debug.h"
+#include "egi_matrix.h"
 
 typedef struct fbdev FBDEV; /* Just a declaration, referring to definition in egi_fbdev.h */
 
@@ -1605,7 +1611,6 @@ Resize an image and create a new EGI_IMGBUF to hold the new image data.
 Only size/color/alpha of ineimg will be transfered to outeimg, others
 such as subimg will be ignored. )
 
-
 TODO:
 XXX 1. Before scale down an image, merge and shrink it to a certain size first!!!
 	--OK, see egi_imgbuf_scale()
@@ -2374,6 +2379,9 @@ int egi_imgbuf_resize_update(EGI_IMGBUF **pimg, bool keep_ratio, unsigned int wi
 /*--------------------------------------------------------------------
 Scale an EGI_IMGBUF by calling  egi_imgbuf_scale(). If it succeeds,
 the original imgbuf data will be updated then.
+
+@pimg:			Pointer pointer to an EGI_IMGBUF.
+@width, height:		Size of image, >0!
 
 Return:
 	0  	OK
@@ -4117,3 +4125,467 @@ int  egi_imgbuf_showRBG888( const unsigned char *rgb, int width, int height,
 	return 0;
 }
 
+/*----------------------------------------------------------------------
+Interpolate to get a pixel from an EGI_IMBUF with given u,v[0 1] value.
+
+@imgbuf:	An pointer to EGI_IMGBUF.
+@u,v:		Normalized X/Y ratio, all within [0 1].
+@color,alpha:   Pointer to pass out color/alpha as result.
+		If NULL, ignore.
+
+Return:
+	0	OK
+	<0	Fails
+
+inline void egi_16bitColor_interplt4p( EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2,
+                                       EGI_16BIT_COLOR color3, EGI_16BIT_COLOR color4,
+                                       unsigned char alpha1,  unsigned char alpha2,
+                                       unsigned char alpha3,  unsigned char alpha4,
+                                       int f15_ratioX, int f15_ratioY,
+                                       EGI_16BIT_COLOR* color, unsigned char *alpha )
+--------------------------------------------------------------------------------*/
+int egi_imgbuf_uvToPixel(EGI_IMGBUF *imgbuf, float u, float v,
+					EGI_16BIT_COLOR* color, unsigned char *alpha )
+{
+	/* Check input data */
+	if( imgbuf==NULL || imgbuf->imgbuf==NULL ) {
+		egi_dpstd("Input EGI_IMBUG is NULL or uninitiliazed!\n");
+		return -1;
+	}
+
+	EGI_16BIT_COLOR c1, c2, c3, c4;
+	EGI_8BIT_ALPHA  a1, a2, a3, a4;
+
+	int imgw=imgbuf->width;
+	int imgh=imgbuf->height;
+
+	float ftmp;
+	int Wl, Wr, Hu, Hd; /* left/right width index, upper/down heigth index */
+
+	/* Get f15_ratio for interpolatoin. */
+	int f15_ratioX=(int)(modff(u*imgw, &ftmp)*(1<<15));
+	Wl=(int)ftmp;
+	Wr=Wl+1;
+
+	int f15_ratioY=(int)(modff(v*imgh, &ftmp)*(1<<15));
+	Hu=(int)ftmp;
+	Hd=Hu+1;
+
+	/* Get four pixel as boxing points. */
+	c1=imgbuf->imgbuf[Hu*imgw+Wl];
+	c2=imgbuf->imgbuf[Hu*imgw+Wr];
+	c3=imgbuf->imgbuf[Hd*imgw+Wl];
+	c4=imgbuf->imgbuf[Hd*imgw+Wr];
+	if(imgbuf->alpha) {
+		a1=imgbuf->alpha[Hu*imgw+Wl];
+		a2=imgbuf->alpha[Hu*imgw+Wr];
+		a3=imgbuf->alpha[Hd*imgw+Wl];
+		a4=imgbuf->alpha[Hd*imgw+Wr];
+	}
+
+	egi_16bitColor_interplt4p(c1,c2,c3,c4, a1,a2,a3,a4,
+					f15_ratioX, f15_ratioY, color, alpha);
+
+	return 0;
+}
+
+/* --------------<<<  ALGORITHM_1:  Matrix Mapping   >>>----------------
+
+Map a triangle to imgbuf and write mapped pixles to FB.
+
+@imbufg:	A pointer to EGI_IMGBUF
+@fb_dev:	A pointer to FBDEV
+@ux,vx:		u/v[0 1] for mapping triangle vertices.
+@x/y/z:		XYZ coordinates for trianlge vertice.
+----------------------------------------------------------------------*/
+void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
+				      float u0, float v0,
+				      float u1, float v1,
+				      float u2, float v2,
+				      float x0, float y0, float z0,
+				      float x1, float y1, float z1,
+				      float x2, float y2, float z2 )
+
+{
+	/* Check input data */
+	if( imgbuf==NULL || imgbuf->imgbuf==NULL ) {
+		egi_dpstd("Input EGI_IMBUG is NULL or uninitiliazed!\n");
+		return;
+	}
+	int imgw=imgbuf->width;
+	int imgh=imgbuf->height;
+	EGI_16BIT_COLOR color;
+
+	/* (1) Mapping matrix computation */
+	/* Prepare Matrix data for 3 vertices. */
+	//float uvmat[3*3]={ u0, v0, 1.0f, u1, v1, 1.0f, u2, v2, 1.0f };
+	float uvmat[3*3]={ u0, v0, 0.0f, u1, v1, 0.0f, u2, v2, 0.0f };  
+	float xyzmat[3*3]={x0, y0, z0, x1, y1, z1, x2, y2, z2};
+	float tmat[3*3];	/* Transform/map matrix */
+	float Ixyzmat[3*3];	/* Inversed xyzmat */
+
+ 	struct float_Matrix matUV;
+ 	matUV.nr=3; matUV.nc=3; matUV.pmat=uvmat;
+
+ 	struct float_Matrix matXYZ;
+ 	matXYZ.nr=3; matXYZ.nc=3; matXYZ.pmat=xyzmat;
+
+ 	struct float_Matrix matT;
+	matT.nr=3; matT.nc=3; matT.pmat=tmat;
+
+ 	struct float_Matrix matIXYZ;
+	matIXYZ.nr=3; matIXYZ.nc=3; matIXYZ.pmat=Ixyzmat;
+
+	/* Inverse matXYZ */
+	if( Matrix_Inverse(&matXYZ, &matIXYZ)==NULL ) {
+		egi_dpstd("Fail to inverse matrix_XYZ!\n");
+		return;
+	}
+
+	/* matT = matIXYZ*matUV */
+	Matrix_Multiply(&matIXYZ, &matUV, &matT);
+
+	/* (2) Map all point(xyz) in the triangle to point(uv) in the imgbuf */
+	float ptuv[3]={0,0,1.0f};  /* U,V,1 */
+	struct float_Matrix matPuv;
+	matPuv.nr=1; matPuv.nc=3; matPuv.pmat=ptuv;
+
+	float ptxyz[3]={0,0,0};
+	struct float_Matrix matPxyz;
+	matPxyz.nr=1; matPxyz.nc=3; matPxyz.pmat=ptxyz;
+
+	struct float_3dpoints {
+		float x; float y; float z;
+	} points[3];
+
+	points[0].x=x0; points[0].y=y0; points[0].z=z0;
+	points[1].x=x1; points[1].y=y1; points[1].z=z1;
+	points[2].x=x2; points[2].y=y2; points[2].z=z2;
+
+	int i, k, kstart, kend;
+	int nl=0,nr=0; /* left and right point index */
+	int nm; /* mid point index */
+
+	float klr,klm,kmr;
+
+	/* OR use INT type */
+	float yu=0;
+	float yd=0;
+	float ymu=0;
+	float zu, zd;
+	//float tmp;
+	long int locimg;
+
+	/* Cal nl, nr */
+	for(i=1;i<3;i++) {
+		if(points[i].x < points[nl].x) nl=i;
+		if(points[i].x > points[nr].x) nr=i;
+	}
+
+#if 0	/* TODO: othree points are collinear */
+	if(nl==nr) {
+		draw_pline_nc(dev, points, 3, 1);
+		return;
+	}
+#endif
+
+	/* get x_mid point index */
+	nm=3-nl-nr;
+
+	/* Ruled out (points[nr].x == points[nl].x), as nl==nr.  */
+	klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
+
+	if(points[nm].x != points[nl].x) {
+		klm=1.0*(points[nm].y-points[nl].y)/(points[nm].x-points[nl].x);
+	}
+	else
+		klm=1000000.0;
+
+	if(points[nr].x != points[nm].x) {
+		kmr=1.0*(points[nr].y-points[nm].y)/(points[nr].x-points[nm].x);
+	}
+	else
+		kmr=1000000.0;
+	//printf("klr=%f, klm=%f, kmr=%f \n",klr,klm,kmr);
+
+	/* Draw left triangle */
+	for( i=0; i<points[nm].x-points[nl].x+1; i++)
+	{
+		yu=klr*i+points[nl].y;	//points[nl].y+klr*i;
+		yd=klm*i+points[nl].y;	//points[nl].y+klm*i;
+
+		zu=points[nl].z+(points[nr].z-points[nl].z)*i/(points[nr].x-points[nl].x);
+		zd=points[nl].z+(points[nm].z-points[nl].z)*i/(points[nm].x-points[nl].x);
+
+		if(yu>yd) {
+			kstart=roundf(yd);
+			kend=roundf(yu);
+		}
+		else	  {
+			kstart=roundf(yu);
+			kend=roundf(yd);
+		}
+
+		for(k=kstart; k<=kend; k++) {
+			ptxyz[0]=i+points[nl].x;   		//X
+			ptxyz[1]=k;				//Y
+			ptxyz[2]=zd+(zu-zd)*(k-yd)/(yu-yd); 	//Z
+
+			/* matPuv =matPxyz*matT */
+			if( Matrix_Multiply(&matPxyz, &matT, &matPuv)==NULL ) {
+				egi_dpstd("Fail to do matPuv =matPxyz*matT!\n");
+				//return;
+			}
+
+			/* Get mapped pixel and draw_dot */
+                        /* image data location */
+                        locimg=(roundf(ptuv[1]*imgh))*imgw+roundf(ptuv[0]*imgw); /* roundf */
+			if(locimg < imgh*imgw ) {
+		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+                            draw_dot(fb_dev, i+points[nl].x, k); // k as y
+			}
+		}
+	}
+
+   	/* Draw right triangle */
+	ymu=yu;
+	for( i=0; i<points[nr].x-points[nm].x+1; i++)
+	{
+		yu=klr*i+ymu;          //yu=ymu+klr*i;
+		yd=kmr*i+points[nm].y; //yd=points[nm].y+kmr*i;
+
+		zu=points[nl].z+(points[nr].z-points[nl].z)*(points[nm].x-points[nl].x+i)/(points[nr].x-points[nl].x);
+		zd=points[nm].z+(points[nr].z-points[nm].z)*i/(points[nr].x-points[nm].x);
+
+		if(yu>yd) { kstart=roundf(yd); kend=roundf(yu); }
+		else	  { kstart=roundf(yu); kend=roundf(yd); }
+
+		for(k=kstart; k<=kend; k++) {
+			ptxyz[0]=i+points[nm].x;   		//X
+			ptxyz[1]=k;				//Y
+			ptxyz[2]=zd+(zu-zd)*(k-yd)/(yu-yd); 	//Z
+
+			/* matPuv =matPxyz*matT */
+			if( Matrix_Multiply(&matPxyz, &matT, &matPuv)==NULL ) {
+				egi_dpstd("Fail to do matPuv =matPxyz*matT!\n");
+				//return;
+			}
+
+			/* Get mapped pixel and draw_dot */
+		     #if 0 /* OPTION_1: Non_interpolation. */
+                        /* image data location */
+                        locimg=(roundf(ptuv[1]*imgh))*imgw+roundf(ptuv[0]*imgw); /* roundf */
+			if(locimg < imgh*imgw ) {
+		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+                            draw_dot(fb_dev, i+points[nm].x, k); // k as y
+			}
+		     #else /* OPTION_2: Get pixel color/alpha by interpolation */
+			egi_imgbuf_uvToPixel(imgbuf, ptuv[0], ptuv[1], &color, NULL);
+			fbset_color2(fb_dev, color);
+                        draw_dot(fb_dev, i+points[nm].x, k); // k as y
+		    #endif
+		}
+
+	}
+}
+
+/* ---------<<<  ALGORITHM_2: Barycentric coordinates mapping  >>>----------
+
+Map a triangle to imgbuf and write mapped pixles to FB.
+
+@imbufg:	A pointer to EGI_IMGBUF
+@fb_dev:	A pointer to FBDEV
+@ux,vx:		u/v[0 1] factors for mapping triangle vertices.
+@x/y/z:		XYZ coordinates for trianlge vertice.
+---------------------------------------------------------------------------*/
+void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
+				      float u0, float v0,
+				      float u1, float v1,
+				      float u2, float v2,
+				      float x0, float y0,
+				      float x1, float y1,
+				      float x2, float y2 )
+{
+	/* Check input data */
+	if( imgbuf==NULL || imgbuf->imgbuf==NULL ) {
+		egi_dpstd("Input EGI_IMBUG is NULL or uninitiliazed!\n");
+		return;
+	}
+	int imgw=imgbuf->width;
+	int imgh=imgbuf->height;
+
+	/* Barycentric coordinates (a,b,r) for points inside the triangle:
+	 * P(x,y)=a*A + b*B + r*C;  where a+b+r=1.0.
+	 */
+	float a, b, r;
+	float u,v;
+	float x; //y;
+
+	struct {
+		float x; float y; //float z;
+	} points[3];
+	points[0].x=x0; points[0].y=y0; //points[0].z=z0;
+	points[1].x=x1; points[1].y=y1; //points[1].z=z1;
+	points[2].x=x2; points[2].y=y2; //points[2].z=z2;
+
+	int i, k, kstart, kend;
+	int nl=0,nr=0; /* left and right point index */
+	int nm; /* mid point index */
+
+	float klr,klm,kmr;
+
+	/* OR use INT type */
+	float yu=0;
+	float yd=0;
+	float ymu=0;
+
+	long int locimg;
+
+	/* Cal nl, nr */
+	for(i=1;i<3;i++) {
+		if(points[i].x < points[nl].x) nl=i;
+		if(points[i].x > points[nr].x) nr=i;
+	}
+
+	/* Case 1: all points are collinear as a vertical line. */
+	if(nl==nr) {
+		/* Get yu yd */
+		yu=points[0].y;
+		yd=points[0].y;
+		for(i=1; i<3; i++) {
+			if(points[i].y>yu) yu=points[i].y;
+			if(points[i].y<yd) yd=points[i].y;
+		}
+
+		x=points[0].x;
+		for(k=roundf(yd); k<=roundf(yu); k++) {
+			#if 1
+			a=(-(x-x1)*(y2-y1)+(k-y1)*(x2-x1))/(-(x0-x1)*(y2-y1)+(y0-y1)*(x2-x1));
+			b=(-(x-x2)*(y0-y2)+(k-y2)*(x0-x2))/(-(x1-x2)*(y0-y2)+(y1-y2)*(x0-x2));
+			r=1.0-a-b;
+			#else  /* SAME as above */
+			r=((y0-y1)*x+(x1-x0)*k+x0*y1-x1*y0)/((y0-y1)*x2+(x1-x0)*y2+x0*y1-x1*y0);
+			b=((y0-y2)*x+(x2-x0)*k+x0*y2-x2*y0)/((y0-y2)*x1+(x2-x0)*y1+x0*y2-x2*y0);
+			a=1.0-r-b;
+			#endif
+
+			/* Get interpolated u,v */
+			u=a*u0+b*u1+r*u2;
+			v=a*v0+b*v1+r*v2;
+
+			/* Get mapped pixel and draw_dot */
+                        /* image data location */
+                        locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
+			if( locimg>=0 && locimg < imgh*imgw ) {
+		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+                            draw_dot(fb_dev, x, k);
+			}
+		}
+
+		return;
+	}
+
+	/* Get x_mid point index, NOW: nl != nr. */
+	nm=3-nl-nr;
+
+	/* Ruled out (points[nr].x == points[nl].x), as nl==nr.  */
+	//if(nl!=nr)
+	       klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
+	//else
+	//       klr=1000000.0;
+
+	if(points[nm].x != points[nl].x) {
+		klm=1.0*(points[nm].y-points[nl].y)/(points[nm].x-points[nl].x);
+	}
+	else
+		klm=1000000.0;
+
+	if(points[nr].x != points[nm].x) {
+		kmr=1.0*(points[nr].y-points[nm].y)/(points[nr].x-points[nm].x);
+	}
+	else
+		kmr=1000000.0;
+
+	/* draw lines for two tri */
+	for( i=0; i<points[nm].x-points[nl].x+1; i++)
+	{
+		yu=klr*i+points[nl].y;	//points[nl].y+klr*i;
+		yd=klm*i+points[nl].y;	//points[nl].y+klm*i;
+
+		/* Cal. x */
+		x=points[nl].x+i;
+
+		if(yu>yd) { kstart=roundf(yd); kend=roundf(yu); }
+		else	  { kstart=roundf(yu); kend=roundf(yd); }
+
+		for(k=kstart; k<=kend; k++) {
+			/* Calculate barycentric coordinates:  k as Y. */
+			// y=k;
+			#if 1
+			a=(-(x-x1)*(y2-y1)+(k-y1)*(x2-x1))/(-(x0-x1)*(y2-y1)+(y0-y1)*(x2-x1));
+			b=(-(x-x2)*(y0-y2)+(k-y2)*(x0-x2))/(-(x1-x2)*(y0-y2)+(y1-y2)*(x0-x2));
+			r=1.0-a-b;
+			#else  /* SAME as above */
+			r=((y0-y1)*x+(x1-x0)*k+x0*y1-x1*y0)/((y0-y1)*x2+(x1-x0)*y2+x0*y1-x1*y0);
+			b=((y0-y2)*x+(x2-x0)*k+x0*y2-x2*y0)/((y0-y2)*x1+(x2-x0)*y1+x0*y2-x2*y0);
+			a=1.0-r-b;
+			#endif
+
+			/* Get interpolated u,v */
+			u=a*u0+b*u1+r*u2;
+			v=a*v0+b*v1+r*v2;
+
+//			printf("XY(%d,%d): a=%f, b=%f, r=%f, u=%f, v=%f\n", (int)x,k, a,b,r, u,v);
+
+			/* Get mapped pixel and draw_dot */
+                        /* image data location */
+                        locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
+			if( locimg>=0 && locimg < imgh*imgw ) {
+		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+                            draw_dot(fb_dev, x, k);
+			}
+		}
+	}
+
+	ymu=yu;
+	for( i=0; i<points[nr].x-points[nm].x+1; i++)
+	{
+		yu=klr*i+ymu;          //yu=ymu+klr*i;
+		yd=kmr*i+points[nm].y; //yd=points[nm].y+kmr*i;
+
+		/* Cal. x */
+		x=points[nm].x+i;
+
+		if(yu>yd) { kstart=roundf(yd); kend=roundf(yu); }
+		else	  { kstart=roundf(yu); kend=roundf(yd); }
+
+		for(k=kstart; k<=kend; k++) {
+			/* Calculate barycentric coordinates:  k as Y. */
+			// y=k;
+			#if 0
+			a=(-(x-x1)*(y2-y1)+(k-y1)*(x2-x1))/(-(x0-x1)*(y2-y1)+(y0-y1)*(x2-x1));
+			b=(-(x-x2)*(y0-y2)+(k-y2)*(x0-x2))/(-(x1-x2)*(y0-y2)+(y1-y2)*(x0-x2));
+			r=1.0-a-b;
+			#else /* Same as above */
+			r=((y0-y1)*x+(x1-x0)*k+x0*y1-x1*y0)/((y0-y1)*x2+(x1-x0)*y2+x0*y1-x1*y0);
+			b=((y0-y2)*x+(x2-x0)*k+x0*y2-x2*y0)/((y0-y2)*x1+(x2-x0)*y1+x0*y2-x2*y0);
+			a=1.0-r-b;
+			#endif
+
+			/* Get interpolated u,v */
+			u=a*u0+b*u1+r*u2;
+			v=a*v0+b*v1+r*v2;
+
+//			printf("XY(%d,%d): a=%f, b=%f, r=%f, u=%f, v=%f\n", (int)x,k, a,b,r, u,v);
+
+			/* Get mapped pixel and draw_dot */
+                        /* image data location */
+                        locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf! */
+			if( locimg>=0 && locimg < imgh*imgw ) {
+		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+                            draw_dot(fb_dev, x, k);
+			}
+		}
+	}
+
+}
