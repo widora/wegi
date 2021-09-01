@@ -18,6 +18,10 @@ TODO:
    Verical or horizontal lines may appear BLACKER/THICKER if there is same sub_pixel
    color nearby ....
 
+Journal:
+2021-08-27:
+	1. Add COLOR_R8_IN16BITS, COLOR_G8_IN16BITS, COLOR_B8_IN16BITS
+
 Midas Zhou
 midaszhou@yahoo.com
 -------------------------------------------------------------------*/
@@ -41,6 +45,10 @@ typedef struct egi_hsv_color	EGI_HSV_COLOR;
 typedef struct egi_color_band 	EGI_COLOR_BAND;
 typedef struct egi_color_band_map 	EGI_COLOR_BANDMAP;
 
+/* To fetch 8bits R/G/B from 16 bits color rgb */
+#define COLOR_R8_IN16BITS(rgb)	( ((rgb)&0xF800)>>8 )
+#define COLOR_G8_IN16BITS(rgb)	( ((rgb)&0x7E0)>>3 )
+#define COLOR_B8_IN16BITS(rgb)	( ((rgb)&0x1F)<<3 )
 
 /* convert 24bit rgb(3*8bits) to 16bit LCD rgb */
 #if 0  /* Just truncate other bits to get 565 RBG bits */

@@ -23,6 +23,11 @@ Jurnal
 	2. Add egi_imgbuf_mapTriWriteFB2()
 2021-08-25:
 	1. Add egi_imgbuf_uvToPixel();
+2021-08-27:
+	XXX 1. egi_imgbuf_mapTriWriteFB2():
+	   XXX 1.1 Check/make barycentric factor a/b/r within [0.0 1.0].
+	   XXX 1.2 Check/make u/v within [0.0 1.0]
+	XXX 2. egi_imgbuf_uvToPixel(): Check/make u/v within [0.0 1.0].
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -495,7 +500,6 @@ EGI_IMGBUF *egi_imgbuf_blockCopy( const EGI_IMGBUF *ineimg,
 
 	return outeimg;
 }
-
 
 
 /*---------------------------------------------------------------------
@@ -4162,13 +4166,17 @@ int egi_imgbuf_uvToPixel(EGI_IMGBUF *imgbuf, float u, float v,
 	float ftmp;
 	int Wl, Wr, Hu, Hd; /* left/right width index, upper/down heigth index */
 
+	/* Check u/v */
+	if(u<0.0f || u>1.0f) return -1;
+	if(v<0.0f || v>1.0f) return -1;
+
 	/* Get f15_ratio for interpolatoin. */
-	int f15_ratioX=(int)(modff(u*imgw, &ftmp)*(1<<15));
-	Wl=(int)ftmp;
+	int f15_ratioX=roundf((modff(u*imgw, &ftmp)*(1<<15)));
+	Wl=roundf(ftmp);
 	Wr=Wl+1;
 
-	int f15_ratioY=(int)(modff(v*imgh, &ftmp)*(1<<15));
-	Hu=(int)ftmp;
+	int f15_ratioY=roundf((modff(v*imgh, &ftmp)*(1<<15)));
+	Hu=roundf(ftmp);
 	Hd=Hu+1;
 
 	/* Get four pixel as boxing points. */
@@ -4192,6 +4200,9 @@ int egi_imgbuf_uvToPixel(EGI_IMGBUF *imgbuf, float u, float v,
 /* --------------<<<  ALGORITHM_1:  Matrix Mapping   >>>----------------
 
 Map a triangle to imgbuf and write mapped pixles to FB.
+
+TODO:
+1. Fail to inverse matrix_XYZ in some postion!  However cube test MAYBE OK!!!
 
 @imbufg:	A pointer to EGI_IMGBUF
 @fb_dev:	A pointer to FBDEV
@@ -4219,7 +4230,7 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 	/* (1) Mapping matrix computation */
 	/* Prepare Matrix data for 3 vertices. */
 	//float uvmat[3*3]={ u0, v0, 1.0f, u1, v1, 1.0f, u2, v2, 1.0f };
-	float uvmat[3*3]={ u0, v0, 0.0f, u1, v1, 0.0f, u2, v2, 0.0f };  
+	float uvmat[3*3]={ u0, v0, 0.0f, u1, v1, 0.0f, u2, v2, 0.0f };
 	float xyzmat[3*3]={x0, y0, z0, x1, y1, z1, x2, y2, z2};
 	float tmat[3*3];	/* Transform/map matrix */
 	float Ixyzmat[3*3];	/* Inversed xyzmat */
@@ -4309,7 +4320,7 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 	//printf("klr=%f, klm=%f, kmr=%f \n",klr,klm,kmr);
 
 	/* Draw left triangle */
-	for( i=0; i<points[nm].x-points[nl].x+1; i++)
+	for( i=0; i<roundf(points[nm].x-points[nl].x+1); i++)
 	{
 		yu=klr*i+points[nl].y;	//points[nl].y+klr*i;
 		yd=klm*i+points[nl].y;	//points[nl].y+klm*i;
@@ -4340,16 +4351,16 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 			/* Get mapped pixel and draw_dot */
                         /* image data location */
                         locimg=(roundf(ptuv[1]*imgh))*imgw+roundf(ptuv[0]*imgw); /* roundf */
-			if(locimg < imgh*imgw ) {
+			if( locimg>=0 && locimg < imgh*imgw ) {
 		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
-                            draw_dot(fb_dev, i+points[nl].x, k); // k as y
+                            draw_dot(fb_dev, roundf(points[nl].x+i), k); // k as y
 			}
 		}
 	}
 
    	/* Draw right triangle */
 	ymu=yu;
-	for( i=0; i<points[nr].x-points[nm].x+1; i++)
+	for( i=0; i<roundf(points[nr].x-points[nm].x+1); i++)
 	{
 		yu=klr*i+ymu;          //yu=ymu+klr*i;
 		yd=kmr*i+points[nm].y; //yd=points[nm].y+kmr*i;
@@ -4375,14 +4386,15 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 		     #if 0 /* OPTION_1: Non_interpolation. */
                         /* image data location */
                         locimg=(roundf(ptuv[1]*imgh))*imgw+roundf(ptuv[0]*imgw); /* roundf */
-			if(locimg < imgh*imgw ) {
+			if(locimg>=0 && locimg < imgh*imgw ) {
 		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
-                            draw_dot(fb_dev, i+points[nm].x, k); // k as y
+                            draw_dot(fb_dev, roundf(points[nm].x+i), k); // k as y
 			}
 		     #else /* OPTION_2: Get pixel color/alpha by interpolation */
-			egi_imgbuf_uvToPixel(imgbuf, ptuv[0], ptuv[1], &color, NULL);
-			fbset_color2(fb_dev, color);
-                        draw_dot(fb_dev, i+points[nm].x, k); // k as y
+			if( egi_imgbuf_uvToPixel(imgbuf, ptuv[0], ptuv[1], &color, NULL)==0 ) {
+				fbset_color2(fb_dev, color);
+        	                draw_dot(fb_dev, roundf(points[nm].x+i), k); // k as y
+			}
 		    #endif
 		}
 
@@ -4392,6 +4404,10 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 /* ---------<<<  ALGORITHM_2: Barycentric coordinates mapping  >>>----------
 
 Map a triangle to imgbuf and write mapped pixles to FB.
+
+NOTE:
+1. DO NOT check/make a/b/r AND u/v to within [0.0 1.0], just get rid of them
+   if not in the range. OR some noise pixels will appear on result image!!!
 
 @imbufg:	A pointer to EGI_IMGBUF
 @fb_dev:	A pointer to FBDEV
@@ -4461,8 +4477,11 @@ void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 		for(k=roundf(yd); k<=roundf(yu); k++) {
 			#if 1
 			a=(-(x-x1)*(y2-y1)+(k-y1)*(x2-x1))/(-(x0-x1)*(y2-y1)+(y0-y1)*(x2-x1));
+			//if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
 			b=(-(x-x2)*(y0-y2)+(k-y2)*(x0-x2))/(-(x1-x2)*(y0-y2)+(y1-y2)*(x0-x2));
+			//if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
 			r=1.0-a-b;
+			//if(r<0.0f)r=0.0f; //else if(r>1.0f)r=1.0f;
 			#else  /* SAME as above */
 			r=((y0-y1)*x+(x1-x0)*k+x0*y1-x1*y0)/((y0-y1)*x2+(x1-x0)*y2+x0*y1-x1*y0);
 			b=((y0-y2)*x+(x2-x0)*k+x0*y2-x2*y0)/((y0-y2)*x1+(x2-x0)*y1+x0*y2-x2*y0);
@@ -4471,14 +4490,16 @@ void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 
 			/* Get interpolated u,v */
 			u=a*u0+b*u1+r*u2;
+			//if(u<0.0f)u=0.0f; else if(u>1.0f)u=1.0f;
 			v=a*v0+b*v1+r*v2;
+			//if(v<0.0f)v=0.0f; else if(v>1.0f)v=1.0f;
 
 			/* Get mapped pixel and draw_dot */
                         /* image data location */
                         locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
 			if( locimg>=0 && locimg < imgh*imgw ) {
 		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
-                            draw_dot(fb_dev, x, k);
+                            draw_dot(fb_dev, roundf(x), k);
 			}
 		}
 
@@ -4507,7 +4528,7 @@ void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 		kmr=1000000.0;
 
 	/* draw lines for two tri */
-	for( i=0; i<points[nm].x-points[nl].x+1; i++)
+	for( i=0; i<roundf(points[nm].x-points[nl].x+1); i++)
 	{
 		yu=klr*i+points[nl].y;	//points[nl].y+klr*i;
 		yd=klm*i+points[nl].y;	//points[nl].y+klm*i;
@@ -4523,8 +4544,11 @@ void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 			// y=k;
 			#if 1
 			a=(-(x-x1)*(y2-y1)+(k-y1)*(x2-x1))/(-(x0-x1)*(y2-y1)+(y0-y1)*(x2-x1));
+			//if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
 			b=(-(x-x2)*(y0-y2)+(k-y2)*(x0-x2))/(-(x1-x2)*(y0-y2)+(y1-y2)*(x0-x2));
+			//if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
 			r=1.0-a-b;
+			//if(r<0.0f)r=0.0f; //else if(r>1.0f)r=1.0f;
 			#else  /* SAME as above */
 			r=((y0-y1)*x+(x1-x0)*k+x0*y1-x1*y0)/((y0-y1)*x2+(x1-x0)*y2+x0*y1-x1*y0);
 			b=((y0-y2)*x+(x2-x0)*k+x0*y2-x2*y0)/((y0-y2)*x1+(x2-x0)*y1+x0*y2-x2*y0);
@@ -4533,7 +4557,9 @@ void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 
 			/* Get interpolated u,v */
 			u=a*u0+b*u1+r*u2;
+			//if(u<0.0f)u=0.0f; else if(u>1.0f)u=1.0f;
 			v=a*v0+b*v1+r*v2;
+			//if(v<0.0f)v=0.0f; else if(v>1.0f)v=1.0f;
 
 //			printf("XY(%d,%d): a=%f, b=%f, r=%f, u=%f, v=%f\n", (int)x,k, a,b,r, u,v);
 
@@ -4542,13 +4568,13 @@ void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
                         locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
 			if( locimg>=0 && locimg < imgh*imgw ) {
 		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
-                            draw_dot(fb_dev, x, k);
+                            draw_dot(fb_dev, roundf(x), k);
 			}
 		}
 	}
 
 	ymu=yu;
-	for( i=0; i<points[nr].x-points[nm].x+1; i++)
+	for( i=0; i<roundf(points[nr].x-points[nm].x+1); i++)
 	{
 		yu=klr*i+ymu;          //yu=ymu+klr*i;
 		yd=kmr*i+points[nm].y; //yd=points[nm].y+kmr*i;
@@ -4562,10 +4588,13 @@ void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 		for(k=kstart; k<=kend; k++) {
 			/* Calculate barycentric coordinates:  k as Y. */
 			// y=k;
-			#if 0
+			#if 1
 			a=(-(x-x1)*(y2-y1)+(k-y1)*(x2-x1))/(-(x0-x1)*(y2-y1)+(y0-y1)*(x2-x1));
+			//if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
 			b=(-(x-x2)*(y0-y2)+(k-y2)*(x0-x2))/(-(x1-x2)*(y0-y2)+(y1-y2)*(x0-x2));
+			//if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
 			r=1.0-a-b;
+			//if(r<0.0f)r=0.0f; //else if(r>1.0f)r=1.0f;
 			#else /* Same as above */
 			r=((y0-y1)*x+(x1-x0)*k+x0*y1-x1*y0)/((y0-y1)*x2+(x1-x0)*y2+x0*y1-x1*y0);
 			b=((y0-y2)*x+(x2-x0)*k+x0*y2-x2*y0)/((y0-y2)*x1+(x2-x0)*y1+x0*y2-x2*y0);
@@ -4574,7 +4603,9 @@ void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 
 			/* Get interpolated u,v */
 			u=a*u0+b*u1+r*u2;
+			//if(u<0.0f)u=0.0f; else if(u>1.0f)u=1.0f;
 			v=a*v0+b*v1+r*v2;
+			//if(v<0.0f)v=0.0f; else if(v>1.0f)v=1.0f;
 
 //			printf("XY(%d,%d): a=%f, b=%f, r=%f, u=%f, v=%f\n", (int)x,k, a,b,r, u,v);
 
@@ -4583,7 +4614,7 @@ void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
                         locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf! */
 			if( locimg>=0 && locimg < imgh*imgw ) {
 		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
-                            draw_dot(fb_dev, x, k);
+                            draw_dot(fb_dev, roundf(x), k);
 			}
 		}
 	}

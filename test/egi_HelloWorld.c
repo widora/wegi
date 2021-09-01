@@ -70,14 +70,15 @@ int main(int argc, char **argv)
   if(init_fbdev(&gv_fb_dev))
         return -1;
 
-  /* 1.6 Start touch read thread 启动触摸屏线程 */
+#if 0  /* 1.6 Start touch read thread 启动触摸屏线程 */
   printf("Start touchread thread...\n");
   if(egi_start_touchread() !=0)
         return -1;
+#endif
 
   /* 1.7 Set sys FB mode 设置显示模式: 是否直接操作FB映像数据， 设置横竖屏 */
   fb_set_directFB(&gv_fb_dev,true);   /* 直接操作FB映像数据,不通过FBbuffer. 播放动画时可能出现撕裂线。 */
-  fb_position_rotate(&gv_fb_dev,3);   /* 横屏模式 */
+  fb_position_rotate(&gv_fb_dev,0);   /* 横屏模式 */
 
   /* <<<<<  End of EGI general init EGI初始化流程结束  >>>>>> */
 
@@ -100,6 +101,7 @@ int main(int argc, char **argv)
                                 NULL, NULL, NULL, NULL);      					/* int *cnt, int *lnleft, int* penx, int* peny */
 
 
+  sleep(10);
 
   /* <<<<<  3. EGI general release EGI释放流程	 >>>>>> */
 

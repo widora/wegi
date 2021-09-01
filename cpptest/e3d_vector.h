@@ -63,7 +63,7 @@ public:
 
 	/* Constructor */
 	E3D_Vector() {
-		/* Necessary? */
+		/* Necessary!!! Yes! */
 		x=0.0; y=0.0; z=0.0;
 	}
 	E3D_Vector(const E3D_Vector &v) : x(v.x), y(v.y), z(v.z) { }
@@ -112,7 +112,7 @@ public:
 
         /* If is zero */
         bool isZero() const {
-                return ( fabs(x)<1.0e10 && fabs(y)<1.0e10 && fabs(z)<0.1e10 );
+                return ( fabs(x)<1.0e-10 && fabs(y)<1.0e-10 && fabs(z)<1.0e-10 );
         }
 
 	/* Overload operator '==' */

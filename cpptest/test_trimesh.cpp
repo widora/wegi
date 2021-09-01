@@ -24,20 +24,18 @@ Discobolus.obj -s 0.2 -a 15  (-X 40)
 budda.obj  -c -s .3 -A 2 -X -120 -y 50 -a 15
 cats.obj -y -100 -X -10 -a -15 -b
 
-
 	option_1:  Perspective
 Bust_man.obj -s 10 -z 500 -c -y -10 -X -10 -b
 cube.obj -z 650 -c -w    !!!--- Perspective view at angle=95 to demo hiding failure,  -a 10 to diminish. ---!!!
 cats.obj -z 500 -c -X -40 -y 20 -a 11 -b
-cube.obj -c -z 130 -P -T /mmc/login1.jpg
-cube.obj -c -z 150 -X -5 -P -T cubetexture2.png
-cube.obj -c -z 150 -X -15 -P -T cubetexture3.png -a 5
 
-jaguar.obj -s 5 -c -X -170 -T texture_jaguar.png -P -a 10
-
+cube.obj -c -s 1.75 -X 160 -P -T cubetexture3.png -a 5 -D
+teapot.obj -c -s 1.5 -X 195 -r		!!! --- Gouraud test --- !!!
+jaguar.obj -c -s 5 -X -170 -T texture_jaguar.png -P -a 10
+head_man04.obj -c -s 18 -X 180 -P -y -40       !!! --- Gouraud test --- !!!
 dog.obj -c -s 400 -X -175 -T texdog.png -a 5 -P -b
-mingren.obj -c -s 4 -A 0 -Y 90 -X 90 -x -15 -T texmingren.png -a 10
-
+mingren.obj -c -s 4 -A 0 -Y 90 -X 90 -x -15 -T texmingren.png -a 10 -f 0.25
+boat.obj -c -s 100 -X -P -y -50
 ding.obj -c -s 300 -A 2 -X 110 -P -T texding.png
 ding.obj -c -s 250 -A 2 -X 120 -P -T texding.png -a 5 -t -p 2000
 juese.obj  -s 8 -y 520 -X -40 -T texjuese.png -a 15
@@ -49,7 +47,7 @@ myPack.obj -s 1.5 -c -z 750 -X -30 -b -y -25  	!!! --- Check frustum clipping --
 bird.obj -s 80 -z 800 -b -w -X -20    		!!! --- Check frustum clipping --- !!!
 bird.obj -c -s 80 -b -X -25  Auto_z
 sail.obj -z 40 -c -X -60 -R -b -y 2   !!! --- Mesh between Foucs and View_plane --- !!!
-sail.obj -s 20 -z 700 -c -X -40 -b -a 5 -y 40
+sail.obj -c -s 25 -X 200 -y 50 -z -250 -a 25 -P -D
 lion.obj -s 0.025 -c -X -30
 
 	----- Test FLOAT_EPSILON -----
@@ -166,6 +164,8 @@ Journal:
 	Test texture mapping.
 2021-08-24:
 	OPTION_1: Rotating_axis selection.
+2021-08-30:
+	Test gouraud shading.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -222,10 +222,15 @@ int main(int argc, char **argv)
         int             textureCount=0;
         int             faceCount=0;
 #endif
+	/*
+	0xD0BC4B--Golden
+	0xB8DCF0--Milk white
+	0xF0CCA8--Bronze
+	*/
 
 
 	EGI_16BIT_COLOR	  bkgColor=WEGI_COLOR_GRAY5; // DARKPURPLE
-	EGI_16BIT_COLOR	  faceColor=WEGI_COLOR_PINK;
+	EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(0xF0CCA8);//WEGI_COLOR_PINK;
 	EGI_16BIT_COLOR	  wireColor=WEGI_COLOR_BLACK; //DARKGRAY;
 	EGI_16BIT_COLOR	  aabbColor=WEGI_COLOR_LTBLUE;
 	EGI_16BIT_COLOR	  fontColor=WEGI_COLOR_GREEN;
@@ -233,7 +238,6 @@ int main(int argc, char **argv)
 
 
 	char 		*textureFile=NULL;	/* Fpath */
-	EGI_IMGBUF	*textureImg=NULL;
 
 	unsigned int	xres,yres;
 	char 		strtmp[256]={0};
@@ -254,7 +258,7 @@ int main(int argc, char **argv)
 	bool		autocenter_on=false;	/* Auto. move local COORD origin to center of the mesh */
 	bool		process_on=false;       /* FB_direct to show rendering process */
 	bool		AABB_on =false;		/* Draw axially aligned bounding box */
-	bool		flipXYZ_on =false;	/* Flip XYZ for screen coord */
+//	bool		flipXYZ_on =false;	/* Flip XYZ for screen coord */
 	bool		coordNavigate_on=false; /* Show coordinate navigating sphere/frame */
 	bool		showInfo_on=false;	/* Show mesh detail statistics and other info. */
 
@@ -379,6 +383,7 @@ int main(int argc, char **argv)
 	/* Read obj file to meshModel */
 	cout<< "Read obj file '"<< fobj <<"' into E3D_TriMesh... \n";
 	E3D_TriMesh	meshModel(fobj);
+	sleep(2);
 #if 0  /* TEST: -------- */
 	meshModel.printAllVertices("meshModel");
 	meshModel.printAllTriangles("meshModel");
@@ -407,7 +412,6 @@ int main(int argc, char **argv)
 	sprintf(strtmp,"Vertex: %d\nTriangle: %d\n%s", vertexCount, triangleCount,
 				projMatrix.type?(UFT8_PCHAR)"Perspective":(UFT8_PCHAR)"ISOmetric" );
 
-
 	/* Rotation axis/ Normalized. */
 	E3D_Vector axisX(1,0,0);
 	E3D_Vector axisY(0,1,0);
@@ -425,10 +429,13 @@ int main(int argc, char **argv)
 			   /*  Loop Rendering: renderMesh(fbdev)  */
 
 	/* 1. Reverse Z/Normal after reading obj file. */
-	if(reverseZ)
-		meshModel.reverseAllVtxZ(); /* To updateAllTriNormals() later.. */
-	if(reverseNormal)
-		meshModel.reverseAllTriNormals(false); /* Reverse triangle vtxIndex also. */
+	if(reverseZ) {
+		meshModel.reverseAllVtxZ(); 	   /* To updateAllTriNormals() later.. */
+		meshModel.reverseAllVtxNormals();
+	}
+	if(reverseNormal) {
+		meshModel.reverseAllTriNormals(true); /* Reverse triangle vtxIndex also. */
+	}
 
 	/* 2. Scale up/down */
 	cout<< "Scale mesh..."<<endl;
@@ -497,7 +504,8 @@ int main(int argc, char **argv)
 
 	/* W1. Clone meshModel to workMesh, with vertices/triangles/normals */
 	cout <<"Clone workMesh... \n";
-	workMesh->cloneMesh(meshModel); /* include AABB */
+	workMesh->cloneMesh(meshModel);   /* include AABB */
+	workMesh->shadeType=E3D_GOURAUD_SHADING;
 
 #if 0 ///////////////////////////////////////////////
 	/* W2. Prepare transform matrix */
@@ -597,7 +605,7 @@ int main(int argc, char **argv)
 #endif
 
 	/* W7. Render as wire frames. */
-	if(wireframe_on) {
+	if(wireframe_on && workMesh->shadeType!=E3D_TEXTURE_MAPPING) {
 		fbset_color2(&gv_fb_dev, wireColor); //WEGI_COLOR_DARKGRAY);
 		cout << "Draw meshwire ...\n";
 		workMesh->drawMeshWire(&gv_fb_dev, projMatrix);
@@ -629,7 +637,7 @@ int main(int argc, char **argv)
            FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
                                         16, 16,                           /* fw,fh */
                                         (UFT8_PCHAR)strtmp, 		  /* pstr */
-                                        300, 4, 4,                        /* pixpl, lines, fgap */
+                                        300, 5, 4,                        /* pixpl, lines, fgap */
                                         5, 4,                             /* x0,y0, */
                                         fontColor, -1, 200,        	  /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );         /* int *cnt, int *lnleft, int* penx, int* peny */
@@ -642,14 +650,20 @@ int main(int argc, char **argv)
                                         xres-120, yres-28,              /* x0,y0, */
                                         fontColor2, -1, 255,            /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
-	/*  Face color */
-	if(workMesh->shadeType==E3D_FLAT_SHADING) {
-		sprintf(strtmp,"0x%06X", COLOR_16TO24BITS(faceColor));
-        	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
+	/* Shade type and face color */
+	if( workMesh->shadeType==E3D_FLAT_SHADING || workMesh->shadeType==E3D_GOURAUD_SHADING
+	    || workMesh->textureImg==NULL )
+	{
+		sprintf( strtmp,"0x%06X\n%s",
+			 COLOR_16TO24BITS(faceColor),
+			 workMesh->shadeType==E3D_GOURAUD_SHADING?(UFT8_PCHAR)"Gouraud shading":(UFT8_PCHAR)"Flat shading"
+			);
+
+        	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
                                         16, 16,                     	/* fw,fh */
                                         (UFT8_PCHAR)strtmp, 		/* pstr */
-                                        300, 1, 0,                      /* pixpl, lines, fgap */
-                                        5, yres-20,              	/* x0,y0, */
+                                        300, 2, 4,                      /* pixpl, lines, fgap */
+                                        5, yres-45,              	/* x0,y0, */
                                         fontColor, -1, 255,             /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
 	}
@@ -663,18 +677,38 @@ int main(int argc, char **argv)
 
 	/* W13. Update angle */
 	angle +=(5+da); // *MATH_PI/180;
+
+#if 0 /* TEST: ------ */
+        if(workMesh->shadeType==E3D_FLAT_SHADING)
+        	workMesh->shadeType=E3D_GOURAUD_SHADING;
+        else if(workMesh->shadeType==E3D_GOURAUD_SHADING)
+		workMesh->shadeType=E3D_FLAT_SHADING;
+#endif
+
 	/* To keep precision */
 	if(angle >360 || angle <-360) {
 		if(angle>360) angle -=360;
 		if(angle<-360) angle +=360;
+
+		/* Random face color */
 		faceColor=egi_color_random(color_all);
 //		projMatrix.type=!projMatrix.type; /* Switch projection type */
 
-		/* Switch shadeType */
-		if(workMesh->shadeType==E3D_FLAT_SHADING)
+#if 0		/* Switch shadeType: Loop FLAT --> WIRE --> TEXTURE  */
+		if(workMesh->shadeType==E3D_FLAT_SHADING) {
+			workMesh->shadeType=E3D_GOURAUD_SHADING;
+		}
+		else if(workMesh->shadeType==E3D_GOURAUD_SHADING) {
+			//workMesh->shadeType=E3D_TEXTURE_MAPPING;
+			workMesh->shadeType=E3D_WIRE_FRAMING;
+		}
+		else if(workMesh->shadeType==E3D_WIRE_FRAMING) {
 			workMesh->shadeType=E3D_TEXTURE_MAPPING;
-		else
+		}
+		else if(workMesh->shadeType==E3D_TEXTURE_MAPPING) {
 			workMesh->shadeType=E3D_FLAT_SHADING;
+		}
+#endif
 	}
 
 	/* W14. Update dvv: Distance from the Focus to the Screen/ViewPlane */

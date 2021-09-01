@@ -36,7 +36,13 @@ Note:
 5. Size of texture image should be approriate:
    Function egi_imgbuf_mapTriWriteFB() maps pixels one by one, if the texture image
    size is too big, the two mapped pixels may be located far between each other!
-   so the result looks NOT smooth.
+   so the result looks NOT smooth. --- more sampling and averaging.
+
+6. Transformation matrix for all normals(Vertex normals, TriFaceNormals, TriVtxNormals)
+   should contain ONLY rotation components, and keep them all as UNIT normals!
+   (whose vector norm is 1! )
+
+
 
 TODO:
 	1. Grow vtxList[] and triList[].
@@ -111,7 +117,26 @@ Journal:
 	3. Add E3D_TriMesh::readTextureImage(const char *fpath).
 	4. E3D_TriMesh::renderMesh(): map texture.
 2021-08-24:
-	1.E3D_TriMesh::shadeType
+	1. Add E3D_TriMesh::shadeType
+2021-08-27:
+	1. Modify E3D_TriMesh::renderMesh()
+	   Add case E3D_WIRE_FRAMING: to drawing frame wires.
+2021-08-28:
+      >>>> Add triangle vertex normals: triList[].vtx[].vn  for GOURAUD shading <<<<
+	1. E3D_TriMesh(const char *fobj)
+	   Read OBJ vertex noramls into
+		1.1 TriMesh::triList[].vtx[].vn   <-----
+	    OR  1.2 TriMesh::vtxList[].normal	  <-----
+	2. renderMesh()
+	   Add case E3D_GOURAUD_SHADING: to draw faces with gouraud shading.
+	3. cloneMesh(const E3D_TriMesh &tmesh)
+	   Add copy triList[].vtx[].vn    <-----
+	4. transformAllTriNormals(const E3D_RTMatrix  &RTMatrix)
+	   Add Transform triList[].vtx[].vn   <-----
+	5. transformVertices(const E3D_RTMatrix  &RTMatrix)
+	   Add Transform vtxList[].normal     <-----
+	6. Add E3D_TriMesh::transformAllVtxNormals() to transform vtxList[].normal.
+	7. Add reverseAllVtxNormals().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -145,10 +170,12 @@ void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb);
 void E3D_draw_circle(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
 
 
+/* Mesh Rendering/Shading type */
 enum E3D_SHADE_TYPE {
 	E3D_FLAT_SHADING	=0,
 	E3D_GOURAUD_SHADING	=1,
-	E3D_TEXTURE_MAPPING	=2,
+	E3D_WIRE_FRAMING	=2,
+	E3D_TEXTURE_MAPPING	=3,
 };
 
 
@@ -173,13 +200,19 @@ public:
 		/* Constructor */
 		Vertex() { setDefaults(); };
 
-		/* Vector as point */
+		/* Vector as point coord. */
 		E3D_Vector pt;
 
-		/* Ref Coord. */
-		float	u,v;
+		/* Ref Coord. ? */
+		float u,v;
 
-		/* Normal vector */
+		/* Normal vector.
+		 * Note:
+		 * 1. If each vertex has ONLY one normal value, save it here.
+		 * 2. If each vertex has more than one normal value, then save it
+		 *    to triList[].vtx[].nv
+		 * 3. Init. to all 0! as in E3D_Vector().
+		 */
 		E3D_Vector normal;
 
 		/* Mark number */
@@ -198,8 +231,12 @@ public:
 
 		/* Sturct Vertx */
 		struct Vertx {
-			int   index;	/* index as of */
+			int   index;	/* index as of vtxList[] */
 			float u,v;	/* Ref coord. for texture. */
+			E3D_Vector vn;  /* Vertex normal,
+					 * If each vertex has ONLY one normal value, save to vtxList[].normal.
+					 * Init all 0!
+					 */
 		};
 		Vertx vtx[3];		/* 3 points to form a triangle */
 
@@ -380,13 +417,17 @@ public:
 
 	/* Function: Transform vertices/normals */
 	void transformVertices(const E3D_RTMatrix  &RTMatrix);
-	void transformAllTriNormals(const E3D_RTMatrix  &RTMatrix);
+	void transformAllVtxNormals(const E3D_RTMatrix  &RTMatrix);   /* vtxList[].normal */
+	void transformAllTriNormals(const E3D_RTMatrix  &RTMatrix);  /* triList[].normal + trilist[].vtx[].nv */
 	void transformAABB(const E3D_RTMatrix  &RTMatrix);
-	void transformMesh(const E3D_RTMatrix  &RTMatrix, const E3D_RTMatrix &ScaleMatrix); /* Vertices+TriNormals*/
+	void transformMesh(const E3D_RTMatrix  &RTMatrix, const E3D_RTMatrix &ScaleMatrix); /* Vertices+TriNormals */
 
 	/* Function: Calculate normals for all triangles */
 	void updateAllTriNormals();
-	void reverseAllTriNormals(bool reverseVtxIndex);
+
+	/* Function: Reverse triangle/vertex normals */
+	void reverseAllTriNormals(bool reverseVtxIndex);	/* Reverse triList[].normal + trilist[].vtx[].nv ?? */
+	void reverseAllVtxNormals(void);			/* Revese vtxList[].normal */
 
 	/* Function: clone vertices/trianges from the tmesh.  */
 	void cloneMesh(const E3D_TriMesh &tmesh);
@@ -426,7 +467,7 @@ private:
 	//Material  *mList;
 
 public:
-	E3D_SHADE_TYPE   shadeType;
+	E3D_SHADE_TYPE   shadeType;	/* Rendering/shading type, default as FLAT_SHADING */
 	EGI_IMGBUF 	*textureImg;	/* Texture imgbuf */
 };
 
@@ -437,7 +478,9 @@ void E3D_TriMesh::Vertex::setDefaults()
 	u=0;
 	v=0;
 	E3D_TriMesh::Vertex::mark=0;
+
 	/* E3D_Vector objs: default init as 0 */
+
 }
 
 void E3D_TriMesh::Triangle::setDefaults()
@@ -639,6 +682,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 	int	vtxIndex[64]={0};    	/* To Buffer each input line:  store vtxIndex for MAX. 4x16_side/vertices face */
 	int	textureIndex[64]={0};
 	int	normalIndex[64]={0};
+		normalIndex[0]=-1;	/* For token */
 
 	int	vertexCount=0;
 	int	triangleCount=0;
@@ -646,10 +690,10 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 	int	textureVtxCount=0;
 	int	faceCount=0;
 
-//	struct textrueVtx_uv { float u; float v; };
-//	struct textrueVtx_uv *tuvList;
-	E3D_Vector *tuvList;  /* Texture vertices uv list */
+	E3D_Vector *tuvList;  		/* Texture vertices uv list */
 	int	    tuvListCnt=0;
+	E3D_Vector *vnList;		/* Vertex normal List */
+	int	    vnListCnt=0;
 
 	/* 1. Read statistic of obj data */
 	if( readObjFileInfo(fobj, vertexCount, triangleCount, vtxNormalCount, textureVtxCount, faceCount) !=0 )
@@ -685,6 +729,10 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 	/* 2.3 New uvList */
 	tuvList = new E3D_Vector[textureVtxCount];
+
+	/* 2.4 New vnList */
+	vnList = new E3D_Vector[vtxNormalCount];
+
 
 	/* 3. Open obj file */
 	fin.open(fobj);
@@ -726,12 +774,22 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 				break;
 			   case 't':  /* Read texture vertices, uv coordinates */
+				if(tuvListCnt>=textureVtxCount) {
+					egi_dpstd("Error, tuvListCnt > textureVtxCount!\n");
+					goto END_FUNC;
+				}
 				sscanf( strline+2, "%f %f %f",
 					&tuvList[tuvListCnt].x, &tuvList[tuvListCnt].y, &tuvList[tuvListCnt].z);
 				tuvListCnt++;
 				break;
-			   case 'n':  /* Read vertex normals, (for vertices of each face ) */
-				/* TODO */
+			   case 'n':  /* Read vertex normals, (for each vertex. ) */
+				if(vnListCnt>=vtxNormalCount) {
+					egi_dpstd("Error, tuvListCnt > vtxNormalCount!\n");
+					goto END_FUNC;
+				}
+				sscanf( strline+2, "%f %f %f",
+					&vnList[vnListCnt].x, &vnList[vnListCnt].y, &vnList[vnListCnt].z);
+				vnListCnt++;
 				break;
 			   case 'p': /* Parameter space vertices */
 
@@ -753,11 +811,11 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 			strncpy(strline2, strline, 1024-1);
 			//cout<<"Face line: " <<strline2 <<endl;
 
-		   	/* Case A. --- ONLY vtxIndex
+		   	/* FA Case A. --- ONLY vtxIndex data
 		    	 * Example: f 61 21 44
 		    	 */
 			if( strstr(strline, "/")==NULL ) {
-			   /* To extract face vertex indices */
+			   /* FA.1 To extract face vertex indices */
 			   pt=strtok(strline+1, " ");
 			   for(k=0; pt!=NULL && k<64; k++) {
 				vtxIndex[k]=atoi(pt) -1;
@@ -783,7 +841,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 #endif /////////////////////////////////////////////////////////////////////////
 			   /* TODO:  textrueIndex[] and normalIndex[], value <0 as omitted.  */
 
-			   /*  Assign to triangle vtxindex: triList[tcnt].vtx[i].index */
+			   /*  FA.2  Assign to triangle vtxindex: triList[tcnt].vtx[i].index */
 			   if( k>2 ) {
 				/* To divide the face into triangles in way of a fan. */
 				for( j=0; j<k-2; j++ ) {
@@ -808,27 +866,28 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 		   	} /* End Case A. */
 
-		   	/* Case B. --- NOT only vtxIndex, maybe ALSO with textureIndex,normalIndex, with delim '/',
+		   	/* FB Case B. --- NOT only vtxIndex, maybe ALSO with textureIndex,normalIndex, with delim '/',
 		         * Example: f 69//47 68//47 43//47 52//47
 		         */
 		        else {    /* ELSE: strstr(strline, "/")!=NULL */
 
-			   /* To replace "//" with "/0/", to avoid strtok() returns only once!
+			   /* FB1. To replace "//" with "/0/", to avoid strtok() returns only once!
 			    * However, it can NOT rule out conditions like "/0/5" and "5/0/",
 			    * see following  "In case "/0/5" ..."
 			    */
 			   while( (pt=strstr(strline, "//")) ) {
+//				egi_dpstd("!!!WARNING!!! textureVtxIndex omitted!\n");
 				int len;
 				len=strlen(pt+1)+1; /* len: from second '/' to EOF */
 				memmove(pt+2, pt+1, len);
 				*(pt+1) ='0'; /* insert '0' btween "//" */
 			   }
 
-			   /* To extract face vertex indices */
+			   /* FB2. To extract face vertex indices */
 			   pt=strtok_r(strline+1, " ", &savept); /* +1 skip first ch */
 			   for(k=0; pt!=NULL && k<6*4; k++) {
 				//cout << "Index group: " << pt<<endl;
-				/* If no more "/"... example: '2/3/4 5/6/4 34 ', cast last '34 '
+				/* FB2.1 If no more "/"... example: '2/3/4 5/6/4 34 ', cast last '34 '
 				 * This must befor strtok_r(pt, ...)
 				 */
 				if( strstr(pt, "/")==NULL) {
@@ -836,10 +895,10 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 					break;
 				}
 
-				/* Parse vtxIndex/textureIndex/normalIndex */
+				/* FB2.2 Parse vtxIndex/textureIndex/normalIndex */
 				pt2=strtok_r(pt, "/", &savept2);
 
-				/* Read vtxIndex/textureIndex/normalIndex; as separated by '/' */
+				/* FB2.3 Read vtxIndex/textureIndex/normalIndex; as separated by '/' */
 				for(m=0; pt2!=NULL && m<3; m++) {
 					//cout <<"pt2: "<<pt2<<endl;
 					switch(m) {
@@ -854,6 +913,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 						break;
 					   case 2:
 						normalIndex[k]=atoi(pt2)-1;
+						break;
 					}
 
 
@@ -861,22 +921,22 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 					pt2=strtok_r(NULL, "/", &savept2);
 				}
 
-				/* In case  "/0/5", -- Invalid, vtxIndex MUST NOT be omitted! */
+				/* FB2.4 In case  "/0/5", -- Invalid, vtxIndex MUST NOT be omitted! */
 				if(pt[0]=='/' ) {
-					egi_dpstd("!!!WARNING!!!  vtxIndex omitted!\n");
+					egi_dpstd("!!! WARNING !!! vtxIndex omitted, data may be ERROR!\n");
 					/* Need to reorder data from to vtxIndex/textureIndex(WRONG!, it's textureIndex/normalIndex)
 					   vtxIndex/textureIndex/normalIndex(CORRECT!) */
 					normalIndex[k]=textureIndex[k];
 					textureIndex[k]=vtxIndex[k];
 					vtxIndex[k]=-1;		/* vtxIndex omitted!!! */
 				}
-				/* In case "5/0/", -- m==2, normalIndex omitted!  */
+				/* FB2.5 In case "5/0/", -- m==2, normalIndex omitted!  */
 				else if( m==2 ) { /* pt[0]=='/' also has m==2! */
-					egi_dpstd("normalIndex omitted!\n");
+//					egi_dpstd("vtxNormalIndex omitted!\n");
 					normalIndex[k]=0-1;
 				}
 
-				/* Get next indices */
+				/* FB2.6 Get next indices */
 				pt=strtok_r(NULL, " ", &savept);
 
 			   } /* End for(k) */
@@ -898,28 +958,51 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 				tcnt++;
 			   }
 #endif //////////////////////////////////////////////////////////////
-			   /*  Assign to triangle vtxindex */
+
+			   /*  FB3. Assign to triangle vtxindex */
 			   if( k>2 ) {
-				/* To divide the face into triangles in way of folding a fan. */
+				/* FB3.1 To divide the face into triangles in way of folding a fan. */
 				for( j=0; j<k-2; j++ ) {
+					/* FB3.1.1 check tCapacity */
 					if(tcnt==tCapacity) {
 						egi_dpstd("tCapacity used up!\n");
 						goto END_FUNC;
 					}
 
-					triList[tcnt].vtx[0].index=vtxIndex[0]; /* Fix first vertex! */
-	                                triList[tcnt].vtx[1].index=vtxIndex[j+1];
-        	                        triList[tcnt].vtx[2].index=vtxIndex[j+2];
+					/* FB3.1.2 Read trianlge vtxIndex/vtxTextureIndex/vtxNormal */
+					if( vtxIndex[0]>-1 && vtxIndex[j+1]>-1 && vtxIndex[j+1]>-1 )
+					{
+					    /* FB3.1.2.1  Trianlge vtx index */
+					    triList[tcnt].vtx[0].index=vtxIndex[0]; /* Fix first vertex! */
+		                            triList[tcnt].vtx[1].index=vtxIndex[j+1];
+        		                    triList[tcnt].vtx[2].index=vtxIndex[j+2];
 
-					if(textureIndex[j+1]>-1) {
+					   /* All faces divided into triangles in way of folding a fan. */
+
+					   /* FB3.1.2.2 Triangle vtx texture coord uv. */
+					   if(textureIndex[0]>-1 && textureIndex[j+1]>-1 && textureIndex[j+2]>-1) {
 						triList[tcnt].vtx[0].u=tuvList[textureIndex[0]].x;
 						triList[tcnt].vtx[0].v=tuvList[textureIndex[0]].y;
 						triList[tcnt].vtx[1].u=tuvList[textureIndex[j+1]].x;
 						triList[tcnt].vtx[1].v=tuvList[textureIndex[j+1]].y;
 						triList[tcnt].vtx[2].u=tuvList[textureIndex[j+2]].x;
 						triList[tcnt].vtx[2].v=tuvList[textureIndex[j+2]].y;
-					}
+					   }
 
+					   /* FB3.1.2.3 Triangle vertex normal index. */
+					   /* Case 1: vtxNormalIndex omitted!!
+					    *         then each vertex has the same normal value! */
+					   if( normalIndex[0]<0 ) {
+						//// To deal this case at last, just after while() loop.
+					   }
+					   /* Case 2: Each vertex may have more than one normal value, one for one triangle as it belongs to. */
+					   else if( normalIndex[0]>-1 && normalIndex[j+1]>-1 && normalIndex[j+2]>-1) {
+						triList[tcnt].vtx[0].vn=vnList[normalIndex[0]];
+						triList[tcnt].vtx[1].vn=vnList[normalIndex[j+1]];
+						triList[tcnt].vtx[2].vn=vnList[normalIndex[j+2]];
+					  }
+
+					}
 					tcnt++;
 				}
 			   }
@@ -953,6 +1036,21 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 	} /* End while() */
 
+	/* Assign vtxList[].nromal, if vtxNormalIndex omitted!
+	 * See FB3.1.2.3, If vtxNormalIndex omitted! then each vertex has the same normal value!
+	 */
+	if( normalIndex[0]<0 ) {  /* Init normalIndex[0]=-1 for token */
+	   egi_dpstd("vtxNormalIndex omitted! each vertex has same normal value as vtxList[].normal!\n");
+	   for( int k=0; k<vertexCount; k++) {
+		 if(k>=vnListCnt)
+			break;
+		 vtxList[k].normal=vnList[k];
+	  }
+        }
+	else
+	   egi_dpstd("vtxNormalIndex assiged! each vertex may have more than one normal values, as in triList[].vtx[].vn!\n");
+
+
 END_FUNC:
 	/* Close file */
 	fin.close();
@@ -964,9 +1062,19 @@ END_FUNC:
 		printf("tuvList[%d]: %f,%f,%f\n", k, tuvList[k].x, tuvList[k].y, tuvList[k].z);
 #endif
 
+#if 1	/* TEST: ---------print all vtxNormal vnList[] */
+	for(int k=0; k<vnListCnt; k++)
+		printf("vnList[%d]: %f,%f,%f\n", k, vnList[k].x, vnList[k].y, vnList[k].z);
+#endif
+
+
         /* Init other params */
         textureImg=NULL;
         shadeType=E3D_FLAT_SHADING;
+
+	/* Delete */
+	delete [] tuvList;
+	delete [] vnList;
 }
 
 
@@ -1109,6 +1217,7 @@ for Coord system conversion.
 -----------------------------------------*/
 void E3D_TriMesh::reverseAllVtxZ(void)
 {
+	egi_dpstd("reverse all vertex Z values...\n");
 	for(int i=0; i<vcnt; i++)
 		vtxList[i].pt.z = -vtxList[i].pt.z;
 }
@@ -1176,7 +1285,6 @@ void E3D_TriMesh::transformVertices(const E3D_RTMatrix  &RTMatrix)
          * Translation:
                    pmat[9,10,11]: tx,ty,tz
          */
-
 	for( int i=0; i<vcnt; i++) {
 		xx=vtxList[i].pt.x;
 		yy=vtxList[i].pt.y;
@@ -1186,11 +1294,48 @@ void E3D_TriMesh::transformVertices(const E3D_RTMatrix  &RTMatrix)
 		vtxList[i].pt.y = xx*RTMatrix.pmat[1]+yy*RTMatrix.pmat[4]+zz*RTMatrix.pmat[7] +RTMatrix.pmat[10];
 		vtxList[i].pt.z = xx*RTMatrix.pmat[2]+yy*RTMatrix.pmat[5]+zz*RTMatrix.pmat[8] +RTMatrix.pmat[11];
 	}
-
 }
 
+/*-------------------------------------------------------------------
+Transform all vertex normals. NO translation component!
+(Without Triangle VtxNormals triList[].vtx[].vn! )
+
+Note:
+1. Scale MUST not be applied!!!
+2. Without Triangle VtxNormals triList[].vtx[].vn!
+
+@RTMatrix:	RotationTranslation Matrix
+---------------------------------------------------------------------*/
+void E3D_TriMesh::transformAllVtxNormals(const E3D_RTMatrix  &RTMatrix)
+{
+	float xx;
+	float yy;
+	float zz;
+
+	/* Transform Vertex normals */
+	if( vtxList[0].normal.isZero()==false )
+	{
+	   egi_dpstd("Transform all vertex normals...\n");
+	   for(int i=0; i<vcnt; i++) {
+		xx=vtxList[i].normal.x;
+		yy=vtxList[i].normal.y;
+		zz=vtxList[i].normal.z;
+
+		vtxList[i].normal.x = xx*RTMatrix.pmat[0]+yy*RTMatrix.pmat[3]+zz*RTMatrix.pmat[6]; /* Ignor translation!!! */
+		vtxList[i].normal.y = xx*RTMatrix.pmat[1]+yy*RTMatrix.pmat[4]+zz*RTMatrix.pmat[7];
+		vtxList[i].normal.z = xx*RTMatrix.pmat[2]+yy*RTMatrix.pmat[5]+zz*RTMatrix.pmat[8];
+	   }
+	}
+}
+
+
 /*--------------------------------------------------------------
-Transform all triangle normals. NO translation component!
+Transform all triangle face/vtx normals. NO translation component!
+( Without vertex normals vtxList[].normal! )
+
+Note:
+1. Scale MUST not be applied!
+2. Without vertex normals vtxList[].normal!
 
 @RTMatrix:	RotationTranslation Matrix
 ----------------------------------------------------------------*/
@@ -1200,6 +1345,8 @@ void E3D_TriMesh::transformAllTriNormals(const E3D_RTMatrix  &RTMatrix)
 	float yy;
 	float zz;
 
+	/* Transform trianlge face normal */
+	egi_dpstd("Transform all triangle face normals...\n");
 	for( int j=0; j<tcnt; j++) {
 		xx=triList[j].normal.x;
 		yy=triList[j].normal.y;
@@ -1209,6 +1356,23 @@ void E3D_TriMesh::transformAllTriNormals(const E3D_RTMatrix  &RTMatrix)
 		triList[j].normal.z = xx*RTMatrix.pmat[2]+yy*RTMatrix.pmat[5]+zz*RTMatrix.pmat[8];
 	}
 
+   	/* Transform triangle vertex normals as in triList[].vtx.vn */
+	if( !triList[0].vtx[0].vn.isZero() ) {
+	   egi_dpstd("Transform all triangle vtx normals...\n");
+	   for( int j=0; j<tcnt; j++) {
+	   	for(int k=0; k<3; k++) {
+			xx=triList[j].vtx[k].vn.x;
+			yy=triList[j].vtx[k].vn.y;
+			zz=triList[j].vtx[k].vn.z;
+
+			triList[j].vtx[k].vn.x = xx*RTMatrix.pmat[0]+yy*RTMatrix.pmat[3]+zz*RTMatrix.pmat[6]; /* Ignor translation!!! */
+			triList[j].vtx[k].vn.y = xx*RTMatrix.pmat[1]+yy*RTMatrix.pmat[4]+zz*RTMatrix.pmat[7];
+			triList[j].vtx[k].vn.z = xx*RTMatrix.pmat[2]+yy*RTMatrix.pmat[5]+zz*RTMatrix.pmat[8];
+		}
+	   }
+	}
+
+	//egi_dpstd("vtxList[0].normal: {%f, %f, %f}\n",vtxList[0].normal.x, vtxList[0].normal.y, vtxList[0].normal.z);
 }
 
 /*-----------------------------------------------------------
@@ -1257,7 +1421,8 @@ void E3D_TriMesh::transformMesh(const E3D_RTMatrix  &RTMatrix, const E3D_RTMatri
 	E3D_RTMatrix  cmatrix=RTMatrix*ScaleMatrix;
 
 	transformVertices(cmatrix);
-	transformAllTriNormals(RTMatrix); /* normals should NOT apply scale_matrix ! */
+	transformAllVtxNormals(RTMatrix);  /* normals should NOT apply scale_matrix ! */
+	transformAllTriNormals(RTMatrix);  /* normals should NOT apply scale_matrix ! */
 	transformAABB(cmatrix);
 
 	/*transform vtxscenter */
@@ -1314,23 +1479,59 @@ void E3D_TriMesh::updateAllTriNormals()
    	}
 }
 
-/*------------------------------------
+/*--------------------------------------------------
 Reverse normals of all triangles
-------------------------------------*/
+
+@reverseVtxIndex:  If TURE, reverse vtx index also!
+
+-------------------------------------------------*/
 void E3D_TriMesh::reverseAllTriNormals(bool reverseVtxIndex)
 {
 	int td;
-	for(int i=0; i<tcnt; i++) {
-	   /* Reverse normal */
-	   triList[i].normal *= -1.0f;
 
-	   /*  Reverse vtx index */
-	   if(reverseVtxIndex) {
-		triList[i].vtx[0].index=td;
-		triList[i].vtx[0].index=triList[i].vtx[2].index;
-		triList[i].vtx[2].index=td;
-    	   }
+	egi_dpstd("Reverse all triangle normals...\n");
+	/* Reverse triangle face normals */
+	for(int i=0; i<tcnt; i++) {
+	   //triList[i].normal *= -1.0f;
+	   triList[i].normal =-triList[i].normal;
 	}
+
+	/* Reverse triangle vtx index */
+	if(reverseVtxIndex) {
+		egi_dpstd("Reverse all triangle vtx indices...\n");
+		for(int i=0; i<tcnt; i++) {
+			td=triList[i].vtx[0].index;
+			triList[i].vtx[0].index=triList[i].vtx[2].index;
+			triList[i].vtx[2].index=td;
+		}
+	}
+
+	/* Reverse vtx normal */
+	if( triList[0].vtx[0].vn.isZero()==false) {
+		egi_dpstd("Reverse all triangle vertex normals..\n");
+		for(int i=0; i<tcnt; i++) {
+			triList[i].vtx[0].vn *= -1.0f;
+			triList[i].vtx[1].vn *= -1.0f;
+			triList[i].vtx[2].vn *= -1.0f;
+		}
+	}
+}
+
+
+/*--------------------------------------------------
+Reverse all vertex normals.
+
+@RTMatrix:      RotationTranslation Matrix
+--------------------------------------------------*/
+void E3D_TriMesh::reverseAllVtxNormals(void)
+{
+	if( vtxList[0].normal.isZero()==false ) {
+		egi_dpstd("Reverse all vertex normals...\n");
+		for(int i=0; i<vcnt; i++)
+			vtxList[i].normal =-vtxList[i].normal;
+	}
+	else
+		egi_dpstd("normal is zero!...\n");
 }
 
 
@@ -1360,7 +1561,7 @@ void E3D_TriMesh::cloneMesh(const E3D_TriMesh &tmesh)
 		vtxList[i].u = tmesh.vtxList[i].u;
 		vtxList[i].v = tmesh.vtxList[i].v;
 
-		/* Normal vector */
+		/* Normals */
 		vtxList[i].normal = tmesh.vtxList[i].normal;
 
 		/* Mark number */
@@ -1375,8 +1576,13 @@ void E3D_TriMesh::cloneMesh(const E3D_TriMesh &tmesh)
 		triList[i].vtx[1]=tmesh.triList[i].vtx[1];
 		triList[i].vtx[2]=tmesh.triList[i].vtx[2];
 
-		/* Normal */
+		/* Face Normal */
 		triList[i].normal=tmesh.triList[i].normal;
+
+		/* Vtexter normal vector */
+		triList[i].vtx[0].vn = tmesh.triList[i].vtx[0].vn;
+		triList[i].vtx[1].vn = tmesh.triList[i].vtx[1].vn;
+		triList[i].vtx[2].vn = tmesh.triList[i].vtx[2].vn;
 
 		/* int part;  int material; */
 
@@ -1483,7 +1689,7 @@ View direction: TriMesh Global_Coord. Z axis.
 void E3D_TriMesh::drawMeshWire(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
 {
 	int vtidx[3];	    /* vtx index of a triangle */
-	EGI_POINT   pts[3];
+//	EGI_POINT   pts[3];
 	E3D_Vector  vpts[3];
 	E3D_Vector  vView(0.0f, 0.0f, 1.0f); /* View direction */
 	float	    vProduct;   /* dot product */
@@ -1803,14 +2009,13 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev) const
 
 void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
 {
-	int vtidx[3];  	/* vtx index of a triangel */
-	EGI_POINT   pts[3];
-	E3D_Vector  vpts[3];
+	int i;
+	int vtidx[3];  				/* vtx index of a triangel */
+	E3D_Vector  vpts[3];			/* Projected 3D points */
+	EGI_POINT   pts[3];			/* Projected 2D points */
 	E3D_Vector  vView(0.0f, 0.0f, 1.0f); 	/* View direction */
 	float	    vProduct;   		/* dot product */
-	//Triangle    Tri;
-
-//	E3D_ProjMatrix projMatrix={ .type=1, .dv=500, .dnear=500, .dfar=10000000, .winW=320, .winH=240};
+	EGI_16BIT_COLOR vtxColor[3];		/* Triangle 3 vtx color */
 
 	/* Default color, OR use mesh color. */
 	EGI_16BIT_COLOR color=fbdev->pixcolor;
@@ -1818,10 +2023,8 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 
 	/* -------TEST: Project to Z plane, Draw X,Y only */
 	/* Traverse and render all triangles. TODO: sorting, render Tris from near to far field.... */
-	for(int i=0; i<tcnt; i++) {
-		vtidx[0]=triList[i].vtx[0].index;
-		vtidx[1]=triList[i].vtx[1].index;
-		vtidx[2]=triList[i].vtx[2].index;
+	//for(int i=0; i<tcnt; i++) {
+	for(i=0; i<tcnt; i++) {
 
 		#if 1 /* 1. Pick out back_facing triangles.  */
 		vProduct=vView*(triList[i].normal); // *(-1.0f); // -vView as *(-1.0f);
@@ -1834,6 +2037,10 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		#endif
 
 		/* 2. Copy triangle vertices, and project to viewPlan COORD. */
+		vtidx[0]=triList[i].vtx[0].index;
+		vtidx[1]=triList[i].vtx[1].index;
+		vtidx[2]=triList[i].vtx[2].index;
+
 		vpts[0]=vtxList[vtidx[0]].pt;
 		vpts[1]=vtxList[vtidx[1]].pt;
 		vpts[2]=vtxList[vtidx[2]].pt;
@@ -1847,11 +2054,12 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			continue;
 		}
 
-		/* 3. Get 2D points */
-		pts[0].x=vpts[0].x; pts[0].y=vpts[0].y;
-		pts[1].x=vpts[1].x; pts[1].y=vpts[1].y;
-		pts[2].x=vpts[2].x; pts[2].y=vpts[2].y;
+		/* 3. Get 2D points  */
+		pts[0].x=roundf(vpts[0].x); pts[0].y=roundf(vpts[0].y);
+		pts[1].x=roundf(vpts[1].x); pts[1].y=roundf(vpts[1].y);
+		pts[2].x=roundf(vpts[2].x); pts[2].y=roundf(vpts[2].y);
 
+#if 0
 		/* 4. Calculate light reflect strength:  TODO: not correct, this is ONLY demo.  */
 		vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
 		//if( vProduct >= 0.0f )
@@ -1860,10 +2068,11 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		else /* Flip to get vProduct absolute value for luma */
 			vProduct=-vProduct;
 
-		/* 4. Adjust luma for pixcolor as per vProduct. */
+		/* 5. Adjust luma for pixcolor as per vProduct. */
 		//cout <<"vProduct: "<< vProduct;
 		fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
 		//cout <<" getY: " << (unsigned int)egi_color_getY(fbdev->pixcolor) << endl;
+#endif
 
 		/* 6. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
 		/* A simple test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
@@ -1875,11 +2084,64 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		/* 6. Draw triangles with specified shading type. */
 		switch( shadeType ) {
 		   case E3D_FLAT_SHADING:
+			/* 4. Calculate light reflect strength:  TODO: not correct, this is ONLY demo.  */
+			vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+			//if( vProduct >= 0.0f )
+			if( vProduct > -VPRODUCT_EPSILON )
+				vProduct=0.0f;
+			else /* Flip to get vProduct absolute value for luma */
+				vProduct=-vProduct;
+
+			/* 5. Adjust luma for pixcolor as per vProduct. */
+			//cout <<"vProduct: "<< vProduct;
+			fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+			//cout <<" getY: " << (unsigned int)egi_color_getY(fbdev->pixcolor) << endl;
+
 			draw_filled_triangle(fbdev, pts);
 			break;
+
 		   case E3D_GOURAUD_SHADING:
-			draw_filled_triangle(fbdev, pts);
+			/* Get 3 vtx color */
+			for(int k=0; k<3; k++) {
+			   /* Calculate light reflect strength:  TODO: not correct, this is ONLY demo.  */
+			   /* Case_A: Use vtxList[].normal */
+			   if(triList[i].vtx[0].vn.isZero())
+			      vProduct=gv_vLight*(vtxList[ triList[i].vtx[k].index ].normal);
+			   /* Case_B: Use triList[].vtx[].vn */
+			   else
+			      vProduct=gv_vLight*(triList[i].vtx[k].vn);  // *(-1.0f); // -vLight as *(-1.0f);
+			   //if( vProduct >= 0.0f )
+			   if( vProduct > -VPRODUCT_EPSILON )
+				vProduct=0.0f;
+			   else /* Flip to get vProduct absolute value for luma */
+				vProduct=-vProduct;
+			   /* Adjust luma for color as per vProduct. */
+			   vtxColor[k]=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+			}
+
+			/* Fill trianle with pixel color, by barycentric coordinates interpolation. */
+			/* draw_filled_triangle2(fbdev, (float)x0,y0,x1,y1,x2,y2, color1, color2, color3) */
+			#if 0 /* Float x,y */
+			draw_filled_triangle2(fbdev,vpts[0].x, vpts[0].y,
+						    vpts[1].x, vpts[1].y,
+						    vpts[2].x, vpts[2].y,
+						    vtxColor[0], vtxColor[1], vtxColor[2] );
+			#else /* Int x,y */
+			draw_filled_triangle3(fbdev,pts[0].x, pts[0].y,
+						    pts[1].x, pts[1].y,
+						    pts[2].x, pts[2].y,
+						    vtxColor[0], vtxColor[1], vtxColor[2] );
+			#endif
+
 			break;
+
+		   case E3D_WIRE_FRAMING:
+			/* Draw line: OR draw_line_antialias() */
+			draw_line(fbdev, pts[0].x, pts[0].y, pts[1].x, pts[1].y);
+			draw_line(fbdev, pts[1].x, pts[1].y, pts[2].x, pts[2].y);
+			draw_line(fbdev, pts[0].x, pts[0].y, pts[2].x, pts[2].y);
+			break;
+
 		   case E3D_TEXTURE_MAPPING:
 			if( textureImg==NULL ) {
 			   draw_filled_triangle(fbdev, pts);
@@ -1900,9 +2162,9 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
         	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,
                 	                triList[i].vtx[1].u, 1.0-triList[i].vtx[1].v,
                         	        triList[i].vtx[2].u, 1.0-triList[i].vtx[2].v,
-                                	pts[0].x, pts[0].y, 0,  /* NOTE: z values NOT to be 0/0/0!  */
-	                                pts[1].x, pts[1].y, 0,
-        	                        pts[2].x, pts[2].y, 1
+                                	pts[0].x, pts[0].y, 1,  /* NOTE: z values NOT to be 0/0/0!  */
+	                                pts[1].x, pts[1].y, 2,
+        	                        pts[2].x, pts[2].y, 3
                 	        );
 			  #else /* OPTION_2: Barycentric coordinates mapping */
 		        	egi_imgbuf_mapTriWriteFB2(textureImg, fbdev,
@@ -2168,7 +2430,7 @@ int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
 	/* Close file */
 	fin.close();
 
-	egi_dpstd("Statistics:  Vertices %d;  Normals %d;  Texture %d; Faces %d; Triangle %d.\n",
+	egi_dpstd("Statistics:  Vertices %d;  vtxNormals %d;  TextureVtx %d; Faces %d; Triangle %d.\n",
 				vertexCount, vtxNormalCount, textureVtxCount, faceCount, triangleCount );
 
 	return 0;

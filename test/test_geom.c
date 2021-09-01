@@ -6,6 +6,11 @@ published by the Free Software Foundation.
 
 Test EGI FBGEOM functions
 
+Journal:
+2021-08-30/31:
+	1. Test egi_filled_triangle2/3()
+
+
 Midas Zhou
 -----------------------------------------------------------------*/
 #include <stdio.h>
@@ -81,6 +86,103 @@ int main(int argc, char ** argv)
 
         /* <<<<------------------  End EGI Init  ----------------->>>> */
 
+#if 1 /* <<<<<<<<<<<<<< TEST: egi_filled_triangle3()  <<<<<<<<<<<<<<< */
+
+	//void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x2, int y2,
+	//                            EGI_16BIT_COLOR color0, EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2 )
+
+	int angle=0;
+	//float x,y;
+	EGI_POINT points[4];
+	char strtmp[256];
+
+   while(1) {
+
+	printf("     ----- Anlge: %d -----\n", angle);
+
+	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAYB);
+
+	points[0].x=roundf(110.0*cos(MATH_PI*angle/180.0)+160.0);
+	points[0].y=roundf(110.0*sin(MATH_PI*angle/180.0)+120.0);
+	points[1].x=roundf(110.0*cos(MATH_PI*(angle+90)/180.0)+160.0);
+	points[1].y=roundf(110.0*sin(MATH_PI*(angle+90)/180.0)+120.0);
+	points[2].x=roundf(110.0*cos(MATH_PI*(angle+180)/180.0)+160.0);
+	points[2].y=roundf(110.0*sin(MATH_PI*(angle+180)/180.0)+120.0);
+	points[3].x=roundf(110.0*cos(MATH_PI*(angle+270)/180.0)+160.0);
+	points[3].y=roundf(110.0*sin(MATH_PI*(angle+270)/180.0)+120.0);
+
+	#if 1  /* ------- TEST: degenerated to a line ------------ */
+	if( angle <180 )	/* --------  CASE: Tree points NO overlap ------- */
+		draw_filled_triangle3(&gv_fb_dev, points[0].x, points[0].y, 160, 120, points[2].x, points[2].y,
+					WEGI_COLOR_RED, WEGI_COLOR_GREEN, WEGI_COLOR_BLUE);
+	else  			/* --------- CASE: Two points SAME coords! ---------- */
+		draw_filled_triangle3(&gv_fb_dev, points[0].x, points[0].y, points[2].x, points[2].y, points[2].x, points[2].y,
+					WEGI_COLOR_RED, WEGI_COLOR_GREEN, WEGI_COLOR_BLUE);
+	#endif
+
+	#if 0  /* ------- TEST: joint part(line) ------------ */
+	draw_filled_triangle3(&gv_fb_dev, points[0].x, points[0].y, points[1].x, points[1].y, points[2].x, points[2].y,
+					WEGI_COLOR_RED, WEGI_COLOR_GREEN, WEGI_COLOR_BLUE);
+
+	draw_filled_triangle3(&gv_fb_dev, points[0].x, points[0].y, points[3].x, points[3].y, points[2].x, points[2].y,
+					WEGI_COLOR_RED, WEGI_COLOR_GREEN, WEGI_COLOR_BLUE);
+	#endif
+
+//	fbset_color2(&gv_fb_dev, WEGI_COLOR_WHITE);
+//	draw_triangle(&gv_fb_dev,points);
+	sprintf(strtmp,"Angle: %d, %s\n", angle, angle>180?"Two pts":"Three pts");
+       	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.bold,    /* FBdev, fontface */
+               	                        16, 16, (const UFT8_PCHAR)strtmp, /* fw,fh, pstr */
+                       	                320, 1, 0,                        /* pixpl, lines, fgap */
+                               	        10, 5, 	                	  /* x0,y0, */
+                                       	WEGI_COLOR_BLACK, -1, 255,        /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);          /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+
+	fb_render(&gv_fb_dev);
+  	tm_delayms(300);
+
+	angle +=3;
+	if(angle>360)angle=0;
+  }
+	exit(0);
+#endif
+
+#if 0 /* <<<<<<<<<<<<<< TEST: egi_filled_triangle2()  <<<<<<<<<<<<<<< */
+
+	//void draw_filled_triangle2( FBDEV *fb_dev, float x0, float y0, float x1, float y1, float x2, float y2,
+	//                            EGI_16BIT_COLOR color0, EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2 )
+
+	int angle=0;
+	float x,y;
+	EGI_POINT points[3];
+
+   while(1) {
+	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_BLACK);
+
+	x=160.0*cos(MATH_PI*angle/180.0)+160.0;
+	y=120.0*sin(MATH_PI*angle/180.0)+120.0;
+
+	draw_filled_triangle2(&gv_fb_dev, x, y, 0.0f, 120.0f-30, 319.0f, 120.0f+30,
+					WEGI_COLOR_RED, WEGI_COLOR_GREEN, WEGI_COLOR_BLUE);
+
+	points[0].x=x; 		points[0].y=y;
+	points[1].x=0; 		points[1].y=120-30;
+	points[2].x=319; 	points[2].y=120+30;
+	fbset_color2(&gv_fb_dev, WEGI_COLOR_WHITE);
+	draw_triangle(&gv_fb_dev,points);
+
+	fb_render(&gv_fb_dev);
+
+	if( (angle>=180-20 && angle<=180+20)
+ 	    || angle<=20 || angle >=360-20 )
+	 tm_delayms(200);
+	  //egi_sleep(1,1,100);
+
+	angle +=3;
+	if(angle>360)angle=0;
+  }
+	exit(0);
+#endif
 
 
 #if 0	/* <<<<<<<<<<<<<<  test fb_position_rotate()  <<<<<<<<<<<<<<< */

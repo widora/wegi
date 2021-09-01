@@ -98,6 +98,10 @@ void 	draw_circle(FBDEV *dev, int x, int y, int r);
 void 	draw_pcircle(FBDEV *dev, int x0, int y0, int r, unsigned int w);
 void 	draw_triangle(FBDEV *dev, EGI_POINT *points);
 void 	draw_filled_triangle(FBDEV *dev, EGI_POINT *points);
+void    draw_filled_triangle2(FBDEV *fb_dev, float x0, float y0, float x1, float y1, float x2, float y2,
+                              EGI_16BIT_COLOR color0, EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2 );
+void 	draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x2, int y2,
+                               EGI_16BIT_COLOR color0, EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2 );
 void 	draw_blend_filled_triangle(FBDEV *dev, EGI_POINT *points, EGI_16BIT_COLOR color, uint8_t alpha);
 void 	draw_filled_annulus(FBDEV *dev, int x0, int y0, int r, unsigned int w);
 void 	draw_filled_circle(FBDEV *dev, int x, int y, int r);

@@ -97,8 +97,8 @@ inline void egi_16bitColor_interplt4p( EGI_16BIT_COLOR color1, EGI_16BIT_COLOR c
 	EGI_8BIT_ALPHA	 Au, Ad; //Al, Ar; /* interpolated alpha at 4 sides. */
 
 	/* Get interpolation at upper and lower side. */
-	egi_16bitColor_interplt( color1, color2, alpha1, alpha2, f15_ratioX, &Cu, &Au);
-	egi_16bitColor_interplt( color3, color4, alpha1, alpha2, f15_ratioX, &Cd, &Ad);
+	egi_16bitColor_interplt( color1, color2, alpha1, alpha2, f15_ratioX, &Cu, alpha==NULL?NULL:&Au);
+	egi_16bitColor_interplt( color3, color4, alpha1, alpha2, f15_ratioX, &Cd, alpha==NULL?NULL:&Ad);
 
 	/* OR: Get interpolation at left and right side. */
 	//egi_16bitColor_interplt( color1, color3, alpha1, alpha3, f15_ratioY, &Cl, &Al);
