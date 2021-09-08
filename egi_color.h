@@ -39,7 +39,7 @@ extern "C" {
 typedef uint16_t		EGI_16BIT_COLOR;
 typedef uint32_t		EGI_24BIT_COLOR;
 typedef uint32_t		EGI_32BIT_COLOR;
-typedef unsigned char		EGI_8BIT_CCODE;  /* For Y,U,V */
+typedef unsigned char		EGI_8BIT_CCODE;  /* For Y,U,V, and others... */
 typedef unsigned char		EGI_8BIT_ALPHA;
 typedef struct egi_hsv_color	EGI_HSV_COLOR;
 typedef struct egi_color_band 	EGI_COLOR_BAND;
@@ -191,9 +191,9 @@ enum egi_color_range
 
 /* HSV color */
 struct egi_hsv_color {
-	int h; 			/* H--Hue	 [0 360]  or X%360 */
-	unsigned int s; 	/* S--Saturation [0 100%]*10000  */
-	uint8_t v; 		/* V--Value      [0 255] */
+	int 		h;	/* H--Hue	 [0 360]  or X%360 */
+	unsigned int    s; 	/* S--Saturation [0 100%]*10000  */
+	uint8_t 	v;	/* V--Value      [0 255] */
 };
 
 /* EGI Color Treatment Functions */

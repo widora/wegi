@@ -3,7 +3,6 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-
 	         EGI 3D Triangle Mesh
 
 Refrence:
@@ -137,6 +136,8 @@ Journal:
 	   Add Transform vtxList[].normal     <-----
 	6. Add E3D_TriMesh::transformAllVtxNormals() to transform vtxList[].normal.
 	7. Add reverseAllVtxNormals().
+2021-09-03:
+	1. Add void E3D_draw_coordNavIcon2D()
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -206,7 +207,7 @@ public:
 		/* Ref Coord. ? */
 		float u,v;
 
-		/* Normal vector.
+		/* Normal vector. Normalized!
 		 * Note:
 		 * 1. If each vertex has ONLY one normal value, save it here.
 		 * 2. If each vertex has more than one normal value, then save it
@@ -233,9 +234,9 @@ public:
 		struct Vertx {
 			int   index;	/* index as of vtxList[] */
 			float u,v;	/* Ref coord. for texture. */
-			E3D_Vector vn;  /* Vertex normal,
-					 * If each vertex has ONLY one normal value, save to vtxList[].normal.
-					 * Init all 0!
+			E3D_Vector vn;  /* Vertex normal, Normalized!
+					 * 1. Init all 0!
+					 * 2. If each vertex has ONLY one normal value, then save to vtxList[].normal.
 					 */
 		};
 		Vertx vtx[3];		/* 3 points to form a triangle */
@@ -789,6 +790,9 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 				}
 				sscanf( strline+2, "%f %f %f",
 					&vnList[vnListCnt].x, &vnList[vnListCnt].y, &vnList[vnListCnt].z);
+				/* Normalize it */
+				vnList[vnListCnt].normalize();
+
 				vnListCnt++;
 				break;
 			   case 'p': /* Parameter space vertices */
@@ -1048,7 +1052,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 	  }
         }
 	else
-	   egi_dpstd("vtxNormalIndex assiged! each vertex may have more than one normal values, as in triList[].vtx[].vn!\n");
+	   egi_dpstd("vtxNormalIndex assigned! each vertex may have more than one normal values, as in triList[].vtx[].vn!\n");
 
 
 END_FUNC:
@@ -1964,9 +1968,8 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev) const
 			vProduct=-vProduct;
 
 		/* 3. Adjust luma for pixcolor as per vProduct. */
-		//cout <<"vProduct: "<< vProduct;
 		fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
-		//cout <<" getY: " << (unsigned int)egi_color_getY(fbdev->pixcolor) << endl;
+		//egi_dpstd("vProduct: %e, LumaY: %d\n", vProduct, (unsigned int)egi_color_getY(fbdev->pixcolor));
 
 		/* 4. Get triangle pts. */
 		for(int k=0; k<3; k++) {
@@ -2026,7 +2029,9 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	//for(int i=0; i<tcnt; i++) {
 	for(i=0; i<tcnt; i++) {
 
-		#if 1 /* 1. Pick out back_facing triangles.  */
+		#if 1 /* 1. Pick out back_facing triangles.
+		       * Note: If you turn off back_facing triangles, it will be transparent there.
+		       */
 		vProduct=vView*(triList[i].normal); // *(-1.0f); // -vView as *(-1.0f);
 		/* Note: Because of float precision limit, vProduct==0.0f is NOT possible. */
 		if ( vProduct > -VPRODUCT_EPSILON ) {  /* >=0.0f */
@@ -2059,7 +2064,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		pts[1].x=roundf(vpts[1].x); pts[1].y=roundf(vpts[1].y);
 		pts[2].x=roundf(vpts[2].x); pts[2].y=roundf(vpts[2].y);
 
-#if 0
+#if 0 //////////////  Move to each switch() CASE  /////////////////////
 		/* 4. Calculate light reflect strength:  TODO: not correct, this is ONLY demo.  */
 		vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
 		//if( vProduct >= 0.0f )
@@ -2069,10 +2074,9 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			vProduct=-vProduct;
 
 		/* 5. Adjust luma for pixcolor as per vProduct. */
-		//cout <<"vProduct: "<< vProduct;
 		fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
-		//cout <<" getY: " << (unsigned int)egi_color_getY(fbdev->pixcolor) << endl;
-#endif
+		//egi_dpstd("vProduct: %e, LumaY: %d\n", vProduct, (unsigned int)egi_color_getY(fbdev->pixcolor));
+#endif /////////////////////////////////////////////////////////////
 
 		/* 6. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
 		/* A simple test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
@@ -2084,26 +2088,26 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		/* 6. Draw triangles with specified shading type. */
 		switch( shadeType ) {
 		   case E3D_FLAT_SHADING:
-			/* 4. Calculate light reflect strength:  TODO: not correct, this is ONLY demo.  */
+			/* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo. */
 			vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
 			//if( vProduct >= 0.0f )
 			if( vProduct > -VPRODUCT_EPSILON )
 				vProduct=0.0f;
 			else /* Flip to get vProduct absolute value for luma */
 				vProduct=-vProduct;
-
-			/* 5. Adjust luma for pixcolor as per vProduct. */
-			//cout <<"vProduct: "<< vProduct;
+			/* Adjust luma for pixcolor as per vProduct. */
 			fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
-			//cout <<" getY: " << (unsigned int)egi_color_getY(fbdev->pixcolor) << endl;
+			//fbdev->lumadelt=(vProduct-1.0f)*240.0) +50;
+			//egi_dpstd("vProduct: %e, LumaY: %d\n", vProduct, (unsigned int)egi_color_getY(fbdev->pixcolor));
 
+			/* Fill the TriFace */
 			draw_filled_triangle(fbdev, pts);
 			break;
 
 		   case E3D_GOURAUD_SHADING:
 			/* Get 3 vtx color */
 			for(int k=0; k<3; k++) {
-			   /* Calculate light reflect strength:  TODO: not correct, this is ONLY demo.  */
+			   /* Calculate light reflect strength for each vertex:  TODO: not correct, this is ONLY demo. */
 			   /* Case_A: Use vtxList[].normal */
 			   if(triList[i].vtx[0].vn.isZero())
 			      vProduct=gv_vLight*(vtxList[ triList[i].vtx[k].index ].normal);
@@ -2119,8 +2123,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			   vtxColor[k]=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
 			}
 
-			/* Fill trianle with pixel color, by barycentric coordinates interpolation. */
-			/* draw_filled_triangle2(fbdev, (float)x0,y0,x1,y1,x2,y2, color1, color2, color3) */
+			/* Fill triangle with pixel color, by barycentric coordinates interpolation. */
 			#if 0 /* Float x,y */
 			draw_filled_triangle2(fbdev,vpts[0].x, vpts[0].y,
 						    vpts[1].x, vpts[1].y,
@@ -2136,6 +2139,18 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			break;
 
 		   case E3D_WIRE_FRAMING:
+			/*  Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo.  */
+			vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+			//if( vProduct >= 0.0f )
+			if( vProduct > -VPRODUCT_EPSILON )
+				vProduct=0.0f;
+			else /* Flip to get vProduct absolute value for luma */
+				vProduct=-vProduct;
+			/* Adjust luma for pixcolor as per vProduct. */
+			fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+			//fbdev->lumadelt=(vProduct-1.0f)*240.0) +50;
+			//egi_dpstd("vProduct: %e, LumaY: %d\n", vProduct, (unsigned int)egi_color_getY(fbdev->pixcolor));
+
 			/* Draw line: OR draw_line_antialias() */
 			draw_line(fbdev, pts[0].x, pts[0].y, pts[1].x, pts[1].y);
 			draw_line(fbdev, pts[1].x, pts[1].y, pts[2].x, pts[2].y);
@@ -2145,13 +2160,22 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		   case E3D_TEXTURE_MAPPING:
 			if( textureImg==NULL ) {
 			   draw_filled_triangle(fbdev, pts);
-			} else {
-			   /* Adjust side luma according to vProudct. TODO: For demo only. */
+			}
+			else {
+			   /* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo.  */
+			   vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+			   //if( vProduct >= 0.0f )
+			   if( vProduct > -VPRODUCT_EPSILON )
+				vProduct=0.0f;
+			   else /* Flip to get vProduct absolute value for luma */
+				vProduct=-vProduct;
+
+			   /* Adjust side luma according to vProudct. TODO: This is for DEMO only. */
 			   fbdev->lumadelt=(vProduct-0.75)*100+50;
-			   //printf("lumadelt=%d\n", fbdev->lumadelt);
+			   //egi_dpstd("lumadelt=%d\n", fbdev->lumadelt);
 
 				/* Map texture.
-				*	  !!! --- CAUTION --- !!!
+				 *	  !!! --- CAUTION --- !!!
 				 *  Noticed that UV ORIGIN is different!
 				 * EGI: uv ORIGIN at Left_TOP corner
 				 * 3DS: uv ORIGIN at Left_BOTTOM corner.
@@ -2159,22 +2183,32 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			   #if 0  /* OPTION_1: Matrix Mapping. TODO: cube shows a white line at bottom side!?? */
 		        	egi_imgbuf_mapTriWriteFB(textureImg, fbdev,
 					/* u0,v0,u1,v1,u2,v2,  x0,y0,z0,  x1,y1,z1, x2,y2,z2 */
-        	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,
+        	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v, /* 1.0-x: Adjust uv ORIGIN */
                 	                triList[i].vtx[1].u, 1.0-triList[i].vtx[1].v,
                         	        triList[i].vtx[2].u, 1.0-triList[i].vtx[2].v,
                                 	pts[0].x, pts[0].y, 1,  /* NOTE: z values NOT to be 0/0/0!  */
 	                                pts[1].x, pts[1].y, 2,
         	                        pts[2].x, pts[2].y, 3
                 	        );
-			  #else /* OPTION_2: Barycentric coordinates mapping */
+			  #elif 0 /* OPTION_2: Barycentric coordinates mapping, FLOAT type x/y. */
 		        	egi_imgbuf_mapTriWriteFB2(textureImg, fbdev,
-					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2*/
-        	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,
+					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2 */
+        	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,  /* 1.0-x: Adjust uv ORIGIN */
                 	                triList[i].vtx[1].u, 1.0-triList[i].vtx[1].v,
                         	        triList[i].vtx[2].u, 1.0-triList[i].vtx[2].v,
                                 	pts[0].x, pts[0].y,
 	                                pts[1].x, pts[1].y,
         	                        pts[2].x, pts[2].y
+                	        );
+			  #else /* OPTION_3: Barycentric coordinates mapping, FLOAT type x/y. */
+		        	egi_imgbuf_mapTriWriteFB3(textureImg, fbdev,
+					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2 */
+        	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,  /* 1.0-x: Adjust uv ORIGIN */
+                	                triList[i].vtx[1].u, 1.0-triList[i].vtx[1].v,
+                        	        triList[i].vtx[2].u, 1.0-triList[i].vtx[2].v,
+                                	roundf(pts[0].x), roundf(pts[0].y),
+	                                roundf(pts[1].x), roundf(pts[1].y),
+        	                        roundf(pts[2].x), roundf(pts[2].y)
                 	        );
 			  #endif
 			}
@@ -2188,7 +2222,6 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	fbset_color2(&gv_fb_dev, color);
 }
 #endif
-
 
 
 /*--------------------------------------------------------------------
@@ -2297,9 +2330,8 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const 
 			vProduct=-vProduct;
 
 		/* 6. Adjust luma for pixcolor as per vProduct. */
-		//cout <<"vProduct: "<< vProduct;
 		fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
-		//cout <<" getY: " << (unsigned int)egi_color_getY(fbdev->pixcolor) << endl;
+		//egi_dpstd("vProduct: %e, LumaY: %d\n", vProduct, (unsigned int)egi_color_getY(fbdev->pixcolor));
 
 		/* 7. Get triangle pts. */
 		for(int k=0; k<3; k++) {
@@ -2704,7 +2736,8 @@ void E3D_draw_circle(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3
 
 /*---------------------------------------------------------------
 Draw the Coordinate_Navigating_Sphere(Frame).
-Draw a circle at Global XY plane then transform it by RTmatrix.
+Draw a circles at Global XY plane then transform it by RTmatrix,
+same way as for XZ,YZ plane circles.
 
 @fbdev:	 	Pointer to FBDEV.
 @r:	  	Radius.
@@ -2754,7 +2787,7 @@ Draw the Coordinate_Navigating_Sphere(Frame).
 Draw a circle at Global XY plane then transform it by RTmatrix.
 
 @fbdev:	 	Pointer to FBDEV.
-@r:	  	Radius.
+@size:	  	size of each axis.
 @RTmatrix: 	Transform matrix.
 ----------------------------------------------------------------*/
 #include "egi_FTsymbol.h"
@@ -2819,6 +2852,43 @@ void E3D_draw_coordNavFrame(FBDEV *fbdev, int size, const E3D_RTMatrix &RTmatrix
     gv_fb_dev.flipZ=false;
 }
 
+/*-----------------------------------------------------------------------
+Draw a 2D Coordinate_Navigating_Sphere(Frame), zbuff is OFF!
+
+@fbdev:	 	Pointer to FBDEV.
+@size:	  	size of each axis.
+@RTmatrix: 	Transform matrix.
+		!!! Translation component will be cleared !!!
+@x0,y0:		Center point of the coordNavFrame
+		Under SCREEN Coord.
+------------------------------------------------------------------------*/
+void E3D_draw_coordNavIcon2D(FBDEV *fbdev, int size, const E3D_RTMatrix &RTmatrix, int x0, int y0)
+{
+	if(fbdev==NULL) return;
+
+	bool zbuff_save=fbdev->zbuff_on;
+	fbdev->zbuff_on=false;
+
+	/* Reset translation */
+	E3D_RTMatrix pmatrix=RTmatrix;
+//	pmatrix=RTmatrix;
+	pmatrix.zeroTranslation();
+	/* Since other E3D_draw function will atuo. adjust origin to SCREEN center ... */
+	pmatrix.setTranslation(x0-fbdev->pos_xres/2, y0-fbdev->pos_yres/2, 0);
+
+	/* ISOmetric projMatrix */
+	E3D_ProjMatrix projMatrix;
+	projMatrix.type=0;
+	projMatrix.winW=fbdev->pos_xres;
+	projMatrix.winH=fbdev->pos_yres;
+
+	/* Draw a coordNaveSphere */
+//	E3D_draw_coordNavSphere(fbdev, size, pmatrix, projMatrix);
+	/* Draw a coordNaveFrame */
+	E3D_draw_coordNavFrame(fbdev, size, pmatrix, projMatrix);
+
+	fbdev->zbuff_on=zbuff_save;
+}
 
 #endif
 

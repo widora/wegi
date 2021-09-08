@@ -114,10 +114,10 @@ int main(int argc, char ** argv)
 	#if 1  /* ------- TEST: degenerated to a line ------------ */
 	if( angle <180 )	/* --------  CASE: Tree points NO overlap ------- */
 		draw_filled_triangle3(&gv_fb_dev, points[0].x, points[0].y, 160, 120, points[2].x, points[2].y,
-					WEGI_COLOR_RED, WEGI_COLOR_GREEN, WEGI_COLOR_BLUE);
-	else  			/* --------- CASE: Two points SAME coords! ---------- */
+					WEGI_COLOR_RED, WEGI_COLOR_BLUE, WEGI_COLOR_GREEN);
+	else  			/* --------- CASE: Two points at SAME coords! ---------- */
 		draw_filled_triangle3(&gv_fb_dev, points[0].x, points[0].y, points[2].x, points[2].y, points[2].x, points[2].y,
-					WEGI_COLOR_RED, WEGI_COLOR_GREEN, WEGI_COLOR_BLUE);
+					WEGI_COLOR_GREEN, WEGI_COLOR_RED, WEGI_COLOR_BLUE);
 	#endif
 
 	#if 0  /* ------- TEST: joint part(line) ------------ */

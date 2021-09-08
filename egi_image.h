@@ -138,7 +138,7 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
                                       float x1, float y1, float z1,
                                       float x2, float y2, float z2  );
 
-void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
+void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,  /* !!! OBSOLETE !!! */
                                       float u0, float v0,
                                       float u1, float v1,
                                       float u2, float v2,
@@ -146,7 +146,13 @@ void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
                                       float x1, float y1,
                                       float x2, float y2 );
 
-
+void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
+                                      float u0, float v0,
+                                      float u1, float v1,
+                                      float u2, float v2,
+                                      int x0, int y0,
+                                      int x1, int y1,
+                                      int x2, int y2 );
 #ifdef __cplusplus
  }
 #endif

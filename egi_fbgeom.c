@@ -68,8 +68,10 @@ Jurnal
 	1. Add draw_filled_triangle2(). float param: x,y
 2021-08-30:
 	1. Add draw_filled_triangle3(). int param: x,y
-2021-09-01:
+2021-09-01/02:
 	1. Improve draw_filled_triangle3( int x/y ).
+2021-09-07:
+	1. draw_filled_triangle3(): Case_3: if the triangle degenerates into a line!
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -2724,7 +2726,8 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 	//draw_triangle(dev, points);
 }
 
-/*-------------------------------------------------------------------
+
+/* ------------------------  OBSOLETE !!! ---------------------------------
 Draw a a filled triangle, pixel color are computed with barycentric
 coordinates interpolation.
 
@@ -2738,12 +2741,11 @@ TODO:
 2. 
 
 @dev,		Pointer to FBDEV.
-//@points:  	A pointer to 3 EGI_POINTs / Or an array;
-@x0-2,y0-2:	Coordinates of 3 points defining a triangle.
+@x0-2,y0-2:	Coordinates of 3 points defining a triangle. FLOAT type.
 @color0-3:	Colors for the 3 tip points.
 
 Midas Zhou
---------------------------------------------------------------------*/
+--------------------------------------------------------------------------*/
 void draw_filled_triangle2( FBDEV *fb_dev, float x0, float y0, float x1, float y1, float x2, float y2,
 			    EGI_16BIT_COLOR color0, EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2 )
 {
@@ -2913,16 +2915,36 @@ void draw_filled_triangle2( FBDEV *fb_dev, float x0, float y0, float x1, float y
 	}
 }
 
-/*======== INT: x,y  ==========*/
 
+/*-----------------------------------------------------------------------
+Draw a a filled triangle, pixel color are computed with barycentric
+coordinates interpolation, with consideration of following cases:
+   Case 1: All points are the SAME! the triangle converges into ONE point!.
+   Case 2: All points are collinear, as a vertical line.
+   Case 3: All points are collinear, as an oblique OR horizontal line.
+   Case 4: As a true resonalbe triangle.
+
+Note:
+  1. roundf() to improve accuracy, but NOT speed.
+  2. color=a*color0+b*color1+r*color2. here 16bit color!
+			!!! CRITICAL !!!
+  3. If the triangle degenrates into a line, then color of the midpoint
+     will be ineffective.
+
+@dev,		Pointer to FBDEV.
+@x0-2,y0-2:	Coordinates of 3 points defining a triangle, INT Type.
+@color0-3:	Colors for the 3 tip points.
+
+Midas Zhou
+------------------------------------------------------------------------*/
 void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x2, int y2,
 			    EGI_16BIT_COLOR color0, EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2 )
 {
-
 	/* Barycentric coordinates (a,b,r) for points inside the triangle:
 	 * P(x,y)=a*A + b*B + r*C;  where a+b+r=1.0.
 	 */
 	float a, b, r;
+	float ftmp;
 	int x; //y;
 
 	struct {
@@ -2932,7 +2954,7 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 	points[1].x=x1; points[1].y=y1; //points[1].z=z1;
 	points[2].x=x2; points[2].y=y2; //points[2].z=z2;
 
-	int i, k, kstart, kend;
+	int i, j, k, kstart, kend;
 	int nl=0,nr=0; 		/* left and right point index */
 	int nm; 		/* mid point index */
 
@@ -2943,13 +2965,14 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 	int x0s=x0, x1s=x1, x2s=x2;
 	int y0s=y0, y1s=y1, y2s=y2;
 
-	/* OR use INT type */
+	/* use INT type */
 	int yu=0;
 	int yd=0;
 	int ymu=0;
-	EGI_8BIT_CCODE R,G,B;
+	//EGI_8BIT_CCODE R,G,B;
+	EGI_16BIT_COLOR R,G,B;
 
-	/* Case 0: all points are the SAME! */
+	/* --- Case 1 ---: All points are the SAME! */
 	if(x0==x1 && x1==x2 && y0==y1 && y1==y2) {
         	/* Get interpolated color and draw dot. */
 		a=0.3333;    b=0.3333;    r=0.3333;
@@ -2961,28 +2984,80 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 		return;
 	}
 
-	/* Case 1: all points are collinear. including it TWO pionts are the SAME! */
-	// (y0-y1)/(x0-x1)=(y2-y1)/(x2-x1)
-	fcheck1 = -1.0*(x0-x1)*(y2-y1)+1.0*(y0-y1)*(x2-x1);
-	fcheck2 = -1.0*(x1-x2)*(y0-y2)+1.0*(y1-y2)*(x0-x2);
-	if( abs(fcheck1) < 0.001 ) {
+	/* If all points are collinear. including case that TWO pionts are at SAME position! */
+	fcheck1 = -1.0*(x0-x1)*(y2-y1)+(y0-y1)*(x2-x1); // 1.0*(y0-y1)*(x2-x1);
+	fcheck2 = -1.0*(x1-x2)*(y0-y2)+(y1-y2)*(x0-x2); // 1.0*(y1-y2)*(x0-x2);
+
+#if 1  /* If it degenerates into a line:  Move one vertex a little, to make it a NEW resonable triangle! So we can
+	* compute barycentric a/b/r! However, color of the midpoint will ineffective! Means ONLY one side
+	* of the triangle is drawn.
+	* TODO: If necessary, re_assign input x0y0~x2y2 as the NEW triangle.
+        */
+	if( abs(fcheck1) < 0.0001 ) {
 		egi_dpstd("fcheck1=%e, the Tri is degenerated into a line!\n", fcheck1);
 		//fcheck1=0.001;   FAILS!!! a,b OR r INALID!
-		/* Just move x1/y1 1 pixel! to avoid it's SAME as x0,y0 OR x2,y2 */
-		x1s-=x1-1;  y1s-=y1-1;
+
+		/* Just move x1 OR y1 1 pixel! to avoid it's SAME as x0,y0 OR x2,y2 */
+		if( x0==x1 && x1==x2 )
+			x1s=x1-1;
+		else   // if( y0==y1 && y1==y2)
+			y1s=y1-1;
+
 		/* Recalculate fcheck */
-		fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+1.0*(y0s-y1s)*(x2s-x1s);
-		fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+1.0*(y1s-y2s)*(x0s-x2s);
+		fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
+		fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); //  1.0*(y1s-y2s)*(x0s-x2s);
+		egi_dpstd("Aft min move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
+
+		 /* Check again! MUST NOT apply x1s/y2s both, in case it's a 45deg line! */
+		if(abs(fcheck1)<0.0001 || abs(fcheck2)<0.0001) {
+
+			/* Just Re_move x1 OR y1 1 pixel! to avoid it's SAME as x0,y0 OR x2,y2 */
+			if( x0==x1 && x1==x2 )
+                        	x1s=x1+1;
+	                else   // if( y0==y1 && y1==y2)
+                        	y1s=y1+1;
+			//x1s=x1+1;  //y1s=y1+1;
+
+			/* Recalculate fcheck */
+			fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
+			fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); // 1.0*(y1s-y2s)*(x0s-x2s);
+			egi_dpstd("Aft min. re_move: fcheck1=%e\n", fcheck1);
+		}
 	}
-	else if( abs(fcheck2) < 0.001 ) {
+	if( abs(fcheck2) < 0.0001 ) {
+	//if( abs(fcheck1) < 0.0001 || abs(fcheck2) <0.0001 ) {
 		egi_dpstd("fcheck2=%e, the Tri is degenerated into a line!\n", fcheck2);
 		//fcheck2=0.001;   FAILS!!! a,b OR r INALID!
+
 		/* Just move x2/y2 1 pixel! to avoid it's SAME as x1,y1 OR x0,y0 */
-		x2s=x2-1; y2s=y2-1;
+		if( x0==x1 && x1==x2 )
+			x2s=x2-1;
+		else   // if( y0==y1 && y1==y2)
+			y2s=y2-1;
+
 		/* Recalculate fcheck */
-		fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+1.0*(y0s-y1s)*(x2s-x1s);
-		fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+1.0*(y1s-y2s)*(x0s-x2s);
+		fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
+		fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); // 1.0*(y1s-y2s)*(x0s-x2s);
+		egi_dpstd("Aft min. move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
+
+		if(abs(fcheck2)<0.0001 ||abs(fcheck1)<0.0001) {
+			/* Just move x1/y1 1 pixel! to avoid it's SAME as x0,y0 OR x2,y2 */
+			if( x0==x1 && x1==x2 )
+				x2s=x2+1;
+			else   // if( y0==y1 && y1==y2)
+				y2s=y2+1;
+
+			/* Recalculate fcheck */
+			fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
+			fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); // 1.0*(y1s-y2s)*(x0s-x2s);
+			egi_dpstd("Aft min. re_move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
+		}
 	}
+	/* Check again, should NOT appear NOW! */
+	if(abs(fcheck1)<0.0001 || abs(fcheck2)<0.0001)
+		egi_dpstd("fcheck~=0!, points: {%d,%d} {%d,%d} {%d,%d}\n", x0,y0,x1,y1,x2,y2);
+
+#endif
 
 	/* Cal nl, nr. just after collinear checking! */
 	for(i=1; i<3; i++) {
@@ -2990,7 +3065,7 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 		if(points[i].x > points[nr].x) nr=i;
 	}
 
-	/* Case 1: all points are collinear as a vertical line. */
+	/* --- Case 2 ---: All points are collinear as a vertical line. */
 	if(nl==nr) {
 		/* Get yu yd */
 		yu=points[0].y;
@@ -3003,45 +3078,22 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 		x=points[0].x;
 		for(k=yd; k<=yu; k++) {
 			/* Compute barycentric coordinates: a,b,r */
-			//a=(-1.0*(x-x1)*(y2-y1)+1.0*(k-y1)*(x2-x1))/fcheck1; //(-1.0*(x0-x1)*(y2-y1)+1.0*(y0-y1)*(x2-x1));
-			//b=(-1.0*(x-x2)*(y0-y2)+1.0*(k-y2)*(x0-x2))/fcheck2; //(-1.0*(x1-x2)*(y0-y2)+1.0*(y1-y2)*(x0-x2));
-			a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1;
-			b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2;
+			//a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1;
+			//b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2;
+			a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
+			b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
 
-	#if 1 ////////////////////////////////////////////////////////////////////////
+			/* Normalize a/b/r */
+			if(a<0)a=-a; if(b<0)b=-b;
+			ftmp=a+b;
+			if(ftmp>1.0+0.001) {
+				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+				a=a/ftmp; b=b/ftmp;
+			}
 			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
 			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
 			r=1.0-a-b;
 			if(r<0.0f)r=0.0; // continue;
-	#elif 0 //////////////////////////////////////////////////////////////////
-			if( a<0.0f || a>1.0f ) {
-				if(a<0.0f && -a<1.0e-3)a=0.0f;
-				else if(a>1.0f && a<1.0+1.0e-3)a=1.0f;
-				else continue;
-			}
-			if( b<0.0f || b>1.0f ) {
-				if(b<0.0f && -b<1.0e-3)b=0.0f;
-				else if(b>1.0f && b<1.0+1.0e-3)b=1.0f;
-				else continue;
-			}
-			r=1.0-a-b;
-			//if(r<0.0f)r=0.0f; //else if(r>1.0f)r=1.0f;
-			//if(r<0.0f) continue;
-			if( r<0.0f ) {
-				if(-r<1.0e-3) r=0.0;
-				else continue;
-			}
-	#else /////////////////////////////////////////////////////////////////////
-			if(a<0.0f)a=0.0; else if(a>1.0f)a=1.0;
-			if(b<0.0f)b=0.0; else if(b>1.0f)b=1.0;
-			r=1.0-a-b;
-			if(r<0.0f)r=0.0; else if(r>1.0f)r=1.0;
-	#endif ////////////////
-
-			/* Get rid of invalid point, OR there will be noise points/lines on result image */
-			//if( a< 0.0f || a>1.0f || b<0.0f || b>1.0f || r<0.0f ||r>1.0f )
-//			if( a< -0.000001f || a> 1.0f+0.000001f || b<-0.000001f || b>1.0f+0.000001f || r<-0.000001f ||r>1.0f+0.000001f )
-//				continue;
 
 			/* Get interpolated color and draw dot. */
 			R=roundf(a*COLOR_R8_IN16BITS(color0)+b*COLOR_R8_IN16BITS(color1)+r*COLOR_R8_IN16BITS(color2));
@@ -3054,7 +3106,129 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 		return;
 	}
 
-	/* Case 2 */
+#if 1	/* ---- Case 3 ---: All points are collinear as an oblique/horizontal line. */
+	/* Note:
+	 *	1. You may skip case_3, to let Case_4 draw the line, however it draws ONLY discrete
+	 *	   dots for a steep line.
+	 *	2. Color of the midpoint of the line will be ineffective!
+	 * 	   TODO: NEW algrithm for interpolation color at a three_point line.
+	 */
+
+	if( (x0-x1)*(y2-y1)==(y0-y1)*(x2-x1) || (x1-x2)*(y0-y2)==(y1-y2)*(x0-x2) )
+	{
+		egi_dpstd("the Tri degenerates into an oblique/horiz line!");
+
+		int x1=points[nl].x;
+		int y1=points[nl].y;
+		int x2=points[nr].x;
+		int y2=points[nr].y;
+
+		int tekxx=x2-x1;
+		int tekyy=y2-y1;
+
+		int tmp;
+		EGI_16BIT_COLOR colorTmp; /* Color corresponds to k(y)=tmp */
+		EGI_16BIT_COLOR colorJ;   /* Color corresponds to k(y)=J */
+		EGI_16BIT_COLOR color;	  /* draw_dot() pixel color */
+
+	        /* Ruled out (points[nr].x == points[nl].x), as nl==nr. a vertical line. */
+		//klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
+//		klr=1.0*(y2-y1)/(x2-x1);
+
+		/* NOW: x2>x1 */
+		tmp=y1;
+
+		/* Get colorTmp */
+		if(nl==0) colorTmp=color0;
+		else if(nl==1) colorTmp=color1;
+		else colorTmp=color2;
+
+		/* Draw all points */
+		for(i=x1; i<=x2; i++) {
+		     	/* j as Py */
+		    	j=roundf( 1.0*(i-x1)*tekyy/tekxx+y1 );
+
+			/* Get color at (i, j) */
+			a=(-1.0*(i-x1s)*(y2s-y1s)+(j-y1s)*(x2s-x1s))/fcheck1;
+			b=(-1.0*(i-x2s)*(y0s-y2s)+(j-y2s)*(x0s-x2s))/fcheck2;
+
+		#if 1 /* TEST: ------------------------------- */
+			if(a!=a) egi_dpstd("a is NaN!\n");
+			if(b!=b) egi_dpstd("b is NaN!\n");
+		#endif
+
+			/* Normalize a/b/r */
+			if(a<0)a=-a; if(b<0)b=-b;
+			ftmp=a+b;
+			if(ftmp>1.0f+0.001) {
+				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+				a=a/ftmp; b=b/ftmp;
+			}
+			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
+			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
+			r=1.0-a-b;
+			if(r<0.0f) r=0.0f; //continue;
+
+                        /* Get interpolated color at point (i, j)*/
+                        R=roundf(a*COLOR_R8_IN16BITS(color0)+b*COLOR_R8_IN16BITS(color1)+r*COLOR_R8_IN16BITS(color2));
+                        G=roundf(a*COLOR_G8_IN16BITS(color0)+b*COLOR_G8_IN16BITS(color1)+r*COLOR_G8_IN16BITS(color2));
+                        B=roundf(a*COLOR_B8_IN16BITS(color0)+b*COLOR_B8_IN16BITS(color1)+r*COLOR_B8_IN16BITS(color2));
+			colorJ=COLOR_RGB_TO16BITS(R,G,B);
+
+	#if 1 /* TEST: ------------------------------- */
+			if(R==0 && G==0 && B==0) {
+				egi_dpstd("R=G=B=0! a=%e,b=%e,r=%e\n", a,b,r);
+			}
+			else if( R<10 && G<10 && B<10)
+				egi_dpstd("R,G,B<10! a=%e,b=%e,r=%e\n", a,b,r);
+
+			else if( R>255 || G>255 || B>255)
+				egi_dpstd("R,G,B>255! R=%d,G=%d,B=%d. a=%e,b=%e,r=%e\n", R,G,B, a,b,r);
+	#endif
+
+
+			if(y2>=y1) {
+				/* Traverse tmp (+)-> pY */
+				for(k=tmp; k<=j; k++) {
+					if(tmp==j) {
+						fbset_color2(fb_dev, colorJ);
+						draw_dot(fb_dev,i,k);
+						break;
+					}
+
+				     	/* Set color for point(i,k) */
+ 				     	egi_16bitColor_interplt( colorTmp, colorJ, 0, 0, (k-tmp)*(1<<15)/(j-tmp), &color, NULL);
+					fbset_color2(fb_dev, color);
+
+				     	draw_dot(fb_dev,i,k);
+				}
+			}
+			else {  /* y2<y1, Traverse tmp (-)-> pY*/
+				for(k=tmp; k>=j; k--) {
+					if(tmp==j) {
+						fbset_color2(fb_dev, colorJ);
+						draw_dot(fb_dev,i,k);
+						break;
+					}
+
+				     	/* Color for point(i,k) */
+ 				     	egi_16bitColor_interplt( colorTmp, colorJ, 0, 0, (tmp-k)*(1<<15)/(tmp-j), &color, NULL);
+					fbset_color2(fb_dev, color);
+
+				     	draw_dot(fb_dev,i,k);
+				}
+			}
+
+			tmp=j; /* Renew tmp as j(pY) */
+			colorTmp=colorJ; /* Renew colroTmp as color J */
+		}
+
+		return;
+	}
+#endif   /* End Case 3 */
+
+	/* ---- Case 4 ---: As a true triangle. */
+
 	/* Get x_mid point index, NOW: nl != nr. */
 	nm=3-nl-nr;
 
@@ -3082,7 +3256,7 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 	{
 		yu=roundf(klr*i+points[nl].y);
 		yd=roundf(klm*i+points[nl].y);
-//		egi_dpstd("nm-nl: yu=%d, yd=%d\n", yu,yd);
+		//egi_dpstd("nm-nl: yu=%d, yd=%d\n", yu,yd);
 
 		/* Cal. x */
 		x=points[nl].x+i;
@@ -3094,62 +3268,46 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 			/* Calculate barycentric coordinates: a,b,r */
 			/*Note: y=k */
 			/* Note: Necessary for precesion check! */
-			a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1; //(-1.0*(x0-x1)*(y2-y1)+1.0*(y0-y1)*(x2-x1));
-			b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2; //(-1.0*(x1-x2)*(y0-y2)+1.0*(y1-y2)*(x0-x2));
-//if( a<0.0f || a>1.0 || b<0.0 || b>1.0 || 1.0-a-b<0.0 || 1.0-a-b>1.0 )
-//	printf("a=%e, b=%e, f=%e\n",a,b,1.0-a-b);
+			//a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1;
+			//b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2;
+			a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
+			b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
 
-	#if 1 ///////////////////////////////////////////////////////////////////
+#if 1 /* TEST: ------------------------------- */
+			if(a!=a) egi_dpstd("a is NaN!\n");
+			if(b!=b) egi_dpstd("b is NaN!\n");
+#endif
+
+			/* Normalize a/b/r */
+			if(a<0)a=-a; if(b<0)b=-b;
+			ftmp=a+b;
+			if(ftmp>1.0f+0.001) {
+				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+				a=a/ftmp; b=b/ftmp;
+			}
 			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
 			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
 			r=1.0-a-b;
 			if(r<0.0f) r=0.0f; //continue;
-	#elif 0 //////////////////////////////////////////////////////////////////
-			if( a<0.0f || a>1.0f ) {
-				if(a<0.0f && -a<1.0e-3)a=0.0f;
-				else if(a>1.0f && a<1.0+1.0e-3)a=1.0f;
-				else {
-					egi_dpstd("a=%e!, ignore.\n",a);
-					continue;
-				}
-			}
-			if( b<0.0f || b>1.0f ) {
-				if(b<0.0f && -b<1.0e-3)b=0.0f;
-				else if(b>1.0f && b<1.0+1.0e-3)b=1.0f;
-				else {
-					egi_dpstd("b=%e!, ignore.\n", b);
-					continue;
-				}
-			}
-			r=1.0-a-b;
-			//if(r<0.0f)r=0.0f; //else if(r>1.0f)r=1.0f;
-			//if(r<0.0f) continue;
-			if( r<0.0f ) {
-				if(-r<1.0e-3) r=0.0;
-				else {
-					egi_dpstd("r=%e!, ignore.\n",r);
-					continue;
-				}
-			}
-	#else ////////////////////////////////////////////////////////////////
-			if(a<0.0f)a=0.0; else if(a>1.0f)a=1.0;
-			if(b<0.0f)b=0.0; else if(b>1.0f)b=1.0;
-			r=1.0-a-b;
-			if(r<0.0f)r=0.0; else if(r>1.0f)r=1.0;
-	#endif  //////////////////////////////////////////////////////////////
-
-			/* Get rid of invalid point, OR there will be noise points/lines on result image */
-//			if(a<0.0f || a>1.0f || b<0.0f || b>1.0f || r<0.0f ||r>1.0f)
-//			if( a< -0.000001f || a> 1.0f+0.000001f || b<-0.000001f || b>1.0f+0.000001f || r<-0.000001f ||r>1.0f+0.000001f )
-//				continue;
 
 			/* Get interpolated color and draw dot. */
 			R=roundf(a*COLOR_R8_IN16BITS(color0)+b*COLOR_R8_IN16BITS(color1)+r*COLOR_R8_IN16BITS(color2));
 			G=roundf(a*COLOR_G8_IN16BITS(color0)+b*COLOR_G8_IN16BITS(color1)+r*COLOR_G8_IN16BITS(color2));
 			B=roundf(a*COLOR_B8_IN16BITS(color0)+b*COLOR_B8_IN16BITS(color1)+r*COLOR_B8_IN16BITS(color2));
-//			egi_dpstd("a=%e,b=%e,r=%e   R=%d,G=%d,B=%d\n", a,b,r, R,G,B);
+
+#if 1 /* TEST: ------------------------------- */
+			if(R==0 && G==0 && B==0) {
+				egi_dpstd("R=G=B=0! a=%e,b=%e,r=%e\n", a,b,r);
+			}
+			else if( R<10 && G<10 && B<10)
+				egi_dpstd("R,G,B<10! a=%e,b=%e,r=%e\n", a,b,r);
+
+			else if( R>255 || G>255 || B>255)
+				egi_dpstd("R,G,B>255! R=%d,G=%d,B=%d. a=%e,b=%e,r=%e\n", R,G,B, a,b,r);
+#endif
+
 			fbset_color2(fb_dev, COLOR_RGB_TO16BITS(R,G,B));
-                        draw_dot(fb_dev, roundf(x), k);
+                        draw_dot(fb_dev, x, k);
 		}
 	}
 
@@ -3159,7 +3317,7 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 	{
 		yu=roundf(klr*i+ymu);
 		yd=roundf(kmr*i+points[nm].y);
-//		egi_dpstd("nr-nm: yu=%d, yd=%d\n", yu,yd);
+		//egi_dpstd("nr-nm: yu=%d, yd=%d\n", yu,yd);
 
 		/* Cal. x */
 		x=points[nm].x+i;
@@ -3171,62 +3329,42 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 			/* Calculate barycentric coordinates: a,b,r */
 			// y=k;
 			/* Note: Necessary for precesion check! */
-			a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1; //(-1.0*(x0-x1)*(y2-y1)+1.0*(y0-y1)*(x2-x1));
-			b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2; //(-1.0*(x1-x2)*(y0-y2)+1.0*(y1-y2)*(x0-x2));
+			//a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1;
+			//b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2;
+			a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
+			b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
 
-//if( a<0.0f || a>1.0 || b<0.0 || b>1.0 || 1.0-a-b<0.0 || 1.0-a-b>1.0 )
-//	printf("a=%e, b=%e, f=%e\n",a,b,1.0-a-b);
+#if 1 /* TEST: ------------------------------- */
+			if(a!=a) egi_dpstd("a is NaN!\n");
+			if(b!=b) egi_dpstd("b is NaN!\n");
+#endif
 
-	#if 1 ///////////////////////////////////////////////////////////////
+			/* Normalize a/b/r */
+			if(a<0)a=-a; if(b<0)b=-b;
+			ftmp=a+b;
+			if(ftmp>1.0f+0.001) {
+				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+				a=a/ftmp; b=b/ftmp;
+			}
 			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
 			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
 			r=1.0-a-b;
 			if(r<0.0f) r=0.0; //continue;
-	#elif 0 //////////////////////////////////////////////////////////////////
-			if( a<0.0f || a>1.0f ) {
-				if(a<0.0f && -a<1.0e-3)a=0.0f;
-				else if(a>1.0f && a<1.0+1.0e-3)a=1.0f;
-				else {
-					egi_dpstd("a=%e!, ignore.\n",a);
-					continue;
-				}
-			}
-			if( b<0.0f || b>1.0f ) {
-				if(b<0.0f && -b<1.0e-3)b=0.0f;
-				else if(b>1.0f && b<1.0+1.0e-3)b=1.0f;
-				else {
-					egi_dpstd("b=%e!, ignore.\n",b);
-					continue;
-				}
-			}
-			r=1.0-a-b;
-			//if(r<0.0f)r=0.0f; //else if(r>1.0f)r=1.0f;
-			//if(r<0.0f) continue;
-			if( r<0.0f ) {
-				if(-r<1.0e-3) r=0.0;
-				else {
-					egi_dpstd("r=%e!, ignore.\n",r);
-					continue;
-				}
-			}
-	#else //////////////////////////////////////////////////////////
-			if(a<0.0f)a=0.0; else if(a>1.0f)a=1.0;
-			if(b<0.0f)b=0.0; else if(b>1.0f)b=1.0;
-			r=1.0-a-b;
-			if(r<0.0f)r=0.0; else if(r>1.0f)r=1.0;
-	#endif ////////////////////////////////////////////////////////
-
-			/* Get rid of invalid point, OR there will be noise points/lines on result image */
-//			if( a<0.0f || a>1.0f || b<0.0f || b>1.0f || r<0.0f ||r>1.0f)
-//			if( a< -0.000001f || a> 1.0f+0.000001f || b<-0.000001f || b>1.0f+0.000001f || r<-0.000001f ||r>1.0f+0.000001f )
-//				continue;
 
 			/* Get interpolated color and draw dot. */
 			R=roundf(a*COLOR_R8_IN16BITS(color0)+b*COLOR_R8_IN16BITS(color1)+r*COLOR_R8_IN16BITS(color2));
 			G=roundf(a*COLOR_G8_IN16BITS(color0)+b*COLOR_G8_IN16BITS(color1)+r*COLOR_G8_IN16BITS(color2));
 			B=roundf(a*COLOR_B8_IN16BITS(color0)+b*COLOR_B8_IN16BITS(color1)+r*COLOR_B8_IN16BITS(color2));
-			if(R==0&&G==0&&B==0) egi_dpstd("R=G=B=0!\n");
-//			egi_dpstd("a=%e,b=%e,r=%e   R=%d,G=%d,B=%d\n", a,b,r, R,G,B);
+
+#if 0 /* TEST: ------------------------------- */
+			if(R==0 && G==0 && B==0)
+				egi_dpstd("R=G=B=0! a=%e,b=%e,r=%e\n", a,b,r);
+			else if( R<10 && G<10 && B<10)
+				egi_dpstd("R,G,B<10! a=%e,b=%e,r=%e\n", a,b,r);
+			else if( R>255 || G>255 || B>255)
+				egi_dpstd("R,G,B>255! R=%d,G=%d,B=%d. a=%e,b=%e,r=%e\n", R,G,B, a,b,r);
+#endif
+
 			fbset_color2(fb_dev, COLOR_RGB_TO16BITS(R,G,B));
                         draw_dot(fb_dev, x, k);
 		}

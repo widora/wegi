@@ -479,7 +479,6 @@ E3D_Vector operator * (const E3D_Vector &va, const E3D_RTMatrix  &ma)
 }
 
 
-
 /*--------------------------------------------------
 DONT fully understand projection matrix under NDC,
 so use this struct first!  :)))))))

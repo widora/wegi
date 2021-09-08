@@ -40,6 +40,12 @@ ding.obj -c -s 300 -A 2 -X 110 -P -T texding.png
 ding.obj -c -s 250 -A 2 -X 120 -P -T texding.png -a 5 -t -p 2000
 juese.obj  -s 8 -y 520 -X -40 -T texjuese.png -a 15
 juese.obj -c -s 4 -A 1 -Z -90 -x 30 -T texjuese.png -a 25
+killer-whale.obj -c -s 1.75 -z -400  -A 2 -X 105 -P
+earth.obj -c -s 9 -D -T TexEarth.jpg -X 130 -A 2 -a 10
+head_man05.obj -c -s 60 -X 160 -x 50 -a 10
+rabbit.obj -c -s 100 -X 90 -A 2 -y 20 -a 10 -T TexRabbit.jpg
+crownfish.obj -c -s 20 -X 90 -A 2 -P -a 10 -T crownfish.jpg
+covid.obj -c -X 190 -a 10 -T covid.png
 
 deer.obj -s 1 -y -100 -z 3500 -c -b -X -20
 myPack.obj -s 1.5 -z 1000 -X -30 -y 100 -b
@@ -207,7 +213,7 @@ void print_help(const char *name)
 	printf("-Y:    Y delta angle display\n");
 	printf("-Z:    Z delta angle for display\n");
 	printf("-T:    Texture image file(jpg,png).\n");
-	printf("-f:     Texture resize factor.\n");
+	printf("-f:    Texture resize factor.\n");
 	printf("-a:    delt angle for each move/rotation.\n");
 	printf("-p:    Pause mseconds\n");
         exit(0);
@@ -228,20 +234,19 @@ int main(int argc, char **argv)
 	0xF0CCA8--Bronze
 	*/
 
-
-	EGI_16BIT_COLOR	  bkgColor=WEGI_COLOR_GRAY5; // DARKPURPLE
+	EGI_16BIT_COLOR	  bkgColor=WEGI_COLOR_GRAY5;//GREEN; //GRAY5; // DARKPURPLE
 	EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(0xF0CCA8);//WEGI_COLOR_PINK;
 	EGI_16BIT_COLOR	  wireColor=WEGI_COLOR_BLACK; //DARKGRAY;
 	EGI_16BIT_COLOR	  aabbColor=WEGI_COLOR_LTBLUE;
 	EGI_16BIT_COLOR	  fontColor=WEGI_COLOR_GREEN;
-	EGI_16BIT_COLOR	  fontColor2=WEGI_COLOR_ORANGE;
-
+	EGI_16BIT_COLOR	  fontColor2=WEGI_COLOR_GREEN; //ORANGE;
 
 	char 		*textureFile=NULL;	/* Fpath */
 
 	unsigned int	xres,yres;
 	char 		strtmp[256]={0};
 	const char 	*fobj;
+	const char	*strShadeType=NULL;
 
 	float		scale=1.0f;
 	float		offx=0.0f, offy=0.0f, offz=0.0f;
@@ -459,7 +464,7 @@ int main(int argc, char **argv)
 #endif
 	/* 5. Move meshModel center to its local Origin.  */
 	if(autocenter_on) {
-		#if 1
+		#if 0
 		meshModel.updateVtxsCenter();
 		meshModel.moveVtxsCenterToOrigin(); /* AABB updated also */
 		#else
@@ -481,7 +486,7 @@ int main(int argc, char **argv)
 	RXmat.identity(); 	/* !!! setTranslation(0,0,0); */
 	RYmat.identity();
 	RZmat.identity();
-	VRTmat.identity();
+	VRTmat.identity();	/* Combined transform matrix */
 	ScaleMat.identity();
 	AdjustMat.identity();
 
@@ -492,11 +497,13 @@ int main(int argc, char **argv)
 		workMesh->readTextureImage(textureFile, -1); //xres);
 		if(workMesh->textureImg) {
 			workMesh->shadeType=E3D_TEXTURE_MAPPING;
-			if(egi_imgbuf_scale_update(&workMesh->textureImg,
+			if( texScale>0.0 ) {
+			    if(egi_imgbuf_scale_update(&workMesh->textureImg,
 					    texScale*workMesh->textureImg->width, texScale*workMesh->textureImg->height)==0)
-			    egi_dpstd("Scale texture image size to %dx%d\n",workMesh->textureImg->width, workMesh->textureImg->height);
-			else
-			   egi_dpstd("Fail to scale texture image!\n");
+			        egi_dpstd("Scale texture image size to %dx%d\n",workMesh->textureImg->width, workMesh->textureImg->height);
+			    else
+			        egi_dpstd("Fail to scale texture image!\n");
+			}
 		}
 	}
 
@@ -505,7 +512,7 @@ int main(int argc, char **argv)
 	/* W1. Clone meshModel to workMesh, with vertices/triangles/normals */
 	cout <<"Clone workMesh... \n";
 	workMesh->cloneMesh(meshModel);   /* include AABB */
-	workMesh->shadeType=E3D_GOURAUD_SHADING;
+//	workMesh->shadeType=E3D_GOURAUD_SHADING;
 
 #if 0 ///////////////////////////////////////////////
 	/* W2. Prepare transform matrix */
@@ -594,7 +601,6 @@ int main(int argc, char **argv)
         	fb_set_directFB(&gv_fb_dev,true);
 	}
 
-
 #if 1   /* W6. Render as solid faces. */
 	fbset_color2(&gv_fb_dev, faceColor);
 
@@ -628,6 +634,11 @@ int main(int argc, char **argv)
 
 	/* W10. Write note & statistics */
 	gv_fb_dev.zbuff_on=false;
+
+	/* Navigating sphere icon */
+	E3D_draw_coordNavIcon2D(&gv_fb_dev, 30, VRTmat, xres-35, 35);
+
+	/* Statistics and info. */
 	if(showInfo_on) {
 	   sprintf(strtmp,"Vertex: %d\nTriangle: %d\n%s\ndvv=%d%%",
 			vertexCount, triangleCount,
@@ -650,13 +661,29 @@ int main(int argc, char **argv)
                                         xres-120, yres-28,              /* x0,y0, */
                                         fontColor2, -1, 255,            /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
+
 	/* Shade type and face color */
-	if( workMesh->shadeType==E3D_FLAT_SHADING || workMesh->shadeType==E3D_GOURAUD_SHADING
-	    || workMesh->textureImg==NULL )
-	{
-		sprintf( strtmp,"0x%06X\n%s",
-			 COLOR_16TO24BITS(faceColor),
-			 workMesh->shadeType==E3D_GOURAUD_SHADING?(UFT8_PCHAR)"Gouraud shading":(UFT8_PCHAR)"Flat shading"
+
+//	if( workMesh->shadeType==E3D_FLAT_SHADING || workMesh->shadeType==E3D_GOURAUD_SHADING
+//	    || workMesh->textureImg==NULL )
+//	{
+	switch(workMesh->shadeType) {
+		case E3D_FLAT_SHADING:
+			strShadeType="Flat shading"; break;
+		case E3D_GOURAUD_SHADING:
+			strShadeType="Gouraud shading"; break;
+		case E3D_WIRE_FRAMING:
+			strShadeType="Wire framing"; break;
+		case E3D_TEXTURE_MAPPING:
+			strShadeType="Texture mapping"; break;
+		default:
+			strShadeType=NULL; break;
+	}
+
+		sprintf( strtmp,"0x%06X Y%d\n%s",
+			 COLOR_16TO24BITS(faceColor), egi_color_getY(faceColor),
+			 //workMesh->shadeType==E3D_GOURAUD_SHADING?(UFT8_PCHAR)"Gouraud shading":(UFT8_PCHAR)"Flat shading"
+			 strShadeType
 			);
 
         	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
@@ -666,7 +693,7 @@ int main(int argc, char **argv)
                                         5, yres-45,              	/* x0,y0, */
                                         fontColor, -1, 255,             /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
-	}
+//	}
 
 	gv_fb_dev.zbuff_on=true;
 
@@ -692,9 +719,12 @@ int main(int argc, char **argv)
 
 		/* Random face color */
 		faceColor=egi_color_random(color_all);
+		if(egi_color_getY(faceColor) < 150 )
+		faceColor=egi_colorLuma_adjust(faceColor, 150-egi_color_getY(faceColor));
+
 //		projMatrix.type=!projMatrix.type; /* Switch projection type */
 
-#if 0		/* Switch shadeType: Loop FLAT --> WIRE --> TEXTURE  */
+#if 1		/* Switch shadeType: Loop FLAT --> WIRE --> TEXTURE  */
 		if(workMesh->shadeType==E3D_FLAT_SHADING) {
 			workMesh->shadeType=E3D_GOURAUD_SHADING;
 		}
@@ -703,7 +733,10 @@ int main(int argc, char **argv)
 			workMesh->shadeType=E3D_WIRE_FRAMING;
 		}
 		else if(workMesh->shadeType==E3D_WIRE_FRAMING) {
-			workMesh->shadeType=E3D_TEXTURE_MAPPING;
+			if(workMesh->textureImg)
+				workMesh->shadeType=E3D_TEXTURE_MAPPING;
+			else
+				workMesh->shadeType=E3D_FLAT_SHADING;
 		}
 		else if(workMesh->shadeType==E3D_TEXTURE_MAPPING) {
 			workMesh->shadeType=E3D_FLAT_SHADING;
@@ -855,6 +888,7 @@ int main(int argc, char **argv)
 	/* 10. Note & statistics */
         /* Reset Screen Y for EGI functions */
         fb_position_rotate(&gv_fb_dev, 0);
+
 	/* Zbuff OFF */
 	gv_fb_dev.zbuff_on=false;
         FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
