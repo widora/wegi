@@ -32,7 +32,7 @@ cats.obj -z 500 -c -X -40 -y 20 -a 11 -b
 cube.obj -c -s 1.75 -X 160 -P -T cubetexture3.png -a 5 -D
 teapot.obj -c -s 1.5 -X 195 -r		!!! --- Gouraud test --- !!!
 jaguar.obj -c -s 5 -X -170 -T texture_jaguar.png -P -a 10
-head_man04.obj -c -s 18 -X 180 -P -y -40       !!! --- Gouraud test --- !!!
+head_man04.obj -c -s 18 -X 180 -P -y 30       !!! --- Gouraud test --- !!!
 dog.obj -c -s 400 -X -175 -T texdog.png -a 5 -P -b
 mingren.obj -c -s 4 -A 0 -Y 90 -X 90 -x -15 -T texmingren.png -a 10 -f 0.25
 boat.obj -c -s 100 -X -P -y -50
@@ -46,6 +46,7 @@ head_man05.obj -c -s 60 -X 160 -x 50 -a 10
 rabbit.obj -c -s 100 -X 90 -A 2 -y 20 -a 10 -T TexRabbit.jpg
 crownfish.obj -c -s 20 -X 90 -A 2 -P -a 10 -T crownfish.jpg
 covid.obj -c -X 190 -a 10 -T covid.png
+3Dhead.obj -c -s 120 -X 180 -T 3DheadColor.jpg
 
 deer.obj -s 1 -y -100 -z 3500 -c -b -X -20
 myPack.obj -s 1.5 -z 1000 -X -30 -y 100 -b
@@ -53,7 +54,7 @@ myPack.obj -s 1.5 -c -z 750 -X -30 -b -y -25  	!!! --- Check frustum clipping --
 bird.obj -s 80 -z 800 -b -w -X -20    		!!! --- Check frustum clipping --- !!!
 bird.obj -c -s 80 -b -X -25  Auto_z
 sail.obj -z 40 -c -X -60 -R -b -y 2   !!! --- Mesh between Foucs and View_plane --- !!!
-sail.obj -c -s 25 -X 200 -y 50 -z -250 -a 25 -P -D
+sail.obj -c -s 25 -X 165 -z -250 -a 25 -P -D
 lion.obj -s 0.025 -c -X -30
 
 	----- Test FLOAT_EPSILON -----
@@ -172,6 +173,10 @@ Journal:
 	OPTION_1: Rotating_axis selection.
 2021-08-30:
 	Test gouraud shading.
+2021-09-09:
+	Same FB data as subimges of simg, and then for serial playing.
+2021-09-10:
+	Save screen as a frame of a motion file.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -179,26 +184,32 @@ midaszhou@yahoo.com
 #include <iostream>
 #include <stdio.h>
 #include <limits.h>
-#include "e3d_vector.h"
-#include "e3d_trimesh.h"
+
 #include "egi_math.h"
 #include "egi_debug.h"
 #include "egi_fbdev.h"
 #include "egi_color.h"
 #include "egi_FTsymbol.h"
 #include "egi_timer.h"
+#include "egi_bjp.h"
+
+#include "e3d_vector.h"
+#include "e3d_trimesh.h"
 
 using namespace std;
 
+#define MOTION_FILE  "/mmc/mesh.motion"
 
 void print_help(const char *name)
 {
-	printf("Usage: %s obj_file [-hrDNRPwbtcf:s:x:y:z:A:X:Y:Z:T:a:p:]\n", name);
+	printf("Usage: %s obj_file [-hrBDNRSPwbtcf:s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
 	printf("-h     Help\n");
 	printf("-r     Reverse trianlge normals\n");
+	printf("-B     Display back faces with default color.\n");
 	printf("-D     Show mesh detail statistics and other info.\n");
 	printf("-N     Show coordinate navigating sphere/frame.\n");
 	printf("-R     Reverse vertex Z direction.\n");
+	printf("-S     Save serial FB images and loop playing.\n");
 	printf("-P     Perspective ON\n");
 	printf("-w     Wireframe ON\n");
 	printf("-b     AABB ON\n");
@@ -209,6 +220,7 @@ void print_help(const char *name)
 	printf("-y:    Y_offset for display\n");
 	printf("-z:    Z_offset for display\n");
 	printf("-A:    0,1,2 Rotation axis, default FB_COORD_Y, 0_X, 1_Y, 2_Z \n");
+	printf("-M:    Save frames to a motion file.\n");
 	printf("-X:    X delta angle for display\n");
 	printf("-Y:    Y delta angle display\n");
 	printf("-Z:    Z delta angle for display\n");
@@ -219,8 +231,13 @@ void print_help(const char *name)
         exit(0);
 }
 
+
+/*-----------------------------
+	    MAIN()
+-----------------------------*/
 int main(int argc, char **argv)
 {
+	int i;
         int             vertexCount=0;
         int             triangleCount=0;
 #if 0
@@ -228,10 +245,10 @@ int main(int argc, char **argv)
         int             textureCount=0;
         int             faceCount=0;
 #endif
-	/*
-	0xD0BC4B--Golden
-	0xB8DCF0--Milk white
-	0xF0CCA8--Bronze
+	/* 24bit color ref
+	 0xD0BC4B--Golden
+	 0xB8DCF0--Milk white
+	 0xF0CCA8--Bronze
 	*/
 
 	EGI_16BIT_COLOR	  bkgColor=WEGI_COLOR_GRAY5;//GREEN; //GRAY5; // DARKPURPLE
@@ -243,10 +260,16 @@ int main(int argc, char **argv)
 
 	char 		*textureFile=NULL;	/* Fpath */
 
+	char		fpath[1024];		/* File path for saving JPG */
+	EGI_IMGBUF	*fbimg=NULL;		/* A ref. to FB data */
+	EGI_IMGBUF 	*simg=NULL;		/* Serial imgbuf for motion picture */
+	int		imgcnt=0;		/* Counter of subimg of simg */
+
 	unsigned int	xres,yres;
 	char 		strtmp[256]={0};
 	const char 	*fobj;
 	const char	*strShadeType=NULL;
+	char		*fmotion=NULL;		/* File path for motion file */
 
 	float		scale=1.0f;
 	float		offx=0.0f, offy=0.0f, offz=0.0f;
@@ -266,6 +289,9 @@ int main(int argc, char **argv)
 //	bool		flipXYZ_on =false;	/* Flip XYZ for screen coord */
 	bool		coordNavigate_on=false; /* Show coordinate navigating sphere/frame */
 	bool		showInfo_on=false;	/* Show mesh detail statistics and other info. */
+	bool		serialPlay_on=false;	/* Save serial FB image and then loop play */
+	bool		saveMotion_on=false;	/* Save screen as a frame of a motion file */
+	bool		backFace_on=false;	/* Display back faces */
 
 	/* Projectionn matrix */
 	float		dview;		/* Distance from the Focus(usually originZ) to the Screen/ViewPlane */
@@ -275,7 +301,7 @@ int main(int argc, char **argv)
 
         /* Parse input option */
 	int opt;
-        while( (opt=getopt(argc,argv,"hrDNRPwbtcf:s:x:y:z:A:X:Y:Z:T:a:p:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hrBDNRSPwbtcf:s:x:y:z:A:M:X:Y:Z:T:a:p:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
 				print_help(argv[0]);
@@ -283,6 +309,9 @@ int main(int argc, char **argv)
                         case 'r':
                                 reverseNormal=true;
                                 break;
+			case 'B':
+				backFace_on=true;
+				break;
 			case 'D':
 				showInfo_on=true;
 				break;
@@ -291,6 +320,9 @@ int main(int argc, char **argv)
 				break;
 			case 'R':
 				reverseZ=true;
+				break;
+			case 'S':
+				serialPlay_on=true;
 				break;
 			case 'P':
 				perspective_on=true;
@@ -327,6 +359,10 @@ int main(int argc, char **argv)
 				rotAxis=atoi(optarg);
 				if(rotAxis<0 || rotAxis>2) rotAxis=1;
 				break;
+			case 'M':
+				saveMotion_on=true;
+				fmotion=optarg;
+				break;
 			case 'X':
 				rotX=atof(optarg);
 				break;
@@ -340,7 +376,7 @@ int main(int argc, char **argv)
 				textureFile=optarg;
 				break;
 			case 'a':
-				da=atoi(optarg);
+				da=strtof(optarg,NULL); //atof(optarg);
 				break;
 			case 'p':
 				psec=atoi(optarg);
@@ -374,6 +410,39 @@ int main(int argc, char **argv)
 	gv_fb_dev.zbuff_on = true;		/* Zbuff ON */
 	fb_init_zbuff(&gv_fb_dev, INT_MIN);
 
+	/* Prepare fbimg, and relates to FB */
+	fbimg=egi_imgbuf_alloc();
+	fbimg->width=xres;
+	fbimg->height=yres;
+	fbimg->imgbuf=(EGI_16BIT_COLOR*)gv_fb_dev.map_fb;
+
+	/* Prepare for serial images playing */
+	if( serialPlay_on ) {
+
+		/* Prepare simg or serial image. Max 72 subimg  */
+		simg = egi_imgbuf_createWithoutAlpha(yres, xres*72, 0);
+		if(simg==NULL) {
+			printf("Fail to create simg!\n");
+			exit(EXIT_FAILURE);
+		}
+		simg->submax=72-1; /* Set submax */
+
+		/* Allocate subimg boxes */
+		simg->subimgs=egi_imgboxes_alloc(72);
+		if(simg->subimgs==NULL) {
+			printf("Fail to create simg->subimgs!\n");
+			exit(EXIT_FAILURE);
+		}
+		for(i=0; i<72; i++) {
+			simg->subimgs[i].x0=xres*i;
+			simg->subimgs[i].y0=0;
+			simg->subimgs[i].w=xres;
+			simg->subimgs[i].h=yres;
+		}
+		/* Reset imgcnt */
+		imgcnt=0;
+	}
+
         /* Load freetype appfonts */
         if(FTsymbol_load_appfonts() !=0 ) {     /* load FT fonts LIBS */
                 printf("Fail to load FT appfonts, quit.\n");
@@ -388,6 +457,9 @@ int main(int argc, char **argv)
 	/* Read obj file to meshModel */
 	cout<< "Read obj file '"<< fobj <<"' into E3D_TriMesh... \n";
 	E3D_TriMesh	meshModel(fobj);
+	if(meshModel.vtxCount()==0)
+		exit(-1);
+
 	sleep(2);
 #if 0  /* TEST: -------- */
 	meshModel.printAllVertices("meshModel");
@@ -429,6 +501,14 @@ int main(int argc, char **argv)
 	E3D_RTMatrix ScaleMat;
 	E3D_RTMatrix AdjustMat;  		/* For adjust */
 	float angle=0.0;
+
+/* ---TEST: Save FB images to a motion file.  ------------------------- */
+	if(saveMotion_on) {
+		if(fmotion==NULL)
+			fmotion=MOTION_FILE;
+		if( egi_imgmotion_saveHeader(fmotion, xres, yres, 50, 1) !=0 )  /* (fpath, width, height, delayms, compress) */
+			exit(EXIT_FAILURE);
+	}
 
 #if 1 //////////////////////  OPTION_1. Move/Scale workMesh and Keep View Direction as Global_COORD_Z (-z-->+z)  /////////////////////////
 			   /*  Loop Rendering: renderMesh(fbdev)  */
@@ -506,12 +586,21 @@ int main(int argc, char **argv)
 			}
 		}
 	}
+	else
+		workMesh->shadeType=E3D_GOURAUD_SHADING;
 
   while(1) {
 
 	/* W1. Clone meshModel to workMesh, with vertices/triangles/normals */
 	cout <<"Clone workMesh... \n";
 	workMesh->cloneMesh(meshModel);   /* include AABB */
+
+        /* Turn bakcFace on */
+	if(backFace_on) {
+ 		workMesh->backFaceOn=true;
+		workMesh->bkFaceColor=WEGI_COLOR_RED;
+	}
+
 //	workMesh->shadeType=E3D_GOURAUD_SHADING;
 
 #if 0 ///////////////////////////////////////////////
@@ -652,8 +741,16 @@ int main(int argc, char **argv)
                                         5, 4,                             /* x0,y0, */
                                         fontColor, -1, 200,        	  /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );         /* int *cnt, int *lnleft, int* penx, int* peny */
-	}
+	 }
 
+	 sprintf(strtmp, "Angle: %.1f", angle);
+         FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
+                                        16, 16,                           /* fw,fh */
+                                        (UFT8_PCHAR)strtmp, 		  /* pstr */
+                                        300, 1, 0,                        /* pixpl, lines, fgap */
+                                        xres-105, yres-45,                /* x0,y0, */
+                                        fontColor, -1, 255,        	  /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL );         /* int *cnt, int *lnleft, int* penx, int* peny */
         FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
                                         20, 20,                         /* fw,fh */
                                         (UFT8_PCHAR)"E3D MESH", 	/* pstr */
@@ -703,7 +800,7 @@ int main(int argc, char **argv)
 	if(psec) tm_delayms(psec);//usleep(psec*1000);
 
 	/* W13. Update angle */
-	angle +=(5+da); // *MATH_PI/180;
+	angle += (5.0+da); // *MATH_PI/180;
 
 #if 0 /* TEST: ------ */
         if(workMesh->shadeType==E3D_FLAT_SHADING)
@@ -712,10 +809,48 @@ int main(int argc, char **argv)
 		workMesh->shadeType=E3D_FLAT_SHADING;
 #endif
 
-	/* To keep precision */
-	if(angle >360 || angle <-360) {
-		if(angle>360) angle -=360;
-		if(angle<-360) angle +=360;
+/* ---TEST Record Screen: Save screen as a frame of a motion file. ------------------------- */
+	if(saveMotion_on) {
+		if( egi_imgmotion_saveFrame(fmotion, fbimg)!=0 ) {
+			exit(-1);
+		}
+	}
+
+
+#if 0	/* If saveFB and serial playing. */
+	if( serialPlay_on ) {
+	   if(angle>360) {
+	 	//exit(0);
+		/* Reset simg->submax */
+		simg->submax=imgcnt-1;
+		/* Loop play simg */
+		while(1) {
+			printf("Serial write simg...\n");
+			egi_subimg_serialWriteFB(&gv_fb_dev, simg, 0, 0, 50);
+		}
+	   }
+	   else {
+		#if 0 /* Save serial image to file */
+		sprintf(fpath,"/mmc/tmp/%03d.jpg", (int)angle);
+		egi_save_FBjpg(&gv_fb_dev, fpath, 100);
+		#else /* Save to simg */
+
+		/* Copy FB image into simg, (destimg, srcimg, blendON, bw, bh, xd, yd, xs, ys) */
+		if( imgcnt <= simg->submax ) {
+			egi_imgbuf_copyBlock( simg, fbimg, false, xres, yres, xres*imgcnt, 0, 0, 0);
+			imgcnt ++;
+			printf("Simg adds a subimg: imgcnt=%d \n", imgcnt);
+		}
+
+		#endif
+	   }
+	}
+#endif
+
+	/* To keep precision: Suppose it starts with angle==0!  */
+	if( (int)angle >=360 || (int)angle <= -360) {
+		if((int)angle>=360) angle -=360;
+		if((int)angle<-360) angle +=360;
 
 		/* Random face color */
 		faceColor=egi_color_random(color_all);
@@ -731,6 +866,9 @@ int main(int argc, char **argv)
 		else if(workMesh->shadeType==E3D_GOURAUD_SHADING) {
 			//workMesh->shadeType=E3D_TEXTURE_MAPPING;
 			workMesh->shadeType=E3D_WIRE_FRAMING;
+/* TEST: ---------- */
+			if( saveMotion_on )
+				exit(0);
 		}
 		else if(workMesh->shadeType==E3D_WIRE_FRAMING) {
 			if(workMesh->textureImg)
@@ -740,6 +878,9 @@ int main(int argc, char **argv)
 		}
 		else if(workMesh->shadeType==E3D_TEXTURE_MAPPING) {
 			workMesh->shadeType=E3D_FLAT_SHADING;
+/* TEST: ---------- */
+			if( saveMotion_on )
+				exit(0);
 		}
 #endif
 	}

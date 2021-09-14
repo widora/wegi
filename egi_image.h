@@ -106,6 +106,7 @@ int egi_image_rotdisplay( EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int angle,		/* 
 /* display sub_image of an EGI_IMAGBUF */
 int egi_subimg_writeFB(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subnum,		/* mutex_lock */
                                                         int subcolor, int x0,   int y0);
+void egi_subimg_serialWriteFB(FBDEV *fb_dev, EGI_IMGBUF *egi_imgbuf, int x0, int y0, int delayms);
 
 /* For whole imgbuf: rest color and alpha */
 int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha );		/* NOPE! mutex_lock */
@@ -130,7 +131,7 @@ int  egi_imgbuf_showRBG888( const unsigned char *rgb, int width, int height,
                             FBDEV *fb_dev, int x0, int y0 );
 
 int egi_imgbuf_uvToPixel(EGI_IMGBUF *imgbuf, float u, float v, EGI_16BIT_COLOR* color, unsigned char *alpha );
-void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
+void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,  /* FLOAT x/y, Matrix mapping */
                                       float u0, float v0,
                                       float u1, float v1,
                                       float u2, float v2,
@@ -138,7 +139,7 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
                                       float x1, float y1, float z1,
                                       float x2, float y2, float z2  );
 
-void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,  /* !!! OBSOLETE !!! */
+void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,  /* !!! OBSOLETE !!! FLOAT x/y, Barycentric mapping */
                                       float u0, float v0,
                                       float u1, float v1,
                                       float u2, float v2,
@@ -146,13 +147,20 @@ void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,  /* !!! OBSOLE
                                       float x1, float y1,
                                       float x2, float y2 );
 
-void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
+void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,  /* INT x/y, Barycentric mapping. */
                                       float u0, float v0,
                                       float u1, float v1,
                                       float u2, float v2,
                                       int x0, int y0,
                                       int x1, int y1,
                                       int x2, int y2 );
+
+/* EGI_IMGMOTION */
+int egi_imgmotion_saveHeader(const char *fpath, int width, int height, int delayms, int compress);
+int egi_imgmotion_saveFrame(const char *fpath, EGI_IMGBUF *imgbuf);
+int egi_imgmotion_playFile(const char *fpath, FBDEV *fbdev, int delayms, int x0, int y0);
+
+
 #ifdef __cplusplus
  }
 #endif

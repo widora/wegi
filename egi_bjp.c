@@ -28,6 +28,8 @@ Journal:
 
 2021-06-06:
 	1. Add: egi_imgbuf_savejpg()
+2021-09-08:
+	1. Add: egi_save_FBjpg()
 
 Modified and appended by Midas Zhou
 midaszhou@yahoo.com
@@ -1559,3 +1561,50 @@ int egi_save_FBpng(FBDEV *fb_dev, const char *fpath)
 	return ret;
 }
 
+
+/*---------------------------------------------------
+Save FB data to a JPEG file.
+
+@fb_dev:	Pointer to an FBDEV
+@fpath:		Input path to the file.
+@quality:	Quality of compression.
+
+Return:
+	0	OK
+	<0	Fail
+---------------------------------------------------*/
+int egi_save_FBjpg(FBDEV *fb_dev, const char *fpath, int quality)
+{
+	int ret=0;
+
+	if(fb_dev==NULL || fb_dev->map_fb==NULL || fpath==NULL)
+		return -1;
+
+        EGI_IMGBUF *imgbuf=egi_imgbuf_alloc();
+        if(imgbuf==NULL)
+                return -2;
+
+	/* Assign width and height as per FB POSITION ROTATION */
+	imgbuf->width=fb_dev->pos_xres;
+	imgbuf->height=fb_dev->pos_yres;
+
+	/* Get refer to map_fb */
+        imgbuf->imgbuf=(EGI_16BIT_COLOR *)fb_dev->map_fb; /* !!! WARNING: temporary refrence !!! */
+	/* imgbuf->alpha keeps NULL, as FB buffer has no alpha. */
+
+	/* Rotate imgbuf as per pos_rotate, imgbuf as copied. */
+	imgbuf=egi_imgbuf_rotate(imgbuf, 90*fb_dev->pos_rotate);
+	if(imgbuf==NULL) {
+		printf("%s: Fail to call egi_imgbuf_rotate()!\n",__func__);
+		return -3;
+	}
+
+	/* Save to jpg */
+        if(egi_imgbuf_savejpg(fpath, imgbuf, quality) != 0 )
+		ret=-4;
+
+	/* Free imgbuf */
+	egi_imgbuf_free(imgbuf);
+
+	return ret;
+}

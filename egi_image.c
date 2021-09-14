@@ -30,6 +30,16 @@ Jurnal
 	XXX 2. egi_imgbuf_uvToPixel(): Check/make u/v within [0.0 1.0].
 2021-09-08:
 	1. Add egi_imgbuf_mapTriWriteFB3().
+2021-09-09:
+	1. Improve egi_imgbuf_mapTriWriteFB3(): interpolation u/v for line pixel.
+	2. Add egi_subimg_serialWriteFB().
+2021-09-10:
+	1. Add egi_imgmotion_saveHeader()
+	2. Add egi_imgmotion_saveFrame()
+	3. Add egi_imgmotion_playFile()
+2021-09-13
+	1. Zlib compress/uncompress IMGMOTION,
+	   and update egi_imgmotion_xxxx() functions accordingly.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -3499,6 +3509,9 @@ int egi_subimg_writeFB(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subindex,
 	int xp,yp;
 	int w,h;
 
+	if(fb_dev==NULL)
+		return -1;
+
 	if(egi_imgbuf==NULL || egi_imgbuf->imgbuf==NULL ) {
 		printf("%s: egi_imbuf or egi_imgbuf->imgbuf is NULL!\n",__func__);
 		return -1;;
@@ -3537,6 +3550,38 @@ int egi_subimg_writeFB(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subindex,
 
 	return ret;
 }
+
+/*---------------------------------------------------------------------------------
+Write a sub_images in the EGI_IMGBUF to FB one by one, with delayms for each image.
+
+egi_imgbuf:     an EGI_IMGBUF struct which hold bits_color image data of a picture.
+fb_dev:		FB device
+(x0,y0):        displaying window origin, relate to the LCD coord system.
+delayms:	Delay ms for each subimage.
+		If <0, apply egi_imgbuf->delayms.
+
+Return:
+		0	OK
+		<0	fails
+---------------------------------------------------------------------------------*/
+void egi_subimg_serialWriteFB(FBDEV *fb_dev, EGI_IMGBUF *egi_imgbuf, int x0, int y0, int delayms)
+{
+      	int i;
+
+	/* egi_subimg_writeFB() will check fb_dev, egi_imgbuf AND subindex */
+	if(egi_imgbuf==NULL)
+		return;
+
+	for(i=0; i < egi_imgbuf->submax +1; i++) {
+		egi_subimg_writeFB(egi_imgbuf, fb_dev, i, -1, x0, y0);
+		fb_render(fb_dev);
+		if(delayms<0)
+			tm_delayms(egi_imgbuf->delayms);
+		else
+			tm_delayms(delayms);
+	}
+}
+
 
 /*-----------------------------------------------------------------
 		        Reset Color and Alpha value
@@ -4203,12 +4248,17 @@ int egi_imgbuf_uvToPixel(EGI_IMGBUF *imgbuf, float u, float v,
 
 Map a triangle to imgbuf and write mapped pixles to FB.
 
+Note:
+1. if u/v is very near to 1.0, then locimg MAY be out of range for imgbuf->imgbuf[locimg]
+   notice u/v --> [0 1)
+
 TODO:
 1. Fail to inverse matrix_XYZ in some postion!  However cube test MAYBE OK!!!
 
+
 @imbufg:	A pointer to EGI_IMGBUF
 @fb_dev:	A pointer to FBDEV
-@ux,vx:		u/v[0 1] for mapping triangle vertices.
+@ux,vx:		u/v[0 1) for mapping triangle vertices.
 @x/y/z:		XYZ coordinates for trianlge vertice.
 ----------------------------------------------------------------------*/
 void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
@@ -4403,7 +4453,7 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 	}
 }
 
-/* OBSOLETE: use egi_imgbuf_mapTriWriteFB3() */
+/* OBSOLETE: replaced by egi_imgbuf_mapTriWriteFB3() */
 /* ---------<<<  ALGORITHM_2: Barycentric coordinates mapping  >>>----------
 			    (FLOAT x/y)
 Map a triangle to imgbuf and write mapped pixles to FB.
@@ -4411,10 +4461,12 @@ Map a triangle to imgbuf and write mapped pixles to FB.
 NOTE:
 1. DO NOT check/make a/b/r AND u/v to within [0.0 1.0], just get rid of them
    if not in the range. OR some noise pixels will appear on result image!!!
+2. if u/v is very near to 1.0, then locimg MAY be out of range for imgbuf->imgbuf[locimg]
+   notice u/v --> [0 1)
 
 @imbufg:	A pointer to EGI_IMGBUF
 @fb_dev:	A pointer to FBDEV
-@u/v:		u/v[0 1] coords/factors for mapping triangle vertices.
+@u/v:		u/v[0 1) coords/factors for mapping triangle vertices.
 @x/y/z:		XYZ coordinates for trianlge vertice.
 ---------------------------------------------------------------------------*/
 void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
@@ -4677,10 +4729,12 @@ Map a triangle to imgbuf and write mapped pixles to FB.
 NOTE:
 1. DO NOT check/make a/b/r AND u/v to within [0.0 1.0], just get rid of them
    if not in the range. OR some noise pixels will appear on result image!!!
+2. if u/v is very near to 1.0, then locimg MAY be out of range for imgbuf->imgbuf[locimg]
+   notice u/v --> [0 1)
 
 @imbufg:	A pointer to EGI_IMGBUF
 @fb_dev:	A pointer to FBDEV
-@u/v:		u/v[0 1] coords/factors for mapping triangle vertices.
+@u/v:		u/v[0 1) coords/factors for mapping triangle vertices.
 @x/y/z:		XYZ coordinates for trianlge vertice.
 ---------------------------------------------------------------------------*/
 void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
@@ -4721,20 +4775,25 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 	float klr,klm,kmr;
         float  fcheck1,fcheck2;
 
+#if 0   /* NO MORE USE TO SUBSTITUE x/y, Instead, use us/ue/vs/ve to inertpolate u/v at a line. */
         /* If 3 points are collinear, substitue x0/y0 later... */
         int x0s=x0, x1s=x1, x2s=x2;
         int y0s=y0, y1s=y1, y2s=y2;
+#endif
 
 	/* use INT type */
 	int yu=0;
 	int yd=0;
 	int ymu=0;
 
+	float us,ue, vs,ve; /* u,v for start-end point */
+
 	/* Imgbuf pixel data offset */
 	long int locimg;
 
 	/* --- Case 1 ---: All points are the SAME! */
 	if(x0==x1 && x1==x2 && y0==y1 && y1==y2) {
+//		egi_dpstd("the Tri degenerates into a point!\n");
         	/* Set a/b/r. */
 		a=0.3333;    b=0.3333;    r=0.3333;
 
@@ -4749,7 +4808,7 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
                 locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf! */
 		if( locimg>=0 && locimg < imgh*imgw ) {
 			fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
-                        draw_dot(fb_dev, roundf(x), k);
+                        draw_dot(fb_dev, x0, y0);
 		}
 #if 1 /* TEST: --------- */
 		else egi_dpstd("Out range u,v: %e,%e\n", u,v);
@@ -4758,11 +4817,14 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 		return;
 	}
 
-	/* If all points are collinear, including case that TWO pionts are at SAME position! */
+	/* If all points are collinear, including the case that TWO pionts are at SAME position! */
 	fcheck1 = -1.0*(x0-x1)*(y2-y1)+(y0-y1)*(x2-x1); // 1.0*(y0-y1)*(x2-x1);
 	fcheck2 = -1.0*(x1-x2)*(y0-y2)+(y1-y2)*(x0-x2); // 1.0*(y1-y2)*(x0-x2);
 
-#if 1  /* If it degenerates into a line:  Move one vertex a little, to make it a NEW resonable triangle! So we can
+#if 0   ////////////////////////////    NO MORE USE!   /////////////////////////////
+	/* Abandoned!!!  Instead, use us/ue/vs/ve to inertpolate u/v at a line. */
+
+	/* If it degenerates into a line:  Move one vertex a little, to make it a NEW resonable triangle! So we can
 	* compute barycentric a/b/r! However, color of the midpoint will ineffective! Means ONLY one side
 	* of the triangle is drawn.
 	* TODO: If necessary, re_assign input x0y0~x2y2 as the NEW triangle.
@@ -4829,7 +4891,7 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 	/* Check again, should NOT appear NOW! */
 	if(abs(fcheck1)<0.0001 || abs(fcheck2)<0.0001)
 		egi_dpstd("fcheck~=0!, points: {%d,%d} {%d,%d} {%d,%d}\n", x0,y0,x1,y1,x2,y2);
-#endif
+#endif  //////////////////////////////////////////////////////////////////////////////////////////////
 
 	/* Cal nl, nr. just after collinear checking! */
 	for(i=1; i<3; i++) {
@@ -4839,39 +4901,31 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 
 	/* --- Case 2 ---: All points are collinear as a vertical line. */
 	if(nl==nr) {
-		/* Get yu yd */
-		yu=points[0].y;
-		yd=points[0].y;
+		egi_dpstd("the Tri degenerates into a vertical line!\n");
+
+		/* Init yu yd, u,v. */
+		yu=points[0].y;  ue=u0; ve=v0;
+		yd=points[0].y;  us=u0; vs=v0;
+
+		/* Get yu,yd,  us/ue/vs/ve */
 		for(i=1; i<3; i++) {
-			if(points[i].y>yu) yu=points[i].y;
-			if(points[i].y<yd) yd=points[i].y;
+			if(points[i].y>yu) {
+				yu=points[i].y;
+				if(i==1) { ue=u1; ve=v1; }
+				else     { ue=u2; ve=v2; } //i==2
+			}
+			if(points[i].y<yd) {
+				yd=points[i].y;
+				if(i==1) { us=u1; vs=v1; }
+				else     { us=u2; vs=v2; } //i==2
+			}
 		}
 
 		x=points[0].x;
 		for(k=yd; k<=yu; k++) {
-			/* Compute barycentric coordinates: a,b,r */
-			//a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1;
-			//b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2;
-			a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
-			b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
-
-			/* Normalize a/b/r */
-			if(a<0)a=-a; if(b<0)b=-b;
-			ftmp=a+b;
-			if(ftmp>1.0+0.001) {
-				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
-				a=a/ftmp; b=b/ftmp;
-			}
-			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
-			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
-			r=1.0-a-b;
-			if(r<0.0f)r=0.0;
-
 			/* Get interpolated u,v */
-			u=a*u0+b*u1+r*u2;
-			//if(u<0.0f)u=0.0f; else if(u>1.0f)u=1.0f;
-			v=a*v0+b*v1+r*v2;
-			//if(v<0.0f)v=0.0f; else if(v>1.0f)v=1.0f;
+			u=us+(ue-us)*(k-yd)/(yu-yd);
+			v=vs+(ve-vs)*(k-yd)/(yu-yd);
 
 			/* Get mapped pixel and draw_dot */
                         /* image data location */
@@ -4888,86 +4942,72 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 		return;
 	}
 
-#if 0	/* TODO: ---- Case 3 ---: All points are collinear as an oblique/horizontal line. */
+	/* ---- Case 3 ---: All points are collinear as an oblique/horizontal line. */
 	/* Note:
 	 *	1. You may skip case_3, to let Case_4 draw the line, however it draws ONLY discrete
 	 *	   dots for a steep line.
 	 *	2. Color of the midpoint of the line will be ineffective!
 	 * 	   TODO: NEW algrithm for interpolation color at a three_point line.
 	 */
-
 	if( (x0-x1)*(y2-y1)==(y0-y1)*(x2-x1) || (x1-x2)*(y0-y2)==(y1-y2)*(x0-x2) )
 	{
-		egi_dpstd("the Tri degenerates into an oblique/horiz line!");
+		egi_dpstd("the Tri degenerates into an oblique/horiz line!\n");
 
-		int x1=points[nl].x;
-		int y1=points[nl].y;
-		int x2=points[nr].x;
-		int y2=points[nr].y;
+		int j;
+
+                int x1=points[nl].x;
+                int y1=points[nl].y;
+                int x2=points[nr].x;
+                int y2=points[nr].y;
 
 		int tekxx=x2-x1;
 		int tekyy=y2-y1;
 
+		float foff;
+		float flen=sqrtf(1.0*(x2-x1)*(x2-x1)+1.0*(y2-y1)*(y2-y1));
+
 		int tmp;
-		EGI_16BIT_COLOR colorTmp; /* Color corresponds to k(y)=tmp */
+//		EGI_16BIT_COLOR colorTmp; /* Color corresponds to k(y)=tmp */
 		EGI_16BIT_COLOR colorJ;   /* Color corresponds to k(y)=J */
 		EGI_16BIT_COLOR color;	  /* draw_dot() pixel color */
-
-	        /* Ruled out (points[nr].x == points[nl].x), as nl==nr. a vertical line. */
-		//klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
-//		klr=1.0*(y2-y1)/(x2-x1);
 
 		/* NOW: x2>x1 */
 		tmp=y1;
 
-		/* Get colorTmp */
-		if(nl==0) colorTmp=color0;
-		else if(nl==1) colorTmp=color1;
-		else colorTmp=color2;
+		/* nl as start point */
+		if(nl==0) { us=u0; vs=v0; }
+		else if(nl==1) { us=u1; vs=v1; }
+		else { us=u2; vs=v2; }
+
+		/* nr as end point */
+		if(nr==0) { ue=u0; ve=v0; }
+		else if(nr==1) { ue=u1; ve=v1; }
+		else { ue=u2; ve=v2; }
+
+#if 0  ////////////* image data location for start point nl */
+                locimg=(roundf(vs*imgh))*imgw+roundf(us*imgw); /* roundf */
+		if(locimg<0)
+			locimg==0;
+		else if( !(locimg < imgh*imgw) )
+			locimg=imgh*imgw-1;
+		colorTmp=imgbuf->imgbuf[locimg];
+#endif /////////////////////////
 
 		/* Draw all points */
 		for(i=x1; i<=x2; i++) {
 		     	/* j as Py */
 		    	j=roundf( 1.0*(i-x1)*tekyy/tekxx+y1 );
 
-			/* Get color at (i, j) */
-			a=(-1.0*(i-x1s)*(y2s-y1s)+(j-y1s)*(x2s-x1s))/fcheck1;
-			b=(-1.0*(i-x2s)*(y0s-y2s)+(j-y2s)*(x0s-x2s))/fcheck2;
+			/* Get interpolated u,v for point (i,j) */
+			u=us+(ue-us)*(i-x1)/(x2-x1);
+			v=vs+(ve-vs)*(i-x1)/(x2-x1);
 
-		#if 1 /* TEST: ------------------------------- */
-			if(a!=a) egi_dpstd("a is NaN!\n");
-			if(b!=b) egi_dpstd("b is NaN!\n");
-		#endif
-
-			/* Normalize a/b/r */
-			if(a<0)a=-a; if(b<0)b=-b;
-			ftmp=a+b;
-			if(ftmp>1.0f+0.001) {
-				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
-				a=a/ftmp; b=b/ftmp;
-			}
-			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
-			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
-			r=1.0-a-b;
-			if(r<0.0f) r=0.0f; //continue;
-
-                        /* Get interpolated color at point (i, j)*/
-                        R=roundf(a*COLOR_R8_IN16BITS(color0)+b*COLOR_R8_IN16BITS(color1)+r*COLOR_R8_IN16BITS(color2));
-                        G=roundf(a*COLOR_G8_IN16BITS(color0)+b*COLOR_G8_IN16BITS(color1)+r*COLOR_G8_IN16BITS(color2));
-                        B=roundf(a*COLOR_B8_IN16BITS(color0)+b*COLOR_B8_IN16BITS(color1)+r*COLOR_B8_IN16BITS(color2));
-			colorJ=COLOR_RGB_TO16BITS(R,G,B);
-
-	#if 1 /* TEST: ------------------------------- */
-			if(R==0 && G==0 && B==0) {
-				egi_dpstd("R=G=B=0! a=%e,b=%e,r=%e\n", a,b,r);
-			}
-			else if( R<10 && G<10 && B<10)
-				egi_dpstd("R,G,B<10! a=%e,b=%e,r=%e\n", a,b,r);
-
-			else if( R>255 || G>255 || B>255)
-				egi_dpstd("R,G,B>255! R=%d,G=%d,B=%d. a=%e,b=%e,r=%e\n", R,G,B, a,b,r);
-	#endif
-
+                        /* Image pixel color location, (i,j) */
+                        locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
+			if( locimg>=0 && locimg < imgh*imgw )
+			    colorJ=imgbuf->imgbuf[locimg];
+			else
+			    continue;
 
 			if(y2>=y1) {
 				/* Traverse tmp (+)-> pY */
@@ -4978,8 +5018,20 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 						break;
 					}
 
+					/* Get interpolated u,v */
+					foff=sqrtf(1.0*(i-x1)*(i-x1)+1.0*(k-y1)*(k-y1));
+					u=us+(ue-us)*foff/flen;
+					v=vs+(ve-vs)*foff/flen;
+
+		                        /* Image pixel color location */
+                        		locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
+			                if( locimg>=0 && locimg < imgh*imgw )
+                            			color=imgbuf->imgbuf[locimg];
+                        		else
+                            			continue;
+
 				     	/* Set color for point(i,k) */
- 				     	egi_16bitColor_interplt( colorTmp, colorJ, 0, 0, (k-tmp)*(1<<15)/(j-tmp), &color, NULL);
+ 				     	//egi_16bitColor_interplt( colorTmp, colorJ, 0, 0, (k-tmp)*(1<<15)/(j-tmp), &color, NULL);
 					fbset_color2(fb_dev, color);
 
 				     	draw_dot(fb_dev,i,k);
@@ -4993,8 +5045,20 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 						break;
 					}
 
+					/* Get interpolated u,v */
+					foff=sqrtf(1.0*(i-x1)*(i-x1)+1.0*(k-y1)*(k-y1));
+					u=us+(ue-us)*foff/flen;
+					v=vs+(ve-vs)*foff/flen;
+
+		                        /* Image pixel color location */
+                        		locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
+			                if( locimg>=0 && locimg < imgh*imgw )
+                            			color=imgbuf->imgbuf[locimg];
+                        		else
+                            			continue;
+
 				     	/* Color for point(i,k) */
- 				     	egi_16bitColor_interplt( colorTmp, colorJ, 0, 0, (tmp-k)*(1<<15)/(tmp-j), &color, NULL);
+ 				     	//egi_16bitColor_interplt( colorTmp, colorJ, 0, 0, (tmp-k)*(1<<15)/(tmp-j), &color, NULL);
 					fbset_color2(fb_dev, color);
 
 				     	draw_dot(fb_dev,i,k);
@@ -5002,12 +5066,11 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 			}
 
 			tmp=j; /* Renew tmp as j(pY) */
-			colorTmp=colorJ; /* Renew colroTmp as color J */
+//			colorTmp=colorJ; /* Renew colroTmp as color J */
 		}
 
 		return;
 	}
-#endif   /* End Case 3 */
 
 
 	/* ---- Case 4 ---: As a true triangle. */
@@ -5051,10 +5114,10 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 			/* Calculate barycentric coordinates: a,b,r */
 			/*Note: y=k */
 			/* Note: Necessary for precesion check! */
-			//a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1;
-			//b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2;
-			a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
-			b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
+			//a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
+			//b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
+			a=(-1.0*(x-x1)*(y2-y1)+(k-y1)*(x2-x1))/fcheck1;
+			b=(-1.0*(x-x2)*(y0-y2)+(k-y2)*(x0-x2))/fcheck2;
 
 #if 1 /* TEST: ------------------------------- */
 			if(a!=a) egi_dpstd("a is NaN!\n");
@@ -5110,10 +5173,10 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 			/* Calculate barycentric coordinates: a,b,r */
 			// y=k;
 			/* Note: Necessary for precesion check! */
-			//a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1;
-			//b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2;
-			a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
-			b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
+			//a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
+			//b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
+			a=(-1.0*(x-x1)*(y2-y1)+(k-y1)*(x2-x1))/fcheck1;
+			b=(-1.0*(x-x2)*(y0-y2)+(k-y2)*(x0-x2))/fcheck2;
 
 #if 1 /* TEST: ------------------------------- */
 			if(a!=a) egi_dpstd("a is NaN!\n");
@@ -5151,4 +5214,419 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 		}
 	}
 
+}
+
+
+/*-----------------------------------------------------------
+Save header of EGI_IMGMOTION to an file.
+
+TODO:  Byte order compatibility for saving a file.
+
+@fpath:		Path for the saved file.
+@width/height:	Size of motion image.
+@delayms:	Delayms for each motion picture.
+@compress:	0--Imgbuf saved as uncompressed.
+		1--Compressed.
+
+//@motion:	Pointer to an EGI_IMGMOTION
+
+Return:
+	0	Ok
+	<0	Fails, OR file exists.
+------------------------------------------------------------*/
+int egi_imgmotion_saveHeader(const char *fpath, int width, int height, int delayms, int compress)
+{
+	int ret=0;
+	FILE *fil;
+	int nmemb;
+	int nwrite;
+
+	/* Set motion params */
+	EGI_IMGMOTION  motion={ .width=width, .height=height, .frames=0, .compress=compress, .delayms=delayms };
+
+	/* Set HeadSize */
+	motion.headsize=sizeof(EGI_IMGMOTION);
+
+	if(fpath==NULL)
+		return -1;
+
+	/* Check if file exists */
+        if( access(fpath, F_OK) ==0 ) {
+		egi_dpstd("Motion file '%s' already exist!\n", fpath);
+		return -2;
+	}
+
+        /* Open/create file */
+        fil=fopen(fpath, "wbe");
+        if(fil==NULL) {
+                egi_dpstd("Fail to open file '%s' for write. ERR:%s\n", fpath, strerror(errno));
+                return -3;
+        }
+
+	/* Write header info. */
+	nmemb=1;
+	printf("sizeof(EGI_IMGMOTION)=%d\n", sizeof(EGI_IMGMOTION));
+	nwrite=fwrite((void*)&motion, sizeof(EGI_IMGMOTION), nmemb, fil);
+        if(nwrite < nmemb) {
+        	if(ferror(fil))
+                	egi_dperr("Fail to write header of motion to '%s'.\n", fpath);
+                else
+                	egi_dpstd("Error! fwrite header of motion %d itmes of total %d itmess.\n", nwrite, nmemb);
+                ret=-4;
+                goto END_FUNC;
+        }
+
+END_FUNC:
+        /* Close fil */
+        if( fclose(fil) !=0 ) {
+                egi_dperr("Fail to close file '%s'.\n",fpath);
+                ret=-5;
+        }
+
+        return ret;
+}
+
+
+/*-----------------------------------------------------------
+Save to append a frame to an EGI_IMGMOTION in a file, the file
+shall exist and hold at least an IMGMOTION header.
+If input imgbuf is NULL, then it just print motion header.
+
+TODO:  Byte order compatibility for saving a file.
+
+@fpath:		Path for the saved file.
+@imgbuf:	Pointer to EGI_IMGBUF.
+		If NULL, just print motion header.
+
+Return:
+	0	Ok
+	<0	Fails
+------------------------------------------------------------*/
+#include <zlib.h>
+int egi_imgmotion_saveFrame(const char *fpath, EGI_IMGBUF *imgbuf)
+{
+	int ret=0;
+	FILE *fil;
+	int nmemb;
+	int nread;
+	int nwrite;
+	int framesize;
+	EGI_IMGMOTION  motion={ .width=0, .height=0, .frames=0, .delayms=0,  }; /* header */
+	EGI_IMGFRAME  frameHead;
+
+	/* For zlib compress */
+	char *destBuff=NULL;
+
+	/* Check */
+	if(fpath==NULL) // || imgbuf==NULL)
+		return -1;
+
+	/* 1. Check if file exists */
+        if( access(fpath, F_OK) !=0 ) {
+		egi_dpstd("Motion file '%s' does NOT exist!\n", fpath);
+		return -2;
+	}
+
+        /* 2. Open file for write/read */
+        fil=fopen(fpath, "r+be"); /* w+ will truncate! */
+        if(fil==NULL) {
+                egi_dperr("Fail to open file '%s' for reading and appending. \n", fpath);
+                return -3;
+        }
+
+	/* 3. Read motion header */
+	nmemb=1;
+	nread=fread((void*)&motion, sizeof(EGI_IMGMOTION), nmemb, fil);
+        if(nread < nmemb) {
+        	if(ferror(fil))
+                	egi_dperr("Fail to read header of motion from '%s'.\n", fpath);
+                else
+                	egi_dpstd("Error! fread header of motion %d itmes of total %d itmess.\n", nread, nmemb);
+                ret=-3;
+                goto END_FUNC;
+        }
+
+#if 1 /* TEST: -------- */
+	egi_dpstd("Motion header: Headsize=%d, Width=%d, Height=%d, frames=%d, delayms=%d.\n",
+				  motion.headsize, motion.width, motion.height, motion.frames, motion.delayms );
+#endif
+
+	/* 4. Check input imgbuf */
+	if( imgbuf==NULL )
+		goto END_FUNC;
+
+	/* 5. Check frame size */
+	if( imgbuf->width != motion.width || imgbuf->height != motion.height ) {
+		egi_dpstd("Size of imgbuf %dx%d is NOT same as motion %dx%d!\n",
+					imgbuf->width,imgbuf->height, motion.width, motion.height);
+		ret=-4;
+		goto END_FUNC;
+	}
+
+	/* 5.1 Get framesize */
+	framesize= imgbuf->height*imgbuf->width*2;
+
+	/* 6. Modify motion.frames */
+	rewind(fil); /* To SEEK_SET */
+
+	motion.frames +=1; /* Increase frames */
+        nmemb=1;
+        nwrite=fwrite( (void*)&motion, sizeof(EGI_IMGMOTION), nmemb, fil);
+        if(nwrite < nmemb) {
+        	if(ferror(fil))
+                	egi_dperr("Fail to write header of motion to '%s'.\n", fpath);
+                else
+                	egi_dpstd("Error! fwrite header of motion %d itmes of total %d itmess.\n", nwrite, nmemb);
+                ret=-5;
+                goto END_FUNC;
+        }
+
+	/* 7. Fseek to file end, to append a new frame for the motion. */
+	if( fseek(fil, 0L, SEEK_END) !=0 ) {
+		egi_dperr("Fail fseek.");
+		ret=-6;
+		goto END_FUNC;
+	}
+
+	/* 8.0 If Uncompressed data, as 16bit color. */
+	if( motion.compress==0 ) {
+		nmemb=1;
+		nwrite=fwrite((void *)imgbuf->imgbuf, framesize, nmemb, fil); /* 16bits color */
+	        if(nwrite < nmemb) {
+        		if(ferror(fil))
+                		egi_dperr("Fail to write header of motion to '%s'.\n", fpath);
+	                else
+        	        	egi_dpstd("WARNING! fwrite header of motion %d itmes of total %d itmess.\n", nwrite, nmemb);
+                	ret=-7;
+                        goto END_FUNC;
+		}
+        }
+	/* 8.1 If Zlib compressed, TODO TYPE */
+	else if( motion.compress ==1 ) {
+		unsigned long rawsize=framesize;
+		/* Min. dest buffer size */
+        	unsigned long dbsize=compressBound(rawsize);
+        	egi_dpstd("dbsize=%lu\n", dbsize);
+		unsigned long destLen=dbsize;   /* compressed data size, uLongf == unsinged long far */
+
+		/* Calloc destBuff */
+		destBuff=calloc(1, dbsize);
+		if(destBuff==NULL) {
+			egi_dperr("Calloc fail!");
+			goto END_FUNC;
+		}
+
+		/* compress2 (Bytef *dest, uLongf *destLen, const Bytef *source, uLong sourceLen, int level) */
+	        if( compress2((Bytef *)destBuff, &destLen, (Bytef *)imgbuf->imgbuf, rawsize, 9) !=Z_OK) {  /* LEVEL 0~9 */
+        	        egi_dpstd("Zlib compress2 error!\n");
+			goto END_FUNC;
+        	}
+		egi_dpstd("Succeed to compress %ld bytes imgbuf into %ld Bytes!\n", rawsize, destLen);
+
+		/* Wrtie compressed data */
+		/* write frame header */
+		frameHead.datasize=destLen;
+		nmemb=1;
+		nwrite=fwrite((void *)&frameHead, sizeof(EGI_IMGFRAME), nmemb, fil); /* 16bits color */
+	        if(nwrite < nmemb) {
+        		if(ferror(fil))
+                		egi_dperr("Fail to write frameHeader to '%s'.\n", fpath);
+	                else
+        	        	egi_dpstd("WARNING! fwrite header of frame %d itmes of total %d itmess.\n", nwrite, nmemb);
+                	ret=-8;
+                        goto END_FUNC;
+		}
+
+		/* write compressed head data */
+		nmemb=1;
+		nwrite=fwrite((void *)destBuff, destLen, nmemb, fil); /* 16bits color */
+	        if(nwrite < nmemb) {
+        		if(ferror(fil))
+                		egi_dperr("Fail to write compressed frame data to '%s'.\n", fpath);
+	                else
+        	        	egi_dpstd("WARNING! fwrite compressed frame data %d itmes of total %d itmess.\n", nwrite, nmemb);
+                	ret=-9;
+                        goto END_FUNC;
+		}
+	}
+	else {
+		egi_dpstd("Undefined compress type!\n");
+		ret=-10;
+		goto END_FUNC;
+	}
+
+END_FUNC:
+	/* Free destBuff */
+	if(destBuff) free(destBuff);
+
+        /* Close fil */
+        if( fclose(fil) !=0 ) {
+                egi_dperr("Fail to close file '%s'.\n",fpath);
+                ret=-8;
+        }
+
+        return ret;
+}
+
+
+/*----------------------------------------------------
+Play an IMGMOTION as saved in the file.
+
+TODO:  Byte order compatibility for reading saved file.
+
+@fpath:		Path for the saved file.
+@fbdev: 	Pointer to FBDEV
+@delayms:	If>0, Delay for each frame.
+		OR use motion.delayms.
+@x0,y0:		Origin of playing window, relative
+		to screen coord.
+
+Return:
+	0	Ok
+	<0	Fails
+---------------------------------------------------*/
+int egi_imgmotion_playFile(const char *fpath, FBDEV *fbdev, int delayms, int x0, int y0)
+{
+	int ret=0;
+	int k;
+	EGI_IMGMOTION  motion={ .width=0, .height=0, .frames=0, .delayms=0 }; /* header */
+	int framesize;
+	off_t off;
+	EGI_IMGBUF     *simg=NULL;
+	EGI_FILEMMAP   *fmap;
+
+	EGI_IMGFRAME  frameHead;
+	EGI_16BIT_COLOR	*colors=NULL;
+
+	if(fpath==NULL || fbdev==NULL)
+		return -1;
+
+	/* 1. Mmap file */
+	fmap=egi_fmap_create(fpath, 0, PROT_READ, MAP_PRIVATE);
+	if(fmap==NULL) {
+		egi_dpstd("Fail to mmap '%s'!\n", fpath);
+		return -2;
+	}
+	egi_dpstd("Motion file size fsize=%jd Bytes\n", fmap->fsize); /* %jd for off_t */
+
+	/* 2. Read motion file header */
+	memcpy(&motion, fmap->fp, sizeof(EGI_IMGMOTION));
+
+#if 1 /* TEST: -------- */
+	egi_dpstd("Motion header: Headsize=%d, Width=%d, Height=%d, frames=%d, delayms=%d.\n",
+				  motion.headsize, motion.width, motion.height, motion.frames, motion.delayms );
+#endif
+
+	/* Allocate simg */
+	simg=egi_imgbuf_alloc();
+	if(simg==NULL) {
+		egi_dperr("Fail to allocate simg!\n");
+		ret=-4;
+		goto END_FUNC;
+	}
+	simg->width=motion.width;
+	simg->height=motion.height;
+
+	/* Frame size */
+	framesize=simg->width*simg->height*2; /* 16bits color */
+
+	/* Play all frames */
+	/* Case: Uncompressed frames */
+	if( motion.compress==0 ) {
+	   off=sizeof(EGI_IMGMOTION);
+	   for(k=0; k<motion.frames; k++) {
+		/* Check whether the file is corrupted, with error size. */
+		if( off+framesize > fmap->fsize ) {
+			egi_dpstd("Motion file data broken when frame k=%d! off+framesize=%jd, fsize=%jd\n",
+						k, off+framesize, fmap->fsize );
+			break;
+		}
+
+		/* Get ref of imgbuf */
+		simg->imgbuf=(EGI_16BIT_COLOR *)(fmap->fp+off);
+
+		egi_dpstd("Displaying frame %d/(%d-1)...\n", k, motion.frames);
+		egi_subimg_writeFB(simg, fbdev, 0, -1, x0, y0);
+		fb_render(fbdev);
+		if(delayms>0)
+			tm_delayms(delayms);
+		else
+			tm_delayms(motion.delayms);
+
+		/* Offset to next frame */
+		off +=framesize;
+	   }
+	}
+	/* Case: Compressed frames */
+	else if( motion.compress==1 ) {
+	    unsigned long int destLen=framesize;
+	    /* Allocate colors */
+	    colors=malloc(framesize);
+	    if(colors==NULL) {
+		egi_dperr("malloc fails!");
+		goto END_FUNC;
+	    }
+
+	    off=sizeof(EGI_IMGMOTION);
+	    for(k=0; k<motion.frames; k++) {
+
+		/* C1. Check whether the file is corrupted, with error size. */
+		if( off+sizeof(EGI_IMGFRAME) > fmap->fsize ) {
+			egi_dpstd("Motion file data broken when frame k=%d! off=%jd, fsize=%jd\n",
+						  k, off, fmap->fsize );
+			break;
+		}
+
+		/* C2. Get frame header */
+		memcpy(&frameHead, fmap->fp+off, sizeof(EGI_IMGFRAME));
+
+		/* C3. offset to compressed frame data */
+		off +=sizeof(EGI_IMGFRAME);
+
+		/* C4. Check whether the file is corrupted, with error size. */
+		if( off+frameHead.datasize > fmap->fsize ) {
+			egi_dpstd("Motion file data broken when frame k=%d! off=%jd, compress size=%zd, fsize=%jd\n",
+						  k, off, frameHead.datasize, fmap->fsize );
+			break;
+		}
+
+	    	/* C5. Uncompress frame data to colors,  init. destLen=frameszie
+		  (Bytef *dest,uLongf *destLen, const Bytef *source, uLong sourceLen) */
+            	if(uncompress((Bytef *)colors, &destLen, (Bytef *)fmap->fp+off, frameHead.datasize)!=Z_OK) {
+                	printf("Zlib uncompress error!\n");
+                	exit(1);
+            	}
+		egi_dpstd("Succeed to uncompress frame %d/(%d-1).\n", k, motion.frames);
+
+		/* C6. Get ref of imgbuf */
+		simg->imgbuf=colors;
+
+		egi_dpstd("Displaying frame %d/(%d-1)...\n", k, motion.frames);
+		egi_subimg_writeFB(simg, fbdev, 0, -1, x0, y0);
+		fb_render(fbdev);
+		if(delayms>0)
+			tm_delayms(delayms);
+		else
+			tm_delayms(motion.delayms);
+
+		/* C7. Offset to next frameHead */
+		off +=frameHead.datasize;
+	    }
+	}
+	else {
+		egi_dpstd("Undefined compress type!\n");
+		ret=-10;
+		goto END_FUNC;
+	}
+
+END_FUNC:
+	/* Free colors */
+	if(colors) free(colors);
+	/* Free simg */
+	simg->imgbuf=NULL;
+	egi_imgbuf_free2(&simg);
+	/* Free fmap */
+	egi_fmap_free(&fmap);
+
+        return ret;
 }

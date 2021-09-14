@@ -3,6 +3,10 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+Jorunal:
+2021-09-10:
+	1. Add EGI_IMGFRAME and EGI_IMGMOTION
+
 Midas Zhou
 midaszhou@yahoo.com
 -------------------------------------------------------------------*/
@@ -14,19 +18,21 @@ midaszhou@yahoo.com
 #include FT_FREETYPE_H
 //#include <freetype2/ftglyph.h>
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
 typedef	struct {
-		int x0;		/* subimage left top starting point coordinates relative to image origin */
+		int x0;		/* Subimage left top starting point coordinates relative to image origin */
 		int y0;
-		int w;		/* size of subimage */
+		int w;		/* Size of subimage */
 		int h;
 }EGI_IMGBOX;
-
 
 typedef struct {
 		EGI_16BIT_COLOR color;
 		unsigned char 	alpha;
 }EGI_16BIT_PIXEL;			/* also see PIXEL in egi_bjp.h */
-
 
 typedef struct
 {
@@ -70,5 +76,30 @@ typedef struct
 
 } EGI_IMGBUF;
 
+/* EGI image motion pictures:  Header */
+typedef struct {
+	size_t		datasize;	/* Size of compressed frame image data, as follows. */
+	char		data[];		/* Compressed frame data */
+} EGI_IMGFRAME;
+
+typedef struct {
+	size_t		headsize;	/* To make it version compatible */
+
+        int		height;	 	/* image height */
+        int 		width;	 	/* image width */
+	int		frames;		/* frames as in data[] */
+	int 		delayms;	/* ms for each image */
+	int		compress;	/* 0: Uncompressed, 1: Compressed */
+
+	char		blob[];		/* 1. If Uncompressed:  EGI_16BIT_COLOR []
+					 * 2. If Compressed:    EGI_IMGFRAME []
+					 */
+//        EGI_16BIT_COLOR imgbuf[]; 	/* color data, for RGB565 format */
+} EGI_IMGMOTION;
+
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

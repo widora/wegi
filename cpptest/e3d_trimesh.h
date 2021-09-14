@@ -42,9 +42,18 @@ Note:
    (whose vector norm is 1! )
 
 
-
 TODO:
-	1. Grow vtxList[] and triList[].
+1. FBDEV.zbuff[] is integer type, two meshes MAY be viewed as overlapped if distance
+   between them is less than 1!
+2. NOW: All pixels of a triangle use the same pixz value for zbuff[], which is the
+   coord. Z value of the barycenter of this trianlge. This causes zbuff error in some
+   position! To turn on back facing triangles to see it clearly.
+   ( Example: 1. At outline edges  2. double shell meshes... )
+
+   To compute zbuff value for each pixel at draw_filled_triangle3() and egi_imgbuf_mapTriWriteFB3().
+
+3. Option to display/hide back faces of meshes.
+x. AutoGrow vtxList[] and triList[].
 
 
 Journal:
@@ -138,6 +147,8 @@ Journal:
 	7. Add reverseAllVtxNormals().
 2021-09-03:
 	1. Add void E3D_draw_coordNavIcon2D()
+2021-09-14:
+	1. Add E3D_TriMesh member 'backFaceOn' and 'bkFaceColor'.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -470,6 +481,13 @@ private:
 public:
 	E3D_SHADE_TYPE   shadeType;	/* Rendering/shading type, default as FLAT_SHADING */
 	EGI_IMGBUF 	*textureImg;	/* Texture imgbuf */
+	bool		backFaceOn;	/* If true, display back facing triangles.
+					 * If false, ignore it.
+					 * Default as false.
+					 */
+	EGI_16BIT_COLOR   bkFaceColor;  /* Faceback face color for flat/gouraud/wire shading.
+					 * Default as 0(BLACK).
+					 */
 };
 
 
@@ -535,6 +553,8 @@ E3D_TriMesh::E3D_TriMesh()
 	/* Init other params */
 	textureImg=NULL;
 	shadeType=E3D_FLAT_SHADING;
+        backFaceOn=false;
+        bkFaceColor=WEGI_COLOR_BLACK;
 }
 
 /*--------------------------------------
@@ -563,7 +583,6 @@ E3D_TriMesh::E3D_TriMesh(int nv, int nt)
 	vcnt=0;
 	vCapacity=nv;
 
-
 	/* Init triList[] */
 	tCapacity=0;  /* 0 before alloc */
 	try {
@@ -579,6 +598,8 @@ E3D_TriMesh::E3D_TriMesh(int nv, int nt)
         /* Init other params */
         textureImg=NULL;
         shadeType=E3D_FLAT_SHADING;
+        backFaceOn=false;
+        bkFaceColor=WEGI_COLOR_BLACK;
 }
 
 /*------------------------------------------------
@@ -655,7 +676,7 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh & tmesh)
 }
 
 
-/*------------------------------------------
+/*---------------------------------------------
           E3D_TriMesh  Constructor
 
 To create by reading from a *.obj file.
@@ -665,7 +686,7 @@ Note:
 1. A face has MAX.4 vertices!(a quadrilateral)
    and a quadrilateral will be stored as 2
    triangles.
---------------------------------------------*/
+-----------------------------------------------*/
 E3D_TriMesh::E3D_TriMesh(const char *fobj)
 {
 	ifstream	fin;
@@ -695,6 +716,14 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 	int	    tuvListCnt=0;
 	E3D_Vector *vnList;		/* Vertex normal List */
 	int	    vnListCnt=0;
+
+	/* 0. Init params */
+	vcnt=0;
+	tcnt=0;
+        textureImg=NULL;
+        shadeType=E3D_FLAT_SHADING;
+	backFaceOn=false;
+	bkFaceColor=WEGI_COLOR_BLACK;
 
 	/* 1. Read statistic of obj data */
 	if( readObjFileInfo(fobj, vertexCount, triangleCount, vtxNormalCount, textureVtxCount, faceCount) !=0 )
@@ -1066,15 +1095,11 @@ END_FUNC:
 		printf("tuvList[%d]: %f,%f,%f\n", k, tuvList[k].x, tuvList[k].y, tuvList[k].z);
 #endif
 
-#if 1	/* TEST: ---------print all vtxNormal vnList[] */
+#if 0	/* TEST: ---------print all vtxNormal vnList[] */
 	for(int k=0; k<vnListCnt; k++)
 		printf("vnList[%d]: %f,%f,%f\n", k, vnList[k].x, vnList[k].y, vnList[k].z);
 #endif
 
-
-        /* Init other params */
-        textureImg=NULL;
-        shadeType=E3D_FLAT_SHADING;
 
 	/* Delete */
 	delete [] tuvList;
@@ -1599,6 +1624,8 @@ void E3D_TriMesh::cloneMesh(const E3D_TriMesh &tmesh)
 
 	/* Clone vtxscenter */
 	vtxscenter=tmesh.vtxscenter;
+
+	/* TODO: Clone other params if necessary. */
 }
 
 
@@ -2012,13 +2039,16 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev) const
 
 void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
 {
-	int i;
+	int i,j;
 	int vtidx[3];  				/* vtx index of a triangel */
 	E3D_Vector  vpts[3];			/* Projected 3D points */
 	EGI_POINT   pts[3];			/* Projected 2D points */
 	E3D_Vector  vView(0.0f, 0.0f, 1.0f); 	/* View direction */
 	float	    vProduct;   		/* dot product */
-	EGI_16BIT_COLOR vtxColor[3];		/* Triangle 3 vtx color */
+	EGI_16BIT_COLOR	 vtxColor[3];		/* Triangle 3 vtx color */
+
+	bool	    IsBackface=false;		/* Viewing the back side of a Trimesh. */
+//	EGI_16BIT_COLOR	 bkFaceColor=WEGI_COLOR_RED; //DARKRED;  /* Default backface color, if applys. */
 
 	/* Default color, OR use mesh color. */
 	EGI_16BIT_COLOR color=fbdev->pixcolor;
@@ -2030,15 +2060,24 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	for(i=0; i<tcnt; i++) {
 
 		#if 1 /* 1. Pick out back_facing triangles.
-		       * Note: If you turn off back_facing triangles, it will be transparent there.
+		       * Note:
+		       *    1. If you turn off back_facing triangles, it will be transparent there.
+		       *    2. OR use other color for the back face. For texture mapping, just same as front side.
 		       */
 		vProduct=vView*(triList[i].normal); // *(-1.0f); // -vView as *(-1.0f);
 		/* Note: Because of float precision limit, vProduct==0.0f is NOT possible. */
 		if ( vProduct > -VPRODUCT_EPSILON ) {  /* >=0.0f */
+			IsBackface=true;
 			//egi_dpstd("triList[%d] vProduct=%e >=0 \n",i, vProduct);
-	                continue;
+
+			/* If backFaceOn: To display back side (with specified color) ... */
+			if(!backFaceOn)
+		                continue;
 		}
-		//egi_dpstd("triList[%d] vProduct=%f \n",i, vProduct);
+		else {
+			IsBackface=false;
+			//egi_dpstd("triList[%d] vProduct=%f \n",i, vProduct);
+		}
 		#endif
 
 		/* 2. Copy triangle vertices, and project to viewPlan COORD. */
@@ -2053,10 +2092,17 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		if( projectPoints(vpts, 3, projMatrix) !=0 )
 			continue;
 		/* TEST: Check range, ONLY simple way.... TODO: by projectPoints() */
-		for( int j=0; j<3; j++) {
+		for( j=0; j<3; j++) {
 		     if(  (vpts[j].x < 0.0 || vpts[j].x > projMatrix.winW-1 )
 		          || (vpts[j].y < 0.0 || vpts[j].y > projMatrix.winH-1 ) )
 			continue;
+		     else
+			break;
+		}
+		/* If all 3 vertices out of win, then ignore this triangle. */
+		if(j==3) {
+		     // printf("Tir %d OutWin.\n", i);
+		     continue;
 		}
 
 		/* 3. Get 2D points  */
@@ -2097,7 +2143,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 				vProduct=-vProduct;
 			/* Adjust luma for pixcolor as per vProduct. */
 			fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
-			//fbdev->lumadelt=(vProduct-1.0f)*240.0) +50;
+			//fbdev->lumadelt=(vProduct-1.0f)*240.0) +50; /* MUST reset later */
 			//egi_dpstd("vProduct: %e, LumaY: %d\n", vProduct, (unsigned int)egi_color_getY(fbdev->pixcolor));
 
 			/* Fill the TriFace */
@@ -2105,26 +2151,36 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			break;
 
 		   case E3D_GOURAUD_SHADING:
-			/* Get 3 vtx color */
-			for(int k=0; k<3; k++) {
-			   /* Calculate light reflect strength for each vertex:  TODO: not correct, this is ONLY demo. */
-			   /* Case_A: Use vtxList[].normal */
-			   if(triList[i].vtx[0].vn.isZero())
-			      vProduct=gv_vLight*(vtxList[ triList[i].vtx[k].index ].normal);
-			   /* Case_B: Use triList[].vtx[].vn */
-			   else
-			      vProduct=gv_vLight*(triList[i].vtx[k].vn);  // *(-1.0f); // -vLight as *(-1.0f);
-			   //if( vProduct >= 0.0f )
-			   if( vProduct > -VPRODUCT_EPSILON )
-				vProduct=0.0f;
-			   else /* Flip to get vProduct absolute value for luma */
-				vProduct=-vProduct;
-			   /* Adjust luma for color as per vProduct. */
-			   vtxColor[k]=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+			/* 1. Display back face also */
+			if( IsBackface ) {
+				vtxColor[0]=bkFaceColor;
+				vtxColor[1]=bkFaceColor;
+				vtxColor[2]=bkFaceColor;
+			}
+			/* 2. Display front face */
+			else
+			{
+			    /* Compute 3 vtx color respectively. */
+			    for(int k=0; k<3; k++) {
+			   	/* Calculate light reflect strength for each vertex:  TODO: not correct, this is ONLY demo. */
+				/* Case_A: Use vtxList[].normal */
+				if(triList[i].vtx[0].vn.isZero())
+			      		vProduct=gv_vLight*(vtxList[ triList[i].vtx[k].index ].normal);
+			   	/* Case_B: Use triList[].vtx[].vn */
+			   	else
+			      		vProduct=gv_vLight*(triList[i].vtx[k].vn);  // *(-1.0f); // -vLight as *(-1.0f);
+			   	//if( vProduct >= 0.0f )
+			   	if( vProduct > -VPRODUCT_EPSILON )
+					vProduct=0.0f;
+			   	else /* Flip to get vProduct absolute value for luma */
+					vProduct=-vProduct;
+			   	/* Adjust luma for color as per vProduct. */
+			   	vtxColor[k]=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+			   }
 			}
 
-			/* Fill triangle with pixel color, by barycentric coordinates interpolation. */
-			#if 0 /* Float x,y */
+			/* 3. Fill triangle with pixel color, by barycentric coordinates interpolation. */
+			#if 0 /* Float x,y 	---- OBSOLETE---- 	*/
 			draw_filled_triangle2(fbdev,vpts[0].x, vpts[0].y,
 						    vpts[1].x, vpts[1].y,
 						    vpts[2].x, vpts[2].y,
@@ -2148,7 +2204,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 				vProduct=-vProduct;
 			/* Adjust luma for pixcolor as per vProduct. */
 			fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
-			//fbdev->lumadelt=(vProduct-1.0f)*240.0) +50;
+			//fbdev->lumadelt=(vProduct-1.0f)*240.0) +50; /* Must reset later.. */
 			//egi_dpstd("vProduct: %e, LumaY: %d\n", vProduct, (unsigned int)egi_color_getY(fbdev->pixcolor));
 
 			/* Draw line: OR draw_line_antialias() */
@@ -2158,7 +2214,17 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			break;
 
 		   case E3D_TEXTURE_MAPPING:
-			if( textureImg==NULL ) {
+			if( textureImg==NULL ) {   /* flat_shading then */
+			   /* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo. */
+			   vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+			   //if( vProduct >= 0.0f )
+			   if( vProduct > -VPRODUCT_EPSILON )
+				vProduct=0.0f;
+			   else /* Flip to get vProduct absolute value for luma */
+				vProduct=-vProduct;
+			   /* Adjust luma for pixcolor as per vProduct. */
+			   fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+
 			   draw_filled_triangle(fbdev, pts);
 			}
 			else {
@@ -2213,6 +2279,9 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			  #endif
 			}
 
+			/* Reset lumadelt */
+			fbdev->lumadelt=0;
+			break;
 		   default:
 			break;
 		}

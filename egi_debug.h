@@ -81,6 +81,11 @@ midaszhou@yahoo.com
 
 
 /* Print to stderr and stdout */
+/* printf() format:
+   off_t 	%jd
+   size_t	%zu
+   ssize_t      %zd
+ */
 #define egi_dperr(fmt, args...)			\
 	do {						\
 		fprintf(stderr,"%s(): "fmt" Err'%s'.\n",__func__, ## args, strerror(errno)); 	\

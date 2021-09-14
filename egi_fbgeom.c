@@ -2930,6 +2930,7 @@ Note:
 			!!! CRITICAL !!!
   3. If the triangle degenrates into a line, then color of the midpoint
      will be ineffective.
+TODO: Check midpoint pixZ value, position(front/back), make it effective if in front.
 
 @dev,		Pointer to FBDEV.
 @x0-2,y0-2:	Coordinates of 3 points defining a triangle, INT Type.
@@ -2994,7 +2995,7 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 	* TODO: If necessary, re_assign input x0y0~x2y2 as the NEW triangle.
         */
 	if( abs(fcheck1) < 0.0001 ) {
-		egi_dpstd("fcheck1=%e, the Tri is degenerated into a line!\n", fcheck1);
+//		egi_dpstd("fcheck1=%e, the Tri is degenerated into a line!\n", fcheck1);
 		//fcheck1=0.001;   FAILS!!! a,b OR r INALID!
 
 		/* Just move x1 OR y1 1 pixel! to avoid it's SAME as x0,y0 OR x2,y2 */
@@ -3006,7 +3007,7 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 		/* Recalculate fcheck */
 		fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
 		fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); //  1.0*(y1s-y2s)*(x0s-x2s);
-		egi_dpstd("Aft min move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
+//		egi_dpstd("Aft min move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
 
 		 /* Check again! MUST NOT apply x1s/y2s both, in case it's a 45deg line! */
 		if(abs(fcheck1)<0.0001 || abs(fcheck2)<0.0001) {
@@ -3021,12 +3022,12 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 			/* Recalculate fcheck */
 			fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
 			fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); // 1.0*(y1s-y2s)*(x0s-x2s);
-			egi_dpstd("Aft min. re_move: fcheck1=%e\n", fcheck1);
+//			egi_dpstd("Aft min. re_move: fcheck1=%e\n", fcheck1);
 		}
 	}
 	if( abs(fcheck2) < 0.0001 ) {
 	//if( abs(fcheck1) < 0.0001 || abs(fcheck2) <0.0001 ) {
-		egi_dpstd("fcheck2=%e, the Tri is degenerated into a line!\n", fcheck2);
+//		egi_dpstd("fcheck2=%e, the Tri is degenerated into a line!\n", fcheck2);
 		//fcheck2=0.001;   FAILS!!! a,b OR r INALID!
 
 		/* Just move x2/y2 1 pixel! to avoid it's SAME as x1,y1 OR x0,y0 */
@@ -3038,7 +3039,7 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 		/* Recalculate fcheck */
 		fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
 		fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); // 1.0*(y1s-y2s)*(x0s-x2s);
-		egi_dpstd("Aft min. move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
+//		egi_dpstd("Aft min. move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
 
 		if(abs(fcheck2)<0.0001 ||abs(fcheck1)<0.0001) {
 			/* Just move x1/y1 1 pixel! to avoid it's SAME as x0,y0 OR x2,y2 */
@@ -3050,13 +3051,13 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 			/* Recalculate fcheck */
 			fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
 			fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); // 1.0*(y1s-y2s)*(x0s-x2s);
-			egi_dpstd("Aft min. re_move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
+//			egi_dpstd("Aft min. re_move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
 		}
 	}
 	/* Check again, should NOT appear NOW! */
-	if(abs(fcheck1)<0.0001 || abs(fcheck2)<0.0001)
-		egi_dpstd("fcheck~=0!, points: {%d,%d} {%d,%d} {%d,%d}\n", x0,y0,x1,y1,x2,y2);
-
+	if(abs(fcheck1)<0.0001 || abs(fcheck2)<0.0001) {
+//		egi_dpstd("fcheck~=0!, points: {%d,%d} {%d,%d} {%d,%d}\n", x0,y0,x1,y1,x2,y2);
+	}
 #endif
 
 	/* Cal nl, nr. just after collinear checking! */
@@ -3116,7 +3117,7 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 
 	if( (x0-x1)*(y2-y1)==(y0-y1)*(x2-x1) || (x1-x2)*(y0-y2)==(y1-y2)*(x0-x2) )
 	{
-		egi_dpstd("the Tri degenerates into an oblique/horiz line!");
+//		egi_dpstd("the Tri degenerates into an oblique/horiz line!\n");
 
 		int x1=points[nl].x;
 		int y1=points[nl].y;
@@ -3132,8 +3133,7 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 		EGI_16BIT_COLOR color;	  /* draw_dot() pixel color */
 
 	        /* Ruled out (points[nr].x == points[nl].x), as nl==nr. a vertical line. */
-		//klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
-//		klr=1.0*(y2-y1)/(x2-x1);
+		//klr=1.0*(y2-y1)/(x2-x1);  NO USE!!
 
 		/* NOW: x2>x1 */
 		tmp=y1;
@@ -3185,7 +3185,6 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 			else if( R>255 || G>255 || B>255)
 				egi_dpstd("R,G,B>255! R=%d,G=%d,B=%d. a=%e,b=%e,r=%e\n", R,G,B, a,b,r);
 	#endif
-
 
 			if(y2>=y1) {
 				/* Traverse tmp (+)-> pY */

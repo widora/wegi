@@ -11,7 +11,6 @@ Midas Zhou
 #ifndef __EGI_BJP_H__
 #define __EGI_BJP_H__
 
-
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +25,10 @@ Midas Zhou
 //#include "egi.h"
 #include "egi_image.h"
 #include "egi_fbgeom.h"
+
+#ifdef __cplusplus
+ extern "C" {
+#endif
 
 /* 14byte文件头 */
 typedef struct
@@ -96,5 +99,12 @@ int egi_save_FBbmp(FBDEV *fb_dev, const char *fpath);
 
 /* save FB data to a PNG file */
 int egi_save_FBpng(FBDEV *fb_dev, const char *fpath);
+
+/* save FB data to a JPG file */
+int egi_save_FBjpg(FBDEV *fb_dev, const char *fpath, int quality);
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif
