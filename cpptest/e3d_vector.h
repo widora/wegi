@@ -29,6 +29,8 @@ Journal:
 2021-08-20:
 	1. Move E3D_draw_xxx functions to e3d_trimesh.h
 	2. Add E3D_RTMatrix::zeroRotation()
+2021-09-22:
+	1. Add vectorRGB().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -188,6 +190,13 @@ public:
 	/* Overload operator '*' for Dot_Product  */
 	float operator *(const E3D_Vector &v) const {
 		return  x*v.x + y*v.y +z*v.z;
+	}
+
+	/* Vectorize RGB to xyz */
+	void  vectorRGB(EGI_16BIT_COLOR color) {
+	        x=1.0*COLOR_R8_IN16BITS(color)/255;
+        	y=1.0*COLOR_G8_IN16BITS(color)/255;
+        	z=1.0*COLOR_B8_IN16BITS(color)/255;
 	}
 
 	/* Print */

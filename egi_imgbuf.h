@@ -76,12 +76,16 @@ typedef struct
 
 } EGI_IMGBUF;
 
-/* EGI image motion pictures:  Header */
+
+
+/* EGI image motion pictures:  Header
+ * Note:
+ *  	1. TODO: current functions DO NOT consider machine arch and byte order!
+ */
 typedef struct {
 	size_t		datasize;	/* Size of compressed frame image data, as follows. */
 	char		data[];		/* Compressed frame data */
 } EGI_IMGFRAME;
-
 typedef struct {
 	size_t		headsize;	/* To make it version compatible */
 

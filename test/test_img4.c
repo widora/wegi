@@ -61,7 +61,7 @@ int main(int argc, char **argv)
 
    /* Set sys FB mode */
    fb_set_directFB(&gv_fb_dev,true);
-   fb_position_rotate(&gv_fb_dev,3);
+   fb_position_rotate(&gv_fb_dev, 0);
 
  /* <<<<<  End of EGI general init  >>>>>> */
 

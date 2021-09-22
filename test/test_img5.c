@@ -88,7 +88,7 @@ int main(int argc, char **argv)
 	EGI_IMGBUF *fbimg=egi_imgbuf_alloc();
         fbimg->width=gv_fb_dev.pos_xres;
         fbimg->height=gv_fb_dev.pos_yres;
-        fbimg->imgbuf=(EGI_16BIT_COLOR*)gv_fb_dev.map_fb;
+        fbimg->imgbuf=(EGI_16BIT_COLOR*)gv_fb_dev.map_fb; /* map_bk */
 	/* Save fbimg to file */
 	egi_imgmotion_saveFrame("/tmp/test.mtn", fbimg);
 	egi_imgmotion_saveFrame("/tmp/test.mtn", NULL); /* Just print header */

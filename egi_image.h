@@ -116,8 +116,7 @@ int egi_imgbuf_reset(EGI_IMGBUF *egi_imgbuf, int subnum, int color, int alpha);	
 //RENAME: egi_subimg_reset()
 
 /* blend an EGI_IMGBUF with a FT_Bitmap */
-int egi_imgbuf_blend_FTbitmap(EGI_IMGBUF* eimg, int xb, int yb, FT_Bitmap *bitmap,
-								EGI_16BIT_COLOR subcolor);
+int egi_imgbuf_blend_FTbitmap(EGI_IMGBUF* eimg, int xb, int yb, FT_Bitmap *bitmap, int subcolor);
 
 /* Set average luminance/birghtness Y for an image */
 int egi_imgbuf_avgLuma( EGI_IMGBUF *eimg, unsigned char luma );

@@ -780,7 +780,7 @@ int egi_imgbuf_loadjpg(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 	egi_imgbuf->imgbuf=calloc(1, width*height*bytpp);
 	if(egi_imgbuf->imgbuf==NULL)
 	{
-		printf("egi_imgbuf_loadjpg(): fail to malloc imgbuf.\n");
+		egi_dperr("fail to malloc imgbuf.");
 	        pthread_mutex_unlock(&egi_imgbuf->img_mutex);
 		close_jpgImg(imgbuf);
 		return -3;

@@ -137,6 +137,12 @@ int  	FTsymbol_uft8strings_writeIMG( EGI_IMGBUF *imgbuf, FT_Face face, int fw, i
 			       int fontcolor, int transpcolor, int opaque,
  			       int *cnt, int *lnleft, int* penx, int* peny );
 
+int  	FTsymbol_uft8strings_writeIMG2( EGI_IMGBUF *imgbuf, FT_Face face, int fw, int fh, const unsigned char *pstr,
+			       unsigned int pixpl,  unsigned int lines,  unsigned int gap,
+                               int x0, int y0, int angle, int fontcolor,
+ 			       int *cnt, int *lnleft, int* penx, int* peny );
+
+
 
 int  	FTsymbol_uft8strings_pixlen( FT_Face face, int fw, int fh, const unsigned char *pstr); /* FTsymbol_uft8string_getAdvances() will call it.*/
 int  	FTsymbol_eword_pixlen( FT_Face face, int fw, int fh, const unsigned char *pword);

@@ -47,6 +47,12 @@ rabbit.obj -c -s 100 -X 90 -A 2 -y 20 -a 10 -T TexRabbit.jpg
 crownfish.obj -c -s 20 -X 90 -A 2 -P -a 10 -T crownfish.jpg
 covid.obj -c -X 190 -a 10 -T covid.png
 3Dhead.obj -c -s 120 -X 180 -T 3DheadColor.jpg
+3Dhead.obj -c -s 150 -X 180 -Y -45 -a -5 -T 3DheadColor.jpg -M /mmc/texxx.motion  !!!--- Text_Texutre and vlight---!!!
+angel.obj -c -s 200 -X 180 -z -250 -P
+rock.obj -c -s 15 -X 60 -A 2 -a -2.5 -P -M /mmc/rock.motion
+temple.obj -c -s 0.5 -z -200 -A 2 -y -100 -Z 180 -X -80 -a 25 -P -T temple.png
+monk.obj -c -s 200 -y 120 -X 185 -r
+arm_hand.obj -c -s 125 -y 120 -X 90 -A 2 -a -2.5 -M /mmc/arm_hand.motion
 
 deer.obj -s 1 -y -100 -z 3500 -c -b -X -20
 myPack.obj -s 1.5 -z 1000 -X -30 -y 100 -b
@@ -116,6 +122,9 @@ Note:
    XXXTODO: Use ViewPoint matrix to avoid using meshWork. ---OK
 5. Sequence of Matrix multiplication matters in computing combined RTmatrix.
 XXX 5. For Perspective View, wiremesh may NOT shown properly.
+6. Navigating sphere icon:
+   For OPTION_1, to indicate workMesh local coord relative to global coord.
+   For OPTION_2, to indicate global coord relative to camera/viewport coord.
 
 6.   			--- OPTION_1: WorkMesh_Movement ---
 
@@ -177,6 +186,9 @@ Journal:
 	Same FB data as subimges of simg, and then for serial playing.
 2021-09-10:
 	Save screen as a frame of a motion file.
+2021-09-16/17:
+	Test FTsymbol texturing.
+	Test vLighting
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -200,9 +212,15 @@ using namespace std;
 
 #define MOTION_FILE  "/mmc/mesh.motion"
 
+#define TEST_MTXT_TEXTURE  0
+#define TEST_VLIGHTING	   0
+
+const UFT8_PCHAR ustr=(UFT8_PCHAR)"Hello_World! 世界你好!\n12345 子丑寅卯辰\nABCEDEFG 甲乙丙丁戊\nE3D MESH E3D MESH E3D MESH";
+//const UFT8_PCHAR ustr=(UFT8_PCHAR)"'技术需要沉淀，\n成长需要痛苦.\n成功需要坚持，\n敬仰需要奉献！'";
+
 void print_help(const char *name)
 {
-	printf("Usage: %s obj_file [-hrBDNRSPwbtcf:s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
+	printf("Usage: %s obj_file [-hrBDNRSPVwbtcf:s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
 	printf("-h     Help\n");
 	printf("-r     Reverse trianlge normals\n");
 	printf("-B     Display back faces with default color.\n");
@@ -211,12 +229,13 @@ void print_help(const char *name)
 	printf("-R     Reverse vertex Z direction.\n");
 	printf("-S     Save serial FB images and loop playing.\n");
 	printf("-P     Perspective ON\n");
+	printf("-V     Auto compute all vtxNormals if no provided in data, for gouraud shading.\n");
 	printf("-w     Wireframe ON\n");
 	printf("-b     AABB ON\n");
 	printf("-c     Move local COORD origin to center of mesh.\n");
 	printf("-t:    Show rendering process.\n");
 	printf("-s:    Scale the mesh\n");
-	printf("-x:    X_offset for display\n");
+	printf("-x:    X_offset for display, relative to ScreenCoord.\n");
 	printf("-y:    Y_offset for display\n");
 	printf("-z:    Z_offset for display\n");
 	printf("-A:    0,1,2 Rotation axis, default FB_COORD_Y, 0_X, 1_Y, 2_Z \n");
@@ -240,29 +259,26 @@ int main(int argc, char **argv)
 	int i;
         int             vertexCount=0;
         int             triangleCount=0;
-#if 0
-        int             normalCount=0;
-        int             textureCount=0;
-        int             faceCount=0;
-#endif
+
 	/* 24bit color ref
 	 0xD0BC4B--Golden
 	 0xB8DCF0--Milk white
 	 0xF0CCA8--Bronze
 	*/
 
-	EGI_16BIT_COLOR	  bkgColor=WEGI_COLOR_GRAY5;//GREEN; //GRAY5; // DARKPURPLE
+	EGI_16BIT_COLOR	  bkgColor=WEGI_COLOR_GRAY;//GREEN; //GRAY5; // DARKPURPLE
 	EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(0xF0CCA8);//WEGI_COLOR_PINK;
 	EGI_16BIT_COLOR	  wireColor=WEGI_COLOR_BLACK; //DARKGRAY;
 	EGI_16BIT_COLOR	  aabbColor=WEGI_COLOR_LTBLUE;
 	EGI_16BIT_COLOR	  fontColor=WEGI_COLOR_GREEN;
-	EGI_16BIT_COLOR	  fontColor2=WEGI_COLOR_GREEN; //ORANGE;
+	EGI_16BIT_COLOR	  fontColor2=WEGI_COLOR_PINK;//GREEN;
 
 	char 		*textureFile=NULL;	/* Fpath */
 
 	char		fpath[1024];		/* File path for saving JPG */
 	EGI_IMGBUF	*fbimg=NULL;		/* A ref. to FB data */
 	EGI_IMGBUF 	*simg=NULL;		/* Serial imgbuf for motion picture */
+	EGI_IMGBUF	*refimg=NULL;		/* Temp. ref. to workMesh->textureImg */
 	int		imgcnt=0;		/* Counter of subimg of simg */
 
 	unsigned int	xres,yres;
@@ -292,6 +308,7 @@ int main(int argc, char **argv)
 	bool		serialPlay_on=false;	/* Save serial FB image and then loop play */
 	bool		saveMotion_on=false;	/* Save screen as a frame of a motion file */
 	bool		backFace_on=false;	/* Display back faces */
+	bool		calVtxNormals_on=false; /* To compute all vtxNormals if not provided in data, for gouraud shading. */
 
 	/* Projectionn matrix */
 	float		dview;		/* Distance from the Focus(usually originZ) to the Screen/ViewPlane */
@@ -301,7 +318,7 @@ int main(int argc, char **argv)
 
         /* Parse input option */
 	int opt;
-        while( (opt=getopt(argc,argv,"hrBDNRSPwbtcf:s:x:y:z:A:M:X:Y:Z:T:a:p:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hrBDNRSPVwbtcf:s:x:y:z:A:M:X:Y:Z:T:a:p:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
 				print_help(argv[0]);
@@ -416,7 +433,7 @@ int main(int argc, char **argv)
 	fbimg->height=yres;
 	fbimg->imgbuf=(EGI_16BIT_COLOR*)gv_fb_dev.map_fb;
 
-	/* Prepare for serial images playing */
+#if 0	/* XXX Prepare for serial images playing XXX */
 	if( serialPlay_on ) {
 
 		/* Prepare simg or serial image. Max 72 subimg  */
@@ -442,6 +459,7 @@ int main(int argc, char **argv)
 		/* Reset imgcnt */
 		imgcnt=0;
 	}
+#endif
 
         /* Load freetype appfonts */
         if(FTsymbol_load_appfonts() !=0 ) {     /* load FT fonts LIBS */
@@ -450,11 +468,13 @@ int main(int argc, char **argv)
         }
 
 	/* Set global light vector */
-	E3D_Vector vLight(1,1,4);
+	float vang=45.0; /*  R=1.414, angle for vector(x,y) of vLight  */
+	float dvang=5; //2.5;  /* Delta angle for vangle */
+	E3D_Vector vLight(1,1,1); //2); //4);
 	vLight.normalize();
 	gv_vLight=vLight;
 
-	/* Read obj file to meshModel */
+	/* 1. Read obj file to meshModel */
 	cout<< "Read obj file '"<< fobj <<"' into E3D_TriMesh... \n";
 	E3D_TriMesh	meshModel(fobj);
 	if(meshModel.vtxCount()==0)
@@ -468,47 +488,61 @@ int main(int argc, char **argv)
 
 	exit(0);
 #endif
-	/* Calculate/update AABB */
+	/* 2. Calculate/update AABB */
 	meshModel.updateAABB();
 	meshModel.printAABB("meshModel");
 
-	/* Set Projection type */
+	/* 3. Set Projection type */
 	if(perspective_on)
 		projMatrix.type=E3D_PERSPECTIVE_VIEW;
 	else
 		projMatrix.type=E3D_ISOMETRIC_VIEW;
 
-	/* Set projection screen size */
+	/* 4. Set projection screen size */
 	projMatrix.winW=xres;
 	projMatrix.winH=yres;
 
-	/* Get meshModel statistics */
+	/* 5. Get meshModel statistics */
 	//readObjFileInfo(fobj, vertexCount, triangleCount,normalCount,textureCount,faceCount);
 	vertexCount=meshModel.vtxCount();
 	triangleCount=meshModel.triCount();
 	sprintf(strtmp,"Vertex: %d\nTriangle: %d\n%s", vertexCount, triangleCount,
 				projMatrix.type?(UFT8_PCHAR)"Perspective":(UFT8_PCHAR)"ISOmetric" );
 
-	/* Rotation axis/ Normalized. */
+	/* 6. Rotation axis/ Normalized. */
 	E3D_Vector axisX(1,0,0);
 	E3D_Vector axisY(0,1,0);
 	E3D_Vector axisZ(0,0,1);
 	E3D_Vector vctXY;  /* z==0 */
 
-	/* Prepare View_Coord VRTMatrix as relative to Global_Coord. */
+	/* 7. Prepare View_Coord VRTMatrix as relative to Global_Coord. */
 	E3D_RTMatrix RXmat, RYmat, RZmat;	/* Rotation only */
 	E3D_RTMatrix VRTmat;			/* Combined RTMatrix */
 	E3D_RTMatrix ScaleMat;
 	E3D_RTMatrix AdjustMat;  		/* For adjust */
 	float angle=0.0;
 
-/* ---TEST: Save FB images to a motion file.  ------------------------- */
+	/* ------ 8.TEST: Save FB images to a motion file.  ------------------------- */
 	if(saveMotion_on) {
 		if(fmotion==NULL)
 			fmotion=MOTION_FILE;
 		if( egi_imgmotion_saveHeader(fmotion, xres, yres, 50, 1) !=0 )  /* (fpath, width, height, delayms, compress) */
 			exit(EXIT_FAILURE);
 	}
+
+
+	/* ------ 9.TEST: Imgbuf texture with FTsymbols, for 3Dhead specially. ---------------- */
+#if TEST_MTXT_TEXTURE
+	EGI_16BIT_COLOR texcolor=COLOR_24TO16BITS(0x908CA8);
+	EGI_16BIT_COLOR txtcolor=WEGI_COLOR_RED;//PURPLE;
+	EGI_IMGBUF *teximg=NULL;
+
+	int fw=100, fh=100;
+//	int sx=2048-200, sy=2048-200;
+	int sx=2048-350, sy=2048-200 -300;
+	int txtangle=-75; //45;
+#endif
+
 
 #if 1 //////////////////////  OPTION_1. Move/Scale workMesh and Keep View Direction as Global_COORD_Z (-z-->+z)  /////////////////////////
 			   /*  Loop Rendering: renderMesh(fbdev)  */
@@ -531,6 +565,12 @@ int main(int argc, char **argv)
 	cout<< "Update all triNormals..."<<endl;
         meshModel.updateAllTriNormals();
 
+	/* 3.1 Compute vertex noramls if necessary, for gouraud shading. */
+	if( calVtxNormals_on && meshModel.vtxNormalIsZero() ) {
+		cout<< "Compute all vertex Normals..."<<endl;
+		meshModel.computeAllVtxNormals();
+	}
+
 #if 1   /* 4. Draw mesh wireframe. */
 	cout<< "Draw wireframe..."<<endl;
         fb_clear_workBuff(&gv_fb_dev, bkgColor); //DARKPURPLE);
@@ -544,10 +584,10 @@ int main(int argc, char **argv)
 #endif
 	/* 5. Move meshModel center to its local Origin.  */
 	if(autocenter_on) {
-		#if 0
+		#if 1  /* To Vtx Center */
 		meshModel.updateVtxsCenter();
 		meshModel.moveVtxsCenterToOrigin(); /* AABB updated also */
-		#else
+		#else  /* To AABB center */
 		meshModel.updateAABB();
 		meshModel.moveAabbCenterToOrigin(); /* AABB updated also */
 		#endif
@@ -572,10 +612,12 @@ int main(int argc, char **argv)
 
 	/* 8. Prepare WorkMesh (Under global Coord ) */
 	E3D_TriMesh *workMesh=new E3D_TriMesh(meshModel.vtxCount(), meshModel.triCount());
-	/* Read textureFile */
+
+  	/* 9. Read textureFile into workMesh */
 	if( textureFile ) {
 		workMesh->readTextureImage(textureFile, -1); //xres);
 		if(workMesh->textureImg) {
+			refimg=workMesh->textureImg; /* Just ref. */
 			workMesh->shadeType=E3D_TEXTURE_MAPPING;
 			if( texScale>0.0 ) {
 			    if(egi_imgbuf_scale_update(&workMesh->textureImg,
@@ -586,9 +628,39 @@ int main(int argc, char **argv)
 			}
 		}
 	}
-	else
+	else {
+		/* Note: if the mesh has NO nv data(all 0), then result of GOURAUD_SHADING will be BLACK */
 		workMesh->shadeType=E3D_GOURAUD_SHADING;
+	}
 
+	/* 10. Test multiline text texture */
+#if  TEST_MTXT_TEXTURE
+	if( refimg ) {
+		teximg=egi_imgbuf_blockCopy(refimg, 0,0, refimg->height, refimg->width);
+		if(teximg==NULL) exit(-1);
+	}
+	/* Reset color for teximg */
+	else {
+		teximg=egi_imgbuf_createWithoutAlpha(2048, 2048, texcolor);
+		if( teximg==NULL ) exit(-1);
+	}
+
+	/* 11. Re_assign for workMesh */
+	workMesh->shadeType=E3D_TEXTURE_MAPPING;
+	workMesh->textureImg=teximg;
+
+	/* 12. TEST: to teximg display on screen */
+	FTsymbol_uft8strings_writeIMG2( teximg, egi_appfonts.bold, fw, fh, ustr, /* imgbuf, face, fw, fh, pstr */
+                                        2000, 5, 20,             /* pixpl, lines, gap */
+                                        sx, sy, txtangle, txtcolor, /* x0, y0, angle, fontcolor */
+                                        NULL, NULL, NULL,NULL); /* *cnt, *lnleft, *penx, *peny */
+
+	egi_subimg_writeFB(teximg, &gv_fb_dev, 0, -1, 0, 0); /* imgbuf, fbdev, subnum subcolor, x0,y0 */
+	fb_render(&gv_fb_dev);
+	sleep(3);
+#endif
+
+			/* (((-----  Loop move and render workMesh  -----))) */
   while(1) {
 
 	/* W1. Clone meshModel to workMesh, with vertices/triangles/normals */
@@ -603,26 +675,7 @@ int main(int argc, char **argv)
 
 //	workMesh->shadeType=E3D_GOURAUD_SHADING;
 
-#if 0 ///////////////////////////////////////////////
 	/* W2. Prepare transform matrix */
-	/* W2.1 Rotate around axis_Y under its local coord. */
-	RTYmat.identity(); /* !!!Reset */
-	RTYmat.setRotation(axisY, 1.0*angle/180*MATH_PI);
-
-	/* W2.2 Rotate around axis_X and Move to LCD center */
-	RTXmat.identity();
-	RTXmat.setRotation(axisX, (-140.0+rotX)/180*MATH_PI);  /* AntiCloswise. -140 for Screen XYZ flip.  */
-
-	/* W2.3 Translation */
-	/* Note:
-	 * 1. without setTranslation(x,y,.), Global XY_origin and View/Screen XY_origin coincide!
-	 * 2. For TEST_PERSPECTIVE,
-	 */
-	RTXmat.setTranslation(offx, offy, offz +dview*2); /* take Focus to obj center=2*dview */
-#endif /////////////////////////////////
-
-	/* W2. Prepare transform matrix */
-
 	/* W2.1 Rotation Matrix combining computation
 	 *			---- PRACTICE!! ---
 	 * Note:
@@ -724,10 +777,10 @@ int main(int argc, char **argv)
 	/* W10. Write note & statistics */
 	gv_fb_dev.zbuff_on=false;
 
-	/* Navigating sphere icon */
+	/* W10.1 Navigating sphere icon */
 	E3D_draw_coordNavIcon2D(&gv_fb_dev, 30, VRTmat, xres-35, 35);
 
-	/* Statistics and info. */
+	/* W10.2 Statistics and info. */
 	if(showInfo_on) {
 	   sprintf(strtmp,"Vertex: %d\nTriangle: %d\n%s\ndvv=%d%%",
 			vertexCount, triangleCount,
@@ -741,29 +794,26 @@ int main(int argc, char **argv)
                                         5, 4,                             /* x0,y0, */
                                         fontColor, -1, 200,        	  /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );         /* int *cnt, int *lnleft, int* penx, int* peny */
-	 }
+	}
 
-	 sprintf(strtmp, "Angle: %.1f", angle);
-         FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
+	sprintf(strtmp, "RotAngle: %.1f", angle); /* Rotation angle */
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
                                         16, 16,                           /* fw,fh */
                                         (UFT8_PCHAR)strtmp, 		  /* pstr */
                                         300, 1, 0,                        /* pixpl, lines, fgap */
-                                        xres-105, yres-45,                /* x0,y0, */
-                                        fontColor, -1, 255,        	  /* fontcolor, transcolor,opaque */
+                                        xres-122, yres-42,                /* x0,y0, */
+                                        fontColor2, -1, 255,        	  /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );         /* int *cnt, int *lnleft, int* penx, int* peny */
         FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
                                         20, 20,                         /* fw,fh */
                                         (UFT8_PCHAR)"E3D MESH", 	/* pstr */
                                         300, 1, 0,                      /* pixpl, lines, fgap */
-                                        xres-120, yres-28,              /* x0,y0, */
+                                        xres-125, yres-25,              /* x0,y0, */
                                         fontColor2, -1, 255,            /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
 
+        #if 0  /* Display shade type and faceColor */
 	/* Shade type and face color */
-
-//	if( workMesh->shadeType==E3D_FLAT_SHADING || workMesh->shadeType==E3D_GOURAUD_SHADING
-//	    || workMesh->textureImg==NULL )
-//	{
 	switch(workMesh->shadeType) {
 		case E3D_FLAT_SHADING:
 			strShadeType="Flat shading"; break;
@@ -776,23 +826,23 @@ int main(int argc, char **argv)
 		default:
 			strShadeType=NULL; break;
 	}
+	sprintf( strtmp,"0x%06X Y%d\n%s",
+		 COLOR_16TO24BITS(faceColor), egi_color_getY(faceColor),
+		 //workMesh->shadeType==E3D_GOURAUD_SHADING?(UFT8_PCHAR)"Gouraud shading":(UFT8_PCHAR)"Flat shading"
+		 strShadeType
+		);
 
-		sprintf( strtmp,"0x%06X Y%d\n%s",
-			 COLOR_16TO24BITS(faceColor), egi_color_getY(faceColor),
-			 //workMesh->shadeType==E3D_GOURAUD_SHADING?(UFT8_PCHAR)"Gouraud shading":(UFT8_PCHAR)"Flat shading"
-			 strShadeType
-			);
-
-        	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
-                                        16, 16,                     	/* fw,fh */
-                                        (UFT8_PCHAR)strtmp, 		/* pstr */
-                                        300, 2, 4,                      /* pixpl, lines, fgap */
-                                        5, yres-45,              	/* x0,y0, */
-                                        fontColor, -1, 255,             /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
-//	}
-
+       	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
+                                       16, 16,                     	/* fw,fh */
+                                       (UFT8_PCHAR)strtmp, 		/* pstr */
+                                       300, 2, 4,                      /* pixpl, lines, fgap */
+                                       5, yres-45,              	/* x0,y0, */
+                                       fontColor, -1, 255,             /* fontcolor, transcolor,opaque */
+                                       NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
+	#endif
 	gv_fb_dev.zbuff_on=true;
+
+	/* W11.  BLANK */
 
 	/* W12. Render to FBDEV */
 	fb_render(&gv_fb_dev);
@@ -817,7 +867,7 @@ int main(int argc, char **argv)
 	}
 
 
-#if 0	/* If saveFB and serial playing. */
+#if 0	/* XXX If saveFB and serial playing. XXX */
 	if( serialPlay_on ) {
 	   if(angle>360) {
 	 	//exit(0);
@@ -866,9 +916,10 @@ int main(int argc, char **argv)
 		else if(workMesh->shadeType==E3D_GOURAUD_SHADING) {
 			//workMesh->shadeType=E3D_TEXTURE_MAPPING;
 			workMesh->shadeType=E3D_WIRE_FRAMING;
-/* TEST: ---------- */
+#if 0 /* TEST: ---------- */
 			if( saveMotion_on )
 				exit(0);
+#endif
 		}
 		else if(workMesh->shadeType==E3D_WIRE_FRAMING) {
 			if(workMesh->textureImg)
@@ -885,11 +936,47 @@ int main(int argc, char **argv)
 #endif
 	}
 
+#if TEST_MTXT_TEXTURE /* ------TEST: Imgbuf texture with FTsymbols, update teximg.  --------- */
+
+	/* If it has input texture file, the copy from original texture imgbuf */
+	if( refimg ) {
+		egi_imgbuf_free2(&teximg);
+		teximg=egi_imgbuf_blockCopy(refimg, 0,0, refimg->height, refimg->width);
+		if(teximg==NULL) exit(-1);
+	}
+	/* Reset color for teximg */
+	else
+		egi_imgbuf_resetColorAlpha(teximg, texcolor, -1);
+
+	sx -= 2048/200;
+//	sy -= 2048/100;
+	sy += (2048/200)*tanf(MATH_PI*txtangle/180.0);
+
+	FTsymbol_uft8strings_writeIMG2( teximg, egi_appfonts.bold, fw, fh, ustr, /* imgbuf, face, fw, fh, pstr */
+                                        2000, 5, 20,             /* pixpl, lines, gap */
+                                        sx, sy, txtangle, txtcolor, /* x0, y0, angle, fontcolor */
+                                        NULL, NULL, NULL,NULL); /* *cnt, *lnleft, *penx, *peny */
+#endif
+
 	/* W14. Update dvv: Distance from the Focus to the Screen/ViewPlane */
 	dvv += dstep;
 	if( dvv > 1.9*dview || dvv < 0.1*dview )
 		dstep=-dstep;
+
+	/* W15. Adjust global light vector */
+#if TEST_VLIGHTING
+	if(vang > 45.0 +360) exit(0);
+	vang +=dvang;
+	vLight.x=1.414*cosf(MATH_PI*vang/180);
+	vLight.y=1.414*sinf(MATH_PI*vang/180);
+	vLight.z=1; //2,4;
+	vLight.normalize();
+	vLight.print();
+	gv_vLight=vLight;
+#endif
+
    }
+
 
 #else //////////////////////  OPTION_2. Keep meshModel and Change View Postion  /////////////////////////
 			   /*  Loop Rendering: renderMesh(fbdev, &VRTMatrix)  */

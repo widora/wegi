@@ -72,6 +72,8 @@ Jurnal
 	1. Improve draw_filled_triangle3( int x/y ).
 2021-09-07:
 	1. draw_filled_triangle3(): Case_3: if the triangle degenerates into a line!
+2021-09-14:
+	1. Modify clear_screen().
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -541,16 +543,19 @@ bool  box_outbox(EGI_BOX* inbox, EGI_BOX* container)
 ---------------------------------------------*/
 void clear_screen(FBDEV *fb_dev, uint16_t color)
 {
-//	int i,j;
-//	FBDEV *fb_dev=dev;
-//	int xres=fb_dev->vinfo.xres;
-//	int yres=fb_dev->vinfo.yres;
 	int bytes_per_pixel=fb_dev->vinfo.bits_per_pixel/8;
 	long int location=0;
 
-	for(location=0; location < (fb_dev->screensize/bytes_per_pixel); location++)
-	        *((uint16_t*)(fb_dev->map_fb+location*bytes_per_pixel))=color;
-
+	/* If map_bk allocated, ENABLE_BACK_BUFFER is defined */
+	if( fb_dev->map_bk ) {
+		for(location=0; location < (fb_dev->screensize/bytes_per_pixel); location++)
+		        *((uint16_t*)(fb_dev->map_bk+location*bytes_per_pixel))=color;
+	}
+	/* Only map_fb is available */
+	else {
+		for(location=0; location < (fb_dev->screensize/bytes_per_pixel); location++)
+		        *((uint16_t*)(fb_dev->map_fb+location*bytes_per_pixel))=color;
+	}
 }
 
 
@@ -2924,13 +2929,20 @@ coordinates interpolation, with consideration of following cases:
    Case 3: All points are collinear, as an oblique OR horizontal line.
    Case 4: As a true resonalbe triangle.
 
+			--- XYZ values and precision ---
+To use integer data type for XYZ will sacrifice certain precisions, especially
+where mesh gradient is very large.
+
 Note:
   1. roundf() to improve accuracy, but NOT speed.
   2. color=a*color0+b*color1+r*color2. here 16bit color!
 			!!! CRITICAL !!!
   3. If the triangle degenrates into a line, then color of the midpoint
      will be ineffective.
-TODO: Check midpoint pixZ value, position(front/back), make it effective if in front.
+
+TODO: Check midpoint pixZ value, position(front/back), make it effective or not.
+      If midpoint is effecive, then draw two segments( as two sides of a triangle
+      is visible). In this case,  z0/z1/z2 should be provided also!
 
 @dev,		Pointer to FBDEV.
 @x0-2,y0-2:	Coordinates of 3 points defining a triangle, INT Type.

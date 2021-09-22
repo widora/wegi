@@ -33,6 +33,8 @@ Journal:
 	2. FTsymbol_uft8strings_writeFB(): SplitWord contorl.
 2021-07-20:
 	1. FTsymbol_eword_pixlen(): Count in any SPACEs/TABs.
+2021-09-14:
+	1. Add FTsymbol_uft8strings_writeIMG2(), with rotation angle.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -1733,6 +1735,219 @@ int     FTsymbol_uft8strings_writeIMG( EGI_IMGBUF *imgbuf, FT_Face face, int fw,
 	return ret;
 }
 
+
+/*--------------------------------------------------------------------------------------
+Write a string of charaters with UFT-8 encoding to an IMGBUF.
+Start penxy is at the left bottom point of the first glyph.
+
+@Params:   See FTsymbol_uft8strings_writeFB()
+@x0,y0:	   Start point (Left BOTTOM) coordinate of the character bitmap,
+	   relative to IMGBUF coord system.
+@angle:    Line orientation.
+	   Screen Coord: anti_clockwise as + direction.
+
+TODO:
+1. Mutex lock FT_library.
+2. Auto. return for a NEW line if exceeds current pixpl.
+3. lnleft.
+
+return:
+                >=0     bytes write to FB
+                <0      fails
+-----------------------------------------------------------------------------------------*/
+int  FTsymbol_uft8strings_writeIMG2( EGI_IMGBUF *imgbuf, FT_Face face, int fw, int fh, const unsigned char *pstr,
+                               	     unsigned int pixpl,  unsigned int lines,  unsigned int gap,
+                             	     int x0, int y0,  int angle,  int fontcolor,
+                                     int *cnt, int *lnleft, int* penx, int* peny )
+{
+	const unsigned char *p=pstr;
+	int	      	size;
+ 	wchar_t       	wcstr[1];
+        int 		xleft; 		/* available pixels remainded in current line */
+        unsigned int 	ln; 		/* lines used */
+	int		count;		/* Number of wcodes */
+//	int		px,py;
+	int		sdw;
+
+  	FT_Error      error;
+  	FT_GlyphSlot  slot;
+  	FT_Matrix     matrix;	/* transformation matrix */
+  	FT_Vector     pen;      /* untransformed origin  */
+// 	int	      starty;   /* starting pen Y postion for rotated lines */
+//  	FT_BBox	      bbox;	/* Boundary box */
+	float 	      fang;
+	int	      dx=0, dy=0; /* Start point dx/dy for each line, as relative to glyph local origin(0,0) */
+
+
+	/* Check input */
+	if( pstr== NULL )
+		return -1;
+	if( face==NULL ) {
+		egi_dpstd("Input face is NULL!\n");
+		return -1;
+	}
+	if( imgbuf==NULL || imgbuf->imgbuf==NULL) {
+		egi_dpstd("Imgbuf is invalid!\n");
+		return -1;
+	}
+
+  	/* Get pointer to the glyph slot */
+  	slot = face->glyph;
+
+	/* Init vars */
+	xleft=pixpl;
+	count=0;
+	ln=0;
+
+	/* Set up matrix for bitmap transformation, ROTATION only. */
+  	fang= 3.14159*angle/180.0;
+// 	egi_dpstd(" ------------- angle: %d, %f ----------\n", angle, fang);
+	matrix.xx = (FT_Fixed)( cosf( fang ) * 0x10000L );
+	matrix.xy = (FT_Fixed)(-sinf( fang ) * 0x10000L );
+	matrix.yx = (FT_Fixed)( sinf( fang ) * 0x10000L );
+	matrix.yy = (FT_Fixed)( cosf( fang ) * 0x10000L );
+
+  	/* Set pen position.
+   	 * 1. the pen position in 26.6 cartesian space coordinates
+     	 *    64 units per pixel for pen.x and pen.y
+	 * 2. Set glyph local origin at (0,0), add x0/y0 at egi_imgbuf_blend_FTbitmap().
+	 */
+	pen.x = 0; //x0<<6;  //  * 64;
+	pen.y = 0; //y0<<6;  //  * 64;
+//	startx=pen.x;
+//	starty=pen.y;
+	dx=0;
+
+	/* Set character size in pixels */
+	error = FT_Set_Pixel_Sizes(face, fw, fh);
+   	/* OR set character size in 26.6 fractional points, and resolution in dpi
+   	 *  error = FT_Set_Char_Size( face, 32*32, 0, 100,0 );
+	 */
+	if(error) {
+		egi_dpstd("FT_Set_Pixel_Sizes() fails!\n");
+		return -1;
+	}
+
+	while(*p) {
+		/* --- check whether lines are used up --- */
+		if( ln >= lines) {  /* ln index from 0 */
+			/* here ln is the written line number,not index number */
+			goto FUNC_END;
+		}
+
+		/* Convert one character to unicode, return size of utf-8 code */
+		size=char_uft8_to_unicode(p, wcstr);
+
+		/* shift offset to next wchar */
+		if(size>0) {
+			p+=size;
+			count++;
+		}
+		else {	/* If fails, try to step 1 byte forward to locate next recognizable unicode wchar */
+			p++;
+			continue;
+		}
+
+		/* CONTROL ASCII CODE:
+		 * If return to next line
+		 */
+		if(*wcstr=='\n') {
+//			printf(" ... ASCII code: Next Line ...\n ");
+
+			/* change to next line, +gap */
+			ln++;
+			xleft=pixpl;
+			/* Update/Reset penxy */
+			pen.x = 0;
+			pen.y = 0;
+			/* dx/dy as relative to x0/y0 */
+			dx=roundf(sinf(3.14159*angle/180.0)*(ln*(fh+gap)));
+			dy=roundf(cosf(3.14159*angle/180.0)*(ln*(fh+gap)));
+
+			continue;
+		}
+		/* If other control codes or DEL, skip it */
+		else if( (*wcstr < 32 || *wcstr==127) && *wcstr!=9 ) {	/* Exclude TAB(9) */
+//			printf(" ASCII control code: %d\n", *wcstr);
+			continue;
+		}
+
+#if 0 /* TEST:------ Draw circle at pen.x,pen.y ------ */
+		fbset_color2(&gv_fb_dev, WEGI_COLOR_GREEN);
+		draw_circle(&gv_fb_dev, x0+(pen.x>>6), y0-(pen.y>>6), 3);
+#endif
+
+		/* Set transform:
+   		 * Re_set transformation before loading each wchar,
+		 * as pen postion and transfer_matrix may changes.
+        	 */
+	    	FT_Set_Transform( face, &matrix, &pen );
+
+		/* Load char and render, old data in face->glyph will be cleared */
+	    	error = FT_Load_Char( face, wcstr[0], FT_LOAD_RENDER );
+    		if (error) {
+			egi_dperr("FT_Load_Char() fails! wcode=0x%04X\n", wcstr[0]);
+			return -2;
+		}
+		//egi_dpstd("FT_Load_Char() wcode=0x%04X\n", wcstr[0]);
+
+		/* Check if the wcode has re_defined width, those wcodes are assumed to have no bitmap.*/
+        	sdw=FTsymbol_cooked_charWidth(wcstr[0], fw);
+	        if( sdw >=0 )  {
+//			printf("sdw=%d \n", sdw);
+			slot->advance.x += roundf(sdw*cos(3.14159*angle/180.0))*64 ;
+			slot->advance.y += roundf(sdw*sin(3.14159*angle/180.0))*64;
+		}
+
+		/* Get boundary box in grid-fitted pixel coordinates */
+		//FT_Glyph_Get_CBox( face->glyph, FT_GLYPH_BBOX_PIXELS, &bbox );
+		//printf("face boundary box: width=%ld, height=%ld.\n",
+		//	(face->bbox.xMax - face->bbox.xMin)>>6, (face->bbox.yMax-face->bbox.yMin)>>6 );
+
+		/* Note that even when the glyph image is transformed, the metrics are NOT ! */
+		//printf("glyph metrics[in 26.6 format]: width=%ld, height=%ld.\n",
+		//			slot->metrics.width>>6, slot->metrics.height>>6);
+
+		/* adjust bitmap position relative to boundary box */
+		//delX= slot->bitmap_left;
+		//delY= -slot->bitmap_top + fh;
+
+		//printf("bitmap_left=%d, bitmap_top=%d \n", slot->bitmap_left, slot->bitmap_top);
+
+#if 1 /* TEST:------ Draw bbox ------ */
+		fbset_color2(&gv_fb_dev, WEGI_COLOR_LTGREEN);
+		draw_rect(&gv_fb_dev, x0+dx+slot->bitmap_left, y0+dy-slot->bitmap_top,
+		 		x0+dx+slot->bitmap_left+slot->bitmap.width-1,
+				y0+dy-slot->bitmap_top+slot->bitmap.rows-1);
+#endif
+
+		error=egi_imgbuf_blend_FTbitmap(imgbuf, x0+dx+slot->bitmap_left, y0+dy-slot->bitmap_top, &slot->bitmap, fontcolor);
+		if(error) {
+//			egi_dpstd(" Fail to blend FTbitmap wcode=0x%04X\n", wcstr[0]);
+		}
+
+    		/* Increment pen position, already including sdw. see above. */
+	    	pen.x += slot->advance.x;
+    		pen.y += slot->advance.y;
+
+	} /* End while() */
+
+	/* If finish writing whole strings, ln++ to get written lines, as ln index from 0 */
+	if(*pstr)   /* To rule out NULL input */
+		ln++;
+
+FUNC_END:
+	/* Pass out results */
+	if(cnt)  *cnt = count;
+	if(penx) *penx = pen.x >>6;
+	if(peny) *peny = pen.y >>6;
+
+	/* Reset as identity */
+    	FT_Set_Transform( face, NULL, NULL);
+
+	/* Return bytes */
+	return p-pstr;
+}
 
 
 #if  0 ///////////////////////////////////////////////////////////////////////////////////////

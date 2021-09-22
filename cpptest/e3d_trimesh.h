@@ -32,14 +32,22 @@ Note:
    E3D: Left_TOP corner
    3ds: Left_BOTTOM corner.
 
-5. Size of texture image should be approriate:
+5. Size of texture image should be approriate: ???
    Function egi_imgbuf_mapTriWriteFB() maps pixels one by one, if the texture image
    size is too big, the two mapped pixels may be located far between each other!
    so the result looks NOT smooth. --- more sampling and averaging.
 
-6. Transformation matrix for all normals(Vertex normals, TriFaceNormals, TriVtxNormals)
+6. Normal values in Class E3D_TriMesh:
+   vtxList[].normal: 	    Vertex normal, for each vertex element in the class.
+		 	    (Maybe omitted in obj file!)
+   triList[].vtx[0-2].vn:   Triangle vertex normal (for each vertex of a triangle).
+			    If omitted. then same as vtxList[].normal.
+   triList[].normal:        Triangle face normal.
+
+7. Transformation matrix for all normals(Vertex normals, TriFaceNormals, TriVtxNormals)
    should contain ONLY rotation components, and keep them all as UNIT normals!
    (whose vector norm is 1! )
+
 
 
 TODO:
@@ -149,6 +157,12 @@ Journal:
 	1. Add void E3D_draw_coordNavIcon2D()
 2021-09-14:
 	1. Add E3D_TriMesh member 'backFaceOn' and 'bkFaceColor'.
+2021-09-18:
+	1. Add E3D_TriMesh::computeAllVtxNormals()
+	   Add E3D_TriMesh::vtxNormalIsZero()
+2021-09-22:
+	1. Add E3D_TriMesh::initVars().
+	2. Add Class E3D_Material.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -162,6 +176,7 @@ midaszhou@yahoo.com
 #include <iostream>
 #include <fstream>
 #include <string.h>
+#include <vector>
 #include "egi_debug.h"
 #include "e3d_vector.h"
 #include "egi.h"
@@ -195,6 +210,79 @@ enum E3D_SHADE_TYPE {
 E3D_Vector gv_vLight(0, 0, 1);
 
 /* Global View TransformMatrix */
+
+/*-------------------------------
+	Class E3D_Material
+--------------------------------*/
+class E3D_Material {
+public:
+	/* Constructor */
+	E3D_Material();
+
+	/* Destructor */
+	~E3D_Material() {};
+
+	/* Init,Setdefault */
+	void setDefault();
+
+	/* Print out */
+	void print();
+
+	/* Material name */
+	string name;	  /* Material name */
+
+	/* Colors: To keep same as obj file */
+	E3D_Vector kd;  /* Diffuse color [0 1] ---> (RGB) [0 255] */
+	//EGI_16BIT_COLOR dcolor;
+	E3D_Vector ka;  /* ambient color [0 1] ---> (RGB) [0 255] */
+	//EGI_16BIT_COLOR acolor;
+	E3D_Vector ks;  /* specular color [0 1] ---> (RGB) [0 255] */
+	//EGI_16BIT_COLOR scolor;
+
+	//E3D_Vector Tf;   //optical density;
+	//float      Ni;   //transmission filter
+
+	/* Textrue/Maps */
+	string map_kd;  /* Map file path */
+	string map_ka;
+	string map_ks;
+};
+
+/*---------------------------
+Set default for memebers.
+----------------------------*/
+void E3D_Material::setDefault()
+{
+	kd.vectorRGB(WEGI_COLOR_GRAY3); /* Default kd */
+	ka.vectorRGB(WEGI_COLOR_GRAY2); /* Default kd */
+	ks.vectorRGB(WEGI_COLOR_GRAY); /* Default kd */
+}
+
+/*----------------------------
+Print out main vars/paramters
+of the materail
+-----------------------------*/
+E3D_Material::E3D_Material()
+{
+	setDefault();
+}
+
+/*----------------------------
+Print out main vars/paramters
+of the materail
+-----------------------------*/
+void E3D_Material::print()
+{
+	cout<<"Material name: "<< name <<endl;
+
+	kd.print();
+	ka.print();
+	ks.print();
+	cout<<"map_kd: "<< map_kd <<endl;
+	cout<<"map_ka: "<< map_ka <<endl;
+	cout<<"map_ks: "<< map_ks <<endl;
+}
+
 
 /*-------------------------------------------------------
         Class: E3D_TriMesh
@@ -252,7 +340,7 @@ public:
 		};
 		Vertx vtx[3];		/* 3 points to form a triangle */
 
-		/* Normal */
+		/* Normal, Triangle face normal */
 		E3D_Vector normal;
 
 		/* int part;  int material; */
@@ -269,7 +357,20 @@ public:
 							 */
 	};
 
-	/* :: Class Material */
+	/* :: Class Material --- See Class E3D_Material */
+
+	/* :: Class TriGroup, NOT for editting!!!  */
+	class TriGroup {
+		string		name;		/* Name of the triangle_group */
+		E3D_Material	material;	/* Material for the group */
+
+		/* Define group include triangles from triList[] to triList[] */
+		unsigned int	tcnt;  		/* Total trianlges in the group */
+		unsigned int	sidx;  		/* Start/Begin index of triList[] */
+		unsigned int	eidx;  		/* End index of triList[], NOT incuded!!!
+				 		 * !!! eidx=sidex+sidx !!!
+						 */
+	};
 
 	/* :: Class OptimationParameters */
 
@@ -297,6 +398,9 @@ public:
 
 	/* Destructor ~E3D_TriMesh() */
 	~E3D_TriMesh();
+
+	/* Init member/parameters/variabls. */
+	void initVars();
 
 	/* Functions: Print for debug */
 	void printAllVertices(const char *name);
@@ -434,12 +538,20 @@ public:
 	void transformAABB(const E3D_RTMatrix  &RTMatrix);
 	void transformMesh(const E3D_RTMatrix  &RTMatrix, const E3D_RTMatrix &ScaleMatrix); /* Vertices+TriNormals */
 
-	/* Function: Calculate normals for all triangles */
+	/* Function: Calculate normals for all (triangles)faces. */
 	void updateAllTriNormals();
+
+	/* Funtion: Compute all vtxList[].normal, by averaging all triList[].vtx[].vn refering the vertex.  */
+	void computeAllVtxNormals(void);
 
 	/* Function: Reverse triangle/vertex normals */
 	void reverseAllTriNormals(bool reverseVtxIndex);	/* Reverse triList[].normal + trilist[].vtx[].nv ?? */
 	void reverseAllVtxNormals(void);			/* Revese vtxList[].normal */
+
+	/* Check if vertex normals are available! */
+	bool vtxNormalIsZero(void) {
+		return vtxList[0].normal.isZero();
+	}
 
 	/* Function: clone vertices/trianges from the tmesh.  */
 	void cloneMesh(const E3D_TriMesh &tmesh);
@@ -478,6 +590,8 @@ private:
 	//int mcnt;
 	//Material  *mList;
 
+	vector<TriGroup>  triGroupList;	/* trimesh group array */
+
 public:
 	E3D_SHADE_TYPE   shadeType;	/* Rendering/shading type, default as FLAT_SHADING */
 	EGI_IMGBUF 	*textureImg;	/* Texture imgbuf */
@@ -488,6 +602,7 @@ public:
 	EGI_16BIT_COLOR   bkFaceColor;  /* Faceback face color for flat/gouraud/wire shading.
 					 * Default as 0(BLACK).
 					 */
+	int		faceNormalLen;   /* face normal length, if >0, renderMesh() will show the normal line. */
 };
 
 
@@ -551,10 +666,11 @@ E3D_TriMesh::E3D_TriMesh()
 	}
 
 	/* Init other params */
-	textureImg=NULL;
-	shadeType=E3D_FLAT_SHADING;
-        backFaceOn=false;
-        bkFaceColor=WEGI_COLOR_BLACK;
+	//textureImg=NULL;
+	//shadeType=E3D_FLAT_SHADING;
+        //backFaceOn=false;
+        //bkFaceColor=WEGI_COLOR_BLACK;
+	initVars();
 }
 
 /*--------------------------------------
@@ -596,10 +712,11 @@ E3D_TriMesh::E3D_TriMesh(int nv, int nt)
 	tCapacity=nt;
 
         /* Init other params */
-        textureImg=NULL;
-        shadeType=E3D_FLAT_SHADING;
-        backFaceOn=false;
-        bkFaceColor=WEGI_COLOR_BLACK;
+        //textureImg=NULL;
+        //shadeType=E3D_FLAT_SHADING;
+        //backFaceOn=false;
+        //bkFaceColor=WEGI_COLOR_BLACK;
+	initVars();
 }
 
 /*------------------------------------------------
@@ -676,7 +793,7 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh & tmesh)
 }
 
 
-/*---------------------------------------------
+/*----------------------------------------------------
           E3D_TriMesh  Constructor
 
 To create by reading from a *.obj file.
@@ -685,8 +802,12 @@ To create by reading from a *.obj file.
 Note:
 1. A face has MAX.4 vertices!(a quadrilateral)
    and a quadrilateral will be stored as 2
-   triangles.
------------------------------------------------*/
+   triangles, recursive for 5,6...
+2. Face(triangle) normals are not provided in obj file,
+   they should be computed later.
+
+@fobj:	File path.
+-----------------------------------------------------*/
 E3D_TriMesh::E3D_TriMesh(const char *fobj)
 {
 	ifstream	fin;
@@ -720,10 +841,11 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 	/* 0. Init params */
 	vcnt=0;
 	tcnt=0;
-        textureImg=NULL;
-        shadeType=E3D_FLAT_SHADING;
-	backFaceOn=false;
-	bkFaceColor=WEGI_COLOR_BLACK;
+        //textureImg=NULL;
+        //shadeType=E3D_FLAT_SHADING;
+	//backFaceOn=false;
+	//bkFaceColor=WEGI_COLOR_BLACK;
+	initVars();
 
 	/* 1. Read statistic of obj data */
 	if( readObjFileInfo(fobj, vertexCount, triangleCount, vtxNormalCount, textureVtxCount, faceCount) !=0 )
@@ -810,6 +932,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 				}
 				sscanf( strline+2, "%f %f %f",
 					&tuvList[tuvListCnt].x, &tuvList[tuvListCnt].y, &tuvList[tuvListCnt].z);
+
 				tuvListCnt++;
 				break;
 			   case 'n':  /* Read vertex normals, (for each vertex. ) */
@@ -1120,6 +1243,20 @@ E3D_TriMesh:: ~E3D_TriMesh()
 	egi_dpstd("TriMesh destructed!\n");
 }
 
+/*--------------------------------
+Initialize calss variable members.
+--------------------------------*/
+void E3D_TriMesh:: initVars()
+{
+/* Init private members: see in E3D_TriMesh() constructors... */
+
+/* Init public members */
+        textureImg=NULL;
+        shadeType=E3D_FLAT_SHADING;
+        backFaceOn=false;
+        bkFaceColor=WEGI_COLOR_BLACK;
+	faceNormalLen=0;
+}
 
 /*---------------------
 Print out all Vertices.
@@ -1507,6 +1644,39 @@ void E3D_TriMesh::updateAllTriNormals()
 
    	}
 }
+
+
+/*--------------------------------------------------
+Compute all vtxList[].normal, by averaging all
+triList[].vtx[].vn, of which triangle is refering
+the vertex.
+--------------------------------------------------*/
+void E3D_TriMesh::computeAllVtxNormals(void)
+{
+	int i,j,k;
+	int refcnt;
+	E3D_Vector vnsum;  /* init as (0,0,0) */
+
+	/* TODO: way too slow. */
+	for(i=0; i<vcnt; i++) {   /* traverse all vertices */
+		refcnt=0;
+		vnsum.zero();
+		for(j=0; j<tcnt; j++) { /* traverse all trianlges */
+		    for(k=0;k<3;k++) {
+			  if( i==triList[j].vtx[k].index ) {
+				refcnt++;
+				vnsum+=triList[j].normal;
+				//vnsum+=triList[j].vtx[k].vn;
+			  }
+		    }
+		}
+
+		/* Averaging */
+		if(refcnt>0)
+		     vtxList[i].normal=vnsum/(float)refcnt;
+	}
+}
+
 
 /*--------------------------------------------------
 Reverse normals of all triangles
@@ -1939,6 +2109,7 @@ void E3D_TriMesh::drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const E3
 	fbdev->flipZ=false;
 }
 
+#if 0 //////////////////////////////////////////////////
 /*--------------------------------------------------
 Render/draw the whole mesh by filling all triangles
 with FBcolor.
@@ -1952,7 +2123,6 @@ Note:
 @fbdev:			Pointer to FB device.
 @projectMatrix:		Projection matrix.
 --------------------------------------------------*/
-#if 0 //////////////////////////////////////////////////
 void E3D_TriMesh::renderMesh(FBDEV *fbdev) const
 {
 	int vtidx[3];  	/* vtx index of a triangel */
@@ -2035,20 +2205,37 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev) const
 	/* Restore pixcolor */
 	fbset_color2(&gv_fb_dev, color);
 }
-#else //////////////////////////////////////////////
 
+#else ////////////////////////////////////////////////
+
+/*---------------------------------------------------------------
+Render/draw the whole mesh by filling all triangles with FBcolor.
+View_Coord:	Same as Global_Coord.
+View direction: View_Coord Z axis.
+
+@fbdev:		Pointer to FBDEV
+@projMatrix	Projection Matrix
+
+Note:
+1. For E3D_GOURAUD_SHADING:
+   If the mesh has NO vertex normal data, then triangle face
+   normal will be used, so it's same effect as E3D_FLAT_SHADING
+   in this case.
+----------------------------------------------------------------*/
 void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
 {
-	int i,j;
+	int i,j,k;
 	int vtidx[3];  				/* vtx index of a triangel */
 	E3D_Vector  vpts[3];			/* Projected 3D points */
 	EGI_POINT   pts[3];			/* Projected 2D points */
+	E3D_Vector  trinormal;  		/* Face normal of a triangle */
 	E3D_Vector  vView(0.0f, 0.0f, 1.0f); 	/* View direction */
 	float	    vProduct;   		/* dot product */
 	EGI_16BIT_COLOR	 vtxColor[3];		/* Triangle 3 vtx color */
 
 	bool	    IsBackface=false;		/* Viewing the back side of a Trimesh. */
 //	EGI_16BIT_COLOR	 bkFaceColor=WEGI_COLOR_RED; //DARKRED;  /* Default backface color, if applys. */
+	E3D_POINT cpt;	    			/* Gravity center of triangle */
 
 	/* Default color, OR use mesh color. */
 	EGI_16BIT_COLOR color=fbdev->pixcolor;
@@ -2110,20 +2297,6 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		pts[1].x=roundf(vpts[1].x); pts[1].y=roundf(vpts[1].y);
 		pts[2].x=roundf(vpts[2].x); pts[2].y=roundf(vpts[2].y);
 
-#if 0 //////////////  Move to each switch() CASE  /////////////////////
-		/* 4. Calculate light reflect strength:  TODO: not correct, this is ONLY demo.  */
-		vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
-		//if( vProduct >= 0.0f )
-		if( vProduct > -VPRODUCT_EPSILON )
-			vProduct=0.0f;
-		else /* Flip to get vProduct absolute value for luma */
-			vProduct=-vProduct;
-
-		/* 5. Adjust luma for pixcolor as per vProduct. */
-		fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
-		//egi_dpstd("vProduct: %e, LumaY: %d\n", vProduct, (unsigned int)egi_color_getY(fbdev->pixcolor));
-#endif /////////////////////////////////////////////////////////////
-
 		/* 6. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
 		/* A simple test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
 		//gv_fb_dev.pixz=roundf((vtxList[vtidx[0]].pt.z+vtxList[vtidx[1]].pt.z+vtxList[vtidx[2]].pt.z)/3.0);
@@ -2131,7 +2304,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		/* !!!! Views from -z ----> +z */
 		fbdev->pixz = -fbdev->pixz;
 
-		/* 6. Draw triangles with specified shading type. */
+		/* 7. Draw triangles with specified shading type. */
 		switch( shadeType ) {
 		   case E3D_FLAT_SHADING:
 			/* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo. */
@@ -2161,14 +2334,22 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			else
 			{
 			    /* Compute 3 vtx color respectively. */
+#if 0///////////////////
 			    for(int k=0; k<3; k++) {
 			   	/* Calculate light reflect strength for each vertex:  TODO: not correct, this is ONLY demo. */
 				/* Case_A: Use vtxList[].normal */
-				if(triList[i].vtx[0].vn.isZero())
+				//if(triList[i].vtx[0].vn.isZero())
+				if(vtxList[ triList[i].vtx[k].index ].normal.isZero()==false)
 			      		vProduct=gv_vLight*(vtxList[ triList[i].vtx[k].index ].normal);
+
+				}
 			   	/* Case_B: Use triList[].vtx[].vn */
-			   	else
+			   	else if(triList[i].vtx[0].vn.isZero()==false)
 			      		vProduct=gv_vLight*(triList[i].vtx[k].vn);  // *(-1.0f); // -vLight as *(-1.0f);
+				/* Case_C: Use face normal triList[].normal */
+				else
+			      		vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+
 			   	//if( vProduct >= 0.0f )
 			   	if( vProduct > -VPRODUCT_EPSILON )
 					vProduct=0.0f;
@@ -2177,7 +2358,50 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			   	/* Adjust luma for color as per vProduct. */
 			   	vtxColor[k]=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
 			   }
-			}
+#else ////////////////
+			   	/* Calculate light reflect strength for each vertex:  TODO: not correct, this is ONLY demo. */
+				/* Case_A: Use vtxList[].normal */
+				//if(triList[i].vtx[0].vn.isZero())
+				if(vtxList[ triList[i].vtx[0].index ].normal.isZero()==false) {
+				   for(k=0; k<3; k++) {
+			      		vProduct=gv_vLight*(vtxList[ triList[i].vtx[k].index ].normal);
+			   		//if( vProduct >= 0.0f )
+			   		if( vProduct > -VPRODUCT_EPSILON )
+						vProduct=0.0f;
+			   		else /* Flip to get vProduct absolute value for luma */
+						vProduct=-vProduct;
+			   		/* Adjust luma for color as per vProduct. */
+			   		vtxColor[k]=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+				   }
+				}
+			   	/* Case_B: Use triList[].vtx[].vn */
+			   	else if(triList[i].vtx[0].vn.isZero()==false) {
+				   for(k=0; k<3; k++) {
+			      		vProduct=gv_vLight*(triList[i].vtx[k].vn);  // *(-1.0f); // -vLight as *(-1.0f);
+			   		//if( vProduct >= 0.0f )
+			   		if( vProduct > -VPRODUCT_EPSILON )
+						vProduct=0.0f;
+			   		else /* Flip to get vProduct absolute value for luma */
+						vProduct=-vProduct;
+			   		/* Adjust luma for color as per vProduct. */
+			   		vtxColor[k]=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+				   }
+				}
+				/* Case_C: Use face normal triList[].normal */
+				else {
+				   for(k=0; k<3; k++) {
+			      		vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+			   		//if( vProduct >= 0.0f )
+			   		if( vProduct > -VPRODUCT_EPSILON )
+						vProduct=0.0f;
+			   		else /* Flip to get vProduct absolute value for luma */
+						vProduct=-vProduct;
+			   		/* Adjust luma for color as per vProduct. */
+			   		vtxColor[k]=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+				   }
+				}
+#endif //////////////
+			} /* END else() */
 
 			/* 3. Fill triangle with pixel color, by barycentric coordinates interpolation. */
 			#if 0 /* Float x,y 	---- OBSOLETE---- 	*/
@@ -2266,7 +2490,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	                                pts[1].x, pts[1].y,
         	                        pts[2].x, pts[2].y
                 	        );
-			  #else /* OPTION_3: Barycentric coordinates mapping, FLOAT type x/y. */
+			  #else /* OPTION_3: Barycentric coordinates mapping, INT type x/y. */
 		        	egi_imgbuf_mapTriWriteFB3(textureImg, fbdev,
 					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2 */
         	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,  /* 1.0-x: Adjust uv ORIGIN */
@@ -2284,7 +2508,20 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			break;
 		   default:
 			break;
-		}
+		} /* End switch */
+	}
+
+	/* Draw face normal line. */
+	if( faceNormalLen>0 )
+		for(i=0; i<tcnt; i++) {
+			//float nlen=20.0f;   /* Normal line length */
+			cpt.x=(vpts[0].x+vpts[1].x+vpts[2].x)/3.0f;
+			cpt.y=(vpts[0].y+vpts[1].y+vpts[2].y)/3.0f;
+			//cpt.z=(vpt[0].z+vpt[1].z+vpt[2].z)/3.0f;
+			fbset_color2(fbdev, WEGI_COLOR_GREEN);
+			draw_line(fbdev, cpt.x, cpt.y,
+					 cpt.x+faceNormalLen*(triList[i].normal.x),
+					 cpt.y+faceNormalLen*(triList[i].normal.y) );
 	}
 
 	/* Restore pixcolor */
@@ -2303,7 +2540,6 @@ Note:
 3. !!! CAUTION !!!
    3.1 ScaleMatrix does NOT apply to triangle normals!
    3.2 Translation component in VRTMatrix is ignored for triangle normals!
-       
 
 View_Coord: 	Transformed from same as Global_Coord by RTmatrix.
 View direction: Frome -z ---> +z, of View_Coord Z axis.
@@ -2852,8 +3088,7 @@ void E3D_draw_coordNavSphere(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, 
 }
 
 /*---------------------------------------------------------------
-Draw the Coordinate_Navigating_Sphere(Frame).
-Draw a circle at Global XY plane then transform it by RTmatrix.
+Draw the Coordinate_Navigating_Frame.
 
 @fbdev:	 	Pointer to FBDEV.
 @size:	  	size of each axis.

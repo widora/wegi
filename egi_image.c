@@ -434,6 +434,9 @@ Return:
 ----------------------------------------------------------------*/
 EGI_IMGBUF *egi_imgbuf_readfile(const char* fpath)
 {
+	//if(fpath==NULL)  /* check fpath in egi_imgbuf_loadjpg() */
+	//	return NULL;
+
 	EGI_IMGBUF *eimg=egi_imgbuf_alloc();
 	if(eimg==NULL)
 		return NULL;
@@ -3747,6 +3750,7 @@ int egi_imgbuf_reset(EGI_IMGBUF *egi_imgbuf, int subindex, int color, int alpha)
    while use char's 'origin' coordinate relative to eimg canvan as (xb,yb) can align all
    chars at the same level !!!
 
+TODO: Alpha blend is NOT good!
 
 @eimg		The EGI_IMGBUF to hold the bitmap
 @xb,yb		coordinates of bitmap origin relative to EGI_IMGBUF canvas coord.!!!!
@@ -3764,7 +3768,7 @@ int egi_imgbuf_reset(EGI_IMGBUF *egi_imgbuf, int subindex, int color, int alpha)
 			    void*           palette;
 		} FT_Bitmap;
 
-@subcolor	>=0 as substituting color
+@subcolor	>=0 as substituting color of EGI_16BIT_COLOR.
 		<0  use bitmap buffer data as gray value. 0-255 (BLACK-WHITE)
 
 return:
@@ -3772,24 +3776,25 @@ return:
 	<0	fails
 --------------------------------------------------------------------------------*/
 int egi_imgbuf_blend_FTbitmap(EGI_IMGBUF* eimg, int xb, int yb, FT_Bitmap *bitmap,
-								EGI_16BIT_COLOR subcolor)
+								int subcolor)
 {
 	int i,j;
 	EGI_16BIT_COLOR color;
 	unsigned char alpha;
 	unsigned long size; /* alpha size */
 	int	sumalpha;
-	int pos;
+	int 	pos;
 
 	if(eimg==NULL || eimg->imgbuf==NULL || eimg->height<=0 || eimg->width<=0 ) {
 		printf("%s: input EGI_IMBUG is NULL or uninitiliazed!\n", __func__);
 		return -1;
 	}
 	if( bitmap==NULL || bitmap->buffer==NULL ) {
-		printf("%s: input FT_Bitmap or its buffer is NULL!\n", __func__);
+//		printf("%s: input FT_Bitmap or its buffer is NULL!\n", __func__);
 		return -2;
 	}
-	/* calloc and assign alpha, if NULL */
+
+#if 0	/* calloc and assign alpha, if NULL */
 	if(eimg->alpha==NULL) {
 		size=eimg->height*eimg->width;
 		eimg->alpha = calloc(1, size); /* alpha value 8bpp */
@@ -3799,10 +3804,12 @@ int egi_imgbuf_blend_FTbitmap(EGI_IMGBUF* eimg, int xb, int yb, FT_Bitmap *bitma
 		}
 		memset(eimg->alpha, 255, size); /* assign to 255 */
 	}
+#endif
 
+//	printf("bitmap: rows=%d, width=%d. \n", bitmap->rows, bitmap->width);
 	for( i=0; i< bitmap->rows; i++ ) {	      /* traverse bitmap height  */
 		for( j=0; j< bitmap->width; j++ ) {   /* traverse bitmap width */
-			/* check range limit */
+			/* Check range limit, TODO */
 			if( yb+i <0 || yb+i >= eimg->height ||
 				    xb+j <0 || xb+j >= eimg->width )
 				continue;
@@ -3824,7 +3831,7 @@ int egi_imgbuf_blend_FTbitmap(EGI_IMGBUF* eimg, int xb, int yb, FT_Bitmap *bitma
 				color=COLOR_16BITS_BLEND( subcolor, eimg->imgbuf[pos], alpha );
 							/* front, background, alpha */
 			}
-			else {			/* use Font bitmap gray value */
+			else {	/* use Font bitmap gray value */
 				/* alpha=0 MUST keep unchanged! */
 				if(alpha>0 && alpha<180)alpha=255; /* set a limit as for GAMMA correction, too simple! */
 				color=COLOR_16BITS_BLEND( COLOR_RGB_TO16BITS(alpha,alpha,alpha),
@@ -3833,11 +3840,14 @@ int egi_imgbuf_blend_FTbitmap(EGI_IMGBUF* eimg, int xb, int yb, FT_Bitmap *bitma
 			eimg->imgbuf[pos]=color; /* assign color to imgbuf */
 
 			/* blend alpha value */
-			sumalpha=eimg->alpha[pos]+alpha;
-			if( sumalpha > 255 ) sumalpha=255;
-			eimg->alpha[pos]=sumalpha; //(alpha>0 ? 255:0); //alpha;
+			if(eimg->alpha) {
+				sumalpha=eimg->alpha[pos]+alpha;
+				if( sumalpha > 255 ) sumalpha=255;
+				eimg->alpha[pos]=sumalpha; //(alpha>0 ? 255:0); //alpha;
+			}
 		}
 	}
+
 
 	return 0;
 }
@@ -4726,11 +4736,27 @@ void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 			    (INT x/y)
 Map a triangle to imgbuf and write mapped pixles to FB.
 
+Case 1: All points are the SAME! the triangle converges into ONE point!.
+Case 2: All points are collinear, as a vertical line.
+Case 3: All points are collinear, as an oblique OR horizontal line.
+Case 4: As a true resonalbe triangle.
+
+                        --- XYZ values and precision ---
+To use integer data type for XYZ will sacrifice certain precisions, especially
+where mesh gradient is very large.
+
 NOTE:
 1. DO NOT check/make a/b/r AND u/v to within [0.0 1.0], just get rid of them
    if not in the range. OR some noise pixels will appear on result image!!!
 2. if u/v is very near to 1.0, then locimg MAY be out of range for imgbuf->imgbuf[locimg]
    notice u/v --> [0 1)
+
+TODO: 
+1. Check midpoint pixZ value, position(front/back), make it effective or not.
+   If midpoint is effecive, then draw two segments( as two sides of a triangle
+   is visible). In this case,  z0/z1/z2 should be provided also!
+2. Apply light reflection strength for EACH pixel..., NOW renderMesh() uses
+   the Tri face normal to decide light for ALL piexels.
 
 @imbufg:	A pointer to EGI_IMGBUF
 @fb_dev:	A pointer to FBDEV
@@ -4901,7 +4927,7 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 
 	/* --- Case 2 ---: All points are collinear as a vertical line. */
 	if(nl==nr) {
-		egi_dpstd("the Tri degenerates into a vertical line!\n");
+//		egi_dpstd("the Tri degenerates into a vertical line!\n");
 
 		/* Init yu yd, u,v. */
 		yu=points[0].y;  ue=u0; ve=v0;
@@ -4951,7 +4977,7 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 	 */
 	if( (x0-x1)*(y2-y1)==(y0-y1)*(x2-x1) || (x1-x2)*(y0-y2)==(y1-y2)*(x0-x2) )
 	{
-		egi_dpstd("the Tri degenerates into an oblique/horiz line!\n");
+//		egi_dpstd("the Tri degenerates into an oblique/horiz line!\n");
 
 		int j;
 
