@@ -320,7 +320,7 @@ unsigned char * open_jpgImg(const char * filename, int *w, int *h, int *componen
 }
 
 
-/*    release mem for decompressed jpeg image buffer */
+/*   release mem for decompressed jpeg image buffer */
 void close_jpgImg(unsigned char *imgbuf)
 {
 	if(imgbuf != NULL)

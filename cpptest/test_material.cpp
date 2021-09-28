@@ -14,6 +14,7 @@ https://github.com/widora/wegi
 #include "egi_debug.h"
 #include "egi_fbdev.h"
 #include "egi_math.h"
+#include "egi_timer.h"
 #include "egi_FTsymbol.h"
 #include "e3d_trimesh.h"  //E3D_Material
 
@@ -72,18 +73,23 @@ int main(int argc, char **argv)
         fb_position_rotate(&gv_fb_dev,0);
 
 /* <<<<<  End of EGI general init  >>>>>> */
-
-
+	EGI_IMGBUF *imgbuf_kd=NULL;
 	E3D_Material material;
 
+	#if 0
 	material.name = "Head Skin";
 	material.map_kd = argv[1]==NULL?"":argv[1]; //"/mmc/linuxpet.jpg";
 	material.print();
+	#endif
+
+#if 0	/* TEST: readMtlFile */
+	//readMtlFile("/mmc/test.mtl","myMaterial",material);
+	readMtlFile("/mmc/test.mtl", argv[1], material);
+	material.print();
 
 	/* To display the texture map_kd */
-	EGI_IMGBUF *imgbuf_kd = egi_imgbuf_readfile(material.map_kd.c_str());
+	imgbuf_kd = egi_imgbuf_readfile(material.map_kd.c_str());
 
-#if 1
 	if(imgbuf_kd) {
 		if(imgbuf_kd->width>320 || imgbuf_kd->height>240) {
 			if( 1.0*imgbuf_kd->width/imgbuf_kd->height > 1.0*320/240 )
@@ -97,7 +103,46 @@ int main(int argc, char **argv)
 	}
 #endif
 
+#if 1	/* TEST: readMtlFile() vector */
+//    while(1) {
+	vector<E3D_Material>  mtlList;  /* Material list */
 
+	cout << "mtlList.size=" << mtlList.size() <<endl;
+
+	if(argv[1])
+		readMtlFile(argv[1], mtlList);
+	else
+		readMtlFile("/mmc/test.mtl", mtlList);
+
+	cout << "mtlList.size=" << mtlList.size() <<endl;
+	for(unsigned int i=0; i<mtlList.size(); i++) {
+		mtlList[i].print();
+
+		if( mtlList[i].img_kd ) {
+			cout << "Display img_kd: "<< mtlList[i].map_kd<<endl;
+			/* Ref. to img_kd */
+			imgbuf_kd = mtlList[i].img_kd;
+			if(imgbuf_kd->width>320 || imgbuf_kd->height>240) {
+				if( 1.0*imgbuf_kd->width/imgbuf_kd->height > 1.0*320/240 )
+					/* Copy resize */
+			    		imgbuf_kd=egi_imgbuf_resize(mtlList[i].img_kd, true, 320, -1); /* proportional width to FB width */
+				else
+			    		imgbuf_kd=egi_imgbuf_resize(mtlList[i].img_kd, true, -1, 240); /* proportional height to FB height */
+			}
+			clear_screen(&gv_fb_dev, WEGI_COLOR_GRAY2);
+			egi_subimg_writeFB(imgbuf_kd, &gv_fb_dev, 0, -1, 0,0);
+			fb_render(&gv_fb_dev);
+			//tm_delayms(500000);
+			usleep(500000);
+
+			if(imgbuf_kd != mtlList[i].img_kd )
+				egi_imgbuf_free2(&imgbuf_kd);
+		}
+	}
+
+	usleep(100000);
+//   }
+#endif
 
 	/* Free */
 	egi_imgbuf_free2(&imgbuf_kd);

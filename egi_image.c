@@ -40,6 +40,10 @@ Jurnal
 2021-09-13
 	1. Zlib compress/uncompress IMGMOTION,
 	   and update egi_imgmotion_xxxx() functions accordingly.
+2021-09-24:
+	1. egi_imgbuf_mapTriWriteFB3(): Apply fb_dev->pixalpha.
+2021-09-27:
+	1. egi_imgbuf_mapTriWriteFB3(): If u/v<0, make it positive u/v=1.0+u/v. ?????
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -443,7 +447,7 @@ EGI_IMGBUF *egi_imgbuf_readfile(const char* fpath)
 
         if( egi_imgbuf_loadjpg(fpath, eimg)!=0 ) {
                 if ( egi_imgbuf_loadpng(fpath, eimg)!=0 ) {
-			egi_imgbuf_free(eimg);
+			egi_imgbuf_free2(&eimg);
 			return NULL;
                 }
         }
@@ -4817,6 +4821,15 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 	/* Imgbuf pixel data offset */
 	long int locimg;
 
+	/* Check input u/v. TODO: Reasoning... */
+	if( u0<0 ) u0=1.0+u0;
+	if( v0<0 ) v0=1.0+v0;
+	if( u1<0 ) u1=1.0+u1;
+	if( v1<0 ) v1=1.0+v1;
+	if( u2<0 ) u2=1.0+u2;
+	if( v2<0 ) v2=1.0+v2;
+
+
 	/* --- Case 1 ---: All points are the SAME! */
 	if(x0==x1 && x1==x2 && y0==y1 && y1==y2) {
 //		egi_dpstd("the Tri degenerates into a point!\n");
@@ -4834,6 +4847,8 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
                 locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf! */
 		if( locimg>=0 && locimg < imgh*imgw ) {
 			fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+			if(imgbuf->alpha)
+				fb_dev->pixalpha=imgbuf->alpha[locimg];
                         draw_dot(fb_dev, x0, y0);
 		}
 #if 1 /* TEST: --------- */
@@ -4958,6 +4973,8 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
                         locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
 			if( locimg>=0 && locimg < imgh*imgw ) {
 		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+			    if(imgbuf->alpha)
+				  fb_dev->pixalpha=imgbuf->alpha[locimg];
                             draw_dot(fb_dev, x, k);
 			}
 #if 1 /* TEST: --------- */
@@ -5086,6 +5103,8 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 				     	/* Color for point(i,k) */
  				     	//egi_16bitColor_interplt( colorTmp, colorJ, 0, 0, (tmp-k)*(1<<15)/(tmp-j), &color, NULL);
 					fbset_color2(fb_dev, color);
+			    		if(imgbuf->alpha)
+				  		fb_dev->pixalpha=imgbuf->alpha[locimg];
 
 				     	draw_dot(fb_dev,i,k);
 				}
@@ -5173,6 +5192,9 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
                         locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
 			if( locimg>=0 && locimg < imgh*imgw ) {
 		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+	    		    if(imgbuf->alpha)
+	  			 fb_dev->pixalpha=imgbuf->alpha[locimg];
+
                             draw_dot(fb_dev, x, k);
 			}
 #if 1 /* TEST: -------------- */
@@ -5232,6 +5254,9 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
                         locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
 			if( locimg>=0 && locimg < imgh*imgw ) {
 		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+	    		    if(imgbuf->alpha)
+	  			 fb_dev->pixalpha=imgbuf->alpha[locimg];
+
                             draw_dot(fb_dev, x, k);
 			}
 #if 1 /* TEST: --------- */
@@ -5318,7 +5343,9 @@ Save to append a frame to an EGI_IMGMOTION in a file, the file
 shall exist and hold at least an IMGMOTION header.
 If input imgbuf is NULL, then it just print motion header.
 
-TODO:  Byte order compatibility for saving a file.
+TODO:
+1. Byte order compatibility for saving a file.
+2. Compress between frames: differential vector.
 
 @fpath:		Path for the saved file.
 @imgbuf:	Pointer to EGI_IMGBUF.

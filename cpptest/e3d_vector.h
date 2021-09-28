@@ -192,11 +192,16 @@ public:
 		return  x*v.x + y*v.y +z*v.z;
 	}
 
-	/* Vectorize RGB to xyz */
+	/* Vectorize 16bits color to RGB(0-255,0-255,0-255) to xyz(0-1.0, 0-1.0, 0-1.0) */
 	void  vectorRGB(EGI_16BIT_COLOR color) {
 	        x=1.0*COLOR_R8_IN16BITS(color)/255;
         	y=1.0*COLOR_G8_IN16BITS(color)/255;
         	z=1.0*COLOR_B8_IN16BITS(color)/255;
+	}
+
+	/* Covert vector xyz(0-1.0, 0-1.0, 0-1.0) to 16bits color. RGB(0-255,0-255,0-255) */
+	EGI_16BIT_COLOR  color16Bits() const {
+		return COLOR_RGB_TO16BITS( (int)roundf(x*255), (int)roundf(y*255), (int)roundf(z*255) );
 	}
 
 	/* Print */

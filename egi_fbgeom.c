@@ -74,6 +74,8 @@ Jurnal
 	1. draw_filled_triangle3(): Case_3: if the triangle degenerates into a line!
 2021-09-14:
 	1. Modify clear_screen().
+2021-09-24:
+	1. draw_dot(): Check if pixalpha==0 at first.
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -720,9 +722,18 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 	int sumalpha;
 	EGI_16BIT_COLOR pix_color;
 
-	/* check input data */
+	/* Check input data */
 	if(fb_dev==NULL)
 		return -2;
+
+	/* Check pixalpha if 0 */
+	if(fb_dev->pixalpha == 0) {
+		/* Do NOT change fb_dev->zbuff[pixoff] */
+		/* Reset alpha to 255 as default */
+		if(fb_dev->pixalpha_hold==false)
+			fb_dev->pixalpha=255;
+		return 0;
+	}
 
 	/* <<<<<<  FB BUFFER SELECT  >>>>>> */
 	#if defined(ENABLE_BACK_BUFFER) || defined(LETS_NOTE)
@@ -3189,10 +3200,10 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 
 	#if 1 /* TEST: ------------------------------- */
 			if(R==0 && G==0 && B==0) {
-				egi_dpstd("R=G=B=0! a=%e,b=%e,r=%e\n", a,b,r);
+			//	egi_dpstd("R=G=B=0! a=%e,b=%e,r=%e\n", a,b,r);
 			}
-			else if( R<10 && G<10 && B<10)
-				egi_dpstd("R,G,B<10! a=%e,b=%e,r=%e\n", a,b,r);
+			//else if( R<10 && G<10 && B<10)
+			//	egi_dpstd("R,G,B<10! a=%e,b=%e,r=%e\n", a,b,r);
 
 			else if( R>255 || G>255 || B>255)
 				egi_dpstd("R,G,B>255! R=%d,G=%d,B=%d. a=%e,b=%e,r=%e\n", R,G,B, a,b,r);
@@ -3308,11 +3319,10 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 
 #if 1 /* TEST: ------------------------------- */
 			if(R==0 && G==0 && B==0) {
-				egi_dpstd("R=G=B=0! a=%e,b=%e,r=%e\n", a,b,r);
+			//	egi_dpstd("R=G=B=0! a=%e,b=%e,r=%e\n", a,b,r);
 			}
-			else if( R<10 && G<10 && B<10)
-				egi_dpstd("R,G,B<10! a=%e,b=%e,r=%e\n", a,b,r);
-
+			//else if( R<10 && G<10 && B<10)
+			//	egi_dpstd("R,G,B<10! a=%e,b=%e,r=%e\n", a,b,r);
 			else if( R>255 || G>255 || B>255)
 				egi_dpstd("R,G,B>255! R=%d,G=%d,B=%d. a=%e,b=%e,r=%e\n", R,G,B, a,b,r);
 #endif
@@ -3367,11 +3377,12 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 			G=roundf(a*COLOR_G8_IN16BITS(color0)+b*COLOR_G8_IN16BITS(color1)+r*COLOR_G8_IN16BITS(color2));
 			B=roundf(a*COLOR_B8_IN16BITS(color0)+b*COLOR_B8_IN16BITS(color1)+r*COLOR_B8_IN16BITS(color2));
 
-#if 0 /* TEST: ------------------------------- */
-			if(R==0 && G==0 && B==0)
-				egi_dpstd("R=G=B=0! a=%e,b=%e,r=%e\n", a,b,r);
-			else if( R<10 && G<10 && B<10)
-				egi_dpstd("R,G,B<10! a=%e,b=%e,r=%e\n", a,b,r);
+#if 1 /* TEST: ------------------------------- */
+			if(R==0 && G==0 && B==0) {
+			//	egi_dpstd("R=G=B=0! a=%e,b=%e,r=%e\n", a,b,r);
+			}
+			//else if( R<10 && G<10 && B<10)
+			//	egi_dpstd("R,G,B<10! a=%e,b=%e,r=%e\n", a,b,r);
 			else if( R>255 || G>255 || B>255)
 				egi_dpstd("R,G,B>255! R=%d,G=%d,B=%d. a=%e,b=%e,r=%e\n", R,G,B, a,b,r);
 #endif

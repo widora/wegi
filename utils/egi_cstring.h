@@ -9,6 +9,10 @@ Midas Zhou
 #define __EGI_CSTRING_H__
 #include <wchar.h>
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
 #ifdef LETS_NOTE
  #define EGI_CONFIG_PATH "/home/midas-zhou/egi/egi.conf"
 #else
@@ -69,6 +73,8 @@ int 	cstr_getSecFrom_ChnUft8TimeStr(const char *src,time_t *tp);
 
 long long int cstr_hash_string(const unsigned char *pch, int mod);
 
-
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

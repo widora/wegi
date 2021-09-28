@@ -31,11 +31,11 @@ https://github.com/widora/wegi
 #include "egi_fbdev.h"
 #include "egi_math.h"
 #include "egi_FTsymbol.h"
-#include "egi_vector3D.h"
+#include "e3d_vector.h"
 
 #include <iostream>
 using namespace std;
-
+//using std::string
 
 /*-------------------------------
 	Class Definition

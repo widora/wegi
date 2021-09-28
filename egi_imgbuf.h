@@ -93,7 +93,10 @@ typedef struct {
         int 		width;	 	/* image width */
 	int		frames;		/* frames as in data[] */
 	int 		delayms;	/* ms for each image */
-	int		compress;	/* 0: Uncompressed, 1: Compressed */
+	int		compress;	/* 0: Uncompressed,
+					 * 1: Intra_Frame compression applied.
+					 * 2: Inter_Frame compression applied.
+					 **/
 
 	char		blob[];		/* 1. If Uncompressed:  EGI_16BIT_COLOR []
 					 * 2. If Compressed:    EGI_IMGFRAME []

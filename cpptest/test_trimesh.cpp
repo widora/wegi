@@ -38,7 +38,6 @@ mingren.obj -c -s 4 -A 0 -Y 90 -X 90 -x -15 -T texmingren.png -a 10 -f 0.25
 boat.obj -c -s 100 -X -P -y -50
 ding.obj -c -s 300 -A 2 -X 110 -P -T texding.png
 ding.obj -c -s 250 -A 2 -X 120 -P -T texding.png -a 5 -t -p 2000
-juese.obj  -s 8 -y 520 -X -40 -T texjuese.png -a 15
 juese.obj -c -s 4 -A 1 -Z -90 -x 30 -T texjuese.png -a 25
 killer-whale.obj -c -s 1.75 -z -400  -A 2 -X 105 -P
 earth.obj -c -s 9 -D -T TexEarth.jpg -X 130 -A 2 -a 10
@@ -53,6 +52,12 @@ rock.obj -c -s 15 -X 60 -A 2 -a -2.5 -P -M /mmc/rock.motion
 temple.obj -c -s 0.5 -z -200 -A 2 -y -100 -Z 180 -X -80 -a 25 -P -T temple.png
 monk.obj -c -s 200 -y 120 -X 185 -r
 arm_hand.obj -c -s 125 -y 120 -X 90 -A 2 -a -2.5 -M /mmc/arm_hand.motion
+hen.obj -c  -s 0.26 -y -20 -A 2 -X 90 -T texhen.png -P -a -2.5
+mario.obj -c -s 400 -z -200 -Z 90 -A 0 -P -a 10
+PCB.obj -c -s 150 -y -150 -X -80 -T PCB.jpg -P  !!! --- Show flaws as one pixZ value for all Tri pixels.  --- !!!
+venus.obj -c -s 0.3 -Z 90 -A 0 -x 100 -a -2.5 -t
+gsit.obj -c -s 2.25 -Z 90 -X 20 -Y 150 -a -5 !!! --- Test Sub_object group --- !!!
+	 -c -s 2.25 -Z 90 -X 0 -Y 145 -a -5
 
 deer.obj -s 1 -y -100 -z 3500 -c -b -X -20
 myPack.obj -s 1.5 -z 1000 -X -30 -y 100 -b
@@ -189,6 +194,8 @@ Journal:
 2021-09-16/17:
 	Test FTsymbol texturing.
 	Test vLighting
+2021-09-27:
+	Test E3D_Materil, E3D_TriMesh::TriGroup, defMaterial, mtlList[], triGroupList[]
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -223,7 +230,7 @@ void print_help(const char *name)
 	printf("Usage: %s obj_file [-hrBDNRSPVwbtcf:s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
 	printf("-h     Help\n");
 	printf("-r     Reverse trianlge normals\n");
-	printf("-B     Display back faces with default color.\n");
+	printf("-B     Display back faces with default color, OR texture for back faces also.\n");
 	printf("-D     Show mesh detail statistics and other info.\n");
 	printf("-N     Show coordinate navigating sphere/frame.\n");
 	printf("-R     Reverse vertex Z direction.\n");
@@ -470,7 +477,8 @@ int main(int argc, char **argv)
 	/* Set global light vector */
 	float vang=45.0; /*  R=1.414, angle for vector(x,y) of vLight  */
 	float dvang=5; //2.5;  /* Delta angle for vangle */
-	E3D_Vector vLight(1,1,1); //2); //4);
+//	E3D_Vector vLight(1,1,1); //2); //4);
+	E3D_Vector vLight(1,-1,4); //2); //4);
 	vLight.normalize();
 	gv_vLight=vLight;
 
@@ -479,8 +487,24 @@ int main(int argc, char **argv)
 	E3D_TriMesh	meshModel(fobj);
 	if(meshModel.vtxCount()==0)
 		exit(-1);
+  	/* Read textureFile into meshModel. */
+	if( textureFile ) {
+		meshModel.readTextureImage(textureFile, -1); //xres);
+		if(meshModel.textureImg) {
+			if( texScale>0.0 ) {
+			    if(egi_imgbuf_scale_update(&meshModel.textureImg,
+					    texScale*meshModel.textureImg->width, texScale*meshModel.textureImg->height)==0)
+			        egi_dpstd("Scale texture image size to %dx%d\n",meshModel.textureImg->width, meshModel.textureImg->height);
+			    else
+			        egi_dpstd("Fail to scale texture image!\n");
+			}
+		}
+	}
 
-	sleep(2);
+#if 1  /* TEST: -------- Print out all materials ---- */
+	for(unsigned int k=0; k<meshModel.mtlList.size(); k++)
+			meshModel.mtlList[i].print();
+#endif
 #if 0  /* TEST: -------- */
 	meshModel.printAllVertices("meshModel");
 	meshModel.printAllTriangles("meshModel");
@@ -488,6 +512,9 @@ int main(int argc, char **argv)
 
 	exit(0);
 #endif
+	sleep(2);
+
+
 	/* 2. Calculate/update AABB */
 	meshModel.updateAABB();
 	meshModel.printAABB("meshModel");
@@ -613,25 +640,16 @@ int main(int argc, char **argv)
 	/* 8. Prepare WorkMesh (Under global Coord ) */
 	E3D_TriMesh *workMesh=new E3D_TriMesh(meshModel.vtxCount(), meshModel.triCount());
 
-  	/* 9. Read textureFile into workMesh */
-	if( textureFile ) {
-		workMesh->readTextureImage(textureFile, -1); //xres);
-		if(workMesh->textureImg) {
-			refimg=workMesh->textureImg; /* Just ref. */
-			workMesh->shadeType=E3D_TEXTURE_MAPPING;
-			if( texScale>0.0 ) {
-			    if(egi_imgbuf_scale_update(&workMesh->textureImg,
-					    texScale*workMesh->textureImg->width, texScale*workMesh->textureImg->height)==0)
-			        egi_dpstd("Scale texture image size to %dx%d\n",workMesh->textureImg->width, workMesh->textureImg->height);
-			    else
-			        egi_dpstd("Fail to scale texture image!\n");
-			}
-		}
+	/* 9. Check if it has input texture with option -T path. (NOT as defined in .mtl file.) */
+	if( (textureFile && meshModel.textureImg) || (meshModel.mtlList.size()>0 && meshModel.mtlList[0].img_kd) ) {
+		refimg=meshModel.textureImg; /* Just ref, to get imgbuf size later. */
+		workMesh->shadeType=E3D_TEXTURE_MAPPING;
 	}
 	else {
 		/* Note: if the mesh has NO nv data(all 0), then result of GOURAUD_SHADING will be BLACK */
 		workMesh->shadeType=E3D_GOURAUD_SHADING;
 	}
+
 
 	/* 10. Test multiline text texture */
 #if  TEST_MTXT_TEXTURE
@@ -648,6 +666,11 @@ int main(int argc, char **argv)
 	/* 11. Re_assign for workMesh */
 	workMesh->shadeType=E3D_TEXTURE_MAPPING;
 	workMesh->textureImg=teximg;
+	workMesh->defMaterial.img_kd=teximg;
+
+	/* also for meshModel */
+	meshModel->textureImg=teximg;
+	meshModel->defMaterail.img_kd=teximg;
 
 	/* 12. TEST: to teximg display on screen */
 	FTsymbol_uft8strings_writeIMG2( teximg, egi_appfonts.bold, fw, fh, ustr, /* imgbuf, face, fw, fh, pstr */
@@ -663,9 +686,27 @@ int main(int argc, char **argv)
 			/* (((-----  Loop move and render workMesh  -----))) */
   while(1) {
 
-	/* W1. Clone meshModel to workMesh, with vertices/triangles/normals */
-	cout <<"Clone workMesh... \n";
-	workMesh->cloneMesh(meshModel);   /* include AABB */
+	/* W1. Clone meshModel to workMesh, with: vertices/triangles/normals/vtxcenter/AABB/textureImg/
+	 *     /defMateril/mtlList[]/triGroupList[].....
+	 *   Note:
+	 *	1. EGI_IMGBUF pointers of textureImg and map_kd in materials NEED NOT to free/release befor cloning,
+	 *	   as they are read/loaded ONLY once.
+	 *	2. mtlList[] and triGroupList[] to be cloned ONLY WHEN they are emtpy! this is to avoid free/release
+   	 *	   pointer members. see in E3D_TriMesh::cloneMesh().
+	 */
+	cout <<"Clone meshModel data into workMesh, NOT all data is cloned and replaced! ... \n";
+	workMesh->cloneMesh(meshModel);
+	egi_dpstd("workMesh: %d Triangles, %d TriGroups, %d Materials, %s, defMateril.img_kd is '%s'.\n",
+				workMesh->triCount(), workMesh->triGroupList.size(),
+				workMesh->mtlList.size(),
+				workMesh->mtlList.size()>0 ? "" : "defMaterial applys.",
+				workMesh->defMaterial.img_kd!=NULL ? "loaded" : "NULL"
+				);
+
+#if 0  /* TEST: -------- Print out all materials ---- */
+        for(unsigned int k=0; k < workMesh->mtlList.size(); k++)
+                        workMesh->mtlList[i].print();
+#endif
 
         /* Turn bakcFace on */
 	if(backFace_on) {
@@ -743,7 +784,7 @@ int main(int argc, char **argv)
         	fb_set_directFB(&gv_fb_dev,true);
 	}
 
-#if 1   /* W6. Render as solid faces. */
+#if 1   /* W6. Render the workMesh. */
 	fbset_color2(&gv_fb_dev, faceColor);
 
         /* OR  updateAllTriNormals() here */
@@ -752,14 +793,14 @@ int main(int argc, char **argv)
         workMesh->renderMesh(&gv_fb_dev, projMatrix);
 #endif
 
-	/* W7. Render as wire frames. */
+	/* W7. Render as wire frames, on current FB image (before FB is cleared). */
 	if(wireframe_on && workMesh->shadeType!=E3D_TEXTURE_MAPPING) {
 		fbset_color2(&gv_fb_dev, wireColor); //WEGI_COLOR_DARKGRAY);
 		cout << "Draw meshwire ...\n";
 		workMesh->drawMeshWire(&gv_fb_dev, projMatrix);
 	}
 
-	/* W8. Draw the AABB. */
+	/* W8. Draw the AABB, on current FB image. */
 	if( AABB_on ) {
 	        cout << "Draw AABB ...\n";
 		fbset_color2(&gv_fb_dev, aabbColor);
@@ -853,10 +894,7 @@ int main(int argc, char **argv)
 	angle += (5.0+da); // *MATH_PI/180;
 
 #if 0 /* TEST: ------ */
-        if(workMesh->shadeType==E3D_FLAT_SHADING)
-        	workMesh->shadeType=E3D_GOURAUD_SHADING;
-        else if(workMesh->shadeType==E3D_GOURAUD_SHADING)
-		workMesh->shadeType=E3D_FLAT_SHADING;
+
 #endif
 
 /* ---TEST Record Screen: Save screen as a frame of a motion file. ------------------------- */
@@ -899,7 +937,10 @@ int main(int argc, char **argv)
 
 	/* To keep precision: Suppose it starts with angle==0!  */
 	if( (int)angle >=360 || (int)angle <= -360) {
-		if((int)angle>=360) angle -=360;
+		if((int)angle>=360) {
+			angle -=360;
+			exit(0);     /* <------------- TEST */
+		}
 		if((int)angle<-360) angle +=360;
 
 		/* Random face color */
@@ -922,7 +963,7 @@ int main(int argc, char **argv)
 #endif
 		}
 		else if(workMesh->shadeType==E3D_WIRE_FRAMING) {
-			if(workMesh->textureImg)
+			if(workMesh->textureImg || workMesh->mtlList.size()>0 )
 				workMesh->shadeType=E3D_TEXTURE_MAPPING;
 			else
 				workMesh->shadeType=E3D_FLAT_SHADING;

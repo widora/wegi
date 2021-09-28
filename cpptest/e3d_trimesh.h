@@ -3,7 +3,7 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-	         EGI 3D Triangle Mesh
+	            --- EGI 3D Triangle Mesh ---
 
 Refrence:
 1. "3D Math Primer for Graphics and Game Development"
@@ -47,7 +47,6 @@ Note:
 7. Transformation matrix for all normals(Vertex normals, TriFaceNormals, TriVtxNormals)
    should contain ONLY rotation components, and keep them all as UNIT normals!
    (whose vector norm is 1! )
-
 
 
 TODO:
@@ -163,6 +162,16 @@ Journal:
 2021-09-22:
 	1. Add E3D_TriMesh::initVars().
 	2. Add Class E3D_Material.
+2021-09-23:
+	1. Add readMtlFile(const char *fmtl, const char *mtlname, E3D_Material &material)
+2021-09-24:
+	1. Add readMtlFile(const char *fmtl, vector<E3D_Material> & mtlList)
+2021-09-25:
+	1. E3D_TriMesh::E3D_TriMesh(const char *fobj): read and add triGroupList[].
+	2. Add  E3D_TriMesh::getMaterialID()
+2021-09-26/27:
+	1. E3D_TriMesh::renderMesh(): Apply triGroupList[] and its material.color/map.
+	2. E3D_TriMesh::cloneMesh(): Clone more class members.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -183,6 +192,7 @@ midaszhou@yahoo.com
 #include "egi_fbgeom.h"
 #include "egi_color.h"
 #include "egi_image.h"
+#include "egi_cstring.h"
 
 using namespace std;
 
@@ -220,42 +230,103 @@ public:
 	E3D_Material();
 
 	/* Destructor */
-	~E3D_Material() {};
+	~E3D_Material();
 
 	/* Init,Setdefault */
-	void setDefault();
+	void setDefaults();
 
 	/* Print out */
 	void print();
 
+
+		      /* !!!--- Caution for Pointer Memebers ---!!! */
+
+/* Note:
+ * 1. For vector application: to assign any pointer member AFTER finishing allocating all vector
+ *    intems, such as to avoid releasing those pointers unexpectedly when free and remalloc mem
+ *    DURING resizing/growing_up the vector capacity.
+ *    Example: It triggers to egi_imgbuf_free(img_kd..) when reallocating vecotr mem spaces.
+ *
+ * 2. push_back() of a vector WOULD LIKELY to trigger unexpected pointer_free/release.
+ *    to avoid above situation, one could DestVector.resize() first to allocate all mem space,
+ *    then assign item one by one: DestVector[i]=SrcVector[i].
+ *
+ * 3. TODO: If one map_kd(/ks/kd) file is referred/used by more than ONE material, it will be
+ *    loaded into img_kd(/ks/ka) for each material respectively!  Seems redundant....
+ */
+
+public:
 	/* Material name */
 	string name;	  /* Material name */
 
 	/* Colors: To keep same as obj file */
-	E3D_Vector kd;  /* Diffuse color [0 1] ---> (RGB) [0 255] */
-	//EGI_16BIT_COLOR dcolor;
 	E3D_Vector ka;  /* ambient color [0 1] ---> (RGB) [0 255] */
 	//EGI_16BIT_COLOR acolor;
+	E3D_Vector kd;  /* Diffuse color [0 1] ---> (RGB) [0 255] */
+	//EGI_16BIT_COLOR dcolor;
 	E3D_Vector ks;  /* specular color [0 1] ---> (RGB) [0 255] */
 	//EGI_16BIT_COLOR scolor;
 
-	//E3D_Vector Tf;   //optical density;
-	//float      Ni;   //transmission filter
+	/* Illumination model:
+ 	   0		Color on and Ambient off
+	   1		Color on and Ambient on
+ 	   2		Highlight on
+ 	   3		Reflection on and Ray trace on
+ 	   4		Transparency: Glass on
+ 			Reflection: Ray trace on
+ 	   5		Reflection: Fresnel on and Ray trace on
+	   6		Transparency: Refraction on
+ 			Reflection: Fresnel off and Ray trace on
+	   7		Transparency: Refraction on
+ 			Reflection: Fresnel on and Ray trace on
+	   8		Reflection on and Ray trace off
+	   9		Transparency: Glass on
+ 			Reflection: Ray trace off
+	  10		Casts shadows onto invisible surfaces
+        */
+	int 	     illum; /* [0-10] */
+
+	/* --- NOT applied in setDefault and readMtlFile() --- */
+	//E3D_Vector Tf;   /* The transmission filte (rgb)[0 1] */
+	//float      Ni;   /* Transmission filter */
+	//float	     Ns;   /* Specifies the specular exponent, defautl 0.0 */
+
+	/* Transparency, use one of d/Tr */
+	float       d;    /* The dissolve factor, as Non-transparency of the material, default 1.0, totally untransparent. */
+	//float       Tr;   /* as for Transparency of the material, default 0.0,  */
 
 	/* Textrue/Maps */
-	string map_kd;  /* Map file path */
+	string map_kd;  /* Map file path ---> img_kd */
 	string map_ka;
 	string map_ks;
+
+	/* Texture imgbuf. TODO: here or at triGroup??? ---OK, HERE! */
+	EGI_IMGBUF *img_kd; /* img_ka, img_ks */
+
+	int end;
 };
 
 /*---------------------------
 Set default for memebers.
 ----------------------------*/
-void E3D_Material::setDefault()
+void E3D_Material::setDefaults()
 {
-	kd.vectorRGB(WEGI_COLOR_GRAY3); /* Default kd */
-	ka.vectorRGB(WEGI_COLOR_GRAY2); /* Default kd */
-	ks.vectorRGB(WEGI_COLOR_GRAY); /* Default kd */
+	illum=0;
+	d=1.0;
+	//Tr=0.0;
+
+	kd.vectorRGB(COLOR_24TO16BITS(0xF0CCA8)); //WEGI_COLOR_PINK); /* Default kd */
+	ka.vectorRGB(WEGI_COLOR_GRAY2); /* Default ka */
+	ks.vectorRGB(WEGI_COLOR_GRAY); /* Default ks */
+
+	if(!name.empty())
+		name.clear();
+
+	map_kd.clear();
+	map_ka.clear();
+	map_ks.clear();
+
+	img_kd=NULL;
 }
 
 /*----------------------------
@@ -264,7 +335,17 @@ of the materail
 -----------------------------*/
 E3D_Material::E3D_Material()
 {
-	setDefault();
+	setDefaults();
+}
+
+/*----------------------------
+Print out main vars/paramters
+of the materail
+-----------------------------*/
+E3D_Material::~E3D_Material()
+{
+	/* Free imgbuf, and reset img_kd to NULL. */
+	egi_imgbuf_free2(&img_kd);
 }
 
 /*----------------------------
@@ -273,16 +354,298 @@ of the materail
 -----------------------------*/
 void E3D_Material::print()
 {
+	cout<<"------------------------"<<endl;
 	cout<<"Material name: "<< name <<endl;
 
-	kd.print();
-	ka.print();
-	ks.print();
+	cout<<"illum: "<< illum <<endl;
+	ka.print("ka");
+	kd.print("kd");
+	ks.print("ks");
+	cout<<"d: "<< d <<endl;
 	cout<<"map_kd: "<< map_kd <<endl;
-	cout<<"map_ka: "<< map_ka <<endl;
-	cout<<"map_ks: "<< map_ks <<endl;
+	cout<<"img_kd is "<< (img_kd==NULL?"NULL!":"loaded.") <<endl;
+//	cout<<"map_ka: "<< map_ka <<endl;
+//	cout<<"map_ks: "<< map_ks <<endl;
+
+	cout<<"------------------------"<<endl;
+	cout<<endl;
 }
 
+/*----------------------------------------------------------------
+Read material from an .mtl file.
+
+		---- OBJ .mtl Material File Format ----
+
+xxx.mtl		Name of obj mtl file, as specified in the .obj file:
+		mtllib xxx.mtl
+newmtl  ABC	Use material ABC
+illum  [0 10]   Illumination model
+Kd		Diffuse color, rgb, each [0-1.0]
+Ka		Ambient color, rgb, each [0-1.0]
+Ks		Specular color,rgb, each [0-1.0]
+Tf		Transmission filter
+Ni		Optical density
+d		Dissolve factor
+//Tr		Transparency
+map_Kd		Diffuse map
+map_Ka		Ambient map
+map_Ks		Specular map
+map_d		Alpha map
+map_bump/bump   Bump map
+
+@ftml: 		Path for the .mtl file.
+@name: 		Material name descripted in the mtl file.
+		If NULL, ignore the name. Just read first newmtl
+		if the mtl file.
+@material:	E3D_Material
+
+Return:
+	>0	Material name NOT found int he mtl file.
+	0	OK
+	<0	Fails
+----------------------------------------------------------------*/
+int readMtlFile(const char *fmtl, const char *mtlname, E3D_Material &material)
+{
+	ifstream  fin;
+	char strline[1024];
+	const char *delim=" 	";    /* space AND tab, \r\n */
+	char *pt=NULL;
+	char *saveptr=NULL;
+	bool  found_newmtl=false;
+
+	if(fmtl==NULL)
+		return -1;
+
+	/* Open .mtl file */
+	fin.open(fmtl);
+	if(fin.fail()) {
+		egi_dperr("Fail to open '%s'",fmtl);
+		return -2;
+	}
+
+	/* Read data */
+	strline[sizeof(strline)-1]=0;
+	while( fin.getline(strline, sizeof(strline)-1) ) {
+//		egi_dpstd("strline: %s\n", strline);
+
+		pt=strtok_r(strline, delim, &saveptr);
+		if(pt==NULL) continue;
+
+		/* New materila: check first keyword */
+		if( strcmp(pt, "newmtl")==0 ) {
+			/* If alread reading newmtl, end of current material. */
+			if(found_newmtl==true)
+				break;
+
+			/* Check material name */
+			if( mtlname!=NULL && strcmp(saveptr,mtlname)!=0 )
+				continue;
+
+			/* ELSE: find the materil */
+			material.name=saveptr;
+			found_newmtl=true;
+		}
+
+		/* Until find the newmtl name string */
+		if(found_newmtl == false)
+			continue;
+
+		/* Ka */
+		if( strcmp(pt,"Ka")==0 ) {
+//			printf("saveptr: %s\n", saveptr);
+			sscanf(saveptr, "%f %f %f", &material.ka.x, &material.ka.y, &material.ka.z); /* rgb[0 1] */
+		}
+		/* map_Ka */
+		else if( strcmp(pt,"map_Ka")==0 ) {
+			material.map_ka=saveptr;
+		}
+		/* Kd */
+		else if( strcmp(pt,"Kd")==0 ) {
+			sscanf(saveptr, "%f %f %f", &material.kd.x, &material.kd.y, &material.kd.z); /* rgb[0 1] */
+		}
+		/* map_Kd */
+		else if( strstr(pt,"map_Kd") ) {
+			material.map_kd=saveptr;
+		}
+		/* Ks */
+		else if( strcmp(pt,"Ks")==0 ) {
+			sscanf(saveptr, "%f %f %f", &material.ks.x, &material.ks.y, &material.ks.z); /* rgb[0 1] */
+		}
+		/* map_Ks */
+		else if( strstr(pt,"map_Ks") ) {
+			material.map_ks=saveptr;
+		}
+
+		/* illum */
+		else if( strcmp(pt,"illum")==0 ) {
+			sscanf(saveptr, "%d", &material.illum); /* illum [0-10] */
+		}
+		/* d */
+		else if( strcmp(pt,"d")==0 ) {
+			sscanf(saveptr, "%f", &material.d); /* d [0 1] */
+		}
+		#if 0 /* Tr */
+		else if( strcmp(pt,"Tr")==0 ) {
+			sscanf(saveptr, "%f", &material.Tr); /* Tr [0 1] */
+		}
+		#endif
+	}
+
+	/* Check data */
+	// if( material.kd.x > 1.0 || materil.kd.y >1.0 || material.kd.z >1.0 )
+
+END_FUNC:
+	/* Close fmtl */
+	fin.close();
+
+	if(found_newmtl) return 0;
+	else {
+	      egi_dpstd("Materil '%s' NOT found in .mtl file!\n", mtlname);
+	      return 1;
+	}
+}
+
+
+/*----------------------------------------------------------------
+Read material from an .mtl file.
+
+Note:
+1. Path for map texture file should be correctly set in the.mtl file,
+   OR it will fail to load into imgbuf.
+   It's a good idea to use full paths in the .mtl file.
+
+@ftml: 		Path for the .mtl file.
+@mtlList:	E3D_Material list/vectr.
+		It will cleared first!
+Return:
+	0	OK
+	<0	Fails
+----------------------------------------------------------------*/
+int readMtlFile(const char *fmtl, vector<E3D_Material> & mtlList)
+{
+	ifstream  fin;
+	char strline[1024];
+	const char *delim=" 	";    /* space AND tab, \r\n */
+	char *pt=NULL;
+	char *saveptr=NULL;
+
+	E3D_Material material;
+	int   mcnt=0;		/* Material counter */
+
+	if(fmtl==NULL)
+		return -1;
+
+	/* Clear mtlList */
+	if(!mtlList.empty())
+		mtlList.clear();
+
+	/* Open .mtl file */
+	fin.open(fmtl);
+	if(fin.fail()) {
+		egi_dperr("Fail to open '%s'",fmtl);
+		return -2;
+	}
+
+	/* Read data */
+	strline[sizeof(strline)-1]=0;
+	while( fin.getline(strline, sizeof(strline)-1) ) {
+		egi_dpstd("strline: %s\n", strline);
+
+		pt=strtok_r(strline, delim, &saveptr);
+		if(pt==NULL) continue;
+
+		/* New materila: check first keyword */
+		if( strcmp(pt, "newmtl")==0 ) {
+			/* If first item, just set name for material. */
+			if(material.name.empty()) {
+				/* Set name */
+				material.name=saveptr;
+			}
+			/* Else, push current material into mtlList before start reading a new one. */
+			else {
+				//egi_dpstd("Start to push_back material '%s'.\n", material.name.c_str());
+				mtlList.push_back(material);
+
+				/* Load imgbuf after push_back all material! see CAUTION in Class E3D_Material! */
+
+				/* Reset material, !!!--- img_kd should NOT be loaded here! ---!!! */
+				material.setDefaults();  /* name also cleared */
+
+				/* Set name */
+				material.name=saveptr;
+
+				/* Increase counter */
+				mcnt++;
+			}
+		}
+
+		/* Ka */
+		if( strcmp(pt,"Ka")==0 ) {
+//			printf("saveptr: %s\n", saveptr);
+			sscanf(saveptr, "%f %f %f", &material.ka.x, &material.ka.y, &material.ka.z); /* rgb[0 1] */
+		}
+		/* map_Ka */
+		else if( strcmp(pt,"map_Ka")==0 ) {
+			material.map_ka=saveptr;
+		}
+		/* Kd */
+		else if( strcmp(pt,"Kd")==0 ) {
+			sscanf(saveptr, "%f %f %f", &material.kd.x, &material.kd.y, &material.kd.z); /* rgb[0 1] */
+		}
+		/* map_Kd */
+		else if( strstr(pt,"map_Kd") ) {
+			material.map_kd=saveptr;
+			egi_dpstd("material.map_kd: %s\n", material.map_kd.c_str());
+		}
+		/* Ks */
+		else if( strcmp(pt,"Ks")==0 ) {
+			sscanf(saveptr, "%f %f %f", &material.ks.x, &material.ks.y, &material.ks.z); /* rgb[0 1] */
+		}
+		/* map_Ks */
+		else if( strstr(pt,"map_Ks") ) {
+			material.map_ks=saveptr;
+		}
+
+		/* illum */
+		else if( strcmp(pt,"illum")==0 ) {
+			sscanf(saveptr, "%d", &material.illum); /* illum [0-10] */
+		}
+		/* d */
+		else if( strcmp(pt,"d")==0 ) {
+			sscanf(saveptr, "%f", &material.d); /* d [0 1] */
+		}
+		#if 0 /* Tr */
+		else if( strcmp(pt,"Tr")==0 ) {
+			sscanf(saveptr, "%f", &material.Tr); /* Tr [0 1] */
+		}
+		#endif
+	}
+
+	/* Check if last material is waiting for pushback. */
+	if( !material.name.empty() ) {
+		mtlList.push_back(material);
+
+		/* Load imgbuf after push_back all material! see CAUTION in Class E3D_Material! */
+
+		/* Increase counter */
+		mcnt ++;
+	}
+
+	/* Load img_kd AFTER pushing back ALL materials! see CAUTION in Class E3D_Material! */
+	for(int k=0; k<mcnt; k++) {
+		mtlList[k].img_kd=egi_imgbuf_readfile(mtlList[k].map_kd.c_str());
+		if( mtlList[k].img_kd == NULL )
+			egi_dpstd("Fail to load map_kd '%s'.\n", mtlList[k].map_kd.c_str());
+		else
+			egi_dpstd("Succed to load map_kd '%s'.\n", mtlList[k].map_kd.c_str());
+	}
+
+	/* Close fmtl */
+	fin.close();
+
+	egi_dpstd("Totally %d materils found in the mtl file '%s'!\n", mcnt, fmtl);
+	return 0;
+}
 
 /*-------------------------------------------------------
         Class: E3D_TriMesh
@@ -322,7 +685,6 @@ public:
 		void setDefaults();	/* Set default/initial values */
 	};
 
-
 	/* :: Class Triangle */
 	class Triangle {
 	public:
@@ -361,13 +723,26 @@ public:
 
 	/* :: Class TriGroup, NOT for editting!!!  */
 	class TriGroup {
-		string		name;		/* Name of the triangle_group */
-		E3D_Material	material;	/* Material for the group */
+	public:
+		TriGroup() { setDefaults(); };
+		void setDefaults() {
+			name.clear();
+			mtlID=0; tcnt=0; stidx=0; etidx=0;
+		}
+
+		string		name;		/* Name of the sub_object group (of triangles) */
+		//E3D_Material	material;	/* Material for the sub_object group */
+		int		mtlID;		/* Material ID, as of mtlList[x]
+						 * If <0, invalid!
+						 */
+
+		/* XXX Imgbuf loaded from material texture map files. */
+		//EGI_IMGBUF *img_kd;  // NOW only diffuse.  ka, ks ...
 
 		/* Define group include triangles from triList[] to triList[] */
 		unsigned int	tcnt;  		/* Total trianlges in the group */
-		unsigned int	sidx;  		/* Start/Begin index of triList[] */
-		unsigned int	eidx;  		/* End index of triList[], NOT incuded!!!
+		unsigned int	stidx;  		/* Start/Begin index of triList[] */
+		unsigned int	etidx;  		/* End index of triList[], NOT incuded!!!
 				 		 * !!! eidx=sidex+sidx !!!
 						 */
 	};
@@ -554,13 +929,16 @@ public:
 	}
 
 	/* Function: clone vertices/trianges from the tmesh.  */
-	void cloneMesh(const E3D_TriMesh &tmesh);
+	void cloneMesh(const E3D_TriMesh &tmesh); /* !!! Some data are NOT cloned and replaced! */
 
 	/* Function: Project according to Projection matrix */
 	// int  projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix &projMatrix) const;
 
-	/* Funtion: Read texture image into textureImg */
+	/* Function: Read texture image into textureImg */
 	void readTextureImage(const char *fpath, int nw);
+
+	/* Function: Get material ID */
+	int getMaterialID(const char *name) const;
 
 	/* Function: Draw wires/faces */
 	void drawMeshWire(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const ;
@@ -588,13 +966,23 @@ private:
 
 	AABB		aabbox;		/* Axially aligned bounding box */
 	//int mcnt;
-	//Material  *mList;
-
-	vector<TriGroup>  triGroupList;	/* trimesh group array */
 
 public:
+	E3D_Material	 defMaterial;	/* Default material:
+					 * 1. If mtlList[] is empty, then use this as default material
+					 * 2. defMaterial.img_kd re_assigned to textureImg in E3D_TriMesh::readTextureImage()
+				         */
+
+	vector<E3D_Material>  mtlList;	/* Material list. */
+	vector<TriGroup>  triGroupList;	/* trimesh group array
+					 * At least one TriGroup, including all triangles.
+					 */
+
 	E3D_SHADE_TYPE   shadeType;	/* Rendering/shading type, default as FLAT_SHADING */
-	EGI_IMGBUF 	*textureImg;	/* Texture imgbuf */
+	EGI_IMGBUF 	*textureImg;	/* Texture imgbuf
+					 * 1. E3D_TriMesh::readTextureImage() to read image, and then
+					 *    assign it to defMaterial.img_kd.
+					 */
 	bool		backFaceOn;	/* If true, display back facing triangles.
 					 * If false, ignore it.
 					 * Default as false.
@@ -623,7 +1011,6 @@ void E3D_TriMesh::Triangle::setDefaults()
 	E3D_TriMesh::Triangle::mark=0;
 
 }
-
 
 
 /* Revise vmin/vmax to make AABB contain the point. */
@@ -789,22 +1176,51 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh & tmesh)
 		triList[i].mark=tmesh.triList[i].mark;
 	}
 
-	/* TODO: Set texturerImg */
+	/* TODO: Set texturerImg, triGroupList, mtlList... */
+
 }
 
 
 /*----------------------------------------------------
           E3D_TriMesh  Constructor
 
-To create by reading from a *.obj file.
+To create a trimesh by reading from a *.obj file.
+
 @fobj:	Full path of a *.obj file.
 
 Note:
-1. A face has MAX.4 vertices!(a quadrilateral)
+1. Assume that indices of all vertice('v') in obj file are
+   numbered in order, same of E3D_TriMesh.vtxList[].
+   AND_1. All face vtxIndex use the SAME index order!
+   AND_2. When we read face data, all their vertice are already
+   in vtxList[].
+   ( We can also read in all vertice('v') data and put
+     into vtxList[] first, then read all face ('f') data. )
+2. All polygons are divided into triangles.
+   Example: A face has MAX.4 vertices!(a quadrilateral)
    and a quadrilateral will be stored as 2
    triangles, recursive for 5,6...
-2. Face(triangle) normals are not provided in obj file,
+3. Face(triangle) normals are not provided in obj file,
    they should be computed later.
+4. If no 'g' group defined, then a default group will
+   be created and push into triGroupList<>.
+5. If no .mtl file provided, then the default material
+   of E3D_TriMesh.defMaterial to be used.
+
+			--- OBJ File Format ---
+v		vertex:  xyz
+vt		vertex texture coordinate: uv[w]
+vn		vertex normal: xyz
+o		object name
+s		smoothing group: on, off
+g		su_object group
+
+mtllib xxx.mtl  Use material file xxx.mtl to load materials.
+usemtl yyy 	Use material yyy for the followed elements.
+
+TODO:
+1. tv: for u/v <0?
+2. NOW only supports ONE .mtl file.
 
 @fobj:	File path.
 -----------------------------------------------------*/
@@ -838,14 +1254,20 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 	E3D_Vector *vnList;		/* Vertex normal List */
 	int	    vnListCnt=0;
 
+	/* TODO: NOW object 'o' and group 'g' all treated as triGroup. any they CAN NOT appear at same time! */
+	TriGroup    triGroup;
+	int	    groupCnt=0;	/* Triangles group counter */
+	int	    groupStidx=0;	/* Group start index as of triList[sidx] */
+	int	    groupEtidx=0;	/* Group end index as of triList[eidx-1] */
+
 	/* 0. Init params */
 	vcnt=0;
 	tcnt=0;
+	initVars();
         //textureImg=NULL;
         //shadeType=E3D_FLAT_SHADING;
 	//backFaceOn=false;
 	//bkFaceColor=WEGI_COLOR_BLACK;
-	initVars();
 
 	/* 1. Read statistic of obj data */
 	if( readObjFileInfo(fobj, vertexCount, triangleCount, vtxNormalCount, textureVtxCount, faceCount) !=0 )
@@ -885,20 +1307,73 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 	/* 2.4 New vnList */
 	vnList = new E3D_Vector[vtxNormalCount];
 
-
 	/* 3. Open obj file */
 	fin.open(fobj);
 	if(fin.fail()) {
-		egi_dpstd("Fail to open '%s'.\n", fobj);
+		egi_dperr("Fail to open '%s'.\n", fobj);
 		return;
 	}
 
 	/* 4. Read data into TriMesh */
+	strline[1024-1]=0;
 	while( fin.getline(strline, 1024-1) ) {
 		ch=strline[0];
 
+		/* Replace all mid '#' with '\0' */
+		for(int n=1; n<(int)strlen(strline); n++)
+			if(strline[n]=='#') strline[n]=0;
+
+		/* Parse line */
 		switch(ch) {
 		   case '#':	/* 0. Comments */
+			break;
+		   case 'm':    /* Read material file */
+			if( strcmp(strline,"mtllib ")>0 ) {
+			   /* Input mtList will cleared firt in readMtlFile() */
+			   readMtlFile( cstr_trim_space(strline+strlen("mtllib ")), mtlList);
+			}
+			break;
+		   case 'o':   /* TODO:Start a new object, NOW same as g */
+			/* TODO:  If 'o' and 'g' appears at same time, it faults then!
+				...
+				o head
+				g eya
+				usemtl  material_eye
+				f 3/1 1/2 2/3
+				f 1/2 3/1 4/4
+				...
+			*/
+		   case 'g':   /* Start a new group */
+			/* g.1 Assign LAST groupEtidx, the last_group.groupEtidx to be assiged at see E2. */
+			if(groupCnt>0) {
+				triGroupList.back().etidx=groupEtidx;
+
+				/* Reset groupStidex for next group. */
+				groupStidx = groupEtidx;
+			}
+
+			/* g.2 Assign triGroup */
+			triGroup.name = cstr_trim_space(strline+1);
+			triGroup.stidx = groupStidx;    /* Assign stdix ONLY! */
+			//triGroup.etidx = groupEtidx;  /* To assign when next group starts, while groupEtidx finishing counting! */
+
+			//triGroup.mtlID = materialID; /* SEE case 'u' */
+
+			/* g.3 Push into triGroupList */
+			triGroupList.push_back(triGroup);
+			groupCnt++;
+
+			/* g.4 Clear triGroup for next group */
+			triGroup.setDefaults();
+			break;
+		   case 'u':    /* Group material name */
+			if(groupCnt<1)break; /* 'usemtl' SHALL aft 'g' */
+
+			/* Material name for current group */
+			if( strcmp(strline,"usemtl ")>0 ) {
+			   /* Get MaterialID, current group already in triGropList[] */
+			   triGroupList[groupCnt-1].mtlID = getMaterialID(cstr_trim_space(strline+strlen("usemtl ")));
+			}
 			break;
 		   case 'v':	/* 1. Vertex data */
 			ch=strline[1]; /* get second token */
@@ -932,6 +1407,11 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 				}
 				sscanf( strline+2, "%f %f %f",
 					&tuvList[tuvListCnt].x, &tuvList[tuvListCnt].y, &tuvList[tuvListCnt].z);
+
+				/* TODO: U,V <0 means....?? */
+				if(tuvList[tuvListCnt].x<0) tuvList[tuvListCnt].x=1.0+tuvList[tuvListCnt].x;
+				if(tuvList[tuvListCnt].y<0) tuvList[tuvListCnt].y=1.0+tuvList[tuvListCnt].y;
+				if(tuvList[tuvListCnt].z<0) tuvList[tuvListCnt].z=1.0+tuvList[tuvListCnt].z;
 
 				tuvListCnt++;
 				break;
@@ -980,21 +1460,6 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 			   /* NOW: k is total number of vertices in this face. */
 
-#if 0 ///////////////////////// Max 4_edge faces ////////////////////////////////////
-			   /*  Assign to triangle vtxindex: triList[tcnt].vtx[i].index */
-			   if( k>=3 ) {
-				triList[tcnt].vtx[0].index=vtxIndex[0];
-				triList[tcnt].vtx[1].index=vtxIndex[1];
-				triList[tcnt].vtx[2].index=vtxIndex[2];
-				tcnt++;
-			   }
-			   if( k==4 ) {  /* Divide into 2 triangles */
-				triList[tcnt].vtx[0].index=vtxIndex[1];
-				triList[tcnt].vtx[1].index=vtxIndex[2];
-				triList[tcnt].vtx[2].index=vtxIndex[3];
-				tcnt++;
-			   }
-#endif /////////////////////////////////////////////////////////////////////////
 			   /* TODO:  textrueIndex[] and normalIndex[], value <0 as omitted.  */
 
 			   /*  FA.2  Assign to triangle vtxindex: triList[tcnt].vtx[i].index */
@@ -1010,6 +1475,9 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 	                                triList[tcnt].vtx[1].index=vtxIndex[j+1];
         	                        triList[tcnt].vtx[2].index=vtxIndex[j+2];
 					tcnt++;
+
+					/* increase group etidx */
+					groupEtidx++;
 				}
 			   }
 
@@ -1099,22 +1567,6 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 			   /* NOW: k is total number of vertices in this face. */
 
-#if 0 /////////////////////  Max 4_edge faces //////////////////////////////////
-			   /*  Assign to triangle vtxindex */
-			   if( k>=3 ) {
-				triList[tcnt].vtx[0].index=vtxIndex[0];
-				triList[tcnt].vtx[1].index=vtxIndex[1];
-				triList[tcnt].vtx[2].index=vtxIndex[2];
-				tcnt++;
-			   }
-			   if( k==4 ) {  /* Divide into 2 triangles */
-				triList[tcnt].vtx[0].index=vtxIndex[2];
-				triList[tcnt].vtx[1].index=vtxIndex[3];
-				triList[tcnt].vtx[2].index=vtxIndex[0];
-				tcnt++;
-			   }
-#endif //////////////////////////////////////////////////////////////
-
 			   /*  FB3. Assign to triangle vtxindex */
 			   if( k>2 ) {
 				/* FB3.1 To divide the face into triangles in way of folding a fan. */
@@ -1160,6 +1612,9 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 					}
 					tcnt++;
+
+					/* increase group etidx */
+					groupEtidx++;
 				}
 			   }
 
@@ -1192,7 +1647,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 	} /* End while() */
 
-	/* Assign vtxList[].nromal, if vtxNormalIndex omitted!
+	/* E1.  Assign vtxList[].nromal, if vtxNormalIndex omitted!
 	 * See FB3.1.2.3, If vtxNormalIndex omitted! then each vertex has the same normal value!
 	 */
 	if( normalIndex[0]<0 ) {  /* Init normalIndex[0]=-1 for token */
@@ -1206,12 +1661,32 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 	else
 	   egi_dpstd("vtxNormalIndex assigned! each vertex may have more than one normal values, as in triList[].vtx[].vn!\n");
 
+	/* E2.  Assign groupEtidx for the last group. just BEFORE E3. */
+	if( groupCnt>0 )
+		triGroupList.back().etidx=groupEtidx;
+
+	/* E3.  If no group defined in .obj file , then add a default triGroup to include all triangles. */
+	if( groupCnt<1 ) {
+		/* Assign triGroup */
+		triGroup.name = "Default";
+		triGroup.stidx = 0;		/* start index of triList[] */
+		triGroup.etidx = tcnt;
+
+		/* Set <-1, to use defualt materila: Trimesh.defMaterial */
+		triGroup.mtlID = -1;
+
+		/* Push into triGroupList */
+		triGroupList.push_back(triGroup);
+
+		groupCnt ++;
+	}
 
 END_FUNC:
 	/* Close file */
 	fin.close();
 
-	egi_dpstd("Finish reading obj file: %d Vertices, %d Triangels. %d TextureVertices.\n", vcnt, tcnt, tuvListCnt);
+	egi_dpstd("Finish reading obj file: %d Vertices, %d Triangels. %d TextureVertices. %d TriGroups\n",
+		  								vcnt, tcnt, tuvListCnt, triGroupList.size());
 
 #if 0	/* TEST: ---------print all textureVtx tuvList[] */
 	for(int k=0; k<tuvListCnt; k++)
@@ -1221,6 +1696,17 @@ END_FUNC:
 #if 0	/* TEST: ---------print all vtxNormal vnList[] */
 	for(int k=0; k<vnListCnt; k++)
 		printf("vnList[%d]: %f,%f,%f\n", k, vnList[k].x, vnList[k].y, vnList[k].z);
+#endif
+
+#if 1	/* TEST: ---------print all triGroupList[] */
+	egi_dpstd("Totally %d triangle groups defined: \n", triGroupList.size());
+	for(unsigned int k=0; k<triGroupList.size(); k++) {
+		printf("  %d.  '%s'  materialID=%d  triList[%d %d)  Tris=%d  map_kd:'%s'\n",
+		             k, triGroupList[k].name.c_str(), triGroupList[k].mtlID,
+				triGroupList[k].stidx, triGroupList[k].etidx,
+				triGroupList[k].etidx - triGroupList[k].stidx,
+				triGroupList[k].mtlID >=0 ? mtlList[triGroupList[k].mtlID].map_kd.c_str() : "NULL");
+	}
 #endif
 
 
@@ -1256,6 +1742,8 @@ void E3D_TriMesh:: initVars()
         backFaceOn=false;
         bkFaceColor=WEGI_COLOR_BLACK;
 	faceNormalLen=0;
+
+
 }
 
 /*---------------------
@@ -1734,10 +2222,23 @@ void E3D_TriMesh::reverseAllVtxNormals(void)
 }
 
 
-/*--------------------------------------------------
-Clone all vertices and triangles from the tmesh
-, to replace old data.
--------------------------------------------------*/
+/*-----------------------------------------------------
+Copy all vertices and triangles from the input tmesh
+, just to replace SOME old data! and the target TriMesh
+is NOT identical to tmesh after operation!
+
+Note:
+		!!! Caution !!!
+1. NOW: Some data are NOT cloned and replaced!
+
+		!!! Caution !!!
+2. TODO: If the subject TriMesh has pointer members
+   to be replaced, it MUST free/release them at first!
+3. Here mtlList[] and triGroupList[] to be cloned ONLY
+   when they are emtpy! this is to avoid free/release
+   pointer members inside.
+
+-----------------------------------------------------*/
 void E3D_TriMesh::cloneMesh(const E3D_TriMesh &tmesh)
 {
 	/* Check Memspace */
@@ -1795,16 +2296,46 @@ void E3D_TriMesh::cloneMesh(const E3D_TriMesh &tmesh)
 	/* Clone vtxscenter */
 	vtxscenter=tmesh.vtxscenter;
 
+	/* Clone textureImg */
+	textureImg=tmesh.textureImg;
+
+	/* Clone defMaterial */
+	defMaterial=tmesh.defMaterial;
+
+#if 1   /* To avoid free/release imgbuf pointers in mtlList[] and triGroupList[],
+	 * clone those data ONLY ONCE !!!
+	 */
+	/* Clone material list: mtlList[] */
+	if( mtlList.size()<1 && tmesh.mtlList.size()>0 ) {
+	    mtlList.resize(tmesh.mtlList.size());   /* .resize(), NOT .reserve() */
+	    for(unsigned int i=0; i<tmesh.mtlList.size(); i++) {
+		printf("Clone mtlList[%d]... \n", i);
+		//mtlList.push_back(tmesh.mtlList[i]); /* This will trigger poiner free/release during capacity growing up! */
+		mtlList[i]=tmesh.mtlList[i];
+	    }
+	}
+       /* Clone triangle group list: triGroupList[] */
+	if( triGroupList.size()<1 && tmesh.triGroupList.size()>0 ) {
+	    triGroupList.resize(tmesh.triGroupList.size()); /* .resize(), NOT .reserve()! */
+	    for(unsigned int i=0; i<tmesh.triGroupList.size(); i++) {
+		//triGroupList.push_back(tmesh.triGroupList[i]); /* This will trigger poiner free/release during capacity growing up! */
+		triGroupList[i]=tmesh.triGroupList[i];
+	   }
+	}
+#endif  /////////////////////////////////////////////////////////////////////////
+
 	/* TODO: Clone other params if necessary. */
 }
 
 
-/*-----------------------------------
-Read texture image into textureImg
+/*----------------------------------------
+Read texture image into textureImg, and
+to defMaterial.img_kd.
+
 @fpath: Path to image file.
-@nw:    >0 As new image width
+@nw:    >0 As new image width, keep ratio.
 	<=0 Ignore.
------------------------------------*/
+----------------------------------------*/
 void E3D_TriMesh::readTextureImage(const char *fpath, int nw)
 {
 	textureImg=egi_imgbuf_readfile(fpath);
@@ -1817,8 +2348,36 @@ void E3D_TriMesh::readTextureImage(const char *fpath, int nw)
 		else
 			egi_dpstd("Fail to resize image! keep size %dx%d.\n", textureImg->width, textureImg->height);
 	}
+
+	/* Assign to defMaterial */
+	if(textureImg) {
+		egi_imgbuf_free2(&defMaterial.img_kd);
+		defMaterial.img_kd = textureImg;
+		egi_dpstd("defMaterial.img_kd re_assign with texture image '%s'.\n", fpath);
+	}
 }
 
+/*--------------------------------------------
+Get MaterialID with given material name.
+Return:
+	<0	Fails
+	>=0	OK
+--------------------------------------------*/
+int E3D_TriMesh::getMaterialID(const char *name) const
+{
+	if(name==NULL)
+		return -1;
+
+	if( mtlList.size()<1 )
+		return -2;
+
+	for(unsigned int i=0; i<mtlList.size(); i++) {
+		if( mtlList[i].name.compare(name)==0 )
+			return i;
+	}
+
+	return -3;
+}
 
 /*--------------------------------------------------------------
 Project an array of 3D vpts according to the projection matrix,
@@ -2109,104 +2668,6 @@ void E3D_TriMesh::drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const E3
 	fbdev->flipZ=false;
 }
 
-#if 0 //////////////////////////////////////////////////
-/*--------------------------------------------------
-Render/draw the whole mesh by filling all triangles
-with FBcolor.
-View_Coord:	Same as Global_Coord.
-View direction: View_Coord Z axis.
-
-
-Note:
-1.
-
-@fbdev:			Pointer to FB device.
-@projectMatrix:		Projection matrix.
---------------------------------------------------*/
-void E3D_TriMesh::renderMesh(FBDEV *fbdev) const
-{
-	int vtidx[3];  	/* vtx index of a triangel */
-	EGI_POINT   pts[3];
-	E3D_Vector  vView(0.0f, 0.0f, 1.0f); 	/* View direction */
-	float	    vProduct;   		/* dot product */
-	Triangle    Tri;
-
-	/* Default color */
-	EGI_16BIT_COLOR color=fbdev->pixcolor;
-	//EGI_8BIT_CCODE codeY=egi_color_getY(color);
-
-	/* -------TEST: Project to Z plane, Draw X,Y only */
-	/* Traverse and render all triangles */
-	for(int i=0; i<tcnt; i++) {
-		vtidx[0]=triList[i].vtx[0].index;
-		vtidx[1]=triList[i].vtx[1].index;
-		vtidx[2]=triList[i].vtx[2].index;
-
-	   #if TEST_PERSPECTIVE  /* TEST: ---Clip triangles out of frustum. plan view_z==0 */
-		if( vtxList[vtidx[0]].pt.z <500 || vtxList[vtidx[1]].pt.z <500 || vtxList[vtidx[2]].pt.z <500 )
-			continue;
-	   #endif
-
-		/* 1. Pick out back_facing triangles.  */
-		vProduct=vView*(triList[i].normal); // *(-1.0f); // -vView as *(-1.0f);
-		/* Note: Because of float precision limit, vProduct==0.0f is NOT possible. */
-		if ( vProduct > -VPRODUCT_EPSILON ) {  /* >=0.0f */
-			//egi_dpstd("triList[%d] vProduct=%e >=0 \n",i, vProduct);
-	                continue;
-		}
-		//egi_dpstd("triList[%d] vProduct=%f \n",i, vProduct);
-
-		/* 2. Calculate light reflect strength:  TODO: not correct, this is ONLY demo.  */
-		vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
-		//if( vProduct >= 0.0f )
-		if( vProduct > -VPRODUCT_EPSILON )
-			vProduct=0.0f;
-		else /* Flip to get vProduct absolute value for luma */
-			vProduct=-vProduct;
-
-		/* 3. Adjust luma for pixcolor as per vProduct. */
-		fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
-		//egi_dpstd("vProduct: %e, LumaY: %d\n", vProduct, (unsigned int)egi_color_getY(fbdev->pixcolor));
-
-		/* 4. Get triangle pts. */
-		for(int k=0; k<3; k++) {
-		   #if TEST_PERSPECTIVE  /* TEST: --Perspective matrix processing.
-		        * Note: If no setTranslation(x,y,.) Global XY_origin and View XY_origin coincide!
-			*       Here to adjust/map Global origin to center of View window center.
-			*       However vanshing point....
-			*/
-			if(vtxList[vtidx[k]].pt.z <1.0f ) {
-				egi_dpstd("Point Z too samll, out of the Frustum?\n");
-				return;
-			}
-			pts[k].x = roundf( vtxList[vtidx[k]].pt.x/vtxList[vtidx[k]].pt.z*500  /* Xv=Xs/Zs*d, d=300 */
-				   +160 );				/* Adjust to FB/Screen X center */
-			pts[k].y = roundf( vtxList[vtidx[k]].pt.y/vtxList[vtidx[k]].pt.z*500  /* Yv=Ys/Zs*d */
-				   +120 );				/* Adjust to FB/Screen Y center */
-//			pts[k].z = Zfar*(1.0f-Znear/pts[k].z)/(Zfar-Znear);
-		  #else
-			/* 4.1 Get pts[].x/y */
-			pts[k].x=roundf( vtxList[vtidx[k]].pt.x );
-			pts[k].y=roundf( vtxList[vtidx[k]].pt.y );
-		  #endif
-		}
-
-		/* 5. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
-		/* A simple test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
-		gv_fb_dev.pixz=roundf((vtxList[vtidx[0]].pt.z+vtxList[vtidx[1]].pt.z+vtxList[vtidx[2]].pt.z)/3.0);
-		/* !!!! Views from -z ----> +z */
-		gv_fb_dev.pixz = -gv_fb_dev.pixz;
-
-		/* 6. Draw filled triangle */
-		//draw_triangle(&gv_fb_dev, pts);
-		draw_filled_triangle(&gv_fb_dev, pts);
-	}
-
-	/* Restore pixcolor */
-	fbset_color2(&gv_fb_dev, color);
-}
-
-#else ////////////////////////////////////////////////
 
 /*---------------------------------------------------------------
 Render/draw the whole mesh by filling all triangles with FBcolor.
@@ -2222,6 +2683,7 @@ Note:
    normal will be used, so it's same effect as E3D_FLAT_SHADING
    in this case.
 ----------------------------------------------------------------*/
+#if 0 /////////////////////  Apply triList[]  ///////////////////////////
 void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
 {
 	int i,j,k;
@@ -2246,11 +2708,11 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	//for(int i=0; i<tcnt; i++) {
 	for(i=0; i<tcnt; i++) {
 
-		#if 1 /* 1. Pick out back_facing triangles.
-		       * Note:
-		       *    1. If you turn off back_facing triangles, it will be transparent there.
-		       *    2. OR use other color for the back face. For texture mapping, just same as front side.
-		       */
+		/* 1. Pick out back_facing triangles if !backFaceOn.
+		 * Note:
+		 *    1. If you turn off back_facing triangles, it will be transparent there.
+		 *    2. OR use other color for the back face. For texture mapping, just same as front side.
+		 */
 		vProduct=vView*(triList[i].normal); // *(-1.0f); // -vView as *(-1.0f);
 		/* Note: Because of float precision limit, vProduct==0.0f is NOT possible. */
 		if ( vProduct > -VPRODUCT_EPSILON ) {  /* >=0.0f */
@@ -2265,7 +2727,6 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			IsBackface=false;
 			//egi_dpstd("triList[%d] vProduct=%f \n",i, vProduct);
 		}
-		#endif
 
 		/* 2. Copy triangle vertices, and project to viewPlan COORD. */
 		vtidx[0]=triList[i].vtx[0].index;
@@ -2330,10 +2791,9 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 				vtxColor[1]=bkFaceColor;
 				vtxColor[2]=bkFaceColor;
 			}
-			/* 2. Display front face */
+			/* 2. Display front face, Compute 3 vtx color respectively. */
 			else
 			{
-			    /* Compute 3 vtx color respectively. */
 #if 0///////////////////
 			    for(int k=0; k<3; k++) {
 			   	/* Calculate light reflect strength for each vertex:  TODO: not correct, this is ONLY demo. */
@@ -2438,6 +2898,8 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			break;
 
 		   case E3D_TEXTURE_MAPPING:
+			/* Note: If backFaseOn, then backface texutre is also SAME as frontface texture. */
+
 			if( textureImg==NULL ) {   /* flat_shading then */
 			   /* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo. */
 			   vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
@@ -2527,8 +2989,312 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	/* Restore pixcolor */
 	fbset_color2(&gv_fb_dev, color);
 }
-#endif
 
+#else ///////////////   Apply triGroupList[] and Material color/map     ///////////////////
+
+void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
+{
+	int j,k;
+	unsigned int i,n;
+	int vtidx[3];  				/* vtx index of a triangel */
+	E3D_Vector  vpts[3];			/* Projected 3D points */
+	EGI_POINT   pts[3];			/* Projected 2D points */
+	E3D_Vector  trinormal;  		/* Face normal of a triangle */
+	E3D_Vector  vView(0.0f, 0.0f, 1.0f); 	/* View direction */
+	float	    vProduct;   		/* dot product */
+	EGI_16BIT_COLOR	 vtxColor[3];		/* Triangle 3 vtx color */
+
+	bool	    IsBackface=false;		/* Viewing the back side of a Trimesh. */
+//	EGI_16BIT_COLOR	 bkFaceColor=WEGI_COLOR_RED; //DARKRED;  /* Default backface color, if applys. */
+	E3D_POINT cpt;	    			/* Gravity center of triangle */
+
+	/* Default color */
+	EGI_16BIT_COLOR color; /* NOW: Diffuse color.  TODO others: ka,ks */
+	//EGI_8BIT_CCODE codeY=egi_color_getY(color);
+	/* Defualt texture map */
+	EGI_IMGBUF *imgKd=NULL; /* NOW: Diffuse map.  TODO others: imgKa, imgKs */
+
+	/* -------TEST: Project to Z plane, Draw X,Y only */
+	for(n=0; n<triGroupList.size(); n++) {  /* Tranverse all Trigroups */
+	    egi_dpstd("Rendering triGroupList[%d]: '%s' , ", n, triGroupList[n].name.c_str());
+
+	    /* Get material color(kd) and map(img_kd)  */
+	    if( triGroupList[n].mtlID < 0){
+		printf("with defMaterial, ...\n");
+		color=defMaterial.kd.color16Bits(); /* Diffuse color */
+	    	imgKd = defMaterial.img_kd;
+	    }
+	    else {
+		printf("with material mtlList[%d] ...\n", triGroupList[n].mtlID);
+		color=mtlList[ triGroupList[n].mtlID ].kd.color16Bits();
+		imgKd=mtlList[ triGroupList[n].mtlID ].img_kd;
+	    }
+
+	    /* Traverse and render all triangles in the triGroupList[n]
+	     *  TODO: sorting, render Tris from near to far field.... */
+	    for(i=triGroupList[n].stidx; i<triGroupList[n].etidx; i++) {
+
+		/* 1. Pick out back_facing triangles if !backFaceOn.
+		 * Note:
+		 *    1. If you turn off back_facing triangles, it will be transparent there.
+		 *    2. OR use other color for the back face. For texture mapping, just same as front side.
+		 */
+		vProduct=vView*(triList[i].normal); // *(-1.0f); // -vView as *(-1.0f);
+		/* Note: Because of float precision limit, vProduct==0.0f is NOT possible. */
+		if ( vProduct > -VPRODUCT_EPSILON ) {  /* >=0.0f */
+			IsBackface=true;
+			//egi_dpstd("triList[%d] vProduct=%e >=0 \n",i, vProduct);
+
+			/* If backFaceOn: To display back side (with specified color) ... */
+			if(!backFaceOn)
+		                continue;
+		}
+		else {
+			IsBackface=false;
+			//egi_dpstd("triList[%d] vProduct=%f \n",i, vProduct);
+		}
+
+		/* 2. Copy triangle vertices, and project to viewPlan COORD. */
+		vtidx[0]=triList[i].vtx[0].index;
+		vtidx[1]=triList[i].vtx[1].index;
+		vtidx[2]=triList[i].vtx[2].index;
+
+		vpts[0]=vtxList[vtidx[0]].pt;
+		vpts[1]=vtxList[vtidx[1]].pt;
+		vpts[2]=vtxList[vtidx[2]].pt;
+
+		if( projectPoints(vpts, 3, projMatrix) !=0 )
+			continue;
+		/* TEST: Check range, ONLY simple way.... TODO: by projectPoints() */
+		for( j=0; j<3; j++) {
+		     if(  (vpts[j].x < 0.0 || vpts[j].x > projMatrix.winW-1 )
+		          || (vpts[j].y < 0.0 || vpts[j].y > projMatrix.winH-1 ) )
+			continue;
+		     else
+			break;
+		}
+		/* If all 3 vertices out of win, then ignore this triangle. */
+		if(j==3) {
+		     // printf("Tir %d OutWin.\n", i);
+		     continue;
+		}
+
+		/* 3. Get 2D points  */
+		pts[0].x=roundf(vpts[0].x); pts[0].y=roundf(vpts[0].y);
+		pts[1].x=roundf(vpts[1].x); pts[1].y=roundf(vpts[1].y);
+		pts[2].x=roundf(vpts[2].x); pts[2].y=roundf(vpts[2].y);
+
+		/* 6. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
+		/* A simple test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
+		//gv_fb_dev.pixz=roundf((vtxList[vtidx[0]].pt.z+vtxList[vtidx[1]].pt.z+vtxList[vtidx[2]].pt.z)/3.0);
+		fbdev->pixz=roundf((vpts[0].z+vpts[1].z+vpts[2].z)/3.0);
+		/* !!!! Views from -z ----> +z */
+		fbdev->pixz = -fbdev->pixz;
+
+		/* 7. Draw triangles with specified shading type. */
+		switch( shadeType ) {
+		   case E3D_FLAT_SHADING:
+			/* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo. */
+			vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+			//if( vProduct >= 0.0f )
+			if( vProduct > -VPRODUCT_EPSILON )
+				vProduct=0.0f;
+			else /* Flip to get vProduct absolute value for luma */
+				vProduct=-vProduct;
+			/* Adjust luma for pixcolor as per vProduct. */
+			fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+			//fbdev->lumadelt=(vProduct-1.0f)*240.0) +50; /* MUST reset later */
+			//egi_dpstd("vProduct: %e, LumaY: %d\n", vProduct, (unsigned int)egi_color_getY(fbdev->pixcolor));
+
+			/* Fill the TriFace */
+			draw_filled_triangle(fbdev, pts);
+			break;
+
+		   case E3D_GOURAUD_SHADING:
+			/* 1. Display back face also */
+			if( IsBackface ) {
+				vtxColor[0]=bkFaceColor;
+				vtxColor[1]=bkFaceColor;
+				vtxColor[2]=bkFaceColor;
+			}
+			/* 2. Display front face, compute 3 vtx color respectively. */
+			else
+			{
+			   	/* Calculate light reflect strength for each vertex:  TODO: not correct, this is ONLY demo. */
+				/* Case_A: Use vtxList[].normal */
+				//if(triList[i].vtx[0].vn.isZero())
+				if(vtxList[ triList[i].vtx[0].index ].normal.isZero()==false) {
+				   for(k=0; k<3; k++) {
+			      		vProduct=gv_vLight*(vtxList[ triList[i].vtx[k].index ].normal);
+			   		//if( vProduct >= 0.0f )
+			   		if( vProduct > -VPRODUCT_EPSILON )
+						vProduct=0.0f;
+			   		else /* Flip to get vProduct absolute value for luma */
+						vProduct=-vProduct;
+			   		/* Adjust luma for color as per vProduct. */
+			   		vtxColor[k]=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+				   }
+				}
+			   	/* Case_B: Use triList[].vtx[].vn */
+			   	else if(triList[i].vtx[0].vn.isZero()==false) {
+				   for(k=0; k<3; k++) {
+			      		vProduct=gv_vLight*(triList[i].vtx[k].vn);  // *(-1.0f); // -vLight as *(-1.0f);
+			   		//if( vProduct >= 0.0f )
+			   		if( vProduct > -VPRODUCT_EPSILON )
+						vProduct=0.0f;
+			   		else /* Flip to get vProduct absolute value for luma */
+						vProduct=-vProduct;
+			   		/* Adjust luma for color as per vProduct. */
+			   		vtxColor[k]=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+				   }
+				}
+				/* Case_C: Use face normal triList[].normal */
+				else {
+				   for(k=0; k<3; k++) {
+			      		vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+			   		//if( vProduct >= 0.0f )
+			   		if( vProduct > -VPRODUCT_EPSILON )
+						vProduct=0.0f;
+			   		else /* Flip to get vProduct absolute value for luma */
+						vProduct=-vProduct;
+			   		/* Adjust luma for color as per vProduct. */
+			   		vtxColor[k]=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+				   }
+				}
+			} /* END else() */
+
+			/* 3. Fill triangle with pixel color, by barycentric coordinates interpolation. */
+			#if 0 /* Float x,y 	---- OBSOLETE---- 	*/
+			draw_filled_triangle2(fbdev,vpts[0].x, vpts[0].y,
+						    vpts[1].x, vpts[1].y,
+						    vpts[2].x, vpts[2].y,
+						    vtxColor[0], vtxColor[1], vtxColor[2] );
+			#else /* Int x,y */
+			draw_filled_triangle3(fbdev,pts[0].x, pts[0].y,
+						    pts[1].x, pts[1].y,
+						    pts[2].x, pts[2].y,
+						    vtxColor[0], vtxColor[1], vtxColor[2] );
+			#endif
+
+			break;
+
+		   case E3D_WIRE_FRAMING:
+			/*  Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo.  */
+			vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+			//if( vProduct >= 0.0f )
+			if( vProduct > -VPRODUCT_EPSILON )
+				vProduct=0.0f;
+			else /* Flip to get vProduct absolute value for luma */
+				vProduct=-vProduct;
+			/* Adjust luma for pixcolor as per vProduct. */
+			fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+			//fbdev->lumadelt=(vProduct-1.0f)*240.0) +50; /* Must reset later.. */
+			//egi_dpstd("vProduct: %e, LumaY: %d\n", vProduct, (unsigned int)egi_color_getY(fbdev->pixcolor));
+
+			/* Draw line: OR draw_line_antialias() */
+			draw_line(fbdev, pts[0].x, pts[0].y, pts[1].x, pts[1].y);
+			draw_line(fbdev, pts[1].x, pts[1].y, pts[2].x, pts[2].y);
+			draw_line(fbdev, pts[0].x, pts[0].y, pts[2].x, pts[2].y);
+			break;
+
+		   case E3D_TEXTURE_MAPPING:
+			/* Note: If backFaceOn, then backface texutre is also SAME as frontface texture. */
+			/* IF: No texture, apply flat_shading then */
+			if( imgKd==NULL ) {  // textureImg==NULL ) { textureImg assigned to defMaterial.img_kd
+			   /* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo. */
+			   vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+			   //if( vProduct >= 0.0f )
+			   if( vProduct > -VPRODUCT_EPSILON )
+				vProduct=0.0f;
+			   else /* Flip to get vProduct absolute value for luma */
+				vProduct=-vProduct;
+			   /* Adjust luma for pixcolor as per vProduct. */
+			   fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
+
+			   draw_filled_triangle(fbdev, pts);
+			}
+			/* ELSE: Apply texture map */
+			else {
+			   /* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo.  */
+			   vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+			   //if( vProduct >= 0.0f )
+			   if( vProduct > -VPRODUCT_EPSILON )
+				vProduct=0.0f;
+			   else /* Flip to get vProduct absolute value for luma */
+				vProduct=-vProduct;
+
+			   /* Adjust side luma according to vProudct. TODO: This is for DEMO only. */
+			   fbdev->lumadelt=(vProduct-0.75)*100+50;
+			   //egi_dpstd("lumadelt=%d\n", fbdev->lumadelt);
+
+				/* Map texture.
+				 *	  !!! --- CAUTION --- !!!
+				 *  Noticed that UV ORIGIN is different!
+				 * EGI: uv ORIGIN at Left_TOP corner
+				 * 3DS: uv ORIGIN at Left_BOTTOM corner.
+				 */
+			   #if 0  /* OPTION_1: Matrix Mapping. TODO: cube shows a white line at bottom side!?? */
+		        	egi_imgbuf_mapTriWriteFB(imgKd, fbdev,
+					/* u0,v0,u1,v1,u2,v2,  x0,y0,z0,  x1,y1,z1, x2,y2,z2 */
+        	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v, /* 1.0-x: Adjust uv ORIGIN */
+                	                triList[i].vtx[1].u, 1.0-triList[i].vtx[1].v,
+                        	        triList[i].vtx[2].u, 1.0-triList[i].vtx[2].v,
+                                	pts[0].x, pts[0].y, 1,  /* NOTE: z values NOT to be 0/0/0!  */
+	                                pts[1].x, pts[1].y, 2,
+        	                        pts[2].x, pts[2].y, 3
+                	        );
+			  #elif 0 /* OPTION_2: Barycentric coordinates mapping, FLOAT type x/y. */
+		        	egi_imgbuf_mapTriWriteFB2(imgKd, fbdev,
+					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2 */
+        	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,  /* 1.0-x: Adjust uv ORIGIN */
+                	                triList[i].vtx[1].u, 1.0-triList[i].vtx[1].v,
+                        	        triList[i].vtx[2].u, 1.0-triList[i].vtx[2].v,
+                                	pts[0].x, pts[0].y,
+	                                pts[1].x, pts[1].y,
+        	                        pts[2].x, pts[2].y
+                	        );
+			  #else /* OPTION_3: Barycentric coordinates mapping, INT type x/y. */
+		        	egi_imgbuf_mapTriWriteFB3(imgKd, fbdev,
+					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2 */
+        	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,  /* 1.0-x: Adjust uv ORIGIN */
+                	                triList[i].vtx[1].u, 1.0-triList[i].vtx[1].v,
+                        	        triList[i].vtx[2].u, 1.0-triList[i].vtx[2].v,
+                                	roundf(pts[0].x), roundf(pts[0].y),
+	                                roundf(pts[1].x), roundf(pts[1].y),
+        	                        roundf(pts[2].x), roundf(pts[2].y)
+                	        );
+			  #endif
+			}
+
+			/* Reset lumadelt */
+			fbdev->lumadelt=0;
+			break;
+
+		   default:
+			break;
+
+		} /* End switch */
+	   } /* End for(i) */
+	} /* End for(n) */
+
+        #if 0	/* Draw face normal line. */
+	if( faceNormalLen>0 )
+		for(i=0; i<tcnt; i++) {
+			//float nlen=20.0f;   /* Normal line length */
+			cpt.x=(vpts[0].x+vpts[1].x+vpts[2].x)/3.0f;
+			cpt.y=(vpts[0].y+vpts[1].y+vpts[2].y)/3.0f;
+			//cpt.z=(vpt[0].z+vpt[1].z+vpt[2].z)/3.0f;
+			fbset_color2(fbdev, WEGI_COLOR_GREEN);
+			draw_line(fbdev, cpt.x, cpt.y,
+					 cpt.x+faceNormalLen*(triList[i].normal.x),
+					 cpt.y+faceNormalLen*(triList[i].normal.y) );
+	}
+	#endif
+
+	/* Restore pixcolor */
+	fbset_color2(&gv_fb_dev, color);
+}
+#endif
 
 /*--------------------------------------------------------------------
 Render/draw the whole mesh by filling all triangles with FBcolor.
