@@ -21,7 +21,8 @@ Jurnal
 	1. https_easy_download(): Re_truncate file to 0 if download fails.
 2021-03-23:
 	1. Reset curl to NULL after curl_easy_cleanup(curl) !!!
-
+2021-09-29:
+	1.https_curl_request()/_easy_download(): Append HTTP request header.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -36,7 +37,7 @@ midaszhou@yahoo.com
 #include "egi_log.h"
 #include "egi_timer.h"
 
-#define EGI_CURL_TIMEOUT	15   /* in seconds */
+#define EGI_CURL_TIMEOUT	3  /* 15 in seconds. tricky for M3U, abt. SegDuration/3trys */
 
 /*------------------------------------------------------------------------------
 			HTTPS request by libcurl
@@ -74,12 +75,18 @@ int https_curl_request(int opt, const char *request, char *reply_buff, void *dat
 		return -1;
 	}
 
+
 	/* set curl option */
 	curl_easy_setopt(curl, CURLOPT_URL, request);		 	 /* set request URL */
 	curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L); //1L		 /* 1 print more detail */
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, EGI_CURL_TIMEOUT);	 /* set timeout */
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_callback);     /* set write_callback */
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, reply_buff); 		 /* set data dest for write_callback */
+
+	/* Append HTTP request header */
+	struct curl_slist *header=NULL;
+	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER,header);
 
 	/* Param opt set */
 	if(HTTPS_SKIP_PEER_VERIFICATION & opt)
@@ -230,6 +237,11 @@ int https_easy_download(int opt, const char *file_url, const char *file_save,   
 
 	/* set write_callback to write/save received data  */
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+
+	/* Append HTTP request header */
+	struct curl_slist *header=NULL;
+	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER,header);
 
 	/* Param opt set */
 	if(HTTPS_SKIP_PEER_VERIFICATION & opt)

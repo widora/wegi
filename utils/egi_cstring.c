@@ -397,7 +397,7 @@ char * cstr_trim_space(char *buf)
 
 	/* eat up back spaces/returns, replace with 0 */
 	for(  pe=buf+strlen(buf)-1;
-	      *pe==' '|| *pe=='\n' || *pe=='\r' ;
+	      *pe==' '|| *pe=='	' || *pe=='\n' || *pe=='\r' ;
 	      (*pe=0, pe-- ) )
 	{ };
 

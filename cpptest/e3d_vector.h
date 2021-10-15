@@ -31,6 +31,16 @@ Journal:
 	2. Add E3D_RTMatrix::zeroRotation()
 2021-09-22:
 	1. Add vectorRGB().
+2021-10-05:
+	1. Add void  E3D_transform_vectors().
+2021-10-12:
+	1. Add E3D_RTMatrix :: operator *=(const E3D_RTMatrix & ma)
+	2. Add void combIntriRotation().
+2021-10-13:
+	1. Add E3D_RTMatrix::transpose()
+	2. Add E3D_combGlobalIntriRotation()
+	3  Constructor E3D_RTMatrix() { identity(); } <---identity!
+
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -53,6 +63,21 @@ typedef struct
          float y;
 	 float z;
 } E3D_POINT;
+
+/*  NON_Class functions */
+class E3D_RTMatrix;
+class E3D_Vector;
+
+E3D_Vector operator* (const E3D_Vector &va, const E3D_RTMatrix  &ma);
+
+E3D_RTMatrix operator* (const E3D_RTMatrix &ma, const E3D_RTMatrix &mb);
+E3D_RTMatrix operator+ (const E3D_RTMatrix &ma, const E3D_RTMatrix &mb);
+void E3D_getCombRotation(const E3D_RTMatrix &ma, const E3D_RTMatrix &mb, E3D_RTMatrix &mc);
+
+void E3D_combIntriRotation(char axisTok, float ang, E3D_RTMatrix &RTmat);
+void E3D_combGlobalIntriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix CoordMat, E3D_RTMatrix & RTmat);
+
+void  E3D_transform_vectors( E3D_Vector *vts, unsigned int vcnt, const E3D_RTMatrix &RTMatrix);
 
 
 /*-----------------------------
@@ -95,6 +120,13 @@ public:
 			egi_dpstd("!!!WARNING!!! normalize error! sumsq==0!\n");
 			return -1;
 		}
+	}
+
+	/* Vector assign */
+	void assign(float nx, float ny, float nz) {
+		x=nx;
+		y=ny;
+		z=nz;
 	}
 
 	/* Overload operator '=' */
@@ -266,6 +298,7 @@ public:
 
 	/* Constructor */
 	E3D_RTMatrix() {
+		identity();
 		//pmat = new float[4*3];
 	}
 
@@ -296,10 +329,19 @@ public:
 		pmat[0]=1.0f; pmat[1]=0;    pmat[2]=0;     /* m11 =1 */
 		pmat[3]=0;    pmat[4]=1.0f; pmat[5]=0;     /* m22 =1 */
 		pmat[6]=0;    pmat[7]=0;    pmat[8]=1.0f;  /* m33 =1 */
+
 		pmat[9]=0;    pmat[10]=0;   pmat[11]=0;    /* tz=1 */
 	}
 
 	E3D_RTMatrix & operator * (float a);
+
+        /* Overload operator '*=', TODO to test. */
+        E3D_RTMatrix & operator *=(const E3D_RTMatrix & ma) {
+		E3D_RTMatrix  mb=(*this)*ma;
+
+		*this = mb;
+                return *this;
+        }
 
 	/* Zero Translation */
 	void zeroTranslation() {
@@ -310,6 +352,15 @@ public:
 		pmat[0]=1.0f; pmat[1]=0;    pmat[2]=0;     /* m11 =1 */
 		pmat[3]=0;    pmat[4]=1.0f; pmat[5]=0;     /* m22 =1 */
 		pmat[6]=0;    pmat[7]=0;    pmat[8]=1.0f;  /* m33 =1 */
+	}
+
+	/* Transpose: for an orthogonal matrix, its inverse is equal to its transpose! */
+	void transpose() {
+	        E3D_RTMatrix copyMat=*this;
+
+        	for( int i=0; i<3; i++)
+	           for( int j=0; j<3; j++)
+        	        pmat[i*3+j]=copyMat.pmat[i+j*3];
 	}
 
 	/* Set part of Translation TxTyTz in pmat[] */
@@ -361,6 +412,8 @@ public:
 		pmat[7]=az*axis.y-axis.x*vsin;	//m32
 		pmat[8]=az*axis.z+vcos;	        //m33
 
+
+		/* Keep pmat[9-11] */
 	}
 
 	/* Set projection Matrix, move to let XY as normal to n
@@ -383,13 +436,15 @@ public:
 
 		pmat[9]=0.0f; pmat[10]=0.0f; pmat[11]=0.0f;
 	}
+
+
 };
 
 
-/*--------------------  NON_CLASS_MEMBERE FUNCTIONS  ------------------*/
+
 /*----------------------------------------------
 Multiply a matrix with a float
-mc=ma*mb;
+m=m*a;
 -----------------------------------------------*/
 E3D_RTMatrix & E3D_RTMatrix:: operator * (float a)
 {
@@ -407,6 +462,8 @@ E3D_RTMatrix & E3D_RTMatrix:: operator * (float a)
 
 	return *this;
 }
+
+/*--------------------  NON_CLASS_MEMBERE FUNCTIONS  ------------------*/
 
 /*----------------------------------------------
 Multiply two matrix
@@ -445,11 +502,34 @@ E3D_RTMatrix operator* (const E3D_RTMatrix &ma, const E3D_RTMatrix &mb)
 	return mc;
 }
 
+/*----------------------------------------------------
+To combine rotation transformation of ma*mb,
+then assign to mc, Translation of mc KEEP unchanged!
+
+-----------------------------------------------------*/
+void E3D_getCombRotation(const E3D_RTMatrix &ma, const E3D_RTMatrix &mb, E3D_RTMatrix &mc)
+{
+	/*** Note:
+	 * Rotation Matrix:
+	   pmat[0,1,2]: m11, m12, m13
+	   pmat[3,4,5]: m21, m22, m23
+	   pmat[6,7,8]: m31, m32, m33
+	 * Translation:
+	   pmat[9,10,11]: tx,ty,tz
+	 */
+
+	E3D_RTMatrix nmc=ma*mb;
+
+	for(unsigned int k=0; k<9; k++)
+		mc.pmat[k]=nmc.pmat[k];
+
+}
+
 
 /*----------------------------------------------
 Add two matrix
 mc=ma+mb;
------------------------------------------------*/
+----------------------------------------------*/
 E3D_RTMatrix operator+ (const E3D_RTMatrix &ma, const E3D_RTMatrix &mb)
 {
 	/*** Note:
@@ -490,6 +570,298 @@ E3D_Vector operator * (const E3D_Vector &va, const E3D_RTMatrix  &ma)
         vb.z = xx*ma.pmat[2]+yy*ma.pmat[5]+zz*ma.pmat[8] +ma.pmat[11];
 
 	return vb;
+}
+
+
+/*----------------------------------------------------
+To combine intrinsic rotation with original RTMatrix.
+Translation of RTmat keeps UNCHANGED!
+
+Note:
+1.  All vertex coordinates MUST be under LOCAL Coord!!!
+
+@aix: 		Rotation aix Token:
+		'X'('x') 'Y'('y') 'Z'('z')
+@ang: 		Rotation angle.
+@RTMatrix:	Original RTMatrix, to be combined with
+		other RTMatrix.
+------------------------------------------------------*/
+void E3D_combIntriRotation(char axisTok, float ang, E3D_RTMatrix & RTmat)
+{
+		E3D_RTMatrix imat;
+		imat.identity();
+		imat.zeroTranslation();
+
+		float npmat[9];
+
+		bool case_OK=true;
+		  /* Rotation Matrix:
+		   pmat[0,1,2]: m11, m12, m13
+		   pmat[3,4,5]: m21, m22, m23
+		   pmat[6,7,8]: m31, m32, m33
+		  */
+		switch(axisTok) {
+			case 'x': case 'X':
+			   /*  Rx: [1 0 0;  0 cos(a) sin(a); 0 -sin(a) cos(a)] */
+			   imat.pmat[0]=1.0;  imat.pmat[1]=0.0;       imat.pmat[2]=0.0;
+			   imat.pmat[3]=0.0;  imat.pmat[4]=cos(ang);  imat.pmat[5]=sin(ang);
+			   imat.pmat[6]=0.0;  imat.pmat[7]=-sin(ang); imat.pmat[8]=cos(ang);
+
+			   break;
+			case 'y': case 'Y':
+			   /*  Ry: [cos(a) 0 -sin(a); 0 1 0; sin(a) 0 cos(a)] */
+			   imat.pmat[0]=cos(ang); imat.pmat[1]=0.0; imat.pmat[2]=-sin(ang);
+			   imat.pmat[3]=0.0;      imat.pmat[4]=1.0; imat.pmat[5]=0.0;
+			   imat.pmat[6]=sin(ang); imat.pmat[7]=0.0; imat.pmat[8]=cos(ang);
+
+			   break;
+			case 'z': case 'Z':
+			   /*  Rz: [cos(ang) sin(ang) 0; -sin(ang) cos(ang) 0; 0 0 1] */
+			   imat.pmat[0]=cos(ang);  imat.pmat[1]=sin(ang); imat.pmat[2]=0.0;
+			   imat.pmat[3]=-sin(ang); imat.pmat[4]=cos(ang); imat.pmat[5]=0.0;
+			   imat.pmat[6]=0.0;       imat.pmat[7]=0.0;      imat.pmat[8]=1.0;
+
+				break;
+			default:
+			   case_OK=false;
+			   egi_dpstd("Unrecognizable aix token '%c', NOT in 'xXyYzZ'!\n", axisTok);
+			   break;
+		}
+
+	if( case_OK ) {
+#if 1		/* Only combine Rotation:  RMatrix = RMatrix*imat; */
+		npmat[0]=RTmat.pmat[0]*imat.pmat[0] + RTmat.pmat[1]*imat.pmat[3] + RTmat.pmat[2]*imat.pmat[6];
+		npmat[1]=RTmat.pmat[0]*imat.pmat[1] + RTmat.pmat[1]*imat.pmat[4] + RTmat.pmat[2]*imat.pmat[7];
+		npmat[2]=RTmat.pmat[0]*imat.pmat[2] + RTmat.pmat[1]*imat.pmat[5] + RTmat.pmat[2]*imat.pmat[8];
+
+		npmat[3]=RTmat.pmat[3]*imat.pmat[0] + RTmat.pmat[4]*imat.pmat[3] + RTmat.pmat[5]*imat.pmat[6];
+		npmat[4]=RTmat.pmat[3]*imat.pmat[1] + RTmat.pmat[4]*imat.pmat[4] + RTmat.pmat[5]*imat.pmat[7];
+		npmat[5]=RTmat.pmat[3]*imat.pmat[2] + RTmat.pmat[4]*imat.pmat[5] + RTmat.pmat[5]*imat.pmat[8];
+
+		npmat[6]=RTmat.pmat[6]*imat.pmat[0] + RTmat.pmat[7]*imat.pmat[3] + RTmat.pmat[8]*imat.pmat[6];
+		npmat[7]=RTmat.pmat[6]*imat.pmat[1] + RTmat.pmat[7]*imat.pmat[4] + RTmat.pmat[8]*imat.pmat[7];
+		npmat[8]=RTmat.pmat[6]*imat.pmat[2] + RTmat.pmat[7]*imat.pmat[5] + RTmat.pmat[8]*imat.pmat[8];
+#else		/* Only combine Rotation:  RMatrix = imat*RMatrix */
+		npmat[0]=imat.pmat[0]*RTmat.pmat[0] + imat.pmat[1]*RTmat.pmat[3] + imat.pmat[2]*RTmat.pmat[6];
+		npmat[1]=imat.pmat[0]*RTmat.pmat[1] + imat.pmat[1]*RTmat.pmat[4] + imat.pmat[2]*RTmat.pmat[7];
+		npmat[2]=imat.pmat[0]*RTmat.pmat[2] + imat.pmat[1]*RTmat.pmat[5] + imat.pmat[2]*RTmat.pmat[8];
+
+		npmat[3]=imat.pmat[3]*RTmat.pmat[0] + imat.pmat[4]*RTmat.pmat[3] + imat.pmat[5]*RTmat.pmat[6];
+		npmat[4]=imat.pmat[3]*RTmat.pmat[1] + imat.pmat[4]*RTmat.pmat[4] + imat.pmat[5]*RTmat.pmat[7];
+		npmat[5]=imat.pmat[3]*RTmat.pmat[2] + imat.pmat[4]*RTmat.pmat[5] + imat.pmat[5]*RTmat.pmat[8];
+
+		npmat[6]=imat.pmat[6]*RTmat.pmat[0] + imat.pmat[7]*RTmat.pmat[3] + imat.pmat[8]*RTmat.pmat[6];
+		npmat[7]=imat.pmat[6]*RTmat.pmat[1] + imat.pmat[7]*RTmat.pmat[4] + imat.pmat[8]*RTmat.pmat[7];
+		npmat[8]=imat.pmat[6]*RTmat.pmat[2] + imat.pmat[7]*RTmat.pmat[5] + imat.pmat[8]*RTmat.pmat[8];
+#endif
+		for(unsigned int k=0; k<9; k++)
+			RTmat.pmat[k]=npmat[k];
+
+		/* Ingore Translation !!! */
+
+	}
+}
+
+/*-------------------------------------------------------
+To combine intrinsic rotation with original RTmat, then
+update RTMat to make objects under Global Coord.
+
+Translation of RTmat keeps UNCHANGED!
+
+TODO: Test
+	--- Translation is Ignored! ----
+Note:
+1.  All vertex coordinates MUST be under LOCAL Coord!!!
+
+
+@aix: 		Rotation aix Token:
+		'X'('x') 'Y'('y') 'Z'('z')
+@ang: 		Rotation angle.
+@CoordMat:	RTMatrix for transforimg global Coord to
+		current local Coord.
+@RTMatrix:	Original RTMatrix, to be combined with
+		other RTmatrix.
+---------------------------------------------------------*/
+void E3D_combIntriRotation(char axisTok, float ang,  E3D_RTMatrix CoordMat, E3D_RTMatrix & RTmat)
+{
+	/* imat:  translation is ignored! */
+	E3D_RTMatrix imat;
+	imat.identity();
+	imat.zeroTranslation();
+
+	/* cmat:  translation is ignored! */
+	E3D_RTMatrix cmat=RTmat;
+	cmat.zeroTranslation();
+
+	/* CoordMat: translation is ignored! */
+	CoordMat.zeroTranslation();
+
+	/* Assume case_OK, OR to reset it at case_default */
+	bool case_OK=true;
+
+		  /* Rotation Matrix:
+		   pmat[0,1,2]: m11, m12, m13
+		   pmat[3,4,5]: m21, m22, m23
+		   pmat[6,7,8]: m31, m32, m33
+		  */
+		switch(axisTok) {
+			case 'x': case 'X':
+			   /*  Rx: [1 0 0;  0 cos(a) sin(a); 0 -sin(a) cos(a)] */
+			   imat.pmat[0]=1.0;  imat.pmat[1]=0.0;       imat.pmat[2]=0.0;
+			   imat.pmat[3]=0.0;  imat.pmat[4]=cos(ang);  imat.pmat[5]=sin(ang);
+			   imat.pmat[6]=0.0;  imat.pmat[7]=-sin(ang); imat.pmat[8]=cos(ang);
+
+			   break;
+			case 'y': case 'Y':
+			   /*  Ry: [cos(a) 0 -sin(a); 0 1 0; sin(a) 0 cos(a)] */
+			   imat.pmat[0]=cos(ang); imat.pmat[1]=0.0; imat.pmat[2]=-sin(ang);
+			   imat.pmat[3]=0.0;      imat.pmat[4]=1.0; imat.pmat[5]=0.0;
+			   imat.pmat[6]=sin(ang); imat.pmat[7]=0.0; imat.pmat[8]=cos(ang);
+
+			   break;
+			case 'z': case 'Z':
+			   /*  Rz: [cos(ang) sin(ang) 0; -sin(ang) cos(ang) 0; 0 0 1] */
+			   imat.pmat[0]=cos(ang);  imat.pmat[1]=sin(ang); imat.pmat[2]=0.0;
+			   imat.pmat[3]=-sin(ang); imat.pmat[4]=cos(ang); imat.pmat[5]=0.0;
+			   imat.pmat[6]=0.0;       imat.pmat[7]=0.0;      imat.pmat[8]=1.0;
+
+				break;
+			default:
+			   case_OK=false;
+			   egi_dpstd("Unrecognizable aix token '%c', NOT in 'xXyYzZ'!\n", axisTok);
+			   break;
+		}
+
+	if( case_OK ) {
+#if 1		/* Only combine Rotation:  RTMatrix = cmat(RTMatrix)*imat* */
+		cmat = cmat*imat*CoordMat;
+#else		/* Only combine Rotation:  RMatrix = imat*cmat(RMatrix)* */
+		cmat = CoordMat*imat*cmat;
+#endif
+	}
+
+		/* Ignore translation */
+                for(unsigned int k=0; k<9; k++)
+                        RTmat.pmat[k]=cmat.pmat[k];
+
+}
+
+
+/*------------------------------------------------------------------------------------
+To combine object intrinsic rotation with RTMatrix, with all vertices are under Global
+COORD. Suppose initial Local_Coord aligns with the Global_Coord (Origin not considered),
+and current Local_Coord is transformed from by CoordMat.
+
+Translation of ALL RTMatrixes keep UNCHANGED!
+
+Note:
+1.  For vertices which will apply the result RTmat:
+    1.1 All vertex coordinates MUST be under GLOBAL Coord!
+2.  Intrinsic rotation are taken under LOCAL COORD, which can be restored by TcoordMat.
+3.  Motice that axisToks are applied/mutiplied with Pxyz in reverse order!
+
+	--- Translation is Ignored! ----
+
+@axisToks: 	Rotation aix Tokens, including:
+		'X'('x') 'Y'('y') 'Z'('z')
+		Example: "ZYX", "XYZ", "XYX".......notice that reverse matrix multiplation applys
+		        as P*MX*MY*MZ, P*MZ*MY*MX, P*MX*MY*MX
+
+@ang[3]: 	Rotation angles cooresponding to axisToks.
+@CoordMat:	RTMatrix for global Coord transformation (to current object Coord).
+		Suppose initially Object coord aligns with Global coord.
+		Then CoordMat transforms origin Object coord to
+		current position.
+		However, all object vertex coordinates are under GLOBAL coord ALWAYS!
+		In case of BOXMAN object transfromation, it will then be transformed
+		(rotated) by the combined RTmat under local ORIGIN, but NOT local COORD!!!
+@RTMatrix:	Original RTMatrix, to be combined with, USUally inited as identity!
+------------------------------------------------------------------------------------*/
+void E3D_combGlobalIntriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix CoordMat, E3D_RTMatrix & RTmat)
+{
+	/* imat:  translation is ignored! */
+	E3D_RTMatrix imat;
+	//imat.identity(); /* Constructor to identity */
+	imat.zeroTranslation();
+
+	/* cmat:  translation is ignored! */
+	E3D_RTMatrix cmat=RTmat;
+	cmat.zeroTranslation();
+
+	/* CoordMat: translation is ignored! */
+	CoordMat.zeroTranslation();
+
+	/* TcoordMat: Transposed of CoordMat, For an orthogonal matrix, its inverse is equal to its transpose! */
+	E3D_RTMatrix TcoordMat=CoordMat;
+	TcoordMat.transpose();
+
+	bool case_OK;
+	unsigned int np=0;
+	while( axisToks[np] ) {
+		/* 1. Max. 3 tokens */
+		if(np>3) break;
+
+		/* 2. Assmue case_Ok, OR to reset it at case_default */
+		case_OK=true;
+
+		/* 3. Compute imat as per rotation axis and angle */
+		switch( axisToks[np] ) {
+			case 'x': case 'X':
+			   /*  Rx: [1 0 0;  0 cos(a) sin(a); 0 -sin(a) cos(a)] */
+			   imat.pmat[0]=1.0;  imat.pmat[1]=0.0;       imat.pmat[2]=0.0;
+			   imat.pmat[3]=0.0;  imat.pmat[4]=cos(ang[np]);  imat.pmat[5]=sin(ang[np]);
+			   imat.pmat[6]=0.0;  imat.pmat[7]=-sin(ang[np]); imat.pmat[8]=cos(ang[np]);
+
+			   break;
+			case 'y': case 'Y':
+			   /*  Ry: [cos(a) 0 -sin(a); 0 1 0; sin(a) 0 cos(a)] */
+			   imat.pmat[0]=cos(ang[np]); imat.pmat[1]=0.0; imat.pmat[2]=-sin(ang[np]);
+			   imat.pmat[3]=0.0;      imat.pmat[4]=1.0; imat.pmat[5]=0.0;
+			   imat.pmat[6]=sin(ang[np]); imat.pmat[7]=0.0; imat.pmat[8]=cos(ang[np]);
+
+			   break;
+			case 'z': case 'Z':
+			   /*  Rz: [cos(ang) sin(ang) 0; -sin(ang) cos(ang) 0; 0 0 1] */
+			   imat.pmat[0]=cos(ang[np]);  imat.pmat[1]=sin(ang[np]); imat.pmat[2]=0.0;
+			   imat.pmat[3]=-sin(ang[np]); imat.pmat[4]=cos(ang[np]); imat.pmat[5]=0.0;
+			   imat.pmat[6]=0.0;       imat.pmat[7]=0.0;      imat.pmat[8]=1.0;
+
+				break;
+			default:
+			   case_OK=false;
+			   egi_dpstd("Unrecognizable aix token '%c', NOT in 'xXyYzZ'!\n", axisToks[np]);
+			   break;
+		}
+
+		if( case_OK ) {
+#if 1			/* Only combine Rotation */
+			/* Note:
+			 * 1. Here cmat is RTMatrix under LOCAL_COORD!
+			 * 2. To optimize at last, so to apply TcoordMat and CoordMat  at last, see 5.
+			 */
+			cmat = imat*cmat; // imat at first!
+
+#else			/* Only combine Rotation:  RMatrix = imat*cmat(RMatrix)* */
+			cmat = TcoordMat*imat*cmat*CoordMat; // *CoordMat
+#endif
+		}
+
+		/* np increment */
+		np++;
+	}
+
+	/* 4. Finally apply TcoordMat and CoordMat:
+	 * Note: Since cmat is RTMatrix under LOCAL_COORD! while Pxyz is under GLOBAL_COORD, so
+	 *  first transform with Pxyz*TcoordMat(invsere of CoordMat) to make Pxyz under LOCAL_COORD,
+         *  then apply camt. After that, transform back to under GLOBAL COORD again by multiply
+	 *  CoordMat.
+	 */
+	cmat = TcoordMat*cmat*CoordMat;
+
+	/* 5. Update RTmat,  ignore translation */
+        for(unsigned int k=0; k<9; k++)
+        	RTmat.pmat[k]=cmat.pmat[k];
+
 }
 
 
@@ -536,6 +908,43 @@ struct E3D_ProjectFrustum {
 	 *       at the center of the cube. Any mapped point out of the cube will be clipped then.
 	 */
 };
+
+
+/*--------------------------------------------------
+Transform a list of vectors.
+
+Also refer to: E3D_Vector operator * (const E3D_Vector &va, const E3D_RTMatrix  &ma)
+
+@vts[]:	List of vectors.
+@vcnt:  Vector counter.
+@RTMatrix  Transform matrix.
+--------------------------------------------------*/
+void  E3D_transform_vectors( E3D_Vector *vts, unsigned int vcnt, const E3D_RTMatrix  &RTMatrix)
+{
+        float xx;
+        float yy;
+        float zz;
+
+        /* TODO: Input RTMatrix Must be an orthogonal matrix. */
+
+        /*** E3D_RTMatrix.pmat[]
+         * Rotation Matrix:
+                   pmat[0,1,2]: m11, m12, m13
+                   pmat[3,4,5]: m21, m22, m23
+                   pmat[6,7,8]: m31, m32, m33
+         * Translation:
+                   pmat[9,10,11]: tx,ty,tz
+         */
+        for( unsigned int i=0; i<vcnt; i++) {
+                xx=vts[i].x;
+                yy=vts[i].y;
+                zz=vts[i].z;
+
+                vts[i].x = xx*RTMatrix.pmat[0]+yy*RTMatrix.pmat[3]+zz*RTMatrix.pmat[6] +RTMatrix.pmat[9];
+                vts[i].y = xx*RTMatrix.pmat[1]+yy*RTMatrix.pmat[4]+zz*RTMatrix.pmat[7] +RTMatrix.pmat[10];
+                vts[i].z = xx*RTMatrix.pmat[2]+yy*RTMatrix.pmat[5]+zz*RTMatrix.pmat[8] +RTMatrix.pmat[11];
+        }
+}
 
 
 #endif

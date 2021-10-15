@@ -16,6 +16,7 @@ Note:
 3. TODO: For all curve drawing functions: Current step/segment is too big, the
 	 resutl of draw_line()/draw_wline() segment is NOT so smooth.
 	 Call draw_dot() and apply anti_aliasing to improve it.
+	 ---TODO: To draw curve width by filled triangles! ---
 
 Jurnal
 2021-1-10:
@@ -4415,6 +4416,10 @@ Note:
 3. Pxy[] all points MUST meets:  x[0]... x[i-1] < x[i] < x[i+1] ...x[np-1]
 4. Changing a control point will affect the whole curve.
 
+TODO:
+1. To draw curve width by filled triangles!
+
+
 @np:		Number of input points.
 @pxy:		Input points
 @endtype:	Boundary type:
@@ -4804,6 +4809,10 @@ Note:
                         --- !!! IMPORTANT !!! ---
 1. Changing a control point will affect the whole curve.
 
+TODO:
+1. To draw curve width by filled triangles!
+
+
 @np:		Number of input points.
 @pxy:		Input points
 @endtype:	Boundary type:
@@ -5077,6 +5086,7 @@ TODO:
 1. How to deciding ustep, and different ustep for different segments.
 2. Instead of calling  draw_wline(), To draw the solid width with
    curve data will be more efficient.
+3. To draw curve width by filled triangles!
 
 @np:            Number of input pxy[].
 @pxy:           Control points
@@ -5205,6 +5215,7 @@ TODO:
 1. How to deciding ustep, and different ustep for different segments.
 2. Instead of calling  draw_wline(), To draw the solid width with
    curve data will be more efficient.
+3. To draw curve width by filled triangles!
 
 @np:            Number of input pxy[].
 @pxy:           Control points

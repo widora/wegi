@@ -10,6 +10,11 @@ Refrence:
                         by Fletcher Dunn, Ian Parberry
 
 Note:
+0. E3D viewpoint for RTMatrix and transformation computation:
+		 P'xyz = Pxyz*RTMatrix.
+		 P'xyz = Pxyz*Ma*Mb*Mc = Pxyz*(Ma*Mb*Mc)
+   and notice the sequence of Ma*Mb*Mc as affect to Pxyz.
+
 1. E3D default as Right_Hand coordinating system.
    1.1 Screen XY plane sees the Origin at the upper_left corner, +X axis at the upper side,
        +Y axis at the left side, while the +Z axis pointing to the back of the screen.
@@ -172,6 +177,23 @@ Journal:
 2021-09-26/27:
 	1. E3D_TriMesh::renderMesh(): Apply triGroupList[] and its material.color/map.
 	2. E3D_TriMesh::cloneMesh(): Clone more class members.
+2021-10-04:
+	1. Add: E3D_draw_grid()
+2021-10-05:
+	1. Add: E3D_TriMesh::TriGroup::E3D_RTMatrix  omat
+	2. E3D_TriMesh::E3D_TriMesh(const char *fobj):
+	   	Read case 'x' for RTMatrix translation pmat[9,10,11]: tx,ty,tz.
+	3.  ---  Function related to omat ---
+	    >3.0  E3D_TriMesh::cloneMesh() ---Ok
+	    3.1   E3D_TriMesh::transformMesh():
+		  Transform TriGroup.omat.pmat[9-11] as group origin.
+	    >3.2  E3D_TriMesh::scaleMesh();
+	    >3.3  E3D_TriMesh::moveVtxsCenterToOrigin()
+2021-10-07:
+	1. Add E3D_draw_line(fbdev, va, vb, RTmatrix, projMatrix)
+
+	2. Add E3D_TriMesh::objmat AS Orientation/Postion of the trimesh object relative
+	   to Global COORD.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -204,7 +226,15 @@ int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
 
 ////////////////////////////////////  E3D_Draw Function  ////////////////////////////////////////
 void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb);
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
+
+void E3D_draw_grid(FBDEV *fbdev, int sx, int sy, int us, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
 void E3D_draw_circle(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
+
+void E3D_draw_coordNavSphere(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
+void E3D_draw_coordNavFrame(FBDEV *fbdev, int size, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
+void E3D_draw_coordNavIcon2D(FBDEV *fbdev, int size, const E3D_RTMatrix &RTmatrix, int x0, int y0);
 
 
 /* Mesh Rendering/Shading type */
@@ -394,7 +424,7 @@ map_d		Alpha map
 map_bump/bump   Bump map
 
 @ftml: 		Path for the .mtl file.
-@name: 		Material name descripted in the mtl file.
+@mtlname:	Material name descripted in the mtl file.
 		If NULL, ignore the name. Just read first newmtl
 		if the mtl file.
 @material:	E3D_Material
@@ -412,6 +442,7 @@ int readMtlFile(const char *fmtl, const char *mtlname, E3D_Material &material)
 	char *pt=NULL;
 	char *saveptr=NULL;
 	bool  found_newmtl=false;
+	char *pname=NULL;
 
 	if(fmtl==NULL)
 		return -1;
@@ -437,12 +468,15 @@ int readMtlFile(const char *fmtl, const char *mtlname, E3D_Material &material)
 			if(found_newmtl==true)
 				break;
 
+			/* Get rid of any type of line EOFs! */
+			pname=cstr_trim_space(saveptr); /* cstr_trim_space() Modifys saveptr!*/
+
 			/* Check material name */
-			if( mtlname!=NULL && strcmp(saveptr,mtlname)!=0 )
+			if( mtlname!=NULL && strcmp(pname,mtlname)!=0 )
 				continue;
 
 			/* ELSE: find the materil */
-			material.name=saveptr;
+			material.name=pname; //saveptr;
 			found_newmtl=true;
 		}
 
@@ -528,6 +562,7 @@ int readMtlFile(const char *fmtl, vector<E3D_Material> & mtlList)
 	const char *delim=" 	";    /* space AND tab, \r\n */
 	char *pt=NULL;
 	char *saveptr=NULL;
+	char *pname=NULL;
 
 	E3D_Material material;
 	int   mcnt=0;		/* Material counter */
@@ -556,10 +591,14 @@ int readMtlFile(const char *fmtl, vector<E3D_Material> & mtlList)
 
 		/* New materila: check first keyword */
 		if( strcmp(pt, "newmtl")==0 ) {
+			/* Get rid of any type of line EOFs! */
+			pname=cstr_trim_space(saveptr); /* cstr_trim_space() Modifys saveptr!*/
+
 			/* If first item, just set name for material. */
 			if(material.name.empty()) {
 				/* Set name */
-				material.name=saveptr;
+				material.name=pname; //saveptr;
+				egi_dpstd("Material name '%s' found.\n", saveptr);
 			}
 			/* Else, push current material into mtlList before start reading a new one. */
 			else {
@@ -573,6 +612,7 @@ int readMtlFile(const char *fmtl, vector<E3D_Material> & mtlList)
 
 				/* Set name */
 				material.name=saveptr;
+				egi_dpstd("Material name '%s' found.\n", saveptr);
 
 				/* Increase counter */
 				mcnt++;
@@ -587,13 +627,14 @@ int readMtlFile(const char *fmtl, vector<E3D_Material> & mtlList)
 		/* map_Ka */
 		else if( strcmp(pt,"map_Ka")==0 ) {
 			material.map_ka=saveptr;
+			egi_dpstd("material.map_ka: %s\n", material.map_ka.c_str());
 		}
 		/* Kd */
 		else if( strcmp(pt,"Kd")==0 ) {
 			sscanf(saveptr, "%f %f %f", &material.kd.x, &material.kd.y, &material.kd.z); /* rgb[0 1] */
 		}
 		/* map_Kd */
-		else if( strstr(pt,"map_Kd") ) {
+		else if( strcmp(pt,"map_Kd")==0 ) {
 			material.map_kd=saveptr;
 			egi_dpstd("material.map_kd: %s\n", material.map_kd.c_str());
 		}
@@ -602,8 +643,9 @@ int readMtlFile(const char *fmtl, vector<E3D_Material> & mtlList)
 			sscanf(saveptr, "%f %f %f", &material.ks.x, &material.ks.y, &material.ks.z); /* rgb[0 1] */
 		}
 		/* map_Ks */
-		else if( strstr(pt,"map_Ks") ) {
+		else if( strcmp(pt,"map_Ks")==0 ) {
 			material.map_ks=saveptr;
+			egi_dpstd("material.map_ks: %s\n", material.map_ks.c_str());
 		}
 
 		/* illum */
@@ -646,6 +688,32 @@ int readMtlFile(const char *fmtl, vector<E3D_Material> & mtlList)
 	egi_dpstd("Totally %d materils found in the mtl file '%s'!\n", mcnt, fmtl);
 	return 0;
 }
+
+/*-----------------------------------------------------
+	     Class E3D_PivotKeyFrame
+
+Pivotal(Skeleton joint etc.) position data for the
+time key frame.
+
+1. RTxyz data may be relative, OR absolute, depending
+   on different application scenarios.
+
+
+
+In a .mot file: 'k' lines: (keyframe )
+     "k  tf  rx ry rz  tx ty tz"
+----------------------------------------------------*/
+class E3D_PivotKeyFrame {
+public:
+	/* Constructor */
+	E3D_PivotKeyFrame();
+public:
+	float tf;	   /* Time value, in float. to define frame time position. within [0 100].  */
+	float rx, ry, rz;  /* Rotation RX,RY,RZ in degree */
+	float tx, ty, tz;  /* Translation */
+};
+
+
 
 /*-------------------------------------------------------
         Class: E3D_TriMesh
@@ -691,7 +759,7 @@ public:
 		/* Constructor */
 		Triangle() { setDefaults(); };
 
-		/* Sturct Vertx */
+		/* Struct Vertx */
 		struct Vertx {
 			int   index;	/* index as of vtxList[] */
 			float u,v;	/* Ref coord. for texture. */
@@ -722,16 +790,57 @@ public:
 	/* :: Class Material --- See Class E3D_Material */
 
 	/* :: Class TriGroup, NOT for editting!!!  */
+	/* Note:
+	 *	1. All TriGroups are under the same object/global COORD!
+	 */
 	class TriGroup {
 	public:
 		TriGroup() { setDefaults(); };
 		void setDefaults() {
+			omat.identity();
 			name.clear();
-			mtlID=0; tcnt=0; stidx=0; etidx=0;
+			mtlID=-1;
+			tcnt=0; stidx=0; etidx=0;
 		}
 
+		void print() {
+			printf("   <<< TriGroup %s >>>\n",name.c_str());
+			omat.print(name.c_str());
+			printf("Material ID: %d\n", mtlID);
+			printf("Totally %d trianges in triList[%d - %d].\n", tcnt, stidx, etidx);
+		}
+
+//		E3D_Vector	oxyz;		/* Origin of the TriGroup relative to its superior/parent. */
+		/* OK.  translation of omat is same as oxyz */
+		E3D_RTMatrix	omat;		/* omat.pmat[0-8] is the Orientation/attitude of the TriGroup Origin (local Coord) relative
+						 * to its INITIAL position which USUALLY be the same as (align with) its superior node's COORD,
+						 * and EXCEPT its tx,ty,tz value, it's center/origin/pivotal of the TriGroup.
+						 * omat.pmat[9-11](tx,ty,tz) are under the SAME COORD as all other vertices in vtxList[]!
+						 * Before rotate_transform the TriGroup, (tx,ty,tz) should be set as rotation center.
+						 *
+						 * The purpose is to fulfill hierarchical TRMatrix passing_down:
+						 * 		Parent_Coord * Parent_omat *This_omat[relative_txtytz] = This_Coord.  <--
+						 *
+						 * 1. Init as identity().
+						 * 1A. In cloneMesh(): the omat MUST copy each time in order to reset/reinit it.
+						 * 1B. In transformMesh(): omat.pmat[9-11](pivotal) MUST be transformed same as other vertices.
+						 * 2. If the superior/parent node transforms, all its subordinate nodes
+						 *    MUST transform also. While the subordinate node's transformation will NOT
+						 *    affect its superior node.
+					 	 * 3. In .obj file: 'x', 'm' lines:
+						 *    x tx ty tz    ---> RTMatrix translation omat.pmat[9,10,11]: tx,ty,tz
+						 *    m m1 ... m9  ----> Rotation Matrix:
+						 *			 omat.pmat[0,1,2]: m11, m12, m13
+						 *                       omat.pmat[3,4,5]: m21, m22, m23
+						 *			 omat.pmat[6,7,8]: m31, m32, m33
+						 * 4. In .mot file: 'k' lines: (keyframe )
+						 *    k  tf  rx ry rz  tx ty tz
+						 *     tf:   Time value, in float.  [0 100]
+						 *     rx ry rz: Rotation RX,RY,RZ in degree.
+						 *     tx ty tz: translation
+						 */
+
 		string		name;		/* Name of the sub_object group (of triangles) */
-		//E3D_Material	material;	/* Material for the sub_object group */
 		int		mtlID;		/* Material ID, as of mtlList[x]
 						 * If <0, invalid!
 						 */
@@ -741,8 +850,8 @@ public:
 
 		/* Define group include triangles from triList[] to triList[] */
 		unsigned int	tcnt;  		/* Total trianlges in the group */
-		unsigned int	stidx;  		/* Start/Begin index of triList[] */
-		unsigned int	etidx;  		/* End index of triList[], NOT incuded!!!
+		unsigned int	stidx;  	/* Start/Begin index of triList[] */
+		unsigned int	etidx;  	/* End index of triList[], NOT incuded!!!
 				 		 * !!! eidx=sidex+sidx !!!
 						 */
 	};
@@ -843,6 +952,13 @@ public:
 			vtxList[i].pt.z -=vtxscenter.z;
 		}
 
+		/* Update TriGroup omat.pmat[9-11], as pivotal of the TriGroup. */
+		for(unsigned int k=0; k<triGroupList.size(); k++) {
+			triGroupList[k].omat.pmat[9] -= vtxscenter.x;
+			triGroupList[k].omat.pmat[10] -= vtxscenter.y;
+			triGroupList[k].omat.pmat[11] -= vtxscenter.z;
+		}
+
 		/* Update AABB */
 		aabbox.vmax.x-=vtxscenter.x;
 		aabbox.vmax.y-=vtxscenter.y;
@@ -866,6 +982,7 @@ public:
 		for( int i=0; i<vcnt; i++ )
 			aabbox.toHoldPoint(vtxList[i].pt);
 	}
+
 	/* Function: Move VtxsCenter to current origin. */
 	void moveAabbCenterToOrigin()
 	{
@@ -888,6 +1005,13 @@ public:
 		aabbox.vmin.y-=yc;
 		aabbox.vmin.z-=zc;
 
+		/* Move TriGroup omat */
+		for(unsigned int k=0; k<triGroupList.size(); k++) {
+			triGroupList[k].omat.pmat[9]  -=xc;
+			triGroupList[k].omat.pmat[10] -=yc;
+			triGroupList[k].omat.pmat[11] -=zc;
+		}
+
 		/* Move vtxscenter */
                 vtxscenter.x -=xc;
                 vtxscenter.y -=yc;
@@ -903,7 +1027,7 @@ public:
 	int addTriangle(const Triangle *t);
 	int addTriangleFromVtxIndx(const int *vidx, int n);    /* To add/form triangles with vertex indexes list. */
 
-	/* Function: scale up/down mesh/vertices */
+	/* Function: scale up/down mesh/vertices, current vtx coord origin as pivotal.  */
 	void scaleMesh(float scale);
 
 	/* Function: Transform vertices/normals */
@@ -968,7 +1092,11 @@ private:
 	//int mcnt;
 
 public:
-	E3D_Material	 defMaterial;	/* Default material:
+	E3D_RTMatrix    objmat;		/* Orientation/Position of the TriMesh object relative to Global/System COORD.
+					 *  Init as identity()
+					 */
+
+	E3D_Material	defMaterial;	/* Default material:
 					 * 1. If mtlList[] is empty, then use this as default material
 					 * 2. defMaterial.img_kd re_assigned to textureImg in E3D_TriMesh::readTextureImage()
 				         */
@@ -1221,6 +1349,8 @@ usemtl yyy 	Use material yyy for the followed elements.
 TODO:
 1. tv: for u/v <0?
 2. NOW only supports ONE .mtl file.
+3. NOW only support 'g'(as group). 'o'(as object) NOT support.
+   Comment 'o' OR change 'o' to 'g' in .obj file.
 
 @fobj:	File path.
 -----------------------------------------------------*/
@@ -1333,7 +1463,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 			   readMtlFile( cstr_trim_space(strline+strlen("mtllib ")), mtlList);
 			}
 			break;
-		   case 'o':   /* TODO:Start a new object, NOW same as g */
+		   case 'o':   /* TODO:Start a new object. */
 			/* TODO:  If 'o' and 'g' appears at same time, it faults then!
 				...
 				o head
@@ -1343,10 +1473,12 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 				f 1/2 3/1 4/4
 				...
 			*/
+			break;
 		   case 'g':   /* Start a new group */
 			/* g.1 Assign LAST groupEtidx, the last_group.groupEtidx to be assiged at see E2. */
 			if(groupCnt>0) {
 				triGroupList.back().etidx=groupEtidx;
+				triGroupList.back().tcnt = groupEtidx-groupStidx; /* last not included. */
 
 				/* Reset groupStidex for next group. */
 				groupStidx = groupEtidx;
@@ -1358,6 +1490,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 			//triGroup.etidx = groupEtidx;  /* To assign when next group starts, while groupEtidx finishing counting! */
 
 			//triGroup.mtlID = materialID; /* SEE case 'u' */
+			triGroup.mtlID = -1;  /* <0, Preset as non_material! */
 
 			/* g.3 Push into triGroupList */
 			triGroupList.push_back(triGroup);
@@ -1366,7 +1499,15 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 			/* g.4 Clear triGroup for next group */
 			triGroup.setDefaults();
 			break;
+		   case 'x':   /*  TriGroup origin/center xyz */
+			if(groupCnt<1)break;
+			/* Correspond to RTMatrix translation pmat[9,10,11]: tx,ty,tz */
+			sscanf( strline+2, "%f %f %f", &triGroupList.back().omat.pmat[9],
+						       &triGroupList.back().omat.pmat[10],
+						       &triGroupList.back().omat.pmat[11] );
+			break;
 		   case 'u':    /* Group material name */
+			/* Note: 'u' MUST follow a 'g' token(or 'o' modified to be 'g' ),  OR getMaterialID() wil fail! */
 			if(groupCnt<1)break; /* 'usemtl' SHALL aft 'g' */
 
 			/* Material name for current group */
@@ -1662,8 +1803,10 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 	   egi_dpstd("vtxNormalIndex assigned! each vertex may have more than one normal values, as in triList[].vtx[].vn!\n");
 
 	/* E2.  Assign groupEtidx for the last group. just BEFORE E3. */
-	if( groupCnt>0 )
+	if( groupCnt>0 ) {
 		triGroupList.back().etidx=groupEtidx;
+		triGroupList.back().tcnt = groupEtidx-groupStidx; /* last not included. */
+	}
 
 	/* E3.  If no group defined in .obj file , then add a default triGroup to include all triangles. */
 	if( groupCnt<1 ) {
@@ -1671,6 +1814,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 		triGroup.name = "Default";
 		triGroup.stidx = 0;		/* start index of triList[] */
 		triGroup.etidx = tcnt;
+		triGroup.tcnt = tcnt;
 
 		/* Set <-1, to use defualt materila: Trimesh.defMaterial */
 		triGroup.mtlID = -1;
@@ -1685,8 +1829,8 @@ END_FUNC:
 	/* Close file */
 	fin.close();
 
-	egi_dpstd("Finish reading obj file: %d Vertices, %d Triangels. %d TextureVertices. %d TriGroups\n",
-		  								vcnt, tcnt, tuvListCnt, triGroupList.size());
+	egi_dpstd("Finish reading obj file: %d Vertices, %d Triangels. %d TextureVertices. %d TriGroups, %d Materis.\n",
+		  								vcnt, tcnt, tuvListCnt, triGroupList.size(), mtlList.size());
 
 #if 0	/* TEST: ---------print all textureVtx tuvList[] */
 	for(int k=0; k<tuvListCnt; k++)
@@ -1701,11 +1845,16 @@ END_FUNC:
 #if 1	/* TEST: ---------print all triGroupList[] */
 	egi_dpstd("Totally %d triangle groups defined: \n", triGroupList.size());
 	for(unsigned int k=0; k<triGroupList.size(); k++) {
+		triGroupList[k].print();
+		#if 0
+		printf(" triGroupList[k].mtlID=%d \n", triGroupList[k].mtlID );
 		printf("  %d.  '%s'  materialID=%d  triList[%d %d)  Tris=%d  map_kd:'%s'\n",
 		             k, triGroupList[k].name.c_str(), triGroupList[k].mtlID,
 				triGroupList[k].stidx, triGroupList[k].etidx,
 				triGroupList[k].etidx - triGroupList[k].stidx,
-				triGroupList[k].mtlID >=0 ? mtlList[triGroupList[k].mtlID].map_kd.c_str() : "NULL");
+				triGroupList[k].mtlID >=0 && !(mtlList[triGroupList[k].mtlID].map_kd.empty())
+						? mtlList[triGroupList[k].mtlID].map_kd.c_str() : "NULL");
+		#endif
 	}
 #endif
 
@@ -1737,6 +1886,7 @@ void E3D_TriMesh:: initVars()
 /* Init private members: see in E3D_TriMesh() constructors... */
 
 /* Init public members */
+	objmat.identity();
         textureImg=NULL;
         shadeType=E3D_FLAT_SHADING;
         backFaceOn=false;
@@ -1950,6 +2100,7 @@ void E3D_TriMesh::transformVertices(const E3D_RTMatrix  &RTMatrix)
 	}
 }
 
+
 /*-------------------------------------------------------------------
 Transform all vertex normals. NO translation component!
 (Without Triangle VtxNormals triList[].vtx[].vn! )
@@ -2074,9 +2225,29 @@ void E3D_TriMesh::transformMesh(const E3D_RTMatrix  &RTMatrix, const E3D_RTMatri
 {
 	E3D_RTMatrix  cmatrix=RTMatrix*ScaleMatrix;
 
+	/* Transform all vertices */
 	transformVertices(cmatrix);
+
+	/* Transform TriGroup omat */
+ 	E3D_Vector  tgOxyz;
+	for(unsigned int i=0; i<triGroupList.size(); i++)   {
+		/* !!! ONLY transform TriGroup::omat.pmat[9-11](tx,ty,tz) as TriGroiup local origin.
+	 	 *  tgRotMat is RELATIVE to its superior node,wh, NO NEED.
+		 */
+		tgOxyz.assign( triGroupList[i].omat.pmat[9],
+				triGroupList[i].omat.pmat[10],
+				 triGroupList[i].omat.pmat[11] );
+
+		tgOxyz = tgOxyz * cmatrix;
+
+		triGroupList[i].omat.pmat[9] = tgOxyz.x;
+		triGroupList[i].omat.pmat[10] = tgOxyz.y;
+		triGroupList[i].omat.pmat[11] = tgOxyz.z;
+	}
+
 	transformAllVtxNormals(RTMatrix);  /* normals should NOT apply scale_matrix ! */
 	transformAllTriNormals(RTMatrix);  /* normals should NOT apply scale_matrix ! */
+
 	transformAABB(cmatrix);
 
 	/*transform vtxscenter */
@@ -2090,10 +2261,18 @@ Scale up/down the whole mesh.
 -----------------------------------------*/
 void E3D_TriMesh::scaleMesh(float scale)
 {
+	/* Scale all vertices */
 	for( int i=0; i<vcnt; i++) {
 		vtxList[i].pt.x *= scale;
 		vtxList[i].pt.y *= scale;
 		vtxList[i].pt.z *= scale;
+	}
+
+	/* Scale TriGroup.omat.pmat[9-11] as TriGroup origin/pivotal. */
+	for( unsigned int k=0; k<triGroupList.size(); k++) {
+		triGroupList[k].omat.pmat[9] *=scale;
+		triGroupList[k].omat.pmat[10] *=scale;
+		triGroupList[k].omat.pmat[11] *=scale;
 	}
 
 	/* Scale AABB accrodingly */
@@ -2314,7 +2493,7 @@ void E3D_TriMesh::cloneMesh(const E3D_TriMesh &tmesh)
 		mtlList[i]=tmesh.mtlList[i];
 	    }
 	}
-       /* Clone triangle group list: triGroupList[] */
+        /* Clone triangle group list: triGroupList[] */
 	if( triGroupList.size()<1 && tmesh.triGroupList.size()>0 ) {
 	    triGroupList.resize(tmesh.triGroupList.size()); /* .resize(), NOT .reserve()! */
 	    for(unsigned int i=0; i<tmesh.triGroupList.size(); i++) {
@@ -2323,6 +2502,11 @@ void E3D_TriMesh::cloneMesh(const E3D_TriMesh &tmesh)
 	   }
 	}
 #endif  /////////////////////////////////////////////////////////////////////////
+	/* !!! triGroupList[i].omat MUST copy each time. To reset each time !!! */
+	for( unsigned int i=0; i<tmesh.triGroupList.size(); i++) {
+		triGroupList[i].omat=tmesh.triGroupList[i].omat;
+	}
+
 
 	/* TODO: Clone other params if necessary. */
 }
@@ -2992,6 +3176,9 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 
 #else ///////////////   Apply triGroupList[] and Material color/map     ///////////////////
 
+/* TODO:
+   1. NOW tgRotMat is applied ONLY for case E3D_TEXTURE_MAPPING.
+ */
 void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
 {
 	int j,k;
@@ -3014,6 +3201,10 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	/* Defualt texture map */
 	EGI_IMGBUF *imgKd=NULL; /* NOW: Diffuse map.  TODO others: imgKa, imgKs */
 
+	E3D_RTMatrix	tgRotMat; 	/* TriGroup rotation matrix, zeroTranslation()! */
+	E3D_Vector	tgOxyz;		/* TriGroup origin XYZ */
+
+
 	/* -------TEST: Project to Z plane, Draw X,Y only */
 	for(n=0; n<triGroupList.size(); n++) {  /* Tranverse all Trigroups */
 	    egi_dpstd("Rendering triGroupList[%d]: '%s' , ", n, triGroupList[n].name.c_str());
@@ -3030,6 +3221,13 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		imgKd=mtlList[ triGroupList[n].mtlID ].img_kd;
 	    }
 
+	    /* Extract TriGroup rotation matrix and rotation origin */
+	    tgRotMat = triGroupList[n].omat;
+	    tgRotMat.zeroTranslation();   /* !!!omat.pmat[9-11] is ORIGIN  */
+
+	    /* Matrix pmat[9,10,11]: tx,ty,tz */
+	    tgOxyz.assign(triGroupList[n].omat.pmat[9], triGroupList[n].omat.pmat[10], triGroupList[n].omat.pmat[11]);
+
 	    /* Traverse and render all triangles in the triGroupList[n]
 	     *  TODO: sorting, render Tris from near to far field.... */
 	    for(i=triGroupList[n].stidx; i<triGroupList[n].etidx; i++) {
@@ -3038,8 +3236,9 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		 * Note:
 		 *    1. If you turn off back_facing triangles, it will be transparent there.
 		 *    2. OR use other color for the back face. For texture mapping, just same as front side.
+		 *    3. tgRotMat to be counted in.
 		 */
-		vProduct=vView*(triList[i].normal); // *(-1.0f); // -vView as *(-1.0f);
+		vProduct=vView*(triList[i].normal*tgRotMat); // *(-1.0f); // -vView as *(-1.0f);
 		/* Note: Because of float precision limit, vProduct==0.0f is NOT possible. */
 		if ( vProduct > -VPRODUCT_EPSILON ) {  /* >=0.0f */
 			IsBackface=true;
@@ -3063,8 +3262,28 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		vpts[1]=vtxList[vtidx[1]].pt;
 		vpts[2]=vtxList[vtidx[2]].pt;
 
+#if 1		/* 2A. TriGroup Orientation/attitude computation. */
+		/* Relative to TriGroup Origin, NOT Coord. */
+		vpts[0] -= tgOxyz;
+		vpts[1] -= tgOxyz;
+		vpts[2] -= tgOxyz;
+		/* Transform vpts[] */
+		#if 1
+		E3D_transform_vectors(vpts, 3, tgRotMat);
+		#else
+		vpts[0]=vpts[0]*tgRotMat;
+		vpts[1]=vpts[1]*tgRotMat;
+		vpts[2]=vpts[2]*tgRotMat;
+		#endif
+		/* Back to under object/global coord. */
+		vpts[0] += tgOxyz;
+		vpts[1] += tgOxyz;
+	   	vpts[2] += tgOxyz;
+#endif
+
 		if( projectPoints(vpts, 3, projMatrix) !=0 )
 			continue;
+
 		/* TEST: Check range, ONLY simple way.... TODO: by projectPoints() */
 		for( j=0; j<3; j++) {
 		     if(  (vpts[j].x < 0.0 || vpts[j].x > projMatrix.winW-1 )
@@ -3202,7 +3421,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			/* IF: No texture, apply flat_shading then */
 			if( imgKd==NULL ) {  // textureImg==NULL ) { textureImg assigned to defMaterial.img_kd
 			   /* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo. */
-			   vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+			   vProduct=gv_vLight*(triList[i].normal*tgRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
 			   //if( vProduct >= 0.0f )
 			   if( vProduct > -VPRODUCT_EPSILON )
 				vProduct=0.0f;
@@ -3216,7 +3435,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			/* ELSE: Apply texture map */
 			else {
 			   /* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo.  */
-			   vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+			   vProduct=gv_vLight*(triList[i].normal*tgRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
 			   //if( vProduct >= 0.0f )
 			   if( vProduct > -VPRODUCT_EPSILON )
 				vProduct=0.0f;
@@ -3739,7 +3958,7 @@ void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_RTMatrix &RTmat
 {
 	E3D_Vector vpts[2];
 
-	vpts[0].zero();
+//	vpts[0].zero();
 	vpts[1]=va;
 
 	vpts[0]=vpts[0]*RTmatrix;
@@ -3751,6 +3970,95 @@ void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_RTMatrix &RTmat
 
 	draw3D_line( fbdev, roundf(vpts[0].x), roundf(vpts[0].y), roundf(vpts[0].z),
 		            roundf(vpts[1].x), roundf(vpts[1].y), roundf(vpts[1].z) );
+}
+
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix)
+{
+	E3D_Vector vpts[2];
+
+	vpts[0]=va*RTmatrix;
+	vpts[1]=vb*RTmatrix;
+
+	/* Project vpts */
+	if( projectPoints(vpts, 2, projMatrix) !=0) {
+//		return;
+	}
+
+	/* Draw 3D line */
+	draw3D_line( fbdev, roundf(vpts[0].x), roundf(vpts[0].y), roundf(vpts[0].z),
+		            roundf(vpts[1].x), roundf(vpts[1].y), roundf(vpts[1].z) );
+}
+
+
+/*---------------------------------------------------
+Draw a piece of 3D grid, origin at mid. of sx,sy.
+A grid on XY plane then transform as per RTmatrix.
+
+@fbdev:	  	Pointer to FBDEV.
+@sx,sy:	  	Size of the grid, in pixels.
+@us:		Square unit side size, in pixels.
+@RTmatrix:	Transform matrix.
+@projMatrix:	ProjMatrix
+----------------------------------------------------*/
+void E3D_draw_grid(FBDEV *fbdev, int sx, int sy, int us, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix)
+{
+	E3D_Vector vpts[2]; /* Init all 0 */
+
+	egi_dpstd("sx=%zu, sy=%zu, us=%zu\n", sx, sy, us);
+
+   /* Notice: Viewing from z- --> z+ */
+   fbdev->flipZ=true;
+
+	for(int i=-(sx/2/us); i<=(sx/2/us); i++) {
+		/* Tow points of a line */
+		vpts[0].x = i*us;
+		vpts[1].x = i*us;
+		vpts[0].y = -(sy/2/us)*us;
+		vpts[1].y = (sy/2/us)*us;
+		vpts[0].z = 0.0;
+		vpts[1].z = 0.0;
+
+		/* Transform */
+		vpts[0]=vpts[0]*RTmatrix;
+        	vpts[1]=vpts[1]*RTmatrix;
+
+		/* Project line to camera/screen coord. */
+		if( projectPoints(vpts, 2, projMatrix) !=0) {
+		//	return;
+		}
+
+		/* Draw the line */
+		draw3D_line( fbdev, roundf(vpts[0].x), roundf(vpts[0].y), roundf(vpts[0].z),
+		            roundf(vpts[1].x), roundf(vpts[1].y), roundf(vpts[1].z) );
+	}
+
+
+	for(int i=-sy/2/us; i<=sy/2/us; i++) {
+		/* Tow points of a line */
+		vpts[0].x = -(sx/2/us)*us;
+		vpts[1].x = (sx/2/us)*us;
+		vpts[0].y = i*us;
+		vpts[1].y = i*us;
+		vpts[0].z = 0.0;
+		vpts[1].z = 0.0;
+
+		/* Transform */
+		vpts[0]=vpts[0]*RTmatrix;
+        	vpts[1]=vpts[1]*RTmatrix;
+
+		/* Project line to camera/screen coord. */
+		if( projectPoints(vpts, 2, projMatrix) !=0) {
+		//	return;
+		}
+
+		/* Draw the line */
+		draw3D_line( fbdev, roundf(vpts[0].x), roundf(vpts[0].y), roundf(vpts[0].z),
+		            roundf(vpts[1].x), roundf(vpts[1].y), roundf(vpts[1].z) );
+	}
+
+   /* Reset flipZ. Notice: Viewing from z- --> z+ */
+   fbdev->flipZ=false;
+
 }
 
 

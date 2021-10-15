@@ -4759,8 +4759,9 @@ TODO:
 1. Check midpoint pixZ value, position(front/back), make it effective or not.
    If midpoint is effecive, then draw two segments( as two sides of a triangle
    is visible). In this case,  z0/z1/z2 should be provided also!
-2. Apply light reflection strength for EACH pixel..., NOW renderMesh() uses
-   the Tri face normal to decide light for ALL piexels.
+2. To apply light reflection strength for EACH pixel..., NOW renderMesh() uses
+   the Tri face normal to decide/compute light strength for ALL piexels!
+   and this also needs vetex normals of the 3 points.
 
 @imbufg:	A pointer to EGI_IMGBUF
 @fb_dev:	A pointer to FBDEV
@@ -5190,6 +5191,9 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 			/* Get mapped pixel and draw_dot */
                         /* image data location */
                         locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
+#if 1 /* TEST: ---- */
+			if(locimg >imgh*imgw-1) locimg=imgh*imgw-1;
+#endif
 			if( locimg>=0 && locimg < imgh*imgw ) {
 		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
 	    		    if(imgbuf->alpha)
@@ -5252,6 +5256,9 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 			/* Get mapped pixel and draw_dot */
                         /* image data location */
                         locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
+#if 1 /* TEST: ---- */
+			if(locimg >imgh*imgw-1) locimg=imgh*imgw-1;
+#endif
 			if( locimg>=0 && locimg < imgh*imgw ) {
 		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
 	    		    if(imgbuf->alpha)
