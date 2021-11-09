@@ -8,6 +8,11 @@ An example to parse and download AAC m3u8 file.
 TODO:
 1. For some m3u8 address, it sometimes exits accidently when calling https_easy_download().
 
+Journal:
+2021-09-29:
+	1. main():  memset buff[] before https_curl_request().
+	2. parse_m3u8list(): If https_easy_download() fails, return immediately!
+
 Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
@@ -46,10 +51,25 @@ int main(int argc, char **argv)
 
 	/* prepare GET request string */
         memset(strRequest,0,sizeof(strRequest));
+
+#if 0
+        strcat(strRequest,"GET ");
         strcat(strRequest,argv[1]);
-        //printf("Request:%s\n", strRequest);
+        strcat(strRequest," HTTP/1.1\r\n");
+        // strcat(strRequest," Content-Type: charset=uft-8\r\n");
+        strcat(strRequest,"User-Agent: Mozilla/5.0 \r\n");
+        strcat(strRequest,"HOST: ls.qingting.fm\r\n");
+        //strcat(strRequest,host);
+        strcat(strRequest,"\r\n\r\n");
+#else
+        strcat(strRequest,argv[1]);
+#endif
+        EGI_PLOG(LOGLV_CRITICAL,"Http request head:\n %s\n", strRequest);
 
 while(1) {
+	/* Reset buff */
+	memset(buff, 0, sizeof(buff));
+
 	/* Https GET request */
 	EGI_PLOG(LOGLV_INFO,"Start https curl request...");
         if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION,
@@ -59,10 +79,11 @@ while(1) {
 		/* Try again */
 		sleep(1);
 		continue;
-		EGI_PLOG(LOGLV_ERROR, "Try https_curl_request() again...");
+		//EGI_PLOG(LOGLV_ERROR, "Try https_curl_request() again...");
 		//exit(EXIT_FAILURE);
 	}
         printf("        --- Http GET Reply ---\n %s\n",buff);
+	EGI_PLOG(LOGLV_INFO,"Http curl get: %s\n", buff);
 
 	/* Parse content */
 	EGI_PLOG(LOGLV_INFO,"Start parse m3u8list...");
@@ -83,6 +104,7 @@ size_t curl_callback(void *ptr, size_t size, size_t nmemb, void *userp)
         size_t session_size=size*nmemb;
 
         //printf("%s: session_size=%zd\n",__func__, session_size);
+	EGI_PLOG(LOGLV_INFO, "%s: ptr: %s\n", __func__, (char *)ptr);
 
 	/* Just copy to user */
         strcat(userp, ptr);
@@ -152,6 +174,10 @@ void parse_m3u8list(char *strm3u)
                         		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download a.stream from '%s'.", aacURL);
 					remove("/tmp/a.stream");
 					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/a.stream.");
+
+					/* !!! Break NOW, in case next acc url NOT available either, as downloading time goes by!!! */
+					EGI_PLOG(LOGLV_INFO, "Case_1. End parsing m3u8list, and starts a new http request...\n");
+					return;
 				} else {
 					/* Update aacLastURL */
 					EGI_PLOG(LOGLV_INFO, "Ok, a.stream updated! curl_nwrite=%d", curl_nwrite);
@@ -170,6 +196,11 @@ void parse_m3u8list(char *strm3u)
                         		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download b.stream from '%s'.", aacURL);
 					remove("/tmp/b.stream");
 					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/b.stream.");
+
+					/* !!! Break NOW, in case next acc url NOT available either, as downloading time goes by!!! */
+					EGI_PLOG(LOGLV_INFO, "Case_2. End parsing m3u8list, and starts a new http request...\n");
+					return;
+
 				} else {
 					/* Update aacLastURL */
 					EGI_PLOG(LOGLV_INFO, "Ok, b.stream updated! curl_nwrite=%d", curl_nwrite);
@@ -187,6 +218,10 @@ void parse_m3u8list(char *strm3u)
                         		EGI_PLOG(LOGLV_ERROR, "Case 3: Fail to easy_download a.stream from '%s'.", aacURL);
 					remove("/tmp/a.stream");
 					EGI_PLOG(LOGLV_INFO, "Case 3: Finsh remove /tmp/a.stream.");
+
+					/* !!! Break NOW, in case next acc url NOT available either, as downloading time goes by!!! */
+					EGI_PLOG(LOGLV_INFO, "Case_3. End parsing m3u8list, and starts a new http request...\n");
+					return;
 				} else {
 					/* Update aacLastURL */
 					EGI_PLOG(LOGLV_INFO, "Ok, a.stream updated! curl_nwrite=%d", curl_nwrite);

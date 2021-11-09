@@ -19,10 +19,25 @@ midaszhou@yahoo.com
 
 using namespace std;
 
+bool checkRTMat(E3D_RTMatrix & RTMat)
+{
+	if(RTMat.isOrthogonal()) {
+//		printf("Matrix is orthorgonal!\n");
+//		RTMat.print("OK");
+		return true;
+	}
+	else {
+		printf("Matrix is NOT orthorgonal!\n");
+		RTMat.print("Error");
+		return false;
+	}
+}
+
 int main(void)
 {
 	cout << "Hello, this is C++!\n" << endl;
 
+#if 0 ///////////////  E3D_Vector ////////////////////////////////
 	E3D_Vector *pv = new E3D_Vector(5,5,5);
 	pv->print("pv");
 	delete pv;
@@ -83,7 +98,43 @@ int main(void)
 
 	v3=E3D_vector_crossProduct(v1, v2);
 	v3.print("v3=corssProduct(v1,v2)=");
+#endif
 
+#if 1 ///////////////  E3D_RTMatrix ////////////////////////////////
+	int k;
+        E3D_Vector axisX(1,0,0);
+        E3D_Vector axisY(0,1,0);
+        E3D_Vector axisZ(0,0,1);
 
+	E3D_RTMatrix RTMat;
+	E3D_RTMatrix RXmat, RYmat, RZmat;
+	RXmat.setRotation(axisX, 20.0/180*MATH_PI);
+	RYmat.setRotation(axisY, 60.0/180*MATH_PI);
+	RZmat.setRotation(axisZ, 80.0/180*MATH_PI);
+
+for(k=0; k<100000; k++) {
+#if 1  /* Note: A non_orthogonal_matrix multiplied by an orthogonal_matrix may get an orthogonal_matrix!!!  */
+	RTMat = RTMat*RXmat*RYmat*RZmat;
+	if(!checkRTMat(RTMat)) {
+		printf("k=%d \n",k);
+		/* Try to orthNormalize */
+		RTMat.orthNormalize();
+		/* Check again */
+		if(!checkRTMat(RTMat))break;
+	}
+#else
+	RTMat = RTMat*RXmat;
+	if(!checkRTMat(RTMat))break;
+
+	RTMat = RTMat*RYmat;
+	if(!checkRTMat(RTMat))break;
+
+	RTMat = RTMat*RZmat;
+	if(!checkRTMat(RTMat))break;
+#endif
+}
+	printf("k=%d \n",k);
+
+#endif
 	return 0;
 }

@@ -14,6 +14,10 @@ midaszhou@yahoo.com
 #include <linux/input.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
 
 /* Redefine name of some keys to replace input.h */
 #define KEY_LEFTSUPER	125 //#define KEY_LEFTMETA            125
@@ -298,5 +302,9 @@ int  	egi_mouse_putRequest(EGI_MOUSE_STATUS *mostat);
 /* Terminal IO settings */
 void 	egi_set_termios(void);
 void 	egi_reset_termios(void);
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

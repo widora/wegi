@@ -66,17 +66,6 @@ ctrees.obj -c -s 0.04 -X 185 -a 10 -P
 	-c -s 0.035 -y -30 -z -300 -X 190 -P -M /mmc/ctree2.motoin
 	-c -s 0.03 -y -30 -Z 90 -X -10 -P   --- Portrait ---
 
-		>>>>>  EGi_BOXMAN  <<<<
-boxman.obj -c -s 6 -X 200 -Y 155 -w	!!! --- Test Sub_object group: omat --- !!!
-boxman.obj -c -s 12 -X 200 -Y 155 -P -G
-boxman.obj -c -s 8 -Z 90 -X -20 -L             <--- Portrait --->
-boxman.obj -c -s 16 -Y 155 -Z 90 -X -20 -P -L  <--- Portrait --->
-boxman.obj -c -s 16 -Y 155 -Z 90 -X 20 (OR -20) -a -3 -P -L  !!! --- For Demo --- !!!
-boxman.obj -c -s 16 -Y 300 -Z 90 -X 20 -a -5 -P -L   ((  Back/Up/Squit_angle View ))
-boxman.obj -c -s 16 -Y -195 -Z 90 -X 20 -a -5 -P -L -M /mmc/boxman_hand.mot   !!! --- For arm_roll DEMO --- !!!
-
-boxdog.obj -s 12 -x -50 -y 150 -X 190 -Y -60 -a -5 -P -L -G
-
 deer.obj -s 1 -y -100 -z 3500 -c -b -X -20
 myPack.obj -s 1.5 -z 1000 -X -30 -y 100 -b
 myPack.obj -s 1.5 -c -z 750 -X -30 -b -y -25  	!!! --- Check frustum clipping --- !!!
@@ -85,6 +74,12 @@ bird.obj -c -s 80 -b -X -25  Auto_z
 sail.obj -z 40 -c -X -60 -R -b -y 2   !!! --- Mesh between Foucs and View_plane --- !!!
 sail.obj -c -s 25 -X 165 -z -250 -a 25 -P -D
 lion.obj -s 0.025 -c -X -30
+jet.obj -c -s 1.5 -X 160
+plane.obj -c -s .3 -X 200
+plane.obj -c -s 1 -Y 90 -X 185 -P
+plane.obj -c -s 1 -Y 90 -X 185 -a -3 -G -P -t -M /mmc/plane.mot
+plane.obj -c -s 0.8 -X 190 -Y 200 -a -5  -w -B -t   // See fuselage(main body) inside/backface
+plane.obj -c -s 1.0 -z -600 -X 190 -Y 197 -a 175 -P -w -B -t  // ON Head and tail, -z -800 to see inside
 
 	----- Test FLOAT_EPSILON -----
 Render mesh ... angle=0
@@ -217,6 +212,7 @@ Journal:
 2021-10-9:
 	Test BOXMAN Head/Arm action.
 
+
 Midas Zhou
 midaszhou@yahoo.com
 ------------------------------------------------------------------*/
@@ -301,7 +297,7 @@ int main(int argc, char **argv)
 	EGI_16BIT_COLOR	  aabbColor=WEGI_COLOR_LTBLUE;
 	EGI_16BIT_COLOR	  fontColor=WEGI_COLOR_GREEN;
 	EGI_16BIT_COLOR	  fontColor2=WEGI_COLOR_PINK;//GREEN;
-	EGI_16BIT_COLOR	  gridColor=WEGI_COLOR_DARKPURPLE;
+	EGI_16BIT_COLOR	  gridColor=WEGI_COLOR_PURPLE;
 
 	char 		*textureFile=NULL;	/* Fpath */
 
@@ -322,6 +318,7 @@ int main(int argc, char **argv)
 	float		rotX=0.0f, rotY=0.0f, rotZ=0.0f;
 	float		da=0.0f;	/* Delta angle for rotation */
 	int		psec=0;		/* Pause second */
+	unsigned int	frameCount=0;
 
 	int		rotAxis=1;	/* Under FB_COORD, 0-X, 1-Y, 2-Z */
 	float		texScale=-1.0;   /* Texture image resize factor, valid only >0.0f!  */
@@ -348,10 +345,9 @@ int main(int argc, char **argv)
 	float		dstep;
 	E3D_ProjMatrix projMatrix={ .type=E3D_ISOMETRIC_VIEW, .dv=500, .dnear=500, .dfar=10000000, .winW=320, .winH=240};
 
-	/* Boxman */
-	int headAng=0, pitchAng=0;
-	int stepAng=5;
-	int roundTok=0;
+	/* For plane AABB Ty */
+	float Ty;
+
 
         /* Parse input option */
 	int opt;
@@ -675,6 +671,10 @@ else {		/* For Landscape */
 	cout << "dview=" <<dview<<endl;
 	sleep(1);
 
+/* TEST: -------- Get Ty */
+	Ty=-meshModel.aabbox.vmax.y;
+
+
 	/* 7. Init. E3D Vector and Matrixes for meshModel position. */
 	RXmat.identity(); 	/* !!! setTranslation(0,0,0); */
 	RYmat.identity();
@@ -755,7 +755,7 @@ else {		/* For Landscape */
 #endif
 
 
-        /* Turn bakcFace on */
+        /* Turn backFace on */
 	if(backFace_on) {
  		workMesh->backFaceOn=true;
 		workMesh->bkFaceColor=WEGI_COLOR_RED;
@@ -805,85 +805,10 @@ else {		/* For Landscape */
 	/* W2.2: Set translation ONLY.  Note: View from -Z ---> +Z */
 	VRTmat.setTranslation(offx, offy, offz +dview*2); /* take Focus to obj center=2*dview */
 
-#if 1  /* TEST: -------- Boxman: Head(the last TriGroup) rotation ---- */
-	workMesh->objmat = VRTmat;
-    	E3D_RTMatrix tm_VRTmat=VRTmat; /* = Identity()*VRTmat OR VRTmat*Identidy() */
-    	tm_VRTmat.zeroTranslation();  /* !!!! <---- */
-	float rotAng[3]={0.0};
-
-	/* T1. Adjust Head Pitch_Angle */
-	if(headAng==0 && (roundTok>=2 && roundTok<=4) ) {
-	    /* Boxman's head: triGroupList[5] */
-//	    workMesh->triGroupList.back().omat.setRotation(tm_axisX, 1.0*pitchAng/180*MATH_PI); /* axisY --> TriMesh object axisY under Global COORD */
-	    rotAng[0]=1.0*pitchAng/180*MATH_PI;
-	    E3D_combGlobalIntriRotation("X", rotAng, VRTmat, workMesh->triGroupList[5].omat);
-
-	    /* PitchAng increment */
-	    pitchAng +=stepAng;
-	    if(pitchAng >45) {
-		pitchAng=45; stepAng *=-1;
-		roundTok++;
-	    }
-	    else if(pitchAng<-45) {
-		pitchAng=-45; stepAng *=-1;
-		roundTok++;
-	    }
-
-	    /* Reset roundTok to quick Pitching */
-	    //if(roundTok==4 && pitchAng==0)
-	    if(roundTok==3 && pitchAng==0)  /* ONLY nod! */
-		roundTok=0;
-	}
-
-	/* T2. Adjust Head(Sway) heading_Angle + ARM_action + LEG_action */
-	else if( pitchAng==0) {
-
-	    /* Limit roundTok within [0 4] */
-	    if(roundTok>=4)roundTok=0;
-
-	    /* Boxman's Head action. head: triGroupList[5] */
-//	    workMesh->triGroupList.back().omat.setRotation(tm_axisY, 1.0*headAng/180*MATH_PI); /* axisY --> TriMesh object axisY under Global COORD */
-	    rotAng[0]=1.0*headAng/180*MATH_PI;  /* Heading/yaw angle */
-	    E3D_combGlobalIntriRotation("Y", rotAng, VRTmat, workMesh->triGroupList[5].omat);
-
-	    /* Boxman's Arm action */
-	    /* Right_arm: triGroupList[1] */
-	    rotAng[0]=(1.0*headAng*65/45)/180*MATH_PI; /* Arm pitch angle (forward/aftward sway) */
-	    rotAng[1]=(1.0*headAng*90/45)/180*MATH_PI; /* Arm roll angle */
-	    E3D_combGlobalIntriRotation("XY", rotAng, VRTmat, workMesh->triGroupList[1].omat); /* Note 'XY' effect sequence is reversed! */
-
-	    /* Left_arm: triGroupList[2] */
-	    rotAng[0]=(-1.0*headAng*65/45)/180*MATH_PI; /* Arm pitch angle (forward/aftward sway) */
-	    rotAng[1]=(-1.0*headAng*90/45)/180*MATH_PI; /* Arm roll angle */
-	    E3D_combGlobalIntriRotation("XY", rotAng, VRTmat, workMesh->triGroupList[2].omat);
-
-	    /* Boxman's Leg action */
-	    /* Right_leg: triGroupList[3], Left_leg: triGroupList[4] */
-	    rotAng[0]=(-1.0*headAng*25/45)/180*MATH_PI;
-	    E3D_combGlobalIntriRotation("X", rotAng, VRTmat, workMesh->triGroupList[3].omat);
-	    rotAng[0]=-rotAng[0];
-	    E3D_combGlobalIntriRotation("X", rotAng, VRTmat, workMesh->triGroupList[4].omat);
-
-	    /* headAng Increment */
-	    headAng +=stepAng;
-
-	    if(headAng >45) {
-		headAng=45; stepAng *=-1;
-		roundTok++;
-	    }
-	    else if(headAng<-45) {
-		headAng=-45; stepAng *=-1;
-		roundTok++;
-	    }
-
-	}
-#endif
-
 	/* W3. Transform workMesh */
 	cout << "Transform workMesh...\n";
 	//workMesh->transformMesh(RTYmat*RTXmat, ScaleMat); /* Here, scale ==1 */
 	workMesh->transformMesh(VRTmat, ScaleMat); /* Here, scale ==1 */
-
 
 	/* W4. Update Projectoin Matrix */
 	dvv += dstep;
@@ -906,21 +831,44 @@ else {		/* For Landscape */
         	fb_set_directFB(&gv_fb_dev,true);
 	}
 
-#if 1   /* W6. Render the workMesh. */
+#if 1	/* TEST: W7. Render as wire frames, on current FB image (before FB is cleared). */
+	if(wireframe_on) { // && workMesh->shadeType!=E3D_TEXTURE_MAPPING) {
+		cout << "Draw meshwire ...\n";
+		#if 0
+		fbset_color2(&gv_fb_dev, wireColor); //WEGI_COLOR_DARKGRAY);
+		workMesh->drawMeshWire(&gv_fb_dev, projMatrix);
+		#else
+		workMesh->shadeType=E3D_WIRE_FRAMING;
+	        workMesh->renderMesh(&gv_fb_dev, projMatrix);
+		#endif
+	}
+#endif
+
+#if 1   /* W6. Render the workMesh first */
+	if(workMesh->mtlList.size()>0)
+		faceColor=workMesh->mtlList[0].kd.color16Bits();
+
 	fbset_color2(&gv_fb_dev, faceColor);
 
         /* OR  updateAllTriNormals() here */
+
+//TEST:
+	if( frameCount%4==0 || frameCount%4==1 )
+	   	workMesh->shadeType=E3D_GOURAUD_SHADING;
+	else
+		workMesh->shadeType=E3D_FLAT_SHADING;
 
         cout << "Render mesh ... angle="<< angle <<endl;
         workMesh->renderMesh(&gv_fb_dev, projMatrix);
 #endif
 
-	/* W7. Render as wire frames, on current FB image (before FB is cleared). */
+#if 0	/* W7. Render as wire frames, on current FB image (before FB is cleared). */
 	if(wireframe_on && workMesh->shadeType!=E3D_TEXTURE_MAPPING) {
 		fbset_color2(&gv_fb_dev, wireColor); //WEGI_COLOR_DARKGRAY);
 		cout << "Draw meshwire ...\n";
 		workMesh->drawMeshWire(&gv_fb_dev, projMatrix);
 	}
+#endif
 
 	/* W8. Draw the AABB, on current FB image. */
 	if( AABB_on ) {
@@ -934,7 +882,7 @@ else {		/* For Landscape */
 	/* W9. Draw the Coordinate Navigating_Sphere/Frame (coordNavSphere/coordNavFrame) */
 	if(coordNavigate_on) {
 	   E3D_draw_coordNavSphere(&gv_fb_dev, 0.4*workMesh->AABBdSize(), VRTmat, projMatrix);
-	   E3D_draw_coordNavFrame(&gv_fb_dev, 0.5*workMesh->AABBdSize(), VRTmat, projMatrix);
+	   E3D_draw_coordNavFrame(&gv_fb_dev, false, 0.5*workMesh->AABBdSize(), VRTmat, projMatrix);
 	}
 
 #if 0 /* XXX not correct!  TEST: ---------------- boxman: HEAD omat  coordFrame */
@@ -948,7 +896,11 @@ else {		/* For Landscape */
 		fbset_color2(&gv_fb_dev, gridColor);
 		gmat.identity();
 		gmat.setRotation(axisX, 90.0/180*MATH_PI); /* As original XZ plane grid of the mesh object. */
-	        E3D_draw_grid(&gv_fb_dev, 1.5*dSize, 1.5*dSize, dSize/10, gmat*VRTmat, projMatrix); /* fbdev sx,sy, us, VRTmat, projMatrix */
+		//float Ty=workMesh->aabbox.vmax.y;  /* !!! XXX It Changes! */
+		printf("gmat.setTranslation Ty=%f, dSize=%d\n", Ty, dSize);
+		gmat.setTranslation(0, Ty, 0);
+		/* Too big value of sx,sy to get out of the View_Frustum */
+	        E3D_draw_grid(&gv_fb_dev, 3.0*dSize, 3.0*dSize, dSize/10, gmat*VRTmat, projMatrix); /* fbdev sx,sy, us, VRTmat, projMatrix */
 	}
 
 	/* W10. Write note & statistics */
@@ -989,7 +941,7 @@ else {		/* For Landscape */
                                         fontColor2, -1, 255,            /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
 
-        #if 0  /* Display shade type and faceColor */
+        #if 1  /* Display shade type and faceColor */
 	/* Shade type and face color */
 	switch(workMesh->shadeType) {
 		case E3D_FLAT_SHADING:
@@ -1026,8 +978,11 @@ else {		/* For Landscape */
 	usleep(50000);
 	if(psec) tm_delayms(psec); //usleep(psec*1000);
 
+   	///////////////////////////////  Post_Render  ////////////////////////////////
+
 	/* W13. Update angle */
 	angle += (5.0+da); // *MATH_PI/180;
+	frameCount ++;
 
 #if 0 /* TEST: ----- gsit.obj change mtl, NOTE. mtlList[] will NOT recopy to workMesh.  */
      if(angle>=360.0 ) {

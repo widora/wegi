@@ -77,6 +77,11 @@ Jurnal
 	1. Modify clear_screen().
 2021-09-24:
 	1. draw_dot(): Check if pixalpha==0 at first.
+2021-11-8:
+	1. Add draw_filled_triangle_outline()
+2021-11-9:
+	1. Add draw_filled_triangle4(), pixZ value applys.
+	2. Add draw_filled_triangle4(), pixZ value applys.
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -2657,7 +2662,7 @@ void draw_triangle(FBDEV *dev, EGI_POINT *points)
 }
 
 
-/*-----------------------------------------------------------------
+/*------------------------------------------------------
 Draw a a filled triangle.
 
 Note:
@@ -2666,7 +2671,7 @@ Note:
 @points:  A pointer to 3 EGI_POINTs / Or an array;
 
 Midas Zhou
-------------------------------------------------------------------*/
+-------------------------------------------------------*/
 void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 {
 	if(points==NULL)
@@ -2700,7 +2705,6 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 	//printf("points[nl=%d] x=%d, y=%d \n", nl,points[nl].x,points[nl].y);
 	//printf("points[nm=%d] x=%d, y=%d \n", nm,points[nm].x,points[nm].y);
 	//printf("points[nr=%d] x=%d, y=%d \n", nr,points[nr].x,points[nr].y);
-
 
 //	if(points[nr].x != points[nl].x) { /* Ruled out */
 		klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
@@ -2739,12 +2743,254 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 		draw_line_simple(dev, points[nm].x+i, roundf(yu), points[nm].x+i, roundf(yd));
 	}
 
+	/* In case a vertical side. */
+	if(points[nl].x==points[nm].x)
+		draw_line_simple(dev, points[nl].x, points[nl].y, points[nm].x, points[nm].y);
+
+	if(points[nr].x==points[nm].x)
+		draw_line_simple(dev, points[nr].x, points[nr].y, points[nm].x, points[nm].y);
+
+	/* Draw outline: NOTE: draw_triangle() gives a litter bigger outline. */
+	//draw_triangle(dev, points);
+}
+
+/*----------------------------------------------------------------
+Refer to draw_filled_triangle() also. This function only draws
+the outline/edges of the triangle, use the SAME algrithm as in
+draw_filled_triangle(), so that area/face drawn by draw_filled_triangle()
+can cover outlines/edges(drawn by this fucntion) completely!
+
+Wireframes drawn by this function are thicker than otherwise by
+draw_line(), for draw_filled_triangle_outline() will be called
+twice by two different trianlges while draw_line() results same
+as for two same points.
+
+
+Midas Zhou
+---------------------------------------------------------------*/
+void draw_filled_triangle_outline(FBDEV *dev, EGI_POINT *points)
+{
+	if(points==NULL)
+		return;
+
+	int i,k;
+	int nl=0,nr=0; /* left and right point index */
+	int nm; /* mid point index */
+
+	float klr,klm,kmr;
+
+	/* OR use INT type */
+	float yu=0;
+	float yd=0;
+	float ymu=0;
+
+	for(i=1;i<3;i++) {
+		if(points[i].x < points[nl].x) nl=i;
+		if(points[i].x > points[nr].x) nr=i;
+	}
+
+	/* three points are collinear */
+	if(nl==nr) {
+		draw_pline_nc(dev, points, 3, 1);
+		return;
+	}
+
+	/* get x_mid point index */
+	nm=3-nl-nr;
+
+	//printf("points[nl=%d] x=%d, y=%d \n", nl,points[nl].x,points[nl].y);
+	//printf("points[nm=%d] x=%d, y=%d \n", nm,points[nm].x,points[nm].y);
+	//printf("points[nr=%d] x=%d, y=%d \n", nr,points[nr].x,points[nr].y);
+
+//	if(points[nr].x != points[nl].x) { /* Ruled out */
+		klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
+//	}
+//	else
+//		klr=1000000.0; /* a big value */
+
+	if(points[nm].x != points[nl].x) {
+		klm=1.0*(points[nm].y-points[nl].y)/(points[nm].x-points[nl].x);
+	}
+	else
+		klm=1000000.0;
+
+	if(points[nr].x != points[nm].x) {
+		kmr=1.0*(points[nr].y-points[nm].y)/(points[nr].x-points[nm].x);
+	}
+	else
+		kmr=1000000.0;
+
+	//printf("klr=%f, klm=%f, kmr=%f \n",klr,klm,kmr);
+
+	/* Draw two sides */
+//	int tyu, tyd;
+	int rnd_yu,rnd_yd, rnd_tyu, rnd_tyd;
+	for( i=0; i<points[nm].x-points[nl].x+1; i++)
+	{
+		yu=klr*i+points[nl].y;	//points[nl].y+klr*i;
+		yd=klm*i+points[nl].y;	//points[nl].y+klm*i;
+		//printf("part1: x=%d	yu=%d	yd=%d \n", points[nl].x+i, yu, yd);
+
+	   	rnd_yu=roundf(yu);
+		rnd_yd=roundf(yd);
+		//rnd_tyu=roundf(tyu);
+		//rnd_tyd=roundf(tyd);
+
+		//draw_line_simple(dev, points[nl].x+i, roundf(yu), points[nl].x+i, roundf(yd));
+		/* Draw two end points at line klr and klm */
+		draw_dot(dev, points[nl].x+i, rnd_yu);
+		draw_dot(dev, points[nl].x+i, rnd_yd);
+
+		/* Fill pixels for continuity...,  all pixels just within the triangle! */
+		if(i>0) {
+
+		   if( klr>0.0 && rnd_yu>rnd_tyu ) {
+			for(k=rnd_tyu+1; k<=rnd_yu; k++) {
+			   if(rnd_yu>rnd_yd) { /* line klr above klm */
+				if(k<rnd_yd)continue;
+				draw_dot(dev, points[nl].x+i, k);
+			   }
+			   else if(rnd_yu<rnd_yd) {
+				if(k>rnd_tyd)break;
+				draw_dot(dev, points[nl].x+i-1, k);
+			  }
+			}
+	   	   }
+	   	   else if( klr<0.0 && rnd_yu<rnd_tyu ) {
+			for(k=rnd_tyu-1; k>=rnd_yu; k--) {
+			   if(rnd_yu>rnd_yd) {
+				if(k<rnd_tyd)break;
+				draw_dot(dev, points[nl].x+i-1, k);
+			   }
+			   else if(rnd_yu<rnd_yd) {
+				if(k>rnd_yd)continue;
+				draw_dot(dev, points[nl].x+i, k);
+			  }
+			}
+	   	   }
+
+		   if( klm>0.0 && rnd_yd>rnd_tyd ) {
+			for(k=rnd_tyd+1; k<=rnd_yd; k++) {
+			   if(rnd_yd>rnd_yu) {
+				if(k<rnd_yu)continue;
+				draw_dot(dev, points[nl].x+i, k);
+			   }
+			   else if(rnd_yd<rnd_yu) {
+				if(k>rnd_tyu)break;
+				draw_dot(dev, points[nl].x+i-1, k);
+			   }
+			}
+		   }
+		   else if( klm<0.0 && rnd_yd<rnd_tyd) {
+			for(k=rnd_tyd-1; k>=rnd_yd; k--) {
+			   if(rnd_yd>rnd_yu) {
+				if(k<rnd_tyu)break;
+				draw_dot(dev, points[nl].x+i-1, k);
+			   }
+			   else if(rnd_yd<rnd_yu) {
+				if(k>rnd_tyu)continue;
+				draw_dot(dev, points[nl].x+i, k);
+			   }
+			}
+		   }
+
+		}
+
+		/* Save yu/yd */
+		rnd_tyu=rnd_yu;
+		rnd_tyd=rnd_yd;
+	}
+	ymu=yu;
+	for( i=0; i<points[nr].x-points[nm].x+1; i++)
+	{
+		yu=klr*i+ymu;          //yu=ymu+klr*i;
+		yd=kmr*i+points[nm].y; //yd=points[nm].y+kmr*i;
+		//printf("part2: x=%d	yu=%d	yd=%d \n", points[nm].x+i, yu, yd);
+
+	   	rnd_yu=roundf(yu);
+		rnd_yd=roundf(yd);
+		//rnd_tyu=roundf(tyu);
+		//rnd_tyd=roundf(tyd);
+
+		//draw_line_simple(dev, points[nm].x+i, roundf(yu), points[nm].x+i, roundf(yd));
+		draw_dot(dev, points[nm].x+i, rnd_yu);
+		draw_dot(dev, points[nm].x+i, rnd_yd);
+
+		/* Fill pixels for continuity...,  all pixels just within the triangle! */
+		if(i>0) {
+
+		   if( klr>0.0 && rnd_yu>rnd_tyu ) {
+			for(k=rnd_tyu+1; k<=rnd_yu; k++) {
+			   if(rnd_yu>rnd_yd) {
+				if(k<rnd_yd)continue;
+				draw_dot(dev, points[nm].x+i, k);
+			   }
+			   else if(rnd_yu<rnd_yd) {
+				if(k>rnd_tyd)break;
+				draw_dot(dev, points[nm].x+i-1, k);
+			   }
+			}
+	   	   }
+	   	   else if( klr<0.0 && rnd_yu<rnd_tyu ) {
+			for(k=rnd_tyu-1; k>=rnd_yu; k--) {
+			   if(rnd_yu>rnd_yd) {
+				if(k<rnd_tyd)break;
+				draw_dot(dev, points[nm].x+i-1, k);
+			   }
+			   else if(rnd_yu<rnd_yd) {
+				if(k>rnd_yd)continue;
+				draw_dot(dev, points[nm].x+i, k);
+			   }
+			}
+	   	   }
+
+		   if( kmr>0.0 && rnd_yd>rnd_tyd ) {
+			for(k=rnd_tyd+1; k<=rnd_yd; k++) {
+			   if(rnd_yd>rnd_yu) {
+				if(k<rnd_yu)continue;
+				draw_dot(dev, points[nm].x+i, k);
+			   }
+			   else if(rnd_yd<rnd_yu) {
+				if(k>rnd_tyu)break;
+				draw_dot(dev, points[nm].x+i-1, k);
+			   }
+			}
+		   }
+		   else if( kmr<0.0 && rnd_yd<rnd_tyd) {
+			for(k=rnd_tyd-1; k>=rnd_yd; k--) {
+			   if(rnd_yd>rnd_yu) {
+				if(k<rnd_tyu)break;
+				draw_dot(dev, points[nm].x+i-1, k);
+			   }
+			   else if(rnd_yd<rnd_yu) {
+				if(k>rnd_tyu)continue;
+				draw_dot(dev, points[nm].x+i, k);
+			   }
+			}
+		   }
+
+		}
+
+		/* Save yu/yd */
+		//tyu=yu; XXX NOPE! save rnd_tyu instead!
+		//tyd=yd;
+		rnd_tyu=rnd_yu;
+		rnd_tyd=rnd_yd;
+	}
+
+	/* In case a vertical side. */
+	if(points[nl].x==points[nm].x)
+		draw_line_simple(dev, points[nl].x, points[nl].y, points[nm].x, points[nm].y);
+
+	if(points[nr].x==points[nm].x)
+		draw_line_simple(dev, points[nr].x, points[nr].y, points[nm].x, points[nm].y);
+
 	/* Draw outline: NOTE: draw_triangle() gives a litter bigger outline. */
 	//draw_triangle(dev, points);
 }
 
 
-/* ------------------------  OBSOLETE !!! ---------------------------------
+#if 0 /* ----------------  OBSOLETE and DISCARDED!!! ------------------------
 Draw a a filled triangle, pixel color are computed with barycentric
 coordinates interpolation.
 
@@ -2928,6 +3174,372 @@ void draw_filled_triangle2( FBDEV *fb_dev, float x0, float y0, float x1, float y
 			B=roundf(a*COLOR_B8_IN16BITS(color0)+b*COLOR_B8_IN16BITS(color1)+r*COLOR_B8_IN16BITS(color2));
 			fbset_color2(fb_dev, COLOR_RGB_TO16BITS(R,G,B));
                         draw_dot(fb_dev, roundf(x), k);
+		}
+	}
+}
+#endif /////////////////////////////////////////////////////////////////////////////
+
+/*----------------------------------------------------------------------
+Same as draw_filled_triangle4(),  Z values applys, BUT without colors!
+----------------------------------------------------------------------*/
+void draw_filled_triangle2( FBDEV *fb_dev,int x0, int y0, int x1, int y1, int x2, int y2,
+			    float z0, float z1, float z2 )
+{
+	/* Barycentric coordinates (a,b,r) for points inside the triangle:
+	 * P(x,y)=a*A + b*B + r*C;  where a+b+r=1.0.
+	 */
+	float a, b, r;
+	float ftmp;
+	int x; //y;
+
+	struct {
+		int x; int y; //int z;
+	} points[3];
+	points[0].x=x0; points[0].y=y0; //points[0].z=z0;
+	points[1].x=x1; points[1].y=y1; //points[1].z=z1;
+	points[2].x=x2; points[2].y=y2; //points[2].z=z2;
+
+	int i, j, k, kstart, kend;
+	int nl=0,nr=0; 		/* left and right point index */
+	int nm; 		/* mid point index */
+
+	double klr,klm,kmr;
+	float  fcheck1,fcheck2;
+
+	/* If 3 points are collinear, substitue x0/y0 later... */
+	int x0s=x0, x1s=x1, x2s=x2;
+	int y0s=y0, y1s=y1, y2s=y2;
+
+	/* use INT type */
+	int yu=0;
+	int yd=0;
+	int ymu=0;
+
+	/* --- Case 1 ---: All points are the SAME! */
+	if(x0==x1 && x1==x2 && y0==y1 && y1==y2) {
+        	/* Get interpolated color and draw dot. */
+		a=0.3333;    b=0.3333;    r=0.3333;
+
+		fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+                draw_dot(fb_dev, x0, y0);
+		return;
+	}
+
+	/* If all points are collinear. including case that TWO pionts are at SAME position! */
+	fcheck1 = -1.0*(x0-x1)*(y2-y1)+(y0-y1)*(x2-x1); // 1.0*(y0-y1)*(x2-x1);
+	fcheck2 = -1.0*(x1-x2)*(y0-y2)+(y1-y2)*(x0-x2); // 1.0*(y1-y2)*(x0-x2);
+
+#if 1  /* If it degenerates into a line:  Move one vertex a little, to make it a NEW resonable triangle! So we can
+	* compute barycentric a/b/r! However, color of the midpoint will ineffective! Means ONLY one side
+	* of the triangle is drawn.
+	* TODO: If necessary, re_assign input x0y0~x2y2 as the NEW triangle.
+        */
+	if( abs(fcheck1) < 0.0001 ) {
+//		egi_dpstd("fcheck1=%e, the Tri is degenerated into a line!\n", fcheck1);
+		//fcheck1=0.001;   FAILS!!! a,b OR r INALID!
+
+		/* Just move x1 OR y1 1 pixel! to avoid it's SAME as x0,y0 OR x2,y2 */
+		if( x0==x1 && x1==x2 )
+			x1s=x1-1;
+		else   // if( y0==y1 && y1==y2)
+			y1s=y1-1;
+
+		/* Recalculate fcheck */
+		fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
+		fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); //  1.0*(y1s-y2s)*(x0s-x2s);
+//		egi_dpstd("Aft min move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
+
+		 /* Check again! MUST NOT apply x1s/y2s both, in case it's a 45deg line! */
+		if(abs(fcheck1)<0.0001 || abs(fcheck2)<0.0001) {
+
+			/* Just Re_move x1 OR y1 1 pixel! to avoid it's SAME as x0,y0 OR x2,y2 */
+			if( x0==x1 && x1==x2 )
+                        	x1s=x1+1;
+	                else   // if( y0==y1 && y1==y2)
+                        	y1s=y1+1;
+			//x1s=x1+1;  //y1s=y1+1;
+
+			/* Recalculate fcheck */
+			fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
+			fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); // 1.0*(y1s-y2s)*(x0s-x2s);
+//			egi_dpstd("Aft min. re_move: fcheck1=%e\n", fcheck1);
+		}
+	}
+	if( abs(fcheck2) < 0.0001 ) {
+	//if( abs(fcheck1) < 0.0001 || abs(fcheck2) <0.0001 ) {
+//		egi_dpstd("fcheck2=%e, the Tri is degenerated into a line!\n", fcheck2);
+		//fcheck2=0.001;   FAILS!!! a,b OR r INALID!
+
+		/* Just move x2/y2 1 pixel! to avoid it's SAME as x1,y1 OR x0,y0 */
+		if( x0==x1 && x1==x2 )
+			x2s=x2-1;
+		else   // if( y0==y1 && y1==y2)
+			y2s=y2-1;
+
+		/* Recalculate fcheck */
+		fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
+		fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); // 1.0*(y1s-y2s)*(x0s-x2s);
+//		egi_dpstd("Aft min. move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
+
+		if(abs(fcheck2)<0.0001 ||abs(fcheck1)<0.0001) {
+			/* Just move x1/y1 1 pixel! to avoid it's SAME as x0,y0 OR x2,y2 */
+			if( x0==x1 && x1==x2 )
+				x2s=x2+1;
+			else   // if( y0==y1 && y1==y2)
+				y2s=y2+1;
+
+			/* Recalculate fcheck */
+			fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
+			fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); // 1.0*(y1s-y2s)*(x0s-x2s);
+//			egi_dpstd("Aft min. re_move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
+		}
+	}
+	/* Check again, should NOT appear NOW! */
+	if(abs(fcheck1)<0.0001 || abs(fcheck2)<0.0001) {
+//		egi_dpstd("fcheck~=0!, points: {%d,%d} {%d,%d} {%d,%d}\n", x0,y0,x1,y1,x2,y2);
+	}
+#endif
+
+	/* Cal nl, nr. just after collinear checking! */
+	for(i=1; i<3; i++) {
+		if(points[i].x < points[nl].x) nl=i;
+		if(points[i].x > points[nr].x) nr=i;
+	}
+
+	/* --- Case 2 ---: All points are collinear as a vertical line. */
+	if(nl==nr) {
+		/* Get yu yd */
+		yu=points[0].y;
+		yd=points[0].y;
+		for(i=1; i<3; i++) {
+			if(points[i].y>yu) yu=points[i].y;
+			if(points[i].y<yd) yd=points[i].y;
+		}
+
+		x=points[0].x;
+		for(k=yd; k<=yu; k++) {
+			/* Compute barycentric coordinates: a,b,r */
+			//a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1;
+			//b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2;
+			a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
+			b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
+
+			/* Normalize a/b/r */
+			if(a<0)a=-a; if(b<0)b=-b;
+			ftmp=a+b;
+			if(ftmp>1.0+0.001) {
+				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+				a=a/ftmp; b=b/ftmp;
+			}
+			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
+			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
+			r=1.0-a-b;
+			if(r<0.0f)r=0.0; // continue;
+
+			fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+                        draw_dot(fb_dev, x, k);
+		}
+
+		return;
+	}
+
+#if 1	/* ---- Case 3 ---: All points are collinear as an oblique/horizontal line. */
+	/* Note:
+	 *	1. You may skip case_3, to let Case_4 draw the line, however it draws ONLY discrete
+	 *	   dots for a steep line.
+	 *	2. Color of the midpoint of the line will be ineffective!
+	 * 	   TODO: NEW algrithm for interpolation color at a three_point line.
+	 */
+
+	if( (x0-x1)*(y2-y1)==(y0-y1)*(x2-x1) || (x1-x2)*(y0-y2)==(y1-y2)*(x0-x2) )
+	{
+//		egi_dpstd("the Tri degenerates into an oblique/horiz line!\n");
+
+		int x1=points[nl].x;
+		int y1=points[nl].y;
+		int x2=points[nr].x;
+		int y2=points[nr].y;
+
+		int tekxx=x2-x1;
+		int tekyy=y2-y1;
+
+		int tmp;
+
+	        /* Ruled out (points[nr].x == points[nl].x), as nl==nr. a vertical line. */
+		//klr=1.0*(y2-y1)/(x2-x1);  NO USE!!
+
+		/* NOW: x2>x1 */
+		tmp=y1;
+
+		/* Draw all points */
+		for(i=x1; i<=x2; i++) {
+		     	/* j as Py */
+		    	j=roundf( 1.0*(i-x1)*tekyy/tekxx+y1 );
+
+			/* Get color at (i, j) */
+			a=(-1.0*(i-x1s)*(y2s-y1s)+(j-y1s)*(x2s-x1s))/fcheck1;
+			b=(-1.0*(i-x2s)*(y0s-y2s)+(j-y2s)*(x0s-x2s))/fcheck2;
+
+		#if 1 /* TEST: ------------------------------- */
+			if(a!=a) egi_dpstd("a is NaN!\n");
+			if(b!=b) egi_dpstd("b is NaN!\n");
+		#endif
+
+			/* Normalize a/b/r */
+			if(a<0)a=-a; if(b<0)b=-b;
+			ftmp=a+b;
+			if(ftmp>1.0f+0.001) {
+				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+				a=a/ftmp; b=b/ftmp;
+			}
+			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
+			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
+			r=1.0-a-b;
+			if(r<0.0f) r=0.0f; //continue;
+
+			if(y2>=y1) {
+				/* Traverse tmp (+)-> pY */
+				for(k=tmp; k<=j; k++) {
+					if(tmp==j) {
+						fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+						draw_dot(fb_dev,i,k);
+						break;
+					}
+
+					fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+				     	draw_dot(fb_dev,i,k);
+				}
+			}
+			else {  /* y2<y1, Traverse tmp (-)-> pY*/
+				for(k=tmp; k>=j; k--) {
+					if(tmp==j) {
+						fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+						draw_dot(fb_dev,i,k);
+						break;
+					}
+
+					fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+				     	draw_dot(fb_dev,i,k);
+				}
+			}
+
+			tmp=j; /* Renew tmp as j(pY) */
+		}
+
+		return;
+	}
+#endif   /* End Case 3 */
+
+	/* ---- Case 4 ---: As a true triangle. */
+
+	/* Get x_mid point index, NOW: nl != nr. */
+	nm=3-nl-nr;
+
+	/* Ruled out (points[nr].x == points[nl].x), as nl==nr.  */
+	//if(nl!=nr)
+	       klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
+	//else
+	//       klr=1000000.0;
+
+	if(points[nm].x != points[nl].x) {
+		klm=1.0*(points[nm].y-points[nl].y)/(points[nm].x-points[nl].x);
+	}
+	else
+		klm=1000000.0;
+
+	if(points[nr].x != points[nm].x) {
+		kmr=1.0*(points[nr].y-points[nm].y)/(points[nr].x-points[nm].x);
+	}
+	else
+		kmr=1000000.0;
+
+	/* Draw lines for two tri */
+	//for( i=0; i< points[nm].x-points[nl].x; i++)
+	for( i=0; i< points[nm].x-points[nl].x+1; i++)
+	{
+		yu=roundf(klr*i+points[nl].y);
+		yd=roundf(klm*i+points[nl].y);
+		//egi_dpstd("nm-nl: yu=%d, yd=%d\n", yu,yd);
+
+		/* Cal. x */
+		x=points[nl].x+i;
+
+		if(yu>yd) { kstart=yd; kend=yu; }
+		else	  { kstart=yu; kend=yd; }
+
+		for(k=kstart; k<=kend; k++) {
+			/* Calculate barycentric coordinates: a,b,r */
+			/*Note: y=k */
+			/* Note: Necessary for precesion check! */
+			//a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1;
+			//b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2;
+			a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
+			b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
+
+#if 1 /* TEST: ------------------------------- */
+			if(a!=a) egi_dpstd("a is NaN!\n");
+			if(b!=b) egi_dpstd("b is NaN!\n");
+#endif
+
+			/* Normalize a/b/r */
+			if(a<0)a=-a; if(b<0)b=-b;
+			ftmp=a+b;
+			if(ftmp>1.0f+0.001) {
+				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+				a=a/ftmp; b=b/ftmp;
+			}
+			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
+			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
+			r=1.0-a-b;
+			if(r<0.0f) r=0.0f; //continue;
+
+			fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+                        draw_dot(fb_dev, x, k);
+		}
+	}
+
+	ymu=klr*(i-1)+points[nl].y; //ymu=yu; yu MAYBE replaced by yd!
+	//for( i=0; i<points[nr].x-points[nm].x; i++)
+	for( i=0; i< points[nr].x-points[nm].x+1; i++)
+	{
+		yu=roundf(klr*i+ymu);
+		yd=roundf(kmr*i+points[nm].y);
+		//egi_dpstd("nr-nm: yu=%d, yd=%d\n", yu,yd);
+
+		/* Cal. x */
+		x=points[nm].x+i;
+
+		if(yu>yd) { kstart=yd; kend=yu; }
+		else	  { kstart=yu; kend=yd; }
+
+		for(k=kstart; k<=kend; k++) {
+			/* Calculate barycentric coordinates: a,b,r */
+			// y=k;
+			/* Note: Necessary for precesion check! */
+			//a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1;
+			//b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2;
+			a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
+			b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
+
+#if 1 /* TEST: ------------------------------- */
+			if(a!=a) egi_dpstd("a is NaN!\n");
+			if(b!=b) egi_dpstd("b is NaN!\n");
+#endif
+
+			/* Normalize a/b/r */
+			if(a<0)a=-a; if(b<0)b=-b;
+			ftmp=a+b;
+			if(ftmp>1.0f+0.001) {
+				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+				a=a/ftmp; b=b/ftmp;
+			}
+			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
+			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
+			r=1.0-a-b;
+			if(r<0.0f) r=0.0; //continue;
+
+			fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+                        draw_dot(fb_dev, x, k);
 		}
 	}
 }
@@ -3389,6 +4001,457 @@ void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x
 #endif
 
 			fbset_color2(fb_dev, COLOR_RGB_TO16BITS(R,G,B));
+                        draw_dot(fb_dev, x, k);
+		}
+	}
+}
+
+///////////////////////////////  With z0/z1/z3  ///////////////////////
+/*----------------------------------------------------------------------
+Refer to draw_filled_triangle3().  Add Z values to apply for FB zbuff.
+
+z0-z2: Z values of 3 points.
+
+Midas Zhou
+----------------------------------------------------------------------*/
+void draw_filled_triangle4( FBDEV *fb_dev,int x0, int y0, int x1, int y1, int x2, int y2,
+			    float z0, float z1, float z2,
+			    EGI_16BIT_COLOR color0, EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2 )
+{
+	/* Barycentric coordinates (a,b,r) for points inside the triangle:
+	 * P(x,y)=a*A + b*B + r*C;  where a+b+r=1.0.
+	 */
+	float a, b, r;
+	float ftmp;
+	int x; //y;
+
+	struct {
+		int x; int y; //int z;
+	} points[3];
+	points[0].x=x0; points[0].y=y0; //points[0].z=z0;
+	points[1].x=x1; points[1].y=y1; //points[1].z=z1;
+	points[2].x=x2; points[2].y=y2; //points[2].z=z2;
+
+	int i, j, k, kstart, kend;
+	int nl=0,nr=0; 		/* left and right point index */
+	int nm; 		/* mid point index */
+
+	double klr,klm,kmr;
+	float  fcheck1,fcheck2;
+
+	/* If 3 points are collinear, substitue x0/y0 later... */
+	int x0s=x0, x1s=x1, x2s=x2;
+	int y0s=y0, y1s=y1, y2s=y2;
+
+	/* use INT type */
+	int yu=0;
+	int yd=0;
+	int ymu=0;
+	//EGI_8BIT_CCODE R,G,B;
+	EGI_16BIT_COLOR R,G,B;
+
+	/* --- Case 1 ---: All points are the SAME! */
+	if(x0==x1 && x1==x2 && y0==y1 && y1==y2) {
+        	/* Get interpolated color and draw dot. */
+		a=0.3333;    b=0.3333;    r=0.3333;
+                R=roundf(a*COLOR_R8_IN16BITS(color0)+b*COLOR_R8_IN16BITS(color1)+r*COLOR_R8_IN16BITS(color2));
+                G=roundf(a*COLOR_G8_IN16BITS(color0)+b*COLOR_G8_IN16BITS(color1)+r*COLOR_G8_IN16BITS(color2));
+                B=roundf(a*COLOR_B8_IN16BITS(color0)+b*COLOR_B8_IN16BITS(color1)+r*COLOR_B8_IN16BITS(color2));
+                fbset_color2(fb_dev, COLOR_RGB_TO16BITS(R,G,B));
+
+		fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+                draw_dot(fb_dev, x0, y0);
+		return;
+	}
+
+	/* If all points are collinear. including case that TWO pionts are at SAME position! */
+	fcheck1 = -1.0*(x0-x1)*(y2-y1)+(y0-y1)*(x2-x1); // 1.0*(y0-y1)*(x2-x1);
+	fcheck2 = -1.0*(x1-x2)*(y0-y2)+(y1-y2)*(x0-x2); // 1.0*(y1-y2)*(x0-x2);
+
+#if 1  /* If it degenerates into a line:  Move one vertex a little, to make it a NEW resonable triangle! So we can
+	* compute barycentric a/b/r! However, color of the midpoint will ineffective! Means ONLY one side
+	* of the triangle is drawn.
+	* TODO: If necessary, re_assign input x0y0~x2y2 as the NEW triangle.
+        */
+	if( abs(fcheck1) < 0.0001 ) {
+//		egi_dpstd("fcheck1=%e, the Tri is degenerated into a line!\n", fcheck1);
+		//fcheck1=0.001;   FAILS!!! a,b OR r INALID!
+
+		/* Just move x1 OR y1 1 pixel! to avoid it's SAME as x0,y0 OR x2,y2 */
+		if( x0==x1 && x1==x2 )
+			x1s=x1-1;
+		else   // if( y0==y1 && y1==y2)
+			y1s=y1-1;
+
+		/* Recalculate fcheck */
+		fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
+		fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); //  1.0*(y1s-y2s)*(x0s-x2s);
+//		egi_dpstd("Aft min move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
+
+		 /* Check again! MUST NOT apply x1s/y2s both, in case it's a 45deg line! */
+		if(abs(fcheck1)<0.0001 || abs(fcheck2)<0.0001) {
+
+			/* Just Re_move x1 OR y1 1 pixel! to avoid it's SAME as x0,y0 OR x2,y2 */
+			if( x0==x1 && x1==x2 )
+                        	x1s=x1+1;
+	                else   // if( y0==y1 && y1==y2)
+                        	y1s=y1+1;
+			//x1s=x1+1;  //y1s=y1+1;
+
+			/* Recalculate fcheck */
+			fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
+			fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); // 1.0*(y1s-y2s)*(x0s-x2s);
+//			egi_dpstd("Aft min. re_move: fcheck1=%e\n", fcheck1);
+		}
+	}
+	if( abs(fcheck2) < 0.0001 ) {
+	//if( abs(fcheck1) < 0.0001 || abs(fcheck2) <0.0001 ) {
+//		egi_dpstd("fcheck2=%e, the Tri is degenerated into a line!\n", fcheck2);
+		//fcheck2=0.001;   FAILS!!! a,b OR r INALID!
+
+		/* Just move x2/y2 1 pixel! to avoid it's SAME as x1,y1 OR x0,y0 */
+		if( x0==x1 && x1==x2 )
+			x2s=x2-1;
+		else   // if( y0==y1 && y1==y2)
+			y2s=y2-1;
+
+		/* Recalculate fcheck */
+		fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
+		fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); // 1.0*(y1s-y2s)*(x0s-x2s);
+//		egi_dpstd("Aft min. move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
+
+		if(abs(fcheck2)<0.0001 ||abs(fcheck1)<0.0001) {
+			/* Just move x1/y1 1 pixel! to avoid it's SAME as x0,y0 OR x2,y2 */
+			if( x0==x1 && x1==x2 )
+				x2s=x2+1;
+			else   // if( y0==y1 && y1==y2)
+				y2s=y2+1;
+
+			/* Recalculate fcheck */
+			fcheck1 = -1.0*(x0s-x1s)*(y2s-y1s)+(y0s-y1s)*(x2s-x1s); // 1.0*(y0s-y1s)*(x2s-x1s);
+			fcheck2 = -1.0*(x1s-x2s)*(y0s-y2s)+(y1s-y2s)*(x0s-x2s); // 1.0*(y1s-y2s)*(x0s-x2s);
+//			egi_dpstd("Aft min. re_move: fcheck1=%e, fcheck2=%e\n", fcheck1,fcheck2);
+		}
+	}
+	/* Check again, should NOT appear NOW! */
+	if(abs(fcheck1)<0.0001 || abs(fcheck2)<0.0001) {
+//		egi_dpstd("fcheck~=0!, points: {%d,%d} {%d,%d} {%d,%d}\n", x0,y0,x1,y1,x2,y2);
+	}
+#endif
+
+	/* Cal nl, nr. just after collinear checking! */
+	for(i=1; i<3; i++) {
+		if(points[i].x < points[nl].x) nl=i;
+		if(points[i].x > points[nr].x) nr=i;
+	}
+
+	/* --- Case 2 ---: All points are collinear as a vertical line. */
+	if(nl==nr) {
+		/* Get yu yd */
+		yu=points[0].y;
+		yd=points[0].y;
+		for(i=1; i<3; i++) {
+			if(points[i].y>yu) yu=points[i].y;
+			if(points[i].y<yd) yd=points[i].y;
+		}
+
+		x=points[0].x;
+		for(k=yd; k<=yu; k++) {
+			/* Compute barycentric coordinates: a,b,r */
+			//a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1;
+			//b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2;
+			a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
+			b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
+
+			/* Normalize a/b/r */
+			if(a<0)a=-a; if(b<0)b=-b;
+			ftmp=a+b;
+			if(ftmp>1.0+0.001) {
+				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+				a=a/ftmp; b=b/ftmp;
+			}
+			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
+			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
+			r=1.0-a-b;
+			if(r<0.0f)r=0.0; // continue;
+
+			/* Get interpolated color and draw dot. */
+			R=roundf(a*COLOR_R8_IN16BITS(color0)+b*COLOR_R8_IN16BITS(color1)+r*COLOR_R8_IN16BITS(color2));
+			G=roundf(a*COLOR_G8_IN16BITS(color0)+b*COLOR_G8_IN16BITS(color1)+r*COLOR_G8_IN16BITS(color2));
+			B=roundf(a*COLOR_B8_IN16BITS(color0)+b*COLOR_B8_IN16BITS(color1)+r*COLOR_B8_IN16BITS(color2));
+			fbset_color2(fb_dev, COLOR_RGB_TO16BITS(R,G,B));
+
+			fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+                        draw_dot(fb_dev, x, k);
+		}
+
+		return;
+	}
+
+#if 1	/* ---- Case 3 ---: All points are collinear as an oblique/horizontal line. */
+	/* Note:
+	 *	1. You may skip case_3, to let Case_4 draw the line, however it draws ONLY discrete
+	 *	   dots for a steep line.
+	 *	2. Color of the midpoint of the line will be ineffective!
+	 * 	   TODO: NEW algrithm for interpolation color at a three_point line.
+	 */
+
+	if( (x0-x1)*(y2-y1)==(y0-y1)*(x2-x1) || (x1-x2)*(y0-y2)==(y1-y2)*(x0-x2) )
+	{
+//		egi_dpstd("the Tri degenerates into an oblique/horiz line!\n");
+
+		int x1=points[nl].x;
+		int y1=points[nl].y;
+		int x2=points[nr].x;
+		int y2=points[nr].y;
+
+		int tekxx=x2-x1;
+		int tekyy=y2-y1;
+
+		int tmp;
+		EGI_16BIT_COLOR colorTmp; /* Color corresponds to k(y)=tmp */
+		EGI_16BIT_COLOR colorJ;   /* Color corresponds to k(y)=J */
+		EGI_16BIT_COLOR color;	  /* draw_dot() pixel color */
+
+	        /* Ruled out (points[nr].x == points[nl].x), as nl==nr. a vertical line. */
+		//klr=1.0*(y2-y1)/(x2-x1);  NO USE!!
+
+		/* NOW: x2>x1 */
+		tmp=y1;
+
+		/* Get colorTmp */
+		if(nl==0) colorTmp=color0;
+		else if(nl==1) colorTmp=color1;
+		else colorTmp=color2;
+
+		/* Draw all points */
+		for(i=x1; i<=x2; i++) {
+		     	/* j as Py */
+		    	j=roundf( 1.0*(i-x1)*tekyy/tekxx+y1 );
+
+			/* Get color at (i, j) */
+			a=(-1.0*(i-x1s)*(y2s-y1s)+(j-y1s)*(x2s-x1s))/fcheck1;
+			b=(-1.0*(i-x2s)*(y0s-y2s)+(j-y2s)*(x0s-x2s))/fcheck2;
+
+		#if 1 /* TEST: ------------------------------- */
+			if(a!=a) egi_dpstd("a is NaN!\n");
+			if(b!=b) egi_dpstd("b is NaN!\n");
+		#endif
+
+			/* Normalize a/b/r */
+			if(a<0)a=-a; if(b<0)b=-b;
+			ftmp=a+b;
+			if(ftmp>1.0f+0.001) {
+				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+				a=a/ftmp; b=b/ftmp;
+			}
+			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
+			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
+			r=1.0-a-b;
+			if(r<0.0f) r=0.0f; //continue;
+
+                        /* Get interpolated color at point (i, j)*/
+                        R=roundf(a*COLOR_R8_IN16BITS(color0)+b*COLOR_R8_IN16BITS(color1)+r*COLOR_R8_IN16BITS(color2));
+                        G=roundf(a*COLOR_G8_IN16BITS(color0)+b*COLOR_G8_IN16BITS(color1)+r*COLOR_G8_IN16BITS(color2));
+                        B=roundf(a*COLOR_B8_IN16BITS(color0)+b*COLOR_B8_IN16BITS(color1)+r*COLOR_B8_IN16BITS(color2));
+			colorJ=COLOR_RGB_TO16BITS(R,G,B);
+
+	#if 1 /* TEST: ------------------------------- */
+			if(R==0 && G==0 && B==0) {
+			//	egi_dpstd("R=G=B=0! a=%e,b=%e,r=%e\n", a,b,r);
+			}
+			//else if( R<10 && G<10 && B<10)
+			//	egi_dpstd("R,G,B<10! a=%e,b=%e,r=%e\n", a,b,r);
+
+			else if( R>255 || G>255 || B>255)
+				egi_dpstd("R,G,B>255! R=%d,G=%d,B=%d. a=%e,b=%e,r=%e\n", R,G,B, a,b,r);
+	#endif
+
+			if(y2>=y1) {
+				/* Traverse tmp (+)-> pY */
+				for(k=tmp; k<=j; k++) {
+					if(tmp==j) {
+						fbset_color2(fb_dev, colorJ);
+						fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+						draw_dot(fb_dev,i,k);
+						break;
+					}
+
+				     	/* Set color for point(i,k) */
+ 				     	egi_16bitColor_interplt( colorTmp, colorJ, 0, 0, (k-tmp)*(1<<15)/(j-tmp), &color, NULL);
+					fbset_color2(fb_dev, color);
+
+					fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+				     	draw_dot(fb_dev,i,k);
+				}
+			}
+			else {  /* y2<y1, Traverse tmp (-)-> pY*/
+				for(k=tmp; k>=j; k--) {
+					if(tmp==j) {
+						fbset_color2(fb_dev, colorJ);
+						fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+						draw_dot(fb_dev,i,k);
+						break;
+					}
+
+				     	/* Color for point(i,k) */
+ 				     	egi_16bitColor_interplt( colorTmp, colorJ, 0, 0, (tmp-k)*(1<<15)/(tmp-j), &color, NULL);
+					fbset_color2(fb_dev, color);
+
+					fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+				     	draw_dot(fb_dev,i,k);
+				}
+			}
+
+			tmp=j; /* Renew tmp as j(pY) */
+			colorTmp=colorJ; /* Renew colroTmp as color J */
+		}
+
+		return;
+	}
+#endif   /* End Case 3 */
+
+	/* ---- Case 4 ---: As a true triangle. */
+
+	/* Get x_mid point index, NOW: nl != nr. */
+	nm=3-nl-nr;
+
+	/* Ruled out (points[nr].x == points[nl].x), as nl==nr.  */
+	//if(nl!=nr)
+	       klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
+	//else
+	//       klr=1000000.0;
+
+	if(points[nm].x != points[nl].x) {
+		klm=1.0*(points[nm].y-points[nl].y)/(points[nm].x-points[nl].x);
+	}
+	else
+		klm=1000000.0;
+
+	if(points[nr].x != points[nm].x) {
+		kmr=1.0*(points[nr].y-points[nm].y)/(points[nr].x-points[nm].x);
+	}
+	else
+		kmr=1000000.0;
+
+	/* Draw lines for two tri */
+	//for( i=0; i< points[nm].x-points[nl].x; i++)
+	for( i=0; i< points[nm].x-points[nl].x+1; i++)
+	{
+		yu=roundf(klr*i+points[nl].y);
+		yd=roundf(klm*i+points[nl].y);
+		//egi_dpstd("nm-nl: yu=%d, yd=%d\n", yu,yd);
+
+		/* Cal. x */
+		x=points[nl].x+i;
+
+		if(yu>yd) { kstart=yd; kend=yu; }
+		else	  { kstart=yu; kend=yd; }
+
+		for(k=kstart; k<=kend; k++) {
+			/* Calculate barycentric coordinates: a,b,r */
+			/*Note: y=k */
+			/* Note: Necessary for precesion check! */
+			//a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1;
+			//b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2;
+			a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
+			b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
+
+#if 1 /* TEST: ------------------------------- */
+			if(a!=a) egi_dpstd("a is NaN!\n");
+			if(b!=b) egi_dpstd("b is NaN!\n");
+#endif
+
+			/* Normalize a/b/r */
+			if(a<0)a=-a; if(b<0)b=-b;
+			ftmp=a+b;
+			if(ftmp>1.0f+0.001) {
+				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+				a=a/ftmp; b=b/ftmp;
+			}
+			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
+			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
+			r=1.0-a-b;
+			if(r<0.0f) r=0.0f; //continue;
+
+			/* Get interpolated color and draw dot. */
+			R=roundf(a*COLOR_R8_IN16BITS(color0)+b*COLOR_R8_IN16BITS(color1)+r*COLOR_R8_IN16BITS(color2));
+			G=roundf(a*COLOR_G8_IN16BITS(color0)+b*COLOR_G8_IN16BITS(color1)+r*COLOR_G8_IN16BITS(color2));
+			B=roundf(a*COLOR_B8_IN16BITS(color0)+b*COLOR_B8_IN16BITS(color1)+r*COLOR_B8_IN16BITS(color2));
+
+#if 1 /* TEST: ------------------------------- */
+			if(R==0 && G==0 && B==0) {
+			//	egi_dpstd("R=G=B=0! a=%e,b=%e,r=%e\n", a,b,r);
+			}
+			//else if( R<10 && G<10 && B<10)
+			//	egi_dpstd("R,G,B<10! a=%e,b=%e,r=%e\n", a,b,r);
+			else if( R>255 || G>255 || B>255)
+				egi_dpstd("R,G,B>255! R=%d,G=%d,B=%d. a=%e,b=%e,r=%e\n", R,G,B, a,b,r);
+#endif
+
+			fbset_color2(fb_dev, COLOR_RGB_TO16BITS(R,G,B));
+			fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+                        draw_dot(fb_dev, x, k);
+		}
+	}
+
+	ymu=klr*(i-1)+points[nl].y; //ymu=yu; yu MAYBE replaced by yd!
+	//for( i=0; i<points[nr].x-points[nm].x; i++)
+	for( i=0; i< points[nr].x-points[nm].x+1; i++)
+	{
+		yu=roundf(klr*i+ymu);
+		yd=roundf(kmr*i+points[nm].y);
+		//egi_dpstd("nr-nm: yu=%d, yd=%d\n", yu,yd);
+
+		/* Cal. x */
+		x=points[nm].x+i;
+
+		if(yu>yd) { kstart=yd; kend=yu; }
+		else	  { kstart=yu; kend=yd; }
+
+		for(k=kstart; k<=kend; k++) {
+			/* Calculate barycentric coordinates: a,b,r */
+			// y=k;
+			/* Note: Necessary for precesion check! */
+			//a=(-1.0*(x-x1s)*(y2s-y1s)+1.0*(k-y1s)*(x2s-x1s))/fcheck1;
+			//b=(-1.0*(x-x2s)*(y0s-y2s)+1.0*(k-y2s)*(x0s-x2s))/fcheck2;
+			a=(-1.0*(x-x1s)*(y2s-y1s)+(k-y1s)*(x2s-x1s))/fcheck1;
+			b=(-1.0*(x-x2s)*(y0s-y2s)+(k-y2s)*(x0s-x2s))/fcheck2;
+
+#if 1 /* TEST: ------------------------------- */
+			if(a!=a) egi_dpstd("a is NaN!\n");
+			if(b!=b) egi_dpstd("b is NaN!\n");
+#endif
+
+			/* Normalize a/b/r */
+			if(a<0)a=-a; if(b<0)b=-b;
+			ftmp=a+b;
+			if(ftmp>1.0f+0.001) {
+				//egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+				a=a/ftmp; b=b/ftmp;
+			}
+			if(a<0.0f)a=0.0f; else if(a>1.0f)a=1.0f;
+			if(b<0.0f)b=0.0f; else if(b>1.0f)b=1.0f;
+			r=1.0-a-b;
+			if(r<0.0f) r=0.0; //continue;
+
+			/* Get interpolated color and draw dot. */
+			R=roundf(a*COLOR_R8_IN16BITS(color0)+b*COLOR_R8_IN16BITS(color1)+r*COLOR_R8_IN16BITS(color2));
+			G=roundf(a*COLOR_G8_IN16BITS(color0)+b*COLOR_G8_IN16BITS(color1)+r*COLOR_G8_IN16BITS(color2));
+			B=roundf(a*COLOR_B8_IN16BITS(color0)+b*COLOR_B8_IN16BITS(color1)+r*COLOR_B8_IN16BITS(color2));
+
+#if 1 /* TEST: ------------------------------- */
+			if(R==0 && G==0 && B==0) {
+			//	egi_dpstd("R=G=B=0! a=%e,b=%e,r=%e\n", a,b,r);
+			}
+			//else if( R<10 && G<10 && B<10)
+			//	egi_dpstd("R,G,B<10! a=%e,b=%e,r=%e\n", a,b,r);
+			else if( R>255 || G>255 || B>255)
+				egi_dpstd("R,G,B>255! R=%d,G=%d,B=%d. a=%e,b=%e,r=%e\n", R,G,B, a,b,r);
+#endif
+
+			fbset_color2(fb_dev, COLOR_RGB_TO16BITS(R,G,B));
+			fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
                         draw_dot(fb_dev, x, k);
 		}
 	}

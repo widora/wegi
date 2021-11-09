@@ -82,9 +82,14 @@ int main(int argc, char **argv)
 	material.print();
 	#endif
 
-#if 0	/* TEST: readMtlFile */
+#if 1	/* TEST: readMtlFile */
+	if(argc>2)
+		readMtlFile(argv[1], argv[2], material);
+	else
+		exit(1);
+
 	//readMtlFile("/mmc/test.mtl","myMaterial",material);
-	readMtlFile("/mmc/test.mtl", argv[1], material);
+	//readMtlFile("/mmc/test.mtl", argv[1], material);
 	material.print();
 
 	/* To display the texture map_kd */
@@ -103,7 +108,7 @@ int main(int argc, char **argv)
 	}
 #endif
 
-#if 1	/* TEST: readMtlFile() vector */
+#if 0	/* TEST: readMtlFile() vector */
 //    while(1) {
 	vector<E3D_Material>  mtlList;  /* Material list */
 

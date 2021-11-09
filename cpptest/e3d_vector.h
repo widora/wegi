@@ -38,9 +38,19 @@ Journal:
 	2. Add void combIntriRotation().
 2021-10-13:
 	1. Add E3D_RTMatrix::transpose()
-	2. Add E3D_combGlobalIntriRotation()
+	2. Add E3D_combGlobalIntriRotation() ---> rename  E3D_combIntriTranslation() 10-23
 	3  Constructor E3D_RTMatrix() { identity(); } <---identity!
 
+2021-10-20:
+	1. Add E3D_RTMatrix::isIdentity()
+	2. Add E3D_RTMatrix::isOrthogonal()
+2021-10-21:
+	1. Add E3D_RTMatrix::orthNormalize()
+2021-10-23:
+	1. Add E3D_combIntriRotation()
+	2. Add E3D_combIntriTranslation()
+2021-10-26:
+	1. Add E3D_combExtriRotation()
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -74,8 +84,15 @@ E3D_RTMatrix operator* (const E3D_RTMatrix &ma, const E3D_RTMatrix &mb);
 E3D_RTMatrix operator+ (const E3D_RTMatrix &ma, const E3D_RTMatrix &mb);
 void E3D_getCombRotation(const E3D_RTMatrix &ma, const E3D_RTMatrix &mb, E3D_RTMatrix &mc);
 
-void E3D_combIntriRotation(char axisTok, float ang, E3D_RTMatrix &RTmat);
+//void E3D_combIntriRotation(char axisTok, float ang, E3D_RTMatrix &RTmat);
+//void E3D_combIntriRotation(char axisTok, float ang,  E3D_RTMatrix CoordMat, E3D_RTMatrix & RTmat);
+
 void E3D_combGlobalIntriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix CoordMat, E3D_RTMatrix & RTmat);
+void E3D_combIntriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix & RTmat);
+void E3D_combIntriTranslation(E3D_Vector Vxyz,  E3D_RTMatrix & RTmat);
+void E3D_combIntriTranslation(float tx, float ty, float tz,  E3D_RTMatrix & RTmat);
+
+void E3D_combExtriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix & RTmat);
 
 void  E3D_transform_vectors( E3D_Vector *vts, unsigned int vcnt, const E3D_RTMatrix &RTMatrix);
 
@@ -238,7 +255,7 @@ public:
 
 	/* Print */
 	//void print() { printf("V(%f, %f, %f)\n",x,y,z); };
-	void print(const char *name=NULL) { printf("%s(%f, %f, %f)\n",name, x,y,z); };
+	void print(const char *name=NULL) { printf("Vector'%s':(%f, %f, %f)\n",name, x,y,z); };
 };
 
 
@@ -277,10 +294,12 @@ inline float E3D_vector_distance(const E3D_Vector &va, const E3D_Vector &vb)
 }
 
 
-/*---------------------------------------------
+/*-------------------------------------------------
        		Class: E3D_RTMatrix
 3D Transform Matrix (4x3)  (Rotation+Translation)
-----------------------------------------------*/
+Note:
+1. For inertial Coord, just zeroTranslation().
+-------------------------------------------------*/
 class E3D_RTMatrix {
 public:
         //const int nr=4;         /* Rows */
@@ -294,6 +313,7 @@ public:
 		   pmat[6,7,8]: m31, m32, m33
 	 * Translation:
 		   pmat[9,10,11]: tx,ty,tz
+	 * If zeroTranslation, then it's under Inertial Coord.
 	 */
 
 	/* Constructor */
@@ -309,9 +329,9 @@ public:
 	}
 
 	/* Print */
-	void print(const char *name=NULL) {
+	void print(const char *name=NULL) const {
 		int i,j;
-		printf("   <<< %s >>>\nRotation_Matrix[3x3]: \n",name);
+		printf("   <<< RTMatrix '%s' >>>\nRotation_Matrix[3x3]: \n",name);
 		for(i=0; i<3; i++) {
 			for(j=0; j<3; j++)
 				printf("%f  ",pmat[i*3+j]);
@@ -361,6 +381,74 @@ public:
         	for( int i=0; i<3; i++)
 	           for( int j=0; j<3; j++)
         	        pmat[i*3+j]=copyMat.pmat[i+j*3];
+	}
+
+	/* Check wheather the matrix is identity */
+	bool isIdentity() {
+		for(int i=0; i<9; i++) {
+			if(i%4==0) {
+			    if(fabs(pmat[i]-1.0)>1.0e-5)
+			    	return false;
+			}
+			else if(fabs(pmat[i])>1.0e-5)
+				return false;
+		}
+
+		return true;
+	}
+
+	/* Check wheather the matrix is orthogonal */
+	bool isOrthogonal() {
+#if 1 //////////  METHOD_1 //////////
+		E3D_RTMatrix  Tmat=*this; /* Transpose of this matrix */
+		Tmat.transpose();
+
+		Tmat = Tmat*(*this);
+		//Tmat.print("M*M^t");
+
+		return( Tmat.isIdentity() );
+#else ////////  Method_2 ////////////
+		
+
+#endif
+
+	}
+
+	/* Orthogonalize+Normalize the RTMatrix.
+	 * Reference: Direction Cosine Matrix IMU: Theory (Eqn 19-21)
+	 *	       by Paul Bizard and  Ecole Centrale
+	 */
+	void orthNormalize() {
+		E3D_Vector axisX, new_axisX;
+		E3D_Vector axisY, new_axisY;
+		E3D_Vector new_axisZ;
+		float error;  /* As  dot_product of axisX(row0)*axisY(row1) of RTMatrix,  */
+
+		axisX.x = pmat[0]; axisX.y=pmat[1]; axisX.z=pmat[2];
+		axisY.x = pmat[3]; axisY.y=pmat[4]; axisY.z=pmat[5];
+
+		/* dot_product of axisX and axisY */
+		error=pmat[0]*pmat[3]+pmat[1]*pmat[4]+pmat[2]*pmat[5];
+
+	/* TEST: -------- */
+		egi_dpstd("Dot_product: axisX*axisY=%f  (should be 0.0!) \n", error);
+
+		/* Average error to axisX and axisY */
+		new_axisX = axisX-(0.5*error)*axisY;
+	        new_axisY = axisY-(0.5*error)*axisX;
+		new_axisZ = E3D_vector_crossProduct(new_axisX,new_axisY);
+
+		/* Normalize, use Taylor's expansion! */
+		new_axisX = 0.5*(3.0-new_axisX*new_axisX)*new_axisX;
+		new_axisY = 0.5*(3.0-new_axisY*new_axisY)*new_axisY;
+		new_axisZ = 0.5*(3.0-new_axisZ*new_axisZ)*new_axisZ;
+
+		/* Upate pmat[] */
+		pmat[0]=new_axisX.x; pmat[1]=new_axisX.y; pmat[2]=new_axisX.z;
+		pmat[3]=new_axisY.x; pmat[4]=new_axisY.y; pmat[5]=new_axisY.z;
+		pmat[6]=new_axisZ.x; pmat[7]=new_axisZ.y; pmat[8]=new_axisZ.z;
+
+		/* Keep TxTyTz */
 	}
 
 	/* Set part of Translation TxTyTz in pmat[] */
@@ -573,6 +661,7 @@ E3D_Vector operator * (const E3D_Vector &va, const E3D_RTMatrix  &ma)
 }
 
 
+#if 0 ////////////////////////////////////////////////////////
 /*----------------------------------------------------
 To combine intrinsic rotation with original RTMatrix.
 Translation of RTmat keeps UNCHANGED!
@@ -745,46 +834,58 @@ void E3D_combIntriRotation(char axisTok, float ang,  E3D_RTMatrix CoordMat, E3D_
                         RTmat.pmat[k]=cmat.pmat[k];
 
 }
-
+#endif /////////////////////////////////////////////////
 
 /*------------------------------------------------------------------------------------
 To combine object intrinsic rotation with RTMatrix, with all vertices are under Global
 COORD. Suppose initial Local_Coord aligns with the Global_Coord (Origin not considered),
 and current Local_Coord is transformed from by CoordMat.
+Here 'Global' of 'combGlobalIntriRotation()' means input CoordMat and RTmat is ALL under
+Global COORD! ( axisToks and ang[] is under LOCAL COORD!)
 
-Translation of ALL RTMatrixes keep UNCHANGED!
+Translation of input RTmat keeps UNCHANGED!
 
 Note:
 1.  For vertices which will apply the result RTmat:
     1.1 All vertex coordinates MUST be under GLOBAL Coord!
 2.  Intrinsic rotation are taken under LOCAL COORD, which can be restored by TcoordMat.
-3.  Motice that axisToks are applied/mutiplied with Pxyz in reverse order!
+3.  Even if input axisToks==NULL, CoordMat will apply to RTmat also.
+4.  Motice that axisToks are applied/mutiplied with Pxyz in reverse order!
 
 	--- Translation is Ignored! ----
 
-@axisToks: 	Rotation aix Tokens, including:
+@axisToks: 	Intrinsic rotation sequence Tokens(rotating axis), including:
 		'X'('x') 'Y'('y') 'Z'('z')
-		Example: "ZYX", "XYZ", "XYX".......notice that reverse matrix multiplation applys
-		        as P*MX*MY*MZ, P*MZ*MY*MX, P*MX*MY*MX
+		Example: "ZYX", "XYZ", "XYX",.. with rotation sequence as 'Z->Y->X','X->Y-Z','X->Y->X',...
+
+		1. "ZYX" intrinsic rotation sequence: RotZ -> RotY -> RotX, matrix multiplation: Mx*My*Mz
+		    Notice that 'reversed' matrix multiplation applys.
+		2. The function reverse axisToks[] to RxyzToks[].
 
 @ang[3]: 	Rotation angles cooresponding to axisToks.
-@CoordMat:	RTMatrix for global Coord transformation (to current object Coord).
-		Suppose initially Object coord aligns with Global coord.
-		Then CoordMat transforms origin Object coord to
-		current position.
-		However, all object vertex coordinates are under GLOBAL coord ALWAYS!
+@CoordMat:	Current object RTMatrix, OR object COORD RTMatrix under Global COORD.
+		Suppose initial Object COORD aligns with the Global coord.
+		This CoordMat transforms the object( and its COORD) to current position.
+
+		XXX However, all object vertex coordinates are under GLOBAL coord ALWAYS!
 		In case of BOXMAN object transfromation, it will then be transformed
 		(rotated) by the combined RTmat under local ORIGIN, but NOT local COORD!!!
-@RTMatrix:	Original RTMatrix, to be combined with, USUally inited as identity!
+
+@RTmat:		Original RTMatrix, to be combined with. under GLOBAL COORD.
+		Usually same as CoordMat, but not necessary.
+		Target: finally we can use RTmat to transform TriGroup under its Local Coord.
 ------------------------------------------------------------------------------------*/
 void E3D_combGlobalIntriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix CoordMat, E3D_RTMatrix & RTmat)
 {
+	/* Get reversed sequence of rotation */
+	int toks=strlen(axisToks);
+
 	/* imat:  translation is ignored! */
 	E3D_RTMatrix imat;
 	//imat.identity(); /* Constructor to identity */
 	imat.zeroTranslation();
 
-	/* cmat:  translation is ignored! */
+	/* cmat as combined:  translation is ignored! */
 	E3D_RTMatrix cmat=RTmat;
 	cmat.zeroTranslation();
 
@@ -797,7 +898,202 @@ void E3D_combGlobalIntriRotation(const char *axisToks, float ang[3],  E3D_RTMatr
 
 	bool case_OK;
 	unsigned int np=0;
+	int rnp;  /* np as backward */
+
+//	while( RxyzToks[np] ) {
+	while( (rnp=toks-1 -np)>=0 && axisToks[toks-1 -np] ) {
+
+		/* Revers index of axisToks[] */
+		rnp=toks-1 -np;
+
+		/* 1. Max. 3 tokens */
+		if(np>3) break;
+
+		/* 2. Assmue case_Ok, OR to reset it at case_default */
+		case_OK=true;
+
+		/* 3. Compute imat as per rotation axis and angle */
+		switch( axisToks[rnp] ) {
+			case 'x': case 'X':
+			   /*  Rx: [1 0 0;  0 cos(a) sin(a); 0 -sin(a) cos(a)] */
+			   imat.pmat[0]=1.0;  imat.pmat[1]=0.0;            imat.pmat[2]=0.0;
+			   imat.pmat[3]=0.0;  imat.pmat[4]=cos(ang[rnp]);  imat.pmat[5]=sin(ang[rnp]);
+			   imat.pmat[6]=0.0;  imat.pmat[7]=-sin(ang[rnp]); imat.pmat[8]=cos(ang[rnp]);
+
+			   break;
+			case 'y': case 'Y':
+			   /*  Ry: [cos(a) 0 -sin(a); 0 1 0; sin(a) 0 cos(a)] */
+			   imat.pmat[0]=cos(ang[rnp]); imat.pmat[1]=0.0; imat.pmat[2]=-sin(ang[rnp]);
+			   imat.pmat[3]=0.0;           imat.pmat[4]=1.0; imat.pmat[5]=0.0;
+			   imat.pmat[6]=sin(ang[rnp]); imat.pmat[7]=0.0; imat.pmat[8]=cos(ang[rnp]);
+
+			   break;
+			case 'z': case 'Z':
+			   /*  Rz: [cos(ang) sin(ang) 0; -sin(ang) cos(ang) 0; 0 0 1] */
+			   imat.pmat[0]=cos(ang[rnp]);  imat.pmat[1]=sin(ang[rnp]); imat.pmat[2]=0.0;
+			   imat.pmat[3]=-sin(ang[rnp]); imat.pmat[4]=cos(ang[rnp]); imat.pmat[5]=0.0;
+			   imat.pmat[6]=0.0;            imat.pmat[7]=0.0;      imat.pmat[8]=1.0;
+
+				break;
+			default:
+			   case_OK=false;
+			   egi_dpstd("Unrecognizable aix token '%c', NOT in 'xXyYzZ'!\n", axisToks[rnp]);
+			   break;
+		}
+
+		/* 4. Multiply imats  */
+		if( case_OK ) {
+			/* Only combine Rotation */
+			/* Note:
+			 * 4.1. Here cmat is deemed as RTMatrix under LOCAL_COORD! ( See 5. with TcoordMat*cmat.. )
+			 *    as we extract cmat*imat from TcoordMat*cmat*imat*CoordMat
+			 * 4.2. cmat here is combined with XYZ rotmatrix in sequence.
+			 * 4.3. To optimize at last, so to apply TcoordMat and CoordMat  at last, see 6.
+			 */
+			cmat = cmat*imat; /* Notice that RxyzToks already reversed. */
+
+			// cmat = imat*cmat; // imat at first! Result of axisTok 'XYZ' to be: P*Mz*My*Mx*RTmat
+
+		}
+
+		/* np increment */
+		np++;
+	}
+
+	/* HERE NOW: Maybe axisToks==NULL! */
+
+	/* 5. Finally apply TcoordMat and CoordMat:
+	 *  Note: Since cmat is RTMatrix under LOCAL_COORD! while Pxyz is under GLOBAL_COORD, so
+	 *  first transform with Pxyz*TcoordMat(invsere of CoordMat) to make Pxyz under LOCAL_COORD,
+         *  then apply cmat. After that, transform back to under GLOBAL COORD again by multiply
+	 *  CoordMat.
+	 */
+	cmat = TcoordMat*cmat*CoordMat;
+
+	/* RTmat = (imat*imat...)*RTmat */
+
+	/* 6. Update RTmat,  ignore translation */
+        for(unsigned int k=0; k<9; k++)
+        	RTmat.pmat[k]=cmat.pmat[k];
+
+}
+
+/*----------------------------------------------------------------------------------
+Parse axisToks and left-mutilply imats to RTmat.
+
+@axisToks: 	Intrinsic rotation sequence Tokens(rotating axis), including:
+		'X'('x') 'Y'('y') 'Z'('z')
+		Example: "ZYX", "XYZ", "XYX",.. with rotation sequence as 'Z->Y->X','X->Y-Z','X->Y->X',...
+
+		1. "ZYX" intrinsic rotation sequence: RotZ -> RotY -> RotX, matrix multiplation: Mx*My*Mz
+		    Notice that 'reversed' matrix multiplation applys.
+		2. The function reverse axisToks[] to RxyzToks[].
+
+@ang[3]: 	Rotation angles cooresponding to axisToks.
+@RTmat:		Original RTMatrix. to be combined with.
+-----------------------------------------------------------------------------------*/
+void E3D_combIntriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix & RTmat)
+{
+	if(axisToks==NULL)
+		return;
+
+	/* Get reversed sequence of rotation */
+	int toks=strlen(axisToks);
+
+	/* imat:  translation is ignored! */
+	E3D_RTMatrix imat;
+
+	/* cmat as combined:  translation is ignored! */
+//	E3D_RTMatrix cmat;
+
+	bool case_OK;
+	unsigned int np=0;
+	int rnp;  /* np as backward */
+
+	while( (rnp=toks-1 -np)>=0 && axisToks[toks-1 -np] ) {
+
+		/* Revers index of axisToks[] */
+		rnp=toks-1 -np;
+
+		/* 1. Max. 3 tokens */
+		if(np>3) break;
+
+		/* 2. Assmue case_Ok, OR to reset it at case_default */
+		case_OK=true;
+
+		/* 3. Compute imat as per rotation axis and angle */
+		switch( axisToks[rnp] ) {
+			case 'x': case 'X':
+			   /*  Rx: [1 0 0;  0 cos(a) sin(a); 0 -sin(a) cos(a)] */
+			   imat.pmat[0]=1.0;  imat.pmat[1]=0.0;            imat.pmat[2]=0.0;
+			   imat.pmat[3]=0.0;  imat.pmat[4]=cos(ang[rnp]);  imat.pmat[5]=sin(ang[rnp]);
+			   imat.pmat[6]=0.0;  imat.pmat[7]=-sin(ang[rnp]); imat.pmat[8]=cos(ang[rnp]);
+
+			   break;
+			case 'y': case 'Y':
+			   /*  Ry: [cos(a) 0 -sin(a); 0 1 0; sin(a) 0 cos(a)] */
+			   imat.pmat[0]=cos(ang[rnp]); imat.pmat[1]=0.0; imat.pmat[2]=-sin(ang[rnp]);
+			   imat.pmat[3]=0.0;           imat.pmat[4]=1.0; imat.pmat[5]=0.0;
+			   imat.pmat[6]=sin(ang[rnp]); imat.pmat[7]=0.0; imat.pmat[8]=cos(ang[rnp]);
+
+			   break;
+			case 'z': case 'Z':
+			   /*  Rz: [cos(ang) sin(ang) 0; -sin(ang) cos(ang) 0; 0 0 1] */
+			   imat.pmat[0]=cos(ang[rnp]);  imat.pmat[1]=sin(ang[rnp]); imat.pmat[2]=0.0;
+			   imat.pmat[3]=-sin(ang[rnp]); imat.pmat[4]=cos(ang[rnp]); imat.pmat[5]=0.0;
+			   imat.pmat[6]=0.0;            imat.pmat[7]=0.0;      imat.pmat[8]=1.0;
+
+				break;
+			default:
+			   case_OK=false;
+			   egi_dpstd("Unrecognizable aix token '%c', NOT in 'xXyYzZ'!\n", axisToks[rnp]);
+			   break;
+		}
+
+		/* 4. Multiply imats  */
+		if( case_OK ) {
+			/* Only combine Rotation */
+			//cmat = cmat*imat; /* Notice that RxyzToks already reversed. */
+			RTmat = imat*RTmat;
+		}
+
+		/* np increment */
+		np++;
+	}
+}
+
+
+/*----------------------------------------------------------------------------------
+Parse axisToks and right-mutilply imats to RTmat.
+
+@axisToks: 	Extrinsic rotation sequence Tokens(rotating axis), including:
+		'X'('x') 'Y'('y') 'Z'('z')
+		Example: "ZYX", "XYZ", "XYX",.. with rotation sequence as 'Z->Y->X','X->Y-Z','X->Y->X',...
+		1. "ZYX" extrinsic rotation sequence: RotZ -> RotY -> RotX, matrix multiplation: Mz*My*Mx
+
+@ang[3]: 	Rotation angles cooresponding to axisToks.
+@RTmat:		Original RTMatrix. to be combined with.
+-----------------------------------------------------------------------------------*/
+void E3D_combExtriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix & RTmat)
+{
+	if(axisToks==NULL)
+		return;
+
+	/* Get reversed sequence of rotation */
+	int toks=strlen(axisToks);
+
+	/* imat:  translation is ignored! */
+	E3D_RTMatrix imat;
+
+	/* cmat as combined:  translation is ignored! */
+//	E3D_RTMatrix cmat;
+
+	bool case_OK;
+	unsigned int np=0;
+//	int rnp;  /* np as backward */
+
 	while( axisToks[np] ) {
+
 		/* 1. Max. 3 tokens */
 		if(np>3) break;
 
@@ -808,7 +1104,7 @@ void E3D_combGlobalIntriRotation(const char *axisToks, float ang[3],  E3D_RTMatr
 		switch( axisToks[np] ) {
 			case 'x': case 'X':
 			   /*  Rx: [1 0 0;  0 cos(a) sin(a); 0 -sin(a) cos(a)] */
-			   imat.pmat[0]=1.0;  imat.pmat[1]=0.0;       imat.pmat[2]=0.0;
+			   imat.pmat[0]=1.0;  imat.pmat[1]=0.0;           imat.pmat[2]=0.0;
 			   imat.pmat[3]=0.0;  imat.pmat[4]=cos(ang[np]);  imat.pmat[5]=sin(ang[np]);
 			   imat.pmat[6]=0.0;  imat.pmat[7]=-sin(ang[np]); imat.pmat[8]=cos(ang[np]);
 
@@ -816,7 +1112,7 @@ void E3D_combGlobalIntriRotation(const char *axisToks, float ang[3],  E3D_RTMatr
 			case 'y': case 'Y':
 			   /*  Ry: [cos(a) 0 -sin(a); 0 1 0; sin(a) 0 cos(a)] */
 			   imat.pmat[0]=cos(ang[np]); imat.pmat[1]=0.0; imat.pmat[2]=-sin(ang[np]);
-			   imat.pmat[3]=0.0;      imat.pmat[4]=1.0; imat.pmat[5]=0.0;
+			   imat.pmat[3]=0.0;          imat.pmat[4]=1.0; imat.pmat[5]=0.0;
 			   imat.pmat[6]=sin(ang[np]); imat.pmat[7]=0.0; imat.pmat[8]=cos(ang[np]);
 
 			   break;
@@ -824,7 +1120,7 @@ void E3D_combGlobalIntriRotation(const char *axisToks, float ang[3],  E3D_RTMatr
 			   /*  Rz: [cos(ang) sin(ang) 0; -sin(ang) cos(ang) 0; 0 0 1] */
 			   imat.pmat[0]=cos(ang[np]);  imat.pmat[1]=sin(ang[np]); imat.pmat[2]=0.0;
 			   imat.pmat[3]=-sin(ang[np]); imat.pmat[4]=cos(ang[np]); imat.pmat[5]=0.0;
-			   imat.pmat[6]=0.0;       imat.pmat[7]=0.0;      imat.pmat[8]=1.0;
+			   imat.pmat[6]=0.0;           imat.pmat[7]=0.0;          imat.pmat[8]=1.0;
 
 				break;
 			default:
@@ -833,37 +1129,49 @@ void E3D_combGlobalIntriRotation(const char *axisToks, float ang[3],  E3D_RTMatr
 			   break;
 		}
 
+		/* 4. Multiply imats  */
 		if( case_OK ) {
-#if 1			/* Only combine Rotation */
-			/* Note:
-			 * 1. Here cmat is RTMatrix under LOCAL_COORD!
-			 * 2. To optimize at last, so to apply TcoordMat and CoordMat  at last, see 5.
-			 */
-			cmat = imat*cmat; // imat at first!
-
-#else			/* Only combine Rotation:  RMatrix = imat*cmat(RMatrix)* */
-			cmat = TcoordMat*imat*cmat*CoordMat; // *CoordMat
-#endif
+			/* Only combine Rotation */
+			RTmat = RTmat*imat; /* Notice that RxyzToks already reversed. */
 		}
 
 		/* np increment */
 		np++;
 	}
-
-	/* 4. Finally apply TcoordMat and CoordMat:
-	 * Note: Since cmat is RTMatrix under LOCAL_COORD! while Pxyz is under GLOBAL_COORD, so
-	 *  first transform with Pxyz*TcoordMat(invsere of CoordMat) to make Pxyz under LOCAL_COORD,
-         *  then apply camt. After that, transform back to under GLOBAL COORD again by multiply
-	 *  CoordMat.
-	 */
-	cmat = TcoordMat*cmat*CoordMat;
-
-	/* 5. Update RTmat,  ignore translation */
-        for(unsigned int k=0; k<9; k++)
-        	RTmat.pmat[k]=cmat.pmat[k];
-
 }
 
+
+/*--------------------------------------------------------------
+To combine intrinsic translation by left-multiply imat to RTmat.
+
+@tx,ty,tz:		Intrinsic translation XYZ values.
+	OR
+@Vxyz:			Intrinsic translation vector.
+
+@RTmat:		RTMatrix to combine with.
+--------------------------------------------------------------*/
+void E3D_combIntriTranslation(E3D_Vector Vxyz,  E3D_RTMatrix & RTmat)
+{
+	E3D_RTMatrix imat;
+	imat.pmat[9] = Vxyz.x;
+	imat.pmat[10] = Vxyz.y;
+	imat.pmat[11] = Vxyz.z;
+
+	/* So easy!!! Pxyz*imat*RTmat:
+	 * 1. Pxyz*imat: translate Vxyz under current COORD(RTmat).
+	 * 2. *RTmat: transform to under Global COORD.
+	 */
+	RTmat = imat*RTmat;
+}
+void E3D_combIntriTranslation(float tx, float ty, float tz,  E3D_RTMatrix & RTmat)
+{
+	E3D_RTMatrix imat;
+	imat.pmat[9] = tx;
+	imat.pmat[10] = ty;
+	imat.pmat[11] = tz;
+
+	RTmat = imat*RTmat;
+}
 
 /*--------------------------------------------------
 DONT fully understand projection matrix under NDC,
