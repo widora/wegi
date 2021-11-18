@@ -139,7 +139,7 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize, int prot, int fl
 
 	/* Check size */
         fmap->fsize=sb.st_size;
-	if( fmap->fsize <= 0 ) {
+	if( fmap->fsize <= 0 && resize<1 ) {
 		printf("%s: file size is 0! Fail to mmap '%s'!\n", __func__, fpath);
 		goto END_FUNC;
 	}

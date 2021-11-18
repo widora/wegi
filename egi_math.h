@@ -115,7 +115,9 @@ int 		mat_random_range(int max);
 void 		mat_insert_sort( int *array, int n );
 void 		mat_quick_sort( int *array, int start, int end, int cutoff );
 int		mat_max(int a, int b);
-float		mat_fmax(float a, float b);
+int		mat_max3(int a, int b, int c);
+float		mat_maxf(float a, float b);
+float		mat_max3f(float a, float b, float c);
 
 /*
 void mat_pointrotate_SQMap(int n, int angle, struct egi_point_coord centxy,

@@ -600,7 +600,7 @@ enum mad_flow error(void *data,
 		    struct mad_stream *stream,
 		    struct mad_frame *frame)
 {
-  #if 0
+  #if 1
   struct buffer *buffer = data;
 
   fprintf(stderr, "decoding error 0x%04x (%s) at byte offset %u\n",

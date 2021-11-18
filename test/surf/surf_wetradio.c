@@ -63,6 +63,8 @@ Journal:
 	1. Update pixlen after each egi_surfLab_updateText(labels[LAB_RSNAME]...)
 2021-07-21:
 	1. Sound DAC Polarity set.
+2021-11-12:
+	1. Modify start_radio() for aac_stream.  radio_info.type.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -109,6 +111,7 @@ struct radio_info
 #define RADIO_NAME_MAXLEN	64
 	char address[RADIO_ADDR_MAXLEN];	/* Live Stream address */
 	char name[RADIO_NAME_MAXLEN];		/* Station name */
+	int  type;				/* 0-m3u8, 1-aac stream */
 };
 
 struct radio_info *playlist;
@@ -120,7 +123,8 @@ int load_playlist(const char *fpath, struct radio_info **infoList,  int *listCnt
 
 /* Call system() to stop/start radio */
 void stop_radio(void);
-void start_radio(const char *address);
+//void start_radio(const char *address);
+void start_radio(unsigned int playlist_idx);
 
 /* DAC Polarity set.   True: Left or Right Inverted;  False: No Inversion */
 bool DAC_polarity_ON;
@@ -504,7 +508,8 @@ int main(int argc, char **argv)
 
 			pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.bold, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
 
-			start_radio(playlist[playlist_idx].address);
+			//start_radio(playlist[playlist_idx].address);
+			start_radio(playlist_idx);
 
 			radioSTAT = STAT_CONNECT;  /* Main loop to check STAT_PLAY, if stream file found. */
 //			radioSIG = SIG_NONE;
@@ -522,7 +527,8 @@ int main(int argc, char **argv)
 
 			pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.bold, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
 
-			start_radio(playlist[playlist_idx].address);
+			//start_radio(playlist[playlist_idx].address);
+			start_radio(playlist_idx);
 
 			radioSTAT = STAT_CONNECT;  /* Main loop to check STAT_PLAY, if stream file found. */
 //			radioSIG = SIG_NONE;
@@ -567,7 +573,8 @@ int main(int argc, char **argv)
 /* ------ <<<  Surface shmem Critical Zone  */
 	                	pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
-				start_radio(playlist[playlist_idx].address);
+				//start_radio(playlist[playlist_idx].address);
+				start_radio(playlist_idx);
 				radioSTAT = STAT_CONNECT;  /* Main loop to check STAT_PLAY, if stream file found. */
 			}
 
@@ -731,12 +738,20 @@ void stop_radio(void)
 	remove("/tmp/a.stream");
 	remove("/tmp/b.stream");
 }
-void start_radio(const char *address)
+//void start_radio(const char *address)
+void start_radio(unsigned int playlist_idx)
 {
 	char strcmd[1024];
 	strcmd[1024-1]='\0';
 
-        snprintf(strcmd, sizeof(strcmd)-1, "/home/wetradio.sh %s", address);
+	if( playlist_max<1 ) return;
+        if( playlist_idx > playlist_max-1 )
+        	playlist_idx=0;
+
+	if(playlist[playlist_idx].type==1)
+            snprintf(strcmd, sizeof(strcmd)-1, "/home/aacstream.sh %s", playlist[playlist_idx].address);
+	else /* type=0 */
+            snprintf(strcmd, sizeof(strcmd)-1, "/home/wetradio.sh %s", playlist[playlist_idx].address);
         system( strcmd );
 }
 
@@ -1096,7 +1111,7 @@ int load_playlist(const char *fpath, struct radio_info **infoList,  int *listCnt
 Load playlist from a text file containing URL
 and radio name in each line separated by a comma:
 
-古典音乐,http://...
+古典音乐,http://...,1
 乡村音乐,mms://....
 
 Return:
@@ -1126,7 +1141,7 @@ int load_playlist(const char *fpath, struct radio_info **infoList,  int *listCnt
 	cnt=0;
 	while( fgets(linebuff, sizeof(linebuff), fil) != NULL )
 	{
-		printf("Linebuff: %s\n", linebuff);
+		printf("Linebuff: %s ", linebuff);
 
 		/* 1. Read Name */
 		pt=strtok(linebuff, ",");  /* comma  */
@@ -1146,6 +1161,14 @@ int load_playlist(const char *fpath, struct radio_info **infoList,  int *listCnt
 		if(*pt=='\0') continue;
 		/* 2.3 Get Address */
 		strncpy( list[cnt].address, pt, RADIO_ADDR_MAXLEN-1);
+
+		/* 2A. Get type */
+		pt=strtok(NULL, ",");
+		if(pt!=NULL) {
+			list[cnt].type=atoi(pt);
+		}
+			else list[cnt].type=0;
+		printf("     stream type=%d\n", list[cnt].type);
 
 		/* 3. Count and grow capacity */
 		cnt++;

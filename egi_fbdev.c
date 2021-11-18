@@ -22,6 +22,9 @@ Journal
 	1. Add fb_init_zbuff().
 2021-08-12:
 	1. Add memeber FBDEV.flipZ
+2021-11-11:
+	1. Add member FBDEV.zbuff_IgnoreEqual
+	2. init_virt_fbdev(): init FBDEV.zbuff_IgnoreEqual as FALSE.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -373,9 +376,10 @@ int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *fbimg, EGI_IMGBUF *FrameImg)
 	fb_dev->map_buff=NULL;
 	fb_dev->map_bk=NULL;
 	fb_dev->fb_filo=NULL;
-	fb_dev->filo_on=0;
+	fb_dev->filo_on=false;
 
 	fb_dev->zbuff_on=false;
+	fb_dev->zbuff_IgnoreEqual=false;
 
 	/* reset virtual FB, as EGI_IMGBUF */
 	fb_dev->virt_fb=fbimg;

@@ -80,6 +80,7 @@ plane.obj -c -s 1 -Y 90 -X 185 -P
 plane.obj -c -s 1 -Y 90 -X 185 -a -3 -G -P -t -M /mmc/plane.mot
 plane.obj -c -s 0.8 -X 190 -Y 200 -a -5  -w -B -t   // See fuselage(main body) inside/backface
 plane.obj -c -s 1.0 -z -600 -X 190 -Y 197 -a 175 -P -w -B -t  // ON Head and tail, -z -800 to see inside
+plane.obj -c -s 1.0 -z -600 -A 2 -X 200 -a 175 -P -B -t  // See up/down sides of Wings and Hstabilizer
 
 	----- Test FLOAT_EPSILON -----
 Render mesh ... angle=0
@@ -852,11 +853,12 @@ else {		/* For Landscape */
 
         /* OR  updateAllTriNormals() here */
 
-//TEST:
+#if 0//TEST:
 	if( frameCount%4==0 || frameCount%4==1 )
 	   	workMesh->shadeType=E3D_GOURAUD_SHADING;
 	else
 		workMesh->shadeType=E3D_FLAT_SHADING;
+#endif
 
         cout << "Render mesh ... angle="<< angle <<endl;
         workMesh->renderMesh(&gv_fb_dev, projMatrix);
@@ -1035,7 +1037,7 @@ else {		/* For Landscape */
 	if( (int)angle >=360 || (int)angle <= -360) {
 		if((int)angle>=360) {
 			angle -=360;
-//			exit(0);     /* <------------- TEST */
+			exit(0);     /* <------------- TEST */
 		}
 		if((int)angle<-360) angle +=360;
 

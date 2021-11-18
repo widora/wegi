@@ -35,6 +35,8 @@ DBL_EPSILON:    Diff. between 1.00 and the leaset double value greater than 1.00
 Journal:
 2021-08-18:
 	1. Add  mat_max() mat_maxf().
+2021-11-11:
+	1. Add mat_max3(), mat_max3f()
 
 Midas-Zhou
 --------------------------------------------------------------------*/
@@ -1369,9 +1371,19 @@ inline int mat_max(int a, int b)
 {
 	return (a>b?a:b);
 }
+inline int mat_max3(int a, int b, int c)
+{
+	int d=(a>b?a:b);
+	return (d>c?d:c);
+}
 inline float  mat_maxf(float a, float b)
 {
 	return (a>b?a:b);
+}
+inline float  mat_max3f(float a, float b, float c)
+{
+	float d=(a>b?a:b);
+	return (d>c?d:c);
 }
 
 /*---------------------------------------------------

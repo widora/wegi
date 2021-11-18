@@ -82,6 +82,8 @@ Jurnal
 2021-11-9:
 	1. Add draw_filled_triangle4(), pixZ value applys.
 	2. Add draw_filled_triangle4(), pixZ value applys.
+2021-11-11:
+	1. draw_dot(): fb_dev->zbuff_IgnoreEqual applys.
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -825,15 +827,25 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 	/* flipZ==ture */
 	if( fb_dev->flipZ ) {
 		//fb_dev->pixz = -fb_dev->pixz;
+		/* Zbuff > -pixZ */
 		if( fb_dev->zbuff[pixoff] > -fb_dev->pixz )
 			return 0;
+		/* Zbuff == -pixZ */
+		else if( fb_dev->zbuff[pixoff] == -fb_dev->pixz && fb_dev->zbuff_IgnoreEqual )
+			return 0;
+		/* Zbuff <(=) -pixZ */
 		else
 		    fb_dev->zbuff[pixoff]= -fb_dev->pixz;
 	}
 	/* flipZ==false */
 	else {
+		/* Zbuff > pixZ */
 		if( fb_dev->zbuff[pixoff] > fb_dev->pixz )
 			return 0;
+		/* Zbuff==pixZ */
+		else if( fb_dev->zbuff[pixoff] == fb_dev->pixz && fb_dev->zbuff_IgnoreEqual )
+			return 0;
+		/* Zbuff <(=) pixZ */
 		else
 		    fb_dev->zbuff[pixoff]=fb_dev->pixz;
 	}
@@ -4012,6 +4024,11 @@ Refer to draw_filled_triangle3().  Add Z values to apply for FB zbuff.
 
 z0-z2: Z values of 3 points.
 
+TODO:  In case the triangle degenerates into a line, then we MUST figure
+       out the facing(visible) side(s)(with the bigger Z values), before
+       we compute color/Z value for each pixel.
+
+
 Midas Zhou
 ----------------------------------------------------------------------*/
 void draw_filled_triangle4( FBDEV *fb_dev,int x0, int y0, int x1, int y1, int x2, int y2,
@@ -4059,7 +4076,9 @@ void draw_filled_triangle4( FBDEV *fb_dev,int x0, int y0, int x1, int y1, int x2
                 B=roundf(a*COLOR_B8_IN16BITS(color0)+b*COLOR_B8_IN16BITS(color1)+r*COLOR_B8_IN16BITS(color2));
                 fbset_color2(fb_dev, COLOR_RGB_TO16BITS(R,G,B));
 
-		fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+		//fb_dev->pixz = roundf(a*z0+b*z1+r*z2);
+		fb_dev->pixz=mat_max3f(z0,z1,z2);
+
                 draw_dot(fb_dev, x0, y0);
 		return;
 	}
@@ -4192,7 +4211,8 @@ void draw_filled_triangle4( FBDEV *fb_dev,int x0, int y0, int x1, int y1, int x2
 	/* Note:
 	 *	1. You may skip case_3, to let Case_4 draw the line, however it draws ONLY discrete
 	 *	   dots for a steep line.
-	 *	2. Color of the midpoint of the line will be ineffective!
+	 *	2. Color of the midpoint of the line will be ineffective! which implys
+	 *	   the midpoint is at invisible side!(NOT CORRECT!)
 	 * 	   TODO: NEW algrithm for interpolation color at a three_point line.
 	 */
 

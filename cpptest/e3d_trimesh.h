@@ -78,6 +78,7 @@ TODO:
    ( Example: 1. At outline edges  2. double shell meshes... )
 
    To compute zbuff value for each pixel at draw_filled_triangle3() and egi_imgbuf_mapTriWriteFB3().
+   NOW: draw_filled_triangle4() with float Z0/Z1/Z2.
 
 3. Different algrithms for drawing triangles may result in inconsistent appearance (in edges especially).
    Example:
@@ -87,7 +88,12 @@ TODO:
    To check: draw wire frames (edges) first, then draw faces, there will be some wires(edges)
    left uncovered by face pixels.
 
-4. Option to display/hide back faces of meshes.
+XXX 4. Option to display/hide back faces of meshes.
+
+4.  In case the triangle degenerates into a line, then we MUST figure out the
+    facing(visible) side(s)(with the bigger Z values), before we compute color/Z value
+    for each pixel. ( see. in draw_filled_trianglX() and egi_imgbuf_mapTriWriteFBX() )
+
 x. AutoGrow vtxList[] and triList[].
 
 
@@ -1814,9 +1820,28 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 			   /* NOW: k is total number of vertices in this face. */
 
-#if 0 /* Test: plane.obj ------ */
-			   if( k>0 && vtxList[ vtxIndex[0] ].pt.z < -139.1 )
+#if 1 /* Test: plane.obj ------ */
+			      //z>400.0 tailcone  // z<-139.1 nose
+			   //if( k>0 && groupCnt==6 && vtxList[ vtxIndex[0] ].pt.z>390.0 && vtxList[ vtxIndex[0] ].pt.y<293.0 ) { // rudder
+			   //if( k>0 && groupCnt==5 ) {
+			 	 //if(   vtxList[ vtxIndex[0] ].pt.x>158.5 && vtxList[ vtxIndex[0] ].pt.x<230.0
+				 //   && vtxList[ vtxIndex[0] ].pt.z>379.0   ) // right elevator
+			  //if( k>0 && groupCnt==5 ) {
+			  	// if(   vtxList[ vtxIndex[0] ].pt.x>6.0 && vtxList[ vtxIndex[0] ].pt.x<77.0
+			  	//    && vtxList[ vtxIndex[0] ].pt.z>379.0   ) // left elevator
+			  //if( k>0 && groupCnt==4 ) {
+			  	// if(   vtxList[ vtxIndex[0] ].pt.x>232.7 && vtxList[ vtxIndex[0] ].pt.x<380.3
+			  	//    && vtxList[ vtxIndex[0] ].pt.z>125   ) // right wing flap
+			  //if( k>0 && groupCnt==4 ) {
+			  //	 if(   vtxList[ vtxIndex[0] ].pt.x> -145.0 && vtxList[ vtxIndex[0] ].pt.x < 3.0
+			  //	    && vtxList[ vtxIndex[0] ].pt.z>125   ) // left wing flap
+			  //	printf("Face line:  %s\n",strline2);
+			  // }
+			  if( k>0 && groupCnt==4 ) {
+			  	 if(   vtxList[ vtxIndex[0] ].pt.x> 240.0 && vtxList[ vtxIndex[0] ].pt.x < 458.0
+			  	    && vtxList[ vtxIndex[0] ].pt.z<64   ) // right wing slat
 				printf("Face line:  %s\n",strline2);
+			   }
 #endif
 
 			   /*  FB3. Assign to triangle vtxindex */
@@ -3105,6 +3130,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		/* Note: Because of float precision limit, vProduct==0.0f is NOT possible. */
 		if ( vProduct > -VPRODUCT_EPSILON ) {  /* >=0.0f */
 			IsBackface=true;
+			fbdev->zbuff_IgnoreEqual=true; /* Ignore to redraw shape edge! */
 			//egi_dpstd("triList[%d] vProduct=%e >=0 \n",i, vProduct);
 
 			/* If backFaceOn: To display back side (with specified color) ... */
@@ -3113,6 +3139,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		}
 		else {
 			IsBackface=false;
+			fbdev->zbuff_IgnoreEqual=false; /* OK to redraw on same zbuff level */
 			//egi_dpstd("triList[%d] vProduct=%f \n",i, vProduct);
 		}
 

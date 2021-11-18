@@ -13,8 +13,15 @@ To make a simple m3u8 radio player:
 
 
 Note:
-1. Only support 2 channels NOW.
-
+1. ONLY support profile of AAC LC(Low Complexity).
+2. Only support 2 channels NOW.
+3. Non_support:
+ XXX Profile 'main' or 'SSR' profile, LTP
+ XXX coupling channel elements (CCE)
+ XXX 960/1920-sample frame size
+ XXX low-power mode SBR
+ XXX downsampled (single-rate) SBR
+ XXX parametric stereo
 
 Journal:
 2021-05-03:
@@ -46,6 +53,7 @@ int main(int argc, char **argv)
 	AACDecInfo *aacDecInfo;
 	AACFrameInfo aacFrameInfo={0};
 	bool enableSBR; /* Special band replication */
+	int trysyn_len=256;
 
 	int bytesLeft;
 	size_t checksize;
@@ -53,7 +61,7 @@ int main(int argc, char **argv)
 	unsigned char *pin=NULL;	/* Pointer to input aac data */
 	int16_t *pout;			/* MAX. for 2 channels,  assume SBR enbaled */
 	size_t outsize; 		/* outsize of decoded PCM data for each aacDec session, in bytes. */
-	int skip_size=1024*256; 	/* skip size */
+	int skip_size=1024*64; //256; 	/* skip size */
 	int findlen=1024;
 	int npass;
 
@@ -69,9 +77,9 @@ int main(int argc, char **argv)
 
 
 	/***  AAC Header: profile
-	 * 0. AAC Main
+	 * 0. AAC Main  --- NOT SUPPORTED!
 	 * 1. AAC LC(Low Complexity)
-	 * 2. AAC SSR(Scalable Sample Rate)
+	 * 2. AAC SSR(Scalable Sample Rate) --- NOT SUPPORTED!
 	 * 3. AAC LTP(Long Term Prediction)  --- For HelixAAC, it's reserved!
 	*/
 	const char strprofile[][16]={ "AAC Main", "AAC LC", "AAC SSR", "AAC LTP" };
@@ -100,7 +108,7 @@ int main(int argc, char **argv)
 #endif
 
 	/* Log silent */
-	egi_log_silent(true);
+//	egi_log_silent(true);
 
   	/* Set termI/O 设置终端为直接读取单个字符方式 */
   	egi_set_termios();
@@ -209,7 +217,7 @@ RADIO_LOOP:
 	}
 
 	EGI_PLOG(LOGLV_INFO, "Start to AACDecode() fmap_aac with size=%d Bs", bytesLeft);
-	while(bytesLeft>0) {
+	while(bytesLeft>= nchanl*2*NSAMPS_SHORT) {  /* 2*128 Too short cause decoder dump segfault! */
 		//printf("bytesLeft=%d\n", bytesLeft);
 
 		/* Parse keyinput */
@@ -233,6 +241,7 @@ RADIO_LOOP:
                 		break;
 			case '>':
 				if(bytesLeft > skip_size+findlen ) {
+					printf("---->\n");
 					pin += skip_size;
 					bytesLeft -= skip_size;
 					npass=AACFindSyncWord(pin, findlen);
@@ -247,6 +256,8 @@ RADIO_LOOP:
 						/* AACFlushCodec(aacDec); Not necessary */
 					}
 				}
+				else
+					printf("XXX ---->, skip_size=%d, findlen=%d \n", skip_size, findlen );
 				break;
 			case '<':
 				if(fmap_aac->fsize-bytesLeft > skip_size ) {
@@ -262,16 +273,27 @@ RADIO_LOOP:
 						pin +=npass;
 						bytesLeft -= npass;
 						/* AACFlushCodec(aacDec); Not necessary */
+						printf("<----\n");
 					}
 				}
 				break;
 		}
 
 		/* int AACDecode(HAACDecoder hAACDecoder, unsigned char **inbuf, int *bytesLeft, short *outbuf) */
+		printf("AACDecode bytesLeft=%d.\n", bytesLeft);
 		err=AACDecode(aacDec, &pin, &bytesLeft, pout);
+//		printf("err=%d, bytesLeft=%d.\n", err, bytesLeft);
 		if(err==ERR_AAC_NONE) {
 			//EGI_PLOG(LOGLV_INFO, "AACDecode: %lld bytes of aac data decoded.\n", fmap_aac->fsize-bytesLeft );
 			AACGetLastFrameInfo(aacDec, &aacFrameInfo);
+
+			/* Unsupported profile */
+			if(aacFrameInfo.profile != 1 && aacFrameInfo.profile<4 ) {
+				printf("Profile '%s' NOT supported, it ONLY supports '%s' NOW!\n",
+					strprofile[aacFrameInfo.profile], strprofile[1]);
+				exit(1);
+			}
+
 
 		/* TEST: ------------ MSG QUEUE ------------------*/
 		/* END: ---- MSG QUEUE ---- */
@@ -323,7 +345,7 @@ RADIO_LOOP:
 				samplerate=aacFrameInfo.sampRateOut;
 
 				/* Reset pcm_handle params */
-				snd_pcm_drain(pcm_handle);   /* NO USE?? To drain( finish playing) remained old data, before reset params! */
+//				snd_pcm_drain(pcm_handle);   /* NO USE?? To drain( finish playing) remained old data, before reset params! */
 		 EGI_PLOG(LOGLV_WARN, "Reset params for pcm_handle: nchanl=%d, format=%d, frameCount=%d,sampRateCore=%d, sampRateOut=%d, SBR=%s",
 						nchanl, aacDecInfo->format,  aacDecInfo->frameCount,
 						aacFrameInfo.sampRateCore,aacFrameInfo.sampRateOut, aacDecInfo->sbrEnabled?"Yes":"No");
@@ -332,8 +354,10 @@ RADIO_LOOP:
 	        		} else {
                 			pcmdev_ready=true;
 		        	}
+
 				/* Need to flush Codec when SBR/sampRateOut changes ?? */
-				AACFlushCodec(aacDec);
+//				AACFlushCodec(aacDec);
+
 				/* TODO: When  samplerate changes, it needs to call snd_pcm_prepare() ??? */
 				// snd_pcm_prepare(pcm_handle); /* MUST put after setParams! otherwise it will fail setParams()! */
   			}
@@ -379,18 +403,28 @@ RADIO_LOOP:
 		}
 		else if(err==ERR_AAC_INDATA_UNDERFLOW) {
 			EGI_PLOG(LOGLV_WARN, "ERR_AAC_INDATA_UNDERFLOW! bytesLeft=%d \n", bytesLeft);
+
+			#if 0
 			if(fout_path)
 				egi_fmap_free(&fmap_pcm);
 			goto END_SESSION;
-			//goto RADIO_LOOP;
-			//continue;
+			#endif
+
+                        pin +=1;
+                        bytesLeft -=1;
+
+			/* Flush codec */
+			AACFlushCodec(aacDec);
+
+			continue;
 		}
 		else if(err==ERR_AAC_INVALID_ADTS_HEADER ) {
-			int trysyn_len=256;
 
 			EGI_PLOG(LOGLV_WARN, "ERR_AAC_INVALID_ADTS_HEADER! bytesLeft=%d, trysyn_len=%d \n", bytesLeft, trysyn_len);
 
-			/* TODO: try to synch again, trysyn_len MUST NOT be too small!!! */
+#if 1			/* Try to synch again, trysyn_len MUST NOT be too small!!!
+			 *  Re_synch is NO use if the data format is unsupported.
+			 */
 
 			/* Flush codec */
 			AACFlushCodec(aacDec);
@@ -398,11 +432,14 @@ RADIO_LOOP:
 			if(bytesLeft > trysyn_len) {
 				EGI_PLOG(LOGLV_INFO, "Try synch...\n");
 				npass=AACFindSyncWord(pin, trysyn_len);
-				//printf("npass=%d\n",npass);
 				if(npass <= 0) {  /* TODO ??? ==0 also fails!?? */
-					EGI_PLOG(LOGLV_CRITICAL,"Fail to AACFindSyncWord!\n");
+					EGI_PLOG(LOGLV_CRITICAL,"Fail to AACFindSyncWord, npass=%d!\n", npass);
 					pin +=trysyn_len;
 					bytesLeft -=trysyn_len;
+
+					/* Flush codec */
+//					AACFlushCodec(aacDec);
+
 					continue;
 				}
 				else {
@@ -410,17 +447,24 @@ RADIO_LOOP:
 					//printf("npass=%d\n", npass);
 					pin +=npass;
 					bytesLeft -= npass;
+
+					/* Flush codec */
+//					AACFlushCodec(aacDec);
+
 					continue;
 				}
 			}
 			else {
 				goto END_SESSION;
 			}
+#endif /* END try sync */
+
 		}
 		else {
-			EGI_PLOG(LOGLV_WARN, "AAC ERR=%d, ", err);
+			EGI_PLOG(LOGLV_WARN, "AAC ERR=%d, bytesLeft=%d", err,bytesLeft);
 			break; /* Break while()! or it may do while() forever as bytesLeft may not be changed! */
 			/* Break and start a new session */
+
 		}
 	}
 
