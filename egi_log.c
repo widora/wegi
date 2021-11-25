@@ -71,7 +71,7 @@ static pthread_t log_write_thread;
 
 /* NOT APPLIED YET!:  following variables to be mutex lock protected  by log_buff_mutex */
 static pthread_mutex_t log_buff_mutex;
-static FILE *egi_log_fp; /* log_buff_mutex lock */
+static FILE *egi_log_fp=NULL;     /* log_buff_mutex lock */
 static unsigned char **log_buff;  /* log_buff_mutex lock */
 /* !!! WARNING !!! use volatile to disable compiler optimization to avoid mutex_lock failure */
 volatile static int  log_buff_count; 	/* count number, or number of the first available log buff,log_buffer_mutex lock */
@@ -238,6 +238,7 @@ int egi_push_log(enum egi_log_level log_level, const char *fmt, ...)
 	/* If log file is NOT open/availbale, return then. */
 	if(egi_log_fp==NULL)
 		return 0;
+	printf(" ----------- egi_log_fp OK ---------\n");
 
 #if 0///////////////////////////////////////////////////////////////////////////////////
 	///////   FOR HIGHT LEVEL LOG:  write directly to log file //////
@@ -254,9 +255,9 @@ int egi_push_log(enum egi_log_level log_level, const char *fmt, ...)
 #endif//////////////////////////////////////////////////////////////////////////////////
 
    	/* get mutex lock */
-   	if(pthread_mutex_lock(&log_buff_mutex) != 0)
+   	if( pthread_mutex_lock(&log_buff_mutex) != 0)
    	{
-		printf("egi_quit_log():fail to get mutex lock.\n");
+		printf("%s: Fail to get mutex lock.\n", __func__);
 		return -1;
    	}
 
@@ -264,7 +265,7 @@ int egi_push_log(enum egi_log_level log_level, const char *fmt, ...)
 	/* check if log_is_running */
 	if(!log_is_running)
 	{
-		printf("%s(): egi log is not running! try egi_init_log() first. \n",__FUNCTION__);
+		printf("%s: egi log is not running! try egi_init_log() first. \n", __func__);
 		pthread_mutex_unlock(&log_buff_mutex);
 		return -1;
 	}

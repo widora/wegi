@@ -37,18 +37,21 @@ typedef size_t (* curlget_callback_t)(void *ptr, size_t size, size_t nmemb, void
 	}
 */
 
-int https_curl_request(int opt, const char *request, char *reply_buff, void *data,
-							curlget_callback_t get_callback);
+int https_curl_request(int opt, unsigned int trys, unsigned int timeout,
+		       const char *request, char *reply_buff, void *data,
+			curlget_callback_t get_callback);
 
-int https_easy_download(int opt, unsigned int trys, const char *file_url, const char *file_save,  void *data,
-                        	curlget_callback_t write_callback );
+int https_easy_download(int opt, unsigned int trys, unsigned int timeout,
+			const char *file_url, const char *file_save,  void *data,
+                        curlget_callback_t write_callback );
 
 int https_easy_download2( int opt, unsigned int trys,
                           const char *file_url, const char *file_save,   void *data,
                           curlget_callback_t write_callback );
 
-int https_easy_stream(int opt, unsigned int trys, unsigned int timeout, const char *tream_url, void *data,
-                         curlget_callback_t write_callback,curlget_callback_t header_callback);
+int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
+                       const char *stream_url, int nr, const char **reqs, void *data,
+                       curlget_callback_t write_callback, curlget_callback_t header_callback );
 
 
 #endif

@@ -25,10 +25,26 @@
  * writes them to standard output in little-endian, stereo-interleaved
  * format.
 
-
  ----------------------------------------------------------
  Modified for ALSA PCM playback with SND_PCM_FORMAT_S16_LE.
  ----------------------------------------------------------
+
+           --- A typical MPEG Audio Frame Header (32bits) ---
+
+	Frame sync      (11bits)   All 1s
+	MPEG Version    (2bits)
+	Layer descript  (2bits)
+	Protection bit  (1bit)
+	Bitrate         (4bits)
+	Sampling rate   (2bits)
+	Padding bit     (1bit)
+	Private bit     (1bit)
+	Channel Mode    (2bits)
+	Mode extension  (2bits)
+	Copyright       (1bit)
+	Original        (1bit)
+	Emphasis        (2bits)
+
 
  Usage example:
 	./minimad  /Music/ *.mp3
@@ -45,6 +61,8 @@
  Journal:
  2021-04-12:
         1. mad_flow output(): correct nchannels and samplerate.
+ 2021-11-22:
+	1. Add madplay_resample.h and resampling codes.
 
  Midas Zhou
  midaszhou@yahoo.com
@@ -102,7 +120,7 @@ typedef struct {
 # include <egi_input.h>
 # include <egi_filo.h>
 # include "mad.h"
-
+# include "madplay_resample.h"
 
 const char *mad_mode_str[]={
 	"Single channel",
@@ -138,6 +156,9 @@ static snd_pcm_t *pcm_handle;      /* PCM播放设备句柄 */
 static int16_t  *data_s16l=NULL;   /* FORMAT_S16L 数据 */
 static bool pcmdev_ready;	   /* PCM 设备ready */
 static bool pcmparam_ready;	   /* PCM 参数ready */
+struct resample_state rstate;	   /* Resample state, init at output() */
+mad_fixed_t (*resampled)[2][MAX_NSAMPLES]; /* Resampled data, calloc in output() */
+bool  need_resample;
 
 /* KeyIn command 定义键盘输入命令 */
 static int cmd_keyin;
@@ -197,6 +218,14 @@ int main(int argc, char *argv[])
   if (argc <2 )
   	return 1;
   files=argc-1;
+
+#if 0 //Put to putout().  /* Malloc space for resampled data */
+  resampled=malloc(sizeof(*resampled));
+  if(resampled==NULL) {
+	printf("Fail to malloc resampled!\n");
+	exit(1);
+  }
+#endif
 
   /* Set termI/O 设置终端为直接读取单个字符方式 */
   egi_set_termios();
@@ -412,7 +441,7 @@ static enum mad_flow output(void *data, struct mad_header const *header, struct 
   nsamples  = pcm->length;
 
   /* 为PCM播放设备设置相应参数 */
-  if( !pcmdev_ready && header->flags&0x1 ) {  /* assume (header->flags&0x1)==1 as start of complete frame */
+  if( !pcmdev_ready ) { // && header->flags&0x1 ) {  /* assume (header->flags&0x1)==1 as start of complete frame */
         /* Update nchannles and samplerate */
         nchannels=pcm->channels; //MAD_NCHANNELS(header);
         samplerate= pcm->samplerate;
@@ -420,12 +449,34 @@ static enum mad_flow output(void *data, struct mad_header const *header, struct 
         /* NOTE: nchannels/samplerate from the first frame header MAY BE wrong!!! */
         printf("header_cnt:%lu, flags:0x%04X, mode: %s, nchanls=%d, sample_rate=%d, nsamples=%d\n",
                         header_cnt, header->flags, mad_mode_str[header->mode], nchannels, samplerate, nsamples);
-        if( egi_pcmhnd_setParams(pcm_handle, SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, nchannels, samplerate) <0 ) {
+
+	/* Init resampling */
+	if(samplerate!=48000 && samplerate!=44100) {
+		printf("Init resampling to 48000Hz...\n");
+		resample_init(&rstate, samplerate, 48000);
+
+                /* Recalloc space for resampled data */
+                resampled=(typeof(resampled))realloc((void *)resampled, sizeof(*resampled));
+                if(resampled==NULL) {
+                      printf("Fail to malloc resampled!\n");
+                      exit(1);
+                }
+
+		need_resample=true;
+	}
+	else {
+		need_resample=false;
+	}
+
+	/* egi pcmhnd setParams */
+        if( egi_pcmhnd_setParams(pcm_handle, SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, nchannels,
+	    need_resample?48000:samplerate) <0 ) {
                 printf("Fail to set params for PCM playback handle.!\n");
         } else {
                 //printf("EGI set pcm params successfully!\n");
                 pcmdev_ready=true;
         }
+
   }
 
 #if 0 /////// /* Sep parameters for pcm_hanle */
@@ -441,20 +492,44 @@ static enum mad_flow output(void *data, struct mad_header const *header, struct 
 #endif
 
   if(pcmdev_ready) {
-  	  /* 转换成S16L格式 */
-	  /* Realloc data for S16 */
-	  data_s16l=(int16_t *)realloc(data_s16l, nchannels*nsamples*2);
-	  if(data_s16l==NULL)
-		exit(1);
-	  /* Scale to S16L */
-	  for(k=0,i=0; i<nsamples; i++) {
-		data_s16l[k++]=scale(*(left_ch+i));		/* Left */
+	/* Need to resample */
+     	if( need_resample ) {
+		/* Resample */
+		nsamples = resample_block( &rstate, pcm->length, left_ch, (*resampled)[0]);
 		if(nchannels==2)
-			data_s16l[k++]=scale(*(right_ch+i));	/* Right */
-	  }
+			resample_block( &rstate, pcm->length, right_ch, (*resampled)[1]);
 
-	  /* Playback 播放PCM数据 */
-	  egi_pcmhnd_playBuff(pcm_handle, true, (void *)data_s16l, nsamples);
+  	  	/* 转换成S16L格式 */
+	  	/* Realloc data for S16 */
+		  data_s16l=(int16_t *)realloc(data_s16l, nchannels*nsamples*2);
+		  if(data_s16l==NULL)
+			exit(1);
+		  /* Scale to S16L */
+		  for(k=0,i=0; i<nsamples; i++) {
+			data_s16l[k++]=scale((*resampled)[0][i]);		/* Left */
+			if(nchannels==2)
+				data_s16l[k++]=scale((*resampled)[1][i]);	/* Right */
+	  	}
+     	}
+	/*  No need to resample */
+     	else {
+
+  	  	/* 转换成S16L格式 */
+	  	/* Realloc data for S16 */
+		data_s16l=(int16_t *)realloc(data_s16l, nchannels*nsamples*2);
+		if(data_s16l==NULL)
+			exit(1);
+	  	/* Scale to S16L */
+	  	for(k=0,i=0; i<nsamples; i++) {
+			data_s16l[k++]=scale(*(left_ch+i));		/* Left */
+			if(nchannels==2)
+				data_s16l[k++]=scale(*(right_ch+i));	/* Right */
+	  	}
+
+     	}
+
+     	/* Playback 播放PCM数据 */
+	egi_pcmhnd_playBuff(pcm_handle, true, (void *)data_s16l, nsamples);
   }
 
   return MAD_FLOW_CONTINUE;
@@ -670,6 +745,9 @@ static int decode_preprocess(unsigned char const *start, unsigned long length)
 
   /* release the decoder */
   mad_decoder_finish(&decoder);
+
+  /* Free resampled data */
+  free(resampled);
 
   return result;
 }

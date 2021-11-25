@@ -392,7 +392,7 @@ char * cstr_trim_space(char *buf)
 
 	/* skip front spaces */
 	ps=buf;
-	for(ps=buf; *ps==' '||*ps=='	'; ps++)
+	for(ps=buf; *ps==' '|| *ps=='	'; ps++)
 	{ };
 
 	/* eat up back spaces/returns, replace with 0 */
@@ -1005,7 +1005,7 @@ inline int char_DBC2SBC_to_uft8(char dbc, char *dest)
 /*---------------------------------------------------------------------
 Convert a string in UNICODE to UFT-8 by calling char_unicode_to_uft8()
 
-@src:	Input string in UNICODE
+@src:	Input string in UNICODE, it shall ends with L'\0'.
 @dest:  Output string in UFT-8.
 	The caller shall allocate enough space for dest.
 
@@ -1636,7 +1636,7 @@ Note:
 		if input is NULL, ignore.
 		if fails, pass NULL to the caller then.
 		!!! --- Note: the content has independent memory space, and
-		so do NOT forget to free it. --- !!!
+		do NOT forget to free it. --- !!!
 
 Return:
 	Pointer to taged content in str_html:		Ok

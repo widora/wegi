@@ -28,6 +28,11 @@ Jurnal
 	2. Add https_easy_download2()
 2021-11-14:
         1. Add https_easy_stream()
+2021-11-20:
+	1. https_easy_stream( ..nr, reqs..): additional request lines.
+2021-11-24:
+	1. https_curl_request(): add param timeout.
+	2. https_easy_download(): add param timeout.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -323,8 +328,16 @@ const char *curl_easy_strerror(CURLcode error)
 Note: You must have installed ca-certificates before call curl https, or
       define SKIP_PEER/HOSTNAME_VERIFICATION to use http instead.
 
+@opt:			Http options, Use '|' to combine.
+			HTTPS_SKIP_PEER_VERIFICATION
+			HTTPS_SKIP_HOSTNAME_VERIFICATION
+@trys:			Max. try times.
+			If trys==0; unlimit.
+@timeout:		Timeout in seconds.
 @request:	request string
 @reply_buff:	returned reply string buffer, the Caller must ensure enough space.
+				!!! --- CAUTION --- !!!
+		Insufficient memspace causes segmentation_fault and other strange things.
 @data:		TODO: if any more data needed
 
 		!!! CURL will disable egi tick timer? !!!
@@ -332,8 +345,8 @@ Return:
 	0	ok
 	<0	fails
 --------------------------------------------------------------------------------*/
-int https_curl_request(int opt, const char *request, char *reply_buff, void *data,
-								curlget_callback_t get_callback)
+int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const char *request, char *reply_buff,
+			void *data, curlget_callback_t get_callback )
 {
 	int i;
 	int ret=0;
@@ -342,7 +355,7 @@ int https_curl_request(int opt, const char *request, char *reply_buff, void *dat
 	double doubleinfo=0;
 
  /* Try Max. 3 sessions. TODO: tm_delay() not accurate, delay time too short!  */
- for(i=0; i<3; i++)
+ for(i=0; i<trys || trys==0; i++)
  {
 	/* init curl */
 	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...",__func__);
@@ -357,7 +370,7 @@ int https_curl_request(int opt, const char *request, char *reply_buff, void *dat
 	/* set curl option */
 	curl_easy_setopt(curl, CURLOPT_URL, request);		 	 /* set request URL */
 	curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L); //1L		 /* 1 print more detail */
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, EGI_CURL_TIMEOUT);	 /* set timeout */
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout); //EGI_CURL_TIMEOUT);	 /* set timeout */
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_callback);     /* set write_callback */
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, reply_buff); 		 /* set data dest for write_callback */
 
@@ -375,10 +388,7 @@ int https_curl_request(int opt, const char *request, char *reply_buff, void *dat
 	/* Perform the request, res will get the return code */
 	EGI_PLOG(LOGLV_CRITICAL, "%s: Try [%d]th curl_easy_perform()... ", __func__, i);
 	if(  (res=curl_easy_perform(curl)) !=CURLE_OK ) {
-//		if(res==CURLE_OPERATION_TIMEDOUT)
-//		      egi_dpstd("curl_easy_perform(): CURLE_OPERATION_TIMEDOUT!\n");
-//		else
-		      egi_dpstd("curl_easy_perform() failed! res=%d, Err'%s'\n",res, curl_easy_strerror(res));
+	       egi_dpstd("curl_easy_perform() failed! res=%d, Err'%s'\n",res, curl_easy_strerror(res));
 		ret=-2;
 		printf("%s: tm_delayms..\n",__func__);
 		tm_delayms(200);
@@ -405,8 +415,10 @@ int https_curl_request(int opt, const char *request, char *reply_buff, void *dat
 			tm_delayms(200);
 			goto CURL_CLEANUP; //continue; /* retry ... */
 		}
-		//else
-		//  	break; 	/* ----- OK! End Session ----- */
+		else {
+			ret=0;
+		  	/* ----- OK! End Session ----- */
+		}
 	}
 	else { 	/* Getinfo fails */
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to easy getinfo CURLINFO_CONTENT_LENGTH_DOWNLOAD!", __func__);
@@ -434,6 +446,24 @@ CURL_CLEANUP:
 }
 
 
+/*-----------------------------------------------
+ A default callback for https_easy_download().
+------------------------------------------------*/
+static size_t easy_callback_writeToFile(void *ptr, size_t size, size_t nmemb, void *stream)
+{
+   size_t written=size*nmemb;
+
+   if(stream) {
+        written = fwrite(ptr, size,  nmemb, (FILE *)stream);
+        //printf("%s: written size=%zd\n",__func__, written);
+        if(written<0) {
+                EGI_PLOG(LOGLV_ERROR,"xxxxx  Curl callback:  fwrite error!  written<0!  xxxxx");
+                written=0;
+        }
+   }
+
+   return written;
+}
 
 /*----------------------------------------------------------------------------
 			HTTPS request by libcurl
@@ -461,7 +491,7 @@ Return:
 	0	ok
 	<0	fails
 -------------------------------------------------------------------------------*/
-int https_easy_download( int opt, unsigned int trys,
+int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 			 const char *file_url, const char *file_save,   void *data,
 			 curlget_callback_t write_callback )
 {
@@ -490,7 +520,7 @@ int https_easy_download( int opt, unsigned int trys,
 		/* Go on .. */
 	}
 
- /* Try Max. 3 times */
+ /* Try Max. tru times */
  for(i=0; i<trys || trys==0; i++)
  {
 	/* init curl */
@@ -507,24 +537,27 @@ int https_easy_download( int opt, unsigned int trys,
 	/* set download file URL */
 	curl_easy_setopt(curl, CURLOPT_URL, file_url);
 	/*  1L --print more detail,  0L --disbale */
-	curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L); //1L
+	curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); //1L
    	/*  1L --disable progress meter, 0L --enable and disable debug output  */
 	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
 	/*  1L --enable redirection */
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	/*  set timeout */
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, EGI_CURL_TIMEOUT);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout); //EGI_CURL_TIMEOUT);
 
 	/* For name lookup timed out error: use ipv4 as default */
 	//  curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
 	/* set write_callback to write/save received data  */
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+	if(write_callback)
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+	else /* default */
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, easy_callback_writeToFile);
 
 	/* Append HTTP request header */
 	struct curl_slist *header=NULL;
 	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
-	curl_easy_setopt(curl, CURLOPT_HTTPHEADER,header);
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
 
 	/* Param opt set */
 	if(HTTPS_SKIP_PEER_VERIFICATION & opt)
@@ -723,7 +756,7 @@ can be controlled by the Caller in write_callbck.
 
 Note:
 1. Assume that the remote object/file is a stream in chunk data.
-2. Set a big timeout value to avoid frequent breakout and clean_up, which will
+2. Set a big timeout value to avoid frequent breakout and clean_up of easy_perform,
    and a new round(new file) of easy_perform may receive repeated data at first.
 
 -----------------------------------------------------------------------------*/
@@ -1043,6 +1076,8 @@ Download https data as continuous stream.
 			Too small value may result in receiving repeated data.
 			Too big value cause to break stream playing often.
 @stream_url:		URL of the stream
+@nr:			Items of reqs[].
+@reqs			Pointers to addtional HTTP request lines
 @data:			Data destination for write_callback
 @write_callback:	Callback for writing received data
 @header_callback	Callback for each head line replied.
@@ -1052,10 +1087,10 @@ Note:
 
 ----------------------------------------------------------------------*/
 int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
-			 const char *stream_url, void *data,
+			 const char *stream_url, int nr, const char **reqs, void *data,
 			 curlget_callback_t write_callback, curlget_callback_t header_callback )
 {
-	int i;
+	int i,k;
 	int ret=0;
   	CURL *curl=NULL;
   	CURLcode res;
@@ -1085,7 +1120,7 @@ int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
 	curl_easy_setopt(curl, CURLOPT_URL, stream_url);
 	//curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
 
-	/* Setopt TC KEEPAVLIVE */
+	/* Setopt TCP KEEPAVLIVE */
 	curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
 	curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE, 120L);
 	curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, 60L);
@@ -1122,6 +1157,15 @@ int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
 	struct curl_slist *header=NULL;
 	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER,header);
+
+	/* User input request header lines */
+	if(nr>0) {
+	   for(k=0; k<nr; k++) {
+		//header=curl_slist_append(header,"Icy-MetaData:1");
+		header=curl_slist_append(header, reqs[k]);
+		curl_easy_setopt(curl, CURLOPT_HTTPHEADER,header);
+	   }
+	}
 
 	/* Param opt set */
 	if(HTTPS_SKIP_PEER_VERIFICATION & opt)

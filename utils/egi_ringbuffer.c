@@ -10,6 +10,8 @@ Journal:
 	1. Create the file and functions:
 		egi_ringbuffer_create() egi_ringbuffer_free()
 		egi_ringbuffer_write()	egi_ringbuffer_read()
+2021-11-19:
+	1. Add  egi_ringbuffer_IsFull()
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -86,6 +88,19 @@ void egi_ringbuffer_free(EGI_RINGBUFFER **ringbuf)
 	*ringbuf=NULL;
 }
 
+/*-----------------------------------------------
+Check if the RingBuffer is full, withou accessing
+mutex lock.
+
+@ringbuf:	Pointer to an ring buffer.
+
+Return:
+	Ture OR False
+-----------------------------------------------*/
+inline bool egi_ringbuffer_IsFull(const EGI_RINGBUFFER *ringbuf)
+{
+	return ( ringbuf && (ringbuf->datasize==ringbuf->buffsize) );
+}
 
 /*-------------------------------------------
 Wrtie data into a ring buffer.

@@ -31,11 +31,12 @@ LIBS    += -lpng -ljpeg -lz
 LIBS 	+= -lcurl -lssl -lcrypto
 LIBS 	+= -lm -lz -pthread -lbz2
 LIBS 	+= -lfreetype
-LIBS    += -legi
+#LIBS    += -legi
 LIBS    += -lgif
 
 
-all:	$(APP) libesound.a
+all:	$(APP)
+#all:	libesound.a
 
 
 autorec: autorec.c
@@ -45,7 +46,7 @@ recmp3: recmp3.c
 #	$(CC) $(CFLAGS) $(LDFLAGS) $(LIBS) -o recmp3 recmp3.c	#--use shared egilib
 	$(CC) recmp3.c -o recmp3 $(CFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
 -Wl,-Bstatic -lesound -legi -Wl,-Bdynamic
-#---use static egilib  !!!! -lesound needs -legi, with needs LIBS !!!!
+#---use static egilib  !!!! -lesound needs -legi, which needs LIBS !!!!
 
 test_minimad: test_minimad.c
 	$(CC) test_minimad.c -o test_minimad $(CFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \

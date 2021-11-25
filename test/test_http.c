@@ -72,7 +72,7 @@ while(1) {
 
 	/* Https GET request */
 	EGI_PLOG(LOGLV_INFO,"Start https curl request...");
-        if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION,
+        if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 5,3,
 				strRequest, buff, NULL, curl_callback) !=0 )
 	{
 		EGI_PLOG(LOGLV_ERROR, "Fail to call https_curl_request()! try again...");
@@ -168,7 +168,7 @@ void parse_m3u8list(char *strm3u)
 				/* Download AAC */
 				curl_nwrite=0;
 				EGI_PLOG(LOGLV_INFO, "Downloading a.stream AAC from: %s",  aacURL);
-		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION,
+		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3, 3,
 							 aacURL, "/tmp/a.stream", NULL, download_callback) !=0 )
 				{
                         		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download a.stream from '%s'.", aacURL);
@@ -190,7 +190,7 @@ void parse_m3u8list(char *strm3u)
 				/* Download AAC */
 				curl_nwrite=0;
 				EGI_PLOG(LOGLV_INFO, "Downloading b.stream AAC from: %s",  aacURL);
-		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION,
+		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3,3,
 							 aacURL, "/tmp/b.stream", NULL, download_callback) !=0 )
 				{
                         		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download b.stream from '%s'.", aacURL);
@@ -212,7 +212,7 @@ void parse_m3u8list(char *strm3u)
 				/* Download AAC */
 				curl_nwrite=0;
 				EGI_PLOG(LOGLV_ERROR, "Case 3: a.stream & b.stream both missing! downloading a.stream AAC from: %s",  aacURL);
-		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION,
+		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3,3,
 							 aacURL, "/tmp/a.stream", NULL, download_callback) !=0 )
 				{
                         		EGI_PLOG(LOGLV_ERROR, "Case 3: Fail to easy_download a.stream from '%s'.", aacURL);

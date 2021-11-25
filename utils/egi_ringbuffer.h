@@ -11,6 +11,7 @@ midaszhou@yahoo.com
 #ifndef __EGI_RINGBUFFER_H__
 #define __EGI_RINGBUFFER_H__
 #include <stdlib.h>
+#include <stdbool.h>
 
 typedef struct {
 	char*	 buffer;	/* Mem. space allocated */
@@ -24,6 +25,7 @@ typedef struct {
 
 EGI_RINGBUFFER *egi_ringbuffer_create(size_t buffsize);
 void egi_ringbuffer_free(EGI_RINGBUFFER **ringbuf);
+bool egi_ringbuffer_IsFull(const EGI_RINGBUFFER *ringbuf);
 size_t egi_ringbuffer_write(EGI_RINGBUFFER *ringbuf, void *src, size_t len);
 size_t egi_ringbuffer_read(EGI_RINGBUFFER *ringbuf, void *dest, size_t len);
 
