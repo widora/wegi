@@ -7,8 +7,12 @@ Note:
 1. FreeType 2 is licensed under FTL/GPLv3 or GPLv2.
    Based on freetype-2.5.5
 
-2. TODO: Font size class, ratio of fw/fh to be fixed!
+TODO:
+1.Font size class, ratio of fw/fh to be fixed!
 	NOW: font width(fw) is regarded as font size.
+2. FTsymbol_unicode_writeFB(): Check if font data is corrupted! it
+   MAY return error advanceX/bitmap.row.width ???  Set a limit
+   to avoid it return a too big/samll value!
 
 Journal:
 2021-01-27:
@@ -35,6 +39,9 @@ Journal:
 	1. FTsymbol_eword_pixlen(): Count in any SPACEs/TABs.
 2021-09-14:
 	1. Add FTsymbol_uft8strings_writeIMG2(), with rotation angle.
+2021-11-26:
+	1. FTsymbol_uft8strings_writeFB(). If *p gets to the end of the string
+	   with just xleft==0, then NO need for increment of ln/xleft/py.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -1229,7 +1236,6 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 	/* This is the MAX. possible height of glyph, as for line distance. */
 	//printf("Current FT_Face height=%d pixels\n", face->size->metrics.height>>6 );
 
-
 	/* Do not set transform, keep up_right and pen position(0,0)
     		FT_Set_Transform( face, &matrix, &pen ); */
 
@@ -1251,6 +1257,14 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 
 	/* Check whether xleft is used up first. */
 	advanceX = slot->advance.x>>6;
+
+#if 0	/* TEST: ----------- Check if advanceX is reasonale! OR the font lib data is corrupted!??? */
+	if(advanceX>2*fw || ftsympg.symheight>2*fh || ftsympg.ftwidth>2*fw ) {
+		egi_dpstd("!!! WARNING !!! Font lib data seems corrupted! advanceX=%d, bitmap.rows=%d,.width=%d\n",
+						advanceX, slot->bitmap.rows,slot->bitmap.width);
+	}
+#endif
+
 	//bbox_W = (advanceX > slot->bitmap.width ? advanceX : slot->bitmap.width);
 	bbox_W = advanceX;  /* To be consistent with FTcharmap_uft8strings_writeFB() when calling FT_Get_Advances() to update xleft. */
 
@@ -1611,7 +1625,7 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 		    }
 	   	}
 
-		/* convert one character to unicode, return size of utf-8 code */
+		/* Convert one character to unicode, return size of utf-8 code */
 		size=char_uft8_to_unicode(p, wcstr);
 
 #if 0 /* ----TEST: print ASCII code */
@@ -1623,7 +1637,7 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 
 #endif /*-----TEST END----*/
 
-		/* shift offset to next wchar */
+		/* Shift offset to next wchar */
 		if(size>0) {
 			p+=size;
 			count++;
@@ -1655,16 +1669,24 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 		FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, wcstr[0], &xleft,
 							 px, py, fontcolor, transpcolor, opaque );
 
-		/* --- check line space --- */
-		if(xleft<=0) {
-			if(xleft<0) { /* NOT writeFB, reel back pointer p */
-				p-=size;
-				count--;
-			}
+#if 0  //////* Check if ERROR in Freetype fonts! *//////////
+		//printf("xleft=%d\n", xleft);
+		if(xleft < (int)-pixpl) { //TODO:  not so good!
+			printf("!!!WARNING: unicode: 0x%04X, xleft=%d\n", wcstr[0], xleft);
+			xleft= -1;
+		}
+#endif //////////////////////////////////////////////////////
+
+		/* --- Check line space --- */
+		if(xleft<0) { /* NOT writeFB, reel back pointer p */
+			p-=size;
+			count--;
 			/* change to next line, +gap */
-			ln++;
-			xleft=pixpl;
-			py+= fh+gap;
+			ln++; xleft=pixpl; py+= fh+gap;
+		}
+		else if( xleft==0 && (*p)!=0 ) {  /* If JUST gets to end of the string, then NO need for increment! */
+			/* change to next line, +gap */
+			ln++; xleft=pixpl; py+= fh+gap;
 		}
 
 	} /* end while() */

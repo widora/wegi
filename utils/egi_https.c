@@ -34,6 +34,13 @@ Jurnal
 	1. https_curl_request(): add param timeout.
 	2. https_easy_download(): add param timeout.
 
+2021-11-30:
+	1.Add CURLOPT_ACCEPT_ENCODING to enables automatic decompression of HTTP downloads.
+		https_curl_request()
+
+TODO:
+1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
+
 Midas Zhou
 midaszhou@yahoo.com
 --------------------------------------------------------------------*/
@@ -353,6 +360,7 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
   	CURL *curl;
   	CURLcode res=CURLE_OK;
 	double doubleinfo=0;
+	long   longinfo=0;
 
  /* Try Max. 3 sessions. TODO: tm_delay() not accurate, delay time too short!  */
  for(i=0; i<trys || trys==0; i++)
@@ -366,18 +374,20 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 		return -1;
 	}
 
-
 	/* set curl option */
 	curl_easy_setopt(curl, CURLOPT_URL, request);		 	 /* set request URL */
-	curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L); //1L		 /* 1 print more detail */
+	curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); //1L		 /* 1 print more detail */
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout); //EGI_CURL_TIMEOUT);	 /* set timeout */
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_callback);     /* set write_callback */
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, reply_buff); 		 /* set data dest for write_callback */
+	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");		 /* enables automatic decompression of HTTP downloads */
 
 	/* Append HTTP request header */
 	struct curl_slist *header=NULL;
-	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
+//	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
+	header=curl_slist_append(header,"User-Agent: Mozilla/5.0(Linux; Android 8.0)");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER,header);
+
 
 	/* Param opt set */
 	if(HTTPS_SKIP_PEER_VERIFICATION & opt)
@@ -399,6 +409,16 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 	/* 				--- Check session info. ---
 	 ***  Note: curl_easy_perform() may result in CURLE_OK, but curl_easy_getinfo() may still fail!
 	 */
+	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &longinfo) ) {
+		EGI_PLOG(LOGLV_CRITICAL,"%s: get response code '%ld'.\n",__func__, longinfo);
+		if(longinfo==0) {
+			egi_dpstd("No response from the peer/server!\n");
+			ret=-2;
+			goto CURL_CLEANUP; //continue; /* retry ... */
+		}
+	}
+
+#if 0 ///////////////// 
 	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &doubleinfo) ) {
 		printf("%s: CURLINFO_CONTENT_LENGTH_DOWNLOAD = %.0f \n", __func__, doubleinfo);
 		if( (int)doubleinfo > CURL_RETDATA_BUFF_SIZE )
@@ -426,6 +446,7 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 		tm_delayms(200);
 		goto CURL_CLEANUP; //continue; /* retry ... */
 	}
+#endif //////////////////////
 
 CURL_CLEANUP:
 	/* always cleanup */
@@ -439,7 +460,7 @@ CURL_CLEANUP:
 
  } /* End: try Max.3 times */
 
-	if(ret!=0 && i==3)
+	if(ret!=0)
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail after try %d times!", __func__, i);
 
 	return ret;
@@ -451,7 +472,8 @@ CURL_CLEANUP:
 ------------------------------------------------*/
 static size_t easy_callback_writeToFile(void *ptr, size_t size, size_t nmemb, void *stream)
 {
-   size_t written=size*nmemb;
+   size_t chunksize=size*nmemb;
+   size_t written;
 
    if(stream) {
         written = fwrite(ptr, size,  nmemb, (FILE *)stream);
@@ -460,6 +482,9 @@ static size_t easy_callback_writeToFile(void *ptr, size_t size, size_t nmemb, vo
                 EGI_PLOG(LOGLV_ERROR,"xxxxx  Curl callback:  fwrite error!  written<0!  xxxxx");
                 written=0;
         }
+	else if(written!=chunksize) {
+                EGI_PLOG(LOGLV_ERROR,"xxxxx  Curl callback:  fwrite error!  write %uz of datasize %uz!  xxxxx", written, chunksize);
+	}
    }
 
    return written;
@@ -537,7 +562,7 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	/* set download file URL */
 	curl_easy_setopt(curl, CURLOPT_URL, file_url);
 	/*  1L --print more detail,  0L --disbale */
-	curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); //1L
+	curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L); //1L
    	/*  1L --disable progress meter, 0L --enable and disable debug output  */
 	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
 	/*  1L --enable redirection */
@@ -557,6 +582,7 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	/* Append HTTP request header */
 	struct curl_slist *header=NULL;
 	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
+//	header=curl_slist_append(header,"User-Agent: Mozilla/5.0(Linux; Android 8.0)");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
 
 	/* Param opt set */
@@ -619,6 +645,7 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 		}
 		else {
 		  	EGI_PLOG(LOGLV_CRITICAL,"%s: Curl download content length =%d!",  __func__, (int)doubleinfo);
+			ret=0;
 		  	break; 	/* ----- OK ----- */
 		}
 	}
@@ -644,8 +671,7 @@ CURL_CLEANUP:
 	curl_easy_cleanup(curl);
 	curl=NULL; /* OR curl_easy_cleanup() will crash at last! */
   	curl_global_cleanup();
- } /* End: try Max.3 times */
-
+ } /* End: try Max times */
 
 	/* Check result, If it fails, truncate filesize to 0 before quit!    ??? NOT happens!! */
 	if(ret!=0) {
@@ -923,6 +949,7 @@ while(1) {
 		}
 		else {
 		  	EGI_PLOG(LOGLV_CRITICAL,"%s: Curl download content length =%d!",  __func__, (int)doubleinfo);
+			ret=0;
 		  	break; 	/* ----- OK ----- */
 		}
 	}
@@ -1098,7 +1125,7 @@ int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
 	long filetime;
 	int sizedown;
 
-	/* check input */
+	/* Check input */
 	if(stream_url==NULL)
 		return -1;
 
@@ -1242,6 +1269,7 @@ while(1) {
 		}
 		else {
 		  	EGI_PLOG(LOGLV_CRITICAL,"%s: Curl download content length =%d!",  __func__, (int)doubleinfo);
+			ret=0;
 		  	break; 	/* ----- OK ----- */
 		}
 	}

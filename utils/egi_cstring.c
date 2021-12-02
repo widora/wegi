@@ -3,7 +3,7 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-Char and String Functions
+Char and String Functions.
 
 Journal
 2021-01-24:
@@ -14,6 +14,17 @@ Journal
 	1. Add cstr_get_peword(), cstr_strlen_eword().
 2021-07-20:
 	1. cstr_strlen_eword():	Include any trailing SPACEs/TABs.
+2021-11-25:
+	1. cstr_parse_html_tag(): Parse Tag image, <img src=... alt=..>
+	2. Add cstr_get_html_attribute().
+2021-11-28/29:
+	1. cstr_parse_html_tag(): param attributes, and include nested tag.
+2021-11-29:
+	1. cstr_unicode_to_uft8(): Put a terminating null byte after conversion.
+2021-12-01:
+	1. Add cstr_replace_string()
+2021-12-02:
+	1. Add cstr_decode_htmlSpecailChars(char *strHtml)
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -167,6 +178,254 @@ int cstr_compare_dictOrder(const char *str1, const char *str2, size_t len)
 	return 0;
 }
 
+/*----------------------------------------------------------------------
+Decode HTML entity names in a string into special chars(uft-8 coding).
+
+		!!! --- CATUTION  --- !!!
+1. Assume that length of each special char is short than its entity name!
+2. Assume each entity name starts with '&' and ends with ';'.
+
+@strHtml: string containing special entity names!
+
+Return:
+	Pointer to decoded string (strHtml)	OK
+	NULL	Fails
+----------------------------------------------------------------------*/
+char* cstr_decode_htmlSpecailChars(char *strHtml)
+{
+	if(strHtml==NULL)
+		return NULL;
+
+	char *ps=NULL; /* Start of searching position */
+	char *pe=NULL; /* End of searching position */
+	char *buff=NULL;
+	char box[8+1];  /* For MAX long entity name */
+	int i,k;
+	int srclen=strlen(strHtml);
+	int newlen;
+	int xlen;
+	bool checkOK; /* Check if an entity name possible, OR EOF */
+
+	/* Entity name list. TODO: More! */
+	struct compare_list {
+		const char *ename; /* entity name */
+		const char *uchar; /* uft8 code */
+	} list[]={
+		{"&lsquo;","‘"}, {"&rsquo;","’"}, {"&ldquo;","“"}, {"&rdquo;","”"},
+		{"&spades;","♠"}, {"&clubs;","♣"}, {"&hearts;","♥"}, {"&diams;","♦"},
+		{"&quot;","\""}, {"&amp;","&"}, {"&apos;","'"}, {"&lt;","<"},  {"&gt;",">"},
+		{"&ndash;","-"},{"&hellip;","…"}, {"&nbsp;"," "},
+	};
+
+	int list_size=sizeof(list)/sizeof(struct compare_list);
+
+	/* Malloc buff */
+	buff=malloc(srclen+1);
+	if(buff==NULL)
+		return NULL;
+	buff[srclen]=0;
+
+	/* Init vars */
+	newlen=0;
+	ps=strHtml;
+	pe=ps;
+	box[8]=0; /* Terminating null */
+
+	while( *pe ) {
+
+	   /* W1. IF '&': as start of an entity name */
+	   if( *pe=='&' ) {
+
+		/* P1. Check if an ';' appears within 8 chars, as END of an entity name. */
+		checkOK=false;
+		for(i=1; i<8; i++) {
+			/* A new '&' will reset. Example: "&xx&gt;" */
+			if( *(pe+i)=='&' ) {
+				//checkOK=false;
+				break;
+			}
+			/* Find ';' OR just EOF. */
+			else if( *(pe+i)==0 || *(pe+i)==';' ) {
+				checkOK=true;
+				break;
+			}
+		}
+
+		/* P2. NO entity name in the coming first 8chars. */
+		if(checkOK==false) {
+			/* Copy skipping string to buff */
+			strncpy(buff+newlen, ps, pe+i-ps);
+			newlen += pe+i-ps;
+
+			/* Renew ps and pe */
+			pe += i;
+			ps=pe;
+
+			continue;
+		}
+		/* P3. JUST the end of string */
+		else if( *(pe+i)==0 ) {
+			pe += i;
+			break;   /* BREAK WHILE(), goto X.  */
+		}
+		//ELSE: pe,ps, newlen: TO BE RESET LATER.
+
+
+		/* ---- POSSIBLY AN ENTITY NAME ---- */
+
+		/* 1.1 To hold entity_name_like string.
+		 * NOW: *(pe+i) point to end ';', +1 to include it.
+		 */
+		strncpy(box, pe, i+1); /* MAX 8 +'0' */
+		box[i+1]='\0';
+		/* 1.2 Check if it's an entity name */
+		for( k=0; k<list_size; k++) {
+		   /* Tranverse entity names in list */
+		   if( strstr(box, list[k].ename)==box ) {
+			/* Copy skipping string to buff */
+			strncpy(buff+newlen, ps, pe-ps);
+			newlen += pe-ps;
+
+			/* Copy uchar to buff */
+			xlen=strlen(list[k].uchar);
+			strncpy(buff+newlen, list[k].uchar, xlen);
+			newlen += xlen;
+
+			/* Renew ps and pe */
+			pe += strlen(list[k].ename);
+			ps=pe;
+
+			break;
+		   }
+		}
+		/* 1.3 Check if NOT found in list[]. XXX THIS SKIP BY 1.0  */
+		if( k==list_size ) {
+                        /* Copy skipping string to buff */
+                        strncpy(buff+newlen, ps, pe+(i+1)-ps);
+                        newlen += pe+(i+1)-ps;
+
+		    	/* renew ps and pe */
+			//pe +=i+1;
+			pe += (i+1);
+			ps=pe;
+		}
+
+		/* 1.4 Go on while()..  */
+		continue;
+	   }
+	   /* W2. NOT '&' */
+	   else {
+		/* Move on pe */
+		pe++;
+		continue;
+	   }
+
+	} /* End while */
+
+	/* X. The last */
+	if( pe!=ps ) {
+		/* Copy skipping string to buff */
+		strncpy(buff+newlen, ps, pe-ps);
+		newlen += pe-ps;
+	}
+	/* Y. Set NULL end */
+	buff[newlen]='\0';
+
+	/* Replace strHtml[] with buff[] */
+	strncpy(strHtml, buff, newlen);
+	strHtml[newlen]='\0';
+
+	/* Free buff */
+	free(buff);
+
+	/* Ok */
+	return strHtml;
+}
+
+
+/*----------------------------------------------------------
+Replace the object string(obj) in the source(src) with
+the substitue(sub).
+
+@src:	Pointer poiner to the source string.
+
+			!!! --- CAUTION --- !!!
+	IF (sublen > objlen ):
+	   Space of *src MUST be allocated by malloc/calloc,
+	   since it will be reallocated in the function!
+	ELSE
+	   src MUST NOT point to a const string, Example: char* psrc="sdfsf..".
+
+@obj:	The object/target string.
+@sub:	The substitue string.
+
+Return:
+	Pointer to a new string:	OK
+	NULL				Fails
+-----------------------------------------------------------*/
+char*   cstr_replace_string(char **src, const char *obj, const char *sub)
+{
+	if(src==NULL || *src==NULL || obj==NULL || sub==NULL)
+		return NULL;
+
+	int srclen=strlen(*src);
+	int objlen=strlen(obj);
+	int sublen=strlen(sub);
+
+	char *buff=NULL;
+	int  newlen;  /* buff len */
+	char *newstr=NULL;
+	char *ps=NULL; /* Start of searching position */
+	char *pe=NULL; /* End of searching position */
+
+	/* No need to reallocate *src! */
+	if(sublen<=objlen) {
+		buff=malloc(srclen+1);
+		if(buff==NULL)
+			return NULL;
+		buff[srclen]=0;
+
+		newlen=0;
+		ps=*src;
+		while( (pe=strstr(ps, obj)) ) {
+			/* Copy skipping string to buff */
+			strncpy(buff+newlen, ps, pe-ps);
+			newlen += pe-ps;
+
+			/* Copy sub to buff */
+			strncpy(buff+newlen, sub, sublen);
+			newlen += sublen;
+
+			/* Renwe ps */
+			ps=pe+objlen;
+		}
+
+		/* The last skipping string */
+		if( (*src) + srclen > ps ) {
+			strncpy(buff+newlen, ps, (*src)+srclen-ps);
+			newlen += (*src)+srclen-ps;
+		}
+
+		/* Set the EOF null */
+		buff[newlen]=0;
+//		printf("buff: %s\n", buff);
+
+		/* Replace *src with buff[] */
+		strncpy(*src, buff, newlen);
+		(*src)[newlen]=0;
+
+		/* Ok */
+		free(buff);
+		return (*src);
+	}
+	/* TODO: Need to reallocate as mem space is NOT enough! */
+	else {
+
+
+		return newstr;
+	}
+
+}
 
 /*-----------------------------------------------------------
 Clear all specified char and squeeze the string.
@@ -833,7 +1092,7 @@ inline int char_uft8_to_unicode(const unsigned char *src, wchar_t *dest)
 Convert a character from UNICODE to UFT-8 encoding.
 (MAX. size of dest[] is defined as UNIHAN_UCHAR_MAXLEN=4 in egi_unihan.h)
 
-@src:	A pointer to character in UNICODE.
+@src:	A pointer to characters in UNICODE.
 @dest:	A pointer to mem space to hold converted character in UFT-8 encoding.
 	The caller shall allocate enough space for dest.
 	!!!!TODO: Now little-endian ordering is supposed. !!!!
@@ -1025,12 +1284,17 @@ int cstr_unicode_to_uft8(const wchar_t *src, char *dest)
 
 	while( *ps !=L'\0' ) {  /* wchar t end token */
 		ret = char_unicode_to_uft8(ps, dest+size);
-		if(ret<=0)
+		if(ret<=0) {
+			*(dest+size)=0; /* terminating byte. */
 			return size;
+		}
 
 		size += ret;
 		ps++;
 	}
+
+	/* End token */
+	*(dest+size)=0;
 
 	return size;
 }
@@ -1066,6 +1330,11 @@ int cstr_uft8_to_unicode(const unsigned char *src, wchar_t *dest)
 
 	return count;
 }
+
+/*-------------------------------------------------------------
+	See in "egi_gb2unicode.h"
+int   cstr_gb2312_to_unicode(const char *src,  wchar_t *dest)
+-------------------------------------------------------------*/
 
 /*---------------------------------------------------------------------------
 Count lines in an text file. 	To check it with 'wc' command.
@@ -1601,20 +1870,24 @@ and end tag. It returns only the first matched case!
 
 
 Note:
-0. For UFT-8 encoding only!
+0. For UFT-8 encoding only! ...Indentation.
 1. Input tag MUST be closed type, it appeares as <X> ..... </X> in HTML string.
    Void elements, such as <hr />, <br /> are not applicable for the function!
    If input html string contains only single <X> OR </X> tag, a NULL pointer will
    be returned.
+
+1A.Input tag of "img" is also accepted. <img src="dog.jpg", alt="D.O.G">
+
 2. The parameter *content has independent memory space if it is passed to the caller,
    so it's the caller's responsibility to free it after use!
 3. The returned char pointer is a reference pointer to a position in original HTML string,
    so it needs NOT to be freed.
 4. Default indentation of two SPACEs is inserted.
 
+
 5. Limits:
-   4.1 Length of tag.
-   4.2 Nested conditions such as  <x>...<y>...</y>...</x> are NOT considered!
+   5.1 Length of tag.
+   5.2 Nested conditions such as  <x>...<y>...</y>...</x> are NOT considered!
 
  TODO:  1. parse attributes between '<' and '>', such as 'id','Title','Class', and 'Style' ...
         2. there are nested setions such as  <x>...<y>...</y>...</x>:
@@ -1629,20 +1902,31 @@ Note:
 @tag:		Tag name
 		Example: "p" as paragraph tag
 			 "h1","h2".. as heading tag
-@length:	Pointer to pass length of the element content, in bytes.
-		if input is NULL, ignore.
-		if fails, pass NULL to the caller then.
+
+@attributes:    Pass out all attributes string in a start tag <X .....>,
+		and put an end token '\0'.
+		If NULL, ignore.
+		The caller MUST ensure enough sapce!
+		For slef_closing tag, such as <img ...>, attributes are SAME as content!
+
 @content:	Pointer to pass element content.
-		if input is NULL, ignore.
+		Example: for <p>xyz...123</p>, content is 'xyz...123'/
+		For slef_closing tag, such as <img ...>, content is SAME as attributes string.
+
+		If input is NULL, ignore.
 		if fails, pass NULL to the caller then.
 		!!! --- Note: the content has independent memory space, and
 		do NOT forget to free it. --- !!!
+
+@length:	Pointer to pass length of the element content, in bytes.
+		if input is NULL, ignore.
+		if fails, pass NULL to the caller then.
 
 Return:
 	Pointer to taged content in str_html:		Ok
 	NULL:						Fails
 --------------------------------------------------------------------------------------*/
-char* cstr_parse_html_tag(const char* str_html, const char *tag, char **content, int *length)
+char* cstr_parse_html_tag(const char* str_html, const char *tag, char *attributes, char **content, int *length)
 {
 	char stag[16]; 	/* start tag */
 	char etag[16]; 	/* end tag   */
@@ -1650,12 +1934,25 @@ char* cstr_parse_html_tag(const char* str_html, const char *tag, char **content,
 			 * then adjusted to the beginning of content later.
 			 */
 	char *pet=NULL;  	/* Pointer to the beginning of end tag in str_html */
+	char *pattr=NULL; /* Pointer to start position of attributes in a start tag. */
+	char *ptmp=NULL;
+	//const char *pst2=NULL; /* For nested tags */
+	int nestCnt=0;  /* Counter for inner nested tag pair */
+
 	char str_indent[32];			/* UFT-8, indentation string */
 	/* For LOCALE SPACE INDENTATION */
 	const wchar_t wstr_indent[]={12288,12288, L'\0'}; /* sizelimit 32!! UNICODE, indentation string */
 	int  len_indent; 	//strlen(str_indent);
 	int  len_content=0;	/* length of content, in bytes. NOT include len_indent */
+
 	char *pctent=NULL; /* allocated mem to hold copied content */
+
+
+	/* Check input data */
+	if(str_html==NULL || tag==NULL )
+		return NULL;
+	if( strlen(tag) > 16-4 )
+		return NULL;
 
 	/* Set indentation string in UFT-8 */
 	memset(str_indent,0, sizeof(str_indent));
@@ -1668,18 +1965,12 @@ char* cstr_parse_html_tag(const char* str_html, const char *tag, char **content,
 	if(length != NULL)
 		*length=0;
 
-	/* check input data */
-	if( strlen(tag) > 16-4 ) {
-		return NULL;
-	}
-	if(str_html==NULL || tag==NULL ) {
-		return NULL;
-	}
 
-	/* init. start/end tag */
+	/* Init. start/end tag */
 	memset(stag,0, sizeof(stag));
 	strcat(stag,"<");
-	strcat(stag,tag);
+	strcat(stag,tag);   /* Example: '<p' */
+	int lenStag=strlen(stag);
 	/* Note: attributes may exists between '<x' and '>',
 	   Example: <p class="section txt">
 	 */
@@ -1688,25 +1979,132 @@ char* cstr_parse_html_tag(const char* str_html, const char *tag, char **content,
 	memset(etag,0, sizeof(etag));
 	strcat(etag,"</");
 	strcat(etag,tag);
-	strcat(etag,">");
+	strcat(etag,">");   /* Example: '</p' */
+	//int lenEtag=strlen(etag);
 	//printf("etag: %s\n", etag);
 
-	/* locate start and end tag in html string, nested elements NOT considered! */
-	pst=strstr(str_html, stag);	/* Get start positon of start_tag */
+	/* Locate start and end tag in html string, nested elements NOT considered! */
+	pst=strstr(str_html, stag);	/* Get start positon of start_tag: </.. */
 	if(pst != NULL)	 {
-		/* TODO: Parse attributes/elements between <x> and </x> */
-		pst=strstr(pst,">");		/* Get end position of start_tag */
-		if(pst != NULL)
-			pet=strstr(pst,etag);   /* Get start position of end_tag */
-	}
 
-	/* Only if tag content is valid/available */
+  	   /* 1. As an image Tag(Selfclosed tag type) :  <img src="dog.jpg", alt="D.O.G"> */
+  	   if( strcmp(tag, "img")==0 ) {
+		pst+=strlen(stag);
+		pet=strstr(pst,">");	    /* Get end position of image tag > */
+
+		if(pet==NULL) {
+			egi_dpstd("Error! <img tag closing token '>' NOT found!\n");
+			return NULL;
+		}
+
+		/* Extract attributes betwee '<img' and '>' */
+		if(attributes!=NULL) {
+			strncpy(attributes, pst, pet-pst); /* pst NOW pointer to the '>' of the start tag */
+			attributes[pet-pst]='\0';
+		}
+
+  	   }
+  	   /* 2. As a paragraph Tag(Non_Selfclosed tag type):  <p>0....9</p>
+	    *	 OR it MAY be nested!: <p>____<p>....</p>____</p>
+	    */
+  	   else {
+		/* TODO: Parse attributes and elements between <x> and </x> */
+
+#if 1 /* ----- Parse and include nested tag pairs ---------- */
+		/* Pass nested same type Tag pairs like: ...<p>____<p>....</p>____</p>..
+		 * To locate the outmost pair <p>... </p>
+		 */
+
+		/* Parse attributes betwee '<x' and '>' */
+		if(attributes!=NULL)
+			pattr=pst+lenStag;
+
+		/* Get to the end position '>' of the start_tag */
+		pst=strstr(pst,">");
+		if(pst==NULL) {
+			egi_dpstd("Error! tag closing token '>' NOT found!\n");
+			return NULL; /* Fails */
+		}
+
+		/* Extract attributes now */
+		if(attributes!=NULL) {
+			strncpy(attributes, pattr, pst-pattr); /* pst NOW pointer to the '>' of the start tag */
+			attributes[pst-pattr]='\0';
+		}
+
+		/* Move pst to pass the '>' of <x ...>  */
+		//if(pst!=NULL)
+		pst+=1;
+
+		/* NOW: pst point to the end of start tag.  Example: '<x ... >0123...', pst point to 0 now. */
+
+		/* Loop search nested tags, and get to the closing tag! */
+		pet=NULL;
+		ptmp=pst;
+		while((ptmp=strstr(ptmp,tag))!=NULL) {
+
+			/* found a new start tag: '<tag' */
+			if( *(ptmp-1)=='<' ) {
+				nestCnt+=1;
+				//egi_dpstd("nestCnt=%d\n", nestCnt);
+
+				ptmp += strlen(tag); /* search next.. */
+				continue;
+			}
+			/* found a new end tag: '</tag' */
+			else if( *(ptmp-1)=='/' && *(ptmp-2)=='<' ) {
+				/* Finally, found the closing end tag! */
+				if(nestCnt==0) {
+					pet=ptmp-2; /* etag point to '<' */
+					break;
+				}
+				else {
+					nestCnt-=1;
+					//egi_dpstd(" nestCnt=%d\n", nestCnt);
+
+					ptmp += strlen(tag); /* go next.. */
+				}
+			}
+			/* Not within a tag */
+			else
+				ptmp += strlen(tag); /* go next.. */
+		}
+
+		/* NOW: Get the corresponding end Tag(pet) for the start Tag(pst)!  OR pet==NULL as ERROR */
+
+#else /* ----- DO NOT parse nested Tag pair ---------- */
+		/* TODO: Parse attributes betwee '<x' and '>' */
+		/* Get to the end position '>' of the start_tag */
+		pst=strstr(pst,">");
+		if(pst != NULL) {
+			pst+=1;  /* Skip '>' */
+
+			pet=strstr(pst,etag);   /* Get start position of end_tag */
+		}
+		/* pst==NULL, ERROR */
+#endif
+	   }
+
+  	}
+
+	/* ---NOW:
+	 * 1. <img src="dog.jpg", alt="D.O.G">:  pst points to the char aft '<img', and pet points to '>'.
+	 * 2. <p>0...<p>...xxx...</p>...9</p>:  pst points to '0'; and pet points to '<'aft 9.  <p>0....9</p>
+	 */
+
+	/* Only if tag content is valid/available! */
 	if( pst!=NULL && pet!=NULL ) {
 		/* TODO:  parse attributes between '<' and '>' */
 
-		/* get length of content */
-		pst += strlen(">");	/* skip '>', move to the beginning of the content */
+		/* Get length of content */
+		//pst +=1; // strlen(">");	/* skip '>', move to the beginning of the content */
+		//TODO: For Non_selfcoled tag: pst pass attributes to  get end of ">",
+
 		len_content=pet-pst;
+
+		if(len_content<1) {
+			egi_dpstd("CAUTION! len_content=%d <1! No content? \n", len_content);
+		}
 
 		/* 1. Calloc pctent and copy content */
 		if( content != NULL) {
@@ -1725,15 +2123,86 @@ char* cstr_parse_html_tag(const char* str_html, const char *tag, char **content,
 		}
 	}
 
-	/* pass to the caller anyway */
+	/* Pass to the caller anyway */
 	if( content != NULL )
 		*content=pctent;
 	if( length !=NULL )
 		*length=len_content;
 
-	/* Now pst is pointer to the beginning of the content */
+	/* Now pst is pointer to the beginning of the content in str_html */
 	return ( (pst!=NULL && pet!=NULL) ? pst:NULL);
 }
+
+/*--------------------------------------------------------------------
+Extract a HTML attribute value from a string/text, in which an expression
+of AttrName="Attr value" exists.
+
+Exampel text: .... class="shining-star" ....
+	attribute name:class  value:shining-star
+
+Note:
+1. If not found, the first byte of *value will be set as '\0' anyway.
+
+@str:		A string containing attribue values. exampel src="....".
+@name:		Name of the attribute ( without '=' ).
+@value:		Pointer to pass attribute value.
+			!!! CAUTION !!!
+		The caller MUST ensure enough space.
+
+Return:
+	0	OK
+	<0	Fails.
+	>0 	Not found.
+---------------------------------------------------------------------*/
+int cstr_get_html_attribute(const char *str, const char *name, char *value)
+{
+	char *pst=NULL, *pet=NULL;
+	int len;
+	char sname[16];
+
+	if(value==NULL)
+		return -1;
+
+	if(str==NULL || name==NULL) {
+		*value=0;
+		return -2;
+	}
+
+	/* Add '=' after name */
+	len=strlen(name);
+	if(len > sizeof(sname)-2) {
+		egi_dpstd("Attribute name too long! limit to %d bytes.", sizeof(sname)-2);
+		*value=0;
+		return -3;
+	}
+
+	strncpy(sname, name, sizeof(sname)-2);
+	sname[len]='=';
+	sname[len+1]=0;
+
+	/* To locate the name */
+	pst=strstr(str, sname);
+	if(pst==NULL) {
+		*value=0;
+		return 1;
+	}
+	pst +=strlen(sname) +1; /* Move to the end of the first " */
+
+	/* To locate the end token " */
+	pet=strstr(pst,"\"");
+	if(pet==NULL) {
+		*value=0;
+		return 2;
+	}
+
+	/* Copy to value */
+	strncpy(value, pst, pet-pst);
+	value[pet-pst]='\0';
+
+	return 0;
+}
+
+
 
 
 /* Time related keywords in CHN UFT-8 encoding */

@@ -140,6 +140,8 @@ int main(int argc, char **argv)
    fbset_color(WEGI_COLOR_PINK);
    draw_spline2(&gv_fb_dev, 9, pts, 1, 5);
 
+   sleep(3);
+
   /* <<<<<  3. EGI general release EGI释放流程	 >>>>>> */
   /* 根据初始化流程做对应的释放　*/
   /* 3.1 Release sysfonts and appfonts 释放所有FreeTpype字体 (忽略) */

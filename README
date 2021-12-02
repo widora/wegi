@@ -1,7 +1,7 @@
 Start with basic geometrics:        test/egi_geometry.c
 Start with Freetype text output:    test/egi_HelloWorld.c
 
-			----- 1. Basic Concepts -----
+			----- 1. Basic Concepts (obsolete! see EGI_SURFACE )-----
 
 0. EBOX is the basic graphic element, and all other elements such as Buttons, Txtbox, Slider, 
    List ... are derived from and based on it.
@@ -103,6 +103,7 @@ egi_list.c	type_list ebox
 egi_pic.c	type_pic ebox
 egi_procman.c   subprocess handling and its signal actions.
 egi_input.c	read mouse and other input events 
+egi_gb2unicode.c NOW: GB2312/Unicode conversion.
 
 egi_utils.c	some helper functions
 egi_fifo.c	a common fifo module for EGI
@@ -121,6 +122,23 @@ egi_matrix.c    A matrix operation lib
 sys_list.h	List operation derived from Linux kernel codes. 
 sys_incbin.h    Include binary files in your C/C++ applications with ease
 		Source: https://github.com/graphitemaster/incbin
+
+
+/test
+test_editor.c	A simple editor.
+
+/test/surf/	EGI SURFACEs
+test_surfman.c     A surface manager.
+test_surfuser.c	   A surface user.
+surfman_guider.c   A guider for surface manager.
+surf_alarm.c	   A surface user: an ALARMer.
+surf_madplay.c     A surface user: A madplayer.
+surf_wifiscan.c    A surface user: A WIFI scanner.
+surf_tetris.c      A surface user: A tetris game.
+surf_....	   Other surface users
+
+/cpptest/	EGI E3D_Mesh
+EGI 3D Mesh moudle and test files.
 
 
 			( --- 3.2 Derived EBOXs --- )

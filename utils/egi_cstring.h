@@ -41,6 +41,8 @@ int 	cstr_txtgroup_push(EGI_TXTGROUP *txtgroup, const char *txt);
 
 
 /* --- util functions --- */
+char*	cstr_replace_string(char **src, const char *obj, const char *sub);
+char* 	cstr_decode_htmlSpecailChars(char *strHtml);
 int 	cstr_squeeze_string(char *buff, int size, char spot);
 int	cstr_clear_unprintChars(char *buff, int size);
 int	cstr_clear_controlChars(char *buff, int size);
@@ -54,12 +56,15 @@ int 	cstr_strlen_uft8(const unsigned char *cp);
 int 	cstr_strcount_uft8(const unsigned char *pstr);
 char* 	cstr_get_peword(const unsigned char *cp);
 int 	cstr_strlen_eword(const unsigned char *cp);
+
 int 	char_uft8_to_unicode(const unsigned char *src, wchar_t *dest);
 int 	char_unicode_to_uft8(const wchar_t *src, char *dest);
 wchar_t char_unicode_DBC2SBC(wchar_t dbc);
 int 	char_DBC2SBC_to_uft8(char dbc, char *dest);
 int 	cstr_unicode_to_uft8(const wchar_t *src, char *dest);
 int 	cstr_uft8_to_unicode(const unsigned char *src, wchar_t *dest);
+
+
 int 	egi_count_file_lines(const char *fpath);
 
 #define EGI_CONFIG_LMAX         256     /* Max. length of one line in a config file */
@@ -67,7 +72,9 @@ int 	egi_count_file_lines(const char *fpath);
 int 	egi_get_config_value(const char *sect, const char *key, char* value);
 int 	egi_update_config_value(const char *sect, const char *key, const char* pvalue);
 
-char* 	cstr_parse_html_tag(const char* str_html, const char *tag, char **content, int *length);
+char* 	cstr_parse_html_tag(const char* str_html, const char *tag, char *attributes, char **content, int *length);
+int 	cstr_get_html_attribute(const char *str, const char *name, char *value);
+
 int 	cstr_extract_ChnUft8TimeStr(const char *src, char *buff, int bufflen);
 int 	cstr_getSecFrom_ChnUft8TimeStr(const char *src,time_t *tp);
 

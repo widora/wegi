@@ -3,6 +3,8 @@ This program is free software; you can redistribute it and/or modify it under th
 terms of the GNU General Public License version 2 as published by the Free Software
 Foundation.
 
+
+
 Midas Zhou
 midaszhou@yahoo.com
 ----------------------------------------------------------------------------------*/
@@ -26,8 +28,82 @@ int main( int  argc,   char**  argv )
 　　他与木吒离了此处，一直东来，不一日就到了长安大唐国。敛雾收云，师徒们变作两个疥癫游憎，入长安城里，竟不觉天晚。行至大市街旁，见一座土地庙祠，二人径进，唬得那土地心慌，鬼兵胆战。知是菩萨，叩头接入。那土地又急跑报与城隍社令及满长安城各庙神抵，都来参见，告道：“菩萨，恕众神接迟之罪。”菩萨道：“汝等不可走漏消息。我奉佛旨，特来此处寻访取经人。借你庙宇，权住几日，待访着真僧即回。”众神各归本处，把个土地赶到城隍庙里暂住，他师徒们隐遁真形。\
 　　毕竟不知寻出那个取经来，且听下回分解。";
 
+#if 1 ////////////    cstr_replace_string() ## cstr_decode_htmlSpecailChars()  ////////////////////
 
-#if 1 /////////  cstr_get_peword(), cstr_strlen_eword()  //////////
+	//char *cstr_replace_string(char **src, const char *obj, const char *sub);
+	//char* cstr_decode_htmlSpecailChars(char *strHtml)
+
+	char str1[]="Illustrate the &apos;insidious relationship&apos; between prices and wages.";
+	char str2[]="Hello xx&nbsp;xx&nbspxx; Have a &quot;GOOD DAY&quot;! ---&apos; 1&lt;2 &apos;---, &amp;&amp;";
+	char *pt;
+
+	pt=str1;
+//	printf("SRC: %s.\n SUB: %s\n", str1, cstr_replace_string(&pt, "&apos;", "'"));
+	printf("SRC: %s.\n", str1);
+	printf("HTML: %s\n", cstr_decode_htmlSpecailChars(pt));
+
+	pt=str2;
+	printf("SRC: %s.\n", str2);
+	printf("HTML: %s\n", cstr_decode_htmlSpecailChars(pt));
+#endif
+
+#if 0 ////////////    cstr_parse_html_tag()  ////////////////////
+	EGI_FILEMMAP *fmap=egi_fmap_create(argv[1], 0, PROT_READ, MAP_PRIVATE);
+	if(fmap==NULL) {
+		printf("Fail to mmap input file '%s'!\n", argv[1]);
+		exit(0);
+	}
+
+	char *pt=fmap->fp;
+	char attrString[1024];	/* To be big enough! */
+	char value[512];		/* To be big enough! */
+	char *content=NULL;
+	int len;
+
+while( (pt=cstr_parse_html_tag(pt, "div", attrString, &content, &len))!=NULL ) {
+	printf("attribues: %s\n", attrString);
+	//printf("content: '%s'\n", content);
+	//printf("content length: %d bytes\n", len);
+
+	/* Get tag attriS value and check */
+	cstr_get_html_attribute(attrString, "class", value);
+	if(strcmp(value, "top-story")==0) {
+		printf("        [[[ top-story  ]]]\n %s\n", content);
+
+		/* To extract date */
+		cstr_get_html_attribute(content, "data-date", value);
+		printf("Date: %s\n", value);
+	}
+	else {
+		//printf("Top story NOT found!\n");
+	}
+
+	/* Free content */
+	if(content!=NULL) {
+		free(content);
+		content=NULL;
+	}
+
+	/* Search on .. */
+	//printf("search on ....\n");
+	pt+=strlen("div");
+	if( pt-fmap->fp >= fmap->fsize ) {
+		printf("Get end of html, break now...\n");
+		break;
+	}
+
+	//printf("Parse tag again...\n");
+}
+
+	if(content)
+		free(content);
+
+	printf(" ----- END -----\n");
+	exit(0);
+#endif
+
+
+#if 0 /////////  cstr_get_peword(), cstr_strlen_eword()  //////////
     const char *pstr="人心生一念，天地尽皆知HELLOOO WORLD! this is really very,,,, god 徒们变nice ssooooo yes! --++12283NDD";
 
 /* --- Result -----
@@ -68,7 +144,7 @@ len=8 Word: 12283NDD
     exit(0);
 #endif
 
-#if 1 /////////  cstr_hash_string() //////////
+#if 0 /////////  cstr_hash_string() //////////
 char buff[1024];
 
 while( fgets(buff, sizeof(buff)-1, stdin)!=NULL ) {
@@ -106,7 +182,7 @@ exit(0);
 #endif
 
 
-#if 1 	//////////    int egi_update_config_value(char *sect, char *key, char* pvalue)   //////////
+#if 0 	//////////    int egi_update_config_value(char *sect, char *key, char* pvalue)   //////////
 
 	egi_update_config_value("TOUCH_PAD", "xpt_facts", "HELLO");
 	egi_update_config_value("TOUCH_PAD", "xpt_factX", "12.1");

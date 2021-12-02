@@ -3,9 +3,7 @@ This program is free software; you can redistribute it and/or modify it under th
 terms of the GNU General Public License version 2 as published by the Free Software
 Foundation.
 
-Journal:
-2021-11-24:
-	1. Test download web page picture/titles as slide news.
+ 		!!! This is for EGI functions TEST only !!!
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -17,34 +15,44 @@ midaszhou@yahoo.com
 #include "egi_timer.h"
 #include "egi_log.h"
 #include "egi_https.h"
+#include "egi_gb2unicode.h" /* before egi_cstring.h */
 #include "egi_cstring.h"
 #include "egi_utils.h"
 #include "egi_fbdev.h"
 #include "egi_image.h"
-#include "egi_gb2unicode.h"
 #include "egi_FTsymbol.h"
-//#include "egi_color.h"
 
-int   cstr_gb2312_to_unicode(const char *src,  wchar_t *dest);
-
-static char buff[256*1024];      /* for curl returned data, to be big enough! */
+static char buff[1024*1024];      /* for curl returned data, to be big enough! */
 static size_t curlget_callback(void *ptr, size_t size, size_t nmemb, void *userp);
 
 const char *strhtml="<p> dfsdf sdfig df </p>";
-//const char *strRequest="http://mini.eastday.com/mobile/191123112758979.html";
-//const char *strRequest="http://mini.eastday.com/mobile/191123190527243.html";
-
-const char *strRequest="http://slide.news.sina.com.cn";
+const char *strRequest=NULL;
 
 unsigned char  parLines[7][1024];  /* Parsed lines for each block */
-wchar_t  unistr[2048];			/* For unicodes */
+wchar_t        unistr[1024];	   /* For unicodes */
 
+int fw=20, fh=20;	/* font size */
+int gap=6; //fh/3;
+int ln=10;		/* lines */
+int lnleft;		/* lines left */
+
+char imgURL[512];
+char imgTXT[512];
+char imgDate[128];
+
+char attrString[1024];          /* To be big enough! */
+char value[512];                /* To be big enough! */
+bool divIsFound;		/* If the tagged division is found. */
+
+/*----------------------------
+	     MAIN
+-----------------------------*/
 int main(int argc, char **argv)
 {
-	char *content=NULL;
 	int len;
 	char *pstr=NULL;
 	int ret;
+	char *content=NULL;
 
 	EGI_IMGBUF *imgbuf=NULL;
 
@@ -73,6 +81,7 @@ int main(int argc, char **argv)
                 printf("Fail to load FT appfonts, quit.\n");
                 return -2;
         }
+	FTsymbol_disable_SplitWord();
 
         /* Initilize sys FBDEV */
         printf("init_fbdev()...\n");
@@ -91,19 +100,24 @@ int main(int argc, char **argv)
 	memset(buff,0,sizeof(buff));
 
         /* Https GET request */
-        if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3,5,
+//        if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3, 10,
+        if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3, 10,
 				argv[1]!=NULL ? argv[1]:strRequest, buff, NULL, curlget_callback)!=0) {
                  printf("Fail to call https_curl_request() for: %s!\n", argv[1]);
                  exit(-1);
          }
 	printf("%s\n", buff);
 
+
+        printf("   --- Start slide news ---\n");
+
+#if 0 ////////////////////////////////////  sina  ////////////////////////////////////////////
 	/* Parse HTML */
 	pstr=buff;
 	int k=0; /* block line count */
 	do {
 		/* parse returned data as html */
-		pstr=cstr_parse_html_tag(pstr, "dd", &content, &len);
+		pstr=cstr_parse_html_tag(pstr, "dd", NULL, &content, &len);
 
 		/* Check content */
 		if(content!=NULL)
@@ -129,7 +143,7 @@ int main(int argc, char **argv)
 			printf("Image: %s\n", parLines[3]);
 			printf("Time: %s\n", parLines[4]);
 
-			/* Convert to unicode */
+			/* P1. Convert to unicode */
 			printf("GB2312 to UNICDOE....\n");
 			/* To little endia */
 			char *pt=(char *)parLines[6];
@@ -148,10 +162,14 @@ int main(int argc, char **argv)
 			}
 			cstr_gb2312_to_unicode((char *)parLines[6], unistr);
 
-			/* Download image */
+			/* P2. Convert to uft8 */
+			cstr_unicode_to_uft8(unistr, imgTXT);
+
+			/* P3. Download image */
 			ret=https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 5, 5,
 					(char *)parLines[3], "/tmp/slide_news.jpg", NULL, NULL);
 
+			/* P4. Display image and imgTXT */
 			if(ret==0) {
 				printf("Succeed to download slide_news.jpg\n");
 				imgbuf=egi_imgbuf_readfile("/tmp/slide_news.jpg");
@@ -162,17 +180,45 @@ int main(int argc, char **argv)
 					egi_subimg_writeFB(imgbuf, &gv_fb_dev, 0, -1, 0,0);
 				}
 				fb_render(&gv_fb_dev);
-				sleep(2);
+
+				if(argc>2)
+					sleep(atoi(argv[2]));
+				else
+					sleep(2);
 
 				/* Write title */
+				//int fw=18, fh=18;
+
+			#if 0  /* Call FTsymbol_unicstrings_writeFB() */
 							/* fbdev, x1,y1,x2,y2, color,alpha */
-				draw_blend_filled_rect( &gv_fb_dev, 0,0, 320-1, (15+3)*3+6, WEGI_COLOR_GRAY3, 200);
-     				FTsymbol_unicstrings_writeFB( &gv_fb_dev, egi_appfonts.bold, 15, 15, unistr,   /* fbdev, face, fw,fh pwchar */
-							      320-5, 5, 3, 5, 5,	/* pixpl, lines, gap, x0,y0 */
-							      WEGI_COLOR_WHITE, -1, 240); /* fontcolor, transpcolor, opaque */
+				draw_blend_filled_rect( &gv_fb_dev, 0,0, 320-1, (fh+gap)*4+8, WEGI_COLOR_GRAYC, 200);
+     				FTsymbol_unicstrings_writeFB( &gv_fb_dev, egi_appfonts.bold, fw, fh, unistr,   /* fbdev, face, fw,fh pwchar */
+							      320-5, gap, 3, 5, 5,	/* pixpl, lines, gap, x0,y0 */
+							      WEGI_COLOR_DARKGRAY, -1, 240); /* fontcolor, transpcolor, opaque */
+			#else /*  Call FTsymbol_uft8strings_writeFB() */
+				printf("Cal lnleft ...\n");
+				FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold,  	/* fbdev, face */
+								fw, fh, (UFT8_PCHAR)imgTXT,   	/* fw,fh pstr */
+								320-8, ln, gap, 5, 5,        	/* pixpl, lines, gap, x0,y0 */
+								WEGI_COLOR_BLACK, -1, 240, 	/* fontcolor, transpcolor, opaque */
+								NULL, &lnleft, NULL, NULL ); 	/* *cnt, *lnleft, *penx, *peny */
+				printf("lnleft=%d\n", lnleft);
+
+				/* D3. Display text */
+				/* fbdev, x1,y1,x2,y2, color,alpha */
+				draw_blend_filled_rect( &gv_fb_dev, 0,0, 320-1, (fh+gap)*(ln-lnleft)+8, WEGI_COLOR_GRAYC, 255);
+				FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold,  	/* fbdev, face */
+								fw, fh, (UFT8_PCHAR)imgTXT,   	/* fw,fh pstr */
+								320-8, ln-lnleft, gap, 5, 5,      /* pixpl, lines, gap, x0,y0 */
+								WEGI_COLOR_DARKGRAY, -1, 255, 	/* fontcolor, transpcolor, opaque */
+								NULL, NULL, NULL, NULL );	/* *cnt, *lnleft, *penx, *peny */
+			#endif /* End FTsymbol wirteFB */
 
 				fb_render(&gv_fb_dev);
-				sleep(3);
+				if(argc>3)
+					sleep(atoi(argv[3]));
+				else
+					sleep(3);
 			}
 			else {
 				printf("Fail to download news image!\n");
@@ -180,9 +226,374 @@ int main(int argc, char **argv)
 			}
 		}
 
+		/* Free content */
+		egi_free_char(&content);
+
 	} while( pstr!=NULL );
 
-	egi_free_char(&content);
+
+#elif 0 //////////////////////////////////  shine  ///////////////////////////////////////////
+
+	/* Parse HTML */
+	pstr=buff;
+
+	int k=0; /* block line count */
+
+    #if 0 /*  Tag '<div..> ...  </div>'  */
+    while( (pstr=cstr_parse_html_tag(pstr, "div", attrString, &content, &len))!=NULL ) {
+
+        //printf("content: '%s'\n", content);
+
+        /* 1. Get tag attribut value and check */
+        cstr_get_html_attribute(attrString, "class", value);
+        if(strcmp(value, "top-story")==0) { /* top-story */
+                printf("\n        [ ----- DIV top-story ----- ]\n %s\n", content);
+
+		/* 1.1 Extract image */
+		cstr_get_html_attribute(content, "data-original", imgURL);
+		printf("imgURL: %s\n", imgURL);
+
+                /* 1.2 Extract date */
+                cstr_get_html_attribute(content, "data-date", imgDate);
+                printf("Date: %s\n", imgDate);
+
+		/* 1.3 Extract text */
+		cstr_get_html_attribute(content, "alt", imgTXT);
+		printf("imgTXT: %s\n", imgTXT);
+
+		/* 1.4 Put date to imgTxt */
+		if(imgDate[0])
+			sprintf(imgTXT+strlen(imgTXT), "\n    [%s]", imgDate);
+
+		/* Set token */
+		divIsFound=true;
+        }
+        else {
+                //printf("Top story NOT found!\n");
+		/* Set token */
+		divIsFound=false;
+        }
+
+        /* 2. Prepare to search on for the next tag .. */
+        //printf("search on ....\n");
+        pstr+=strlen("div");
+        if( pstr-buff>=strlen(buff) ) {
+                printf("Get end of html, break now...\n");
+                break;
+        }
+        /* Free content */
+        if(content!=NULL) {
+                free(content);
+                content=NULL;
+        }
+
+	/* 3. Check result */
+	if(divIsFound==false)
+		continue;
+
+   #else /* Tag '<img ..>' */
+
+    while( (pstr=cstr_parse_html_tag(pstr, "img", attrString, NULL, &len))!=NULL ) { /* Selfclosed tag, content is same as attrString */
+		printf("attrString: %s\n", attrString);
+
+		/* 1.1 Extract image */
+		cstr_get_html_attribute(attrString, "data-original", imgURL);
+		printf("imgURL: %s\n", imgURL);
+
+                /* 1.2 Extract date */
+
+		/* 1.3 Extract text */
+		cstr_get_html_attribute(attrString, "alt", imgTXT);
+		printf("imgTXT: %s\n", imgTXT);
+
+	        /* Free content */
+        	if(content!=NULL) {
+                	free(content);
+	                content=NULL;
+        	}
+
+		/* If NO image */
+		if(imgURL[0]==0)
+			continue;
+
+   #endif
+
+	/* --- 4. Download image and display with Text  --- */
+	/* 4.1 Download image */
+	ret=https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 5, 20,
+			imgURL, "/tmp/slide_news.jpg", NULL, NULL);
+
+	/* 4.2 Display image and text */
+	if(ret==0) {
+		printf("Succeed to download slide_news.jpg\n");
+		imgbuf=egi_imgbuf_readfile("/tmp/slide_news.jpg");
+
+		/* D1. Resize and display image */
+		egi_imgbuf_resize_update(&imgbuf, false, 320,240);
+		egi_imgbuf_avgLuma(imgbuf, 255/2);
+		if(imgbuf) {
+			/* imgbuf, fbdev, subnum, subcolor, x0,y0 */
+			egi_subimg_writeFB(imgbuf, &gv_fb_dev, 0, -1, 0,0);
+		}
+		fb_render(&gv_fb_dev);
+
+		if(argc>2)
+			sleep(atoi(argv[2]));
+		else
+			sleep(2);
+
+		/* Write TEXT */
+
+		/* D2. Calculate lines needed. */
+		printf("Cal lnleft ...\n");
+		FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold,  	/* fbdev, face */
+						fw, fh, (UFT8_PCHAR)imgTXT,   	/* fw,fh pstr */
+						320-5, ln, 4, 5, 5,        	/* pixpl, lines, gap, x0,y0 */
+						WEGI_COLOR_BLACK, -1, 240, 	/* fontcolor, transpcolor, opaque */
+						NULL, &lnleft, NULL, NULL ); 	/* *cnt, *lnleft, *penx, *peny */
+		printf("lnleft=%d\n", lnleft);
+
+		/* D3. Display text */
+		/* fbdev, x1,y1,x2,y2, color,alpha */
+		//draw_blend_filled_rect( &gv_fb_dev, 0,0, 320-1, (18+3)*3+6, WEGI_COLOR_GRAY2, 200);
+		draw_blend_filled_rect( &gv_fb_dev, 0,0, 320-1, (fh+4)*(ln-lnleft)+8, WEGI_COLOR_GRAYC, 255);
+		FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold,  	/* fbdev, face */
+						fw, fh, (UFT8_PCHAR)imgTXT,   	/* fw,fh pstr */
+						320-5, ln-lnleft, 4, 5, 5,      /* pixpl, lines, gap, x0,y0 */
+						WEGI_COLOR_DARKGRAY, -1, 240, 	/* fontcolor, transpcolor, opaque */
+						NULL, NULL, NULL, NULL );	/* *cnt, *lnleft, *penx, *peny */
+
+		/* D4. Write ShanghaiDaily */
+		FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold,  	/* fbdev, face */
+						1.125*18, 18, (UFT8_PCHAR)"ShanghaiDaily",  	/* fw,fh pstr */
+						200, 1, 0, 320-160, 240-25,        	/* pixpl, lines, gap, x0,y0 */
+						WEGI_COLOR_PINK, -1, 240, 	/* fontcolor, transpcolor, opaque */
+						NULL, NULL, NULL, NULL ); 	/* *cnt, *lnleft, *penx, *peny */
+		fb_render(&gv_fb_dev);
+		if(argc>3)
+			sleep(atoi(argv[3]));
+		else
+			sleep(5);
+
+	}
+	/* 4.3 Fail to get image */
+	else {
+		printf("Fail to download news image!\n");
+		//exit(0);
+	}
+
+  } /* while */
+
+#elif 1 ////////////////////////////// fox ////////////////////////////
+
+	/* Parse HTML */
+	pstr=buff;
+
+	int k=0; /* block line count */
+
+    while( (pstr=cstr_parse_html_tag(pstr, "img", attrString, NULL, &len))!=NULL ) { /* Selfclosed tag, content is same as attrString */
+	printf("<img > attrString: %s\n", attrString);
+
+	/* Extract image */
+	cstr_get_html_attribute(attrString, "src", imgURL);
+	/* Add http: before //... */
+	memmove(imgURL+strlen("http:"), imgURL, strlen(imgURL));
+	strncpy(imgURL,"http:", strlen("http:"));
+
+	printf("imgURL: %s\n", imgURL);
+
+        /* Extract date */
+
+	/* Extract text */
+	cstr_get_html_attribute(attrString, "alt", imgTXT);
+	/* Decode HTML entity names */
+	cstr_decode_htmlSpecailChars(imgTXT);
+	printf("imgTXT: %s\n", imgTXT);
+
+	/* Free content */
+        if(content!=NULL) {
+               	free(content);
+	        content=NULL;
+        }
+
+	/* If NO image */
+	if(imgURL[0]==0)
+		continue;
+
+	/* --- 4. Download image and display with Text  --- */
+	/* 4.1 Download image */
+	ret=https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 5, 20,
+			imgURL, "/tmp/slide_news.jpg", NULL, NULL);
+
+	/* 4.2 Display image and text */
+	if(ret==0) {
+		printf("Succeed to download slide_news.jpg\n");
+		imgbuf=egi_imgbuf_readfile("/tmp/slide_news.jpg");
+
+		/* D1. Resize and display image */
+		egi_imgbuf_resize_update(&imgbuf, false, 320,240);
+		egi_imgbuf_avgLuma(imgbuf, 255/2);
+		if(imgbuf) {
+			/* imgbuf, fbdev, subnum, subcolor, x0,y0 */
+			egi_subimg_writeFB(imgbuf, &gv_fb_dev, 0, -1, 0,0);
+		}
+		fb_render(&gv_fb_dev);
+
+		if(argc>2)
+			sleep(atoi(argv[2]));
+		else
+			sleep(2);
+
+		/* Write TEXT */
+
+		/* D2. Calculate lines needed. */
+		printf("Cal lnleft ...\n");
+		FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold,  	/* fbdev, face */
+						fw, fh, (UFT8_PCHAR)imgTXT,   	/* fw,fh pstr */
+						320-5, ln, 4, 5, 5,        	/* pixpl, lines, gap, x0,y0 */
+						WEGI_COLOR_BLACK, -1, 240, 	/* fontcolor, transpcolor, opaque */
+						NULL, &lnleft, NULL, NULL ); 	/* *cnt, *lnleft, *penx, *peny */
+		printf("lnleft=%d\n", lnleft);
+
+		/* D3. Display text */
+		/* fbdev, x1,y1,x2,y2, color,alpha */
+		//draw_blend_filled_rect( &gv_fb_dev, 0,0, 320-1, (18+3)*3+6, WEGI_COLOR_GRAY2, 200);
+		draw_blend_filled_rect( &gv_fb_dev, 0,0, 320-1, (fh+4)*(ln-lnleft)+8, WEGI_COLOR_GRAYC, 255);
+		FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold,  	/* fbdev, face */
+						fw, fh, (UFT8_PCHAR)imgTXT,   	/* fw,fh pstr */
+						320-5, ln-lnleft, 4, 5, 5,      /* pixpl, lines, gap, x0,y0 */
+						WEGI_COLOR_DARKGRAY, -1, 240, 	/* fontcolor, transpcolor, opaque */
+						NULL, NULL, NULL, NULL );	/* *cnt, *lnleft, *penx, *peny */
+
+		/* D4. Write ShanghaiDaily */
+		FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold,  	/* fbdev, face */
+						1.125*18, 18, (UFT8_PCHAR)"Foxbusiness",  	/* fw,fh pstr */
+						200, 1, 0, 320-160, 240-25,        	/* pixpl, lines, gap, x0,y0 */
+						WEGI_COLOR_PINK, -1, 240, 	/* fontcolor, transpcolor, opaque */
+						NULL, NULL, NULL, NULL ); 	/* *cnt, *lnleft, *penx, *peny */
+		fb_render(&gv_fb_dev);
+		if(argc>3)
+			sleep(atoi(argv[3]));
+		else
+			sleep(5);
+
+	}
+	/* 4.3 Fail to get image */
+	else {
+		printf("Fail to download news image!\n");
+		//exit(0);
+	}
+
+  } /* while */
+
+
+#else //////////////////////////////////  jagran  ///////////////////////////////////////////
+	/* Parse HTML */
+	pstr=buff;
+
+	int k=0; /* block line count */
+
+  /* TODO , or use "img"(self_closed tag) as tag */
+   while( (pstr=cstr_parse_html_tag(pstr, "figure", attrString, &content, &len))!=NULL ) {
+        //printf("content: '%s'\n", content);
+
+        /* 1. Extract image URL. */
+        cstr_get_html_attribute(content, "src", imgURL);
+	printf("imgURL: %s\n", imgURL);
+
+        /* 2. Extract image Text. */
+        cstr_get_html_attribute(content, "alt", imgTXT);
+	printf("imgTXT: %s\n", imgTXT);
+
+        /* 3. Prepare to search on for the next tag .. */
+        //printf("search on ....\n");
+        pstr+=strlen("figure");
+        if( pstr-buff>=strlen(buff) ) {
+                printf("Get end of html, break now...\n");
+                break;
+        }
+        /* Free content */
+        if(content!=NULL) {
+                free(content);
+                content=NULL;
+        }
+
+	/* 4A. Check result */
+	if(imgURL[0]==0)
+		continue;
+
+
+	/* --- 4. Download image and display with Text  --- */
+	/* 4.1 Download image */
+	ret=https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 5, 20,
+			imgURL, "/tmp/slide_news.jpg", NULL, NULL);
+
+	/* 4.2 Display image and text */
+	if(ret==0) {
+		printf("Succeed to download slide_news.jpg\n");
+		imgbuf=egi_imgbuf_readfile("/tmp/slide_news.jpg");
+
+		/* D1. Resize and display image */
+		egi_imgbuf_resize_update(&imgbuf, false, 320,240);
+		egi_imgbuf_avgLuma(imgbuf, 255/2);
+		if(imgbuf) {
+			/* imgbuf, fbdev, subnum, subcolor, x0,y0 */
+			egi_subimg_writeFB(imgbuf, &gv_fb_dev, 0, -1, 0,0);
+		}
+		fb_render(&gv_fb_dev);
+
+		if(argc>2)
+			sleep(atoi(argv[2]));
+		else
+			sleep(2);
+
+		/* Write TEXT */
+
+		/* D2. Calculate lines needed. */
+		printf("Cal lnleft ...\n");
+		FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold,  	/* fbdev, face */
+						fw, fh, (UFT8_PCHAR)imgTXT,   	/* fw,fh pstr */
+						320-5, ln, 4, 5, 5,        	/* pixpl, lines, gap, x0,y0 */
+						WEGI_COLOR_BLACK, -1, 240, 	/* fontcolor, transpcolor, opaque */
+						NULL, &lnleft, NULL, NULL ); 	/* *cnt, *lnleft, *penx, *peny */
+		printf("lnleft=%d\n", lnleft);
+
+		/* D3. Display text */
+		/* fbdev, x1,y1,x2,y2, color,alpha */
+		//draw_blend_filled_rect( &gv_fb_dev, 0,0, 320-1, (18+3)*3+6, WEGI_COLOR_GRAY2, 200);
+		draw_blend_filled_rect( &gv_fb_dev, 0,0, 320-1, (fh+4)*(ln-lnleft)+8, WEGI_COLOR_GRAYC, 255);
+		FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold,  	/* fbdev, face */
+						fw, fh, (UFT8_PCHAR)imgTXT,   	/* fw,fh pstr */
+						320-5, ln-lnleft, 4, 5, 5,      /* pixpl, lines, gap, x0,y0 */
+						WEGI_COLOR_DARKGRAY, -1, 240, 	/* fontcolor, transpcolor, opaque */
+						NULL, NULL, NULL, NULL );	/* *cnt, *lnleft, *penx, *peny */
+
+		/* D4. Write ShanghaiDaily */
+		FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold,  	/* fbdev, face */
+						1.125*18, 18, (UFT8_PCHAR)"JAGRAN",  	/* fw,fh pstr */
+						200, 1, 0, 320-160, 240-25,        	/* pixpl, lines, gap, x0,y0 */
+						WEGI_COLOR_PINK, -1, 240, 	/* fontcolor, transpcolor, opaque */
+						NULL, NULL, NULL, NULL ); 	/* *cnt, *lnleft, *penx, *peny */
+		fb_render(&gv_fb_dev);
+		if(argc>3)
+			sleep(atoi(argv[3]));
+		else
+			sleep(5);
+
+	}
+	/* 4.3 Fail to get image */
+	else {
+		printf("Fail to download news image!\n");
+	}
+
+
+   } /* End while() */
+
+
+#endif
+
+        printf("   --- END ---\n");
+
 	return 0;
 }
 
@@ -195,85 +606,4 @@ static size_t curlget_callback(void *ptr, size_t size, size_t nmemb, void *userp
         return size*nmemb;
 }
 
-
-/*-------------------------------------------------------------
-Convert string in GB2312 coding into Unicodes.
-
-@src:	String in GB2312.
-@dest:  Pointer to space for unicodes.
-	and END token L'\0' will be set at last.
-Return:
-        >0      OK, number of converted characters(wchars).
-        <=0     Fail, or unrecognizable.
--------------------------------------------------------------*/
-int   cstr_gb2312_to_unicode(const char *src,  wchar_t *dest)
-{
-	int list_size=sizeof(EGI_GB2UNICODE_LIST)/sizeof(EGI_GB2UNICODE_LIST[0]);
-
-	char *ps=(char *)src;
-//        uint16_t *ps=(uint16_t *)src;
-	bool search_OK;
-        int size=0;     /* in bytes, size of the returned dest in UFT-8 encoding*/
-
-	/* Look table Binary Search*/
-	int low,mid,high;
-
-        if(src==NULL || dest==NULL )
-                return -1;
-
-        while( *ps !='\0' ) {  /* wchar t end token */
-
-	  /* ASCII CODES */
-	  if( *(unsigned char *)ps < 0x80 ) {
-		*dest=*ps;
-		/* Next ps */
-		ps+=1;
-	  }
-	  /* GB2312 CODES */
-	  else {
-
-		/* Look table Binary Search*/
-		low=0;
-		high=list_size-1;
-		search_OK=false;
-		while(low<=high) {
-			mid=(low+high)>>1;
-			printf("mid=%d\n",mid);
-		   	if( EGI_GB2UNICODE_LIST[mid].gbcode ==*(uint16_t*)ps ) {
-				*dest=EGI_GB2UNICODE_LIST[mid].unicode;
-/* TEST: -------- */
-			printf("GB2312: 0x%04x -> UNICODE: 0x%04X \n",
-				EGI_GB2UNICODE_LIST[mid].gbcode, EGI_GB2UNICODE_LIST[mid].unicode);
-
-				search_OK=true;
-				break;
-			}
-			else if( EGI_GB2UNICODE_LIST[mid].gbcode < *(uint16_t*)ps)
-				low=mid+1;
-			else
-				high=mid-1;
-		}
-
-		/* Check search result */
-		if(!search_OK)
-			break;
-
-		/* Next ps */
-		ps+=2;
-	   }
-
-	   /* Increment */
-           size +=1;
-	   dest++;
-	   //ps++;
-
-        }
-
-	printf("unicodes: size=%d\n", size);
-
-	/* Set last dest as END */
-	*dest=0;
-
-        return size;
-}
 

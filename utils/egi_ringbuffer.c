@@ -5,6 +5,10 @@ published by the Free Software Foundation.
 
 A simple ring buffer.
 
+TODO:
+1. In some cases, it needs to cover/replace old data with new one,
+   instead of waiting before read out.
+
 Journal:
 2021-11-15:
 	1. Create the file and functions:

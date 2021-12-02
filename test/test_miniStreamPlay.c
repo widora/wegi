@@ -48,7 +48,7 @@ Note:
 TODO:
 1. XXX mp3, 22050 Hz, stereo, s16p, 96 kb/s
    decoding error 0x0235 (bad main_data_begin pointer) at byte offset 0
-   Resample to 48000Hz
+   Resample to 48000Hz  ---OK, see madplay_resample.h
 2. Decode aac stream.
 3. Dump half content of RingBuffer if overflow occurs.
 
@@ -414,28 +414,8 @@ size_t http_download_callback(void *ptr, size_t size, size_t nmemb, void *data)
 	memcpy((void *)tmpbuff, ptr, chunk_size);
 
 
-/* TODO:
+/*
   Possible icy-metint values: 16000(most), 2040, 1024
-
-1. http://everestcast-us.myautodj.com:2540/stream
-
-2. http://ais-edge24-nyc06.cdnstream.com:80/2208_128.mp3
-   more than 1 metadat in a chunk data! meta_int=1024
-
-3. http://wowradio.wowradioonline.net:9200/wow1
-  Too small Chunk data_size!.
-
-http_download_callback(): <<<  Chunk data_size=1400  >>>
-http_download_callback(): <<<  Chunk data_size=4221  >>>
-http_download_callback(): <<<  Chunk data_size=21  >>>
-http_download_callback(): <<<  Chunk data_size=2800  >>>
-http_download_callback(): <<<  Chunk data_size=2822  >>>
-http_download_callback(): <<<  Chunk data_size=21  >>>
-http_download_callback(): <<<  Chunk data_size=1400  >>>
-Buffering 12685Bs http_download_callback(): <<<  Chunk data_size=1400  >>>
-http_download_callback(): <<<  Chunk data_size=16384  >>>
-metadata: StreamTitle='The Charlie Daniels Band - Tangled Up In Blue';StreamUrl='&artist=The%20Charlie%20Daniels%20Band&title=Tangled%20Up%20In%20Blue&album=Off%20the%20Grid-Doin'%20It%20Dylan&duration=257541&songtype=S&overlay=no&buycd=https%3A%2F%2Fwww.amazon.com%2FGrid-Doin-Dylan-Charlie-Daniels-Band%2Fdp%2FB00I89Y2SQ%3FSubscriptionId%3DAKIAJ7HPQDOBIXXNVHTA%26tag%3Dspacial-20%26linkCode%3Dxm2%26camp%3D2025%26creative%3D165953%26creativeASIN%3DB00I89Y2SQ&website=&picture=az_79573_Off%20the%20Grid-Doin'%20It%20Dylan_The%20Charlie%20Daniels%20Band.jpg';
-
 */
 
   /* Check icy-metadata:  metadata interval >0 */
@@ -570,12 +550,8 @@ END_META:
 		ringbuff_almost_full=false;
 
 	/* Wait and hope mad decoder header processor will drop frames ... */
-	while( data_size > ringbuff->buffsize-ringbuff->datasize ) {
-//		ringbuff_almost_full=true;
+	while( data_size > ringbuff->buffsize-ringbuff->datasize )
 		usleep(10000);
-	}
-//	ringbuff_almost_full=false;
-
 
 	/* Write into ringbuffer */
 	written=egi_ringbuffer_write(ringbuff, tmpbuff, data_size);
@@ -889,7 +865,7 @@ static enum mad_flow header(void *data,  struct mad_header const *header )
 	if( header_cnt>2 ) {
 
 #if 1		/* Display panel */
-		printf("\n");
+		printf("\n\n\n");
 		printf(" ----------------------------\n");
 		printf("      A miniStreamPlayer\n");
 		printf(" ----------------------------\n");
