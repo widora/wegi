@@ -74,6 +74,7 @@ int 	egi_update_config_value(const char *sect, const char *key, const char* pval
 
 char* 	cstr_parse_html_tag(const char* str_html, const char *tag, char *attributes, char **content, int *length);
 int 	cstr_get_html_attribute(const char *str, const char *name, char *value);
+int 	cstr_extract_html_text(const char *str_html, char *text);
 
 int 	cstr_extract_ChnUft8TimeStr(const char *src, char *buff, int bufflen);
 int 	cstr_getSecFrom_ChnUft8TimeStr(const char *src,time_t *tp);

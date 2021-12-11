@@ -16,6 +16,8 @@ Jurnal
 	1. Add egi_lock_pidfile().
 2021-06-22:
 	1. Add egi_valid_fd().
+2021-12-10:
+	1. Add egi_host_littleEndian().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -49,6 +51,22 @@ inline void egi_free_char(char **p)
 		free(*p);
 		*p=NULL;
 	}
+}
+
+
+/*------------------------------------
+Check the Endianness of the host.
+Return:
+	True	Little endian
+	False	Big endian
+------------------------------------*/
+bool egi_host_littleEndian(void)
+{
+	int idat=0x55667788;
+
+	unsigned char *ch=(unsigned char *)&idat;
+
+	return (*ch)==0x88;
 }
 
 

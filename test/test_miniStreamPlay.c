@@ -50,7 +50,8 @@ TODO:
    decoding error 0x0235 (bad main_data_begin pointer) at byte offset 0
    Resample to 48000Hz  ---OK, see madplay_resample.h
 2. Decode aac stream.
-3. Dump half content of RingBuffer if overflow occurs.
+3. XXX Dump half content of RingBuffer if overflow occurs.
+	---OK, drop each 1/10 frame seems ok.
 
 Journal:
 2021-11-14:

@@ -79,7 +79,7 @@ EGI_IMGBUF  *egi_imgbuf_avgsoft( EGI_IMGBUF *ineimg, int size, bool alpha_on, bo
  * 2D array for color/alpha data processsing.
  */
 EGI_IMGBUF  *egi_imgbuf_avgsoft2(const EGI_IMGBUF *ineimg, int size, bool alpha_on); /* use 1D array data */
-
+int 	egi_imgbuf_get_fitsize(EGI_IMGBUF *imgbuf, int *w, int *h);
 //EGI_IMGBUF  *egi_imgbuf_resize(const EGI_IMGBUF *ineimg, unsigned int width, unsigned int height);
 EGI_IMGBUF  *egi_imgbuf_resize(EGI_IMGBUF *ineimg, bool keep_ratio, int width, int height);     /* mutex_lock */
 EGI_IMGBUF  *egi_imgbuf_resize_nolock( EGI_IMGBUF *ineimg, bool keep_ratio, int width, int height );

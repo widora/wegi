@@ -5,6 +5,9 @@ published by the Free Software Foundation.
 
 Char and String Functions.
 
+Note:
+
+
 Journal
 2021-01-24:
 	1. Add cstr_hash_string().
@@ -25,6 +28,11 @@ Journal
 	1. Add cstr_replace_string()
 2021-12-02:
 	1. Add cstr_decode_htmlSpecailChars(char *strHtml)
+2021-12-06:
+	1. Add cstr_extract_html_text()
+2021-12-08:
+	1. cstr_parse_html_tag(): to distinguish similar TAG starts, as '<a...>' to '<alt...>'.
+	   strstr() NOT enough, need to check/confirm NEXT char to be ' ' OR '>'.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -186,6 +194,12 @@ Decode HTML entity names in a string into special chars(uft-8 coding).
 2. Assume each entity name starts with '&' and ends with ';'.
 
 @strHtml: string containing special entity names!
+
+TODO:
+1. To decode entity numbers, such as &#39; (&apos; does NOT work in IE)
+2. To decode complex expression, such as ???
+	....&amp;quot;item 6&amp;quot;... ==> &"item 6"&
+
 
 Return:
 	Pointer to decoded string (strHtml)	OK
@@ -728,6 +742,7 @@ Note:
 	U+  0080 - U+  07FF:	110XXXXX 10XXXXXX
 	U+  0800 - U+  FFFF:	1110XXXX 10XXXXXX 10XXXXXX
 	U+ 10000 - U+ 1FFFF:	11110XXX 10XXXXXX 10XXXXXX 10XXXXXX
+	(TODO: consider >U+1FFFF unicode conversion)
 
 2. If illegal coding is found...
 
@@ -773,6 +788,7 @@ Note:
 	U+  0080 - U+  07FF:	110XXXXX 10XXXXXX
 	U+  0800 - U+  FFFF:	1110XXXX 10XXXXXX 10XXXXXX
 	U+ 10000 - U+ 1FFFF:	11110XXX 10XXXXXX 10XXXXXX 10XXXXXX
+        (TODO: consider >U+1FFFF unicode conversion)
 
 2. The caller MUST ensure that the pointer will NOT move out of range!
 
@@ -847,6 +863,7 @@ Note:
 	U+  0080 - U+  07FF:	110XXXXX 10XXXXXX
 	U+  0800 - U+  FFFF:	1110XXXX 10XXXXXX 10XXXXXX
 	U+ 10000 - U+ 1FFFF:	11110XXX 10XXXXXX 10XXXXXX 10XXXXXX
+	(TODO: consider >U+1FFFF unicode conversion)
 
 3. If illegal coding is found...
 4. ZERO_WIDTH_NO_BREAK SPACE ( U+FEFF, unicode 65279) also counted in.
@@ -994,7 +1011,7 @@ Convert a character from UFT-8 to UNICODE.
  110XXXXX 10XXXXXX			U+  0080 - U+  07FF
  1110XXXX 10XXXXXX 10XXXXXX		U+  0800 - U+  FFFF
  11110XXX 10XXXXXX 10XXXXXX 10XXXXXX	U+ 10000 - U+ 1FFFF
-
+ (TODO: consider >U+1FFFF unicode conversion)
 
 2. If illegal coding is found...
 
@@ -1105,6 +1122,7 @@ Convert a character from UNICODE to UFT-8 encoding.
 	U+  0080 - U+  07FF:	110XXXXX 10XXXXXX
 	U+  0800 - U+  FFFF:	1110XXXX 10XXXXXX 10XXXXXX
 	U+ 10000 - U+ 1FFFF:	11110XXX 10XXXXXX 10XXXXXX 10XXXXXX
+	(TODO: consider >U+1FFFF unicode conversion)
 
 2. If illegal coding is found...
 
@@ -1928,6 +1946,7 @@ Return:
 --------------------------------------------------------------------------------------*/
 char* cstr_parse_html_tag(const char* str_html, const char *tag, char *attributes, char **content, int *length)
 {
+	int lenTag;
 	char stag[16]; 	/* start tag */
 	char etag[16]; 	/* end tag   */
 	char *pst=NULL;	/* Pointer to the beginning of start tags in str_html
@@ -1951,8 +1970,12 @@ char* cstr_parse_html_tag(const char* str_html, const char *tag, char *attribute
 	/* Check input data */
 	if(str_html==NULL || tag==NULL )
 		return NULL;
-	if( strlen(tag) > 16-4 )
+
+	/* Check tag length  2021_12_08_HK_ */
+	lenTag=strlen(tag);
+	if( lenTag > 16-4 || lenTag<1 )
 		return NULL;
+
 
 	/* Set indentation string in UFT-8 */
 	memset(str_indent,0, sizeof(str_indent));
@@ -1970,6 +1993,7 @@ char* cstr_parse_html_tag(const char* str_html, const char *tag, char *attribute
 	memset(stag,0, sizeof(stag));
 	strcat(stag,"<");
 	strcat(stag,tag);   /* Example: '<p' */
+//	strcat(stag," ");   /* Separator! 2021_12_06_ZHK_  XXX  NOPE! Tell differenc: '<a' and '<alt'  */
 	int lenStag=strlen(stag);
 	/* Note: attributes may exists between '<x' and '>',
 	   Example: <p class="section txt">
@@ -1984,8 +2008,21 @@ char* cstr_parse_html_tag(const char* str_html, const char *tag, char *attribute
 	//printf("etag: %s\n", etag);
 
 	/* Locate start and end tag in html string, nested elements NOT considered! */
-	pst=strstr(str_html, stag);	/* Get start positon of start_tag: </.. */
-	if(pst != NULL)	 {
+	pst=(char *)str_html;
+	while( (pst=strstr(pst, stag)) ) {
+		/* Get start positon of start_tag: <x, BUT NOT similar start as '<TAGa ..' to '<TAGalt ..' 2021_12_08_ZHK_*/
+		if( pst[lenStag]==' ' || pst[lenStag]=='>' )
+			break;
+		else {
+		    pst +=lenStag; /* skip it */
+
+//		printf("pst[lenStag]='%c'\n", pst[lenStag]);
+		}
+	}
+
+
+	/* MATCH_STAG:  Tell differenc: '<a...' and '<alt...' OR '<a>' */
+	if( pst!=NULL && (pst[lenStag]==' ' || pst[lenStag]=='>') ) {
 
   	   /* 1. As an image Tag(Selfclosed tag type) :  <img src="dog.jpg", alt="D.O.G"> */
   	   if( strcmp(tag, "img")==0 ) {
@@ -2017,7 +2054,7 @@ char* cstr_parse_html_tag(const char* str_html, const char *tag, char *attribute
 
 		/* Parse attributes betwee '<x' and '>' */
 		if(attributes!=NULL)
-			pattr=pst+lenStag;
+			pattr=pst+lenStag; /* TODO: SPACE aft '<x' is inluded here. */
 
 		/* Get to the end position '>' of the start_tag */
 		pst=strstr(pst,">");
@@ -2038,36 +2075,36 @@ char* cstr_parse_html_tag(const char* str_html, const char *tag, char *attribute
 
 		/* NOW: pst point to the end of start tag.  Example: '<x ... >0123...', pst point to 0 now. */
 
-		/* Loop search nested tags, and get to the closing tag! */
+		/* Loop search through nested tags(IF any), and get to the closing tag! */
 		pet=NULL;
 		ptmp=pst;
 		while((ptmp=strstr(ptmp,tag))!=NULL) {
 
-			/* found a new start tag: '<tag' */
-			if( *(ptmp-1)=='<' ) {
-				nestCnt+=1;
-				//egi_dpstd("nestCnt=%d\n", nestCnt);
+			/* found a new start tag: '<tag'.   Rule out similar tags, as: '<a..' to '<alt...' */
+			if( *(ptmp-1)=='<' && (ptmp[lenTag]==' ' || ptmp[lenTag]=='>') ) { /* 2021_12_08_ZHK_ */
+				nestCnt+=1; /* Increase nest counter */
+				egi_dpstd("nestCnt=%d\n", nestCnt);
 
-				ptmp += strlen(tag); /* search next.. */
+				ptmp += lenTag; //strlen(tag); /* search next.. */
 				continue;
 			}
 			/* found a new end tag: '</tag' */
 			else if( *(ptmp-1)=='/' && *(ptmp-2)=='<' ) {
-				/* Finally, found the closing end tag! */
+				/* Finally, found the closing end tag for the very first Stag! */
 				if(nestCnt==0) {
-					pet=ptmp-2; /* etag point to '<' */
+					pet=ptmp-2; /* etag points to '<' of '</x>' */
 					break;
 				}
 				else {
 					nestCnt-=1;
 					//egi_dpstd(" nestCnt=%d\n", nestCnt);
 
-					ptmp += strlen(tag); /* go next.. */
+					ptmp += lenTag; //strlen(tag); /* go next.. */
 				}
 			}
-			/* Not within a tag */
+			/* Not within tag tokens <...> */
 			else
-				ptmp += strlen(tag); /* go next.. */
+				ptmp += lenTag; //strlen(tag); /* go next.. */
 		}
 
 		/* NOW: Get the corresponding end Tag(pet) for the start Tag(pst)!  OR pet==NULL as ERROR */
@@ -2083,9 +2120,13 @@ char* cstr_parse_html_tag(const char* str_html, const char *tag, char *attribute
 		}
 		/* pst==NULL, ERROR */
 #endif
+
 	   }
 
   	}
+	/* NO_MATCH_STAG: */
+	else  /* Reset pst to NULL, as it may be '<alt..' instead of '<a...' */
+		pst=NULL;
 
 	/* ---NOW:
 	 * 1. <img src="dog.jpg", alt="D.O.G">:  pst points to the char aft '<img', and pet points to '>'.
@@ -2135,13 +2176,15 @@ char* cstr_parse_html_tag(const char* str_html, const char *tag, char *attribute
 
 /*--------------------------------------------------------------------
 Extract a HTML attribute value from a string/text, in which an expression
-of AttrName="Attr value" exists.
+of AttrName="Attr value"(OR 'Attr value') should exist.
 
 Exampel text: .... class="shining-star" ....
 	attribute name:class  value:shining-star
 
 Note:
 1. If not found, the first byte of *value will be set as '\0' anyway.
+2. The quotation mark to be taken as the first char after the '=',
+   it may be " OR '.
 
 @str:		A string containing attribue values. exampel src="....".
 @name:		Name of the attribute ( without '=' ).
@@ -2159,6 +2202,7 @@ int cstr_get_html_attribute(const char *str, const char *name, char *value)
 	char *pst=NULL, *pet=NULL;
 	int len;
 	char sname[16];
+	char quot[2];	/* The quotation mark */
 
 	if(value==NULL)
 		return -1;
@@ -2186,10 +2230,14 @@ int cstr_get_html_attribute(const char *str, const char *name, char *value)
 		*value=0;
 		return 1;
 	}
-	pst +=strlen(sname) +1; /* Move to the end of the first " */
+	pst +=strlen(sname) +1; /* Move to the end of the first quotation mark!  " OR ' */
+
+	/* Get the quotation mark  2021_12_06_ZHK_ */
+	quot[0]=*(pst-1);
+	quot[1]=0;
 
 	/* To locate the end token " */
-	pet=strstr(pst,"\"");
+	pet=strstr(pst,quot);
 	if(pet==NULL) {
 		*value=0;
 		return 2;
@@ -2203,6 +2251,92 @@ int cstr_get_html_attribute(const char *str, const char *name, char *value)
 }
 
 
+/*------------------------------------------------------------
+Extract all text blocks from the HTML string, they are assumed
+to be placed between "...>" and "<...".
+Note:
+1. A '\n' will be added at end of each text block. BUT the last
+   one will be erased.
+2. Any SPACEs block will be ignored!
+
+@str_html:	Pointer to a html string with UFT-8 encoding.
+@text:		Pointer to pass out text.
+		text[0] to be reset as 0 at first, anyway.
+
+		!!! --- CAUTION --- !!!
+		The Caller MUST ensure enough space.
+
+Return:
+	<0	Fails.
+	>=0	Bytes of content read out.
+------------------------------------------------------------*/
+int cstr_extract_html_text(const char *str_html, char *text)
+{
+	if(str_html==NULL || text==NULL)
+		return -1;
+
+
+	const char *pst=str_html;
+	char *pw=text;
+	char *ps=NULL, *pe=NULL;
+	char *px=NULL;
+
+	/* 1. Preset text to NULL */
+	//text[0]='\0'; see 4. */
+
+	/* 2. Scan blocks */
+	while( (ps=strstr(pst,">")) ) {
+	   ps +=1; /* ps point to text, OR maybe '<', as NO text at all. */
+           if( (pe=strstr(ps, "<")) ){
+
+		/* Check if all SPACEs OR ps==pe! */
+		for(px=ps; px<pe; px++) {
+			if( (*px)!=' ' ) /* If NO space found, OK to break */
+				break;
+		}
+		if(px==pe) {
+			pst =pe+1;
+			continue; /* <---- */
+		}
+
+		/* Copy block into text */
+		/* XXX TODO, to deal with(squeeze out) any '\n's between [ps pe], as it may happen in HTLM, Example: tag <span>...</span> */
+	#if 0   /* DO NOT skip any '\n' */
+		strncpy(pw, ps, pe-ps);
+		pw +=pe-ps;
+	#else   /* To skip any '\n'  2021-12_09_ZHK_ */
+		for(px=ps; px<pe; px++) {
+			if( *px != '\n' ) {
+			    *pw = *px;
+			     pw +=1;
+			}
+		}
+	#endif
+		/* Add an '\n' for block text end. */
+		*pw='\n';
+		pw +=1;
+
+		/* Reset pst */
+		pst =pe+1;
+		continue;
+	   }
+	   else {
+		egi_dpstd("Error or incomplete of HTML string, the end pair token '<' NOT found!\n");
+		break;
+	   }
+	}
+
+	/* 3. Erase the last '\n' */
+	if( pw!=text && *(pw-1)=='\n' ) {
+		// *(pw-1)='\0';
+		pw -=1;
+	}
+
+	/* 4. Set terminating NULL! */
+	*pw='\0';
+
+	return  pw-text;
+}
 
 
 /* Time related keywords in CHN UFT-8 encoding */

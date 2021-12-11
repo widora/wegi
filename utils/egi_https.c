@@ -37,6 +37,8 @@ Jurnal
 2021-11-30:
 	1.Add CURLOPT_ACCEPT_ENCODING to enables automatic decompression of HTTP downloads.
 		https_curl_request()
+2021-12-02:
+	1. https_easy_download(): Enable CURLOPT_ACCEPT_ENCODING.
 
 TODO:
 1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
@@ -418,7 +420,7 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 		}
 	}
 
-#if 0 ///////////////// 
+#if 0 ///////////////// Decompressed data lenght MAY NOT same as doubleinfo size ///////////////
 	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &doubleinfo) ) {
 		printf("%s: CURLINFO_CONTENT_LENGTH_DOWNLOAD = %.0f \n", __func__, doubleinfo);
 		if( (int)doubleinfo > CURL_RETDATA_BUFF_SIZE )
@@ -525,6 +527,7 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
   	CURL *curl=NULL;
   	CURLcode res;
 	double doubleinfo=0;
+	long longinfo=0;
 	FILE *fp;	/* FILE to save received data */
 	int sizedown;
 
@@ -569,6 +572,8 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	/*  set timeout */
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout); //EGI_CURL_TIMEOUT);
+
+	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");		 /* enables automatic decompression of HTTP downloads */
 
 	/* For name lookup timed out error: use ipv4 as default */
 	//  curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
@@ -620,11 +625,22 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	 *   1. curl_easy_perform() may result in CURLE_OK, but curl_easy_getinfo() may still fail!
 	 *   2. Testing results: CURLINFO_SIZE_DOWNLOAD and CURLINFO_CONTENT_LENGTH_DOWNLOAD get the same doubleinfo!
 	 */
+	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &longinfo) ) {
+		EGI_PLOG(LOGLV_CRITICAL,"%s: get response code '%ld'.\n",__func__, longinfo);
+		if(longinfo==0) {
+			egi_dpstd("No response from the peer/server!\n");
+			ret=-2;
+			goto CURL_CLEANUP; //continue; /* retry ... */
+		}
+	}
+
 	/* TEST: CURLINFO_SIZE_DOWNLOAD */
 	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD, &doubleinfo) ) {
 		  	EGI_PLOG(LOGLV_CRITICAL,"%s: Curlinfo_size_download=%d!",  __func__, (int)doubleinfo);
 			sizedown=(int)doubleinfo;
 	}
+
+#if 0 /////////////////////   Decompressed, st_size MAY NOT as doubleinfo size ///////////////////////////////
 
 	/* CURLINFO_CONTENT_LENGTH_DOWNLOAD */
 	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &doubleinfo) ) {
@@ -655,6 +671,7 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 		//tm_delayms(200);
 		goto CURL_CLEANUP; //continue; /* retry ... */
 	}
+#endif //////////////////////////////////////////////
 
 CURL_CLEANUP:
 	/* If succeeds, break loop! */
@@ -697,6 +714,7 @@ CURL_CLEANUP:
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 	}
 
+#if 0 /////////////////////   Decompressed, st_size MAY NOT as doubleinfo size ///////////////////////////////
 	/*** Check date length again. and try to adjust it.
 	 *  1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
 	 *  2. However, written bytes sum_up in write_callback function gets same as stat file size!
@@ -753,7 +771,7 @@ CURL_CLEANUP:
 			EGI_PLOG(LOGLV_CRITICAL,"%s: File size(%lld) is same as content length downloaded size(%d)!",
 									__func__, sb.st_size, (int)doubleinfo);
 	}
-
+#endif ////////////////////////////////////////
 
 CURL_END:
 
@@ -1122,6 +1140,7 @@ int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
   	CURL *curl=NULL;
   	CURLcode res;
 	double doubleinfo=0;
+	long longinfo=0;
 	long filetime;
 	int sizedown;
 
@@ -1215,7 +1234,6 @@ while(1) {
 	if(res != CURLE_OK) {
 		/* Check Curl config: #ifdef CURL_DISABLE_VERBOSE_STRINGS! */
 		EGI_PLOG(LOGLV_ERROR,"%s: res=%d, curl_easy_perform() failed! Err'%s'", __func__, res, curl_easy_strerror(res));
-
 		ret=-3;
 
 		if(res == CURLE_OPERATION_TIMEDOUT)
@@ -1232,6 +1250,24 @@ while(1) {
 	 *   1. curl_easy_perform() may result in CURLE_OK, but curl_easy_getinfo() may still fail!
 	 *   2. Testing results: CURLINFO_SIZE_DOWNLOAD and CURLINFO_CONTENT_LENGTH_DOWNLOAD get the same doubleinfo!
 	 */
+
+	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &longinfo) ) {
+		EGI_PLOG(LOGLV_CRITICAL,"%s: get response code '%ld'.\n",__func__, longinfo);
+		if(longinfo==0) {
+			egi_dpstd("No response from the peer/server!\n");
+			ret=-2;
+			goto CURL_CLEANUP; //continue; /* retry ... */
+		}
+	}
+	/* TEST: CURLINFO_SIZE_DOWNLOAD */
+	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD, &doubleinfo) ) {
+		  	EGI_PLOG(LOGLV_CRITICAL,"%s: Curlinfo_size_download=%d!",  __func__, (int)doubleinfo);
+			sizedown=(int)doubleinfo;
+	}
+
+
+#if 0 /////////////////////  Decompressed data MAY NOT as doubleinfo size ///////////////////////////////
+
 	/* CURLINFO_FILETIME */
 	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_FILETIME, &filetime) ) {
 		if(filetime<0)
@@ -1243,12 +1279,6 @@ while(1) {
 	}
 	else
 		EGI_PLOG(LOGLV_CRITICAL, "%s: Fail to easy_getinfo CURLINFO_FILETIME!", __func__ );
-
-	/* TEST: CURLINFO_SIZE_DOWNLOAD */
-	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD, &doubleinfo) ) {
-		  	EGI_PLOG(LOGLV_CRITICAL,"%s: Curlinfo_size_download=%d!",  __func__, (int)doubleinfo);
-			sizedown=(int)doubleinfo;
-	}
 
 	/* CURLINFO_CONTENT_LENGTH_DOWNLOAD */
 	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &doubleinfo) ) {
@@ -1279,6 +1309,8 @@ while(1) {
 		//tm_delayms(200);
 		goto CURL_CLEANUP; //continue; /* retry ... */
 	}
+#endif /////////////////////////////////////////////////////////////////////
+
 
 } /* END WHILE */
 

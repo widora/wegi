@@ -27,7 +27,14 @@ int main(void)
 
 	EGI_TXTGROUP *txtgroup=NULL;
 
-#if 1	//////////////  TEST: BIGFILE size  /////////////////
+#if 1	//////////////  TEST: egi_host_littleEndian()  /////////////////
+
+	printf("The host is a %s system!\n", egi_host_littleEndian()?"little-endian":"big-endian");
+	exit(0);
+
+#endif
+
+#if 0	//////////////  TEST: BIGFILE size  /////////////////
 	unsigned long long fsize;
 	int tm_cost=38540; //ms
 

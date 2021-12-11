@@ -44,6 +44,8 @@ Jurnal
 	1. egi_imgbuf_mapTriWriteFB3(): Apply fb_dev->pixalpha.
 2021-09-27:
 	1. egi_imgbuf_mapTriWriteFB3(): If u/v<0, make it positive u/v=1.0+u/v. ?????
+2021-12-06:
+	1. Add egi_imgbuf_get_fitsize()
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -1629,6 +1631,42 @@ EGI_IMGBUF  *egi_imgbuf_avgsoft2(const EGI_IMGBUF *ineimg, int size, bool alpha_
 }
 
 
+/*-----------------------------------------------------------
+Compute an approriate size to fit in the image.
+The result size should be well fit into the original w*h size
+while keep aspect ratio unchanged.
+
+@imgbuf:	Pointer to an EGI_IMGBUF.
+@w,h:		Pointers to canvas size, it will be modified
+		according to input imagbut.
+
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------------------*/
+int egi_imgbuf_get_fitsize(EGI_IMGBUF *imgbuf, int *w, int *h)
+{
+	if( imgbuf==NULL || imgbuf->imgbuf==NULL)
+		return -1;
+	if( w==NULL || h==NULL)
+		return -1;
+	if( *w<1 || *h<1)
+		return -1;
+
+	int oldwidth=imgbuf->width;
+	int oldheight=imgbuf->height;
+
+        /* Keep image aspect ratio */
+        if( 1.0*(*h)/(*w) > 1.0*oldheight/oldwidth )
+		/* Then to adjust h in ratio */
+		*h=round(1.0*(*w)*oldheight/oldwidth);
+        else   /* Then to adjust w in ration */
+	        *w=round(1.0*(*h)*oldwidth/oldheight);
+
+	return 0;
+}
+
+
 /*-----------------------------------------------------------------------
 Resize an image and create a new EGI_IMGBUF to hold the new image data.
 Only size/color/alpha of ineimg will be transfered to outeimg, others
@@ -1637,7 +1675,7 @@ such as subimg will be ignored. )
 TODO:
 XXX 1. Before scale down an image, merge and shrink it to a certain size first!!!
 	--OK, see egi_imgbuf_scale()
-XXX 2. Block resize (zoom), resize a block of the original image to a givn size.
+XXX 2. Block resize (zoom), resize a block of the original image to a given size.
 	--Use egi_imgbuf_blockCopy(), egi_imgbuf_coplyBlock().
 
 NOTE:
@@ -1665,11 +1703,11 @@ NOTE:
 		False: Stretch size.
 @width:		Width for new image.
 		If width<=0 AND height>0: adjust width/height proportional to oldwidth/oldheight.
-		If width<2, auto. adjust it to 2.
+		Aft above, if width<2, auto. adjust it to 2.
 
 @height:	Height for new image.
-		If heigth<=0 AND width>0: adjust width/height proportional to oldwidth/oldheight.
-		If height<2, auto. adjust it to 2.
+		If heigth<=0 AND width>0: adjust height/width proportional to oldheight/oldwidth.
+		Aft above, if height<2, auto. adjust it to 2.
 Return:
 	A pointer to EGI_IMGBUF with new image 		OK
 	NULL						Fails
@@ -1726,7 +1764,8 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 
 	/* Keep image aspect ratio */
 	if(keep_ratio) {
-		if( 1.0*height/width > 1.0*oldheight/oldwidth )
+//		if( 1.0*height/width > 1.0*oldheight/oldwidth )
+		if( 1.0*height/width < 1.0*oldheight/oldwidth )
 			width=round(1.0*height*oldwidth/oldheight);
 		else
 			height=round(1.0*width*oldheight/oldwidth);
@@ -2012,7 +2051,8 @@ EGI_IMGBUF  *egi_imgbuf_resize_nolock( EGI_IMGBUF *ineimg, bool keep_ratio, int 
 
 	/* Keep image aspect ratio */
 	if(keep_ratio) {
-		if( 1.0*height/width > 1.0*oldheight/oldwidth ) {
+//		if( 1.0*height/width > 1.0*oldheight/oldwidth ) {
+		if( 1.0*height/width < 1.0*oldheight/oldwidth ) {
 			width=round(1.0*height*oldwidth/oldheight);
 		}
 		else
@@ -2387,7 +2427,7 @@ int egi_imgbuf_resize_update(EGI_IMGBUF **pimg, bool keep_ratio, unsigned int wi
 	if( (*pimg)->width==width && (*pimg)->height==height )
 		return 0;
 
-	/* resize the imgbuf by egi_imgbuf_resize() */
+	/* Resize the imgbuf by egi_imgbuf_resize() */
 	tmpimg=egi_imgbuf_resize_nolock(*pimg, keep_ratio, width, height);
 	if(tmpimg==NULL)
 		return -2;

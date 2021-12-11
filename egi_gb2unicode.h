@@ -21,6 +21,8 @@ typedef struct GB2312toUnicode {
 } EGI_GB2UNICODE;
 extern const EGI_GB2UNICODE EGI_GB2UNICODE_LIST[];
 
-int   cstr_gb2312_to_unicode(const char *src,  wchar_t *dest);
+int   UniHan_gb2unicode_listSize(void);
+int   cstr_gb2312_to_unicode(const char *src,  wchar_t *dest); /* OBSOLETE */
+int   cstr_gbk_to_unicode(const char *src,  wchar_t *dest);
 
 #endif
