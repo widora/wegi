@@ -42,6 +42,8 @@ int 	cstr_txtgroup_push(EGI_TXTGROUP *txtgroup, const char *txt);
 
 /* --- util functions --- */
 char*	cstr_replace_string(char **src, const char *obj, const char *sub);
+int 	cstr_parse_URL(const char *URL, char **protocol, char **hostname, unsigned int *port,
+		 	 char **filename, char **path, char **dir, char **dirURL);
 char* 	cstr_decode_htmlSpecailChars(char *strHtml);
 int 	cstr_squeeze_string(char *buff, int size, char spot);
 int	cstr_clear_unprintChars(char *buff, int size);
@@ -72,9 +74,10 @@ int 	egi_count_file_lines(const char *fpath);
 int 	egi_get_config_value(const char *sect, const char *key, char* value);
 int 	egi_update_config_value(const char *sect, const char *key, const char* pvalue);
 
-char* 	cstr_parse_html_tag(const char* str_html, const char *tag, char *attributes, char **content, int *length);
+char* 	cstr_parse_html_tag(const char* str_html, const char *tag, char *attributes, int attrsize, char **content, int *length);
 int 	cstr_get_html_attribute(const char *str, const char *name, char *value);
 int 	cstr_extract_html_text(const char *str_html, char *text);
+int 	cstr_parse_simple_html(const char *str_html, char *text, size_t txtsize);
 
 int 	cstr_extract_ChnUft8TimeStr(const char *src, char *buff, int bufflen);
 int 	cstr_getSecFrom_ChnUft8TimeStr(const char *src,time_t *tp);

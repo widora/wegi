@@ -18,6 +18,8 @@ Jurnal
 	1. Add egi_valid_fd().
 2021-12-10:
 	1. Add egi_host_littleEndian().
+2021-12-20:
+	1. Add egi_get_fileSize()
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -96,6 +98,25 @@ int egi_mem_grow(void **ptr, size_t old_size, size_t more_size)
 	return 0;
 }
 
+/*---------------------------------------------
+	Return file size.
+
+For 32-bits type off_t, mmap Max. file size <2G !
+   off_t: 32bits, Max. fsize:  2^31-1
+   off_t: 64bits, Max. fsize:  2^63-1
+
+Return:
+	0	Fails or zero size file.
+	>0	OK
+----------------------------------------------*/
+unsigned long egi_get_fileSize(const char *fpath)
+{
+	struct stat buf;
+	if( stat(fpath, &buf)!=0 )
+		return 0;
+
+	return (unsigned long)buf.st_size;
+}
 
 /*-----------------------------------------------------------
 Mmap a file and return a EGI_FILEMMAP.

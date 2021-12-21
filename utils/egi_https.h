@@ -1,9 +1,15 @@
-/*----------------------------------------------------
+/*------------------------------------------------------------------
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License version 2 as
+published by the Free Software Foundation.
+
+
 		A libcurl http helper
 Refer to:  https://curl.haxx.se/libcurl/c/
 
 Midas Zhou
------------------------------------------------------*/
+midaszhou@yahoo.com
+-----------------------------------------------------------------*/
 #ifndef __EGI_HTTPS__
 #define __EGI_HTTPS__
 
@@ -17,6 +23,9 @@ Midas Zhou
 /* Https Options */
 #define HTTPS_SKIP_PEER_VERIFICATION            (1<<0)
 #define HTTPS_SKIP_HOSTNAME_VERIFICATION        (1<<1)
+/* Download and save by appending to the end of file, Otherwise truncate file to 0 before saving */
+#define HTTPS_DOWNLOAD_SAVE_APPEND        	(1<<2)
+#define HTTPS_ENABLE_REDIRECT			(1<<3)
 
 #define CURL_RETDATA_BUFF_SIZE  (512*1024)  /* CURL RETURNED DATA BUFFER SIZE */
 

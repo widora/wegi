@@ -12,6 +12,7 @@ Midas Zhou
 
 extern const char *app_name;
 
+int egi_system(const char *cmd);
 int egi_common_sigAction(int signum, void(*handler)(int) );
 
 void __attribute__((constructor)) app_common_constructor(void);

@@ -39,9 +39,18 @@ Jurnal
 		https_curl_request()
 2021-12-02:
 	1. https_easy_download(): Enable CURLOPT_ACCEPT_ENCODING.
+2021-12-15:
+	1. https_curl_request():
+	   1.1 Add header append: Content-Type:charset=UTF-8
+	   1.2 curl_slist_free_all(header)
+2021-12-20:
+	1. https_easy_download(): opt to save by appending to the file.
+2021-12-21:
+	1. https_curl_request(): opt to follow HTTP 3xx redirects.
 
 TODO:
-1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
+XXX 1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
+    compressed data size
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -56,6 +65,7 @@ midaszhou@yahoo.com
 #include "egi_log.h"
 #include "egi_timer.h"
 #include "egi_debug.h"
+#include "egi_utils.h"
 
 #define EGI_CURL_TIMEOUT	3  /* 15 in seconds. tricky for M3U, abt. SegDuration/3trys */
 
@@ -344,15 +354,32 @@ Note: You must have installed ca-certificates before call curl https, or
 			If trys==0; unlimit.
 @timeout:		Timeout in seconds.
 @request:	request string
-@reply_buff:	returned reply string buffer, the Caller must ensure enough space.
+@reply_buff:	Buffer for returned reply string, the Caller must ensure enough space.
+
 				!!! --- CAUTION --- !!!
 		Insufficient memspace causes segmentation_fault and other strange things.
+		In the get_callback() function, it MUST check available space left
+		if reply_buff[], for each chunck session.
+		Example:
+		   static size_t get_callback(void *ptr, size_t size, size_t nmemb, void *userp)
+		   {
+			int xlen=strlen(ptr)+strlen(reply_buff);
+        		if( xlen >= sizeof(reply_buff)-1) {
+				strncat(userp, ptr, sizeof(reply_buff)-1-strlen(reply_buff));
+				....  // OR: CURL_RETDATA_BUFF_SIZE-1-strlen(..)
+			}
+			else {
+				strcat(userp, ptr);
+				....
+			}
+		   }
+
 @data:		TODO: if any more data needed
 
 		!!! CURL will disable egi tick timer? !!!
 Return:
-	0	ok
-	<0	fails
+	0	Ok
+	<0	Fails
 --------------------------------------------------------------------------------*/
 int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const char *request, char *reply_buff,
 			void *data, curlget_callback_t get_callback )
@@ -376,20 +403,27 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 		return -1;
 	}
 
-	/* set curl option */
+	/* Set curl options */
 	curl_easy_setopt(curl, CURLOPT_URL, request);		 	 /* set request URL */
 	curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); //1L		 /* 1 print more detail */
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout); //EGI_CURL_TIMEOUT);	 /* set timeout */
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_callback);     /* set write_callback */
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, reply_buff); 		 /* set data dest for write_callback */
-	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");		 /* enables automatic decompression of HTTP downloads */
+
+	/* User options */
+	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, (opt&HTTPS_ENABLE_REDIRECT)?1L:0L); /* Enable redirect */
+
+	/* TODO:  unsupported compression method may produce corrupted data! */
+	/* "" --- Containing all built-in supported encodings. */
+	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
 
 	/* Append HTTP request header */
 	struct curl_slist *header=NULL;
-//	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
-	header=curl_slist_append(header,"User-Agent: Mozilla/5.0(Linux; Android 8.0)");
+	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
+//	header=curl_slist_append(header,"User-Agent: Mozilla/5.0(Linux; Android 8.0)");
+	header=curl_slist_append(header,"Accept-Charset: utf-8");
+//	header=curl_slist_append(header,"Content-Type: application/x-www-form-urlencoded; charset=UTF-8");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER,header);
-
 
 	/* Param opt set */
 	if(HTTPS_SKIP_PEER_VERIFICATION & opt)
@@ -411,8 +445,10 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 	/* 				--- Check session info. ---
 	 ***  Note: curl_easy_perform() may result in CURLE_OK, but curl_easy_getinfo() may still fail!
 	 */
+/* TEST: ---> */
+	EGI_PLOG(LOGLV_CRITICAL, "%s: Start to get response code...", __func__);
 	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &longinfo) ) {
-		EGI_PLOG(LOGLV_CRITICAL,"%s: get response code '%ld'.\n",__func__, longinfo);
+		EGI_PLOG(LOGLV_CRITICAL,"%s: get response code '%ld'.",__func__, longinfo);
 		if(longinfo==0) {
 			egi_dpstd("No response from the peer/server!\n");
 			ret=-2;
@@ -452,6 +488,7 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 
 CURL_CLEANUP:
 	/* always cleanup */
+	curl_slist_free_all(header);
 	curl_easy_cleanup(curl);
 	curl=NULL;
   	curl_global_cleanup();
@@ -475,7 +512,7 @@ CURL_CLEANUP:
 static size_t easy_callback_writeToFile(void *ptr, size_t size, size_t nmemb, void *stream)
 {
    size_t chunksize=size*nmemb;
-   size_t written;
+   size_t written=0;
 
    if(stream) {
         written = fwrite(ptr, size,  nmemb, (FILE *)stream);
@@ -489,7 +526,8 @@ static size_t easy_callback_writeToFile(void *ptr, size_t size, size_t nmemb, vo
 	}
    }
 
-   return written;
+   //return written;
+   return chunksize; /* if(retsize != size*nmemeb) curl will fails!? */
 }
 
 /*----------------------------------------------------------------------------
@@ -530,17 +568,26 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	long longinfo=0;
 	FILE *fp;	/* FILE to save received data */
 	int sizedown;
+	size_t ofsize;
 
 	/* check input */
 	if(file_url==NULL || file_save==NULL)
 		return -1;
 
 	/* Open file for saving file */
-	fp=fopen(file_save,"wb");
+	if(opt&HTTPS_DOWNLOAD_SAVE_APPEND) {
+	    fp=fopen(file_save,"ab");
+
+	    /* Get original file size */
+	    ofsize=egi_get_fileSize(file_save);
+	}
+	else
+	    fp=fopen(file_save,"wb");
 	if(fp==NULL) {
 		EGI_PLOG(LOGLV_ERROR,"%s: open file '%s', Err'%s'", __func__, file_save, strerror(errno));
 		return -1;
 	}
+
 
 	/* Put lock, advisory locks only. TODO: it doesn't work???  */
 	if( flock(fileno(fp),LOCK_EX) !=0 ) {
@@ -573,7 +620,8 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	/*  set timeout */
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout); //EGI_CURL_TIMEOUT);
 
-	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");		 /* enables automatic decompression of HTTP downloads */
+	/* TODO:  unsupported compression method may produce corrupted data! */
+//	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");		 /* enables automatic decompression of HTTP downloads */
 
 	/* For name lookup timed out error: use ipv4 as default */
 	//  curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
@@ -587,7 +635,7 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	/* Append HTTP request header */
 	struct curl_slist *header=NULL;
 	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
-//	header=curl_slist_append(header,"User-Agent: Mozilla/5.0(Linux; Android 8.0)");
+	header=curl_slist_append(header,"User-Agent: Mozilla/5.0(Linux; Android 8.0)");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
 
 	/* Param opt set */
@@ -625,8 +673,10 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	 *   1. curl_easy_perform() may result in CURLE_OK, but curl_easy_getinfo() may still fail!
 	 *   2. Testing results: CURLINFO_SIZE_DOWNLOAD and CURLINFO_CONTENT_LENGTH_DOWNLOAD get the same doubleinfo!
 	 */
+/* TEST: ---> */
+	EGI_PLOG(LOGLV_CRITICAL, "%s: Start to get response code...", __func__);
 	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &longinfo) ) {
-		EGI_PLOG(LOGLV_CRITICAL,"%s: get response code '%ld'.\n",__func__, longinfo);
+		EGI_PLOG(LOGLV_CRITICAL,"%s: get response code '%ld'.",__func__, longinfo);
 		if(longinfo==0) {
 			egi_dpstd("No response from the peer/server!\n");
 			ret=-2;
@@ -635,6 +685,8 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	}
 
 	/* TEST: CURLINFO_SIZE_DOWNLOAD */
+/* TEST: ---> */
+	EGI_PLOG(LOGLV_CRITICAL, "%s: Start to get sizedown...", __func__);
 	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_SIZE_DOWNLOAD, &doubleinfo) ) {
 		  	EGI_PLOG(LOGLV_CRITICAL,"%s: Curlinfo_size_download=%d!",  __func__, (int)doubleinfo);
 			sizedown=(int)doubleinfo;
@@ -678,10 +730,18 @@ CURL_CLEANUP:
 	if(ret==0)
 		break;
 
-	egi_dpstd("Curl clean up before try again... the file will be truncated to 0!\n");
+	egi_dpstd("Curl clean up before try again... the file will be truncated to 0 or ofsize!\n");
+
 	/* If OK, it should NOT carry out following jobs ... */
-	truncate(file_save, 0);
-	rewind(fp);	/* truncate will NOT reset file offset! */
+	if(opt&HTTPS_DOWNLOAD_SAVE_APPEND) {
+		truncate(file_save, ofsize);
+		fseek(fp, ofsize, SEEK_SET); /* truncate will NOT reset file offset! */
+	}
+	else {
+		truncate(file_save, 0);
+		rewind(fp);	/* truncate will NOT reset file offset! */
+	}
+
 	tm_delayms(200);
 
 	/* Always cleanup before loop back to init curl */
@@ -690,12 +750,16 @@ CURL_CLEANUP:
   	curl_global_cleanup();
  } /* End: try Max times */
 
-	/* Check result, If it fails, truncate filesize to 0 before quit!    ??? NOT happens!! */
+	/* Check result, If it fails, truncate filesize to 0 or ofsize before quit!    ??? NOT happens!! */
 	if(ret!=0) {
-		EGI_PLOG(LOGLV_ERROR, "%s: Download fails, re_truncate file size to 0...",__func__);
+		EGI_PLOG(LOGLV_ERROR, "%s: Download fails, re_truncate file size to 0 or ofsize",__func__);
 
 		/* Resize/truncate filesize to 0! */
-		if( truncate(file_save, 0)!=0 ) {
+		if(opt&HTTPS_DOWNLOAD_SAVE_APPEND) {
+		     if(truncate(file_save, ofsize)!=0)
+			EGI_PLOG(LOGLV_ERROR, "%s: [download fails] Fail to truncate file size to ofsize!",__func__);
+		}
+		else if( truncate(file_save, 0)!=0 ) {
 			EGI_PLOG(LOGLV_ERROR, "%s: [download fails] Fail to truncate file size to 0!",__func__);
 		}
 
@@ -713,6 +777,7 @@ CURL_CLEANUP:
 	if( fsync(fileno(fp)) !=0 ) {
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 	}
+
 
 #if 0 /////////////////////   Decompressed, st_size MAY NOT as doubleinfo size ///////////////////////////////
 	/*** Check date length again. and try to adjust it.
@@ -1252,7 +1317,7 @@ while(1) {
 	 */
 
 	if( CURLE_OK == curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &longinfo) ) {
-		EGI_PLOG(LOGLV_CRITICAL,"%s: get response code '%ld'.\n",__func__, longinfo);
+		EGI_PLOG(LOGLV_CRITICAL,"%s: get response code '%ld'.",__func__, longinfo);
 		if(longinfo==0) {
 			egi_dpstd("No response from the peer/server!\n");
 			ret=-2;

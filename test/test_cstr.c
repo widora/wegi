@@ -3,7 +3,9 @@ This program is free software; you can redistribute it and/or modify it under th
 terms of the GNU General Public License version 2 as published by the Free Software
 Foundation.
 
-
+Journal:
+2021-12-17:
+	1. test cstr_parse_simple_html().
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -28,7 +30,42 @@ int main( int  argc,   char**  argv )
 　　他与木吒离了此处，一直东来，不一日就到了长安大唐国。敛雾收云，师徒们变作两个疥癫游憎，入长安城里，竟不觉天晚。行至大市街旁，见一座土地庙祠，二人径进，唬得那土地心慌，鬼兵胆战。知是菩萨，叩头接入。那土地又急跑报与城隍社令及满长安城各庙神抵，都来参见，告道：“菩萨，恕众神接迟之罪。”菩萨道：“汝等不可走漏消息。我奉佛旨，特来此处寻访取经人。借你庙宇，权住几日，待访着真僧即回。”众神各归本处，把个土地赶到城隍庙里暂住，他师徒们隐遁真形。\
 　　毕竟不知寻出那个取经来，且听下回分解。";
 
-#if 1 ////////////    cstr_replace_string() ## cstr_decode_htmlSpecailChars()  ////////////////////
+#if 1 /////////////////  cstr_parse_URL()  ///////////////////////
+	const char * myURL="https://www.abcde.com:1234/doc/test?id=3&lan=en#p1";
+
+	char *protocol, *hostname, *path, *dir, *filename, *dirURL;
+	unsigned int port;
+
+	if(argc>1)
+	   myURL=argv[1];
+
+	if( cstr_parse_URL(myURL, &protocol, &hostname, &port, &path, &filename, &dir, &dirURL)==0 ) {
+		printf(" Protocol: %s\n Hostname: %s\n Port: %d\n Path: %s\n Filename: %s\n Dir: %s\n dirURL: %s\n",
+			protocol, hostname, port, path, filename, dir, dirURL);
+	}
+	else
+		printf("Fail to parse URL!\n");
+
+	exit(0);
+#endif
+
+#if 1 /////////////////  cstr_parse_simple_html()  ///////////////////////
+   char text[1024*5];
+   int len;
+
+   EGI_FILEMMAP *fmap=egi_fmap_create(argv[1], 0, PROT_READ, MAP_SHARED);
+   if(fmap==NULL) {
+	printf("Please input test HTML file path!\n");
+	exit(0);
+   }
+
+   len=cstr_parse_simple_html(fmap->fp, text, sizeof(text));/* str_html, text */
+   printf("len=%d, text: %s\n", len, text);
+
+   exit(0);
+#endif
+
+#if 0 ////////////    cstr_replace_string() ## cstr_decode_htmlSpecailChars()  ////////////////////
 
 	//char *cstr_replace_string(char **src, const char *obj, const char *sub);
 	//char* cstr_decode_htmlSpecailChars(char *strHtml)

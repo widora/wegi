@@ -114,6 +114,8 @@ size_t curl_callback(void *ptr, size_t size, size_t nmemb, void *userp)
 
 /*-----------------------------------------------
  A callback function for write data to file.
+
+ TODO: Check buff space.
 ------------------------------------------------*/
 size_t download_callback(void *ptr, size_t size, size_t nmemb, void *stream)
 {

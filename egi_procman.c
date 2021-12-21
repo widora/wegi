@@ -3,14 +3,21 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+
+Journal:
+2021-12-18:
+	1. Add egi_system()
+
 Midas_Zhou
 ------------------------------------------------------------------*/
 #include <stdio.h>
+#include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
 #include <errno.h>
 #include <malloc.h>
 #include <sys/wait.h>
+#include "egi_debug.h"
 #include "egi_common.h"
 #include "egi_FTsymbol.h"
 #include "egi_utils.h"
@@ -63,6 +70,47 @@ siginfo_t {
            }
 #endif////////////////////////////////////////////////////////////////////////////
 
+/*--------------------------------------------------
+A safer way to call system(), to prevent unexpected
+fail of waitpid() when the action for SIGCHLD is set
+to SIG_IGN before calling system().
+
+Reference:
+https://my.oschina.net/renhc/blog/54582
+
+--------------------------------------------------*/
+int egi_system(const char *cmd)
+{
+	int ret=0;
+
+	struct sigaction sigact_new;
+	struct sigaction sigact_old;
+
+        sigemptyset(&sigact_new.sa_mask);
+//      sigact_new.sa_flags=SA_SIGINFO; /*  use sa_sigaction instead of sa_handler XXX SIG_DFL for sa_handler */
+//      sigact_new.sa_flags|=SA_NODEFER; /* Do not prevent the signal from being received from within its own signal handler */
+	sigact_new.sa_flags|=SA_NOCLDSTOP; /* DO NOT receive notification when child processes stop. */
+	sigact_new.sa_flags|=SA_NOCLDWAIT; /* DO NOT transform children into zombies when they terminate. */
+        sigact_new.sa_handler=SIG_DFL;   /* DO NOTHING! SIG_IGN will cause waitpid() to throw ECHILD error! */
+
+	/* Set new sigaction and save old sigaction */
+        if(sigaction(SIGCHLD, &sigact_new, &sigact_old) <0 ){
+                egi_dperr("Fail to call sigaction() for new sigact.");
+                return -1;
+        }
+
+	/* Call system() */
+	ret=system(cmd);
+
+	/* Restore old sigaction */
+	if(sigaction(SIGCHLD, &sigact_old, NULL)<0 ){
+                egi_dperr("Fail to call sigaction() to restore old sigact.");
+		return -1;
+	}
+
+	return ret;
+}
+
 
 /*--------------------------------------------------
 Set a signal acition for a common process.
@@ -87,7 +135,6 @@ int egi_common_sigAction(int signum, void(*handler)(int))
 
 	return 0;
 }
-
 
 
 #if 0

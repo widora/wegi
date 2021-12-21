@@ -7050,7 +7050,7 @@ int UniHan_gb2unicode_listSize(void)
 /*-------------------  OBSOLETE  -----------------------------
 Convert string in GB2312 coding into Unicodes.
 
-TODO: GBK code can NOT properly decoded!
+TODO: GBK code can NOT properly decoded! --GBK to unicode lookup table.
 
 @src:	String in GB2312 coding, with host endianness.
 @dest:  Pointer to space for unicodes.

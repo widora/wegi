@@ -33,6 +33,12 @@ Journal
 2021-12-08:
 	1. cstr_parse_html_tag(): to distinguish similar TAG starts, as '<a...>' to '<alt...>'.
 	   strstr() NOT enough, need to check/confirm NEXT char to be ' ' OR '>'.
+2021-12-15:
+	1. cstr_parse_html_tag(): add param attrisize of attributes mem space.
+2021-12-16:
+	1. Add cstr_parse_simple_html()
+2021-12-19/20:
+	1. Add cstr_parse_URL()
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -185,6 +191,206 @@ int cstr_compare_dictOrder(const char *str1, const char *str2, size_t len)
 
 	return 0;
 }
+
+/*----------------------------------------------------------------
+Parse input URL string, and to extract protocol,hostname and
+port number.
+All param pointers MUST be cleared before calling the function!
+OR their holding memory space will be lost/leaked!
+
+URL components:
+1.	http(s)://www.abcde.com:1234/doc/test?id=3&lan=en#p1
+
+	Protocol(scheme): 	http(s)://
+	Hostname: 	www.abcde.com
+	Port: 		1234
+	Path: 		/doc/test
+	Query string:   id=3&lan=en  ( ? ---qurey_string separator)
+	Fragment:	p1	     ( # ---fragment separator )
+
+2.	!!! --- CAUTION --- !!!
+	Example:  https://www.letgo.xx/pic/food
+	food ---> The server will see it as the resource name
+	first, if NOT found, then parse it as the last directory!
+	You'd better explicitly add '/' at the end if it's
+        just a directory!
+
+
+Note:
+1. If no "://" found in the URL string, then it fails!
+
+TODO:
+1. to separate and extract query_string&params from path.
+
+
+@URL:		Input URL string.
+@protocl: 	PPointer to pass out protocol.
+@hostname:	PPointer to pass out hostname.
+@port:		PPointer to pass out port.
+		*post=0, as default for the protocol.
+@path:		Absolute full path = dir+(resource_name)
+@filename:	The resource object(file) name.
+@dir:		Directory part of the path, see above.
+	(TODO:  if the last char in URL is NOT '/', then
+		the last components of URL will be parsed
+		as resource name!
+		see in 'URL components". )
+@dirURL:	The URL for the dir
+		Example:  https://www.letgo.xx/pic/food/apple.jpg
+		         dirURL: https://www.letgo.xx/pic/food/
+
+	!!! --- CAUTION --- !!!
+DO NOT forget to free *protocl and *hostname.
+
+
+Return:
+	0	Ok
+	<0	Fails
+-----------------------------------------------------------------*/
+int cstr_parse_URL(const char *URL, char **protocol, char **hostname,
+		unsigned int *port, char **path, char **filename, char **dir, char **dirURL)
+{
+	char *ps=NULL;
+	char *pe=NULL;
+	char *pc=NULL;  /* Point to the ':' before port number */
+
+	/* Check URL */
+	if(URL==NULL)
+		return -1;
+
+	/* Reset init pointers to NULL anyway. */
+	if(protocol)	*protocol=NULL;
+	if(hostname)	*hostname=NULL;
+	if(port)	*port=0;	/* As default */
+	if(path)	*path=NULL;
+	if(filename)	*filename=NULL;
+	if(dir)		*dir=NULL;
+	if(dirURL)	*dirURL=NULL;
+
+	/* 1. Extract protocol */
+	ps=(char *)URL;
+	pe=strstr(URL,"://");
+	if(pe==NULL)
+		return -2;
+
+	pe +=strlen("://");
+	if(protocol) *protocol=strndup(ps, pe-ps);
+
+	/* If port number specified in the URL */
+	ps=pe; /* Now ps points to end of '://'  <---------- */
+	pc=strstr(ps,":");
+	if(pc!=NULL) {
+		/* 2. Extract port number */
+		if(port) *port=atoi(pc+1);
+
+		/* 3. Eextract hostname */
+		if(hostname) *hostname=strndup(ps, pc-ps);
+
+		/* Extract path and dir */
+		ps=pc+strlen(":");
+		pe=strstr(ps, "/"); /* the first '/' */
+		if(pe!=NULL) {
+			/* 4. Extract path */
+			if(path) *path=strndup(pe, strlen(URL)-(pe-URL));
+
+			/* 5. Extract dir */
+			/* Locate the last '/' */
+			pc=(char *)URL+strlen(URL);
+			while(*pc != '/') pc--;
+			if(dir) *dir=strndup(pe, pc+1 -pe); /* +1 to include the last '/' */
+
+			/* 6. Extract filename */
+			if(filename) *filename=strdup(pc+1);
+
+			/* 7. Extract dirURL */
+			if(dirURL) *dirURL=strndup((char *)URL, pc+1 -(char *)URL);
+		}
+		/* If no subdir */
+		else {
+			/* 4. Extract dir */
+			if(path) *path=strdup("/");
+
+			/* 5. Extract dir */
+			if(dir) *dir=strdup("/");
+
+			/* 6. Extract filename */
+			// No filename, default!
+
+			/* 7. Extract dirURL */
+			if(dirURL) {
+				*dirURL=calloc(1, strlen(URL)+1+1);
+				if(*dirURL) {
+					strcat(*dirURL, URL);
+					strcat(*dirURL, "/");
+				}
+			}
+		}
+
+		/* TODO: to separate and extract query string and params from path */
+
+/* -------> Return */
+		return 0;
+	}
+
+	/* NOW: no ':' and port number in the URL string */
+
+	/* 2a. Extract portnumber */
+	if(port) *port=0; // TODO: Default port number according to protocols
+
+	/* Now ps points to end of '://'  <---------- */
+	pe=strstr(ps, "/"); /* the first '/' */
+	/* If '/' exists in the URL */
+	if(pe!=NULL) { /* With subdir */
+		/* 3a. Extract hostname */
+		if(hostname) *hostname=strndup(ps, pe-ps);
+
+		/* 4a. Extract path */
+		if(path) *path=strndup(pe, strlen(URL)-(pe-URL));
+
+		/* 5a. Extract dir */
+		/* Locate the last '/' */
+		pc=(char *)URL+strlen(URL);
+		while(*pc != '/') pc--;
+		if(dir) *dir=strndup(pe, pc+1 -pe); /* +1 to include the last '/' */
+
+		/* 6a. Extract filename */
+		if(filename) *filename=strdup(pc+1);
+
+		/* 7a. Extract dirURL */
+		if(dirURL) *dirURL=strndup((char *)URL, pc+1 -(char *)URL);
+
+		/* TODO: to separate and extract query string&params from path */
+	}
+	/* Else: no subdir, no '/' in the URL */
+	else {
+		/* 3b. Extract hostname */
+		if(hostname) *hostname=strdup(ps);
+
+		/* 4b. Extract path */
+		if(path) *path=strdup("/");
+
+		/* 5b. Extract dir */
+		if(dir) *dir=strdup("/");
+
+		/* 6b. Extract filename */
+		// No filename, default!
+
+		/* 7b. Extract dirURL */
+		if(dirURL) {
+			*dirURL=calloc(1, strlen(URL)+1+1);
+			if(*dirURL) {
+				strcat(*dirURL, URL);
+				strcat(*dirURL, "/");
+			}
+		}
+
+		/* TODO: to separate and extract query string &params from path */
+	}
+
+
+	return 0;
+}
+
 
 /*----------------------------------------------------------------------
 Decode HTML entity names in a string into special chars(uft-8 coding).
@@ -1924,9 +2130,10 @@ Note:
 @attributes:    Pass out all attributes string in a start tag <X .....>,
 		and put an end token '\0'.
 		If NULL, ignore.
+			!!! CAUTION !!!
 		The caller MUST ensure enough sapce!
 		For slef_closing tag, such as <img ...>, attributes are SAME as content!
-
+@attrisize:     Size of attributes mem space, including space for'\0'.
 @content:	Pointer to pass element content.
 		Example: for <p>xyz...123</p>, content is 'xyz...123'/
 		For slef_closing tag, such as <img ...>, content is SAME as attributes string.
@@ -1944,7 +2151,7 @@ Return:
 	Pointer to taged content in str_html:		Ok
 	NULL:						Fails
 --------------------------------------------------------------------------------------*/
-char* cstr_parse_html_tag(const char* str_html, const char *tag, char *attributes, char **content, int *length)
+char* cstr_parse_html_tag(const char* str_html, const char *tag, char *attributes, int attrisize, char **content, int *length)
 {
 	int lenTag;
 	char stag[16]; 	/* start tag */
@@ -2036,6 +2243,11 @@ char* cstr_parse_html_tag(const char* str_html, const char *tag, char *attribute
 
 		/* Extract attributes betwee '<img' and '>' */
 		if(attributes!=NULL) {
+			if(pet-pst>attrisize-1) {
+				egi_dpstd("attributes space NOT enough!\n");
+				return NULL;
+			}
+
 			strncpy(attributes, pst, pet-pst); /* pst NOW pointer to the '>' of the start tag */
 			attributes[pet-pst]='\0';
 		}
@@ -2065,6 +2277,11 @@ char* cstr_parse_html_tag(const char* str_html, const char *tag, char *attribute
 
 		/* Extract attributes now */
 		if(attributes!=NULL) {
+			if(pst-pattr>attrisize-1) {
+				egi_dpstd("attributes space NOT enough!\n");
+				return NULL;
+			}
+
 			strncpy(attributes, pattr, pst-pattr); /* pst NOW pointer to the '>' of the start tag */
 			attributes[pst-pattr]='\0';
 		}
@@ -2289,9 +2506,10 @@ int cstr_extract_html_text(const char *str_html, char *text)
 	   ps +=1; /* ps point to text, OR maybe '<', as NO text at all. */
            if( (pe=strstr(ps, "<")) ){
 
-		/* Check if all SPACEs OR ps==pe! */
+		/* Check if all SPACEs+LFs(2021_12_15_HK_), OR ps==pe! */
 		for(px=ps; px<pe; px++) {
-			if( (*px)!=' ' ) /* If NO space found, OK to break */
+			//if( (*px)!=' ' && (*px)!='\n' ) /* If other NOT SPACE_or_LF found, OK to break */
+			if( !isspace(*px) )/* If other NOT SPACE_or_LF found, OK to break */
 				break;
 		}
 		if(px==pe) {
@@ -2305,16 +2523,24 @@ int cstr_extract_html_text(const char *str_html, char *text)
 		strncpy(pw, ps, pe-ps);
 		pw +=pe-ps;
 	#else   /* To skip any '\n'  2021-12_09_ZHK_ */
-		for(px=ps; px<pe; px++) {
+		/* Skip all leading '\n' and SPACEs (2021_12_15_HK_) */
+		px=ps;
+		while( isspace(*px) ) {
+			px++;
+		}
+		for( ; px<pe; px++) {
 			if( *px != '\n' ) {
 			    *pw = *px;
 			     pw +=1;
 			}
 		}
 	#endif
-		/* Add an '\n' for block text end. */
+
+
+	#if 0	/* Add an '\n' for block text end. */
 		*pw='\n';
 		pw +=1;
+	#endif
 
 		/* Reset pst */
 		pst =pe+1;
@@ -2338,6 +2564,223 @@ int cstr_extract_html_text(const char *str_html, char *text)
 	return  pw-text;
 }
 
+
+/*--------------------- !!! In testing... !!! -------------------------
+Parse a simple HTML text.
+
+@str_html:	Pointer to a html string with UFT-8 encoding.
+@text:		Pointer to pass out text.
+		text[0] to be reset as 0 at first, anyway.
+
+		!!! --- CAUTION --- !!!
+		The Caller MUST ensure enough space.
+@txtsize:	Max size of text. including '/0'.
+
+NOTE:
+XXX 1. Content ONLY between tag pairs (<tag>....</tag>) will be read
+XXX   to text, others in places such as </tagA>...<tagC> will be ignored!
+
+    1. Anything after token '>' is regarded as text content!
+
+Return:
+	<0	Fails.
+	>=0	Bytes of content read out.
+----------------------------------------------------------------------*/
+int cstr_parse_simple_html(const char *str_html, char *text, size_t txtsize)
+{
+	if(str_html==NULL || text==NULL)
+		return -1;
+
+	const char *pst=str_html;
+	char *pw=text;		  /* Current pointer to write char into text */
+	char *pwcs=pw;	  	  /* Start position of a tag content in the text
+				   * Check this pointer to skip any leading white_spaces in tag content
+				   */
+//	char *ps=NULL, *pe=NULL;
+//	char *px=NULL;
+
+	char tagSname[16]; 	/* Tag name/type at start. Example 'a' of  <a .. .>  */
+	char tagEname[16]; 	/* Tag name/type at end. Example: 'b' of </b>  */
+	char *ptn=NULL;		/* Pionter to element of tagSname[] OR tagEname[]
+				 * ALWAY check(ptn!=NULL) before ref/derefering it!
+				 */
+
+	/* To indicate current pst postion as per HTML context */
+  	enum pos_stat_type {
+	   STAT_NONE=0,		/* Aft. end of a tag, and before a new tag. */
+	   BRK_START, 		/* '<'*/
+	   BRK_END,		/* '>' */
+	   TAG_SNAME,	    	/* X:  <X..   tag name at start */
+	   TAG_ENAME,		/* X:  </x..  tag name at end */
+	   TAG_END,	    	/* X:  </X */
+	   TAG_ATTR,		/* X:  <ab XX...XX> */
+	   TAG_CONTENT,		/* X:  >XX...XX<, NOW any chars btween any '>' and '<'  */
+  	};
+  	enum pos_stat_type postat=STAT_NONE;	/* Type of content current pst points to... */
+
+
+	/* Clear text */
+	text[0]='\0';
+
+   while(*pst) {
+//	printf("C: %c\n", *pst);
+
+	/* W1. Check tokens, stat one byte by one byte */
+	switch(*pst) {
+	   /* S1. Parse tokens and continue to while() */
+	   case '<':
+		postat=BRK_START;
+		pst++; continue; break;  /* -----> while */
+
+	   case '>':
+
+		/* See token'>' as start of text content anyway,  see C>4. */
+
+		/* C>1. Start of tag content and end of tagSname */
+		if(postat==TAG_ATTR ) {
+			if(ptn) *ptn='\0'; /* Close tag name, all maybe already overflow! */
+
+//see C>4.		postat=TAG_CONTENT;
+//			pwcs=pw; /* Set pwcs as start position of new content */
+
+/* TEST---> */		printf("TAG_SNAME: %s\n", tagSname);
+		}
+		/* C>2. END of tagSname */
+		else if(postat==TAG_SNAME) {
+			if(ptn)	*ptn='\0'; /* Close tag name, all maybe already overflow ! */
+
+//see C>4.		postat=TAG_CONTENT;
+//			pwcs=pw; /* Set pwcs as start position of new content */
+
+/* TEST---> */		printf("TAG_SNAME: %s\n", tagSname);
+		}
+		/* C>3. END of tagEname */
+		else if(postat==TAG_ENAME) {
+			//postat=STAT_NONE;  ... NOPE! see as start of content anyway.
+			if(ptn)*ptn='\0'; /* Close tag name, all  maybe already overflow! */
+
+/* TEST---> */		printf("TAG_ENAME: %s\n", tagEname);
+
+
+/* TEST: ------ Add NL OR SPACE for table element */
+			if(strcasecmp(tagEname,"tr")==0) {
+				*pw='\n';  pw++;
+			}
+			else if (strcasecmp(tagEname,"td")==0 || strcasecmp(tagEname,"th")==0) {
+				*pw=' ';  pw++;
+			}
+
+			/* --->>> Check space */
+			if( pw-text > txtsize-2 ) /* Leave 1 byte for EOF */
+				goto END_FUNC;
+/* TEST: END */
+
+		}
+
+		/* C>4. See token '>' it as start of text content anyway.
+		 *  Put C>4 at last, NOT at start of the case, as User may add addition NL OR SPACE, see above.
+		 */
+		postat=TAG_CONTENT;
+		pwcs=pw; /* Set pwcs as start position of new content */
+
+		/* C>5. continue to while() */
+		pst++; continue; //break; /* -----> while */
+
+	   case '/':
+		if(postat==BRK_START) {
+			postat=TAG_ENAME;
+			ptn=tagEname;
+		}
+
+		pst++; continue; break; /* -----> while */
+
+	   /* S2. Non_defined tokens/assics */
+           default:
+		if(postat==BRK_START) {
+			postat=TAG_SNAME;
+			ptn=tagSname;
+		}
+
+		/* DONT_continue */
+
+		break;
+	}
+
+	/* W2. Execute current byte, depending on current postat */
+	switch(postat) {
+	   case TAG_SNAME:
+		/* SPACE: End of reading tagSname */
+		if(*pst==' ') {  /* '>' ALSO as end token,  see at  case '>': */
+			if(ptn)*ptn='\0'; /* Close tag name, all maybe already overflow! */
+			postat=TAG_ATTR;
+			//printf("TAG_SNAME: %s\n", tagSname); To print at '>' */
+
+		}
+		/* Read tag name at start half <tag> */
+		else {
+		    if(ptn) {
+			*ptn=*pst;
+			ptn++;
+
+			/* Check size */
+			if(ptn-tagSname == sizeof(tagSname)-1) {
+				tagSname[sizeof(tagSname)-1]='\0';
+				ptn=NULL;
+				egi_dpstd("tagSname overflow! truncated to be '%s'.\n", tagSname);
+			}
+		    }
+		}
+		break;
+	   case TAG_ENAME:
+		if(ptn) {
+			*ptn=*pst;
+			ptn++;
+
+                        /* Check size */
+                        if(ptn-tagEname == sizeof(tagEname)-1) {
+                                tagEname[sizeof(tagEname)-1]='\0';
+                                ptn=NULL;
+				egi_dpstd("tagEname overflow! truncated to be '%s'.\n", tagEname);
+                        }
+		}
+		break;
+
+	   case TAG_ATTR:	/* Get content of tag atrributes between < and > */
+		/* TODO: read and parse attribue */
+		break;
+
+	   case TAG_CONTENT:
+		/* Ignore any white-space characters at start... */
+		if(  !isspace(*pst) || pw>pwcs ) {
+			*pw=*pst;
+			pw++;  		/* Check size at W3 */
+		}
+
+		break;
+
+	   case STAT_NONE:
+		break;
+
+           default:
+		break;
+	}
+
+	/* W3. Check text mem. space */
+	if( pw-text > txtsize-2 ) /* ==txtsize-1; leave 1 for EOF */
+		goto END_FUNC;
+
+	/* W4. Move on.. */
+	pst++;
+
+   } /* END while() */
+
+
+END_FUNC:
+   /* Set terminating NULL! */
+   *pw='\0';
+
+   return  pw-text;
+}
 
 /* Time related keywords in CHN UFT-8 encoding */
 static const char CHNS_TIME_KEYWORDS[]="0123456789零半个一二三四五六七八九十百千秒分刻钟小时点号日月年";

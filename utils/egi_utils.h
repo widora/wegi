@@ -18,13 +18,14 @@ midaszhou@yahoo.com
 #include <stdint.h>
 #include <sys/mman.h>
 
-#define EGI_URL_MAX  256 /* Max length for a URL address */
+#define EGI_URL_MAX  512 /* Max length for a URL address, 2048 is common for web browsers. */
 #define EGI_PATH_MAX 256 /* Max length for a file path, 4096 for PATH_MAX in <limit.h>  */
 #define EGI_NAME_MAX 128 /* Max length for a file name, 255 for NAME_MAX in <limit.h>, exclude '\0' */
 #define EGI_SEARCH_FILE_MAX (1<<10) /* to be 2**n, Max number of files */
 #define EGI_FEXTNAME_MAX 10 /* !!! exclude '.', length of extension name */
 #define EGI_FEXTBUFF_MAX 16 /* Max items of separated extension names  */
 #define EGI_LINE_MAX 4096   /* Max length for a line */
+
 
 /* EGI File MMAP:  mmap with flags: PROT_READ|PROT_WRITE, MAP_PRIVATE */
 typedef struct {
@@ -59,6 +60,7 @@ int 		egi_copy_from_syspad(unsigned char *pstr);
 bool 	egi_host_littleEndian(void);
 void 	egi_free_char(char **p);
 int 	egi_mem_grow(void **ptr, size_t old_size, size_t more_size);
+unsigned long egi_get_fileSize(const char *fpath);
 int 	egi_search_str_in_file(const char *fpath, size_t off, const char *pstr);
 
 int 	egi_shuffle_intArray(int *array, int size);
