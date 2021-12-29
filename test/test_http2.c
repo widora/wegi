@@ -3,16 +3,20 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-An example to parse and download AAC m3u8 file.
+Refrence:
+1. RFC_8216(2017)     HTTP Live Streaming
 
 TODO:
-1. For some m3u8 address, it sometimes exits accidently when calling https_easy_download().
+1. For some m3u8 address, it sometimes exits accidently when calling
+   https_easy_download().
 
 Journal:
 2021-12-18:
 	Create the file by copying test_http.c
 2021-12-20:
 	1. parse_m3u8list(): to download and play segment vides.
+2021-12-24:
+	1. Redirect if the first m3u8list item is m3u8 URL, NOT a media segemnt URL.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -31,21 +35,18 @@ midaszhou@yahoo.com
 size_t curl_callback(void *ptr, size_t size, size_t nmemb, void *userp);
 void parse_m3u8list(char *strm3u);
 
+char strRequest[EGI_URL_MAX];
 char *dirURL;  /* The last dirURL */
 char *m3uURL;
 char buff[CURL_RETDATA_BUFF_SIZE];
 
 int main(int argc, char **argv)
 {
-	char strRequest[256+64];
 
 	if(argc<2) {
 		printf("Please provide m3uURL!\n");
 		exit(0);
 	}
-
-/* TODO test */
-//	cstr_split_nstr(strm3u, split, )
 
 #if 0	/* Start egi log */
   	if(egi_init_log("/mmc/test_http.log") != 0) {
@@ -64,10 +65,14 @@ int main(int argc, char **argv)
         strcat(strRequest,argv[1]);
         EGI_PLOG(LOGLV_CRITICAL,"Http request head:\n %s\n", strRequest);
 
+  while(1) {
 	/* m3u URL */
 	m3uURL = strRequest;
 
-  while(1) {
+	/* Get the last subdir URL */
+	/* (myURL, protocol, host, port, path, filename, dir,dirURL) */
+	cstr_parse_URL(m3uURL, NULL, NULL, NULL, NULL, NULL, NULL, &dirURL);
+
 	/* 1. Reset buff */
 	//memset(buff, 0, sizeof(buff));
 	buff[0]=0; /* OK??? */
@@ -87,6 +92,7 @@ int main(int argc, char **argv)
         printf("        --- Http GET Reply ---\n %s\n",buff);
 	EGI_PLOG(LOGLV_INFO,"Http curl get: %s\n", buff);
 
+
 	/* 3. Parse content */
 	EGI_PLOG(LOGLV_INFO,"Start parse m3u8list...");
 	parse_m3u8list(buff);
@@ -103,12 +109,12 @@ int main(int argc, char **argv)
 ------------------------------------------------*/
 size_t curl_callback(void *ptr, size_t size, size_t nmemb, void *userp)
 {
-        int blen=strlen(buff);
+        int blen=strlen(buff); // strlen((char*)userp)
         int plen=strlen(ptr);
         int xlen=plen+blen;
 
         /* MUST check buff[] capacity! */
-        if( xlen >= sizeof(buff)-1) {   // OR: CURL_RETDATA_BUFF_SIZE-1-strlen(..)
+        if( xlen > sizeof(buff)-1) {   // OR: CURL_RETDATA_BUFF_SIZE-1-strlen(..)
                 /* "If src contains n or more bytes, strncat() writes n+1 bytes to dest
                  * (n from src plus the terminating null byte." ---man strncat
                  */
@@ -138,7 +144,7 @@ size_t curl_callback(void *ptr, size_t size, size_t nmemb, void *userp)
 
 
 /*-----------------------------------
-Parse m3u8 content
+Parse m3u8 playlist(HLS playlist).
 
 Note:
 1. Content in strm3u will be changed!
@@ -146,67 +152,78 @@ Note:
 void parse_m3u8list(char *strm3u)
 {
 	int k;
-	int cnt;
+	int cnt;	/* Counter for media segments */
 	int dscnt;
-	char *ps;
-	const char *delim="\r\n";
-	char tsURL[8][EGI_URL_MAX];  /* segment URL */
+	char **pURI=NULL; /* URI, TO BE FREED. */
+	char strURL[EGI_URL_MAX];
 	char *sfname[8];  /* segment file name */
+	#define MAX_PLAYSEQ  12 /* To play Max. segement */
 
-	/* Get m3u8 params: VERSION,TARGETDURATION,SEQUENCE,EXTINF .....  */
-
-	/* Parse segment URL List */
+	/* 1. Parse HLS file, and get list of URL for media segments. */
 	cnt=0;
-        ps=strtok(strm3u, delim);
-        while(ps!=NULL && cnt<6) {
-	   /* Get .ts file */
-	   if( strstr(ps,".ts")!=NULL ) {
-		/* Get the last subdir URL */
-		/* (myURL, protocol, host, port, path, filename, dir,dirURL) */
-		cstr_parse_URL(m3uURL, NULL, NULL, NULL, NULL, NULL, NULL, &dirURL);
+	if(cstr_parse_simple_HLS(strm3u, &pURI, &cnt)!=0)
+		printf("Fail to parse simple HLS!\n");
+	else
+		printf("Totally %d media segments included!\n", cnt);
 
-		/* Assemble URL for the time segement file */
-		tsURL[cnt][0]=0;
-		strcat(tsURL[cnt], dirURL);
-		strcat(tsURL[cnt], ps);
+	/* 2. Check if the list is STILL a m3u8 URI, then parse again
+	 *   TODO: To select with bandwith etc. NOW take the first item.
+	 */
+	if(cnt>0 && strstr(pURI[0], ".m3u")!=NULL) {
+		/* Assemble strRequest for the new m3u8 file. */
+		strRequest[0]=0;
+		strcat(strRequest, dirURL);
+		strcat(strRequest, pURI[0]);
+		printf("Redirected strRequest: %s\n", strRequest);
 
-		printf("tsURL[%d]: %s\n", cnt, tsURL[cnt]);
+		/* Free list */
+		egi_free_charList(&pURI, cnt);
 
-		/* Free dirURL */
-		egi_free_char(&dirURL);
-
-		/* Count ts files */
-		cnt++;
-	   }
-
-	   /* Go on */
-	   ps=strtok(NULL, delim);
+		return;
+/* Return -----------> */
 	}
 
-	/* Download segment files */
+
+#if 1 /* Loop TEST */
+	/* 3. Download segment files */
 	remove("/tmp/vall.mp4");
 	dscnt=0;
-	for(k=0; k<cnt; k++) {
+	for(k=0; k< (cnt>MAX_PLAYSEQ?MAX_PLAYSEQ:cnt); k++) {
+		/* Assemble URL for the media segement file */
+		strURL[0]=0;
+		strcat(strURL, dirURL);
+		strcat(strURL, pURI[k]);
+		printf("strURL: %s\n", strURL);
+
+		/* Download media segment files */
 		if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION|HTTPS_DOWNLOAD_SAVE_APPEND,
-					 3, 30,
-                			 //tsURL[k], tsSavePath[k], NULL, download_callback) ==0 )
-                			 tsURL[k], "/tmp/vall.mp4", NULL, NULL) ==0 )  /* Use default callback write func. */
+					 1, 10,   /* A rather small value, near to targetduration */
+                			 //strURL, tsSavePath[k], NULL, download_callback) ==0 )
+                			 strURL, "/tmp/vall.mp4", NULL, NULL) ==0 )  /* Use default callback write func. */
                 {
-			printf("Ok, succeed to download segment from '%s'!\n", tsURL[k]);
+			printf("Ok, succeed to download segment from '%s'!\n", strURL);
 			dscnt++;
 		}
 		else
-			printf("Fail to download segment from '%s'!\n", tsURL[k]);
-	}
+			printf("Fail to download segment from '%s'!\n", strURL);
+
+	} /* End for() */
 	printf("Totally %d segments downloade!\n", dscnt);
 
-        /* Convert video to MPEG */
+	/* TODO: decrypt hls ts fragments */
+
+        /* 4. Convert video to MPEG */
 	printf("Start to conver video format...\n");
         //egi_system("ffmpeg -y -i /tmp/vall.mp4 -f mpeg -s 320x240 -r 20 /tmp/vall.avi");
-        egi_system("ffmpeg -y -i /tmp/vall.mp4 -f mpeg -s 320x240 -r 20 -b:v 300 /tmp/vall.avi");
+        egi_system("ffmpeg -y -i /tmp/vall.mp4 -f mpeg -s 320x240 -r 20 -b:v 1200k /tmp/vall.avi");
 
-	/* Play video */
+	/* 5. Play video */
 	printf("Start to play video...\n");
-        egi_system("/tmp/MPlayer -ac mad -vo fbdev -framedrop -brightness 18 /tmp/vall.avi");
+        egi_system("/tmp/MPlayer -ac mad -vo fbdev -vfm ffmpeg -framedrop -brightness 18 /tmp/vall.avi");
 	printf("Finish playing video!\n");
+#endif
+
+	/* 6. Free and release */
+	egi_free_char(&dirURL);
+	egi_free_charList(&pURI, cnt);
 }

@@ -55,6 +55,24 @@ inline void egi_free_char(char **p)
 	}
 }
 
+/*---------------------------------------
+Free a char pointer list and reset
+it to NULL
+@p: Pointer to PPointer(string list).
+@n: Size of the list
+----------------------------------------*/
+inline void egi_free_charList(char ***p, int n)
+{
+	int i;
+	if( p!=NULL && *p!=NULL ) {
+		/* Free list items */
+		for(i=0; i<n; i++)
+			free((*p)[i]);
+		/* Free list pointers */
+		free(*p);
+		*p=NULL;
+	}
+}
 
 /*------------------------------------
 Check the Endianness of the host.

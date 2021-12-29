@@ -59,6 +59,7 @@ int 		egi_copy_from_syspad(unsigned char *pstr);
 /* Utils functions */
 bool 	egi_host_littleEndian(void);
 void 	egi_free_char(char **p);
+void 	egi_free_charList(char ***p, int n);
 int 	egi_mem_grow(void **ptr, size_t old_size, size_t more_size);
 unsigned long egi_get_fileSize(const char *fpath);
 int 	egi_search_str_in_file(const char *fpath, size_t off, const char *pstr);

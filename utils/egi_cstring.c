@@ -5,9 +5,6 @@ published by the Free Software Foundation.
 
 Char and String Functions.
 
-Note:
-
-
 Journal
 2021-01-24:
 	1. Add cstr_hash_string().
@@ -39,6 +36,13 @@ Journal
 	1. Add cstr_parse_simple_html()
 2021-12-19/20:
 	1. Add cstr_parse_URL()
+2021-12-23:
+	1. Add cstr_parse_simple_HLS()
+2021-12-27:
+	1. cstr_extract_html_text(): Add param 'txtsize'
+2021-12-29:
+	1. Add egi_str2hex()
+	2. Add egi_hex2str()
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -57,6 +61,105 @@ midaszhou@yahoo.com
 #include "egi_log.h"
 #include "egi_utils.h"
 #include "egi_debug.h"
+
+/*-----------------------------------------------
+Conver string back into original data.
+
+Note:
+1. Here the string is presentation of the original
+data in hex format, every two bytes (chars) for one
+original byte data.
+
+	!!! --- CAUTION --- !!!
+2. No terminal NULL for the returned data!
+
+	!!! --- CAUTION --- !!!
+3.DO NOT forget to free the pointer after use!
+
+@str:	Pointer to string
+@size:  Size of data expected.
+	If size>strlen(str)/2, padding with zeros.
+
+Return:
+	!NULL	OK
+	NULL	Fails
+------------------------------------------------*/
+unsigned char* egi_str2hex(char *str, size_t size)
+{
+	int i;
+
+	if(str==NULL || size==0)
+		return NULL;
+
+   	/* Check size */
+ 	int len=strlen(str);
+   	if(len&1) {
+		egi_dpstd("Strlen MUST be multiples of 2!\n");
+		return NULL;
+   	}
+
+	/* Calloc */
+	unsigned char *hex=(unsigned char *)calloc(1, size);
+	if(hex==NULL)
+		return NULL;
+
+	/* Truncate len as per wanted size */
+	if(len>2*size) len=2*size;
+
+	/* Convert:
+	   %2h -- 2_digits short type;
+	   %2hh -- 2_digits short short type (=char)
+	  */
+	for(i=0; i<len; i+=2)
+	        sscanf(str+i,"%2hhx",hex+i/2);
+
+	return hex;
+}
+
+
+/*----------------------------------------------
+Present the data in form of hex and stored in a
+string ending with a terminal NULL. Each one byte
+data will be presented by two bytes(chars).
+
+Note:
+1. The Caller MUST ensure enough space/data in
+   hex[]! eg. size of hex[] MUST >=len.
+
+	!!! --- CAUTION --- !!!
+2. Input hex[] MAY have NO terminal NULL at all!
+
+	!!! --- CAUTION --- !!!
+3. DO NOT forget to free the pointer after use!
+
+@hex:	Data in hex.
+@len:	Length of data need to be converted.
+	Each one byte will be presented by two chars
+	as a HEX.
+
+Return:
+	!NULL	OK
+	NULL	Fails
+----------------------------------------------*/
+char* egi_hex2str(unsigned char *hex, size_t len)
+{
+	int i;
+
+	if(hex==NULL || len==0)
+		return NULL;
+
+	/* Calloc */
+	char *str=(char *)calloc(1, 2*len+1); /* +1 EOF */
+	if(str==NULL)
+		return NULL;
+
+	/* Sprintf to str */
+	for(i=0; i<len; i++)
+		sprintf(str+2*i, "%02x", hex[i]);
+
+	return str;
+}
+
 
 /*----------------------------------------
 Create an EGI_TXTGROUP.
@@ -171,8 +274,6 @@ int cstr_txtgroup_push(EGI_TXTGROUP *txtgroup, const char *txt)
 	return 0;
 }
 
-
-
 /*-----------------------------------------------------------
 Compare 'len' chars of two strings to judge their dictionary
 order.
@@ -188,7 +289,6 @@ Return:
 -----------------------------------------------------------*/
 int cstr_compare_dictOrder(const char *str1, const char *str2, size_t len)
 {
-
 	return 0;
 }
 
@@ -387,6 +487,154 @@ int cstr_parse_URL(const char *URL, char **protocol, char **hostname,
 		/* TODO: to separate and extract query string &params from path */
 	}
 
+	return 0;
+}
+
+
+/*-----------------------------------------------------------------------
+Parse HTTP Live streaming playlist file. and return a list of URL/URI for
+media segments. They MAY be the final URL for a specified media file(usually
+with extension.ts), OR just another m3u8 file (usually with extention .m3u/.m3u8)!
+
+	--- Refrecne: RFC8216 HTTP Live Streaming ---
+Note:
+1. HLS playlist files MUST be encoded in UTF-8.
+2. Each line of a HLS playlist is a URI, is blank, or starts with
+   the character '#'.
+3. All lines are terminated by either a single line feed character or
+   a carriage return character followed by a line feed character.
+4. There are ONLY two tags that withou '-X-' tokens, they are:
+   'EXTM3U' and 'EXTINF'
+5. Tags begin with #EXT, other lines begin with '#' are comments.
+6. Each media segment is specified by a series of media segment tags
+   followed by a URI.
+   Media segment tags include:
+   #EXTINF
+   #EXT-X-BYTERANGE
+   #EXT-X-DISCONTINUITY
+   #EXT-X-KEY
+   #EXT-X-MAP
+   #EXT-X-PROGRAM-DATE-TIME
+   #EXT-X-DATERANGE
+7. A server MAY offer multiple Media Playlist files to provide different
+   encodings of the same presentation(with different bandwidth etc.)
+   Usually with tags of:
+   #EXT-X-STREAM-INF
+   #EXT-X-I-FRAME-STREAM-INF (containing the I-frames of a multimedia presentation.)
+8. Other tags:
+   #EXT-X-
+
+PARAMs:
+@strHLS:   Pointer to a m3u playlist file content, encoded in UFT-8.
+			!!! --- CAUTION --- !!!
+	   Content in strHLS will be modified/changed by strtok().
+@URI:	   URI list in the playlist file.
+			!!! --- CAUTION --- !!!
+	   The URI in the list MAY be the final URL for a specified media file.
+	   OR it's just another m3u8 playlist file!
+@ns:	   Total number of media segments specified in the playlist file.
+
+Return:
+	0	OK
+	<0	Fails
+------------------------------------------------------------------------*/
+int cstr_parse_simple_HLS(char *strHLS, char ***URI, int *ns)
+{
+	const char *delim="\r\n";
+	char *ps;
+
+	char **pURI;
+	char *ptmp;
+	const int ng=8; /* mem grow size */
+	int  ncap;  	/* capacity/slots of pURI list. */
+
+	int lcnt;	/* Line counter */
+	int mscnt;	/* Media segment counter */
+
+	if(URI==NULL && ns==NULL)
+		return -1;
+
+	/* Init */
+	lcnt=0;
+	mscnt=0;
+	ncap=0;
+
+	/* Reset  */
+	*URI=NULL;
+	*ns=0;
+
+	/* Calloc ng */
+	pURI=calloc(ng, sizeof(char *));
+	if(pURI==NULL)
+		return -1;
+	else
+		ncap=ng;
+
+        /* Parse segment URL List */
+        ps=strtok((char *)strHLS, delim);
+        while(ps!=NULL) {
+	   /* Check if a legal playlist */
+	   if(lcnt==0 && strncmp("#EXTM3U",ps,7)!=0) {
+		egi_dperr("The first tag line in a HLS playlist file MUST be #EXTM3U!\n");
+		free(pURI);
+		return  -1;
+	   }
+
+	   /* W1. Tag lines starts with #EXT-X- */
+	   if( strncmp("#EXT-X-", ps, 7)==0 ) {
+		egi_dpstd("EXT-X- line: %s\n", ps+7);
+		/* #EXT-X-KEY:<attribute-list>.  If media segments are encrypted. */
+
+		/* #EXT-X-STREAM-INF:<attribute-list>  specifies a Variant Stream  */
+
+	   }
+	   /* W2. Two tags without '-X-': EXTINF and EXTM3U  */
+ 	   else if( strncmp("#EXT",ps, 4)==0 ) {
+		/* EXTM3U: Start of playlist. */
+		if(strncmp("#EXTM3U",ps,7)==0) {
+			egi_dpstd("Start line with #EXTM3U, OK!\n");
+		}
+		/* #EXTINF:<duration>,[<title>]. */
+		else if(strncmp("#EXTINF",ps,7)==0) {
+			egi_dpstd("EXTINF line: %s\n", ps+7);
+		}
+	   }
+	   /* W3. Otherwise it's an URI */
+	   else if( lcnt>0 && (ptmp=cstr_trim_space(ps)) ){
+		printf("media segment URI: %s\n", ptmp);
+
+		/* Need to grow space */
+		if( mscnt == ncap ) {
+			if(egi_mem_grow((void **)(&pURI), ncap*sizeof(char *), ng*sizeof(char *))!=0) {
+				egi_dperr("Fail to memgrow pURI!\n");
+				goto END_FUNC;
+			}
+			else
+				ncap +=ng;
+		}
+
+		/* Push to list */
+		pURI[mscnt]=strdup(ptmp);
+
+		/* Count mscnt */
+		mscnt++;
+	   }
+
+	   /* Count lcnt */
+	   lcnt++;
+
+	   /* Next line */
+	   ps=strtok(NULL, delim);
+
+	} /* End while() */
+
+END_FUNC:
+	/* Adjust pURI space according to final mscnt */
+	realloc(pURI, mscnt*sizeof(char *));
+
+	/* Pass out params */
+        *ns=mscnt;
+	*URI=pURI;
 
 	return 0;
 }
@@ -395,7 +643,7 @@ int cstr_parse_URL(const char *URL, char **protocol, char **hostname,
 /*----------------------------------------------------------------------
 Decode HTML entity names in a string into special chars(uft-8 coding).
 
-		!!! --- CATUTION  --- !!!
+		!!! --- CAUTION  --- !!!
 1. Assume that length of each special char is short than its entity name!
 2. Assume each entity name starts with '&' and ends with ';'.
 
@@ -2476,6 +2724,7 @@ Note:
    one will be erased.
 2. Any SPACEs block will be ignored!
 
+
 @str_html:	Pointer to a html string with UFT-8 encoding.
 @text:		Pointer to pass out text.
 		text[0] to be reset as 0 at first, anyway.
@@ -2483,15 +2732,18 @@ Note:
 		!!! --- CAUTION --- !!!
 		The Caller MUST ensure enough space.
 
+@txtsize:	Max size of text. including '/0'.
+		AT LEAST ==2!
+
+
 Return:
 	<0	Fails.
 	>=0	Bytes of content read out.
 ------------------------------------------------------------*/
-int cstr_extract_html_text(const char *str_html, char *text)
+int cstr_extract_html_text(const char *str_html, char *text, size_t txtsize)
 {
-	if(str_html==NULL || text==NULL)
+	if(str_html==NULL || text==NULL || txtsize<2 )
 		return -1;
-
 
 	const char *pst=str_html;
 	char *pw=text;
@@ -2522,6 +2774,9 @@ int cstr_extract_html_text(const char *str_html, char *text)
 	#if 0   /* DO NOT skip any '\n' */
 		strncpy(pw, ps, pe-ps);
 		pw +=pe-ps;
+	        if(pw-text > txtsize-2) // ==txtsize-1
+			goto END_FUNC;
+
 	#else   /* To skip any '\n'  2021-12_09_ZHK_ */
 		/* Skip all leading '\n' and SPACEs (2021_12_15_HK_) */
 		px=ps;
@@ -2532,6 +2787,8 @@ int cstr_extract_html_text(const char *str_html, char *text)
 			if( *px != '\n' ) {
 			    *pw = *px;
 			     pw +=1;
+			     if(pw-text > txtsize-2) // ==txtsize-1
+				goto END_FUNC;
 			}
 		}
 	#endif
@@ -2540,6 +2797,8 @@ int cstr_extract_html_text(const char *str_html, char *text)
 	#if 0	/* Add an '\n' for block text end. */
 		*pw='\n';
 		pw +=1;
+	        if(pw-text > txtsize-2) // ==txtsize-1
+			goto END_FUNC;
 	#endif
 
 		/* Reset pst */
@@ -2552,6 +2811,7 @@ int cstr_extract_html_text(const char *str_html, char *text)
 	   }
 	}
 
+END_FUNC:
 	/* 3. Erase the last '\n' */
 	if( pw!=text && *(pw-1)=='\n' ) {
 		// *(pw-1)='\0';
@@ -2575,6 +2835,7 @@ Parse a simple HTML text.
 		!!! --- CAUTION --- !!!
 		The Caller MUST ensure enough space.
 @txtsize:	Max size of text. including '/0'.
+		AT LEAST ==2;
 
 NOTE:
 XXX 1. Content ONLY between tag pairs (<tag>....</tag>) will be read
@@ -2588,7 +2849,7 @@ Return:
 ----------------------------------------------------------------------*/
 int cstr_parse_simple_html(const char *str_html, char *text, size_t txtsize)
 {
-	if(str_html==NULL || text==NULL)
+	if(str_html==NULL || text==NULL || txtsize<2 )
 		return -1;
 
 	const char *pst=str_html;

@@ -6,7 +6,14 @@ published by the Free Software Foundation.
 		A libcurl http helper
 Refer to:  https://curl.haxx.se/libcurl/c/
 
-Jurnal
+Note:
+1. Unknown SSL protocol error:
+   Old version of CURL and OpenSSL do not support some new SSL
+   protocols(with elliptic-curve key etc.), Update to CURL 7.68
+   and OpenSSL 1.1.1b...
+
+
+Jurnal:
 2021-02-09:
 	1. https_easy_download(): Add input param 'int opt' to replace
            definition of SKIP_xxx_VERIFICATION.
@@ -47,6 +54,11 @@ Jurnal
 	1. https_easy_download(): opt to save by appending to the file.
 2021-12-21:
 	1. https_curl_request(): opt to follow HTTP 3xx redirects.
+2021-12-27:
+	1. Check if curl_global_init() does NOT return CURLE_OK.
+	2. Each time curl_easy_init() fails, call curl_global_cleanup() then.
+2021-12-28:
+	1. Set header to NULL after curl_slist_free_all(header)!
 
 TODO:
 XXX 1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
@@ -350,6 +362,7 @@ Note: You must have installed ca-certificates before call curl https, or
 @opt:			Http options, Use '|' to combine.
 			HTTPS_SKIP_PEER_VERIFICATION
 			HTTPS_SKIP_HOSTNAME_VERIFICATION
+
 @trys:			Max. try times.
 			If trys==0; unlimit.
 @timeout:		Timeout in seconds.
@@ -390,20 +403,29 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
   	CURLcode res=CURLE_OK;
 	double doubleinfo=0;
 	long   longinfo=0;
+	struct curl_slist *header=NULL;
 
  /* Try Max. 3 sessions. TODO: tm_delay() not accurate, delay time too short!  */
  for(i=0; i<trys || trys==0; i++)
  {
 	/* init curl */
-	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...",__func__);
-	curl_global_init(CURL_GLOBAL_DEFAULT);
+	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init ...",__func__);
+	if( curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK ) {
+		EGI_PLOG(LOGLV_ERROR, "%s: curl_global_init() fails!",__func__);
+  		curl_global_cleanup();
+		return -1;
+	}
+
+	EGI_PLOG(LOGLV_INFO, "%s: start curl_easy_init...",__func__);
 	curl = curl_easy_init();
 	if(curl==NULL) {
 		EGI_PLOG(LOGLV_ERROR, "%s: Fail to init curl!",__func__);
+  		curl_global_cleanup();
 		return -1;
 	}
 
 	/* Set curl options */
+	EGI_PLOG(LOGLV_INFO, "%s: start to set curl options ...",__func__);
 	curl_easy_setopt(curl, CURLOPT_URL, request);		 	 /* set request URL */
 	curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); //1L		 /* 1 print more detail */
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout); //EGI_CURL_TIMEOUT);	 /* set timeout */
@@ -418,7 +440,6 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
 
 	/* Append HTTP request header */
-	struct curl_slist *header=NULL;
 	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
 //	header=curl_slist_append(header,"User-Agent: Mozilla/5.0(Linux; Android 8.0)");
 	header=curl_slist_append(header,"Accept-Charset: utf-8");
@@ -489,6 +510,7 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 CURL_CLEANUP:
 	/* always cleanup */
 	curl_slist_free_all(header);
+	header=NULL;
 	curl_easy_cleanup(curl);
 	curl=NULL;
   	curl_global_cleanup();
@@ -501,6 +523,7 @@ CURL_CLEANUP:
 
 	if(ret!=0)
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail after try %d times!", __func__, i);
+
 
 	return ret;
 }
@@ -569,6 +592,7 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	FILE *fp;	/* FILE to save received data */
 	int sizedown;
 	size_t ofsize;
+	struct curl_slist *header=NULL;
 
 	/* check input */
 	if(file_url==NULL || file_save==NULL)
@@ -600,11 +624,17 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
  {
 	/* init curl */
 	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...",__func__);
-	curl_global_init(CURL_GLOBAL_DEFAULT);
+        if( curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK ) {
+                EGI_PLOG(LOGLV_ERROR, "%s: curl_global_init() fails!",__func__);
+                tm_delayms(200);
+                continue;
+        }
+
 	curl = curl_easy_init();
 	if(curl==NULL) {
 		EGI_PLOG(LOGLV_ERROR, "%s: Fail to init curl!",__func__);
 		ret=-2;
+  		curl_global_cleanup();
 		goto CURL_END;
 	}
 
@@ -633,7 +663,6 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, easy_callback_writeToFile);
 
 	/* Append HTTP request header */
-	struct curl_slist *header=NULL;
 	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
 	header=curl_slist_append(header,"User-Agent: Mozilla/5.0(Linux; Android 8.0)");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
@@ -745,6 +774,8 @@ CURL_CLEANUP:
 	tm_delayms(200);
 
 	/* Always cleanup before loop back to init curl */
+	curl_slist_free_all(header);
+	header=NULL;
 	curl_easy_cleanup(curl);
 	curl=NULL; /* OR curl_easy_cleanup() will crash at last! */
   	curl_global_cleanup();
@@ -852,7 +883,8 @@ CURL_END:
 
 	/* Clean up */
 	if(curl != NULL) {
-		curl_easy_cleanup(curl);
+		curl_slist_free_all(header); header=NULL;
+		curl_easy_cleanup(curl); curl=NULL;
   		curl_global_cleanup();
 	}
 
@@ -881,6 +913,7 @@ int https_easy_download2( int opt, unsigned int trys,
 	long filetime;
 	FILE *fp;	/* FILE to save received data */
 	int sizedown;
+	struct curl_slist *header=NULL;
 
 	/* check input */
 	if(file_url==NULL || file_save==NULL)
@@ -904,10 +937,16 @@ int https_easy_download2( int opt, unsigned int trys,
  {
 	/* init curl */
 	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...",__func__);
-	curl_global_init(CURL_GLOBAL_DEFAULT);
+        if( curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK ) {
+                EGI_PLOG(LOGLV_ERROR, "%s: curl_global_init() fails!",__func__);
+                tm_delayms(200);
+                continue;
+        }
+
 	curl = curl_easy_init();
 	if(curl==NULL) {
 		EGI_PLOG(LOGLV_ERROR, "%s: Fail to init curl!",__func__);
+  		curl_global_cleanup();
 		ret=-2;
 		goto CURL_END;
 	}
@@ -951,7 +990,6 @@ int https_easy_download2( int opt, unsigned int trys,
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
 
 	/* Append HTTP request header */
-	struct curl_slist *header=NULL;
 	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER,header);
 
@@ -1058,6 +1096,8 @@ CURL_CLEANUP:
 	tm_delayms(200);
 
 	/* Always cleanup before loop back to init curl */
+	curl_slist_free_all(header);
+	header=NULL;
 	curl_easy_cleanup(curl);
 	curl=NULL; /* OR curl_easy_cleanup() will crash at last! */
   	curl_global_cleanup();
@@ -1164,7 +1204,8 @@ CURL_END:
 
 	/* Clean up */
 	if(curl != NULL) {
-		curl_easy_cleanup(curl);
+		curl_slist_free_all(header); header=NULL;
+		curl_easy_cleanup(curl); curl=NULL;
   		curl_global_cleanup();
 	}
 
@@ -1208,6 +1249,7 @@ int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
 	long longinfo=0;
 	long filetime;
 	int sizedown;
+	struct curl_slist *header=NULL;
 
 	/* Check input */
 	if(stream_url==NULL)
@@ -1218,11 +1260,17 @@ int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
  {
 	/* init curl */
 	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...",__func__);
-	curl_global_init(CURL_GLOBAL_DEFAULT);
+        if( curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK ) {
+                EGI_PLOG(LOGLV_ERROR, "%s: curl_global_init() fails!",__func__);
+                tm_delayms(200);
+                continue;
+        }
+
 	curl = curl_easy_init();
 	if(curl==NULL) {
 		EGI_PLOG(LOGLV_ERROR, "%s: Fail to init curl!",__func__);
 		ret=-2;
+  		curl_global_cleanup();
 		goto CURL_END;
 	}
 
@@ -1265,7 +1313,6 @@ int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
 
 	/* Append HTTP request header */
-	struct curl_slist *header=NULL;
 	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER,header);
 
@@ -1388,6 +1435,8 @@ CURL_CLEANUP:
 	egi_dpstd("Curl clean up before try again...\n");
 
 	/* Always cleanup before loop back to init curl */
+	curl_slist_free_all(header);
+	header=NULL;
 	curl_easy_cleanup(curl);
 	curl=NULL; /* OR curl_easy_cleanup() will crash at last! */
   	curl_global_cleanup();
@@ -1398,7 +1447,8 @@ CURL_CLEANUP:
 CURL_END:
 	/* Clean up */
 	if(curl != NULL) {
-		curl_easy_cleanup(curl);
+		curl_slist_free_all(header); header=NULL;
+		curl_easy_cleanup(curl); curl=NULL;
   		curl_global_cleanup();
 	}
 

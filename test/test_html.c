@@ -11,8 +11,8 @@ Example:
 	./test_html -c 1 -s -l -v 125 http://slide.news.sina.com.cn/w/
 
 TODO:
-1. Case 5: aljazeera  quit.
-2. Case 0: stock, http get buff error!
+1. XXX Case 5: aljazeera  quit.
+2. XXX Case 0: stock, http get buff error!
 
 Journal:
 2021-12-09:
@@ -267,7 +267,8 @@ START_REQUEST:
 	//memset(buff,0,sizeof(buff)); /* Clear buff each time before call https_curl_request() */
 	buff[0]=0;
 	egi_dperr("---->start curl request\n");
-        if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3, 10,
+//        if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3, 10,
+        if( https_curl_request( HTTPS_OPTION_DEFAULT, 3, 10,
 				strRequest, buff, NULL, curlget_callback)!=0) {
                  printf("Fail to call https_curl_request() for: %s!\n", strRequest);
 		 sleep(10);
@@ -458,6 +459,7 @@ DISPLAY_STOCK_SLIDE:
 		if(len2>sizeof(parLines[0])-1) {
 			printf("\033[0;31;40m size_of_content2: %dBytes, it's too big! \e[0m\n", len2); /* situation exists! */
 			//exit(0);
+			egi_free_char(&content2);
 			continue;
 		}
 
@@ -547,7 +549,7 @@ DISPLAY_STOCK_SLIDE:
    } /* END while() for TAG 'dl' */
   break;
 
-   case 2:  ////////////////////////////////////  shine  ///////////////////////////////////////////
+   case 2:  ////////////////////////////////  SHINE  /////////////////////////////////////
 
 	/* Parse HTML */
 	pstr=buff;
@@ -758,7 +760,7 @@ DISPLAY_STOCK_SLIDE:
 
         /* Extract all text */
 	fprintf(stderr, "----5\n");
-        cstr_extract_html_text(content, imgTXT);
+        cstr_extract_html_text(content, imgTXT, sizeof(imgTXT));
         printf("imgTXT: %s\n", imgTXT);
 
 #if 0
@@ -793,8 +795,10 @@ DISPLAY_STOCK_SLIDE:
         cstr_get_html_attribute(attrString, "class", value);
         printf("class=%s\n", value);
         if( strncmp(value,"titleImg", strlen("titleImg"))!=0		/* Title with image */
-	    && strncmp(value,"singleTitle", strlen("singleTitle"))!=0) /* No image */
+	    && strncmp(value,"singleTitle", strlen("singleTitle"))!=0) {  /* No image */
+		egi_free_char(&content);
                 continue;
+	}
 
         printf("attrString: %s\n", attrString);
 
@@ -820,7 +824,7 @@ DISPLAY_STOCK_SLIDE:
         printf("imgURL: %s\n", imgURL);
 
         /* Extract all text */
-        cstr_extract_html_text(content, imgTXT);
+        cstr_extract_html_text(content, imgTXT, sizeof(imgTXT));
         printf("imgTXT: %s\n", imgTXT);
 
 #if 0
@@ -831,10 +835,7 @@ DISPLAY_STOCK_SLIDE:
 #endif
 
         /* Free content */
-        if(content!=NULL) {
-                free(content);
-                content=NULL;
-        }
+	egi_free_char(&content);
 
 	/* Display slide image and text */
 	/* url,txt, face, logoname, fw, fh, x0,y0 */

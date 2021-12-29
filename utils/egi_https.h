@@ -21,6 +21,7 @@ midaszhou@yahoo.com
 //#define SKIP_HOSTNAME_VERIFICATION
 
 /* Https Options */
+#define HTTPS_OPTION_DEFAULT            	(0)
 #define HTTPS_SKIP_PEER_VERIFICATION            (1<<0)
 #define HTTPS_SKIP_HOSTNAME_VERIFICATION        (1<<1)
 /* Download and save by appending to the end of file, Otherwise truncate file to 0 before saving */
