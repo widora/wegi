@@ -11,6 +11,8 @@ Note:
    Old version of CURL and OpenSSL do not support some new SSL
    protocols(with elliptic-curve key etc.), Update to CURL 7.68
    and OpenSSL 1.1.1b...
+2. Repeated call to curl_global_init and curl_global_cleanup should
+   be avoided.
 
 
 Jurnal:
@@ -59,10 +61,15 @@ Jurnal:
 	2. Each time curl_easy_init() fails, call curl_global_cleanup() then.
 2021-12-28:
 	1. Set header to NULL after curl_slist_free_all(header)!
+2022-01-01:
+	1. https_easy_download():  Enable option CURLOPT_HTTPGET.
 
 TODO:
 XXX 1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
-    compressed data size
+    compressed data size  ---OK, compression data.
+
+2. After looping curl_global_init() +..+ curl_global_cleanup() with enough circle times, it will
+   unexpectedly throw out 'Aborted' and exit just at calling curl_global_init()!
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -405,7 +412,7 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 	long   longinfo=0;
 	struct curl_slist *header=NULL;
 
- /* Try Max. 3 sessions. TODO: tm_delay() not accurate, delay time too short!  */
+ /* Try Max. sessions. TODO: tm_delay() not accurate, delay time too short!  */
  for(i=0; i<trys || trys==0; i++)
  {
 	/* init curl */
@@ -601,7 +608,6 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	/* Open file for saving file */
 	if(opt&HTTPS_DOWNLOAD_SAVE_APPEND) {
 	    fp=fopen(file_save,"ab");
-
 	    /* Get original file size */
 	    ofsize=egi_get_fileSize(file_save);
 	}
@@ -626,8 +632,8 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...",__func__);
         if( curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK ) {
                 EGI_PLOG(LOGLV_ERROR, "%s: curl_global_init() fails!",__func__);
-                tm_delayms(200);
-                continue;
+  		curl_global_cleanup();
+		return -1;
         }
 
 	curl = curl_easy_init();
@@ -651,7 +657,10 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout); //EGI_CURL_TIMEOUT);
 
 	/* TODO:  unsupported compression method may produce corrupted data! */
-//	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");		 /* enables automatic decompression of HTTP downloads */
+	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");		 /* enables automatic decompression of HTTP downloads */
+
+	/* Force the HTTP request to get back to using GET. in case the serve NOT provide Access-Control-Allow-Methods! */
+	curl_easy_setopt(curl,CURLOPT_HTTPGET, 1L);
 
 	/* For name lookup timed out error: use ipv4 as default */
 	//  curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
@@ -664,7 +673,7 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 
 	/* Append HTTP request header */
 	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
-	header=curl_slist_append(header,"User-Agent: Mozilla/5.0(Linux; Android 8.0)");
+	//header=curl_slist_append(header,"User-Agent: Mozilla/5.0(Linux; Android 8.0)");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
 
 	/* Param opt set */
@@ -939,8 +948,8 @@ int https_easy_download2( int opt, unsigned int trys,
 	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...",__func__);
         if( curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK ) {
                 EGI_PLOG(LOGLV_ERROR, "%s: curl_global_init() fails!",__func__);
-                tm_delayms(200);
-                continue;
+  		curl_global_cleanup();
+		return -1;
         }
 
 	curl = curl_easy_init();
@@ -979,6 +988,9 @@ int https_easy_download2( int opt, unsigned int trys,
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	/*  set timeout. 0--never timeout, Give it a value, to prevent is from stucking in! */
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60); //EGI_CURL_TIMEOUT);
+
+	/* TODO:  unsupported compression method may produce corrupted data! */
+	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
 
 	/* Set CA bundle */
 	//curl_easy_setopt(curl, CURLOPT_CAINFO, "ca-bundle.crt");
@@ -1262,8 +1274,8 @@ int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
 	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...",__func__);
         if( curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK ) {
                 EGI_PLOG(LOGLV_ERROR, "%s: curl_global_init() fails!",__func__);
-                tm_delayms(200);
-                continue;
+  		curl_global_cleanup();
+		return -1;
         }
 
 	curl = curl_easy_init();
@@ -1302,6 +1314,9 @@ int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 	/*  set timeout. 0--never timeout. give it a value, to prevent it from stucking in. */
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
+
+	/* TODO:  unsupported compression method may produce corrupted data! */
+	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
 
 	/* Set CA bundle */
 	//curl_easy_setopt(curl, CURLOPT_CAINFO, "ca-bundle.crt");

@@ -3,7 +3,6 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-
 Reference:
 	1. Advanced Encryption Standard (AES) (FIPS PUB 197)
 	2. Advanced Encryption Standard by Example  (by Adam Berent)
@@ -17,15 +16,150 @@ AES-128	      4               4             10
 AES-192       6               4             12
 AES-256       8               4             14
 
+TODO:
+1. To utilize cryptograhpic hardware accelerator. (to install
+   kmod-cryptodev to create /dev/crypto... )
+
+Journal:
+2022-01-01:
+	1. Add AES_cbc128_encrypt().
+2022-01-05:
+	1. Add egi_AES128CBC_encrypt().
 
 Midas Zhou
 midaszhou@yahoo.com
 https://github.com/widora/wegi
 ----------------------------------------------------------------------*/
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <egi_debug.h>
 #include <egi_aes.h>
+#include <egi_cstring.h>
+
+
+/////////////////////////  OpenSSL API  //////////////////////////
+#include <openssl/aes.h>
+
+/*--------------------------------------------------------
+Encrypt/decrypt data with AES_CBC_128 method by calling
+OpenSSL API AES_cbc_encrypt().
+
+Note:
+1. 16==AES_BLOCK_SIZE.
+2. If outdata is created/mmaped with egi_fmap_create(), its
+   initial size shall be the same as inszie, and later to
+   call egi_fmap_resize() to adjust same as final outsize.
+
+@indata: 	Input data
+@insize: 	Input data size
+@outdata: 	Output data
+		!!!--- CAUTION ---!!!
+		The Caller MUST ensure enough sapce.
+@outsize:	Pointer to output data size
+@ukey:  	The key
+@uiv:   	The init vector
+@encode:	0 as AES_DECRYPT
+		!0 as AES_ENCRYPT
+		//# define AES_ENCRYPT     1
+		//# define AES_DECRYPT     0
+
+Return:
+	0	OK
+	<0	Fails
+-------------------------------------------------------------*/
+int AES_cbc128_encrypt(unsigned char *indata, size_t insize,  unsigned char *outdata, size_t *outsize,
+			const unsigned char *ukey, const unsigned char *uiv, int encode)
+{
+	AES_KEY enckey;
+	AES_KEY deckey;
+	unsigned char tmpiv[16];  /* varing IV, for each block_size operation. */
+
+/* For TEST: ------- */
+	char *strtmp=NULL;
+
+	if(indata==NULL || outdata==NULL || ukey==NULL || uiv==NULL)
+		return -1;
+
+
+	/* 0. Check encode */
+	if(encode!=0)
+		encode=AES_ENCRYPT;
+	else
+		encode=AES_DECRYPT;
+
+	/* 1. Prep encrypt_key/decrypt_key */
+	if(encode==AES_ENCRYPT)
+		AES_set_encrypt_key(ukey, 128, &enckey);
+	else
+		AES_set_decrypt_key(ukey, 128, &deckey);
+
+	/* 2. Prepare decrypt init vector */
+	memcpy(tmpiv, uiv, 16);
+
+	/* 3. Separate multiples_of_16 and remainder from data size.  16=AES_BLOCK_SIZE */
+	int lenm16=(insize/16)*16; /* PART1: Multipls of 16. */
+	int lenr16=insize%16;	   /* PART2: Remainder */
+	printf("lenm16=%dBs, lenr16=%dBs\n", lenm16, lenr16);
+
+#if 1 /* TEST iv---> */
+	printf("Init tmpiv[]: %s\n", strtmp=egi_hex2str((unsigned char *)tmpiv, 16));
+	free(strtmp);
+#endif
+
+	/* 4. [ENCRYPT+DECRYPT]:  PART1 (lenm16 part). notice that for decrypto, lenr16==0! */
+	AES_cbc_encrypt( (unsigned char *)indata,
+			 (unsigned char *)outdata, lenm16,
+			 encode==AES_ENCRYPT?(&enckey):(&deckey), tmpiv, encode);  /* tmpiv is always changing! */
+
+#if 1 /* TEST iv---> */
+	printf("Aft 8: tmpiv[]: %s\n", strtmp=egi_hex2str((unsigned char *)tmpiv, 16));
+	free(strtmp);
+#endif
+
+	/* 5. [ENCRYPT]: PKCS7 padding,  padding with 16Bs(block_size) if remainder is 0bytes. */
+	if(encode==AES_ENCRYPT) {
+		unsigned char tmp[16]; /* 16: AES_BLOCK_SIZE */
+
+		/* 5.1 Remainder data, padding with of number of bytes added, as 16-lenr16. */
+		if(lenr16==0) {   /* 16==AES_BLOCK_SIZE */
+			lenr16=16;  /* <---- pad whole block size here with (16)!!! */
+			memset(tmp, (unsigned char )(16), sizeof(tmp));
+			// remainder==0
+		}
+		else {
+			memset(tmp, (unsigned char )(16-lenr16), sizeof(tmp)); /* <--- padding with (16-lenr16) */
+			memcpy(tmp, (unsigned char *)indata+lenm16, lenr16); // remainder
+		}
+
+		/* 5.2 ENCRYPT: PART2 (lenr16+padding part). notice that for decrypto, lenr16==0! */
+	 	/* (*in,  *out,  length, *key, *ivec, enc) */
+		AES_cbc_encrypt( tmp, (unsigned char *)outdata+lenm16, 16, /* NOT lenr16!! AES_cbc_encrypt() pad with 0 ONLY! */
+				 encode==AES_ENCRYPT?(&enckey):(&deckey), tmpiv, encode);  /* tmpiv is always changing! */
+
+#if 1 /* TEST iv---> */
+		printf("Aft 9.2: tmpiv[]: %s\n", strtmp=egi_hex2str((unsigned char *)tmpiv, 16));
+		free(strtmp);
+#endif
+
+		/* 5.3 Cal. outsize */
+		if(lenr16==0)
+			*outsize=insize+16;
+		else
+			*outsize=insize+(16-lenr16);
+	}
+	/* 6. [DECRYPT]: PKS5/7 padding, erase padding bytes.. */
+	else if(encode==AES_DECRYPT) {
+		/* 6.1 Cal. outsize.  Value of the last byte is ALWAYS the padding size */
+		*outsize=insize-(int)outdata[lenm16-1];  /* <---- adjust file length  */
+	}
+
+	return 0;
+}
+
+
+//////////////////////////////////  EGi  ////////////////////////////////
 
 /* S_BOX */
 static const uint8_t sbox[256] = {
@@ -148,8 +282,10 @@ void aes_PrintState(const uint8_t *s)
 /* ---------------------------------------------
 Write/Read data[] into/from a state[4*4]:
 
+
 @data[16]:   Data in sequence of
 	     a0a1a2a3a4a5a6a7a8.....a14a15
+@iv[16]:     Same as above.
 @state[4*4]: A state Matrix in sequence of
 	     a0a4a8a12.....a11a15, which represents
 	     a matrix of:
@@ -188,6 +324,17 @@ inline int aes_StateToData(const uint8_t *state, uint8_t *data)
          	//data[k]=state[(k%4)*4+k/4];
         	data[k]=state[( (k&0x3)<<2 )+(k>>2)];
 	}
+
+	return 0;
+}
+inline int aes_StateXorIv(uint8_t *state, const uint8_t *iv)
+{
+	int k;
+	if(state==NULL || iv==NULL)
+		return -1;
+
+	for(k=0; k<16; k++)
+		state[k] = state[k]^iv[k];
 
 	return 0;
 }
@@ -545,4 +692,185 @@ int aes_DecryptState(uint8_t Nr, uint8_t Nk, uint32_t *keywords, uint8_t *state)
 
 	return 0;
 
+}
+
+
+
+/*----------------------------------------------------------
+Encrypt/decrypt data with AES_128_CBC method + PKCS7 padding.
+AES: 	  Advanced Encryption Standard
+AES_128:  with a 128-bit key
+CBC: 	  Cipher Block Chaining
+
+Note:
+1. 16==AES_BLOCK_SIZE.
+2. If outdata is created/mmaped with egi_fmap_create(), its
+   initial size shall be the same as inszie, and later to
+   call egi_fmap_resize() to adjust same as final outsize.
+
+@indata: 	Input data
+@insize: 	Input data size
+@outdata: 	Output data
+		!!!--- CAUTION ---!!!
+		The Caller MUST ensure enough sapce.
+@outsize:	Pointer to output data size
+@ukey:  	The 128bits key,
+@uiv:   	The 128bits init vector
+@encode:	0 as to decrypt
+		!0 to encrypt.
+
+Return:
+	0	OK
+	<0	Fails
+-------------------------------------------------------------*/
+int egi_AES128CBC_encrypt(uint8_t *indata, size_t insize,  uint8_t *outdata, size_t *outsize,
+			const uint8_t ukey[16],  const uint8_t uiv[16], int encode)
+{
+	int i;
+//	unsigned char tmpiv[16];  /* varing IV, for each block_size operation. */
+
+  	const uint8_t Nb=4;	/* Block size(in words), 4/4/4 for AES-128/192/256 */
+  	const uint8_t Nk=4;	/* Key size(in words), 4/6/8 for AES-128/192/256 */
+  	const uint8_t Nr=10;	/* Number of rounds, 10/12/14 for AES-128/192/256 */
+
+	uint8_t tmp[16];
+	uint8_t state[16];
+	uint8_t iv[16];
+	uint32_t keywords[Nb*(Nr+1)];
+
+	bool	do_encrypt=(encode==0?false:true);
+
+	/* 1 Check input */
+	if(indata==NULL || outdata==NULL || ukey==NULL || uiv==NULL)
+		return -1;
+
+	/* 2. Generate Nr+1 round_keys(derived from ukey), to save in keywords. */
+	aes_ExpRoundKeys(Nr, Nk, ukey, keywords);
+
+	/* 3. Separate multiples_of_16 and remainder from data size.  16=AES_BLOCK_SIZE */
+	int ns=insize/16;	   /* Full block_size data */
+	int lenm16=ns*16; 	   /* PART1: Multipls of 16. */
+	int lenr16=insize%16;	   /* PART2: Remainder */
+	printf("lenm16=%dBs, lenr16=%dBs\n", lenm16, lenr16);
+
+	/* 3. Do encrypt or decrypt */
+ /* -----> DO ENCRYPTION */
+	if( do_encrypt ) {
+		printf("Start encrypting...\n");
+
+		/* Init iv */
+		//memcpy(iv, uiv, 16);
+		aes_DataToState(uiv,iv); /* Notice first sequence! */
+
+		/* Encrypt each state */
+		for(i=0; i<ns; i++) {
+			/* Fill into state array: from colum[0] to colum[3] */
+			aes_DataToState( indata+(i<<4), state);
+
+			/* State XOR Iv */
+			aes_StateXorIv(state, iv);
+			/* Encryp state */
+			aes_EncryptState(Nr, Nk, keywords, state);
+			/* Read out */
+			aes_StateToData(state, outdata+(i<<4));
+			/* Save result as for NEXT iv */
+			memcpy(iv, state, 16); /* NOW iv,state same sequence */
+		}
+
+		/* Tail data treatment, PKCS7 padding.
+		 * 1. If remainder is 0byte, add additional 16Bs(a block_size), and all fill with number (16).
+		 * 2. Otherwise padding with additional (16-lenr16)Bs with number (16-lenr16),
+		 */
+		if(lenr16==0) {
+			/* Pad a whole block with 16 */
+			memset(state, 16, 16);
+
+			/* State XOR Iv */
+			aes_StateXorIv(state, iv);
+			/* Encryp state */
+			aes_EncryptState(Nr, Nk, keywords, state);
+			/* Read out */
+			aes_StateToData(state, outdata+(ns<<4));
+			/* Save result as iv */
+			memcpy(iv, state, 16);
+		}
+		else { /* lenr16!=0 */
+			/* Fill remaining data to tmp */
+			memcpy(tmp, indata+(ns<<4), lenr16);
+			/* Padding with (16-lenr16) */
+                        memset(tmp+lenr16, 16-lenr16,  16-lenr16);
+			/* Fill into state array: from colum[0] to colum[3] */
+			aes_DataToState(tmp, state);
+
+			/* State XOR Iv */
+			aes_StateXorIv(state, iv);
+			/* Encryp state */
+			aes_EncryptState(Nr, Nk, keywords, state);
+			/* Read out */
+			aes_StateToData(state, outdata+(ns<<4));
+			/* Save result as iv */
+			memcpy(iv, state, 16);
+		}
+
+		/* Update Outsize */
+		*outsize = (ns+1)<<4;
+	}
+
+ /* -----> DO DECRYPTION */
+	else {
+		printf("Start decrypting...\n");
+
+		/* Check size */
+		if( lenr16!=0 ) {
+			egi_dpstd("Input decrypto data error! it MUST be multiples of 16!\n");
+			return -1;
+		}
+
+		/* Init iv */
+		//memcpy(iv, uiv, 16);
+		aes_DataToState(uiv,iv); /* Notice first sequence! */
+
+		/* Decrypt each state */
+		for(i=0; i<ns; i++) {
+			/* Fill into state array: from colum[0] to colum[3] */
+			aes_DataToState( indata+(i<<4), state);
+			/* Backup indata as for next iv */
+			memcpy(tmp, indata+(i<<4), 16);
+
+			/* Encryp state */
+			aes_DecryptState(Nr, Nk, keywords, state);
+			/* State XOR Iv */
+			aes_StateXorIv(state, iv);
+			/* Read out */
+			aes_StateToData(state, outdata+(i<<4));
+
+			/* Loat prev indata/tmp for NEXT iv */
+			aes_DataToState(tmp, iv);
+			//memcpy(iv, tmp, 16); /* Same sequence */
+		}
+
+		/* Tail data treatment, PKCS7 padding.
+		 * 1. If remainder is 0byte, add additional 16Bs(a block_size), and all fill with number (16).
+		 * 2. Otherwise padding with additional (16-lenr16)Bs with number (16-lenr16)
+		 *    padding with of number of bytes added, as 16-lenr16.
+		 */
+
+		/* Read last state to tmp */
+		aes_StateToData(state, tmp);
+		lenr16=16-tmp[15];
+
+		/* Update Outsize */
+		*outsize = insize-tmp[15]; /* The last byte always is the number of paddings */
+
+		/* Check padding */
+		for(i=15; i>lenr16-1; i--) {
+			if( tmp[15]!=tmp[i] ) {
+				egi_dpstd("Padding data error! fail to decrypt.\n");
+				return -1;
+			}
+		}
+	}
+
+
+	return 0;
 }

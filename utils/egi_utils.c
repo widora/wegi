@@ -20,6 +20,8 @@ Jurnal
 	1. Add egi_host_littleEndian().
 2021-12-20:
 	1. Add egi_get_fileSize()
+2022-01-04:
+	egi_copy_file(): Option for append the dest file.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -778,23 +780,24 @@ int egi_util_mkdir(char *dir, mode_t mode)
 Copy file fsrc_path to fdest_path
 @fsrc_path	source file path
 @fdest_path	dest file path
+@append		If to append to dest file.
 Return:
 	0	ok
 	<0	fails
 ---------------------------------------------*/
-int egi_copy_file(char const *fsrc_path, char const *fdest_path)
+int egi_copy_file(char const *fsrc_path, char const *fdest_path, bool append)
 {
 	unsigned char buff[1024];
 	int fd_src, fd_dest;
 	int len;
 
-	fd_src=open(fsrc_path,O_RDWR|O_CLOEXEC);
+	fd_src=open(fsrc_path,O_RDONLY|O_CLOEXEC);  //O_RDWR
 	if(fd_src<0) {
 		perror("egi_copy_file() open source file");
 		return -1;
 	}
 
-	fd_dest=open(fdest_path,O_RDWR|O_CREAT|O_CLOEXEC,S_IRWXU|S_IRWXG);
+	fd_dest=open(fdest_path,O_WRONLY|O_CREAT|O_CLOEXEC|(append?O_APPEND:0),S_IRWXU|S_IRWXG); //O_RDWR
 	if(fd_dest<0) {
 		perror("egi_copy_file() open dest file");
 		return -1;

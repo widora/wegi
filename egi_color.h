@@ -180,6 +180,18 @@ EGI_16BIT_COLOR egi_16bitColor_blend2(EGI_16BIT_COLOR front, unsigned char falph
 
 #define WEGI_COLOR_NEUTRAL5		 COLOR_RGB_TO16BITS(117,117,117)
 
+/* ----- HTML COLOR DIFINITION ----- */
+#define COLOR_AliceBlue			COLOR_RGB_TO16BITS(0xF0, 0xF8, 0xFF)
+#define COLOR_AntiqueWhite		COLOR_RGB_TO16BITS(0xFA, 0xEB, 0xD7)
+#define COLOR_Aqua			COLOR_RGB_TO16BITS(0x00, 0xFF, 0xFF)
+#define COLOR_Aquamarine		COLOR_RGB_TO16BITS(0x7F, 0xFF, 0xD4)
+#define COLOR_Azure			COLOR_RGB_TO16BITS(0xF0, 0xFF, 0xFF)
+#define COLOR_Beige			COLOR_RGB_TO16BITS(0xF5, 0xF5, 0xDC)
+#define COLOR_Bisque			COLOR_RGB_TO16BITS(0xFF, 0xE4, 0xC4)
+
+
+
+
 /* color range */
 enum egi_color_range
 {

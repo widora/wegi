@@ -18,7 +18,7 @@ midaszhou@yahoo.com
 #include <stdint.h>
 #include <sys/mman.h>
 
-#define EGI_URL_MAX  512 /* Max length for a URL address, 2048 is common for web browsers. */
+#define EGI_URL_MAX  1024 /* Max length for a URL address, 2048 is common for web browsers. */
 #define EGI_PATH_MAX 256 /* Max length for a file path, 4096 for PATH_MAX in <limit.h>  */
 #define EGI_NAME_MAX 128 /* Max length for a file name, 255 for NAME_MAX in <limit.h>, exclude '\0' */
 #define EGI_SEARCH_FILE_MAX (1<<10) /* to be 2**n, Max number of files */
@@ -67,7 +67,7 @@ int 	egi_search_str_in_file(const char *fpath, size_t off, const char *pstr);
 int 	egi_shuffle_intArray(int *array, int size);
 int 	egi_util_mkdir(char *dir, mode_t mode);
 
-int 	egi_copy_file(char const *fsrc_path, char const *fdest_path);
+int 	egi_copy_file(char const *fsrc_path, char const *fdest_path, bool append);
 unsigned char** egi_malloc_buff2D(int items, int item_size) __attribute__((__malloc__));
 int 	egi_realloc_buff2D(unsigned char ***buff, int old_items, int new_items, int item_size);
 void 	egi_free_buff2D(unsigned char **buff, int items);

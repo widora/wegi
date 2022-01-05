@@ -9,6 +9,7 @@ Midas Zhou
 #define __EGI_CSTRING_H__
 #include <wchar.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
  extern "C" {
@@ -19,6 +20,44 @@ Midas Zhou
 #else
  #define EGI_CONFIG_PATH "/home/egi.conf"
 #endif
+
+/* ----- M3U8 Functions ------ */
+
+/* M3u8 segment encryption method/type */
+enum {
+	M3U8ENCRYPT_NONE 		=0,
+	M3U8ENCRYPT_AES_128 		=1,
+	M3U8ENCRYPT_SAMPLE_AES 		=2,
+};
+
+/* List of m3u8 */
+typedef struct egi_m3u8_list {
+	int   ns;		/* Total number of list items */
+
+	bool  isMasterList;	/* TRUE: It's a Master Playlist, it defines/lists Media Playlists.
+				 * FALSE: It's a Media Playlist, it defines/lists Media Segments.
+				 */
+
+	/* For Media Playlist */
+	float maxDuration;	/* EXT-X-TARGETDURATION: Max duration for any segement in the list, in seconds. */
+	int   seqnum;		/* Sequence number for the first segment in the playlist, and the following
+				 * segment has sequence number of seqnum+1, and next is seqnum+2, and so on...
+				 * If NO #EXT-X-MEDIA-SEQUENCE tag found in the playlist, then it MUST be 0,
+			 	 * which implys restart of ALL sequence numbering.
+				 */
+
+  	/* For Media Segment attributes */
+	float *tsec;		/* Duration for each segment, in seconds. */
+	int   *encrypt;		/* Method/type of encryption for each segement, default as NONE */
+	char  **msURI;		/* [ns] List of URI for media segments
+				 * 1. If it's the master playlist, then it's the list of Variant Streams: xxx.m3u8
+				 * 2. It's maybe a name, a relative URL address, OR a full URL address(absolute URL)!
+				 */
+	char **keyURI;		/* [ns] List of URI for keys, if encrypted. MAYBE null! */
+	char **strIV;		/* [ns] List of init vector strings, if so encrypted.  MAYBE null! */
+} EGI_M3U8_LIST;
+void m3u_free_list(EGI_M3U8_LIST **list);
+EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS);
 
 
 /* --- EGI_TXTGROUP --- */
@@ -46,9 +85,11 @@ int 	cstr_txtgroup_push(EGI_TXTGROUP *txtgroup, const char *txt);
 
 /* --- util functions --- */
 char*	cstr_replace_string(char **src, const char *obj, const char *sub);
+
+bool    cstr_is_absoluteURL();
 int 	cstr_parse_URL(const char *URL, char **protocol, char **hostname, unsigned int *port,
 		 	 char **filename, char **path, char **dir, char **dirURL);
-int 	cstr_parse_simple_HLS(char *strHLS, char ***URI, int *ns);
+//int 	m3u_parse_simple_HLS(char *strHLS, char ***URI, int *ns);
 char* 	cstr_decode_htmlSpecailChars(char *strHtml);
 int 	cstr_squeeze_string(char *buff, int size, char spot);
 int	cstr_clear_unprintChars(char *buff, int size);

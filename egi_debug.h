@@ -6,6 +6,8 @@ published by the Free Software Foundation.
 Journal:
 2021-02-18:
 	1. Add egi_dperr() and egi_dpstd().
+2022-01-02:
+	1. Define DGB_color...
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -80,6 +82,15 @@ midaszhou@yahoo.com
  #define egi_printf(flags, fmt, args...)
 #endif
 
+/*  8 Color Console, Color Attribute Setting */
+#define DBG_RED 	"\033[0;31;40m"
+#define DBG_GREEN 	"\033[0;32;40m"
+#define DBG_YELLOW 	"\033[0;33;40m"
+#define DBG_BLUE 	"\033[0;34;40m"
+#define DBG_MAGENTA 	"\033[0;35;40m"
+#define DBG_CYAN	"\033[0;36;40m"
+#define DBG_GRAY	"\033[0;37;40m"
+#define DBG_RESET	"\e[0m"		/* Reset color to default */
 
 /* Print to stderr and stdout */
 /* printf() format:

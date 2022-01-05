@@ -8,9 +8,8 @@ NOTE:
    as egi_sleep() and tm_delay() permanently!???
 2. Tick alarm signal may conflic with other app thread!
 
-
  		(--- Type of: time_t, suseconds_t ---)
-time_t	=-> long
+time_t	=-> long  (BUT maybe double)
 suseconds_t =-> long
 
 linux/types.h:69:typedef __kernel_time_t		time_t;
@@ -24,7 +23,7 @@ uapi/asm-generic/posix_types.h:14:typedef long		__kernel_long_t;
 
 		(--- Struct of time var. ---)
 
-time_t	=-> long
+time_t	=-> long (BUT maybe double)
 
 struct timespec {
 	time_t   tv_sec;     seconds
@@ -63,6 +62,8 @@ Journal:
 	   calling egi_clock_stop(). So an IDLE clock can also restart.
 2021-07-13:
 	1. egi_clock_readCostUsec(), egi_clock_peekCostUsec(): Modified to be long long type.
+2022-01-04:
+	1. Add tm_wait_till().
 
 TODO:
 	--- Critical ---
@@ -105,6 +106,77 @@ static long long unsigned int tm_tick_count=0;
 
 //   struct timespec ts;
 //   clock_gettime(CLOCK_MONOTONIC, &ts);
+
+/*--------------------------------------------------------
+The function will wait until the preset time comes.
+Note:
+1. It checks time difference every second!
+2. ONLY (strSet OR tm_set) and (strDely OR tm_delay)
+   to be effective.
+
+@strSet:	Preset time string in format "Y-m-d H:M:S"
+		If NULL, use tm_set instead.
+		If has NO 'Y-m-d' part, then take it as TODAY.
+@tm_set:	Preset time in time_t.
+		If =0, set to be tm_now!
+
+@strDelay:	Delay time(from the preset time) in string format "hs:ms:ss"
+		1. 'hs','ms' and 'ss' are NOT limited to clock time!
+		2. If NULL, use tm_delay instead.
+@tm_delay	Delay time in time_t.
+
+Return:
+	0	OK
+	<0	Fails
+--------------------------------------------------------*/
+int tm_wait_till( const char *strSet,   time_t tm_set,
+		   const char *strDelay, time_t tm_delay )
+{
+	time_t tm_now;  /* time NOW, seconds from the Epoch. */
+        struct tm tm;
+
+	/* 1. Check tm_set */
+	if(strSet==NULL && tm_set==0)
+		tm_set=time(NULL);
+
+	/* 2. Read preset time */
+	if(strSet) {
+           	memset(&tm, 0, sizeof(struct tm));
+		tm_set=time(NULL);
+		gmtime_r(&tm_set, &tm); /* Set as NOW, in case strSet has NO 'Y-m-d' part. */
+		if( strstr("-", strSet)==NULL ) {
+           	    if( strptime(strSet, "%H:%M:%S", &tm)==NULL )
+			return -1;
+		} else {
+           	    if( strptime(strSet, "%Y-%m-%d %H:%M:%S", &tm)==NULL )
+			return -1;
+		}
+		tm_set=mktime(&tm);
+	}
+	/* ELSE: use input tm_set */
+
+	/* 3. Read preset delay */
+	if(strDelay) {
+		long h=0, m=0, s=0;
+		sscanf(strDelay,"%ld:%ld:%ld", &h,&m,&s);
+		printf("h=%ld, m=%ld, s=%ld\n", h,m, s);
+		tm_delay = 3600*h +60*m +s;
+	}
+	/* ELSE: use input tm_dealy */
+
+	/* 4. Get final preset time */
+	tm_set += tm_delay;
+	printf("tm_set: %ld\n", (long)tm_set);
+
+	/* 5. Waiting */
+	do {
+		sleep(1);
+		tm_now=time(NULL);
+	} while( tm_now < tm_set );
+
+
+	return 0;
+}
 
 /*-------------------------------------
 Get time stamp in ms

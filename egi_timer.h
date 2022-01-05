@@ -44,8 +44,10 @@ extern const char *stru8_weekday[];
 extern const char *stru8_month[];
 extern char tm_strbuf[];
 
-
 /* functions */
+int tm_wait_till( const char *strSet,   time_t tm_set,
+                   const char *strDelay, time_t tm_delay );
+
 long long unsigned int tm_get_tmstampms(void);
 /*  SUBSTITUE: size_t strftime(char *s, size_t max, const char *format, const struct tm *tm) */
 /* int ftime(struct timeb *tp): returns the current time as seconds and milliseconds since the Epoch */

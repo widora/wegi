@@ -43,6 +43,12 @@ Journal
 2021-12-29:
 	1. Add egi_str2hex()
 	2. Add egi_hex2str()
+2021-12-31:
+	1. Add struct EGI_M3U8_LIST.
+	2. Add m3u_free_list();
+	3. Modify 'cstr_parse_simple_HLS()' to 'm3u_parse_simple_HLS()'
+2022-01-03:
+	1. m3u_parse_simple_HLS(): Check and update segment Sequence Number.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -56,11 +62,13 @@ midaszhou@yahoo.com
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <stdbool.h>
 #include <time.h>
 #include "egi_cstring.h"
 #include "egi_log.h"
 #include "egi_utils.h"
 #include "egi_debug.h"
+
 
 /*-----------------------------------------------
 Conver string back into original data.
@@ -79,6 +87,7 @@ original byte data.
 @str:	Pointer to string
 @size:  Size of data expected.
 	If size>strlen(str)/2, padding with zeros.
+
 
 Return:
 	!NULL	OK
@@ -292,6 +301,23 @@ int cstr_compare_dictOrder(const char *str1, const char *str2, size_t len)
 	return 0;
 }
 
+
+/*---------------------------------------
+To check if the string is an absolute URL
+,only by checking "://".
+---------------------------------------*/
+bool cstr_is_absoluteURL(const char *URL)
+{
+	if(URL==NULL)
+		return false;
+
+	if(strstr(URL, "://")!=NULL)
+		return true;
+	else
+		return false;
+}
+
+
 /*----------------------------------------------------------------
 Parse input URL string, and to extract protocol,hostname and
 port number.
@@ -299,7 +325,8 @@ All param pointers MUST be cleared before calling the function!
 OR their holding memory space will be lost/leaked!
 
 URL components:
-1.	http(s)://www.abcde.com:1234/doc/test?id=3&lan=en#p1
+1.	Example:
+		http(s)://www.abcde.com:1234/doc/test?id=3&lan=en#p1
 
 	Protocol(scheme): 	http(s)://
 	Hostname: 	www.abcde.com
@@ -318,12 +345,13 @@ URL components:
 
 Note:
 1. If no "://" found in the URL string, then it fails!
+   It means the input URL MUST be an absolute URL(full address URL).
 
 TODO:
 1. to separate and extract query_string&params from path.
 
 
-@URL:		Input URL string.
+@URL:		Input URL string, a full address URL.
 @protocl: 	PPointer to pass out protocol.
 @hostname:	PPointer to pass out hostname.
 @port:		PPointer to pass out port.
@@ -491,6 +519,28 @@ int cstr_parse_URL(const char *URL, char **protocol, char **hostname,
 }
 
 
+/*-------------------------------------
+	Free an EGI_M3U8_LIST
+--------------------------------------*/
+void m3u_free_list(EGI_M3U8_LIST **list)
+{
+	if(list==NULL || *list==NULL)
+		return;
+
+	/* Free items */
+	if( (*list)->ns > 0 ) {
+		free((*list)->tsec);
+		free((*list)->encrypt);
+		egi_free_charList( &(*list)->msURI, (*list)->ns);
+		egi_free_charList( &(*list)->keyURI, (*list)->ns);
+		egi_free_charList( &(*list)->strIV, (*list)->ns);
+	}
+
+	/* Free self */
+	free(*list);
+	*list=NULL;
+}
+
 /*-----------------------------------------------------------------------
 Parse HTTP Live streaming playlist file. and return a list of URL/URI for
 media segments. They MAY be the final URL for a specified media file(usually
@@ -509,7 +559,7 @@ Note:
 6. Each media segment is specified by a series of media segment tags
    followed by a URI.
    Media segment tags include:
-   #EXTINF
+   #EXTINF  <---- This tag is REQUIRED for each Media Segment!
    #EXT-X-BYTERANGE
    #EXT-X-DISCONTINUITY
    #EXT-X-KEY
@@ -521,72 +571,194 @@ Note:
    Usually with tags of:
    #EXT-X-STREAM-INF
    #EXT-X-I-FRAME-STREAM-INF (containing the I-frames of a multimedia presentation.)
-8. Other tags:
-   #EXT-X-
+8. If NO #EXT-X-MEDIA-SEQUENCE tag found in the playlist, then it MUST set to be 0,
+   which implys restart of ALL sequence numbering.
 
 PARAMs:
 @strHLS:   Pointer to a m3u playlist file content, encoded in UFT-8.
 			!!! --- CAUTION --- !!!
 	   Content in strHLS will be modified/changed by strtok().
-@URI:	   URI list in the playlist file.
-			!!! --- CAUTION --- !!!
-	   The URI in the list MAY be the final URL for a specified media file.
-	   OR it's just another m3u8 playlist file!
-@ns:	   Total number of media segments specified in the playlist file.
-
 Return:
-	0	OK
-	<0	Fails
+	!NULL	OK
+	NULL	Fails
 ------------------------------------------------------------------------*/
-int cstr_parse_simple_HLS(char *strHLS, char ***URI, int *ns)
+EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS)
 {
-	const char *delim="\r\n";
-	char *ps;
+	const char *delimNL="\r\n"; /* delim for new line.  DO NOT add SPACE here! */
+	char *ps=NULL;
+	char *saveps; /* For strtok_r(..) to save ps content */
+	// char *pt, *savept, *pm, char *delimpt defined in section
 
-	char **pURI;
-	char *ptmp;
-	const int ng=8; /* mem grow size */
-	int  ncap;  	/* capacity/slots of pURI list. */
+	EGI_M3U8_LIST *list;
+	bool isMasterList;
+	int ns=0;		/* MediaSegment counter */
+	char *ptmp=NULL;
 
 	int lcnt;	/* Line counter */
 	int mscnt;	/* Media segment counter */
 
-	if(URI==NULL && ns==NULL)
-		return -1;
+	if(strHLS==NULL)
+		return NULL;
 
-	/* Init */
+	/* Init vars */
 	lcnt=0;
 	mscnt=0;
-	ncap=0;
+	ns=0;
 
-	/* Reset  */
-	*URI=NULL;
-	*ns=0;
+	/* IF: A master playlist */
+	if(strstr(strHLS, "#EXT-X-STREAM-INF:")) {
+		isMasterList=true;
 
-	/* Calloc ng */
-	pURI=calloc(ng, sizeof(char *));
-	if(pURI==NULL)
-		return -1;
-	else
-		ncap=ng;
+		/* Compute total segmemnt items */
+		ps=strHLS;
+		while( (ps=strstr(ps, "#EXT-X-STREAM-INF:")) ){
+			/* ONLY if it appears as beginning of a line */
+			if( ps!=strHLS )
+				ns +=1;
+
+			/* Pass it */
+			ps += strlen("#EXT-X-STREAM-INF:");
+		}
+	}
+	/* ELSE: A media segment list */
+	else {
+		isMasterList=false;
+
+		/* Compute total segmemnt items */
+		ps=strHLS;
+		while( (ps=strstr(ps, "#EXTINF:")) ){
+			/* ONLY if it appears as beginning of a line */
+			if( ps!=strHLS )
+				ns +=1;
+
+			/* Pass it */
+			ps += strlen("#EXTINF:");
+		}
+	}
+
+	if(ns==0) {
+		egi_dpstd("NO media segment address found!\n");
+	   	return NULL;
+	}
+
+	/* Create m3u8 list */
+	list=calloc(1, sizeof(EGI_M3U8_LIST));
+	if(list==NULL)
+		return NULL;
+
+	/* Calloc items */
+	list->ns=ns;
+	list->isMasterList=isMasterList;
+	list->encrypt=calloc(ns, sizeof(typeof(*list->encrypt)));
+	list->msURI=calloc(ns, sizeof(char*));
+	if(list->msURI==NULL || list->encrypt==NULL ) {
+		m3u_free_list(&list);
+		return NULL;
+	}
+
+	if(!isMasterList) {
+		list->tsec=calloc(ns, sizeof(float*));
+		list->keyURI=calloc(ns, sizeof(char*));
+		list->strIV=calloc(ns, sizeof(char*));
+
+		/* Check result */
+		if(list->tsec==NULL || list->keyURI==NULL || list->strIV==NULL) {
+			m3u_free_list(&list);
+			return NULL;
+		}
+	}
+
+	/* ALWAYS:
+ 	 * Init(calloc) list->seqnum =0! in case tag #EXT-X-MEDIA-SEQUENCE is NOT found, which implys
+	 *  restart of ALL segment sequence numbering!
+	 */
 
         /* Parse segment URL List */
-        ps=strtok((char *)strHLS, delim);
+        ps=strtok_r((char *)strHLS, delimNL, &saveps);
         while(ps!=NULL) {
+	   egi_dpstd("line[]: %s\n", ps);
+
 	   /* Check if a legal playlist */
 	   if(lcnt==0 && strncmp("#EXTM3U",ps,7)!=0) {
 		egi_dperr("The first tag line in a HLS playlist file MUST be #EXTM3U!\n");
-		free(pURI);
-		return  -1;
+		m3u_free_list(&list);
+		return NULL;
 	   }
 
 	   /* W1. Tag lines starts with #EXT-X- */
 	   if( strncmp("#EXT-X-", ps, 7)==0 ) {
 		egi_dpstd("EXT-X- line: %s\n", ps+7);
-		/* #EXT-X-KEY:<attribute-list>.  If media segments are encrypted. */
 
-		/* #EXT-X-STREAM-INF:<attribute-list>  specifies a Variant Stream  */
+		/* W1.1 #EXT-X-STREAM-INF:<attribute-list>  specifies a Variant Stream
+		 *  Example: #EXT-X-STREAM-INF:BANDWIDTH=533579,CODECS="avc1.66.30,mp4a.40.34",RESOLUTION=320x240
+		 */
+		if(strncmp("#EXT-X-STREAM-INF:", ps, 18)==0) {
+			egi_dpstd("Stream INF: %s\n", ps+18);
+			/* TODO:  */
 
+		}
+		/* W1.2  #EXT-X-KEY:<attribute-list>.  If media segments are encrypted. */
+		else if(strncmp("#EXT-X-KEY:", ps, 11)==0) {
+			/* EXAMPLE: #EXT-X-KEY:METHOD=AES-128,IV=0x30303030303030303030303061c93924,URI="https://...",KEYFORMAT="identity"
+		  	 */
+
+			/* Extract KEY items */
+			char *pt;
+			char *pm=ps+strlen("#EXT-X-KEY:");
+			const char *ptdelim=",\r\n "; /* Delim for key/value */
+			char *savepm;
+			pt=strtok_r(pm, ptdelim, &savepm);
+			while(pt!=NULL) {
+				/* METHOD */
+				if(strncmp(pt,"METHOD=", 7)==0) {
+					egi_dpstd("Encryption method: %s\n", pt+7);
+					if( strncmp(pt+7, "AES-128", 7)==0 )
+						list->encrypt[mscnt]=M3U8ENCRYPT_AES_128;
+					else if( strncmp(pt+7, "SAMPLE-AES", 10)==0 )
+						list->encrypt[mscnt]=M3U8ENCRYPT_SAMPLE_AES;
+				}
+				/* IV: TODO: An EXT-X-KEY tag with a KEYFORMAT of "identity" that does not have an IV attribute indicates
+				 * that the Media Sequence Number is to be used as the IV
+				 */
+				else if(strncmp(pt,"IV=",3)==0) {
+				   egi_dpstd("IV: %s\n", pt+3);
+				   if(mscnt>=ns)
+					egi_dpstd("mscnt>=ns! Media segments number ERROR!\n");
+				   else
+					list->strIV[mscnt]=strdup(pt+strlen("IV=")+2); /* +2 to get rid of 0x */
+				}
+				/* URI: uri for key value */
+				else if(strncmp(pt,"URI=",4)==0) {
+				   egi_dpstd("keyURI: %s\n", pt+4);
+				   if(mscnt>=ns)
+					egi_dpstd("mscnt>=ns! Media segments number ERROR!\n");
+				   else {
+					pt +=strlen("URI=");
+					cstr_squeeze_string(pt, strlen(pt), '"'); /* Get rid if " */
+					list->keyURI[mscnt]=strdup(pt);
+				   }
+				}
+				/* KEYFORMAT */
+				else if(strncmp(pt, "KEYFORMAT=", 10)==0) {
+					egi_dpstd("Keyformat: %s\n", pt+strlen("KEYFORMAT="));
+				}
+
+		   		/* Next line */
+	   			pt=strtok_r(NULL, ptdelim, &savepm);
+
+			} /* End while */
+		}
+		/* W1.3  #EXT-X-TARGETDURATION:<s> specifies the maximum Media Segment duratio */
+		else if(strncmp("#EXT-X-TARGETDURATION:", ps, 22)==0) {
+			list->maxDuration=strtof(ps+22, NULL);
+		}
+		/* W1.4 #EXT-X-MEDIA-SEQUENCE:<number>  It indicates the Media Sequence Number of
+   		 * the first Media Segment that appears in a Playlist file. IF NOT has this tag, then
+  		 * the sequence number is 0!
+		 */
+		else if(strncmp("#EXT-X-MEDIA-SEQUENCE:", ps,22)==0) {
+			list->seqnum=atoi(ps+22);
+		}
 	   }
 	   /* W2. Two tags without '-X-': EXTINF and EXTM3U  */
  	   else if( strncmp("#EXT",ps, 4)==0 ) {
@@ -595,48 +767,43 @@ int cstr_parse_simple_HLS(char *strHLS, char ***URI, int *ns)
 			egi_dpstd("Start line with #EXTM3U, OK!\n");
 		}
 		/* #EXTINF:<duration>,[<title>]. */
-		else if(strncmp("#EXTINF",ps,7)==0) {
+		else if(strncmp("#EXTINF:",ps,8)==0) {
 			egi_dpstd("EXTINF line: %s\n", ps+7);
+
+		        if(mscnt>=ns)
+				egi_dpstd("mscnt>=ns! Media segments number ERROR!\n");
+			else
+				/* Read segment duration */
+				list->tsec[mscnt]=strtof(ps+strlen("#EXTINF:"), NULL);
 		}
+
 	   }
 	   /* W3. Otherwise it's an URI */
 	   else if( lcnt>0 && (ptmp=cstr_trim_space(ps)) ){
-		printf("media segment URI: %s\n", ptmp);
+		egi_dpstd("media segment URI: %s\n", ptmp);
 
-		/* Need to grow space */
-		if( mscnt == ncap ) {
-			if(egi_mem_grow((void **)(&pURI), ncap*sizeof(char *), ng*sizeof(char *))!=0) {
-				egi_dperr("Fail to memgrow pURI!\n");
-				goto END_FUNC;
-			}
-			else
-				ncap +=ng;
+	        if(mscnt>=ns)
+			egi_dpstd("mscnt>=ns! Media segments number ERROR!\n");
+		else {
+			/* Push to list */
+			list->msURI[mscnt]=strdup(ptmp);
+
+			/* Count mscnt */
+			mscnt++;
 		}
 
-		/* Push to list */
-		pURI[mscnt]=strdup(ptmp);
-
-		/* Count mscnt */
-		mscnt++;
 	   }
 
 	   /* Count lcnt */
 	   lcnt++;
 
 	   /* Next line */
-	   ps=strtok(NULL, delim);
+	   ps=strtok_r(NULL, delimNL, &saveps);
 
 	} /* End while() */
 
-END_FUNC:
-	/* Adjust pURI space according to final mscnt */
-	realloc(pURI, mscnt*sizeof(char *));
-
-	/* Pass out params */
-        *ns=mscnt;
-	*URI=pURI;
-
-	return 0;
+	/* Finally */
+	return list;
 }
 
 

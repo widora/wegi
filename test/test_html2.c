@@ -43,6 +43,7 @@ int channel;
 int PicTs=2;		/* Picture show time */
 int TxtTs=2;		/* Text show time */
 bool loop_ON;
+unsigned int avgLuma;   /* Avg luma for slide image. */
 
 char imgURL[512];
 char imgTXT[512];
@@ -53,6 +54,7 @@ char value[512];                /* To be big enough! */
 bool divIsFound;		/* If the tagged division is found. */
 
 
+
 void print_help(const char *name)
 {
         printf("Usage: %s [-hc:p:t:l]\n", name);
@@ -60,6 +62,7 @@ void print_help(const char *name)
 	printf("-c n   Channel number.\n");
 	printf("-p n   Pic show time in second.\n");
 	printf("-t n   Text show time in second.\n");
+        printf("-v n   Avg luma.\n");
 	printf("-l   Loop\n");
 }
 
@@ -81,7 +84,7 @@ int main(int argc, char **argv)
 
         /* Parse input option */
         int opt;
-        while( (opt=getopt(argc,argv,"hc:p:t:l"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hc:p:t:v:l"))!=-1 ) {
                 switch(opt) {
                         case 'h':
                                 print_help(argv[0]);
@@ -96,6 +99,13 @@ int main(int argc, char **argv)
 			case 't':
 				TxtTs=atoi(optarg);
 				break;
+                        case 'v':
+                                avgLuma=atoi(optarg);
+                                if(avgLuma>200)
+                                        avgLuma=200;
+                                else if(avgLuma<100)
+                                        avgLuma=100;
+                                break;
 			case 'l':
 				loop_ON=true;
 				break;
@@ -125,6 +135,7 @@ int main(int argc, char **argv)
 			strRequest="https://www.caixinglobal.com/caixin-must-read/";
 			break;
 		default: /* 0 ... */
+			/* Chinese: https://finance.caixin.com/m/ >/dev/null */
 			strRequest=argv[optind];
 			break;
 	}
@@ -264,7 +275,8 @@ START_REQUEST:
 		int imgW=320; int imgH=240;
 		egi_imgbuf_get_fitsize(imgbuf, &imgW, &imgH);
 		egi_imgbuf_resize_update(&imgbuf, false, imgW,imgH);
-//		egi_imgbuf_avgLuma(imgbuf, 255*2/3);
+		if(avgLuma)
+			egi_imgbuf_avgLuma(imgbuf, avgLuma);
 		if(imgbuf) {
 			fb_clear_workBuff(&gv_fb_dev,WEGI_COLOR_DARKPURPLE);
 			/* imgbuf, fbdev, subnum, subcolor, x0,y0 */

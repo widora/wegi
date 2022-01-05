@@ -14,22 +14,41 @@ Usage Example:
 	./test_aesfile -d -i text.lock -o text -p "hello world"
 	 ( in_file and out_file name may be the same! )
 
+
+		----- Terminology -----
+
+Block: The fixed number of bytes that is encrypted each time.
+State: Current condition(state/values) of the Block, it changes after
+       each AES algorithm operation.
+AES Algorithm:
+        AES is an iterated block cipher, each operation includes
+	following basic steps and functions:
+	1. ADD_ROUND_KEY
+	2. BYTE_SUBSTITUE
+	3. SHIFT_ROW
+	4. MIX_COLUMN
+
+Nk  Number of 32-bit words comprising the cipher key.
+Nb: Number of columns(32-bit words) comprising the BLOCK.
+Nr: Number of rounds.
+
 Note:
 1. Standard and parameters.
-	   Key Size	 Block Size    Number of Rounds
-	  (Nk words)     (Nb words)        (Nr)
-AES-128	      4               4             10
-AES-192       6               4             12
-AES-256       8               4             14
+	   Key Size	        Block Size    Number of Rounds
+	   (Nk words)            (Nb words)      (Nr rounds)
+AES-128	    4 (16B=128bits)      4 (16B=128bits)  10 (4+4+2)
+AES-192     6 (24B=192bits)      4 (16B)          12 (6+4+2)
+AES-256     8 (32B=256bits)      4 (16B)          14 (8+4+2)
 
 
-2. File size < 2G, for MMAP limit.
+2. File size < 2G, for MMAP limit. ---OK _hk_
 3. In_file and out_file may be the same.
 4. Encrypt and Decrypt is reversible/symmetrical to each other.
    So, you may use '-d' to encrypt and '-e' to decrypt....
 5. MT7688 speed: ~1/3MBps for encryption;  ~1/5MBpsfor decryption.
 
 	--- TEST Results ---
+
 File: '1280x720r30.avi', size: 448981910Bs,
 Hash digest: B64185F4C51D5B0F165D1F23B41761F3015B5D128A2AF8663B0ED32DA94F9ECF  Hash cost time: 117681952us
 File: '1280x720r30.avi.dec', size: 448981910Bs,
@@ -57,6 +76,7 @@ TODO:
 2. AES-128/192/256 selection.
 
 Midas Zhou
+midaszhou@yahoo.com
 https://github.com/widora/wegi
 ----------------------------------------------------------------------*/
 #include <stdio.h>

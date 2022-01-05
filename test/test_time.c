@@ -26,6 +26,31 @@ long long tm_costus2(void);
 int main(int argc, char **argv)
 {
 
+#if 1 /* ------------ tm_wait_till() ------------ */
+	// ./test_time "0:0:10" "15:47:55" && date
+
+	time_t tnow=time(NULL);
+	if(argc<2) {
+		printf("Usage: %s  'hs:ms:ss' 'Y-m-d H:M:S' \n", argv[0]);
+		exit(0);
+	}
+
+	printf("Test: tm_wait_till(0, tnow, NULL, 5) ....\n");
+	if( tm_wait_till(0, tnow, NULL, 5)!=0 )
+		printf("Fails! please check input!\n");
+
+	printf("Test: tm_wait_till(NULL, 0, argv[1], 0) ....\n");
+	if( tm_wait_till(NULL, 0, argv[1], 0)!=0 )
+		printf("Fails! please check input!\n");
+
+	printf("Test: tm_wait_till(argv[2], 0, NULL, 3) ....\n");
+	if( tm_wait_till(argv[2], 0, NULL, 3)!=0 )
+		printf("Fails! please check input!\n");
+
+
+exit(0);
+#endif
+
 #if 1 /* TEST: CLOCK_BOOTTIME  --------*/
 
 /***
