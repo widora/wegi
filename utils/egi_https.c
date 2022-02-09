@@ -13,7 +13,9 @@ Note:
    and OpenSSL 1.1.1b...
 2. Repeated call to curl_global_init and curl_global_cleanup should
    be avoided.
-
+3. (MT7688 OPenwrt) A BLUETooth USB dongle (for mouse/keyboard etc.)
+   MAY (clog/hamper) (CURL/http/wifi?) connecting/downloading!
+   Just unplug it if such case arises!
 
 Jurnal:
 2021-02-09:

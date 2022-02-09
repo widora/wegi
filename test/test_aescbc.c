@@ -67,6 +67,7 @@ root@Widora:/tmp# hexdump -C test2.de
 
 TODO:
 1. Return 0 length file if fails.
+2. To optimize and improve egi_AES128CBC_encrypt()
 
 Journal:
 2021-12-28: Create the file.

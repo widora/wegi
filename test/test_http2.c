@@ -4,18 +4,26 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 Usage:
-	./test_http2 -m -s 60 -l http(s)://......m3u8
+	./test_http2 -m -s 60 -r 2 (-f)  -l http(s)://......m3u8
+	 -f: ONLY for W<=320 && H<=240
+	    If H>240 || W>320, MPlayer opt '-fs' will force mplayer to quit!
 
 Refrence:
 1. RFC_8216(2017)     HTTP Live Streaming
 2. All download segments are saved to vall.mp4, and will be removed
    when starts for a new session.
 3. vall.mp4 will be converted to vall.avi by FFmpeg, and it will be
-   truncated to zero by NEXT ffmpeg converting operation.
+   truncated to zero at first by NEXT ffmpeg converting operation.
 
 TODO:
-1. For some m3u8 address, it sometimes exits accidently when calling
+0. Acturally you can define your OWN private m3u8 protocol.
+XXX 1. For some m3u8 address, it sometimes exits accidently when calling
    https_easy_download().
+2. Durations of converted AVI  != tsec[k] sumups, list->tesck[] error?
+   OR because of #EXT-X-DISCONTINUITY segments ?
+   OR Some segments are failed to be received, and the discontinuity
+   cause extra time for decoding/playing.
+
 
 Journal:
 2021-12-18:
@@ -30,6 +38,13 @@ Journal:
 	1. Download and decrypt M3U8ENCRYPT_AES_128 segments.
 2022-01-02:
 	1. Options for user to set recordTime etc.
+2022-01-05:
+	1. Update lates_msURI[] and latest_Seqnum just after for(){} statement.
+2022-01-06:
+	1. Segment.ts will be discarded if NOT completely downloaded.
+2022-01-21:
+	1. Treat with VOD(VideoOnDemand) m3u8. usually it has ONLY one #EXT-X-KEY tag,
+	   and one key data for all segments.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -67,16 +82,19 @@ int dscnt;	   /* Downloaded segments counter */
 float durations;   /* Duration for all download segments, in seconds. */
 int recordTime;    /* User preset record time, in seconds. if durations>=recordTime, then stop downloading. */
 bool saveToMMC;
-bool saveAVI;
+bool appendAVI;	   /* Append avi to /mmc/save_all.avi */
 int playRounds=1;
+bool mpoptfs;
 
 void print_help(const char *name)
 {
-        printf("Usage: %s [-hlmas:r:b:] URL\n", name);
+        printf("Usage: %s [-hlmafs:r:b:] URL(.m3u8) \n", name);
         printf("-h    This help \n");
         printf("-l    Loop downloading and playing\n");
 	printf("-m    To save to mmc \n");
 	printf("-a    Save .avi video. otherwise remove it before next conversion operation.\n");
+	printf("-f    Add option '-fs' for mplayer.\n");
+//	printf("-d n  Delay in seconds, before downloading next segment.\n"); disable!
 	printf("-s n  Record time, in seconds\n");
 	printf("-r n  Repeat playing rounds, default 1. If 0, skip playing.\n");
 	printf("-b n  Adjust brightness for mplayer, default 0\n");
@@ -88,7 +106,7 @@ void print_help(const char *name)
 int main(int argc, char **argv)
 {
         int opt;
-        while( (opt=getopt(argc,argv,"hlmas:r:b:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hlmafs:r:b:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
                                 print_help(argv[0]);
@@ -101,7 +119,10 @@ int main(int argc, char **argv)
 				saveToMMC=true;
 				break;
 			case 'a':
-				saveAVI=true;
+				appendAVI=true;
+				break;
+			case 'f':
+				mpoptfs=true;
 				break;
                         case 's':
                                 recordTime=atoi(optarg);
@@ -241,15 +262,14 @@ size_t curl_callback(void *ptr, size_t size, size_t nmemb, void *userp)
 Parse m3u8 playlist(HLS playlist).
 
 Note:
-1. Content in strm3u will be changed!
+XXX 1. Content in strm3u will be changed!
 -----------------------------------*/
 void parse_m3u8list(char *strm3u)
 {
 	int k;
 	EGI_M3U8_LIST *list;
 	char strURL[EGI_URL_MAX]; /* For msURI[], media segment URL */
-	#define MAX_PLAYSEQ  12 /* To play Max. number of segements */
-//	char *sfname[8];  	/* segment file names */
+//	#define MAX_PLAYSEQ  12 /* To play Max. number of segements */
 
 	/* 1. Parse HLS file, and get list of URL for media segments. */
 	list=m3u_parse_simple_HLS(strm3u);
@@ -302,7 +322,7 @@ void parse_m3u8list(char *strm3u)
 
 
 #if 1 /* Download all segments in the playlist  */
-	/* 2A. Init.  durations/dscnt will be reset at 6. */
+	/* 2A. Init.  durations/dscnt will be reset at 5.4, only after playing.  */
 	if( durations<0.001 ) {
 		if(saveToMMC)
 		    remove("/mmc/vall.mp4");
@@ -313,15 +333,18 @@ void parse_m3u8list(char *strm3u)
 	/* 3. Download segment files */
 	for(k=0; k< list->ns; k++) {
 
-	   /* Check if msURI is already downloaded */
+	   /* F0.0 Check if msURI is already downloaded */
 	   /* NOTE: list seqnum==0 means restart of ALL numbering! */
 	   if( (list->seqnum!=0) && (latest_Seqnum >= list->seqnum+k) ) {
 		egi_dpstd(DBG_RED"  xxxxxxxx list_seqnum=%d+(%d) <= lastest_seqnum=%d, obsolete msURI! xxxxxx\n"DBG_RESET,
 			 list->seqnum,k,latest_Seqnum );
-		egi_dpstd(DBG_BLUE" latest msURI: %s\n"DBG_RESET, latest_msURI);
+		egi_dpstd(DBG_BLUE" Sumup durations:%.1fs, SetRecordTime:%ds\nlatest msURI: %s\n"DBG_RESET,
+						durations, recordTime, latest_msURI);
 		sleep((int)(list->maxDuration/1.5));
 		continue;
 	   }
+
+#if 0 /////// After for(), see 4. ////////////
 	   else /* Update laste_msURI AND latest_Seqnum */ {
 		if( strlen(list->msURI[k]) > EGI_URL_MAX-1 )
 			egi_dpstd(DBG_RED"strlen of msURI >EGI_URL_MAX -1\n"DBG_RESET);
@@ -331,8 +354,10 @@ void parse_m3u8list(char *strm3u)
 		/* Update latest_Seqnum */
 		latest_Seqnum = list->seqnum+k;
 	   }
+#endif //////////////////////////////////////
 
-	    /* Assemble URL for the media segement file */
+
+	    /* F0.1 Assemble URL for the media segement file */
 	    strURL[0]=0;
 	    if( cstr_is_absoluteURL(list->msURI[k])==false )
 		strcat(strURL, dirURL);
@@ -340,13 +365,22 @@ void parse_m3u8list(char *strm3u)
 	    printf("strURL: %s\n", strURL);
 
 	    /* F1. NOT encrypted:  Download media segment files to one file! */
-	    if(list->encrypt[k]==M3U8ENCRYPT_NONE) {
-		if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION|HTTPS_DOWNLOAD_SAVE_APPEND,
+	    //if(list->encrypt[k]==M3U8ENCRYPT_NONE) { /* For VOD, only encrypt[0] is taged!? */
+	    if(list->encrypt[0]==M3U8ENCRYPT_NONE) { /* TODO: Assume if NO first KEY tag, then all unecrypted. */
+		if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, //|HTTPS_DOWNLOAD_SAVE_APPEND,
 					 1, 10,   /* A rather small value, near to targetduration */
-                			 //strURL, tsSavePath[k], NULL, download_callback) ==0 )
-                			 strURL, saveToMMC?"/mmc/vall.mp4":"/tmp/vall.mp4", NULL, NULL) ==0 )  /* Use default callback write func. */
+                			 //strURL, saveToMMC?"/mmc/vall.mp4":"/tmp/vall.mp4", NULL, NULL) ==0 )  /* Use default callback write func. */
+                			 strURL, "/tmp/segment.ts", NULL, NULL) ==0 )  /* Use default callback write func. */
+			/* Note: First save to segment.ts, and append to all.mp4 ONLY IF it is downloaded completely/successfully. */
                 {
 			printf("Ok, succeed to download segment from '%s'!\n", strURL);
+
+			/* Append to all.mp4/.ts */
+			if(saveToMMC)
+				egi_copy_file("/tmp/segment.ts", "/mmc/vall.mp4", true);
+			else
+				egi_copy_file("/tmp/segment.ts", "/tmp/vall.mp4", true);
+
 			/* Update dscnt/durations */
 			dscnt++;
 			durations +=list->tsec[k];
@@ -354,32 +388,36 @@ void parse_m3u8list(char *strm3u)
 		else
 			printf("Fail to download segment from '%s'!\n", strURL);
 	    }
-	    /* F2. M3U8ENCRYPT_AES_128: Download media segment and decrypt it, then merge to a file. */
-	    else if(list->encrypt[k]==M3U8ENCRYPT_AES_128) {
+	    /* F2. M3U8ENCRYPT_AES_128: Download media segment and decrypt it.
+	     * Note:
+	     *   1. For VOD, there is ONLY one #EXT-X-KEY tag for all media segments.
+	     */
+	    else if(list->encrypt[k]==M3U8ENCRYPT_AES_128 || list->encrypt[0]==M3U8ENCRYPT_AES_128) {
 		/* F2.1  Download meida segment file */
 		if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION,
 					 1, 60,   /* A rather small value, near to targetduration */
-               			 strURL, "/tmp/segment.ts", NULL, NULL) ==0 )  /* Use default callback write func. */
+               			 strURL, "/tmp/segment.ts", NULL, NULL) !=0 )  /* Use default callback write func. */
 				/* Segment.ts always at /tmp/ */
                 {
-			printf("Ok, succeed to download segment from '%s'!\n", strURL);
-			//dscnt++; NOT here!
-		}
-		else
 			printf("Fail to download segment from '%s'!\n", strURL);
+		}
+		else {
+		   printf("Ok, succeed to download segment from '%s'!\n", strURL);
 
-		/* F2.2  Download key: TODO if keyURI is NOT a complete/absolute URL address. */
-		if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION,
+		   /* F2.2  Download key: TODO if keyURI is NOT a complete/absolute URL address. */
+		   if( ( list->keyURI[k]==NULL )   /* VOD only keyURI[0] is provided. */
+			|| https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION,
 					 1, 10,   /* A rather small value, near to targetduration */
                 			 list->keyURI[k], "/tmp/aesKey.dat", NULL, NULL) ==0 )  /* Use default callback write func. */
-		{
+		   {
 			/* F2_D1. Read key */
 			unsigned char ukey[16]={0};
-			FILE *fil=fopen("/tmp/aesKey.dat", "rb");
+			FILE *fil=fopen("/tmp/aesKey.dat", "rb");  /* For VOD, it may already exist! */
 			fread(ukey, 16, 1, fil);
 			fclose(fil);
 
 			/* F2_D2. Prepare uiv */
+			/* NOTICE: if list->strIV[k]==NULL, egi_str2hex() will return all 0s */
 			unsigned char *uiv=egi_str2hex(list->strIV[k], 16);
 
 			/* F2_D3. Decrypt segment.ts */
@@ -396,13 +434,14 @@ void parse_m3u8list(char *strm3u)
                                 		(unsigned char *)fmap->fp, &outsize,      /* outdata, outsize */
 		                                ukey, uiv, AES_DECRYPT)!=0 ) {            /* ukey, uiv, encode */
 			                printf(DBG_RED"AES_cbc128_encrypt() fails!\n"DBG_RESET);
+
         			}
         			else {
 					/* Resize segment.ts */
 					if(outsize!=fmap->fsize)
 	                			egi_fmap_resize(fmap, outsize);
 
-					/* Append to all.ts */
+					/* Append to all.mp4/.ts */
 					if(saveToMMC)
 						//egi_system("cat /tmp/segment.ts >>/mmc/vall.mp4");
 						egi_copy_file("/tmp/segment.ts", "/mmc/vall.mp4", true);
@@ -419,9 +458,10 @@ void parse_m3u8list(char *strm3u)
 			/* F2_D4. Free uiv and fmap */
 			free(uiv);
 			egi_fmap_free(&fmap);
-		}
-		else
+		   }
+		   else
 			printf("Fail to download AES key frome '%s'!\n", list->keyURI[k]);
+		}
 	    }
 	    /* F3. M3U8ENCRYPT_AES_SAMPLE or undefined! */
 	    else {
@@ -430,7 +470,7 @@ void parse_m3u8list(char *strm3u)
 	    }
 
 	    /* F4. Check duration */
-	    if( recordTime>0 && (int)durations >= recordTime )
+	    if( recordTime>0 && ((int)durations >= recordTime) )
 		break;
 
 		egi_dpstd(DBG_YELLOW"Totally %d segments downloaded, with durations sumup: %.1fs \n"DBG_RESET, dscnt, durations);
@@ -438,45 +478,68 @@ void parse_m3u8list(char *strm3u)
 	} /* End for() */
 	//printf("\033[0;32;40m  durations(%.1fs) > recordTime(%ds), OK! \e[0m\n", durations, recordTime);
 
- 	/* Covert and play video */
-    	if( dscnt>0 && (recordTime==0 || (recordTime>0 && (int)durations >= recordTime)) ) {
-		printf("\033[0;32;40m  durations(%.1fs) > recordTime(%ds), OK! \e[0m\n", durations, recordTime);
+	/* 4. Aft for(): Update lates_msURI[] and latest_Seqnum */
+	if( latest_Seqnum != list->seqnum+list->ns ) {
+		/* Update latest_msURI */
+		if( strlen(list->msURI[list->ns-1]) > EGI_URL_MAX-1 )
+			egi_dpstd(DBG_RED"strlen of msURI >EGI_URL_MAX -1\n"DBG_RESET);
+		strncpy(latest_msURI, list->msURI[list->ns-1], EGI_URL_MAX-1);
+		latest_msURI[EGI_URL_MAX-1]=0;
 
-        	/* 4. Convert video to MPEG */
+		/* Update latest_Seqnum */
+		latest_Seqnum = list->seqnum+list->ns;
+	}
+
+ 	/* 5. Covert and play video */
+    	if( dscnt>0 && (recordTime==0 || (recordTime>0 && (int)durations >= recordTime)) ) {
+		printf(DBG_MAGENTA"durations(%.1fs) >= recordTime(%ds), OK!\n"DBG_RESET, durations, recordTime);
+
+        	/* 5.1 Convert video to MPEG */
 		printf("Start to convert video format...\n");
         	//egi_system("ffmpeg -y -i /tmp/vall.mp4 -f mpeg -s 320x200 -r 20 -q:v 0 -b:v 1200k /tmp/vall.avi");
-		if(saveToMMC) /* mpeg do not support -r <20 */
-	            egi_system("ffmpeg -y -i /mmc/vall.mp4 -f mpeg -vf 'scale=320:-1' -r 20 -q:v 0 /mmc/vall.avi");
-		else
-	            egi_system("ffmpeg -y -i /tmp/vall.mp4 -f mpeg -vf 'scale=320:-1' -r 20 -q:v 0 /tmp/vall.avi");
 
-		/* 4a. Save result AVI */
-		if(saveAVI && saveToMMC)
+		/* -f mpeg do not support -r <20,  320:-2  Width 320, height 2mulitples */
+		if(saveToMMC)
+		   #if 1 /* OK to fit into screen IF movie H/W <= 240/320
+			   NOTE:   When SAR != 1
+				   352x288 [SAR 16:11 DAR 16:9]  convert to 320x260 [SAR 13:9 DAR 16:9], and NO video play if use '-fs'!
+				   DAR=SAR*PAR    SAR: Sample Aspect Ratio, DAR: Display Aspect Ratio. PAR: Pixel Aspect Ratio.
+				   16:9 = (16:11)*(352:288)  
+			 */
+	            egi_system("ffmpeg -y -i /mmc/vall.mp4 -async 1 -f mpeg -vf 'scale=320:-2' -r 20 -q:v 0 /mmc/vall.avi");
+		   #else /* Ok, BUT.. TODO: 320 Maybe converted to be 319 example, and if final H or W is odd size, mplayer display NO video! */
+	            egi_system("ffmpeg -y -i /mmc/vall.mp4 -async 1	\
+		     		-f mpeg -vf 'scale=320:240:force_original_aspect_ratio=decrease'  \
+				-r 20 -q:v 0 /mmc/vall.avi");
+		   #endif
+		else
+	            egi_system("ffmpeg -y -i /tmp/vall.mp4 -async 1 -f mpeg -vf 'scale=320:-2' -r 20 -q:v 0 /tmp/vall.avi");
+
+		/* 5.2 Save result AVI */
+		if(appendAVI && saveToMMC)
 			egi_copy_file("/mmc/vall.avi", "/mmc/save_vall.avi", true);
 
-		/* 5. Play video */
+		/* 5.3 Play video */
 		printf("Start to play video...\n");
 		for(k=0; k<playRounds; k++) {
-			if(saveToMMC)
-        		    egi_system("/tmp/MPlayer -ac mad -vo fbdev -vfm ffmpeg -framedrop -fs /mmc/vall.avi");
-			else {
-			    sprintf(strcmd,"/tmp/MPlayer -ac mad -vo fbdev -vfm ffmpeg -framedrop -fs -brightness %d /tmp/vall.avi",
-					brightness);
-			    egi_system(strcmd);
-			}
-			printf("Finish playing video!\n");
+			/* TODO: If H>240 || W>320, OPTION '-fs' will force mplayer to quit! */
+			sprintf(strcmd,"/tmp/MPlayer -ac mad -vo fbdev -vfm ffmpeg -noaspect -framedrop %s -brightness %d %s",
+			          mpoptfs?"-fs":"", brightness, saveToMMC?"/mmc/vall.avi":"/tmp/vall.avi");
+
+			egi_system(strcmd);
+			printf("Finish playing video %d/%d round! ts durations=%.1f\n", k+1, playRounds, durations);
 		}
 
-		/* 6. Reset durations */
+		/* 5.4 Reset durations */
 		durations=0.0;
 		dscnt=0;
 
-		/* 7. loop counter */
+		/* 5.5 loop counter */
 		loopcnt++;
     	}
 
 #endif
 
-	/* 7. Free and release */
+	/* 6. Free and release */
 	m3u_free_list(&list);
 }

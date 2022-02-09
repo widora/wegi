@@ -7,7 +7,8 @@ Reference: libmad-0.15.1b   minimad.c
 
 Usage:
 	 example:
-		./test_miniStreamPlay http://kathy.torontocast.com:3530/stream
+		./test_miniStreamPlay -m http://kathy.torontocast.com:3530/stream
+		( option: -m: to show StreamTitle, otherwise Untitled. )
 
         '+'     Increase volume +5%　　 增加音量
         '-'     Decrease volume -5%　　 减小音量
@@ -67,6 +68,9 @@ Journal:
 2021-11-23:
 	1. Mute/Demute
 	2. If ringbuff_almost_full, then trigger to drop every 1/10 frames.
+2022-01-09:
+	1. http_download_callback(): Check stream_type first.
+	2. madplay_ringbuffer(): If stream_type is NOT audio/mpeg, DO NOT exit.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -111,14 +115,15 @@ enum {
 	STREAM_UNKNOWN		=0,
 	STREAM_AUDIO_AAC	=1,
 	STREAM_AUDIO_MPEG	=2,
-	STREAM_LIMIT		=3,
+	STREAM_TEXT_HTML	=3,
+	STREAM_LIMIT		=4,
 };
 bool	Is_StreamHeader;	/* Indicate a new round of stream transission,
 				 * set in http_header_callback(), reset in http_download_callback().
 				 */
 const char *strStreamType[STREAM_LIMIT]={"Unknown","audio/aac", "audio/mpeg"};
 char strStreamName[128]="Unknown";
-char strStreamTitle[128]="None";
+char strStreamTitle[128]="Untitled";
 
 /* For ICY meta_data.
  * 1. Extract metadata in http_download_callback()
@@ -348,6 +353,8 @@ size_t http_header_callback(void *ptr, size_t size, size_t nmemb, void *stream)
 		}
 		else if( strstr(ptr, "audio/aac") )
 			stream_type=STREAM_AUDIO_AAC;
+		else if( strstr(ptr, "text/html") )
+			stream_type=STREAM_TEXT_HTML;
 		else {
 			printf("Unknown stream type: %s\n", (char *)ptr);
 			stream_type=STREAM_UNKNOWN;
@@ -400,6 +407,15 @@ size_t http_download_callback(void *ptr, size_t size, size_t nmemb, void *data)
 	int xlen;
 	char *pt;
 
+	/* Check stream type */
+	if(stream_type==STREAM_TEXT_HTML) {
+		printf("TEXT_HTML: %s\n", (char *)ptr);
+		return chunk_size;
+	}
+	else if(stream_type!=STREAM_AUDIO_MPEG) {
+		egi_dpstd(DBG_YELLOW"stream_type is NOT audio_mpeg, ignore it!"DBG_RESET);
+		return chunk_size;
+	}
 
 	/* If start of a new round stream session, update dsiplay. */
 	if(Is_StreamHeader) {
@@ -968,8 +984,8 @@ INIT_BUFFER:
    */
   while( ringbuff->datasize < INIT_BUFFER_SIZE ) {
 	if( ringbuff->datasize>0 && stream_type!=STREAM_AUDIO_MPEG) {
-		printf("Stream type %s;, NOT supported yet!\n", strStreamType[stream_type]);
-		exit(1);
+		printf("Stream type %s, NOT supported yet!\n", strStreamType[stream_type]);
+//		exit(1);
 	}
 	printf("\rBuffering %dBs ", ringbuff->datasize); fflush(stdout);
 

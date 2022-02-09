@@ -19,6 +19,8 @@ AES-256       8               4             14
 TODO:
 1. To utilize cryptograhpic hardware accelerator. (to install
    kmod-cryptodev to create /dev/crypto... )
+2. egi_AES128CBC_encrypt() ONLY abt. 1/7 speed of AES_cbc128_encrypt()
+   to optimize it...
 
 Journal:
 2022-01-01:
@@ -43,8 +45,8 @@ https://github.com/widora/wegi
 #include <openssl/aes.h>
 
 /*--------------------------------------------------------
-Encrypt/decrypt data with AES_CBC_128 method by calling
-OpenSSL API AES_cbc_encrypt().
+Encrypt/decrypt data with AES_CBC_128 + PKCS7 padding, by
+calling OpenSSL API AES_cbc_encrypt().
 
 Note:
 1. 16==AES_BLOCK_SIZE.
@@ -104,16 +106,18 @@ int AES_cbc128_encrypt(unsigned char *indata, size_t insize,  unsigned char *out
 	printf("lenm16=%dBs, lenr16=%dBs\n", lenm16, lenr16);
 
 #if 1 /* TEST iv---> */
-	printf("Init tmpiv[]: %s\n", strtmp=egi_hex2str((unsigned char *)tmpiv, 16));
+	egi_dpstd("Init tmpiv[]: %s\n", strtmp=egi_hex2str((unsigned char *)tmpiv, 16));
 	free(strtmp);
 #endif
+
+	egi_dpstd("Start %s ...\n", encode==AES_ENCRYPT?"encrypting":"decrypting");
 
 	/* 4. [ENCRYPT+DECRYPT]:  PART1 (lenm16 part). notice that for decrypto, lenr16==0! */
 	AES_cbc_encrypt( (unsigned char *)indata,
 			 (unsigned char *)outdata, lenm16,
 			 encode==AES_ENCRYPT?(&enckey):(&deckey), tmpiv, encode);  /* tmpiv is always changing! */
 
-#if 1 /* TEST iv---> */
+#if 0 /* TEST iv---> */
 	printf("Aft 8: tmpiv[]: %s\n", strtmp=egi_hex2str((unsigned char *)tmpiv, 16));
 	free(strtmp);
 #endif
@@ -304,8 +308,8 @@ Return:
 inline int aes_DataToState(const uint8_t *data, uint8_t *state)
 {
 	int k;
-	if(data==NULL || state==NULL)
-		return -1;
+//	if(data==NULL || state==NULL)
+//		return -1;
 
 	for(k=0; k<16; k++) {
         	//state[(k%4)*4+k/4]=data[k];
@@ -317,8 +321,8 @@ inline int aes_DataToState(const uint8_t *data, uint8_t *state)
 inline int aes_StateToData(const uint8_t *state, uint8_t *data)
 {
 	int k;
-	if(data==NULL || state==NULL)
-		return -1;
+//	if(data==NULL || state==NULL)
+//		return -1;
 
          for(k=0; k<16; k++) {
          	//data[k]=state[(k%4)*4+k/4];
@@ -330,8 +334,8 @@ inline int aes_StateToData(const uint8_t *state, uint8_t *data)
 inline int aes_StateXorIv(uint8_t *state, const uint8_t *iv)
 {
 	int k;
-	if(state==NULL || iv==NULL)
-		return -1;
+//	if(state==NULL || iv==NULL)
+//		return -1;
 
 	for(k=0; k<16; k++)
 		state[k] = state[k]^iv[k];
@@ -756,7 +760,7 @@ int egi_AES128CBC_encrypt(uint8_t *indata, size_t insize,  uint8_t *outdata, siz
 	/* 3. Do encrypt or decrypt */
  /* -----> DO ENCRYPTION */
 	if( do_encrypt ) {
-		printf("Start encrypting...\n");
+		egi_dpstd("Start encrypting...\n");
 
 		/* Init iv */
 		//memcpy(iv, uiv, 16);
@@ -818,7 +822,7 @@ int egi_AES128CBC_encrypt(uint8_t *indata, size_t insize,  uint8_t *outdata, siz
 
  /* -----> DO DECRYPTION */
 	else {
-		printf("Start decrypting...\n");
+		egi_dpstd("Start decrypting...\n");
 
 		/* Check size */
 		if( lenr16!=0 ) {
@@ -844,7 +848,7 @@ int egi_AES128CBC_encrypt(uint8_t *indata, size_t insize,  uint8_t *outdata, siz
 			/* Read out */
 			aes_StateToData(state, outdata+(i<<4));
 
-			/* Loat prev indata/tmp for NEXT iv */
+			/* Load prev indata/tmp for NEXT iv */
 			aes_DataToState(tmp, iv);
 			//memcpy(iv, tmp, 16); /* Same sequence */
 		}

@@ -41,7 +41,7 @@ Note:
 
 2. Matrix as an input paramter in functions:
    E3D_RTMatrix:    Transform(Rotation+Translation) matrix, to transform
-		    objects to the expected postion.
+		    objects to expected position.
    E3D_ProjMatrix:  Projection Matrix, to project/map objects in a defined
 		    frustum space to the Screen.
 
@@ -736,6 +736,10 @@ int readMtlFile(const char *fmtl, vector<E3D_Material> & mtlList)
 
 	/* Load img_kd AFTER pushing back ALL materials! see CAUTION in Class E3D_Material! */
 	for(int k=0; k<mcnt; k++) {
+		/* Midas_2022_01_30 */
+		if( mtlList[k].map_kd.empty() )
+			continue;
+
 		mtlList[k].img_kd=egi_imgbuf_readfile(mtlList[k].map_kd.c_str());
 		if( mtlList[k].img_kd == NULL )
 			egi_dpstd("Fail to load map_kd '%s'.\n", mtlList[k].map_kd.c_str());
@@ -997,6 +1001,14 @@ public:
 	}
 	E3D_Vector aabbCenter(void) const {
 		return 0.5*(aabbox.vmax-aabbox.vmin);
+	}
+
+/* TEST: ------------------2022_1_29 */
+	void updateVtxsCenter(float dx, float dy, float dz)
+	{
+		vtxscenter.x +=dx;
+		vtxscenter.y +=dy;
+		vtxscenter.z +=dz;
 	}
 
 	/* Function: Calculate center point of all vertices */
@@ -1837,9 +1849,20 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 			  //	    && vtxList[ vtxIndex[0] ].pt.z>125   ) // left wing flap
 			  //	printf("Face line:  %s\n",strline2);
 			  // }
-			  if( k>0 && groupCnt==4 ) {
-			  	 if(   vtxList[ vtxIndex[0] ].pt.x> 240.0 && vtxList[ vtxIndex[0] ].pt.x < 458.0
-			  	    && vtxList[ vtxIndex[0] ].pt.z<64   ) // right wing slat
+			  if( k>0 && groupCnt!=7 && groupCnt!=8 && groupCnt<11 ) { //&& groupCnt==4 ) {
+				 //float fk=(42.8-1.38)/(395.2-241.58);  // right wing slat
+				 float fk=(1.385-53.45)/(-5.55-(-194.26));   //left wing slat
+			     int nn;
+			     for(nn=0; nn<k; nn++) {
+			  	 //if(   vtxList[ vtxIndex[nn] ].pt.x> 240.0 && vtxList[ vtxIndex[nn] ].pt.x < 458.0
+			  	 //   && vtxList[ vtxIndex[nn] ].pt.z < fk*(vtxList[ vtxIndex[nn] ].pt.x-241.58)+1.385+2.0 )  // right wing slat
+			  	 if(   vtxList[ vtxIndex[nn] ].pt.x> -195.0 && vtxList[ vtxIndex[nn] ].pt.x < -5.0
+			  	    && vtxList[ vtxIndex[nn] ].pt.z < fk*(vtxList[ vtxIndex[nn] ].pt.x-(-194.26))+53.45 +2.0 )  // left wing slat
+					continue;
+				 else
+					break;
+			     }
+			     if(nn==k) /* All vtx within the range */
 				printf("Face line:  %s\n",strline2);
 			   }
 #endif
@@ -1969,7 +1992,7 @@ END_FUNC:
 	/* Close file */
 	fin.close();
 
-	egi_dpstd("Finish reading obj file: %d Vertices, %d Triangels. %d TextureVertices. %d TriGroups, %d Materis.\n",
+	egi_dpstd("Finish reading obj file: %d Vertices, %d Triangels. %d TextureVertices. %d TriGroups, %d Materials.\n", /* MidasHK__ */
 		  								vcnt, tcnt, tuvListCnt, triGroupList.size(), mtlList.size());
 
 #if 0	/* TEST: ---------print all textureVtx tuvList[] */
@@ -3030,7 +3053,7 @@ void E3D_TriMesh::drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const E3
 }
 
 
-/*---------------------------------------------------------------
+/*-------------------------------------------------------------------
 Render/draw the whole mesh by filling all triangles with FBcolor.
 View_Coord:	Same as Global_Coord.
 View direction: View_Coord Z axis.
@@ -3043,7 +3066,11 @@ Note:
    If the mesh has NO vertex normal data, then triangle face
    normal will be used, so it's same effect as E3D_FLAT_SHADING
    in this case.
-----------------------------------------------------------------*/
+
+TODO:
+1. TEXTURE_MAPPING: Apply vtxList[].normal OR triList[].vtx[].vn
+    for lighting vector.(NOW is triList[].normal, vpts[] NOT applied.)
+---------------------------------------------------------------------*/
 
 ///////////////   Apply triGroupList[] and Material color/map     ///////////////////
 
@@ -3077,7 +3104,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	/* RTMatrixes for the Object and TriGroup */
 	E3D_RTMatrix	tgRTMat; //tgRotMat; /* TriGroup RTmatrix, for Pxyz(at TriGroup Coord) * TriGroup->object */
 	E3D_Vector	tgOxyz;		   /* TriGroup origin/pivot XYZ */
-	E3D_RTMatrix	ltRotMat;	   /* For light product, to be zeroTranslation() */
+	E3D_RTMatrix	ltRotMat;	   /* RTmatrix(rotation component only) for light product, to be zeroTranslation() */
 
 //	objmat.print("objmat");
 
@@ -3093,16 +3120,24 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	    egi_dpstd("Rendering triGroupList[%d]: '%s' , ", n, triGroupList[n].name.c_str());
 
 	    /* 1. Get material color(kd) and map(img_kd)  */
-	    if( triGroupList[n].mtlID < 0){
+	    /* 1.1 triGroupList[n].mtlID < 0  &&  mtlList[].img_kd MUST be NULL.  */
+	    if( triGroupList[n].mtlID < 0 ){
 		printf("with defMaterial, ...\n");
 		mcolor=defMaterial.kd.color16Bits(); /* Diffuse color */
 	    	imgKd = defMaterial.img_kd;
 	    }
+	    /* 1.2 triGroupList[n].mtlID>=0 && mtlList[].img_kd==NULL */
+	    else if( mtlList[ triGroupList[n].mtlID ].img_kd ==NULL ) { /* MidasHK_2022_01_07 */
+		mcolor=mtlList[ triGroupList[n].mtlID ].kd.color16Bits();
+		imgKd = defMaterial.img_kd;
+	    }
+	    /* 1.3 triGroupList[n].mtlID>=0 && mtlList[].img_kd!=NULL */
 	    else {
 		printf("with material mtlList[%d] ...\n", triGroupList[n].mtlID);
 		mcolor=mtlList[ triGroupList[n].mtlID ].kd.color16Bits();
 		imgKd=mtlList[ triGroupList[n].mtlID ].img_kd;
 	    }
+
 
 	    /* 2. Extract TriGroup rotation matrix and rotation origin */
 
@@ -3420,7 +3455,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	                                pts[1].x, pts[1].y,
         	                        pts[2].x, pts[2].y
                 	        );
-			  #else /* OPTION_3: Barycentric coordinates mapping, INT type x/y. */
+			  #else /* OPTION_3: Barycentric coordinates mapping, INT type x/y. TODO: to apply vpts[[ */
 		        	egi_imgbuf_mapTriWriteFB3(imgKd, fbdev,
 					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2 */
         	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,  /* 1.0-x: Adjust uv ORIGIN */

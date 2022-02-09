@@ -17,6 +17,9 @@ TODO:
    Example:
    Verical or horizontal lines may appear BLACKER/THICKER if there is same sub_pixel
    color nearby ....
+4. TFT LCD flickering problem. (Under variable environment/circumstance...)
+5. TFT LCD view angle is NOT the same as from each side, be sure to make it
+   the right for Left/Right/Top/Bottom sides.
 
 Journal:
 2021-08-27:

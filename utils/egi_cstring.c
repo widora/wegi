@@ -49,6 +49,13 @@ Journal
 	3. Modify 'cstr_parse_simple_HLS()' to 'm3u_parse_simple_HLS()'
 2022-01-03:
 	1. m3u_parse_simple_HLS(): Check and update segment Sequence Number.
+2022-01-15:
+	1. EGI_M3U8_LIST: add member 'type' (EVENT,VOD,NONE)
+	2. m3u_parse_simple_HLS():  W1.6: #EXT-X-PLAYLIST-TYPE: 'VOD' or 'EVENT'
+
+2022-01-21L
+	1. egi_str2hex(str, size): if str==NULL, see it as ALL 0s!
+	2. egi_hex2str(hex,len): if hex==NULL, see it as ALL 0s!
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -82,9 +89,10 @@ original byte data.
 2. No terminal NULL for the returned data!
 
 	!!! --- CAUTION --- !!!
-3.DO NOT forget to free the pointer after use!
+3. DO NOT forget to free the pointer after use!
 
 @str:	Pointer to string
+	If str==NULL, then see it as all 0s!
 @size:  Size of data expected.
 	If size>strlen(str)/2, padding with zeros.
 
@@ -96,12 +104,18 @@ Return:
 unsigned char* egi_str2hex(char *str, size_t size)
 {
 	int i;
+ 	int len;
 
-	if(str==NULL || size==0)
+	//if(str==NULL || size==0)
+	if(size==0)
 		return NULL;
 
    	/* Check size */
- 	int len=strlen(str);
+	if(str)
+	    len=strlen(str);
+	else /* str==NULL */
+	    len=2*size;
+
    	if(len&1) {
 		egi_dpstd("Strlen MUST be multiples of 2!\n");
 		return NULL;
@@ -119,8 +133,11 @@ unsigned char* egi_str2hex(char *str, size_t size)
 	   %2h -- 2_digits short type;
 	   %2hh -- 2_digits short short type (=char)
 	  */
-	for(i=0; i<len; i+=2)
-	        sscanf(str+i,"%2hhx",hex+i/2);
+	if(str) {
+	   for(i=0; i<len; i+=2)
+	       	sscanf(str+i,"%2hhx",hex+i/2);
+	}
+	/* Else(str==NULL): OK calloc all 0s */
 
 	return hex;
 }
@@ -154,7 +171,8 @@ char* egi_hex2str(unsigned char *hex, size_t len)
 {
 	int i;
 
-	if(hex==NULL || len==0)
+	//if(hex==NULL || len==0)
+	if(len==0)
 		return NULL;
 
 	/* Calloc */
@@ -163,8 +181,14 @@ char* egi_hex2str(unsigned char *hex, size_t len)
 		return NULL;
 
 	/* Sprintf to str */
-	for(i=0; i<len; i++)
+	if(hex) {
+	    for(i=0; i<len; i++)
 		sprintf(str+2*i, "%02x", hex[i]);
+	}
+	else {  /* hex==NULL */
+	    for(i=0; i<2*len; i++)
+		str[i]='0';
+	}
 
 	return str;
 }
@@ -566,6 +590,7 @@ Note:
    #EXT-X-MAP
    #EXT-X-PROGRAM-DATE-TIME
    #EXT-X-DATERANGE
+   #EXT-X-ENDLIST
 7. A server MAY offer multiple Media Playlist files to provide different
    encodings of the same presentation(with different bandwidth etc.)
    Usually with tags of:
@@ -573,11 +598,16 @@ Note:
    #EXT-X-I-FRAME-STREAM-INF (containing the I-frames of a multimedia presentation.)
 8. If NO #EXT-X-MEDIA-SEQUENCE tag found in the playlist, then it MUST set to be 0,
    which implys restart of ALL sequence numbering.
+9. #EXT-X-PLAYLIST-TYPE:VOD (VideoOnDemand) The media playlist contains ALL segments of a movie,
+   and usually has ONLY one #EXT-X-KEY tag (for all segments).
+
+TODO:
+1. A quicker way to sort out TAGs, letter by letter compare OR switch(ch)...
 
 PARAMs:
 @strHLS:   Pointer to a m3u playlist file content, encoded in UFT-8.
 			!!! --- CAUTION --- !!!
-	   Content in strHLS will be modified/changed by strtok().
+	   XXX Content in strHLS will be modified/changed by strtok(). ---> strotk_r()
 Return:
 	!NULL	OK
 	NULL	Fails
@@ -759,6 +789,19 @@ EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS)
 		else if(strncmp("#EXT-X-MEDIA-SEQUENCE:", ps,22)==0) {
 			list->seqnum=atoi(ps+22);
 		}
+		/* W1.5: #EXT-X-DISCONTINUITY tag indicates a discontinuity(file format, parameters..etc.) between
+		 *  the Media Segment that follows it and the one that preceded it.
+		 */
+		else if(strncmp("#EXT-X-DISCONTINUITY:", ps, 21)==0) {
+
+		}
+		/* W1.6: #EXT-X-PLAYLIST-TYPE:<type-enum> where type-enum is either EVENT or VOD. */
+		else if(strncmp("#EXT-X-PLAYLIST-TYPE:", ps, 21)==0) {
+			if(strncmp("VOD", ps+21,3)==0)
+				list->type=M3U8PLTYPE_VOD;
+			else if(strncmp("EVENT", ps+21,5)==0)
+                                list->type=M3U8PLTYPE_EVENT;
+		}
 	   }
 	   /* W2. Two tags without '-X-': EXTINF and EXTM3U  */
  	   else if( strncmp("#EXT",ps, 4)==0 ) {
@@ -768,7 +811,7 @@ EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS)
 		}
 		/* #EXTINF:<duration>,[<title>]. */
 		else if(strncmp("#EXTINF:",ps,8)==0) {
-			egi_dpstd("EXTINF line: %s\n", ps+7);
+//			egi_dpstd("EXTINF line: %s\n", ps+7);
 
 		        if(mscnt>=ns)
 				egi_dpstd("mscnt>=ns! Media segments number ERROR!\n");

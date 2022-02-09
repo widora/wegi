@@ -10,6 +10,8 @@ Example:
 	./test_html -c 2 -p 2 -t 5 -l
 	./test_html -c 1 -s -l -v 125 http://slide.news.sina.com.cn/w/
 
+	./test_html -l -f /mmc/stock.html
+
 TODO:
 1. XXX Case 5: aljazeera  quit.
 2. XXX Case 0: stock, http get buff error!
@@ -21,6 +23,8 @@ Journal:
 	1. Add SINA stock data chart.
 2021-12-17:
 	1. Shine video news.
+2022-01-24:
+	1. MaxSlides to limit slideCnt of displayed slides.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -68,6 +72,8 @@ int PicTs=2;		/* Picture show time */
 int TxtTs=2;		/* Text show time */
 bool loop_ON;		/* whole loop */
 bool video_loop_ON=true;	/* loop playing video */
+int MaxSlides;		/* Max. number of slides to be displayed */
+int slideCnt;
 
 char videoURL[512];
 char imgURL[512];
@@ -111,6 +117,7 @@ void print_help(const char *name)
 	printf("-v n   Avg luma.\n");
 	printf("-d n   Data code for sina stock.\n");
 	printf("-f n   A pseudo_HTML script file.\n");
+	printf("-m n   Max. n slides to be displayed.\n");
 }
 
 /*----------------------------
@@ -124,7 +131,7 @@ int main(int argc, char **argv)
 
         /* Parse input option */
         int opt;
-        while( (opt=getopt(argc,argv,"hlsc:p:t:v:d:f:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hlsc:p:t:v:d:f:m:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
                                 print_help(argv[0]);
@@ -159,6 +166,13 @@ int main(int argc, char **argv)
 				fmap=egi_fmap_create(optarg, 0, PROT_READ, MAP_SHARED);
 				if(fmap)
 					printf("Script %s is used.\n", optarg);
+				else {
+					printf("Fail to load script '%s'!\n");
+					exit(-1);
+				}
+				break;
+			case 'm':
+				MaxSlides=atoi(optarg);
 				break;
 			default:
 				break;
@@ -431,6 +445,7 @@ DISPLAY_STOCK_SLIDE:
 
 	/* Parse HTML */
 	pstr=buff;
+	slideCnt=0;
 
    /* Parse to extract xxxx from:  <dl>..<dd>xxxx</dd>....<dd>xxxx</dd>... </dl> */
    while( (pstr=cstr_parse_html_tag(pstr, "dl", NULL, 0, &content, &len))!=NULL ) {
@@ -546,6 +561,11 @@ DISPLAY_STOCK_SLIDE:
 	/* Move pstr */
 	pstr +=len;
 
+	/* Check MaxSlide */
+	slideCnt++;
+	if(MaxSlides>0 && slideCnt>=MaxSlides)
+		break;
+
    } /* END while() for TAG 'dl' */
   break;
 
@@ -553,7 +573,7 @@ DISPLAY_STOCK_SLIDE:
 
 	/* Parse HTML */
 	pstr=buff;
-
+	slideCnt=0;
 
     #if 0 /*  Tag '<div..> ...  </div>'  */
     while( (pstr=cstr_parse_html_tag(pstr, "div", attrString, sizeof(attrString), &content, &len))!=NULL ) {
@@ -635,6 +655,11 @@ DISPLAY_STOCK_SLIDE:
 	display_slide(imgURL, imgTXT, egi_appfonts.bold,
 				mat_random_range(2)?"ShanghaiDaily":"上海日報", 18, 18, 320-160, 240-25);
 
+	/* Check MaxSlide */
+	slideCnt++;
+	if(MaxSlides>0 && slideCnt>=MaxSlides)
+		break;
+
   } /* while */
   break;
 
@@ -643,6 +668,7 @@ DISPLAY_STOCK_SLIDE:
 
 	/* Parse HTML */
 	pstr=buff;
+	slideCnt=0;
 
     while( (pstr=cstr_parse_html_tag(pstr, "img", attrString, sizeof(attrString), NULL, &len))!=NULL ) { /* Selfclosed tag, content is same as attrString */
 	printf("   --- <img attrString ---\n %s\n", attrString);
@@ -678,6 +704,10 @@ DISPLAY_STOCK_SLIDE:
 	/* Display slide image and text */
 	/* url,txt, face, logoname, fw, fh, x0,y0 */
 	display_slide(imgURL, imgTXT, egi_appfonts.bold, "Foxbusiness", 18, 18, 320-140, 240-25);
+	slideCnt++;
+
+	if(MaxSlides>0 && slideCnt>=MaxSlides)
+		break;
 
    } /* while */
  break;
@@ -685,6 +715,7 @@ DISPLAY_STOCK_SLIDE:
  case 4: //////////////////////////////////  jagran  ///////////////////////////////////////////
 	/* Parse HTML */
 	pstr=buff;
+	slideCnt=0;
 
   /* TODO , or use "img"(self_closed tag) as tag */
    while( (pstr=cstr_parse_html_tag(pstr, "figure", attrString, sizeof(attrString), &content, &len))!=NULL ) {
@@ -715,12 +746,18 @@ DISPLAY_STOCK_SLIDE:
         /* url,txt, face, logoname, fw, fh, x0,y0 */
 	display_slide(imgURL, imgTXT, egi_appfonts.bold, "JAGRAN", 20, 20, 320-120, 240-25);
 
+	/* Check MaxSlide */
+	slideCnt++;
+	if(MaxSlides>0 && slideCnt>=MaxSlides)
+		break;
+
    } /* End while() */
   break;
 
   case 5: //////////////////////////////////  AL-JAZEERA  ///////////////////////////////////////
 	/* Parse HTML */
 	pstr=buff;
+	slideCnt=0;
 
 ////////// <article //////////
     while( (pstr=cstr_parse_html_tag(pstr, "article", attrString, sizeof(attrString), &content, &len))!=NULL ) {
@@ -781,12 +818,18 @@ DISPLAY_STOCK_SLIDE:
 	fprintf(stderr, "----6\n");
 	display_slide(imgURL, imgTXT, egi_appfonts.bold, "半島新聞 ALJAZEERA", 20, 20, 320-250, 240-25);
 
+	/* Check MaxSlide */
+	slideCnt++;
+	if(MaxSlides>0 && slideCnt>=MaxSlides)
+		break;
+
    } /* End while() */
   break;
 
   case 6: //////////////////////////////////  IFENG  ///////////////////////////////////////
 	/* Parse HTML */
 	pstr=buff;
+	slideCnt=0;
 
     //////////  Extract <div class="titleImg-1BvN-wPz"> .... </div>  //////////
     while( (pstr=cstr_parse_html_tag(pstr, "div", attrString, sizeof(attrString), &content, &len))!=NULL ) {
@@ -840,6 +883,11 @@ DISPLAY_STOCK_SLIDE:
 	/* Display slide image and text */
 	/* url,txt, face, logoname, fw, fh, x0,y0 */
 	display_slide(imgURL, imgTXT, egi_appfonts.regular, "鳳凰新聞", 24, 24, 320-120, 240-24-8);
+
+	/* Check MaxSlide */
+	slideCnt++;
+	if(MaxSlides>0 && slideCnt>=MaxSlides)
+		break;
 
    } /* End while() */
    break;

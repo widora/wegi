@@ -16,16 +16,23 @@ Midas Zhou
 [7] 	S 		-- 1:  new control bits,
 	     		   0:  ignore data on pins
 
-[6-4]   A2-A0 		-- 101: X-position
-		   	   001: Y-position
-
+[6-4]   A2-A0 		-- 101: X-position (differenctial)
+		   	   001: Y-position (differenctial)
+			   011: z1? (differenctial)
+			   100: z2? (differenctial)
+			   000: temp0? (non_differenctial)
+			   111: temp1? (non_differenctial)
+			   010: vabtt? (non_differenctial)
+			   110: vaux?  (non_differenctial)
 [3]	MODE 		-- 1:  8bits resolution
 		 	   0:  12bits resolution
 
-[2]	SER/(-)DFR	-- 1:  normal mode
+[2]	SER/(-)DFR	-- 1:  normal mode (non_differenctial)
 			   0:  differential mode
 
-[1-0]	PD1-PD0		-- 11: normal power
+[1-0]	PD1-PD0		-- 11: normal power(ADC + vREF on + penIRQ)
+			   01: ADC on
+			   10: vREF on + penIRQ
 			   00: power saving mode
 ---------------------------------------------------------------*/
 #define XPT_CMD_READXP  0xD0 //0xD0 //1101,0000  /* read X position data */
