@@ -56,6 +56,29 @@ int 		egi_copy_to_file( const char *fpath, const unsigned char *pstr, size_t siz
 int 		egi_copy_to_syspad(const unsigned char *pstr, size_t size);
 int 		egi_copy_from_syspad(unsigned char *pstr);
 
+/*** EGI ID3V2 Tag Packet
+ * TIT2: Title/songname/content description
+ * TALB: Album/Movie/Show title
+ * TPE1: Lead performer(s)/Soloist(s)
+ * COMM: Comment
+ * APIC: Attached picture (png OR jpeg)
+ xxxTRCK: Track number/Position in set
+ */
+#include "egi_imgbuf.h"
+#define TEMP_MP3APIC_PATH "/tmp/tmp_mp3tag_pic.jpgpng" /* To save attached picture (APIC) */
+typedef struct egi_ID3V2TAG{
+	char *title;  		/* Tag TIT2 */
+	char *album;  		/* Tag TALB */
+	char *performer; 	/* Tag TPE1 */
+	char *comment; 		/* Tag COMM */
+	EGI_IMGBUF *imgbuf;  	/* Tag APIC */
+} EGI_ID3V2TAG;
+EGI_ID3V2TAG *egi_id3v2tag_calloc(void);
+void egi_id3v2tag_free(EGI_ID3V2TAG **tag);
+EGI_ID3V2TAG *egi_id3v2tag_readfile(const char *fpath);
+
+
+
 /* Utils functions */
 bool 	egi_host_littleEndian(void);
 void 	egi_free_char(char **p);
@@ -67,7 +90,10 @@ int 	egi_search_str_in_file(const char *fpath, size_t off, const char *pstr);
 int 	egi_shuffle_intArray(int *array, int size);
 int 	egi_util_mkdir(char *dir, mode_t mode);
 
+int 	egi_read_fileBlock(FILE *fsrc, char *fdes, int tnulls, size_t bs);
+int 	egi_copy_fileBlock(FILE *fsrc, FILE *fdest, size_t bs);
 int 	egi_copy_file(char const *fsrc_path, char const *fdest_path, bool append);
+
 unsigned char** egi_malloc_buff2D(int items, int item_size) __attribute__((__malloc__));
 int 	egi_realloc_buff2D(unsigned char ***buff, int old_items, int new_items, int item_size);
 void 	egi_free_buff2D(unsigned char **buff, int items);

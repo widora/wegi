@@ -46,6 +46,80 @@
 	Emphasis        (2bits)
 
 
+  		--- A typical MP3 file structure ---
+
+  1. File structure:
+  	[TAG ID3V2] Frame1 Frame2 Frame3 ... [TAG ID3V1]
+	FrameX: Audio Frames, HOWEVER, for a VBR mp3 file, Frame1 is NOT an audio frame, see 5.
+	<<< Audio_Frame = Frame_Header + Compressed_Audio_Data  >>>
+
+  2. Each Audio Frame contains compressed audio data:
+      每帧持续时间(毫秒) = 每帧采样数 / 采样频率 * 1000
+      (For MPEG1 Layer III with sampling rate 44.1KHz, it's appr. 26ms.)
+
+  3. Size of each Audio Frame MAY vary acoording to its bitrate.
+      LyaerI 使用公式:
+	帧长度(字节) = (( 每帧采样数 / 8 * 比特率 ) / 采样频率 ) + 填充 * 4
+      LyerII 和 LyaerIII 使用公式:
+	帧长度(字节)= (( 每帧采样数 / 8 * 比特率 ) / 采样频率 ) + 填充
+
+  4. The first 4 Bytes of each Audio Frame is the Frame Header.
+      Structure of an Audio Frame Header(4Bytes, 32bits) for a CBR mp3 file:
+	AAAAAAAA  AAABBCCD  EEEEFFGH IIJJKLMM
+	A  --- Frame synchronizer(all bits set to 1<---------)
+	B  --- MPEG version ID (00 MPEG V2.5, 01 reserved, 10 MPEG v2, 11 MPEG v1)
+	C  --- Layer (00 reserved, 01 LayerIII, 10 LayerII, 11 LayerI)
+	D  --- CRC   ( 0 protected by CRC, 1 Not protected)
+
+	E  --- Bitrate index (data in kbps)
+		0000:free   0001:32   0010:40   0011:48
+		0100:56     0101:64   0110:80   0111:96
+		1000:112    1001:128  1010:160  1011:192
+		1100:224    1101:256  1110:320  1111:bad
+  	  ( !!! Each Frame MAY have differenct bitrate. !!! )
+
+	F  --- Sampling rate index (data in Hz)
+		00:44100   01:48000   10:32000   11:reserved
+	G  --- Padding
+		0: Frame is NOT padded   1: Frame is padded
+		!!! To make exact length of data according to the bitrate !!!
+	H  --- Private bit
+	I  --- Channle
+		00:Stereo
+		01:Joint Stereo
+		10:Dual(two separated channels)
+		11:Mono
+	J  --- Mode extension(For Joint Stereo)
+	K  --- Copyright
+		0: NOT copyrighted
+		1: Copyrighted
+	L  --- Original
+		0: Copy of original media
+		1: Original media
+	M  --- Emphasis
+		00:None       01:50/15
+		10:reserved   11:CCIT J.17
+
+  5. Structure of the First Frame for a VBR mp3 file:
+	Bytes  |   Content
+	0-3:       Frame Header, same as: AAAAAAAA  AAABBCCD  EEEEFFGH IIJJKLMM  <---See 1.3
+
+	4-x:       Not used till string "Xing" (58 69 6E 67).
+	36-39:     "Xing" for MPEG1 and CHANNEL != mono (mostly used)
+	21-24:     "Xing" for MPEG1 and CHANNEL == mono
+	21-24:     "Xing" for MPEG2 and CHANNEL != mono
+	13-16:     "Xing" for MPEG2 and CHANNEL == mono
+
+	--- Data following to the end of "Xing" ---
+	( Following schema is for case MPEG1 and CHANNEL != mono: )
+	40-43:     Flags.
+	44-47:     Number of frames in file. (Big_Endian)
+	48-51:     File length in Bytes. (Big_Endian)
+	52-151:    Indexes for lookup in file.
+	152-155:   VBR scale. (Big_Endian)
+
+	=====================================================
+
  Usage example:
 	./minimad  /Music/ *.mp3
 

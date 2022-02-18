@@ -146,6 +146,7 @@ void egi_imgbuf_mapTriWriteFB2(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,  /* !!! OBSOLE
                                       float x1, float y1,
                                       float x2, float y2 );
 
+#if 0
 void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,  /* INT x/y, Barycentric mapping. */
                                       float u0, float v0,
                                       float u1, float v1,
@@ -153,6 +154,16 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,  /* INT x/y, B
                                       int x0, int y0,
                                       int x1, int y1,
                                       int x2, int y2 );
+#else
+void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,  /* INT x/y, Barycentric mapping. */
+                                      float u0, float v0,
+                                      float u1, float v1,
+                                      float u2, float v2,
+                                      int x0, int y0,
+                                      int x1, int y1,
+                                      int x2, int y2,
+                                      float z0, float z1, float z2);
+#endif
 
 /* EGI_IMGMOTION */
 int egi_imgmotion_saveHeader(const char *fpath, int width, int height, int delayms, int compress);

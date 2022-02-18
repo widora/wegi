@@ -8,6 +8,7 @@ published by the Free Software Foundation.
 Test E3D TriMesh
 3D model reference: www.cgmodel.com
 
+Example: (put plane.obj and plane.mtl at PWD)
 ./test_2022 plane.obj -c -s 0.8 -Y 150 -X 188 -a -5 -G -P -t -M /mmc/2022_3.mot
 
 1----.
@@ -403,7 +404,6 @@ else {		/* For Landscape */
 	}
 
 
-
  //////////////////////  OPTION_1. Move/Scale workMesh and Keep View Direction as Global_COORD_Z (-z-->+z)  /////////////////////////
 			   /*  Loop Rendering: renderMesh(fbdev)  */
 
@@ -501,14 +501,14 @@ else {		/* For Landscape */
 #if 1  /* TEST: 2022 ------ init ttdz */
 	ttdz =0.40*dview; //0.18*dview; //0.4*dview; //0.75*dview;
 
-         /* TEST:2022   Transform meshWall's TriGroup omat, To lift it up. otherwise its auto center same as plane... */
+        /* TEST:2022   Transform meshWall's TriGroup omat, To lift it up. otherwise its auto center same as plane... */
 	ttmat.identity();
-	ttmat.setTranslation(0.0, 0.0, 150);
-        E3D_Vector  wtgOxyz;
+//	ttmat.setTranslation(0.0, 0.0, 150);
 
 	/* Transform veritces XYZ */
-	meshWall.transformVertices(ttmat);
+//	meshWall.transformVertices(ttmat);
 
+        E3D_Vector  wtgOxyz;
         for(unsigned int i=0; i< meshWall.triGroupList.size(); i++)   {
                 /* !!! ONLY transform TriGroup::omat.pmat[9-11](tx,ty,tz) as TriGroiup local origin.
                  *  tgRotMat is RELATIVE to its superior node,wh, NO NEED.
@@ -610,7 +610,7 @@ else {		/* For Landscape */
 	/* Update ttdz, ttmat */
 	int endcnt=0;
 	//if( ttdz < -0.085*dview ) {
-	if( ttdz < -0.15*dview ) {
+	if( ttdz < -0.30*dview ) {
 		printf("	<<<< ----OK--- >>>> \n");
 		endcnt ++;
 		if(endcnt==5) exit(0);
@@ -618,12 +618,11 @@ else {		/* For Landscape */
 	/* Slow down */
 	else if( ttdz > 0.0 && ttdz < 0.1*dview) {
 		//ttdz -=0.0025*dview;
-		ttdz -=0.01*dview;
-
+		ttdz -=0.005*dview;
 	}
 	else
 		//ttdz -=0.005*dview; //0.03*dview;
-		ttdz -=0.02*dview; //0.03*dview;
+		ttdz -=0.01*dview; //0.03*dview;
 
 	printf("	<<<< ttdz: %f*dview >>>> \n", ttdz/dview);
 

@@ -736,7 +736,7 @@ int readMtlFile(const char *fmtl, vector<E3D_Material> & mtlList)
 
 	/* Load img_kd AFTER pushing back ALL materials! see CAUTION in Class E3D_Material! */
 	for(int k=0; k<mcnt; k++) {
-		/* Midas_2022_01_30 */
+		/* MidasHK_2022_01_30 */
 		if( mtlList[k].map_kd.empty() )
 			continue;
 
@@ -3068,8 +3068,10 @@ Note:
    in this case.
 
 TODO:
-1. TEXTURE_MAPPING: Apply vtxList[].normal OR triList[].vtx[].vn
+1. Case TEXTURE_MAPPING: Apply vtxList[].normal OR triList[].vtx[].vn
     for lighting vector.(NOW is triList[].normal, vpts[] NOT applied.)
+2. Case TEXTURE_MAPPING:  Apply pixz for each pixel, (NOW use same pixz value,
+   as Z of the centroid, for all pixels in a triangle)
 ---------------------------------------------------------------------*/
 
 ///////////////   Apply triGroupList[] and Material color/map     ///////////////////
@@ -3226,8 +3228,9 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		pts[0].x=roundf(vpts[0].x); pts[0].y=roundf(vpts[0].y);
 		pts[1].x=roundf(vpts[1].x); pts[1].y=roundf(vpts[1].y);
 		pts[2].x=roundf(vpts[2].x); pts[2].y=roundf(vpts[2].y);
+		// pts[].z = vpts[].z,  NOT assigned here.
 
-		/* R4. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648 */
+		/* R4. ---------TEST: Set pixz zbuff. Should init zbuff[] to INT32_MIN: -2147483648, see in caller's main(). */
 		/* A simple test: Triangle center point Z for all pixles on the triangle.  TODO ....*/
 		//gv_fb_dev.pixz=roundf((vtxList[vtidx[0]].pt.z+vtxList[vtidx[1]].pt.z+vtxList[vtidx[2]].pt.z)/3.0);
 		fbdev->pixz=roundf((vpts[0].z+vpts[1].z+vpts[2].z)/3.0);
@@ -3412,7 +3415,16 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			   color=mcolor;
 			   fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
 
+			   #if 0 /* Fill the TriFace */		/* MidasHK_2022_02_09 */
 			   draw_filled_triangle(fbdev, pts);
+			   #else /* pixZ applys */
+			   draw_filled_triangle2(fbdev,pts[0].x, pts[0].y,
+						    pts[1].x, pts[1].y,
+						    pts[2].x, pts[2].y,
+						    /* Views from -z ----> +z  */
+						    -vpts[0].z, -vpts[1].z, -vpts[2].z );
+			   #endif
+
 			}
 			/* ELSE: Apply texture map */
 			else {
@@ -3455,7 +3467,8 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	                                pts[1].x, pts[1].y,
         	                        pts[2].x, pts[2].y
                 	        );
-			  #else /* OPTION_3: Barycentric coordinates mapping, INT type x/y. TODO: to apply vpts[[ */
+			  #else /* OPTION_3: Barycentric coordinates mapping, INT type x/y. TODO: to apply vpts[] */
+				#if 0 /* without z0,z1,z2 */
 		        	egi_imgbuf_mapTriWriteFB3(imgKd, fbdev,
 					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2 */
         	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,  /* 1.0-x: Adjust uv ORIGIN */
@@ -3465,6 +3478,19 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	                                roundf(pts[1].x), roundf(pts[1].y),
         	                        roundf(pts[2].x), roundf(pts[2].y)
                 	        );
+				#else /* with z0,z1,z2 */
+		        	egi_imgbuf_mapTriWriteFB3(imgKd, fbdev,
+					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2 */
+        	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,  /* 1.0-x: Adjust uv ORIGIN */
+                	                triList[i].vtx[1].u, 1.0-triList[i].vtx[1].v,
+                        	        triList[i].vtx[2].u, 1.0-triList[i].vtx[2].v,
+                                	roundf(pts[0].x), roundf(pts[0].y),
+	                                roundf(pts[1].x), roundf(pts[1].y),
+        	                        roundf(pts[2].x), roundf(pts[2].y),
+				        /* Views from -z ----> +z  */
+				        -vpts[0].z, -vpts[1].z, -vpts[2].z
+                	        );
+				#endif
 			  #endif
 			}
 

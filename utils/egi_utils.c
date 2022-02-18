@@ -5,7 +5,7 @@ published by the Free Software Foundation.
 
 Utility functions, mem.
 
-Jurnal
+Journal
 2021-02-05:
 	1. Modify egi_fmap_resize(): Must re_mmap after resize the fiel.
 2021-02-09:
@@ -22,6 +22,11 @@ Jurnal
 	1. Add egi_get_fileSize()
 2022-01-04:
 	egi_copy_file(): Option for append the dest file.
+2022-02-16:
+	1. Add egi_read_fileBlock()
+	2. Add egi_copy_fileBlock()
+2022-02-18:
+	1. Add EGI_ID3V2TAG and related functions.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -82,7 +87,7 @@ Return:
 	True	Little endian
 	False	Big endian
 ------------------------------------*/
-bool egi_host_littleEndian(void)
+inline bool egi_host_littleEndian(void)
 {
 	int idat=0x55667788;
 
@@ -774,6 +779,116 @@ int egi_util_mkdir(char *dir, mode_t mode)
         return mkdir(dir,mode);
 }
 
+
+/*-----------------------------------------------------------------
+Read data from the fsrc to fdes.
+
+Note:
+1. FILE fsrc MUST have been properly open (with mode 'rb')
+   and file position already set at right position.
+2. Operation will end when 'size' or 'tnulls' whichever
+   achieves first.
+3. The Caller MUST ensure enough space for fdes.
+
+@fsrc:   Source FILE.
+@fdes:   Dest FILE.
+@tnulls: Numbers if terminating mark '\0's to indicate END of
+         the data block.
+	 1 -- End with '\0'  2 -- End with '\0\0'  3 -- ...
+	 0 -- Ignore.
+@bs:   Size of data block to be copied.
+	 if 0, ignore.
+
+Return:
+	>0	OK, Size of data copied. including terminating NULLs.
+	<0	Fails,
+		!!!! --- WARNING ---- !!!!
+		Content of fdes MAY changed
+		File position MAY changed!
+-------------------------------------------------------------------*/
+int egi_read_fileBlock(FILE *fsrc, char *fdes, int tnulls, size_t bs)
+{
+	size_t k;
+	int  tcnt=0; /* Terminating mark counter */
+
+	if(fsrc==NULL || fdes==NULL)
+		return -1;
+
+   	while(1) {
+	   /* Read one byte each time */
+	   if( fread(fdes+k, 1, 1, fsrc)!=1 ) {
+		return -2;
+	   }
+
+	   /* Update k, as data bytes read out. */
+	   k++;
+
+	   /* Check tnulls */
+	   if( tnulls>0 ) {
+		if( fdes[k-1]=='\0' ) tcnt +=1;
+		else  tcnt=0;  /* Reset */
+
+		if( tcnt == tnulls )
+			return k; 			/* OK */
+	   }
+
+	   /* Check bsize */
+	   if(bs>0 && k==bs)
+		return k;				/* OK */
+   	}
+
+}
+
+
+/*------------------------------------------------------
+Copy data from the fsrc to fdes.
+
+Note:
+1. FILE fsrc and fdes MUST have been properly opened
+   (with mode 'rb'/'wb' etc.) and file positions are
+   preset at right position.
+
+@fsrc:   Source FILE.
+@fdes:   Dest FILE.
+@bs:     Size of data block to be copied.
+
+Return:
+	0	OK, Size of data copied.
+	<0	Fails,
+		!!!! --- WARNING ---- !!!!
+		Content of fdes MAY changed
+		File positions MAY changed!
+-------------------------------------------------------*/
+int egi_copy_fileBlock(FILE *fsrc, FILE *fdest, size_t bs)
+{
+	unsigned char buff[1024];
+	int nb; /* blocks =bs/1024 */
+	int nr; /* remaining =bs%1024 */
+	int k;
+
+	if( fsrc==NULL || fdest==NULL || bs==0 )
+		return -1;
+
+	/* Compute nb/nr */
+	nb = bs/1024;
+	nr = bs&(1024-1);
+
+	/* Copy 1024-blocks */
+	for(k=0; k<nb; k++) {
+		if( fread(buff, 1024, 1, fsrc)!=1 )
+			return -2;
+		if( fwrite(buff, 1024, 1, fdest)!=1 )
+			return -3;
+	}
+
+	/* Copy remaining data */
+	if( fread(buff, nr, 1, fsrc)!=1 )
+		return -4;
+	if( fwrite(buff, nr, 1, fdest)!=1 )
+		return -5;
+
+	return 0;
+}
 
 
 /*---------------------------------------------
@@ -1877,4 +1992,625 @@ int egi_bitstatus_checksum(void *data, size_t size)
 }
 
 
+///////////////////////   ID3V2 Tag Functions   ///////////////////////
+#include <arpa/inet.h>  /* ntohl */
 
+/*-----------------------------------
+Callocate an empty EGI_ID3V2TAG.
+Return:
+	!NULL   OK
+	NULL	Fails
+------------------------------------*/
+EGI_ID3V2TAG *egi_id3v2tag_calloc(void)
+{
+	return calloc(1, sizeof(EGI_ID3V2TAG));
+}
+
+
+/*-----------------------------------
+Free an EGI_ID3V2TAG.
+------------------------------------*/
+void egi_id3v2tag_free(EGI_ID3V2TAG **tag)
+{
+	if(tag==NULL || *tag==NULL)
+		return;
+
+	free( (*tag)->title );
+	free( (*tag)->album );
+	free( (*tag)->performer );
+	free( (*tag)->comment );
+
+	egi_imgbuf_free2(&(*tag)->imgbuf);
+
+	free((*tag));
+	*tag=NULL;
+}
+
+
+/*-----------------------------------------------------------
+Extract ID3V2 tag from a (mp3) file. The ID3V2 Tag Header(10Bytes)
+MUST be located in the very beginning of the file.
+
+
+Note:
+   0. ID3V2 Reference: https://id3.org
+   1. Tag ID3V2 structrue:
+       Tag_Header +Tag_Frame(TagFrameHeader+TagFrameBody) +Tag_Frame(TFH+TFB) +Tag_Frame(TFH+TFB) ...
+
+   2. Struct of [Tag_Header]:
+	Bytes  |   Content
+	0-2	   TAG identifier "ID3"
+	4-7        TAG version, eg 03 00
+	5          Flags
+        6-9	   Size of TAG (It doesnt contain Tag_Header itself)
+		   The most significant bit in each Byte is set to 0 and ignored,
+		   Only remaining 7 bits are used, as to avoid mismatch with audio frame header
+                   which has the first synchro Byte 'FF'.
+
+   3. Struct of [Tag_Frame_Header]:
+	Bytes  |   Content
+	0-3        Frame identifier
+		   TRCK:  Track number
+		   TIME:  time
+		   WXXX:  URL
+	           TCON:  Genre
+		   TYER:  Year
+	     	   TALB:  Album
+		   TPE1:  Lead performer(s)/Soloist(s)
+		   TIT2:  Title/songname/content description
+		   APIC:  Attached picture
+
+		   GEOB:  General encapsulated object
+		   COMM:  Commnets
+		   ... (more)
+	4-7        Size (It doesnt include Tag_Frame_Header itself)
+	8-9	   Flags
+
+   4. Struct of [Tag_Frame_Body]:
+	Depends on Frame identifer, see ID3V2 standard:
+	Example for 'APCI':
+		Text encoding(2Bytes)   $xx  (see Note)
+		MIME type               <text string> $00
+
+		Picture type(2Bytes)    $xx
+					03 Cover(front)
+					04 Cover(back)
+					08 Artist/performer
+					0C Lyricist/text writer
+					...
+		Description     	<text string according to encoding> $00 (00)
+		Picture data    	<binary data>
+					JPEG: starts with 'FF D8'
+					PNG:  starts with ''
+
+    5. Text string in the frame (See "ID3v2 frame overview"  --- Document id3v2.3 )
+     "All numeric strings and URLs are always encoded as ISO-8859-1. Terminated strings are terminated with $00 if encoded with ISO-8859-1,
+     and $00 00 if encoded as unicode If nothing else is said newline character is forbidden. In ISO-8859-1 a new line is represented,
+     when allowed, with $0A only. Frames that allow different types of text encoding have a text encoding description byte directly after
+     the frame size. If ISO-8859-1 is used this byte should be $00, if Unicode is used it should be $01.
+     (Note: others are not mentioned in this standard:  $02 -- UTF-16BE(without BOM), $03 -- UTF8 )
+     Strings dependent on encoding is represented as <text string according to encoding>, or <full text string according to encoding> if
+     newlines are allowed. Any empty Unicode strings which are NULL-terminated may have the Unicode BOM followed by a Unicode NULL
+     ($FF FE 00 00 or $FE FF 00 00)."
+
+
+@fpath:	Full file path.
+
+Return:
+	!NULL	 Ok
+	NULL	 Fails
+-------------------------------------------------------*/
+EGI_ID3V2TAG *egi_id3v2tag_readfile(const char *fpath)
+{
+	FILE *fil=NULL;
+	int err=0;
+	unsigned char ID3V2TagHead[10]={0};   /* Header of the ID3V2TAG (as whole) */
+	unsigned int  ID3V2TagSize=0;         /* Total length of the ID3V2 tag body, MAX 256MB. excluding ID3V2TagHead. */
+
+	unsigned char ID3V2FrameHead[10]={0}; /* Header of each tag frame */
+	char 	      TagFrameID[5];          /* Tag frame identifier */
+	unsigned int  tfbsize=0;   	       /* Size of a tag Frame_Body,
+						* The value is reduced each time frame_data is read out for parsing,
+						* and finanlly set to 0 when whole frame_body is read out.
+						*/
+
+	long  fpos;	           /* current file position */
+	char  encodeType;          /* Text encode type: 0 -- ISO8859-1(ASCII), 1 -- Unicode  3-- UTF-8*/
+
+	/* For text information frame */
+	bool IsHostByteOrder;
+	bool IsTextInfoFrame;
+	char strText[1024];        /* ASCII OR UTF-8 */
+	uint16_t uniTmp;           /* 16-bits unicode 2.o */
+	wchar_t uniText[1024/2];   /* 32-bits Unicode */
+	int len;
+	int i;
+
+	/* 1. Allocate struct ID3V2TAG */
+	EGI_ID3V2TAG *mp3tag=egi_id3v2tag_calloc();
+	if(mp3tag==NULL)
+		return NULL;
+
+	/* 2. Open (mp3) file */
+	fil=fopen(fpath, "rb");
+	if(fil==NULL) {
+		egi_dperr("Fail to open '%s'", fpath);
+		err=1;
+		goto END_FUNC;
+	}
+
+	/* 3. Read ID3V2 Tag Header, 10Bytes. */
+	if( fread(ID3V2TagHead, 10, 1, fil)!=1 ) {
+		egi_dpstd("Fail to read ID3V2 Tag Header!\n");
+		err=2;
+		goto END_FUNC;
+	}
+
+	/* 4. Confirm ID3V2 identifier "ID3" */
+	if( (ID3V2TagHead[0]=='I' || ID3V2TagHead[0]=='i')
+	   && (ID3V2TagHead[1]=='D' || ID3V2TagHead[1]=='d')
+	   && ID3V2TagHead[2]=='3' ) {
+
+	   /* OK */
+	   //egi_dpstd("ID3V2 tag is found!\n");
+	}
+	else {
+	   egi_dpstd("No ID3V2 tag is found!\n");
+		err=3;
+		goto END_FUNC;
+	}
+
+	/* 5. Get total length of ID3V2 tag
+        bits[6-9]  Size of TAG (It doesnt contain Tag_Header itself)
+                   The most significant bit in each Byte is set to 0 and ignored,
+                   Only remaining 7 bits are used, as to avoid mismatch with audio frame header
+                   which has the first synchro Byte 'FF'.
+	*/
+	ID3V2TagSize= ((ID3V2TagHead[6]&0x7F)<<21) + ((ID3V2TagHead[7]&0x7F)<<14)
+		+ ((ID3V2TagHead[8]&0x7F)<<7) + (ID3V2TagHead[9]&0x7F);
+
+	egi_dpstd("ID3V2 tag body size: %d bytes\n", ID3V2TagSize);
+
+	/* 6. Get current file position */
+	fpos=ftell(fil);
+
+	/* 7. Parse Tag Frame one by one */
+	while( fpos>0 && fpos < ID3V2TagSize ) {
+
+		/* W1. Process Tag Frame Header */
+		/* W1.1 Read ID3V2 Tag Header, 10Bytes */
+		if( fread(ID3V2FrameHead, 10, 1, fil)!=1 ) {
+			//err=;
+			break;
+		}
+
+		/* W1.2 bits[0-3]   Frame identifier */
+		strncpy(TagFrameID, (char *)ID3V2FrameHead, 4);
+		TagFrameID[4]='\0';
+		//egi_dpstd("TagFrameID: %s\n", TagFrameID);
+
+		/* W1.3 bits[4-7]  Tag Frame Body size (It doesnt include Tag_Frame_Header itself) */
+		tfbsize=(ID3V2FrameHead[4]<<24) + (ID3V2FrameHead[5]<<16) + (ID3V2FrameHead[6]<<8) + ID3V2FrameHead[7];
+/* TEST: -------- */
+//		egi_dpstd("[ TagFrame ] TagFrameId: '%s', Frame body length: %d bytes\n", TagFrameID, tfbsize);
+
+		/* W1.4 Notice TODO and TBD: There'are padding bytes when Frame body size is 0? */
+		if(tfbsize<1) {
+			egi_dpstd("Frame body length =0! All followed data are padding bytes?!\n");
+			break;
+		}
+
+		/* W2. Process Tag Frame Body */
+		/* W2.1 Get text encoding type from TextInfo frame, including COMM and APIC, which starts with Text_encoding.
+		 *** NOTE: (see id3v2.3.0 Document)
+		   >1. Text information frame body struct:
+			  Text encoding    $xx
+			  Information    <text string according to encoding>
+		   >2. If nothing else is said a string is represented as ISO-8859-1 characters in the range $20 - $FF.
+  		       Such strings are represented as <text string>, or <full text string> if newlines are allowed,
+		       in the frame descriptions.
+		   >3. Strings dependent on encoding is represented as <text string according to encoding>, or <full text
+		       string according to encoding> if newlines are allowed.
+		   >4. All Unicode strings use 16-bit unicode 2.0 (ISO/IEC 10646-1:1993, UCS-2). Unicode strings must
+		       begin with the Unicode BOM ($FF FE or $FE FF) to identify the byte order.
+		*/
+
+		/*  All/Only text frame identifiers begin with "T", with the exception of the "TXXX" frame */
+		if( (TagFrameID[0]=='T' && strncmp("TXXX",TagFrameID,4)!=0 ) /* Text inf frame */
+		   || strncmp("COMM",TagFrameID,4)==0  			     /* Comment frame, begin with encodeType */
+		   || strncmp("APIC",TagFrameID,4)==0			     /* Picture frame, begin with encodeType */
+		   || strncmp("GEOB",TagFrameID,4)==0			     /* Encapsulated obj frame, begin with encodeType */
+		  ) {
+			/* Check if text information frame */
+			if(TagFrameID[0]=='T')
+				IsTextInfoFrame=true;
+			else
+				IsTextInfoFrame=false;
+
+			if( fread(&encodeType, 1, 1, fil)!=1 ) {
+				err=4;
+				goto END_FUNC;
+			}
+//			egi_dpstd("encodeType: %d\n", encodeType);
+
+			/* Reduce tfbsize */
+			tfbsize -= 1;
+		}
+		else
+			IsTextInfoFrame=false;
+
+		/* W2.2 Parse Frame body */
+		/* W2.2.1  -----> Case text information frames <------
+		 * excluding 'COMM' and 'APIC' frames
+ 		 */
+		if( IsTextInfoFrame ) {
+
+			/* -----> Case Text_Information_Frame <-----
+			 * TIT2: Title/songname/content description
+			 * TALB: Album/Movie/Show title
+			 * TPE1: Lead performer(s)/Soloist(s)
+			 * TRCK: Track number/Position in set
+			 */
+			//if(strncmp("TIT2",TagFrameID,4)==0) {
+			if(tfbsize>1024-1) {
+				strcpy(strText,"<Too Big Size Text>");
+				fseek(fil, tfbsize, SEEK_CUR);
+				tfbsize=0; /* Reset tfbsize */
+			}
+			else {
+				/* IF_1: 16-bits Unicode */
+		   		if(encodeType==1) {
+			  		/* --- NOTICE ---
+					 *  All Unicode strings use 16-bit unicode 2.0 (ISO/IEC 10646-1:1993, UCS-2).
+					 *  Unicode strings must begin with the Unicode BOM ($FF FE or $FE FF) to identify
+					 *  the byte order.
+					 */
+					/* E1. Read Unicode Byte Order Mark */
+				    	if( fread(&uniTmp, 1, 2, fil)!=2 ) {     /* Same as above */
+						err=5; goto END_FUNC;
+					}
+
+					/* E2. Check byte order */
+					/* TODO: Leave a pit here for BigEndian host. >>> */
+					/* Byte order NOT same as host */
+					if( uniTmp==0xFFFE ) { /* then original byte order is 'FEFF' */
+						/* Big Endian */
+						IsHostByteOrder=false;
+/* TEST -------- */
+//						printf("Unicode Byte_Order_Mark: 'FEFF'. \n");
+					}
+					/* Byte order is the same as host */
+					else  { /* uniTmp==0xFEFF,  then original byte order is 'FFFE' */
+						/* Little Endian.  OK, NO need to convert endianess. */
+						IsHostByteOrder=true;
+/* TEST -------- */
+//						printf("Unicode Byte_Order_Mark: 'FFFE'. \n");
+					}
+
+					/* E3. Update tfbsize */
+					tfbsize -=2;
+
+					/* E4. Read all 16-bits Unicodes */
+					memset(uniText, 0, sizeof(uniText));
+					for(i=0; i<tfbsize/2; i++) {
+						if( fread(&uniTmp,2,1,fil)!=1 ) {
+							err=6; goto END_FUNC;
+						}
+
+						/* Endianess conversion */
+						if(IsHostByteOrder)
+							uniText[i]=(wchar_t)uniTmp;
+						else
+							uniText[i]=(wchar_t)ntohl(&uniTmp);
+
+					}
+					/* E5. Convert to UFT-8 */
+					len=cstr_unicode_to_uft8(uniText, strText);
+					if(len>0) {
+						strText[len]='\0'; /* Necessary? --YES!!! */
+/* TEST -------- */
+						egi_dpstd("<--- %s ---> %s\n", TagFrameID, strText);
+					}
+
+					tfbsize=0; /* Reset tfbsize */
+			   	}
+				/* IF_2: UFT-8 encoding */
+			   	else if(encodeType==3) {
+					/* Read all UFT-8 string */
+				    	if( fread(strText, tfbsize, 1, fil)!=1) {
+						err=7; goto END_FUNC;
+					}
+					strText[tfbsize]='\0'; /* Necessary? --YES!!! */
+/* TEST ------- */
+					egi_dpstd("<--- %s ---> %s\n", TagFrameID, strText);
+
+					tfbsize=0; /* Reset tfbsize */
+				}
+				/* IF_3: ASCII */
+			   	else {
+				    	if( fread(strText, tfbsize, 1, fil)!=1) {
+						err=8; goto END_FUNC;
+					}
+					strText[tfbsize]='\0'; /* Necessary? --YES!!! */
+/* TEST ------- */
+					egi_dpstd("<--- %s ---> %s\n", TagFrameID, strText);
+
+					tfbsize=0; /* Reset tfbsize */
+			   	}
+			}
+
+			/*** Fill in EGI_ID3V2TAG struct
+			 * TIT2: Title/songname/content description
+			 * TALB: Album/Movie/Show title
+			 * TPE1: Lead performer(s)/Soloist(s)
+			 */
+			if(strncmp("TIT2",TagFrameID,4)==0)
+				mp3tag->title=strdup(strText);
+			else if(strncmp("TALB",TagFrameID,4)==0)
+				mp3tag->album=strdup(strText);
+			else if(strncmp("TPE1",TagFrameID,4)==0)
+				mp3tag->performer=strdup(strText);
+		}
+		/* W2.2.2  -----> Case COMM: Comment <------
+			Text encoding           $xx
+			Language                $xx xx xx
+			Short content descrip.  <text string according to encoding> $00 (00)
+						(Terminating string: ASIC $00,  Unicode $0000 )
+			The actual text         <full text string according to encoding>
+		*/
+		else if(strncmp("COMM",TagFrameID,4)==0) {
+			char lang[4];
+			char strComm[1024];
+
+			/* tfbsize: Text encoding already read out and tfbsize decreased. see 2.1 */
+
+			/* C1. Read Language code */
+                        if( fread(lang, 1, 3, fil)!=3 ) {
+                        	err=9; goto END_FUNC;
+                        }
+			lang[4-1]='\0';
+
+/* TEST ------- */
+//			egi_dpstd("<--- Comments --->\n Language: %s\n", lang);
+
+			/* C2. Update tfbsize */
+			tfbsize -=3;
+
+			/* C3. Read descriptor + actual text */
+			if(tfbsize>1024-1) {
+				strcpy(strComm,"<Too Big Size Comment>");
+/* TEST ------- */
+				egi_dpstd("----- Too big size comment!\n");
+				fseek(fil, tfbsize, SEEK_CUR); /* Get to frame end. */
+			}
+			else {
+				if( fread(strComm, tfbsize, 1, fil)!=1 ) {
+					err=10; goto END_FUNC;
+				}
+				strComm[tfbsize]='\0';
+
+/* TEST ------- */
+				/* Descriptor */
+//				egi_dpstd(" Descriptor: %s\n", strComm);
+				/* Full comment text. Descriptor terminating: ASIC $00, (UTF-8 $00?)  Unicode $0000 */
+//				egi_dpstd(" Content: %s\n", strComm+strlen(strComm)+(encodeType==1?2:1) );
+			}
+
+			/* C4. Fill in mp3tag */
+			mp3tag->comment=strdup(strComm+strlen(strComm)+(encodeType==1?2:1));
+
+			/* C5. fil seek pos OK */
+			tfbsize=0; /* Reset tfbsize */
+		}
+		/* W2.2.3  ----->  Case APIC: Attached picture <-----
+			Text encoding   $xx
+			MIME type       <text string> $00
+			Picture type    $xx
+			Description     <text string according to encoding> $00 (00)
+			Picture data    <binary data>
+		*/
+		else if(strncmp("APIC",TagFrameID, 4)==0) {
+
+			/* tfbsize: Text encoding already read out and tfbsize decreased. see 2.1 */
+			int ret;
+			char mimeType[16]; /* image/, image/png, image/jpeg */
+			char picType;
+			char picDescript[128]; /* MAX. 64 */
+
+			/* A1. Read MIME type */
+			ret=egi_read_fileBlock(fil, mimeType, 1, 0);  /* fil, dest, tnulls, bsize */
+			if(ret<0) {
+				err=12; goto END_FUNC;
+			}
+
+			/* Update tfbsize */
+			tfbsize -=ret;
+
+
+			/* A2. Read picType */
+			if( fread(&picType, 1, 1, fil)!=1 ) {
+				err=13;	goto END_FUNC;
+			}
+			//egi_dpstd(" Picture type: %d\n", picType);
+
+/* TEST ------- */
+			egi_dpstd("<--- APIC ---> MIME Type: %s,  PicType: %02X\n", mimeType, picType);
+
+/*------------  APIC Picture TYPE ---------------
+$00     Other
+$01     32x32 pixels 'file icon' (PNG only)
+$02     Other file icon
+$03     Cover (front)
+$04     Cover (back)
+$05     Leaflet page
+$06     Media (e.g. lable side of CD)
+$07     Lead artist/lead performer/soloist
+$08     Artist/performer
+$09     Conductor
+$0A     Band/Orchestra
+$0B     Composer
+$0C     Lyricist/text writer
+$0D     Recording Location
+$0E     During recording
+$0F     During performance
+$10     Movie/video screen capture
+$11     A bright coloured fish
+$12     Illustration
+$13     Band/artist logotype
+$14     Publisher/Studio logotype
+------------------------------------------------*/
+
+			/* A3. Update tfbsize */
+			tfbsize -=1;
+
+			/* A4. Read Byte Order Mark if encoding in 16bits-Unicode */
+			if( encodeType==1 ) {
+
+                                       /* --- NOTICE ---
+                                       *  All Unicode strings use 16-bit unicode 2.0 (ISO/IEC 10646-1:1993, UCS-2).
+                                         *  Unicode strings must begin with the Unicode BOM ($FF FE or $FE FF) to identify
+                                         *  the byte order.
+                                         */
+                                        /* Read Unicode Byte Order Mark */
+                                        //if( fread(&uniTmp, 2, 1, fil)!=2 ) {
+                        		if( fread(&uniTmp, 1, 2, fil)!=2 ) {     /* Same as above */
+                                         	err=14; goto END_FUNC;
+                                	}
+
+                                        /* TODO: Leave a pit here for BigEndian host. >>> */
+                                        /* Byte order NOT same as host */
+                                        if( uniTmp==0xFFFE ) { /* then original byte order is 'FEFF' */
+                                                /* Big Endian */
+                                                IsHostByteOrder=false;
+/* TEST ------- */
+//                                                printf("Unicode Byte_Order_Mark: 'FEFF'. \n");
+                                        }
+                                        /* Byte order is the same as host */
+                                        else  { /* uniTmp==0xFEFF,  then original byte order is 'FFFE' */
+                                                /* Little Endian.  OK, NO need to convert endianess. */
+                                                IsHostByteOrder=true;
+/* TEST ------- */
+//                                                printf("Unicode Byte_Order_Mark: 'FFFE'. \n");
+                                        }
+
+                                        /* Update tfbsize */
+                                        tfbsize -=2;
+			}
+
+			/* A5. Read pic descritpion */
+			ret=egi_read_fileBlock(fil, picDescript, encodeType==1?2:1, 0);  /* fil, dest, tnulls, bsize */
+			if(ret<0) {
+				err=15; goto END_FUNC;
+			}
+
+                        /* TODO: Convert to UFT-8  when  encodeType==1 and considering BOM. Refer to E4. */
+
+			/* A6. Update tfbsize */
+			tfbsize -=ret;
+/* TEST ------- */
+			egi_dpstd(" encodeType=%d, ret=%d, Description: %s\n", encodeType, ret, picDescript);
+
+			/* A7. If tfbsize ERROR, too big value, out of ID3V2Tag zone. */
+			fpos=ftell(fil);
+			if(fpos+tfbsize > ID3V2TagSize)  {
+				egi_dpstd("tfbsize ERROR, it's too big! and out of ID3V2Tag zone, Try to adjust to fit in...\n");
+				tfbsize = ID3V2TagSize-fpos;
+			}
+
+			/* A8. Create picture file */
+			FILE *fdest=fopen(TEMP_MP3APIC_PATH, "wb");
+			if( fdest==NULL ) {
+				err=16; goto END_FUNC;
+			}
+			if( egi_copy_fileBlock(fil, fdest, tfbsize)!=0 ) {
+				fclose(fdest);
+				err=17;	goto END_FUNC;
+			}
+
+			/* A9. Close tmp file */
+			fclose(fdest);
+
+			/* A10. Assign mp3tag->imgbuf */
+			if(mp3tag->imgbuf==NULL)
+				mp3tag->imgbuf = egi_imgbuf_readfile(TEMP_MP3APIC_PATH);
+			else  /* More than 1 APIC frames! */
+				egi_dpstd("   -----> More than 1 APIC found! <-----\n");
+
+			tfbsize=0; /* Reset tfbsize */
+		}
+		/* W2.2.4  -----> Case SYLT: Synchronised lyrics/text  <-----
+		 */
+		// else if(strncmp("SYLT",TagFrameID, 4)==0) {
+		//    --- Too complicated! Use TEXT tag seems OK! ---
+		// }
+		/* W2.2.5 -----> Case GEOB: General encapsulated object  <-----
+			Text encoding           $xx
+			MIME type               <text string> $00
+			Filename                <text string according to encoding> $00 (00)
+			Content description     $00 (00)
+			Encapsulated object     <binary data>
+		  */
+		else if(strncmp("GEOB",TagFrameID, 4)==0) {
+			/* tfbsize: Text encoding already read out and tfbsize decreased. see 2.1 */
+			int ret;
+			char mimeType[16]; /* image/, image/png, image/jpeg */
+
+			/* Read MIME type */
+			ret=egi_read_fileBlock(fil, mimeType, 1, 0);  /* fil, dest, tnulls, bsize */
+			if(ret<0) {
+				err=18; goto END_FUNC;
+			}
+			egi_dpstd("<--- GEOB --->  MIME_Type: %s\n", mimeType);
+
+			/* Update tfbsize */
+			tfbsize -=ret;
+
+			/* TODO: Get object */
+
+			/* Go to end of the Frame Body */
+			if( fseek(fil, tfbsize, SEEK_CUR) !=0) {
+				err=18; goto END_FUNC;
+			}
+
+			tfbsize=0; /* Reset tfbsize */
+		}
+		/* W2.2.6  -----> Case ELSE Tags <----- */
+		else {
+			/* Go to end of the Frame Body */
+			if( fseek(fil, tfbsize, SEEK_CUR) !=0) {
+				err=19; goto END_FUNC;
+			}
+
+			tfbsize=0; /* Reset tfbsize */
+		}
+
+		/* Prepare for next tag frame */
+NEXT_FRAME:
+		/* W3. Just move fil pos and clear tag data */
+		if(tfbsize) {
+			if( fseek(fil, tfbsize, SEEK_CUR) !=0) {
+				err=20; goto END_FUNC;
+			}
+		}
+
+		/* W4. Update fpos */
+		fpos=ftell(fil);
+
+/* TEST: ---------- */
+		/* Check fpos relative to ID3V2TagSize */
+//		egi_dpstd("NOW fpos=%ld of %u\n", fpos, ID3V2TagSize);
+
+	} /* End while() */
+
+
+END_FUNC:
+	/* Close file */
+	fclose(fil);
+
+	if(err) {
+		egi_id3v2tag_free(&mp3tag);
+		return NULL;
+	}
+	else
+		return mp3tag;
+}
