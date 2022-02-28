@@ -20,6 +20,7 @@ TODO:
 4. TFT LCD flickering problem. (Under variable environment/circumstance...)
 5. TFT LCD view angle is NOT the same as from each side, be sure to make it
    the right for Left/Right/Top/Bottom sides.
+   View Left/Right symmetrical, however View Top/Bottom NOT etc..
 
 Journal:
 2021-08-27:

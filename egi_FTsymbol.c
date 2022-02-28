@@ -13,6 +13,9 @@ TODO:
 2. FTsymbol_unicode_writeFB(): Check if font data is corrupted! it
    MAY return error advanceX/bitmap.row.width ???  Set a limit
    to avoid it return a too big/samll value!
+3. Remote_font v.s. Local_font
+   Local: A set of English font
+   Remote: Various types of fonts
 
 Journal:
 2021-01-27:

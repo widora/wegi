@@ -4,9 +4,11 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 Usage:
+	./test_http2 -m -s 60 -l -r 3 $(sed -n 4p m3u8.list)
 	./test_http2 -m -s 60 -r 2 (-f)  -l http(s)://......m3u8
 	 -f: ONLY for W<=320 && H<=240
-	    If H>240 || W>320, MPlayer opt '-fs' will force mplayer to quit!
+	    If (H>240 || W>320), MPlayer opt '-fs' will force mplayer to quit!
+
 
 Refrence:
 1. RFC_8216(2017)     HTTP Live Streaming
@@ -45,6 +47,8 @@ Journal:
 2022-01-21:
 	1. Treat with VOD(VideoOnDemand) m3u8. usually it has ONLY one #EXT-X-KEY tag,
 	   and one key data for all segments.
+2022-02-21:
+	1. Add displayInfo()
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -61,10 +65,13 @@ midaszhou@yahoo.com
 #include <egi_cstring.h>
 #include <egi_procman.h>
 #include <egi_aes.h>
-
+#include <egi_fbdev.h>
+#include <egi_FTsymbol.h>
 
 size_t curl_callback(void *ptr, size_t size, size_t nmemb, void *userp);
 void parse_m3u8list(char *strm3u);
+void  displayInfo(const char *ptxt);
+char strbill[256];
 
 char strRequest[EGI_URL_MAX];
 char *dirURL;  /* The last dirURL */
@@ -148,6 +155,26 @@ int main(int argc, char **argv)
   	}
 	EGI_PLOG(LOGLV_INFO,"%s: Start logging...", argv[0]);
 #endif
+
+        /* Initilize sys FBDEV */
+        printf("init_fbdev()...\n");
+        if(init_fbdev(&gv_fb_dev))
+                return -1;
+
+        /* Set sys FB mode */
+        fb_set_directFB(&gv_fb_dev,false);
+        fb_position_rotate(&gv_fb_dev,0);
+        //gv_fb_dev.pixcolor_on=true;             /* Pixcolor ON */
+        //gv_fb_dev.zbuff_on = true;              /* Zbuff ON */
+        //fb_init_zbuff(&gv_fb_dev, INT_MIN);
+
+        /* Load FT fonts */
+        if(FTsymbol_load_appfonts() !=0 ) {
+              printf("Fail to load FT appfonts, quit.\n");
+              return -2;
+        }
+        //FTsymbol_disable_SplitWord();
+
 
 	/* For http,  conflict with curl?? */
 	printf("start egitick...\n");
@@ -330,6 +357,10 @@ void parse_m3u8list(char *strm3u)
 		    remove("/tmp/vall.mp4");
 	}
 
+    	/* Display billboard */
+    	//displayInfo("Downloading...");
+    	displayInfo("下载中...");
+
 	/* 3. Download segment files */
 	for(k=0; k< list->ns; k++) {
 
@@ -340,7 +371,13 @@ void parse_m3u8list(char *strm3u)
 			 list->seqnum,k,latest_Seqnum );
 		egi_dpstd(DBG_BLUE" Sumup durations:%.1fs, SetRecordTime:%ds\nlatest msURI: %s\n"DBG_RESET,
 						durations, recordTime, latest_msURI);
+
+	    	/* Display billboard */
+    		//displayInfo("Waiting...");
+    		displayInfo("等待新片段...");
 		sleep((int)(list->maxDuration/1.5));
+    	    	displayInfo("下载片段...");
+
 		continue;
 	   }
 
@@ -356,6 +393,7 @@ void parse_m3u8list(char *strm3u)
 	   }
 #endif //////////////////////////////////////
 
+    	    //displayInfo("下载片段..."); NOT here, it will flush next displayInfo..
 
 	    /* F0.1 Assemble URL for the media segement file */
 	    strURL[0]=0;
@@ -430,6 +468,7 @@ void parse_m3u8list(char *strm3u)
         		}
 			else {
 				/* Decrytp segment.ts */
+		    	    	displayInfo("解码片段...");
         			if( AES_cbc128_encrypt( (unsigned char *)fmap->fp, fmap->fsize,  /* indata, insize, */
                                 		(unsigned char *)fmap->fp, &outsize,      /* outdata, outsize */
 		                                ukey, uiv, AES_DECRYPT)!=0 ) {            /* ukey, uiv, encode */
@@ -473,7 +512,12 @@ void parse_m3u8list(char *strm3u)
 	    if( recordTime>0 && ((int)durations >= recordTime) )
 		break;
 
-		egi_dpstd(DBG_YELLOW"Totally %d segments downloaded, with durations sumup: %.1fs \n"DBG_RESET, dscnt, durations);
+	    egi_dpstd(DBG_YELLOW"Totally %d segments downloaded, with durations sumup: %.1fs \n"DBG_RESET, dscnt, durations);
+
+	    /* Display billboard */
+	    //sprintf(strbill, "%d segments, duration %.1fs.", dscnt, durations);
+	    sprintf(strbill, "完成下载%d个片段, 总时长%.1f秒.", dscnt, durations);
+	    displayInfo(strbill);
 
 	} /* End for() */
 	//printf("\033[0;32;40m  durations(%.1fs) > recordTime(%ds), OK! \e[0m\n", durations, recordTime);
@@ -498,6 +542,10 @@ void parse_m3u8list(char *strm3u)
 		printf("Start to convert video format...\n");
         	//egi_system("ffmpeg -y -i /tmp/vall.mp4 -f mpeg -s 320x200 -r 20 -q:v 0 -b:v 1200k /tmp/vall.avi");
 
+    		/* Display billboard */
+    		//displayInfo("Converting...");
+    		displayInfo("影片格式转换中...");
+
 		/* -f mpeg do not support -r <20,  320:-2  Width 320, height 2mulitples */
 		if(saveToMMC)
 		   #if 1 /* OK to fit into screen IF movie H/W <= 240/320
@@ -521,9 +569,13 @@ void parse_m3u8list(char *strm3u)
 
 		/* 5.3 Play video */
 		printf("Start to play video...\n");
+	    	/* Display billboard */
+    		//displayInfo("Playing...");
+    		displayInfo("播放中...");
 		for(k=0; k<playRounds; k++) {
 			/* TODO: If H>240 || W>320, OPTION '-fs' will force mplayer to quit! */
-			sprintf(strcmd,"/tmp/MPlayer -ac mad -vo fbdev -vfm ffmpeg -noaspect -framedrop %s -brightness %d %s",
+			//sprintf(strcmd,"/tmp/MPlayer -ac mad -vo fbdev -vfm ffmpeg -noaspect -framedrop %s -brightness %d %s",
+			sprintf(strcmd,"mplayer -ac mad -vo fbdev -vfm ffmpeg -noaspect -framedrop %s -brightness %d %s",
 			          mpoptfs?"-fs":"", brightness, saveToMMC?"/mmc/vall.avi":"/tmp/vall.avi");
 
 			egi_system(strcmd);
@@ -542,4 +594,19 @@ void parse_m3u8list(char *strm3u)
 
 	/* 6. Free and release */
 	m3u_free_list(&list);
+}
+
+
+/*-------------------------------------------------
+   Display information at bottom of the screen.
+--------------------------------------------------*/
+void  displayInfo(const char* ptxt)
+{
+	draw_filled_rect2( &gv_fb_dev,WEGI_COLOR_GRAYB, 0, 240-40, 320-1, 240-1); /* fbdev, x1,y1,x2,y2, color,alpha */
+        FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold,  /* fbdev, face */
+                                      18, 18, (UFT8_PCHAR)ptxt,       /* fw,fh pstr */
+                                      320-10, 1, 4, 5, 240-40+10,     /* pixpl, lines, gap, x0,y0 */
+                                      WEGI_COLOR_BLACK, -1, 240,      /* fontcolor, transpcolor, opaque */
+                                      NULL, NULL, NULL, NULL );       /* *cnt, *lnleft, *penx, *peny */
+	fb_render(&gv_fb_dev);
 }

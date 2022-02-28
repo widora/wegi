@@ -167,7 +167,7 @@ int main(int argc, char **argv)
 				if(fmap)
 					printf("Script %s is used.\n", optarg);
 				else {
-					printf("Fail to load script '%s'!\n");
+					printf("Fail to load script '%s'!\n", optarg);
 					exit(-1);
 				}
 				break;

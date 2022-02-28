@@ -8,6 +8,15 @@ published by the Free Software Foundation.
   1. Visional illusions will mar the appearance of your GUI design.
   2. Always Select correct colours to cover visual defects for your GUI!
 
+			--- COLOR SPACE ---
+  Gray scale:  Monochrome
+  RGB:	       Red/Green/Blue, standard RGB, sRGB
+  YCbCr:       Y/Cb/Cr(YUV),standard YCC
+  CMYK:        Cyan/Magenta/Yellow/Key(black)
+  YCCK:        Y/Cb/Cr/Key
+  bg_sRGB:     big gamut RGB
+  bg_YCC:      big gamut YCC
+  ( https://www.color.org )
 
 TODO: Using pointer params is better than just adding inline qualifier ?
 

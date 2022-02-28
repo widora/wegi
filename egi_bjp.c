@@ -30,6 +30,8 @@ Journal:
 	1. Add: egi_imgbuf_savejpg()
 2021-09-08:
 	1. Add: egi_save_FBjpg()
+2022-02-22:
+	1. egi_imgbuf_loadjpg(): Consider color space case: RGBA(components=4).
 
 Modified and appended by Midas Zhou
 midaszhou@yahoo.com
@@ -235,7 +237,7 @@ unsigned char * open_jpgImg(const char * filename, int *w, int *h, int *componen
 	/* To confirm JPEG/JPG type, simple way. */
 	fread(header,1,2,infile); /* start of image 0xFF D8 */
 	if(header[0] != 0xFF || header[1] != 0xD8) {
-		fprintf(stderr, "SOI(FF D8): 0x%x 0x%x, '%s is NOT a recognizable JPG/JPEG file!\n",
+		fprintf(stderr, "SOI(FF D8): 0x%x 0x%x, '%s' is NOT a recognizable JPG/JPEG file!\n",
 										header[0], header[1],filename);
 		fclose(infile);
 		return NULL;
@@ -244,7 +246,7 @@ unsigned char * open_jpgImg(const char * filename, int *w, int *h, int *componen
 	fseek(infile,-2,SEEK_END); /* end of image 0xFF D9 */
 	fread(header,1,2,infile);
 	if(header[0] != 0xFF || header[1] != 0xD9) {
-		fprintf(stderr, "EOI(FF D9): 0x%x 0x%x, '%s is NOT a recognizable JPG/JPEG file!\n",
+		fprintf(stderr, "EOI(FF D9): 0x%x 0x%x, '%s' is NOT a recognizable JPG/JPEG file!\n",
 									header[0], header[1], filename);
 		fclose(infile);
 		return NULL;
@@ -757,7 +759,15 @@ int egi_imgbuf_loadjpg(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 		printf("egi_imgbuf_loadjpg(): open_jpgImg() fails!\n");
 		return -1;
 	}
-	egi_dpstd("Open a jpg file with size W%dxH%d \n", width, height);
+	egi_dpstd("Open a jpg file with size W%dxH%d, components=%d \n", width, height, components);
+
+
+	/* NOW: Only support component number 1,3,4 as GRAY, RGB, RGBA */
+	if(components!=1 && components!=3 && components!=4) {
+		egi_dpstd("Only supports component number:1,3,4. Sorry.\n");
+		close_jpgImg(imgbuf);
+		return -1;
+	}
 
         /* ------------> Get mutex lock */
 #if 1
@@ -772,11 +782,12 @@ int egi_imgbuf_loadjpg(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 	/* clear old data if any, and reset params */
 	egi_imgbuf_cleardata(egi_imgbuf);
 
+
 	egi_imgbuf->height=height;
 	egi_imgbuf->width=width;
 	EGI_PDEBUG(DBG_BJP,"egi_imgbuf_loadjpg():succeed to open jpg file %s, width=%d, height=%d\n",
 								fpath,egi_imgbuf->width,egi_imgbuf->height);
-	/* alloc imgbuf */
+	/* Allocate imgbuf */
 	egi_imgbuf->imgbuf=calloc(1, width*height*bytpp);
 	if(egi_imgbuf->imgbuf==NULL)
 	{
@@ -786,14 +797,21 @@ int egi_imgbuf_loadjpg(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 		return -3;
 	}
 
-	/* TODO: WARNING: need to be improve here: converting 8bit to 24bit color*/
-	if(components==1) /* 8bit color */
-	{
-		printf(" egi_imgbuf_loadjpg(): WARNING!!!! components is 1. \n");
-		height=height/3; /* force to be 24bit pic, however shorten the height */
+	/* Allocate alpha: MidasHK_2022_02_22 */
+	if( components==4 ) {
+		egi_imgbuf->alpha=calloc(1, width*height);
+		if(egi_imgbuf->alpha==NULL)
+		{
+			egi_dperr("fail to malloc alpha.");
+			free(egi_imgbuf->imgbuf);
+		        pthread_mutex_unlock(&egi_imgbuf->img_mutex);
+			close_jpgImg(imgbuf);
+			return -3;
+		}
 	}
 
-	/* flip picture to be same data sequence of BMP file */
+
+	/* Conver/assign color data to imgbuf */
 	dat=imgbuf;
 	for(i=height-1;i>=0;i--) /* row */
 	{
@@ -802,9 +820,22 @@ int egi_imgbuf_loadjpg(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 //			location= (height-i-1)*width*bytpp + j*bytpp;
 			location= (height-i-1)*width + j;
 
-			color=COLOR_RGB_TO16BITS(*dat,*(dat+1),*(dat+2));
-			*(uint16_t *)(egi_imgbuf->imgbuf+location )=color;
-			dat +=3;
+			/* Gray */
+			if(components==1) {
+				color=COLOR_RGB_TO16BITS(*dat,*dat,*dat);
+				*(uint16_t *)(egi_imgbuf->imgbuf+location )=color;
+			}
+			/* RGB or RGBA */
+			else if(components==3 || components==4) {
+				color=COLOR_RGB_TO16BITS(*dat,*(dat+1),*(dat+2));
+				*(uint16_t *)(egi_imgbuf->imgbuf+location )=color;
+			}
+
+			/* ALPHA */
+			if(components==4) /* ALPHA for RGBA */
+				*(egi_imgbuf->alpha+location)=*(dat+3);
+
+			dat +=components; //dat +=3;
 		}
 	}
 

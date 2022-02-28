@@ -278,7 +278,7 @@ START_REQUEST:
 		if(avgLuma)
 			egi_imgbuf_avgLuma(imgbuf, avgLuma);
 		if(imgbuf) {
-			fb_clear_workBuff(&gv_fb_dev,WEGI_COLOR_DARKPURPLE);
+			fb_clear_workBuff(&gv_fb_dev,WEGI_COLOR_DARKPURPLE); /* OK, for RGBA image as bkgcolor.*/
 			/* imgbuf, fbdev, subnum, subcolor, x0,y0 */
 			egi_subimg_writeFB(imgbuf, &gv_fb_dev, 0, -1, (320-imgW)/2, (240-imgH)/2 );
 		}

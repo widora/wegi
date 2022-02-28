@@ -16,6 +16,7 @@ TODO:
 
 
 Midas Zhou
+midaszhou@yahoo.com
 -----------------------------------------------------------------------*/
 #include "egi.h"
 #include "egi_fbgeom.h"

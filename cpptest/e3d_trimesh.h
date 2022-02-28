@@ -72,7 +72,7 @@ Note:
 TODO:
 1. FBDEV.zbuff[] is integer type, two meshes MAY be viewed as overlapped if distance
    between them is less than 1!
-2. NOW: All pixels of a triangle use the same pixz value for zbuff[], which is the
+2. XXX NOW: All pixels of a triangle use the same pixz value for zbuff[], which is the
    coord. Z value of the barycenter of this trianlge. This causes zbuff error in some
    position! To turn on back facing triangles to see it clearly.
    ( Example: 1. At outline edges  2. double shell meshes... )
@@ -93,6 +93,11 @@ XXX 4. Option to display/hide back faces of meshes.
 4.  In case the triangle degenerates into a line, then we MUST figure out the
     facing(visible) side(s)(with the bigger Z values), before we compute color/Z value
     for each pixel. ( see. in draw_filled_trianglX() and egi_imgbuf_mapTriWriteFBX() )
+
+5.  XXX If some points are within E3D_ProjectFrustum.dv(Distance from the Foucs to viewPlane/projetingPlane)
+    Then the projected image will be distorted!  --- To improve projection algrithm E3D_TriMesh.projectPoints()
+
+6.  E3D_TriMesh.projectPoints(): NOW clip whole Tri if any vtx is out of frustum.
 
 x. AutoGrow vtxList[] and triList[].
 
@@ -1217,6 +1222,7 @@ public:
 	EGI_IMGBUF 	*textureImg;	/* Texture imgbuf
 					 * 1. E3D_TriMesh::readTextureImage() to read image, and then
 					 *    assign it to defMaterial.img_kd.
+					 * 2. Try to free in Destructor of ~E3D_Trimesh(), ALSO in ~E3D_Materil(), BUT OK!
 					 */
 	bool		backFaceOn;	/* If true, display back facing triangles.
 					 * If false, ignore it.
@@ -3130,8 +3136,10 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	    }
 	    /* 1.2 triGroupList[n].mtlID>=0 && mtlList[].img_kd==NULL */
 	    else if( mtlList[ triGroupList[n].mtlID ].img_kd ==NULL ) { /* MidasHK_2022_01_07 */
+		printf("triGroupList[n].mtlID =%d, Use defMaterial.img_kd. \n", triGroupList[n].mtlID);
 		mcolor=mtlList[ triGroupList[n].mtlID ].kd.color16Bits();
 		imgKd = defMaterial.img_kd;
+		//imgKd = textureImg; /* In case USER scale_update meshModel.textureImg! instead of defMaterial.img_kd!! */
 	    }
 	    /* 1.3 triGroupList[n].mtlID>=0 && mtlList[].img_kd!=NULL */
 	    else {
@@ -3210,7 +3218,10 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		if( projectPoints(vpts, 3, projMatrix) !=0 )
 			continue;
 
-		/* TEST: Check range, ONLY simple way.... TODO: by projectPoints() */
+#if 0	/* -------------- TEST: Check range, ONLY simple way.
+		 * Ignore the triangle if all 3 vpts are out of range.
+		 * TODO: by projectPoints()
+		 */
 		for( j=0; j<3; j++) {
 		     if(  (vpts[j].x < 0.0 || vpts[j].x > projMatrix.winW-1 )
 		          || (vpts[j].y < 0.0 || vpts[j].y > projMatrix.winH-1 ) )
@@ -3223,6 +3234,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		     //printf("Tri %d OutWin.\n", i);
 		     continue;
 		}
+#endif
 
 		/* R3. Get 2D points on the screen/view plane  */
 		pts[0].x=roundf(vpts[0].x); pts[0].y=roundf(vpts[0].y);
@@ -3480,7 +3492,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
                 	        );
 				#else /* with z0,z1,z2 */
 		        	egi_imgbuf_mapTriWriteFB3(imgKd, fbdev,
-					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2 */
+					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2, z0,z1,z2 */
         	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,  /* 1.0-x: Adjust uv ORIGIN */
                 	                triList[i].vtx[1].u, 1.0-triList[i].vtx[1].v,
                         	        triList[i].vtx[2].u, 1.0-triList[i].vtx[2].v,

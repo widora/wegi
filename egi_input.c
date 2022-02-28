@@ -4,6 +4,22 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 
+( Input Handlers:  cat /proc/bus/input/devices )
+
+Example:
+I: Bus=0003 Vendor=062a Product=4c01 Version=0110
+N: Name="xxx 2.4G INPUT DEVICE"
+P: Phys=usb-0000:00:14.0-1/input0
+S: Sysfs=/devices/pci0000:00/0000:00:14.0/usb1/1-1/1-1:1.0/0003:062A:4C01.0003/input/input14
+U: Uniq=
+H: Handlers=sysrq kbd event13 leds
+B: PROP=0
+B: EV=120233
+B: KEY=4000000000 0 1000700000000 2102400 0 0
+B: MSC=10
+B: LED=4
+...
+
 	   (linux/input.h)
 more details: https://www.kernel.org/doc/html/latest/input/input-programming.html
 
@@ -567,7 +583,7 @@ static void *egi_mouse_loopread( void* arg )
 			mouse_fd=open( dev_name, O_RDWR|O_CLOEXEC);
 			if(mouse_fd<0) {
 				printf("%s: Open '%s' fail: %s.\n",__func__, dev_name, strerror(errno));
-				tm_delayms(50);
+				tm_delayms(50); //TODO: if() continue...
 			}
 			else if(mouse_fd>0) {
 				printf("%s: Succeed to open '%s'.\n",__func__, dev_name);

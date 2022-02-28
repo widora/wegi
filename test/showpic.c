@@ -44,6 +44,9 @@ Note:
 	      rendering, It runs in the main loop.
 	      Set gif_ctxt with TimeSynchOn=ture AND nloop=0.
 
+Journal:
+2022-02-22:
+	1. Update egi_imgbuf_resize() with param 'keep_ratio'.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -230,7 +233,7 @@ for( i=optind; i<argc; i++) {
 		/* Init. params */
 		Sh=eimg->height;
 		Sw=eimg->width;
-		showimg=egi_imgbuf_resize(eimg, Sw, Sh); /* Same size */
+		showimg=egi_imgbuf_resize(eimg, false, Sw, Sh); /* Same size */
 
 		xp=yp=0;
                 xw=showimg->width>xres ? 0:(xres-showimg->width)/2;
@@ -334,7 +337,7 @@ for( i=optind; i<argc; i++) {
 
 			/* Resize image */
 			egi_imgbuf_free2(&showimg);
-			showimg=egi_imgbuf_resize(eimg, Sw, Sh);
+			showimg=egi_imgbuf_resize(eimg, false, Sw, Sh);
 			if(showimg==NULL) {
 				printf("showimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
 			}
@@ -356,7 +359,7 @@ for( i=optind; i<argc; i++) {
 
 			/* Resize image */
 			egi_imgbuf_free2(&showimg);
-			showimg=egi_imgbuf_resize(eimg, Sw, Sh);
+			showimg=egi_imgbuf_resize(eimg, false, Sw, Sh);
 			if(showimg==NULL) {
 				printf("showimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
 			}
@@ -523,7 +526,7 @@ for( i=optind; i<argc; i++) {
 			}
 			/* Resize image */
 			egi_imgbuf_free2(&showimg);
-			showimg=egi_imgbuf_resize(eimg, Sw, Sh);
+			showimg=egi_imgbuf_resize(eimg, false, Sw, Sh);
 			if(showimg==NULL) {
 				printf("EIMG showimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
 			}
@@ -606,7 +609,7 @@ for( i=optind; i<argc; i++) {
 
 	     	/* Resize each frame of GIF image to get required size! */
 		tmpimg=showimg; /* back it up, in case showimg is NULL. */
-		showimg=egi_imgbuf_resize(gif_ctxt.egif->Simgbuf, Sw, Sh);  /* egif->Simgbuf MAYBE init time with all alphas ==0 */
+		showimg=egi_imgbuf_resize(gif_ctxt.egif->Simgbuf, false, Sw, Sh);  /* egif->Simgbuf MAYBE init time with all alphas ==0 */
 		if(showimg==NULL) {
 			printf("GIF showimg is NULL for Sw=%d, Sh=%d\n", Sw, Sh);
 			showimg=tmpimg;  /* Revive */
