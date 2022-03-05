@@ -14,6 +14,10 @@ TODO:
    however, other threads may not be able to keep up with it.
    try adjusting tm_delayms()...
 
+Journal:
+2022-03-03:
+	1. Add egi_touch_waitPress() and egi_touch_readXYP()
+
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -754,3 +758,361 @@ enum egi_touch_status 	 !!! --- TO see lateset in egi.h --- !!!
 }
 
 
+//////////////////////  touch functions for ADS7846 based touchscreen and sensor  ///////////////////////
+/* NOTE:
+ *	1. Touch sensor as one of input devices, its functions SHOULD be classified in "egi_input.c".
+	   you CAN ALSO call egi_read_kbdcode() to get ABS_X/Y values. HOWEVER, abskey/absvalue in kstat
+	   are NOT buffered! and it ONLY returns the stauts.
+ *	2. Here, the touch sensor input device is assumed to be /dev/input/event0,
+	   while egi_read_kbdcode() scans/monitors all /dev/input/eventX instead.
+	3. Following functions is especially for testing ADS7846 touch screen.
+ */
+
+
+/*-----------------------------------------------------------
+Wait for touch press in BLOCK mode.
+
+Note:
+1. !!! ----- CAUTION ----- !!!
+   fd_touch MUST be open each time before calliing select()!
+   If the touch device has other file descriptor refering
+   to it, then it will affect select() behavour! ???
+
+
+@timeout:  Time interval that select() should block waiting for
+  	   a file descriptor to become ready, the call will block
+	   until either:
+       		*  a file descriptor becomes ready;
+       		*  the call is interrupted by a signal handler; or
+       		*  the timeout expires.
+
+	   If is NULL, then it can block indefinitely.
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------------------*/
+int egi_touch_waitPress(const struct timeval *timeout)
+{
+	int fd_touch; 	/* File descriptor for touch event device */
+	struct timeval tmout;
+        fd_set rfds;
+	int res;
+	int ret=0;
+
+	/* Open input touch device each time before calling select() */
+        if((fd_touch = open(INPUT_TOUCH_DEVNAME, O_RDONLY|O_CLOEXEC, 0))<0)
+		return -1;
+
+        /* Select and read fd[] */
+        FD_ZERO(&rfds);
+	FD_SET(fd_touch, &rfds);
+
+	/* Select fd_touch, with consideration of blocking mode. */
+	if(timeout==NULL)
+	        res=select(fd_touch+1, &rfds, NULL, NULL, NULL); /* Block indefinitely */
+	else {
+		/* Reset timeout value each time before calling select,
+		 * On Linux, select() modifies timeout to reflect the amount of time not slept!
+		 */
+		tmout=*timeout;
+        	res=select(fd_touch+1, &rfds, NULL, NULL, &tmout);
+	}
+
+	if(res<0) {
+		egi_dperr("Fail to select fd_touch");
+		ret=-2;
+	}
+	else if(res==0) { /* Impossible when timeout set as NULL ?? */
+		egi_dpstd("Select res=0!\n");
+		ret=-3;
+	}
+	//else
+	//	egi_dpstd("res=%d\n", res);
+
+	/* Close fd_touch */
+	close(fd_touch);
+
+	return ret;
+}
+
+/*---------------------------------------------------------------------------
+
+	<<< --- Touchpad 5_points calibration --- >>>
+
+                X--- Calibration refrence points
+    ( A 320x240 LCD + touchpad, with common ORIGIN(0,0) )
+
+   X <-------------------  Max. 320 ------------------> X (0,0)
+   ^  x[2]y[2]                                x[0]y[0]  ^
+   |                                                    |
+   |                                                    |
+   |                                                    |
+  Max. 240                 X x[4]y[4]                Max. 240
+   |                                                    |
+   |                                                    |
+   |                                                    |
+   V   x[3]y[3]                               x[1]y[1]  V
+   X <-------------------  Max. 320 ------------------> X
+
+Tpxy --- Touch pad XY coordinate data read from input device adsXXX.
+Lpxy --- LCD XY coordinates in pixels.
+
+T1. Touch point data corresponding to LCD coordinates.
+ Tpxy[0]:(349,209) Tpxy[1]:(3522,210) Tpxy[2]:(542,3459) Tpxy[3]:(3482,3687) Tpxy[4]:(2113,2074)
+ Lpxy[]={ (333,188), (3750,188), (295,3695), (3830,3675), (2080,1965) }
+
+T2. Computation for factX/Y and center Base point XY.
+ factX= 1.0*((Lpx[1]-Lpx[0] + Lpx[3]-Lpx[2])/2) / ((Tpx[1]-Tpx[0] + Tpx[3]-Tpx[2])/2);
+ factY= 1.0*((Lpy[2]-Lpy[0] + Lpy[3]-Lpy[1])/2) / ((Tpy[2]-Tpy[0] + Tpy[3]-Tpy[1])/2);
+
+ factX=1.0*240/(((3750-333)+(3830-295))/2)=0.0690;
+ factY=1.0*320/(((3695-188)+(3675-188))/2)=0.0915;
+ Center base_XY: (2080,1965)  (touch data)
+
+T3. Formula for mapping touch data to LCD coordinate:
+
+   Lpx = (Tpx-baseX)*factX + 240/2;
+   Lpy = (Tpy-baseY)*faceY + 320/2;
+
+
+Note:
+1. The function opens touch input device in nonblocking mode (fd is static here!).
+   and read ABS_X/Y samplings, then map to get corresponding LCD coordinates.
+
+		!!! --- CAUTION --- !!!
+2. File descriptor fd is a static variable here, so this function does NOT support multip-thread!
+
+3. Notice event report sequence in adsxxx driver: BTN_TOUCH, ABS_X, ABS_Y, PRESSURE.
+4. If 'TOUCH preess': then initiate/clear all vars, (XXX in case
+   there are old data still remained in file buffer.)
+5. If 'TOUCH release': then close(fd) and return 1;
+6. If any error happens(except EAGAIN), close(fd) and set fd=-1;
+
+@pt:       Pointer to pass out touch point in LCD coordinates.
+	   (Driver set in MAX 12bits)
+	   If null, ignore.
+@pressure: Pointer to pass out pressure value.
+	   (Driver set in MAX 8bits, Normally return value: ~120 - ~230)
+	   If null, ignore.
+
+Return:
+	0	OK
+	1	Touch release
+	        then *pressure reset to be 0! *pt keeps unchanged!
+	<0 	Fails
+---------------------------------------------------------------------------*/
+int egi_touch_readXYP(EGI_POINT *pt, int *pressure)
+{
+	static int fd=-1;   /* This  */
+	int 	   rc;
+	struct input_event event;
+	const int     np=2;	  /* Exponent for samples */
+	const int     ns=(1<<np); /* samples */
+
+	/* ni, sumTX/TY, tmpX/Y to init/clear in case BTN_TOUCH */
+	int 	      ni=0;		/* sample index */
+	int	      sumTX=0, sumTY=0, sumPress=0; /* sum up all raw X/Y as per ns */
+	int           tmpX=-1,tmpY=-1, tmpP=-1;     /* <0 as invalid */
+//	static bool   Tpressing=false;   /* the first press point */
+
+	/* Conversion factors */
+	const float factX=0.0690;
+	const int   factX_num=690, factX_div=10000; /* For fixed point */
+	const float factY=0.0915;
+	const int   factY_num=915, factY_div=10000;
+	const int   baseX=2080, baseY=1965; /* TouchPad Center BASE */
+
+	/* Open input touch device */
+	if(fd<0) {
+            if((fd = open(INPUT_TOUCH_DEVNAME, O_RDWR|O_NONBLOCK|O_CLOEXEC, 0))<0)
+//            if((fd = open(INPUT_TOUCH_DEVNAME, O_RDWR, 0))<0)
+		return -1;
+	}
+
+	memset(&event, 0, sizeof(event));
+
+	/* Read ns samples */
+	while(1) {
+		rc=read(fd, &event, sizeof(event));
+
+		/* Break if read error */
+		if( rc<0 ) {
+			/* Close fd is errno is NOT EAGAIN */
+			if(errno!=EAGAIN) {
+			   printf("Read ERROR! rc=%d\n", rc);
+			   close(fd); fd=-1;
+			   break;
+			}
+			else {   /* errno==EAGAIN */
+			   //printf("read EAGAIN!\n");
+			   //usleep(5000);
+			   continue;
+			}
+		}
+
+#if 0 /* TEST: ------------------------- */
+            printf("%-24.24s.%06lu type 0x%04x; code 0x%04x;"
+                " value 0x%08x; ",
+        	ctime(&event.time.tv_sec),
+                event.time.tv_usec,
+                event.type, event.code, event.value);
+#endif
+
+           switch (event.type) {
+		/* S1. Touch Press/release event */
+		case EV_KEY:
+		    switch( event.code ) {
+		       case BTN_TOUCH:    /* BTN_TOUCH: 0x14a */
+			  egi_dpstd("BTN_TOUCH, event.value=%d\n", event.value);
+			  if( event.value ) {
+			        egi_dpstd(" >>>>> TOUCH press \n");
+				//Tpressing=true;
+
+				/* Init and clear. In case there are old data in event buffer before the TOUCH... */
+				ni=0; tmpX=-1; tmpY=-1; tmpP=-1;
+				sumTX=0; sumTY=0; sumPress=0;
+			  }
+			  else {
+			        egi_dpstd(" TOUCH release <<<<<\n");
+				//Tpressing=false;
+
+				/* Empty all data */
+				//read(fd, &event, sizeof(event)); //NO WAY! nonblocking mode!
+
+				/* Clear pressure */
+				if(pressure) *pressure=0;
+
+				/* Note:  */
+				close(fd); fd=-1;
+
+				return 1;
+			  }
+		          break;
+
+		       default:
+			  egi_dpstd("event.code: 0x%x, .value: %d\n", event.code, event.value);
+
+    		    } /* END switch( event.code ) */
+		    break;
+
+		/* S2. Touch position/pressure abs. value */
+                case EV_ABS:
+                    switch (event.code) {
+                       case ABS_X:
+				/* Update tmpX */
+				tmpX=event.value;
+				break;
+                       case ABS_Y:
+				/* Update tmpY */
+				tmpY=event.value;
+			        break;
+                       case ABS_PRESSURE:
+				/* Update tmpP */
+				tmpP=event.value;
+				break;
+                       default:            break;
+                    }
+
+		    /* Update touch status */
+		    //touch.status=pressed_hold;
+                    break;
+	   } /* END switch(evetn.type) */
+
+	   /* NOTE: Event report sequence in adsxxx driver: BTN_TOUCH, ABS_X, ABS_Y, PRESSURE */
+
+	   /* Check caller's read choice: 'pt' and/or/neither 'pressure'  */
+	   /* C1. Only 'pt' */
+	   if( pt && !pressure ) {
+	   	   /* Assume ABS_X ALWAYS preceds ABS_Y and come as a pair!!!  Ignore invalid data. */
+		   if(tmpY>=0 && tmpX<0 ) {
+			printf(" ---- X Missing ----\n");
+			tmpY = -1; /* Reset Y */
+			continue;
+		   }
+		   /* Sum up XYP. ONLYABS_X,ABS_Y and PRESSURE events all have been received.  */
+		   else if(ni<ns && tmpX>=0 && tmpY>=0 ) {
+			sumTX += tmpX;
+			sumTY += tmpY;
+
+			egi_dpstd("tmpXYP[%d]: (%d, %d)\n", ni, tmpX, tmpY);
+
+			tmpX=-1; tmpY=-1; /* reset */
+			ni++; /* Sampling increment */
+//		   	printf(": ni=%d, sumTX=%d, sumTY=%d\n", ni, sumTX, sumTY);
+	   	}
+	   }
+	   /* C2. Both 'pt' and 'pressure' */
+	   else if( pt && pressure ) { /* pressure!=NULL */
+		   /* Check sequence and missing events */
+		   if(tmpY>=0 && tmpX<0 ) {
+			egi_dpstd(" ---- X Missing ----\n");
+			tmpY = -1; /* Reset Y */
+			tmpP = -1; /* Reset P */
+			continue;
+		   }
+		   else if( tmpP>=0 && tmpY<0 ) {
+			egi_dpstd(" ---- Y Missing ----\n");
+			tmpX = -1;
+			tmpP = -1;
+		   }
+		   /* Sum up XYP. ONLYABS_X,ABS_Y and PRESSURE events all have been received.  */
+		   else if(ni<ns && tmpX>=0 && tmpY>=0 && tmpP>=0 ) {
+			sumTX += tmpX;
+			sumTY += tmpY;
+			sumPress +=tmpP;
+
+			egi_dpstd("tmpXYP[%d]: (%d, %d), %d \n", ni, tmpX, tmpY, tmpP);
+
+			tmpX=-1; tmpY=-1; tmpP=-1; /* reset */
+			ni++; /* Sampling increment */
+//		   	printf(": ni=%d, sumTX=%d, sumTY=%d\n", ni, sumTX, sumTY);
+	   	}
+	   }
+	   /* C3. Only 'pressure' */
+	   else if(pressure) {
+		if(ni<ns && tmpP>=0) {
+			sumPress +=tmpP;
+			printf("pressure[%d]: %d \n", ni, tmpP);
+
+			tmpP=-1; /* reset */
+			ni++; /* Sampling increment */
+		}
+	   }
+
+	   /* Checking (ns) samplings */
+	   if(ni==ns)
+		break;
+
+	} /* END While() */
+
+	/* If while() breaks unexpectedly, ni!=ns then. */
+	if(rc<0) {
+//		printf("Read touch fails! rc=%d\n", rc);
+		close(fd); fd=-1;
+		return -3;
+	}
+
+	/* Average samplings, and map to get LCD coordinates. */
+	if(pt) {
+	   sumTX >>=np;  /* Average TX/TY */
+	   sumTY >>=np;
+
+	   /* Convert to get Pxy */
+	   #if 0 /* Facts in float point */
+           pt->x=(sumTX-baseX)*factX + 240/2;
+           pt->y=(sumTY-baseY)*factY + 320/2;
+	   #else /* Facts in fixed point */
+           pt->x=(sumTX-baseX)*factX_num/factX_div + 240/2;
+           pt->y=(sumTY-baseY)*factY_num/factY_div + 320/2;
+	   #endif
+	}
+	if(pressure) {
+	   sumPress >>=np;
+	   *pressure=sumPress;
+	}
+
+/* TEST: ------------- */
+       	//close(fd);
+
+	return 0;
+}

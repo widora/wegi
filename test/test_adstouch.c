@@ -3,10 +3,9 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-A test for adsXXX touch driver.
+A test for ads7846 touch screen driver.
 
-Also Refer to touchscreen_calib.c
-
+Also refer to touchscreen_calib.c
 
 
 TODO:
@@ -24,6 +23,9 @@ Journal:
 2022-02-24: Adjust factXY.
 2022-02-25: Add egi_touch_readXY()
 2022-02-28: Add egi_touch_waitPress()
+2022-03-01: egi_touch_readXY():  read out pressure.
+2022-03-03: Transfer functions to egi_touch.c.
+2022-03-05: Test egi_read_kbdcode() for touch data.
 
 Midas Zhou
 midaszhou@yahoo.com
@@ -38,12 +40,12 @@ midaszhou@yahoo.com
 #include <time.h>
 #include <linux/input.h>
 
+
 #include "egi_debug.h"
 #include "egi_fbdev.h"
 #include "egi_fbgeom.h"
-
-
-#define INPUT_TOUCH_DEVNAME "/dev/input/event0"
+#include "egi_touch.h"
+#include "egi_input.h" /* TEST input */
 
 #if 0 ///////////// Refer to EGI_TOUCH_DATA in egi.h //////////////
 typedef struct egi_touch_data
@@ -61,7 +63,7 @@ typedef struct egi_touch_data
         //struct egi_point_coord coord;
         EGI_POINT       coord;
 
-        /* the sliding deviation of coordXY from the beginnig touch point,
+        /* the sliding deviation of coordXY from the beginning touch point,
         in LCD coordinate */
         int     dx;
         int     dy;
@@ -83,8 +85,10 @@ EGI_TOUCH_DATA touch;
 
 //static float      factX=1.0;      /* Linear factor:  dLpx/dTpx */
 //static float      factY=1.0;      /* Linear factor:  dLpy/dTpy */
+
 static int        Lpx[5]= { 0, 240-1,    0,    240-1, 240/2 };  /* LCD refrence X,  In order of seqnum */
 static int        Lpy[5]= { 0,   0,    320-1,  320-1, 320/2 };  /* LCD refrence Y,  In order of seqnum */
+
 //static int        Lpx[5]= { 35, 240-1-35,    35,    240-1-35, 240/2 };  /* LCD refrence X,  In order of seqnum */
 //static int        Lpy[5]= { 35,   35,    320-1-35,  320-1-35, 320/2 };  /* LCD refrence Y,  In order of seqnum */
 
@@ -94,10 +98,7 @@ uint16_t TpxTest, TpyTest;
 uint16_t LpxTest, LpyTest;
 
 void draw_marks(void);
-
-int egi_touch_waitPress(void);
-int egi_touch_readXY(EGI_POINT *pt);
-
+void kbd_input(void);
 
 /*----------------------------
            MAIN()
@@ -106,28 +107,13 @@ int main(int argc, char **argv)
 {
     	int           rc;
 
-#if 0
-	char          name[64];           /* RATS: Use ok, but could be better */
-   	int           fd = 0;
-    	char          *tmp;
-	int 	      cnt=0;
-#endif
-#if 0
-	struct input_event event;
-
-	const int     ns=16;	/* samples */
-	int 	      ni=0;	/* sample index */
-	int	      sumTX=0, sumTY=0; /* sum up all raw X/Y as per ns */
-	int           tmpX,tmpY;
-#endif
-
         /* Initilize sys FBDEV */
         printf("init_fbdev()...\n");
         if(init_fbdev(&gv_fb_dev))
                 return -1;
 
         /* Set sys FB mode */
-        fb_set_directFB(&gv_fb_dev, true);
+        fb_set_directFB(&gv_fb_dev, false); //true);
         fb_position_rotate(&gv_fb_dev, 1);
         //gv_fb_dev.pixcolor_on=true;             /* Pixcolor ON */
         //gv_fb_dev.zbuff_on = true;              /* Zbuff ON */
@@ -137,37 +123,79 @@ int main(int argc, char **argv)
 	/* Draw marsk */
 	draw_marks();
 
-
-/* TEST: egi_touch_readXY() ---------------- */
+	/* TEST: egi_touch_readXYP() ---------------- */
+	int press;
 	EGI_POINT pt={0,0};
+	EGI_POINT pts, pte;
+	bool	 press_point=false;
 
-	egi_touch_waitPress(); /* Waiting for press on touchpad */
+	egi_touch_waitPress(NULL); /* Waiting for press on touchpad */
+	press_point=true;
+
+#if 0 /* TEST: kbd_input() -------------------- */
+	while(1) {
+		kbd_input();
+		usleep(10000);
+	}
+#endif
+
 	while(1) {
 		 printf("readXY...\n");
-		 rc=egi_touch_readXY(&pt);
+		 rc=egi_touch_readXYP(&pt,&press);
+		 //rc=egi_touch_readXYP(NULL,&press);
 		 if(rc==0) {
 			printf("Touch point: (%d,%d)\n", pt.x, pt.y);
 
-			/* Clear screen */
+			if(!press_point) {
+			   pts=pte; pte=pt;
+			}
+			/* The first pressing point */
+			else {
+			   pts=pt; pte=pt;
+			   press_point=false;
+			}
+
+           #if 0	/* Clear screen */
 			if( pt.x<20 && pt.y<20) {
 				clear_screen(&gv_fb_dev,WEGI_COLOR_DARKGRAY);
 				fb_render(&gv_fb_dev);
 			}
-			else {
-	               		/* Draw a circle there */
+			else
+           #endif
+			{
+	               		#if 0 /* XY: Draw a circle there */
 	        	        fbset_color(WEGI_COLOR_GREEN);
-       		        	draw_circle(&gv_fb_dev, pt.x, pt.y, 10);
+       		        	//draw_circle(&gv_fb_dev, pt.x, pt.y, 6);
+				draw_wline(&gv_fb_dev, pts.x, pts.y, pte.x, pte.y, 5);
+				#endif
+
+				#if 1 /* PRESSURE: Draw circle at center */
+				clear_screen(&gv_fb_dev,WEGI_COLOR_DARKGRAY2);
+	        	        fbset_color(WEGI_COLOR_ORANGE);
+				//fbset_color(egi_color_random(color_light));
+				//draw_circle(&gv_fb_dev, 240/2, 320/2, (press-160)*2); /* Press range: ~150 - ~230 */
+				//draw_filled_circle(&gv_fb_dev, 240/2, 320/2, (press-150)*2); /* Press range: ~150 - ~230 */
+				int k;
+				k=(press-130); //(press-150)*2;  /* Pressure(press) value range: ~150 - ~230 */
+				while(k>10) {
+				   //draw_circle(&gv_fb_dev, 240/2, 320/2, k); /* Press range: ~150 - ~230 */
+				   draw_circle(&gv_fb_dev, pt.x, pt.y, k); /* Press range: ~150 - ~230 */
+				   k-=5; //10;
+				}
+
+				fb_render(&gv_fb_dev);
+				//usleep(5000);
+				#endif
 			}
 		 }
 		 else { //if(rc>0) { /* Released */
 			printf("Wait for press...\n");
-			while(egi_touch_waitPress()!=0){};
+			egi_touch_waitPress(NULL);
+			press_point=true;
+			//while(egi_touch_waitPress()!=0){};
 			printf("press...\n");
 		 }
 	}
-
-exit(0);
-///////////////////////////////////////////////////
 
     return 0;
 }
@@ -201,243 +229,80 @@ void draw_marks(void)
 }
 
 
-///////////////////////////////////////////////////
-
-
-
-/*-----------------------------------------------------------
-Wait for touch press in BLOCK mode.
+/*--------------------------------------------------------------------
+Call egi_read_kbdcode() to read touch data.
 
 Note:
-1. !!! ----- CAUTION ----- !!!
-   fd_touch MUST be open each time before calliing select()!
-   If the touch device has other file descriptor refering
-   to it, then it will affect select() behavour! ???
+1. ADS7846 reprots event sequence: BTN_TOUCH, ABS_X, ABS_Y, ABS_PRESSURE.
+2. kstat ONLY saves the last one of above abskeys/absvalue!
+3. BTN_TOUCH=0x14a, it's trimmed to be 0x4a in egi_read_kbdcode()!
+4. ABS_PRESSURE absvalue=0 as TOUCH RELEASE
 
-
-Return:
-	0	OK
-	<0	Fails
------------------------------------------------------------*/
-int egi_touch_waitPress(void)
+--------------------------------------------------------------------*/
+void kbd_input(void)
 {
-	int fd_touch; 	/* File descriptor for touch event device */
-	struct timeval tmout;
-        fd_set rfds;
-	int res;
-	int ret=0;
+	/* KBD GamePad status */
+	static EGI_KBD_STATUS kstat={ .conkeys={.abskey=ABS_MAX} };  /* 0-->ABS_X ! */;
 
-	/* Open input touch device each time before calling select() */
-	//if(fd_touch<1) {
-            if((fd_touch = open(INPUT_TOUCH_DEVNAME, O_RDWR|O_CLOEXEC, 0))<0)
-		return -1;
-	//}
+        /* 5.1 Reset lastkey: Let every EV_KEY read ONLY once! */
+        kstat.conkeys.lastkey =0;       /* Note: KEY_RESERVED ==0. */
+	kstat.conkeys.press_abskey=false;
 
-        /* Select and read fd[] */
-        FD_ZERO(&rfds);
-	FD_SET(fd_touch, &rfds);
+	/* 1. Read event devs */
+ 	if( egi_read_kbdcode(&kstat, NULL) )
+		return;
 
-	/* Reset timeout value each time before calling select */
-        //tmout.tv_sec=0;
-        //tmout.tv_usec=10000;
-        res=select(fd_touch+1, &rfds, NULL, NULL, NULL); //&tmout); /* Block forever */
-	if(res<0) {
-		egi_dperr("Fail to select fd_touch");
-		ret=-2;
-	}
-	else if(res==0) { /* Impossible when timeout set as NULL ?? */
-		egi_dpstd("Select res=0!\n");
-		ret=-3;
-	}
-	//else
-	//	egi_dpstd("res=%d\n", res);
+	//printf("Get ks=%d\n", kstat.ks); ks is for conkey only!
 
-	/* Close fd_touch */
-	close(fd_touch);
+	 /* absvalue: 0: ABS_X, 1: ABS_Y, ABS_MAX(0x3F): IDLE */
 
-	return ret;
-}
-
-/*-------------------------------------------------------------
-
-Tpxy[0]:(349,209) Tpxy[1]:(3522,210) Tpxy[2]:(542,3459) Tpxy[3]:(3482,3687) Tpxy[4]:(2113,2074)
-
-Lpx[]={ (333,188), (3750,188), (295,3695), (3830,3675), (2080,1965) }
-
-factX= 1.0*((Lpx[1]-Lpx[0] + Lpx[3]-Lpx[2])/2) / ((Tpx[1]-Tpx[0] + Tpx[3]-Tpx[2])/2);
-factY= 1.0*((Lpy[2]-Lpy[0] + Lpy[3]-Lpy[1])/2) / ((Tpy[2]-Tpy[0] + Tpy[3]-Tpy[1])/2);
-
-factX=1.0*240/(((3750-333)+(3830-295))/2)=0.0690;
-factY=1.0*320/(((3695-188)+(3675-188))/2)=0.0915;
-Center: (2080,1965)
-
-Note:
-1. If 'TOUCH presess': then initiate/clear all vars, in case there are old data
-   still remained in file buffer.
-2. If 'TOUCH release': then close(fd) and return 1;
-
-
-Return:
-	0	OK
-	<0 	Fails
-	>0(1)   Touch release
--------------------------------------------------------------*/
-int egi_touch_readXY(EGI_POINT *pt)
-{
-	static int fd=-1;
-	int rc;
-	struct input_event event;
-	const int     np=1;
-	const int     ns=(1<<np); /* samples */
-
-	/* ni, sumTX/TY, tmpX/Y to init/clear in case BTN_TOUCH */
-	int 	      ni=0;		/* sample index */
-	int	      sumTX=0, sumTY=0; /* sum up all raw X/Y as per ns */
-	int           tmpX=-1,tmpY=-1;  /* <0 as invalid */
-
-	static bool   Tpressing=false;   /* the first press point */
-	EGI_TOUCH_DATA touch;
-
-	/* Conversion factors */
-	const float factX=0.0690;
-	const float factY=0.0915;
-	const int   baseX=2080, baseY=1965; /* TouchPad Center BASE */
-
-	/* Open input touch device */
-	if(fd<0) {
-            if((fd = open(INPUT_TOUCH_DEVNAME, O_RDWR|O_NONBLOCK|O_CLOEXEC, 0))<0)
-		return -1;
+	/* As touch screen event  retport sequence: BTN_TOUCH, ABS_X, ABS_Y, ABS_PRESSURE,
+           So the last conkeys.abskey is always ABS_PRESSURE. */
+	 switch( kstat.conkeys.abskey ) {
+        	case ABS_X:
+                	egi_dpstd("ABS_X: %d\n", kstat.conkeys.absvalue);
+                        break;
+                case ABS_Y:
+                        egi_dpstd("ABS_Y: %d\n", kstat.conkeys.absvalue);
+                        break;
+		case ABS_PRESSURE:
+                        egi_dpstd("ABS_PRESSURE: %d\n", kstat.conkeys.absvalue);
+                default:
+                        break;
 	}
 
 
-	/* Read ns samples */
-        //while ((rc = read(fd, &event, sizeof(event))) > 0) {
-	while(1) {
-		rc=read(fd, &event, sizeof(event));
+	/* NOTICE: kstat abskey/absvalue are NOT buffered! it returns ONLY the last status!
+	 * Usually one call of egi_read_kbdcode() will read ABS_X/ABS_Y/ABS_PRESSURE, however ONLY the
+	 * last ABS_PRESSURE report will be saved in abskey/absvalue.
+	 */
 
-		/* Break if read error */
-		if( rc<0 ) {
-			if(errno!=EAGAIN) {
-			   printf("Read ERROR! rc=%d\n", rc);
-/* TEST: -------------- */
-			   close(fd); fd=-1;
-			   break;
-			}
-			else {   /* errno==EAGAIN */
-//			   printf("read EAGAIN!\n");
-			   continue;
-			}
-		}
+//	printf("kstat.ks=%d\n", kstat.ks);
+	if( kstat.ks>0 && kstat.keycode[0] ==(BTN_TOUCH&0xFF) ) { /* BTN_TOUCH=0x14a, keycode trimmed in egi_read_kbdcode! */
+	     if(kstat.press[0])
+		printf(" ---- BTN_TOUCH down! ----\n");
+	}
 
-#if 0 /* TEST: ------------------------- */
-            printf("%-24.24s.%06lu type 0x%04x; code 0x%04x;"
-                " value 0x%08x; ",
-        	ctime(&event.time.tv_sec),
-                event.time.tv_usec,
-                event.type, event.code, event.value);
-#endif
-
-           switch (event.type) {
-		/* Touch Press/release event */
-		case EV_KEY:
-		    switch( event.code ) {
-		       case BTN_TOUCH:    /* BTN_TOUCH: 0x14a */
-			  if(event.value) {
-			        printf(" >>>>> TOUCH press \n");
-				Tpressing=true;
-
-				/* Init and clear. In case there are old data in event buffer before the TOUCH... */
-				ni=0; tmpX=-1; tmpY=-1;
-				sumTX=0; sumTY=0;
-
-				/* TODO Discard first set of data ??? */
-				//read(fd, &event, sizeof(event));
-			  }
-			  else {
-			        printf(" TOUCH release <<<<<\n");
-				/* Empty all data */
-				//read(fd, &event, sizeof(event)); //NO WAY! nonblocking mode!
-				//while( read(fd, &event, sizeof(event))>0 ) {}
-
-				close(fd);
-				return 1;
-				//Tpressing=false;
-			  }
-
-			  /* Update touch status */
-//			  touch.status= event.value ? pressing : releasing;
-
-		          break;
-		    }
-		    break;
-		  /* Touch position/pressure abs. value */
-                  case EV_ABS:
-                    switch (event.code) {
-                       case ABS_X:
-				/* update tmpX */
-				tmpX=event.value;
+	if( kstat.conkeys.press_lastkey ) {
+		if(kstat.conkeys.lastkey) {
+			egi_dpstd("lastkey code: %d\n", kstat.conkeys.lastkey);
+		   switch(kstat.conkeys.lastkey) {
+			case (BTN_TOUCH & 0xFF): /* BTN_TOUCH=0x14a, keycode trimmed in egi_read_kbdcode! */
+				egi_dpstd("BTN_TOUCH down!\n");
 				break;
-                       case ABS_Y:
-				/* update tmpY */
-				tmpY=event.value;
-			        break;
-                       case ABS_PRESSURE:  break;
-                       default:            break;
-                    }
-
-		    /* Update touch status */
-		    //touch.status=pressed_hold;
-
-                    break;
-	   }
-
-	   /* Assume ABS_X ALWAYS preceds ABS_Y and come as a pair!!!  Ignore invalid data. */
-	   if(tmpY>=0 && tmpX<0) {
-		printf(" ---- X Missing ----\n");
-		tmpY = -1; /* Reset Y */
-		continue;
-	   }
-	   /* Sum up XY. ONLY both ABS_X and ABS_Y events have been received.  */
-	   else if(ni<ns && tmpX>=0 && tmpY>=0 ) {
-		sumTX += tmpX; //(tmpX>>4);
-		sumTY += tmpY; //(tmpY>>4);
-
-		printf("tmpXY[%d]: %d, %d\n", ni, tmpX, tmpY);
-
-		tmpX=-1; tmpY=-1; /* reset */
-
-		ni++; /* Sampling increment */
-//	   	printf(": ni=%d, sumTX=%d, sumTY=%d\n", ni, sumTX, sumTY);
-	   }
-
-	   /* Checking (ns) samplings to average for each PXY. */
-	   if(ni==ns)
-		break;
-
-	} /* END While() */
-
-	/* If while breaks unexpectedly. ni!=ns then. */
-	if(rc<0) {
-//		printf("Read touch fails! rc=%d\n", rc);
-		close(fd);
-		return -3;
+			default:
+				break;
+		   }
+		}
 	}
 
-	/* Compute XY,  TODO: map to touch_pad coord. */
-	if(pt) {
-	   //pt->x = sumTX/ns;
-	   //pt->y = sumTY/ns;
+	/* 5. Reset lastkey/abskey keys if necessary, otherwise their values are remained in kstat.conkey. */
+	/* 5.1 Reset lastkey: Let every EV_KEY read ONLY once! */
+       	kstat.conkeys.lastkey =0;       /* Note: KEY_RESERVED ==0. */
 
-	   sumTX >>=np;  /* Average TX/TY */
-	   sumTY >>=np;
+      	/* 5.2 Reset abskey XXX NOPE, we need ABSKEY repeating function. See enbale_repeat. */
+	if( kstat.conkeys.press_abskey )
+		kstat.conkeys.press_abskey=false;
+	kstat.conkeys.abskey =ABS_MAX; /* NOTE: ABS_X==0!, use ABS_MAX as idle. */
 
-	   /* Convert to get Pxy */
-           pt->x=(sumTX-baseX)*factX + 240/2;
-           pt->y=(sumTY-baseY)*factY + 320/2;
-	}
-
-/* TEST: ------------- */
-       	//close(fd);
-
-	return 0;
 }

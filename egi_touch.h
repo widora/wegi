@@ -31,4 +31,11 @@ enum 		egi_touch_status egi_touch_peekstatus(void);
 void* 		egi_touch_loopread(void);
 
 
+/* Functions for ADS7846 based touchscreen and sensor */
+#include <linux/input.h>
+#define INPUT_TOUCH_DEVNAME "/dev/input/event0"
+int egi_touch_waitPress(const struct timeval *timeout);
+int egi_touch_readXYP(EGI_POINT *pt, int *pressure);
+/* TODO: Save and restore caliberation data */
+
 #endif
