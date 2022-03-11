@@ -68,10 +68,11 @@ int	fbget_zbuff(FBDEV *fb_dev, int x, int y);
 ////////////////  Draw function   ///////////////
    /******  NOTE: for 16bit color only!  ******/
 int 	draw_dot(FBDEV *dev,int x,int y);
+///     See fdraw_dot().
 void 	draw_line_simple(FBDEV *dev,int x1,int y1,int x2,int y2);
 void 	draw3D_line_simple(FBDEV *dev, int x1,int y1, int z1, int x2,int y2, int z2);
 void 	draw_line_antialias(FBDEV *dev,int x1,int y1,int x2,int y2);
-void 	draw_line(FBDEV *dev,int x1,int y1,int x2,int y2);
+void 	draw_line(FBDEV *dev,int x1,int y1,int x2,int y2);  /* wrapper of draw_line_simple() and fraw_line() */
 void 	draw3D_line(FBDEV *dev, int x1,int y1,int z1, int x2,int y2,int z2);
 void 	draw_button_frame( FBDEV *dev, unsigned int type, EGI_16BIT_COLOR color,
                         int x0, int y0, unsigned int width, unsigned int height, unsigned int w);
@@ -96,8 +97,8 @@ void 	draw_warc(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang, unsig
 void 	draw_filled_pieSlice(FBDEV *dev, int x0, int y0, int r, float Sang, float Eang );
 void 	draw_circle(FBDEV *dev, int x, int y, int r);
 void 	draw_pcircle(FBDEV *dev, int x0, int y0, int r, unsigned int w);
-void 	draw_triangle(FBDEV *dev, EGI_POINT *points);
-void 	draw_filled_triangle(FBDEV *dev, EGI_POINT *points);
+void 	draw_triangle(FBDEV *dev, EGI_POINT *points);  			  /* Anti_aliasing ON/OFF */
+void 	draw_filled_triangle(FBDEV *dev, EGI_POINT *points);		  /* Anti_aliasing ON/OFF */
 void 	draw_filled_triangle_outline(FBDEV *dev, EGI_POINT *points);
 
 //void    draw_filled_triangle2(FBDEV *fb_dev, float x0, float y0, float x1, float y1, float x2, float y2,
@@ -111,7 +112,7 @@ void 	draw_filled_triangle4( FBDEV *fb_dev,int x0, int y0, int x1, int y1, int x
                                EGI_16BIT_COLOR color0, EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2 );
 void 	draw_blend_filled_triangle(FBDEV *dev, EGI_POINT *points, EGI_16BIT_COLOR color, uint8_t alpha);
 void 	draw_filled_annulus(FBDEV *dev, int x0, int y0, int r, unsigned int w);
-void 	draw_filled_circle(FBDEV *dev, int x, int y, int r);
+void 	draw_filled_circle(FBDEV *dev, int x, int y, int r);    /* Anti_aliasing ON/OFF */
 
 //////////////// new draw function, with color /////////////
 void 	draw_circle2(FBDEV *dev, int x, int y, int r, EGI_16BIT_COLOR color);
@@ -128,6 +129,11 @@ int 	draw_filled_spline( FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsi
 int 	draw_spline2(FBDEV* dev, int np, EGI_POINT *pxy, int endtype, unsigned int w);
 int 	draw_bezier_curve(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, unsigned int w);
 int 	draw_Bspline(FBDEV *fbdev, int np, EGI_POINT *pxy, float *ws, int deg, unsigned int w);
+
+/* Simple anti-aliasing DRAW functions */
+void 	fdraw_dot(FBDEV *fbdev, float x, float y);
+void 	fdraw_line(FBDEV *dev, float x1, float y1, float x2, float y2);
+void 	fdraw_circle(FBDEV *dev, float x, float y, float r);
 
 int 	fb_cpyto_buf(FBDEV *fb_dev, int x1, int y1, int x2, int y2, uint16_t *buf);
 int 	fb_cpyfrom_buf(FBDEV *fb_dev, int x1, int y1, int x2, int y2, const uint16_t *buf);

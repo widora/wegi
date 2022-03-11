@@ -1474,8 +1474,8 @@ int egi_save_FBbmp(FBDEV *fb_dev, const char *fpath)
 	/* Fill in info header */
 	memset(&info_header,0,sizeof(BITMAPINFOHEADER));
 	info_header.ciSize[0]=40;
-	info_header.ciWidth=240;
-	info_header.ciHeight=320;
+	info_header.ciWidth=fb_dev->pos_xres; //240;  MidasHK_2022_03_08 */
+	info_header.ciHeight=fb_dev->pos_yres; //320;
 	info_header.ciPlanes[0]=1;
 	info_header.ciBitCount=24;
 	*(long *)info_header.ciSizeImage=fb_dev->screensize/2*3; /* to be multiple of 4 */

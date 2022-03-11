@@ -129,8 +129,11 @@ int main(int argc, char **argv)
 	EGI_POINT pts, pte;
 	bool	 press_point=false;
 
-	egi_touch_waitPress(NULL); /* Waiting for press on touchpad */
+
+	/* Waiting for press on touchpad */
+	egi_touch_waitPress(NULL);
 	press_point=true;
+
 
 #if 0 /* TEST: kbd_input() -------------------- */
 	while(1) {

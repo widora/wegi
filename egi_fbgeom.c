@@ -84,6 +84,19 @@ Jurnal
 	2. Add draw_filled_triangle4(), pixZ value applys.
 2021-11-11:
 	1. draw_dot(): fb_dev->zbuff_IgnoreEqual applys.
+2022-03-04:
+	1. Add float_draw_dot()
+2022-03-05:
+	1. Rename float_draw_dot() as fdraw_dot()
+	2. Add fdraw_line()
+2022-03-06:
+	1. Add fdraw_circle()
+2022-03-07:
+	1. draw_line(): calls fdraw_line() if fbdev->antialias_on.
+2022-03-09:
+ 	1. draw_filled_circle(): outer circle for antialiasing effect.
+2022-03-11:
+	1. draw_wline(): Call draw_filled_triangles() to draw thickness.
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com
@@ -1058,6 +1071,145 @@ int draw_dot(FBDEV *fb_dev,int x,int y)
 }
 
 
+/*--------------------------------------------------------
+Draw a dot with anti_aliasing effect, by calling function
+draw_dot().
+
+Note:
+1. 4_Pixel Coverage: One sampling point will affect
+ 4 pixels at most, and alpha values of the 4 pixels are
+ weighed/decided by its lapped/covered area.
+2. Brighter color seems better than darker color.
+
+@fbdev:	Pointer to FBDEV
+@x,y:   Coordinate of a point.
+
+Midas Zhou
+----------------------------------------------------------*/
+void fdraw_dot(FBDEV *fbdev, float x, float y)
+{
+	int ix=floor(x); /* Grid xy as for pixel coordinates. */
+	int iy=floor(y);
+	float dx=x-ix;   /* Deviation */
+	float dy=y-iy;
+
+	//Ignore to check fbdev
+
+	/* (ix,iy) */
+	fbdev->pixalpha=255*(1-dx)*(1-dy);  /* 255*(1-dx)*(1-dy)/1.0 */
+	draw_dot(fbdev, ix,iy);
+
+	/* (ix, iy+1) */
+	fbdev->pixalpha=255*(1-dx)*dy;  /* Notice ranking of types: float > int */
+	draw_dot(fbdev, ix,iy+1);
+
+	/* (ix+1, iy) */
+	fbdev->pixalpha=255*dx*(1-dy);
+	draw_dot(fbdev, ix+1,iy);
+
+	/* (ix+1, iy+1) */
+	fbdev->pixalpha=255*dx*dy;
+	draw_dot(fbdev, ix+1,iy+1);
+
+}
+
+/*-----------------------------------------------------
+Draw a line by calling fdraw_dot().
+
+TODO:
+1. XXX For slope 45/135 deg, the line is much brighter!
+   to adjust step accordingly!
+2. Step=0.5 is 'the best' OR 'the ONLY right value'?
+   concerning the '4_pixel coverage anti_aliasing algrithm'?
+
+-----------------------------------------------------*/
+void fdraw_line(FBDEV *dev, float x1, float y1, float x2, float y2)
+{
+	float k;
+	float xx,yy;
+	float step=0.75;  /* point sampling step, step=DX(DY)=0.5 OR step=DL=0.75 */
+	float tmp;
+
+	/* If the same pixel */
+	if( fabsf(x2-x1)<0.1 && fabsf(y1-y2)<0.1 ) {
+		fdraw_dot(dev, x1, y1);
+		return;
+	}
+
+	/* Calculate slope k */
+	if( x2==x1 ) {  /* Vertical line */
+		k=1.0e8;
+	}
+	else
+		k=(y2-y1)/(x2-x1);
+
+
+	if( fabsf(k)<1.0 ) {
+#if 1		/* Re_Cal step to let step=dl */
+		step=step/sqrt(k*k+1.0);
+#endif
+		/* Swap (x1,y1) and (x2,y2), to make sure x2 >= x1 always */
+		if(x1>x2) {
+			tmp=x1;	x1=x2; x2=tmp;
+			tmp=y1; y1=y2; y2=tmp;
+		}
+	   	/* NOW: x2>=x1 */
+
+		for(xx=x1; xx<x2; xx+=step ) {
+			fdraw_dot(dev, xx,  y1+k*(xx-x1));
+		}
+		/* Draw the END piont */
+		fdraw_dot(dev, x2, y2);
+	}
+	else { /* fabsf(k)>=1.0 */
+#if 1		/* Re_Cal step to let step=dl */
+		step=fabsf(step*k/sqrt(k*k+1.0));
+#endif
+		/* Swap (x1,y1) and (x2,y2), to make sure y2 >= y1 always */
+		if(y1>y2) {
+			tmp=y1;	y1=y2; y2=tmp;
+			tmp=x1; x1=x2; x2=tmp;
+		}
+	   	/* NOW: y2>=y1 */
+
+		for(yy=y1; yy<y2; yy+=step ) {
+			fdraw_dot(dev, x1+(yy-y1)/k, yy);
+		}
+		/* Draw the END piont */
+		fdraw_dot(dev, x2, y2);
+	}
+}
+
+
+/*----------------------------------------------
+draw a circle by calling fdraw_dot().
+
+	(x,y)	circle center
+	r	radius  (>0)
+Midas Zhou
+-----------------------------------------------*/
+void fdraw_circle(FBDEV *dev, float x, float y, float r)
+{
+	float i;
+	float s;
+
+	for(i=0;i<r;i+=0.5)  /* Step 0.5 is the BEST! */
+	{
+//		s=round(sqrt(1.0*r*r-1.0*i*i));
+		s=sqrt(r*r-i*i);
+//		if(i==0)s-=1; /* erase four tips */
+		fdraw_dot(dev,x-s,y+i);
+		fdraw_dot(dev,x+s,y+i);
+		fdraw_dot(dev,x-s,y-i);
+		fdraw_dot(dev,x+s,y-i);
+		/* flip X-Y */
+		fdraw_dot(dev,x-i,y+s);
+		fdraw_dot(dev,x+i,y+s);
+		fdraw_dot(dev,x-i,y-s);
+		fdraw_dot(dev,x+i,y-s);
+	}
+}
+
 /*-----------------------------------------------------------
 Draw a line with simple method (without anti-aliasing effect)
 Note:
@@ -1249,8 +1401,10 @@ void draw_line(FBDEV *dev,int x1,int y1,int x2,int y2)
 {
   #if 1 ///////// Call draw_line_antialias() //////////////////
 
-	if(dev->antialias_on)
-		draw_line_antialias(dev, x1, y1, x2, y2);
+	if(dev->antialias_on) {
+		//draw_line_antialias(dev, x1, y1, x2, y2);
+		fdraw_line(dev,x1,y1,x2,y2);
+	}
 	else
 		draw_line_simple(dev, x1, y1, x2, y2);
 
@@ -1763,12 +1917,18 @@ Midas Zhou
 ----------------------------------------------------------------------*/
 void draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 {
+        /* Case w=1  MidasHK_2022_03_11 */
+        if(w==1 && w==0 ) {
+                draw_line(dev, x1,y1, x2,y2);
+                return;
+        }
+
 	int i;
 	int xr1,yr1,xr2,yr2;
 
 	/* half width, also as circle rad */
-//	int r=w>>1; /* so w=0 and w=1 is the same */
-	int r=w>1 ? (w-1)/2 : 0;  /* w=0 and w=1 is the same, 1_pixel width line */
+	int r=w>>1; /* so w=0 and w=1 is the same */
+	//int r=w>1 ? (w-1)/2 : 0;  /* w=0 and w=1 is the same, 1_pixel width line */
 
 	/* x,y, difference */
 	int ydif=y2-y1;
@@ -1837,12 +1997,12 @@ void draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 
 
 
-
 /*--------------------------------------------------------------------
 Draw A Line with width, with circle at two points.
 x1,x1: starting point
 x2,y2: ending point
 w: width of the line ( W=2*N+1 )
+
 
 NOTE:
 1. If you input w=0, it's same as w=1.
@@ -1850,13 +2010,22 @@ NOTE:
    will fail to get desired effect. Example: w=3 has same effect of w=1.
 w=3 may be same as w=1, because of inaccuracy of fixed_point cal.
 
+TODO:
+1. float r = 0.5*w  and NEW fdraw_filled_triangle()
+
 Midas Zhou
 ----------------------------------------------------------------------*/
 void draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 {
+	/* Case w=1  MidasHK_2022_03_08 */
+	if(w==1 && w==0 ) {
+		draw_line(dev, x1,y1, x2,y2);
+		return;
+	}
+
 	/* half width, also as circle rad */
-//	int r=w>>1; /* so w=0 and w=1 is the same */
-	int r=w>1 ? (w-1)/2 : 0;  /* so w=0 and w=1 is the same */
+	int r=w>>1; /* XXX so w=0 and w=1 is the same */
+	//int r=w>1 ? (w-1)/2 : 0;  /* so w=0 and w=1 is the same */
 
 	int i;
 	int xr1,yr1,xr2,yr2;
@@ -1900,9 +2069,26 @@ void draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 		return;
 	}
 
-   if(fp16_len !=0 )
-   {
-	/* draw multiple lines  */
+#if 1 /* Draw with filled triangles */
+	EGI_POINT pts[5];
+
+	pts[0].x=roundf(x1-1.0*(r*ydif<<16)/fp16_len);
+	pts[0].y=roundf(y1+1.0*(r*xdif<<16)/fp16_len);
+	pts[1].x=roundf(x2-1.0*(r*ydif<<16)/fp16_len);
+	pts[1].y=roundf(y2+1.0*(r*xdif<<16)/fp16_len);
+
+	pts[2].x=roundf(x1+1.0*(r*ydif<<16)/fp16_len);
+	pts[2].y=roundf(y1-1.0*(r*xdif<<16)/fp16_len);
+	pts[3].x=roundf(x2+1.0*(r*ydif<<16)/fp16_len);
+	pts[3].y=roundf(y2-1.0*(r*xdif<<16)/fp16_len);
+
+	pts[4]=pts[1];
+	//pts[4].x = pts[0].x; pts[4].y = pts[0].y;
+
+	draw_filled_triangle(dev, pts);
+	draw_filled_triangle(dev, pts+2);
+
+#else	/* Draw multiple lines  */
 	for(i=0;i<=r;i++)
 	{
 		/* draw UP_HALF multiple lines  */
@@ -1921,8 +2107,7 @@ void draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 
 		draw_line(dev,xr1,yr1,xr2,yr2);
 	}
-   } /* end of len !=0, if len=0, the two points are the same position */
-
+#endif
 
 	/* draw start/end circles */
 	draw_filled_circle(dev, x1, y1, r);
@@ -1993,7 +2178,6 @@ void float_draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w, bo
 		//draw_line(dev,xr1,yr1,xr2,yr2);
 	}
    } /* end of len !=0, if len=0, the two points are the same position */
-
 
 	if(roundEnd) {
 		/* draw start/end circles */
@@ -2580,17 +2764,18 @@ void draw_circle(FBDEV *dev, int x, int y, int r)
 	for(i=0;i<r;i+=0.5)  /* or o.25, there maybe 1 pixel deviation */
 	{
 //		s=round(sqrt(1.0*r*r-1.0*i*i));
-		s=round(sqrt(r*r-i*i));
+		s=roundf(sqrt(r*r-i*i));
+
 //		if(i==0)s-=1; /* erase four tips */
-		draw_dot(dev,x-s,y+i);
-		draw_dot(dev,x+s,y+i);
-		draw_dot(dev,x-s,y-i);
-		draw_dot(dev,x+s,y-i);
+		draw_dot(dev,x-s, y+i);
+		draw_dot(dev,x+s, y+i);
+		draw_dot(dev,x-s, y-i);
+		draw_dot(dev,x+s, y-i);
 		/* flip X-Y */
-		draw_dot(dev,x-i,y+s);
-		draw_dot(dev,x+i,y+s);
-		draw_dot(dev,x-i,y-s);
-		draw_dot(dev,x+i,y-s);
+		draw_dot(dev,x-i, y+s);
+		draw_dot(dev,x+i, y+s);
+		draw_dot(dev,x-i, y-s);
+		draw_dot(dev,x+i, y-s);
 	}
 
 }
@@ -2669,7 +2854,7 @@ void draw_triangle(FBDEV *dev, EGI_POINT *points)
 
 	for(i=0; i<3; i++) {
 		 draw_line(dev, points[i].x, points[i].y,
-				points[(i+1)%3].x, points[(i+1)%3].y );
+			points[(i+1)%3].x, points[(i+1)%3].y );
 	}
 }
 
@@ -2679,6 +2864,9 @@ Draw a a filled triangle.
 
 Note:
   1. fround() to improve accuracy, but NOT speed.
+
+TODO:
+  1. NEW fdraw_filled_triangle() with float type points!
 
 @points:  A pointer to 3 EGI_POINTs / Or an array;
 
@@ -2700,14 +2888,17 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 	float yd=0;
 	float ymu=0;
 
+	float tmp;
+
 	for(i=1;i<3;i++) {
 		if(points[i].x < points[nl].x) nl=i;
 		if(points[i].x > points[nr].x) nr=i;
 	}
 
-	/* three points are collinear */
+	/* If a vertical line. MidasHK_2022_03_11 */
 	if(nl==nr) {
-		draw_pline_nc(dev, points, 3, 1);
+		//draw_pline_nc(dev, points, 3, 1);
+		draw_line(dev, points[nl].x, points[nl].y, points[nr].x, points[nr].y);
 		return;
 	}
 
@@ -2728,15 +2919,21 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 		klm=1.0*(points[nm].y-points[nl].y)/(points[nm].x-points[nl].x);
 	}
 	else
-		klm=1000000.0;
+		klm=1.0e8; //1000000.0;
 
 	if(points[nr].x != points[nm].x) {
 		kmr=1.0*(points[nr].y-points[nm].y)/(points[nr].x-points[nm].x);
 	}
 	else
-		kmr=1000000.0;
+		kmr=1.0e8; //1000000.0;
 
 	//printf("klr=%f, klm=%f, kmr=%f \n",klr,klm,kmr);
+
+	/* If collinear. MidasHK_2022_03_11 */
+	if( fabs(klr-klm)<1.0e-5 && fabs(klr-kmr)<1.0e-5 ) {
+		draw_line(dev, points[nl].x, points[nl].y, points[nr].x, points[nr].y);
+		return;
+	}
 
 	/* draw lines for two tri */
 	for( i=0; i<points[nm].x-points[nl].x+1; i++)
@@ -2744,15 +2941,37 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 		yu=klr*i+points[nl].y;	//points[nl].y+klr*i;
 		yd=klm*i+points[nl].y;	//points[nl].y+klm*i;
 		//printf("part1: x=%d	yu=%d	yd=%d \n", points[nl].x+i, yu, yd);
-		draw_line_simple(dev, points[nl].x+i, roundf(yu), points[nl].x+i, roundf(yd));
+
+		if(dev->antialias_on) {
+		   /* Draw inside complete pixels ONLY,
+		    * TODO however if the shape of a triangle is near to a line, floor()/ceil() will cause big deviation,
+		    * and antialiasing effec maybe NOT good.
+		    */
+		   if(yu>yd)   //{ tmp=yu; yu=yd; yd=tmp; }
+		       draw_line_simple(dev, points[nl].x+i, floorf(yu), points[nl].x+i, ceilf(yd));
+		   else
+		       draw_line_simple(dev, points[nl].x+i, floorf(yd), points[nl].x+i, ceilf(yu));
+		}
+		else
+		       draw_line_simple(dev, points[nl].x+i, roundf(yu), points[nl].x+i, roundf(yd));
 	}
-	ymu=yu;
+	ymu=yu; /* So yu,yd sould NOT swap in above ! */
 	for( i=0; i<points[nr].x-points[nm].x+1; i++)
 	{
 		yu=klr*i+ymu;          //yu=ymu+klr*i;
 		yd=kmr*i+points[nm].y; //yd=points[nm].y+kmr*i;
 		//printf("part2: x=%d	yu=%d	yd=%d \n", points[nm].x+i, yu, yd);
-		draw_line_simple(dev, points[nm].x+i, roundf(yu), points[nm].x+i, roundf(yd));
+
+		if(dev->antialias_on) {
+			/* Draw inside complete pixels ONLY,
+		         * TODO however if the shape of a triangle is near to a line, floor()/ceil() will cause big deviation,
+		         * and antialiasing effec maybe NOT good.
+                         */
+			if(yu<yd) { tmp=yu; yu=yd; yd=tmp; }
+			draw_line_simple(dev, points[nm].x+i, floor(yu), points[nm].x+i, ceilf(yd));
+		}
+		else
+			draw_line_simple(dev, points[nm].x+i, roundf(yu), points[nm].x+i, roundf(yd));
 	}
 
 	/* In case a vertical side. */
@@ -2763,10 +2982,11 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 		draw_line_simple(dev, points[nr].x, points[nr].y, points[nm].x, points[nm].y);
 
 	/* Draw outline: NOTE: draw_triangle() gives a litter bigger outline. */
-	//draw_triangle(dev, points);
+	if(dev->antialias_on)
+		draw_triangle(dev, points);
 }
 
-/*----------------------------------------------------------------
+/*-----------------------------------------------------------------------
 Refer to draw_filled_triangle() also. This function only draws
 the outline/edges of the triangle, use the SAME algrithm as in
 draw_filled_triangle(), so that area/face drawn by draw_filled_triangle()
@@ -2779,7 +2999,7 @@ as for two same points.
 
 
 Midas Zhou
----------------------------------------------------------------*/
+----------------------------------------------------------------------*/
 void draw_filled_triangle_outline(FBDEV *dev, EGI_POINT *points)
 {
 	if(points==NULL)
@@ -2801,7 +3021,7 @@ void draw_filled_triangle_outline(FBDEV *dev, EGI_POINT *points)
 		if(points[i].x > points[nr].x) nr=i;
 	}
 
-	/* three points are collinear */
+	/* three points are collinear, vertical. */
 	if(nl==nr) {
 		draw_pline_nc(dev, points, 3, 1);
 		return;
@@ -4607,7 +4827,13 @@ void draw_blend_filled_annulus( FBDEV *dev, int x0, int y0, int r, unsigned int 
 
 
 /*------------------------------------------------
-  draw a filled circle
+  Draw a filled circle.
+
+ TODO:
+ 1. XXX In some case, an end pixel is missing at left side
+    of the center diameter
+ 2. To incorporate with draw_wline()
+
   Midas Zhou
 -------------------------------------------------*/
 void draw_filled_circle(FBDEV *dev, int x, int y, int r)
@@ -4615,18 +4841,42 @@ void draw_filled_circle(FBDEV *dev, int x, int y, int r)
 	int i;
 	int s;
 
+	if(r<1)r=1;
+
 	for(i=0;i<r;i++)
 	{
-		s=round(sqrt(r*r-i*i));
-		s-=1; /* diameter is always odd */
+		/* Tricky MidasHK_2022_03_09 */
+	   	if(r<2) {
+			s=roundf(sqrt(r*r-i*i));
+			s-=1; /* diameter is always odd */
+		} else {
+			s=roundf(sqrt(r*r-i*i)-0.5); /* r==1 will be a litte bigger */
+	   	}
 
 		//if(i==0)s-=1; /* erase four tips */
-		if(i!=0)	/* Otherwise it will call draw_line(dev,x-s,y,x+s,y) twice! */
-			draw_line(dev,x-s,y+i,x+s,y+i);
-		draw_line(dev,x-s,y-i,x+s,y-i);
+		if(i!=0) {	/* Otherwise it will call draw_line(dev,x-s,y,x+s,y) twice! */
+			//draw_line(dev,x-s,y+i,x+s,y+i);
+			draw_line_simple(dev,x-s,y+i,x+s,y+i); /* To avoid alpha effect */
+		}
+		draw_line_simple(dev,x-s,y-i,x+s,y-i);
 	}
-}
 
+	/* Outer circle again for antialiasing effect.
+	 * Note: draw_circle() and above draw_filled_circle algrithm is NOT consistent!
+	 *   draw_circle() results a litter(MAYBE 1pixel more) bigger.
+	 */
+	if(r>1) {
+	   if(dev->antialias_on) {
+   #if 0 /* TEST: --------- */
+		fbset_color(WEGI_COLOR_BLACK);
+   #endif
+		fdraw_circle(dev,x,y,r);
+	  }
+	  else
+		draw_circle(dev,x,y,r); /* To tender rim and make same as draw_circle */
+	}
+
+}
 
 
 /*----------------------------------------------------------

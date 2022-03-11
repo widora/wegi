@@ -96,6 +96,7 @@ int main(int argc, char **argv)
         if ((fd = open(name, O_RDWR, 0)) >= 0) {
             printf("%s: open, fd = %d\n", name, fd);
 
+#if 0
             for (i = 0; i < LED_MAX; i++) {
                 event.time.tv_sec  = time(0);
                 event.time.tv_usec = 0;
@@ -104,6 +105,7 @@ int main(int argc, char **argv)
                 event.value        = 0;
                 write(fd, &event, sizeof(event));
             }
+#endif
 
             while ((rc = read(fd, &event, sizeof(event))) > 0) {
 
@@ -114,6 +116,7 @@ int main(int argc, char **argv)
                        event.time.tv_usec,
                        event.type, event.code, event.value);
 #endif ///////////////////////////////////////////////////////////
+
 
                 switch (event.type) {
                 case EV_KEY:

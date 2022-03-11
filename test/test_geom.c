@@ -9,7 +9,12 @@ Test EGI FBGEOM functions
 Journal:
 2021-08-30/31:
 	1. Test egi_filled_triangle2/3()
-
+2022-03-04/05:
+	1. Test fdraw_dot()/fdraw_line()
+2022-03-08:
+	1. Test sin/cos graph with anti_aliasing effect.
+2022-03-09:
+	1. Test draw_filled_triangle() and draw_filled_circle()
 
 Midas Zhou
 -----------------------------------------------------------------*/
@@ -24,6 +29,7 @@ Midas Zhou
 #include "egi_common.h"
 #include "egi_FTsymbol.h"
 #include "egi_timer.h"
+#include "egi_math.h"
 
 const wchar_t *wslogan=L"EGI:  孵化在OpenWrt_Widora上                 一款小小小开源UI";
 void display_slogan(void)
@@ -86,7 +92,98 @@ int main(int argc, char ** argv)
 
         /* <<<<------------------  End EGI Init  ----------------->>>> */
 
-#if 1 /* <<<<<<<<<<<<<< TEST: egi_filled_triangle3()  <<<<<<<<<<<<<<< */
+#if 0 /* <<<<<<<<<<<<<< TEST: fdraw_dot(), fdraw_line()  <<<<<<<<<<<<<<< */
+
+	float ang;
+	float kl=1.0; /* Slope of the line */
+	float dk=0.1;
+	float x=0.0;
+	float step=0.5;
+	float r;
+
+        /* Set sys FB mode */
+        fb_set_directFB(&gv_fb_dev, true);
+        fb_position_rotate(&gv_fb_dev, 0);
+        //gv_fb_dev.pixcolor_on=true;             /* Pixcolor ON */
+        //gv_fb_dev.zbuff_on = true;              /* Zbuff ON */
+        //fb_init_zbuff(&gv_fb_dev, INT_MIN);
+
+
+
+    #if 0  //////////////////////  fdraw_line(), fdraw_circle()  /////////////////
+	//fdraw_line(&gv_fb_dev, 0,0, 320,240);
+
+    while(1) {
+	#if 1 /* Draw circle */
+        clear_screen(&gv_fb_dev,WEGI_COLOR_DARKGRAY2);
+	for( r=10; r<200; r+=5) {  //1.5
+		printf("r=%f\n", r);
+		fbset_color(egi_color_random(color_medium));
+		//draw_circle(&gv_fb_dev, 160, 120, r);
+		fdraw_circle(&gv_fb_dev, 160, 120, r);
+	}
+	sleep(2);
+	#endif
+
+	#if 1 /* Draw lines */
+        clear_screen(&gv_fb_dev,WEGI_COLOR_DARKGRAY2);
+	for( ang=0.0; ang<=360; ang+=3.0 ) {
+		printf("ang=%f\n", ang);
+		fbset_color(egi_color_random(color_light)); //medium));
+		fdraw_line(&gv_fb_dev, 160, 120,
+		//draw_line(&gv_fb_dev, 160, 120,
+				160+200.0*cos(MATH_PI*ang/180.0), 120+200.0*sin(MATH_PI*ang/180.0) );
+//		usleep(100000);
+	}
+	sleep(2);
+	#endif
+
+	/* Draw sin */
+//	sleep(2);
+    }
+	exit(0);
+    #endif
+
+
+    #if 0  //////////////////////  fdraw_dot() /////////////////
+
+    clear_screen(&gv_fb_dev,WEGI_COLOR_DARKGRAY2);
+    fbset_color(WEGI_COLOR_ORANGE);
+
+    while(1) {
+	    //for(kl=0.0; kl<30.0; kl+=(kl<10?0.0025:0.1) )
+	    for( ang=0.0, kl=0.0;
+        	 ang<360.0;
+		 ang+=1, kl=tan(MATH_PI*ang/180.0) )
+    	    {
+		printf("kl=%f\n", kl);
+
+	        clear_screen(&gv_fb_dev,WEGI_COLOR_DARKGRAY2);
+
+		//usleep(10000);
+	        //fbset_color(egi_color_random(color_medium));
+
+		/* Draw an oblique line, by drawing a series of float dots. */
+	#if 0
+		for(x=0; x<320.0; x+=step)
+		    fdraw_dot(&gv_fb_dev, x, kl*x);
+	#endif
+
+		for(x=160; x<320.0; x+=step)
+		    fdraw_dot(&gv_fb_dev, x, 120+kl*(x-160));
+		for(x=160; x>0.0; x-=step)
+		    fdraw_dot(&gv_fb_dev, x, 120-kl*(160-x));
+
+		usleep(100000);
+     	     }
+   }
+   exit(0);
+   #endif  //////////////////////  fdraw_dot() /////////////////
+
+#endif
+
+
+#if 0 /* <<<<<<<<<<<<<< TEST: egi_filled_triangle3()  <<<<<<<<<<<<<<< */
 
 	//void draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x2, int y2,
 	//                            EGI_16BIT_COLOR color0, EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2 )
@@ -236,8 +333,7 @@ int main(int argc, char ** argv)
 #endif
 
 
-
-#if 1  /* <<<<<<<<<<<<<<  3. test draw triangle  <<<<<<<<<<<<<<<*/
+#if 0 /* <<<<<<<<<<<<<<  3. test draw triangle  <<<<<<<<<<<<<<<*/
 	int i;
 	int j, k; /* j -- pixlen moved, 0 from right most, k -- triangles drawn before putting slagon */
 	int count;
@@ -256,7 +352,7 @@ int main(int argc, char ** argv)
 	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_DARKGRAY);
 	fb_render(&gv_fb_dev);
 
-    #if 1 /* TEST draw_filled_triangle() and draw_triangle()  -----------*/
+    #if 0 /* TEST draw_filled_triangle() and draw_triangle()  -----------*/
 	EGI_POINT ps[3]={ {160,50}, {50, 200}, {320-50, 200} };
 	fbset_color(WEGI_COLOR_PINK);
 	draw_filled_triangle(&gv_fb_dev, ps);
@@ -283,33 +379,34 @@ while(1) {
 	}
 
 	egi_randp_inbox(&tri_box.startxy, &box);
-	tri_box.endxy.x=tri_box.startxy.x+100;
-	tri_box.endxy.y=tri_box.startxy.y+100;
+	tri_box.endxy.x=tri_box.startxy.x+175;
+	tri_box.endxy.y=tri_box.startxy.y+175;
 
 	for(i=0;i<3;i++)
 		egi_randp_inbox(pts+i, &tri_box);
 
         color=egi_color_random(color_all);
 	fbset_color(color);
-	draw_filled_triangle(&gv_fb_dev, pts);
 
-	gv_fb_dev.antialias_on=true;
+	gv_fb_dev.antialias_on=true; /* Apply fdraw_line() */
+
+	draw_filled_triangle(&gv_fb_dev, pts);
 	draw_triangle(&gv_fb_dev, pts);
+
 	gv_fb_dev.antialias_on=false;
 
 	//fb_render(&gv_fb_dev);
 
-	/* Put slagon */
 	if(k>5){
 		fb_copy_FBbuffer(&gv_fb_dev,FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);
 
+        #if 0 /* Put slagon */
         	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
                 	                        fw, fh,(const UFT8_PCHAR)slogan,  /* fw,fh, pstr */
                         	                3200, 1, 0,                       /* pixpl, lines, fgap */
                                 	        320-j, 110,                 /* x0,y0, */
                                         	WEGI_COLOR_WHITE, -1, 255,        /* fontcolor, transcolor,opaque */
 	                                        NULL, NULL, NULL, NULL);          /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
-   #if 1
 		if( j > 320 + pixlen ) {
 			j=j-pixlen-320/2;
 			/* Redraw, since above writeFB is invisiable */
@@ -329,8 +426,7 @@ while(1) {
 	                                	        NULL, NULL, NULL, NULL);          /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
 
 		}
-
-   #endif
+   	#endif /* END slogan */
 
 		fb_render(&gv_fb_dev);
 		//usleep(60000);
@@ -419,26 +515,50 @@ while(1) {
 #endif
 
 
-#if 0  /* <<<<<<<<<<<<<<  test draw circle  <<<<<<<<<<<<<<<*/
+#if 0  /* <<<<<<<<<<<<<<  test draw_circle()/draw_filled_circle()  <<<<<<<<<<<<<<<*/
 	int k;
-	int r;
+	int x0,y0, r;
 	int rmax, rmin;
 
-	fb_position_rotate(&gv_fb_dev,3);
+        /* Set sys FB mode */
+        fb_set_directFB(&gv_fb_dev, false);
+        fb_position_rotate(&gv_fb_dev, 0);
+        //gv_fb_dev.pixcolor_on=true;             /* Pixcolor ON */
+        //gv_fb_dev.zbuff_on = true;              /* Zbuff ON */
+        //fb_init_zbuff(&gv_fb_dev, INT_MIN);
 
 	clear_screen(&gv_fb_dev,WEGI_COLOR_BLACK);
 	fbset_color(WEGI_COLOR_RED);
 
-  while(1) {
-	rmin=mat_random_range(40)+1;
-	rmax=mat_random_range(50)+60;
-	fbset_color(egi_color_random(color_medium));
-	for(r=rmin; r<rmax; r++)
-		draw_circle(&gv_fb_dev, 160, 120, r);
+	/* Antialiasing ON */
+	gv_fb_dev.antialias_on=true;
 
-	fb_render(&gv_fb_dev);
-	tm_delayms(75);
-  }
+	#if 0 /*  */
+  	while(1) {
+		rmin=mat_random_range(40)+1;
+		rmax=mat_random_range(50)+60;
+		fbset_color(egi_color_random(color_medium));
+		for(r=rmin; r<rmax; r++)
+			draw_circle(&gv_fb_dev, 160, 120, r);
+
+		fb_render(&gv_fb_dev);
+		tm_delayms(75);
+  	}
+	#endif
+
+ 	while(1) {
+		r=mat_random_range(50)+2;
+		x0=mat_random_range(320);
+		y0=mat_random_range(240);
+		fbset_color(egi_color_random(color_all));
+		//fdraw_circle(&gv_fb_dev, x0, y0, r);
+		draw_filled_circle(&gv_fb_dev, x0, y0, r);
+
+		fb_render(&gv_fb_dev);
+		//tm_delayms(75);
+  	}
+
+
 	return 0;
 #endif
 
@@ -544,78 +664,173 @@ while(1) {
 #endif
 
 
-#if 0  /* <<<<<<<<<<<<<<  6. test draw_wline & draw_pline  <<<<<<<<<<<<<<<*/
-/*
-	EGI_POINT p1,p2;
-	EGI_BOX box={{0,0},{240-1,320-1,}};
-   while(1)
-  {
-	egi_randp_inbox(&p1, &box);
-	egi_randp_inbox(&p2, &box);
-	fbset_color(egi_color_random(medium));
-	draw_wline(&gv_fb_dev,p1.x,p1.y,p2.x,p2.y,egi_random_max(11));
+#if 1  /* <<<<<<<<<<<<<<  6. test draw_wline & draw_pline  <<<<<<<<<<<<<<<*/
 
-	usleep(200000);
-  }
-*/
+        /* Set sys FB mode */
+        fb_set_directFB(&gv_fb_dev, false);
+        fb_position_rotate(&gv_fb_dev, 0);
+        //gv_fb_dev.pixcolor_on=true;             /* Pixcolor ON */
+        //gv_fb_dev.zbuff_on = true;              /* Zbuff ON */
+        //fb_init_zbuff(&gv_fb_dev, INT_MIN);
+
+   #if 1   /* ---- draw_wline() --------- */
+	int k;
+	int w;
+	EGI_POINT p1,p2;
+	//EGI_BOX box={{0,0},{240-1,320-1,}};
+	EGI_BOX box={{0,0},{320-1,240-1}};
+
+        /* Antialias ON, to apply fdraw_line(). */
+        gv_fb_dev.antialias_on=true;
+
+   while(1) {
+	for(w=1; w<15; w++) {
+	   printf("w=%d\n", w);
+           clear_screen(&gv_fb_dev,WEGI_COLOR_DARKGRAY2);
+
+	   fbset_color(egi_color_random(color_all));
+	   for(k=0; k<180; k+=10) {
+		p1.x=160+110*sin(MATH_PI*k/180);
+		p1.y=120-110*cos(MATH_PI*k/180);
+		p2.x=160-110*sin(MATH_PI*k/180);
+		p2.y=120+110*cos(MATH_PI*k/180);
+
+		draw_wline(&gv_fb_dev,p1.x,p1.y,p2.x,p2.y,w);
+
+		fb_render(&gv_fb_dev);
+		//usleep(200000);
+	   }
+	   sleep(3);
+	}
+   }
+
+     #if 0
+	while(1)
+  	{
+		egi_randp_inbox(&p1, &box);
+		egi_randp_inbox(&p2, &box);
+		fbset_color(egi_color_random(color_all));
+		w=egi_random_max(20);
+		printf("w=%d \n",w);
+		draw_wline(&gv_fb_dev,p1.x,p1.y,p2.x,p2.y,w);
+
+		fb_render(&gv_fb_dev);
+		usleep(200000);
+  	}
+    #endif
+
+  #endif
+
+	int i;
 	int rad=50; /* radius */
 	int div=4;/* 4 deg per pixel, 240*2=480deg */
-	int num=240/1; /* number of points */
-	EGI_POINT points[240/1]; /* points */
+	int num=320/1; //240/1; /* number of points */
+	EGI_POINT points[320/1]; //[240/1]; /* points */
 	int delt=0;
 
-	mat_create_fptrigontab();/* create lookup table for trigonometric funcs */
+	mat_create_fpTrigonTab();/* create lookup table for trigonometric funcs */
 
 	/* clear areana */
 	fbset_color(WEGI_COLOR_BLACK);
-	draw_filled_rect(&gv_fb_dev,0,30,240-1,320-100);
+	//draw_filled_rect(&gv_fb_dev,0,30,240-1,320-100);
+	draw_filled_rect(&gv_fb_dev,0,0,320-1,240-1);
 
 	/* draw a square area of grids */
-	fbset_color(WEGI_COLOR_GREEN);
-	for(i=0;i<6;i++)
-	 	draw_line(&gv_fb_dev,0,30+5+i*40,240-1,30+5+i*40);
- 	draw_line(&gv_fb_dev,0,30+5+6*40-1,240-1,30+5+6*40-1); //when i=6
+	fbset_color(WEGI_COLOR_GRAY2);//GREEN);
+	for(i=0;i<6;i++) {
+	 	//draw_line(&gv_fb_dev,0,30+5+i*40,240-1,30+5+i*40);
+	 	draw_line(&gv_fb_dev,0, i*40,320-1, i*40);
+	}
+ 	//draw_line(&gv_fb_dev,0,30+5+6*40-1,240-1,30+5+6*40-1); //when i=6
+ 	draw_line(&gv_fb_dev,0, 6*40-1, 320-1, 6*40-1); //when i=6
 
-	for(i=0;i<6;i++)
-	 	draw_line(&gv_fb_dev,0+i*40,30+5,0+i*40,30+5+240-1);
- 	draw_line(&gv_fb_dev,0+6*40-1,30+5,0+6*40-1,30+5+240-1); //when i=6
+	//for(i=0;i<6;i++) {
+	for(i=0;i<8;i++) {
+	 	//draw_line(&gv_fb_dev,0+i*40,30+5,0+i*40,30+5+240-1);
+	 	draw_line(&gv_fb_dev, i*40, 0, i*40, 240-1);
+	}
+ 	//draw_line(&gv_fb_dev,0+6*40-1,30+5,0+6*40-1,30+5+240-1); //when i=6
+ 	draw_line(&gv_fb_dev, 8*40-1, 0, 8*40-1, 240-1); //when i=8
+
+	/* Save as BKG */
+	//fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);
 
 	/* draw wlines */
 	fbset_color(WEGI_COLOR_ORANGE);//GREEN);
-while(1)
-{
+
+   while(1)
+   {
         /* flush FB FILO */
 	printf("start to flush filo...\n");
         fb_filo_flush(&gv_fb_dev);
 	/* draw poly line with FB FILO */
         fb_filo_on(&gv_fb_dev);
 
+	/* Antialias ON, to apply fdraw_line(). */
+	gv_fb_dev.antialias_on=true;
+
 	/* 1. generate sin() points  */
 	for(i=0;i<num;i++) {
 		points[i].x=i;
-		points[i].y=(rad*2*fp16_sin[(i*div+delt)%360]>>16)+40*3+35; /* 4*rad to shift image to Y+ */
+		//points[i].y=(rad*2*fp16_sin[(i*div+delt)%360]>>16)+40*3+35; /* 4*rad to shift image to Y+ */
+		points[i].y=(rad*2*fp16_sin[(i*div+delt)%360]>>16)+40*3; /* shift up axis to center */
 	}
-	fbset_color(WEGI_COLOR_BLUE);//GREEN);
+	fbset_color(WEGI_COLOR_PINK); //BLUE);//GREEN);
 	draw_pline(&gv_fb_dev, points, num, 5);
 
-	/* 2. generate AN OTHER sin() points  */
+	/* 2. generate 2nd sin() points  */
 	for(i=0;i<num;i++) {
 		points[i].x=i;
-		points[i].y=(rad*fp16_sin[( i*div + (delt<<1) )%360]>>16)+40*3+35; /* 4*rad to shift image to Y+ */
+		points[i].y=(rad*6/5*fp16_sin[(i*div*3+delt*4)%360]>>16)+40*3; /* shift up axis to center */
+	}
+	fbset_color(WEGI_COLOR_YELLOW);//GRAYB);
+	draw_pline(&gv_fb_dev, points, num, 1); //5);
+
+	/* 3. generate 3rd sin() points  */
+	for(i=0;i<num;i++) {
+		points[i].x=i;
+		points[i].y=(rad*3/2*fp16_sin[(i*div/2+delt)%360]>>16)+40*3; /* shift up axis */
+	}
+	fbset_color(WEGI_COLOR_RED); //BLUE);//GREEN);
+	draw_pline(&gv_fb_dev, points, num, 1); //5);
+
+	/* 4. generate sin() points  */
+	for(i=0;i<num;i++) {
+		points[i].x=i;
+		//points[i].y=(rad*fp16_sin[( i*div + (delt<<1) )%360]>>16)+40*3+35; /* 4*rad to shift image to Y+ */
+		points[i].y=(rad*fp16_sin[( i*div + (delt<<1) )%360]>>16)+40*3; /* shift up axis */
 	}
 	fbset_color(WEGI_COLOR_ORANGE);//GREEN);
-	draw_pline(&gv_fb_dev, points, num, 5);
+	draw_pline(&gv_fb_dev, points, num, 1); //5);
+
+	/* 5. generate 2nd sin() points  */
+	for(i=0;i<num;i++) {
+		points[i].x=i;
+		//points[i].y=(rad/2*fp16_sin[( i*div + (delt<<2) )%360]>>16)+40*3+35; /* 4*rad to shift image to Y+ */
+		points[i].y=(rad/2*fp16_sin[( i*div + (delt<<2) )%360]>>16)+40*3; /* shift up axis */
+	}
+	fbset_color(WEGI_COLOR_GREEN);//GREEN);
+	draw_pline(&gv_fb_dev, points, num, 1); //5);
+
+	/* Antialias OFF */
+	gv_fb_dev.antialias_on=true;
 
 	/* alway shut off filo after use */
 	fb_filo_off(&gv_fb_dev);
 
-	tm_delayms(80);
+	fb_render(&gv_fb_dev);
+//	tm_delayms(80);
 //	egi_sleep(0,0,150);
 
-	delt+=16;
-}
+	delt+=2; //16;
+   }
+
+
 /* END >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 #endif
+
+
+
 
 
 #if 0 /* <<<<<<<<<<<<<<  6. test line Chart  <<<<<<<<<<<<<<<*/

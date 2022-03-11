@@ -762,9 +762,11 @@ enum egi_touch_status 	 !!! --- TO see lateset in egi.h --- !!!
 /* NOTE:
  *	1. Touch sensor as one of input devices, its functions SHOULD be classified in "egi_input.c".
 	   you CAN ALSO call egi_read_kbdcode() to get ABS_X/Y values. HOWEVER, abskey/absvalue in kstat
-	   are NOT buffered! and it ONLY returns the stauts.
+	   are NOT buffered! and it ONLY returns the last stauts.
  *	2. Here, the touch sensor input device is assumed to be /dev/input/event0,
 	   while egi_read_kbdcode() scans/monitors all /dev/input/eventX instead.
+	   OR you can read '/proc/bus/input/devices' to pick the right event device in /dev/input/event*.
+	   OR mouseX/mice if it also has mouse handler registered.
 	3. Following functions is especially for testing ADS7846 touch screen.
  */
 
@@ -777,7 +779,9 @@ Note:
    fd_touch MUST be open each time before calliing select()!
    If the touch device has other file descriptor refering
    to it, then it will affect select() behavour! ???
-
+2. TODO&TBD
+   If fd_touch is close after select, then all data in file buffer
+   will BE LOST!
 
 @timeout:  Time interval that select() should block waiting for
   	   a file descriptor to become ready, the call will block
@@ -793,15 +797,17 @@ Return:
 -----------------------------------------------------------*/
 int egi_touch_waitPress(const struct timeval *timeout)
 {
-	int fd_touch; 	/* File descriptor for touch event device */
+	static int fd_touch=-1; 	/* File descriptor for touch event device */
 	struct timeval tmout;
         fd_set rfds;
 	int res;
 	int ret=0;
 
 	/* Open input touch device each time before calling select() */
-        if((fd_touch = open(INPUT_TOUCH_DEVNAME, O_RDONLY|O_CLOEXEC, 0))<0)
+	if(fd_touch<0) {
+           if((fd_touch = open(INPUT_TOUCH_DEVNAME, O_RDONLY|O_CLOEXEC, 0))<0)
 		return -1;
+	}
 
         /* Select and read fd[] */
         FD_ZERO(&rfds);
@@ -829,8 +835,8 @@ int egi_touch_waitPress(const struct timeval *timeout)
 	//else
 	//	egi_dpstd("res=%d\n", res);
 
-	/* Close fd_touch */
-	close(fd_touch);
+	/* Close fd_touch. IF close, then data in file buffer will LOST! */
+	//close(fd_touch);
 
 	return ret;
 }
@@ -888,6 +894,9 @@ Note:
 5. If 'TOUCH release': then close(fd) and return 1;
 6. If any error happens(except EAGAIN), close(fd) and set fd=-1;
 
+TODO:
+1. A select() operation in egi_touch_waitPress() will take away the first BTN_TOUCH event!?
+
 @pt:       Pointer to pass out touch point in LCD coordinates.
 	   (Driver set in MAX 12bits)
 	   If null, ignore.
@@ -925,11 +934,8 @@ int egi_touch_readXYP(EGI_POINT *pt, int *pressure)
 	/* Open input touch device */
 	if(fd<0) {
             if((fd = open(INPUT_TOUCH_DEVNAME, O_RDWR|O_NONBLOCK|O_CLOEXEC, 0))<0)
-//            if((fd = open(INPUT_TOUCH_DEVNAME, O_RDWR, 0))<0)
 		return -1;
 	}
-
-	memset(&event, 0, sizeof(event));
 
 	/* Read ns samples */
 	while(1) {

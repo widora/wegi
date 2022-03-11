@@ -46,7 +46,7 @@ int main(int argc, char **argv)
         fb_position_rotate(&fb_dev,0);
 
 
-#if 1   /*  --------------  TEST:  egi_save_FBpng()  ------------- */
+#if 0   /*  --------------  TEST:  egi_save_FBpng()  ------------- */
         /* get time stamp */
         time_t t=time(NULL);
         struct tm *tm=localtime(&t);
@@ -67,7 +67,8 @@ int main(int argc, char **argv)
 #endif
 
 
-#if 0   /*  --------------  TEST:  egi_save_FBbmp()  ------------- */
+#if 1
+   /*  --------------  TEST:  egi_save_FBbmp()  ------------- */
         /* get time stamp */
         time_t t=time(NULL);
         struct tm *tm=localtime(&t);
@@ -83,6 +84,7 @@ int main(int argc, char **argv)
 // show bmp
 //        show_bmp(argv[1],&fb_dev,0,0,0);/* 0-BALCK_ON, 1-BLACK_OFF, 0,0-x0y0 */
 //	return 0;
+	exit(0);
 #endif	/* -------- END TEST  ------- */
 
 

@@ -10,7 +10,7 @@ Usage:
 
 Exampe:
 	./showpic /tmp/bird.png
-	./showpic /tmp/*
+	./showpic /tmp/*.jpg
 
 Note:
 1. Keyboard Control:
@@ -716,6 +716,10 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
                 printf("%s: Fail to mutex lock mostatus.mutex!\n",__func__);
         }
  /*  --- >>>  Critical Zone  */
+
+ 	/* TEST: Re_map touchscreen moustX/Y to Landscape mode
+	   NOPE, NOT here, in egi_mouse_loopread().
+	*/
 
 	/* Pass out mouse data */
 	mostat=*mostatus;

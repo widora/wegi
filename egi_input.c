@@ -161,6 +161,10 @@ TODO: If mouse is disconnected, the mouse_callback() will be hung up.
 2021-07-07:
 	1. (Itme 11.) If abskey value keeps as IDLE(0x7F) aft. readkbd, reset baskey=ABS_MAX to make it invalid!.
 	2. (Item 12.) If press_lastkey keeps FALSE, clear laskey code!
+2022-03-10:
+	1. egi_mouse_loopread(): TEST touchscreen data (handled to /dev/input/mice) maps to mouse movement DX/DY.
+
+
 Midas Zhou
 midaszhou@yahoo.com
 --------------------------------------------------------------------------------------*/
@@ -761,8 +765,70 @@ static void *egi_mouse_loopread( void* arg )
 		        /* 4. Renew status for KeysIdle */
 			mostatus.KeysIdle=(mostatus.LeftKeyUpHold) && (mostatus.RightKeyUpHold) && (mostatus.MidKeyUpHold);
 
-	        	/* 5. Get mouse X */
+#define TEST_TOUCHSCREEN_MOUSE 0
+#if TEST_TOUCHSCREEN_MOUSE /* TEST: Re_map touchscreen moustX/Y for Landscape Mode, mouse XY COORD
+	 Note:
+       * 1. XXX Mouse origin NOT at left top corner, instead at left down corner. ---ok, + for 0!
+       * 2. XXX Screen touch data NOT in sequence occasionally, it makes mouse skip??! ---ok + for 0!
+       */
+
+	unsigned char tok1=mouse_data[0]&0x10;
+	unsigned char tok2=mouse_data[0]&0x20;
+	unsigned char data1=mouse_data[1];  /* mouseDX */
+	unsigned char data2=mouse_data[2];  /* mouseDY */
+
+	#if 0 /* DX = -DY */
+	if(tok2) {
+	     mouse_data[0] &= ~(0x10); /* + */
+	     mouse_data[1] = (~data2)+1; /* - -> + 负数的反码+1就是补码, 即其相反的正数 */
+	} else {
+	   if(data2!=0) {
+	    	mouse_data[0] |= 0x10; /* - */
+	   	mouse_data[1]= 0x100-data2; /* 补码表示负数 */
+	   }
+	   else {
+		mouse_data[0] &= ~(0x10); /* + for 0! */
+		mouse_data[1] =0;
+	   }
+	}
+	#else /* DX = DY */
+	if(tok2)
+		mouse_data[0] |= 0x10; /* - */
+	else
+		mouse_data[0] &= ~(0x10); /* + */
+	mouse_data[1]=data2;
+	#endif
+
+	/* DY = -DX !!! MOUSE COORD, NOT sCREEN coord !!!  */
+	if(tok1) {
+		mouse_data[0] &= ~(0x20);  /* + */
+		mouse_data[2] = (~data1)+1;
+	}
+	else {
+	   if(data1!=0) {
+		mouse_data[0] |= 0x20; /* - */
+		mouse_data[2] = 0x100-data1;  /* 补码表示负数 */
+	   }
+	   else { /* !!! data1==0  */
+		mouse_data[0] &= ~(0x20);  /* + for 0! */
+		mouse_data[2] =0;
+	   }
+	}
+
+#endif
+
+			/* Get mouseDX/DY */
 			mostatus.mouseDX = (mouse_data[0]&0x10) ? mouse_data[1]-256 : mouse_data[1];
+			mostatus.mouseDY = -( (mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2] );
+
+
+#if TEST_TOUCHSCREEN_MOUSE /* TOUCHSCREEN speed adjust to flow up with displaying image, as origin touch ABS_X/Y in 12bits!? */
+		mostatus.mouseDX = mostatus.mouseDX*8/5;
+		mostatus.mouseDY = mostatus.mouseDY*5/6;
+#endif
+
+	        	/* 5. Get mouse X */
+			//mostatus.mouseDX = (mouse_data[0]&0x10) ? mouse_data[1]-256 : mouse_data[1];
 			tmp=mostatus.mouseX;
 	        	mostatus.mouseX += mostatus.mouseDX;
         		if( mostatus.mouseX > gv_fb_dev.pos_xres -5)
@@ -775,7 +841,7 @@ static void *egi_mouse_loopread( void* arg )
 		        /* 6. Get mouse Y: Notice LCD Y direction!  Minus for down movement, Plus for up movement!
 		         * !!! For eventX: Minus for up movement, Plus for down movement!
 		         */
-			mostatus.mouseDY = -( (mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2] );
+			//mostatus.mouseDY = -( (mouse_data[0]&0x20) ? mouse_data[2]-256 : mouse_data[2] );
 			tmp=mostatus.mouseY;
 		        mostatus.mouseY +=mostatus.mouseDY;
 
@@ -1087,6 +1153,9 @@ Note:
 7. For some keyboards: pressing down Left_SHIFT and Right_SHIFT at the same
    time will block further key input.
 
+8. TODO: A select() operation will take away the first event!!?
+   Also see note at egi_touch_readXYP().
+
  @kstat: 	A pointer to EGI_KEY_STATUS.
  @kdev:		Specified input devcie path for keyboard.
 		If null, ignore. then scan and poll /dev/input/eventX.
@@ -1281,6 +1350,7 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 	#endif
                 	switch (event.type) {
 	                   case EV_KEY:
+				/* For touch sensor event code: BTN_TOUCH */
 	#if 0 /* Print key code/value */
         	            	if (event.code > BTN_MISC) {
                		        	printf("Button %d %s", event.code & 0xff,
@@ -1290,8 +1360,9 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 	                       			event.code & 0xff, event.value ? "press" : "release");
                	    		}
 	#endif
+
 				/* Buffer codes/timeval of keyevent. */
-				kstat->keycode[kstat->ks]=event.code & 0xff;
+				kstat->keycode[kstat->ks]=event.code & 0xff; /* TODO: BTN_TOUCH(0x14a) is trimmed! */
 				kstat->press[kstat->ks]=event.value;
 				kstat->tmval[kstat->ks]=event.time;
 				kstat->ks++;
@@ -1303,6 +1374,9 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 				break;
 
 	                case EV_ABS:
+				/* For touch sensor event codes: ABS_X, ABS_Y, ABS_PRESSURE.
+			 	 * Notice that abskey/absvalue are NOT buffered! it ONLY saves the last one!
+				 */
 				kstat->conkeys.abskey = event.code & 0xff;
 				kstat->conkeys.absvalue = event.value; 	/* NOTE! */
 				if(kstat->conkeys.absvalue==0x7F)

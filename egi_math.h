@@ -34,7 +34,7 @@ extern int fp16_cos[360];
 
 /* EGI fixed point / complex number */
 typedef struct {
-int64_t         num;	/* divident */
+int64_t         num;	/* dividend */
 int	        div;	/* divisor, 2 exponent taken 16 */
 } EGI_FVAL;
 

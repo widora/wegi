@@ -165,6 +165,7 @@ struct egi_keyboard_status {
 	/*** Lastest key status for one round of select/read input devices.
 	 *  1.They will be cleared before each reading keyboard. See in egi_read_kbdcode().
 	 *  2. Remind to cross check type and size in egi_read_kbdcode(), Sec.5.
+	 *  3. TODO&TBD: ABS_xx 
 	 */
 #define KBD_STATUS_BUFSIZE	8  //4
 	int	 		ks;	/* Total number of EV_KEY events (press OR release) got in one read of KBD dev

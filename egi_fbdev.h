@@ -119,7 +119,13 @@ typedef struct fbdev{
 					 * 	  try to free it when release_virt_fbdev().
 					 */
 
-	bool		antialias_on;	/* Carry out anti-aliasing functions */
+	bool		antialias_on;	/* Carry out anti-aliasing functions
+					 * True:
+					 *    //XXX draw_line() CALLs draw_line_antialias().
+					 *    draw_line() CALLs fdraw_line().
+					 * False:
+					 *    draw_line() CALLs draw_line_simple().
+					 */
 
 	bool		pixcolor_on;	/* default/init as off, If ture: draw_dot() use pixcolor, else: draw_dot() use fb_color.
 					 * Usually to set pixcolor_on immediately after init_(virt_)fbdev.

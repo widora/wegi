@@ -154,7 +154,7 @@ START_CALIBRATION:
 
 	/* 2. Calculate factX, factY */
 	factX= 1.0*((Lpx[1]-Lpx[0] + Lpx[3]-Lpx[2])/2) / ((Tpx[1]-Tpx[0] + Tpx[3]-Tpx[2])/2);    /* Usually take Lpx[1]-Lpx[0] == Lpx[3]-Lpx[2] */
-	factY= 1.0*((Lpy[2]-Lpy[0] + Lpy[3]-Lpy[1])/2) / ((Tpy[2]-Tpy[0] + Tpy[3]-Tpy[1])/2);    /* Usually take Lpx[1]-Lpx[0] == Lpx[3]-Lpx[2] */
+	factY= 1.0*((Lpy[2]-Lpy[0] + Lpy[3]-Lpy[1])/2) / ((Tpy[2]-Tpy[0] + Tpy[3]-Tpy[1])/2);    /* Usually take Lpy[1]-Lpy[0] == Lpy[3]-Lpy[2] */
 	printf("factX=%f, factY=%f  tbaseX=%d tbaseY=%d\n", factX, factY, Tpx[4], Tpy[4]);
 
 
@@ -176,7 +176,6 @@ START_CALIBRATION:
 	memset(strfact,0,sizeof(strfact));
 	sprintf(strfact,"%d", Tpy[4]);
 	egi_update_config_value("TOUCH_PAD", "xpt_tbaseY", strfact);
-
 
 	/* 5. Check calibration result, Tpx[4]Tpy[4] is the base point  */
 
