@@ -794,7 +794,7 @@ CURL_CLEANUP:
 
 	/* Check result, If it fails, truncate filesize to 0 or ofsize before quit!    ??? NOT happens!! */
 	if(ret!=0) {
-		EGI_PLOG(LOGLV_ERROR, "%s: Download fails, re_truncate file size to 0 or ofsize",__func__);
+		EGI_PLOG(LOGLV_ERROR, "%s:  Download fails, re_truncate file size to 0 or ofsize",__func__);
 
 		/* Resize/truncate filesize to 0! */
 		if(opt&HTTPS_DOWNLOAD_SAVE_APPEND) {
@@ -816,6 +816,7 @@ CURL_CLEANUP:
 	/* NOW: ret==0 */
 
 	/* Make sure to flush metadata before recheck file size! necessary? */
+	EGI_PLOG(LOGLV_CRITICAL,"%s: Start fsync file...\n");
 	if( fsync(fileno(fp)) !=0 ) {
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 	}
@@ -883,16 +884,19 @@ CURL_CLEANUP:
 CURL_END:
 
 	/* Unlock, advisory locks only */
+	EGI_PLOG(LOGLV_CRITICAL,"%s: Start flock file...\n");
 	if( flock(fileno(fp),LOCK_UN) !=0 ) {
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to un_flock '%s', Err'%s'", __func__, file_save, strerror(errno));
 		/* Go on .. */
 	}
 
 	/* Close file */
+	EGI_PLOG(LOGLV_CRITICAL,"%s: Start fclose(fp)...\n");
 	if(fclose(fp)!=0)
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fclose '%s', Err'%s'", __func__, file_save, strerror(errno));
 
 	/* Clean up */
+	EGI_PLOG(LOGLV_CRITICAL,"%s: Start curl clean...\n");
 	if(curl != NULL) {
 		curl_slist_free_all(header); header=NULL;
 		curl_easy_cleanup(curl); curl=NULL;

@@ -32,6 +32,10 @@ Journal:
 	1. Add: egi_save_FBjpg()
 2022-02-22:
 	1. egi_imgbuf_loadjpg(): Consider color space case: RGBA(components=4).
+2022-03-13:
+	1. open_jpgImg(): Precalc image size, and give up if >EGI_IMAGE_SIZE_LIMIT.
+2022-03-14:
+	1. egi_imgbuf_loadpng(): Check size for mem allocation limit.
 
 Modified and appended by Midas Zhou
 midaszhou@yahoo.com
@@ -59,7 +63,7 @@ midaszhou@yahoo.com
 //static BITMAPFILEHEADER FileHead;
 //static BITMAPINFOHEADER InfoHead;
 
-/*--------------------------------------------------------------
+/*----------------------------------------------------------------
 Compress RGB_24bit image to an JPEG file.
 
 @filename:	File path to save target JPEG file.
@@ -73,7 +77,7 @@ Compress RGB_24bit image to an JPEG file.
 return:
 	0	Ok
 	<0	Fails
---------------------------------------------------------------*/
+----------------------------------------------------------------*/
 int compress_to_jpgFile(const char * filename, int quality, int width, int height,
 			unsigned char *rgb24, J_COLOR_SPACE inspace)
 {
@@ -216,6 +220,8 @@ Call close_jgpImg() to release image buffer.
 @w,h:   	Pointer to pass out withd/height of the image
 @components:  	out color components
 
+TODO: If too big size file! Check cinfo for memory requirement then...
+      OR it will abort abruptly!
 return:
 	=NULL fail
 	>0 decompressed image buffer pointer
@@ -265,6 +271,17 @@ unsigned char * open_jpgImg(const char * filename, int *w, int *h, int *componen
         jpeg_stdio_src(&cinfo, infile);
 
         jpeg_read_header(&cinfo, TRUE);
+
+	/* Calc dimensioins first MidasHK_2022_03_13 */
+	jpeg_calc_output_dimensions(&cinfo);
+//	egi_dpstd("Pre_calc to get output image dimension: W%dxH%d\n", cinfo.output_width, cinfo.output_height);
+	if( cinfo.output_width*cinfo.output_height > EGI_IMAGE_SIZE_LIMIT ) {
+		egi_dpstd(DBG_RED"Image size too big W%dxH%d (>EGI_IMAGE_SIZE_LIMIT), give up!\n"DBG_RESET,
+							cinfo.output_width, cinfo.output_height);
+		fclose(infile);
+		jpeg_destroy_decompress(&cinfo);
+		return NULL;
+	}
 
 #if 0	/* Check huffman table */
 	int i;
@@ -900,7 +917,9 @@ int egi_imgbuf_loadpng(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
         int     width;
         int     height;
 	long	pos;
+	bool	check_size=false;
 
+PNG_INIT:  /* Return here aft check_size  */
         /* open PNG file */
         fil=fopen(fpath,"rbe");
         if(fil==NULL) {
@@ -916,6 +935,7 @@ int egi_imgbuf_loadpng(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
                 goto INIT_FAIL;
         }
 
+//INIT_PNG: NOT HERE!  OR setjmp() will fail aft check_size.
         /* Initiate/prepare png srtuct for read */
         png_ptr=png_create_read_struct(PNG_LIBPNG_VER_STRING, 0, 0, 0);
         if(png_ptr==NULL) {
@@ -934,12 +954,49 @@ int egi_imgbuf_loadpng(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
                 ret=-5;
                 goto INIT_FAIL;
         }
+
         /* assign IO pointer: png_ptr->io_ptr = (png_voidp)fp */
         png_init_io(png_ptr,fil);
         /* Tells libpng that we have already handled the first 8 bytes
          * of the PNG file signature.
          */
         png_set_sig_bytes(png_ptr, 8); /* 8 is Max */
+
+	/* Here get image size  =0 !! */
+	//width=png_get_image_width(png_ptr, info_ptr);
+        //height=png_get_image_height(png_ptr,info_ptr);
+
+#if 1	///////////* Size checking for mem allocation LIMIT. --- MidasHK_2022_03_14 *////////
+
+	/* This is NOT suitable for mem allocation LIMIT purpose! */
+	//png_set_user_limits(png_ptr, 2048, EGI_IMAGE_SIZE_LIMIT/2048); /* user_width_max, user_height_max */
+
+        if( !check_size ) {
+	   /* png_read_info() gives us all of the information from the
+    	    * PNG file before the first IDAT (image data chunk).
+            */
+	   png_read_info(png_ptr, info_ptr);
+           egi_dpstd(DBG_GREEN"png_read_info get image size W%uxH%u\n"DBG_RESET,
+                                                 (unsigned int)info_ptr->width, (unsigned int)info_ptr->height);
+           if (info_ptr->height > PNG_UINT_32_MAX/png_sizeof(png_bytep)) {
+                  png_error(png_ptr, "Image is too high to process with png_read_png()");
+		  ret=-5;
+		  goto READ_FAIL;
+	   }
+	   if(info_ptr->width*info_ptr->height > EGI_IMAGE_SIZE_LIMIT ) {
+                egi_dpstd(DBG_RED"Image size too big W%uxH%u (>EGI_IMAGE_SIZE_LIMIT), give up!\n"DBG_RESET,
+                                                 (unsigned int)info_ptr->width, (unsigned int)info_ptr->height);
+		ret=-5;
+		goto READ_FAIL;
+	   }
+
+	   /* Finish size checking */
+           png_destroy_read_struct(&png_ptr, &info_ptr, png_infopp_NULL);
+	   fclose(fil);
+	   check_size=true;
+	   goto PNG_INIT;
+	}
+#endif  /////////////////////////////////////////////////
 
         /*  try more options for transforms...
          *  PNG_TRANSFORM_GRAY_TO_RGB, PNG_TRANSFORM_INVERT_ALPHA, PNG_TRANSFORM_BGR
@@ -955,8 +1012,10 @@ int egi_imgbuf_loadpng(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
          *  png_byte channels      number of channels (1-4)
          *  png_byte pixel_depth   bits per pixel (depth*channels)
          */
+
         width=png_get_image_width(png_ptr, info_ptr);
         height=png_get_image_height(png_ptr,info_ptr);
+
         color_type=png_get_color_type(png_ptr, info_ptr);
         bit_depth=png_get_bit_depth(png_ptr, info_ptr);
         pixel_depth=info_ptr->pixel_depth;
@@ -964,7 +1023,6 @@ int egi_imgbuf_loadpng(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
         EGI_PDEBUG(DBG_BJP,"PNG file '%s', Image data info after transform_expand:\n", fpath);
         EGI_PDEBUG(DBG_BJP,"Width=%d, Height=%d, color_type=%d \n", width, height, color_type);
         EGI_PDEBUG(DBG_BJP,"bit_depth=%d, channels=%d,  pixel_depth=%d \n", bit_depth, channels, pixel_depth);
-
 
         /*   Now, we only deal with type_2(real_color, PNG_COLOR_TYPE_RGB)
 	 *	  and type_6(real_color with alpha channel, PNG_COLOR_TYPE_RGB_ALPHA) PNG file,
@@ -978,6 +1036,11 @@ int egi_imgbuf_loadpng(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
         }
 	printf("%s: Open '%s' with size W%dxH%d, color_type %s\n", __func__, fpath, width, height,
 					(color_type==PNG_COLOR_TYPE_RGB) ? "RGB" : "RGBA" );
+
+
+	/* TODO: Get comments in the picture */
+        //if (png_get_text(read_ptr, end_info_ptr, &text_ptr, &num_text) > 0)
+
 
         /* get mutex lock */
 //	printf("%s: start pthread_mutex_lock() egi_imgbuf....\n",__func__);
@@ -1002,7 +1065,7 @@ int egi_imgbuf_loadpng(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
                 ret=-7;
                 goto READ_FAIL;
         }
-       /* alloc Alpha channel data */
+        /* alloc Alpha channel data */
         if(color_type==6) {
                 egi_imgbuf->alpha=calloc(1,width*height);
                 if(egi_imgbuf->alpha==NULL) {
@@ -1048,7 +1111,7 @@ int egi_imgbuf_loadpng(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 	pthread_mutex_unlock(&egi_imgbuf->img_mutex);
 
 READ_FAIL:
-        png_destroy_read_struct(&png_ptr, &info_ptr,0);
+        png_destroy_read_struct(&png_ptr, &info_ptr, png_infopp_NULL);
 INIT_FAIL:
         fclose(fil);
 
@@ -1257,7 +1320,6 @@ int egi_imgbuf_savepng(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 	png_write_info(png_ptr, info_ptr);
 
 	/* Optional:  set up transformations */
-
 
 	/* ----- wrtie to file one row at a time ---- */
 	pt=row_buff;

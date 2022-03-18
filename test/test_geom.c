@@ -15,6 +15,8 @@ Journal:
 	1. Test sin/cos graph with anti_aliasing effect.
 2022-03-09:
 	1. Test draw_filled_triangle() and draw_filled_circle()
+2022-03-14:
+	1. Test draw_blend_filled_roundcorner_rect()
 
 Midas Zhou
 -----------------------------------------------------------------*/
@@ -333,7 +335,7 @@ int main(int argc, char ** argv)
 #endif
 
 
-#if 0 /* <<<<<<<<<<<<<<  3. test draw triangle  <<<<<<<<<<<<<<<*/
+#if 1 /* <<<<<<<<<<<<<<  3. test draw triangle  <<<<<<<<<<<<<<<*/
 	int i;
 	int j, k; /* j -- pixlen moved, 0 from right most, k -- triangles drawn before putting slagon */
 	int count;
@@ -391,9 +393,31 @@ while(1) {
 	gv_fb_dev.antialias_on=true; /* Apply fdraw_line() */
 
 	draw_filled_triangle(&gv_fb_dev, pts);
-	draw_triangle(&gv_fb_dev, pts);
+//	draw_triangle(&gv_fb_dev, pts);
 
-	gv_fb_dev.antialias_on=false;
+#if 1 /* TEST: draw_blend_filled_roundcorner_rect(), NOT GOOD for antialias_on if alpha!=255!! */
+   if(mat_random_range(10)<4) {
+	egi_randp_inbox(&tri_box.startxy, &box);
+	tri_box.endxy.x=tri_box.startxy.x+175;
+	tri_box.endxy.y=tri_box.startxy.y+175;
+
+	for(i=0;i<2;i++)
+		egi_randp_inbox(pts+i, &tri_box);
+
+	fbset_color(egi_color_random(color_all));
+
+	/* NOT GOOD for antialias_on if alpha!=255!! */
+	//gv_fb_dev.antialias_on=false;
+	//draw_blend_filled_roundcorner_rect(&gv_fb_dev, 50, 50, 320-50, 240-50, 20,  /* fbdev, x1,y1, x2,y2, r */
+	draw_blend_filled_roundcorner_rect(&gv_fb_dev, pts[0].x, pts[0].y, pts[1].x, pts[1].y, 10+mat_random_range(20),  /* fbdev, x1,y1, x2,y2, r */
+                                               egi_color_random(color_light), 255); /* color, alpha */
+
+  	/* Draw random dots */
+		egi_randp_inbox(&tri_box.startxy, &box);
+		fbset_color(egi_color_random(color_all));
+		draw_filled_circle(&gv_fb_dev, tri_box.startxy.x, tri_box.startxy.y, 10+mat_random_range(50));
+   }
+#endif
 
 	//fb_render(&gv_fb_dev);
 
@@ -428,12 +452,15 @@ while(1) {
 		}
    	#endif /* END slogan */
 
+		fb_copy_FBbuffer(&gv_fb_dev,FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
+
 		fb_render(&gv_fb_dev);
 		//usleep(60000);
 		tm_delayms(50);
 		k=0;
 
-		fb_copy_FBbuffer(&gv_fb_dev,FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
+//		sleep(2);
+
 	}
 
 	count++;
@@ -664,7 +691,7 @@ while(1) {
 #endif
 
 
-#if 1  /* <<<<<<<<<<<<<<  6. test draw_wline & draw_pline  <<<<<<<<<<<<<<<*/
+#if 0  /* <<<<<<<<<<<<<<  6. test draw_wline & draw_pline  <<<<<<<<<<<<<<<*/
 
         /* Set sys FB mode */
         fb_set_directFB(&gv_fb_dev, false);
@@ -683,28 +710,28 @@ while(1) {
         /* Antialias ON, to apply fdraw_line(). */
         gv_fb_dev.antialias_on=true;
 
-   while(1) {
-	for(w=1; w<15; w++) {
-	   printf("w=%d\n", w);
-           clear_screen(&gv_fb_dev,WEGI_COLOR_DARKGRAY2);
+	#if 1 /* Draw wlines passing the screen center  */
+	while(1) {
+		for(w=1; w<15; w+=2) {
+		   printf("w=%d\n", w);
+        	   clear_screen(&gv_fb_dev,WEGI_COLOR_DARKPURPLE);
+		   fbset_color(egi_color_random(color_all));
+		   for(k=0; k<180; k+=10) {
+			p1.x=160+150*sin(MATH_PI*k/180);
+			p1.y=120-110*cos(MATH_PI*k/180);
+			p2.x=160-110*sin(MATH_PI*k/180);
+			p2.y=120+150*cos(MATH_PI*k/180);
 
-	   fbset_color(egi_color_random(color_all));
-	   for(k=0; k<180; k+=10) {
-		p1.x=160+110*sin(MATH_PI*k/180);
-		p1.y=120-110*cos(MATH_PI*k/180);
-		p2.x=160-110*sin(MATH_PI*k/180);
-		p2.y=120+110*cos(MATH_PI*k/180);
+			draw_wline(&gv_fb_dev,p1.x,p1.y,p2.x,p2.y,w);
 
-		draw_wline(&gv_fb_dev,p1.x,p1.y,p2.x,p2.y,w);
+			fb_render(&gv_fb_dev);
+			//usleep(200000);
+	  	   }
+	   	   sleep(1);
+		}
+   	}
 
-		fb_render(&gv_fb_dev);
-		//usleep(200000);
-	   }
-	   sleep(3);
-	}
-   }
-
-     #if 0
+        #else /* Draw wlines in random */
 	while(1)
   	{
 		egi_randp_inbox(&p1, &box);

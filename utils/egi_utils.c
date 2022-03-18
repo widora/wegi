@@ -2276,6 +2276,7 @@ EGI_ID3V2TAG *egi_id3v2tag_readfile(const char *fpath)
 					if( uniTmp==0xFFFE ) { /* then original byte order is 'FEFF' */
 						/* Big Endian */
 						IsHostByteOrder=false;
+						egi_dpstd(DBG_YELLOW"Byte order: BigEndia\n"DBG_RESET);
 /* TEST -------- */
 //						printf("Unicode Byte_Order_Mark: 'FEFF'. \n");
 					}
@@ -2283,6 +2284,7 @@ EGI_ID3V2TAG *egi_id3v2tag_readfile(const char *fpath)
 					else  { /* uniTmp==0xFEFF,  then original byte order is 'FFFE' */
 						/* Little Endian.  OK, NO need to convert endianess. */
 						IsHostByteOrder=true;
+						egi_dpstd(DBG_GREEN"Byte order: LittleEndia\n"DBG_RESET);
 /* TEST -------- */
 //						printf("Unicode Byte_Order_Mark: 'FFFE'. \n");
 					}
@@ -2301,7 +2303,8 @@ EGI_ID3V2TAG *egi_id3v2tag_readfile(const char *fpath)
 						if(IsHostByteOrder)
 							uniText[i]=(wchar_t)uniTmp;
 						else
-							uniText[i]=(wchar_t)ntohl(&uniTmp);
+							//uniText[i]=(wchar_t)ntohl(&uniTmp);  //MidasHK_2022_03_17
+							uniText[i]=(wchar_t)ntohl(uniTmp);
 
 					}
 					/* E5. Convert to UFT-8 */
@@ -2482,6 +2485,7 @@ $14     Publisher/Studio logotype
                                         if( uniTmp==0xFFFE ) { /* then original byte order is 'FEFF' */
                                                 /* Big Endian */
                                                 IsHostByteOrder=false;
+						egi_dpstd(DBG_YELLOW"Byte order: BigEndia\n"DBG_RESET);
 /* TEST ------- */
 //                                                printf("Unicode Byte_Order_Mark: 'FEFF'. \n");
                                         }
@@ -2489,6 +2493,7 @@ $14     Publisher/Studio logotype
                                         else  { /* uniTmp==0xFEFF,  then original byte order is 'FFFE' */
                                                 /* Little Endian.  OK, NO need to convert endianess. */
                                                 IsHostByteOrder=true;
+						egi_dpstd(DBG_GREEN"Byte order: LittleEndia\n"DBG_RESET);
 /* TEST ------- */
 //                                                printf("Unicode Byte_Order_Mark: 'FFFE'. \n");
                                         }

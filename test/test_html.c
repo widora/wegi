@@ -280,15 +280,15 @@ START_REQUEST:
         /* Https GET request */
 	//memset(buff,0,sizeof(buff)); /* Clear buff each time before call https_curl_request() */
 	buff[0]=0;
-	egi_dperr("---->start curl request\n");
+	egi_dpstd("---->start curl request\n");
 //        if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3, 10,
-        if( https_curl_request( HTTPS_OPTION_DEFAULT, 3, 10,
+        if( https_curl_request( HTTPS_OPTION_DEFAULT, 3, 30,
 				strRequest, buff, NULL, curlget_callback)!=0) {
                  printf("Fail to call https_curl_request() for: %s!\n", strRequest);
 		 sleep(10);
 		 goto START_REQUEST;
          }
-	egi_dperr("---->curl request OK\n");
+	egi_dpstd("---->curl request OK\n");
 
 	printf(" <<< BUFF >>>\n");
 //	printf("%s\n", buff);
@@ -975,8 +975,9 @@ static size_t curlget_callback(void *ptr, size_t size, size_t nmemb, void *userp
 		/* "If src contains n or more bytes, strncat() writes n+1 bytes to dest
 		 * (n from src plus the terminating null byte." ---man strncat
 		 */
-		fprintf(stderr,"\033[0;31;40m strlen(buff)=%d, strlen(buff)+strlen(ptr)=%d >=sizeof(buff)-1! \e[0m\n",
-							blen, xlen);
+	//	fprintf(stderr,"\033[0;31;40m strlen(buff)=%d, strlen(buff)+strlen(ptr)=%d >=sizeof(buff)-1! \e[0m\n",
+	//						blen, xlen);
+		egi_dpstd(DBG_RED"strlen(buff)=%d, strlen(buff)+strlen(ptr)=%d >=sizeof(buff)-1!"DBG_RESET, blen,xlen);
 		//exit(0);  /* YES! */
 
 		strncat(userp, ptr, sizeof(buff)-1-blen); /* 1 for '\0' by strncat */
@@ -984,7 +985,8 @@ static size_t curlget_callback(void *ptr, size_t size, size_t nmemb, void *userp
 	}
 	else {
 	    #if 1 /* strcat */
-	        strcat(userp, ptr);
+		strcat(userp, ptr); /* OK, see above to rule out xlen>=sizeof(buff)-1 */
+	        //strncat(userp, ptr, sizeof(buff)-1);
 		//buff[sizeof(buff)-1]='\0';  /* <---------- return data maybe error!!??  */
 	    #else /* memcpy */
 		memcpy(userp, ptr, size*nmemb); // NOPE for compressed data?!!!
@@ -1017,16 +1019,19 @@ void display_slide(const char *imgURL, const char *imgTXT,  FT_Face face,
 		return;
 
 	/* 1. Download image */
-	printf("Fetch the image from imgURL...\n");
+	//egi_dpstd("Fetch the image from imgURL...\n");
+	egi_dpstd("Fetch the image from imgURL...\n");
    	if(imgURL[0]!=0) {
-		ret=https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 5, 20,
+		ret=https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 5, 60, //timeout 20,
 				imgURL, "/tmp/slide_news.jpg", NULL, NULL);
 	}
-	else
+	else {
+		egi_dpstd(DBG_RED"Fail to https_easy_download image file!\n"DBG_RESET);
 		ret=-1;
+	}
 
 
-	/* 2. Fitsize and display slide image */
+	/* 2. Fitsize and display slide image. TODO: if the image is too BIG, the process is to be killed! */
 	if(ret==0 && (imgbuf=egi_imgbuf_readfile("/tmp/slide_news.jpg"))) {
 		printf("Ok, succeed to download slide_news.jpg.\n");
 
@@ -1133,9 +1138,11 @@ void display_slide(const char *imgURL, const char *imgTXT,  FT_Face face,
 
 	   /* 2b. Other channel */
 	   else {
-		/* Resize and display image */
+		/* Resize and display image. TODO: If image too big size, system crash out of memory */
 		imgW=320; imgH=240;
+		egi_dpstd("Start to get fitsize from imgbuf W%dxH%d\n", imgbuf->width, imgbuf->height);
 		egi_imgbuf_get_fitsize(imgbuf, &imgW, &imgH);
+		egi_dpstd(DBG_YELLOW"Start to resize the image....\n"DBG_RESET);
 		egi_imgbuf_resize_update(&imgbuf, false, imgW,imgH);
 		if(avgLuma)
 			egi_imgbuf_avgLuma(imgbuf, avgLuma);

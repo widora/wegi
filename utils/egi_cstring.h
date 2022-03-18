@@ -10,6 +10,7 @@ Midas Zhou
 #include <wchar.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <sys/time.h>
 
 #ifdef __cplusplus
  extern "C" {

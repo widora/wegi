@@ -56,7 +56,11 @@ monk.obj -c -s 150 -Z -90 -X 10 -x -20 -r
 arm_hand.obj -c -s 125 -y 120 -X 90 -A 2 -a -2.5 -M /mmc/arm_hand.motion
 hen.obj -c  -s 0.26 -y -20 -A 2 -X 90 -T texhen.png -P -a -2.5
 mario.obj -c -s 400 -z -200 -Z 90 -A 0 -P -a 10
-PCB.obj -c -s 150 -y -150 -X -80 -T PCB.jpg -P  !!! --- Show flaws as one pixZ value for all Tri pixels.  --- !!!
+
+//PCB.obj -c -s 150 -y -150 -X -80 -T PCB.jpg -P  !!! XXX --- Show flaws as one pixZ value for all Tri pixels.  --- !!!
+PCB.obj -c -s 150 -y -150 -X -120 -a -3 -T PCB.jpg -P -M /mmc/pcb3.mot
+PCB.obj -c -s 100 -X -120 -a 10 -T PCB.jpg -f 0.5 -t  ISO
+
 venus.obj -c -s 0.3 -Z 90 -A 0 -x 200 -a -2.5 -t
 gsit.obj -c -s 2.25 -Z 90 -X 20 -Y 150 -a -5 !!! --- Test Sub_object group --- !!!
 	 -c -s 2.25 -x -5 -Z 90 -X 0 -Y 145 -a 40
@@ -169,7 +173,7 @@ XXX 5. For Perspective View, wiremesh may NOT shown properly.
 
 TODO:
 1. NOW it uses integer type zbuff[]. ---> Should be float/double type.
-2. NOW it uses triangle center Z value for zbuffering all pixels on the triangle.
+2. XXX NOW it uses triangle center Z value for zbuffering all pixels on the triangle.
        ---> Z value should be computed for each pixel!
 3. Above 1+2 will cause surface hiding failure sometimes.
    Perspective view of a cube.obj at angle=95 to demo such fault.
@@ -547,8 +551,10 @@ else {		/* For Landscape */
 		if(meshModel.textureImg) {
 			if( texScale>0.0 ) {
 			    if(egi_imgbuf_scale_update(&meshModel.textureImg,
-					    texScale*meshModel.textureImg->width, texScale*meshModel.textureImg->height)==0)
+					   texScale*meshModel.textureImg->width, texScale*meshModel.textureImg->height)==0) {
 			        egi_dpstd("Scale texture image size to %dx%d\n",meshModel.textureImg->width, meshModel.textureImg->height);
+				meshModel.defMaterial.img_kd=meshModel.textureImg; /* !!!!  */
+			    }
 			    else
 			        egi_dpstd("Fail to scale texture image!\n");
 			}

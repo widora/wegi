@@ -1950,6 +1950,8 @@ Convert a string in UNICODE to UFT-8 by calling char_unicode_to_uft8()
 @dest:  Output string in UFT-8.
 	The caller shall allocate enough space for dest.
 
+TODO:   argument for mem size of dest.
+
 Return:
 	>0 	OK, converted bytes of dest in UFT-8 encoding.
 	<=0	Fail, or unrecognizable unicode

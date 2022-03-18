@@ -19,6 +19,7 @@ midaszhou@yahoo.com
  extern "C" {
 #endif
 
+#define EGI_IMAGE_SIZE_LIMIT  (2048*2048)  /* Max. image size, to limit memory use. */
 
 enum imgframe_type {
 	frame_simple=0,		/* <100 , outline frame defined by ebox type, check in egi_btn.c, egi_txt.c...  */
