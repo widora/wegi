@@ -8,7 +8,7 @@ Jorunal:
 	1. Add EGI_IMGFRAME and EGI_IMGMOTION
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -------------------------------------------------------------------*/
 #ifndef __EGI_IMGBUF_H__
 #define __EGI_IMGBUF_H__

@@ -14,7 +14,7 @@ Journal:
 	2. parse_m3u8list(): If https_easy_download() fails, return immediately!
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------*/
 #include <stdio.h>
 #include <stdlib.h>

@@ -6,7 +6,7 @@ published by the Free Software Foundation.
 Test EGI_3D Class and Functions.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------*/
 #include <iostream>
 #include <stdio.h>

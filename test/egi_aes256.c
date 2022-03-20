@@ -20,7 +20,7 @@ AES-256       8               4             14
 
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 https://github.com/widora/wegi
 ----------------------------------------------------------------------*/
 #include <stdio.h>

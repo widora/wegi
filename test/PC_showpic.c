@@ -30,7 +30,7 @@ TODO: To move image totally out of screen, forth and back, ...then
       the bug appears.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------*/
 #include <termios.h>
 #include <stdlib.h>

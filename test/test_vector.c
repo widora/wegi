@@ -6,7 +6,7 @@ published by the Free Software Foundation.
 A program to test EGI VECTOR.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 https://github.com/widora/wegi
 ------------------------------------------------------------------*/
 #include <egi_common.h>

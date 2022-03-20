@@ -10,7 +10,7 @@ Journal:
 	1. Define DGB_color...
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -------------------------------------------------------------------*/
 
 #ifndef __EGI_DEBUG_H__
@@ -82,14 +82,23 @@ midaszhou@yahoo.com
  #define egi_printf(flags, fmt, args...)
 #endif
 
-/*  8 Color Console, Color Attribute Setting */
-#define DBG_RED 	"\033[0;31;40m"
-#define DBG_GREEN 	"\033[0;32;40m"
-#define DBG_YELLOW 	"\033[0;33;40m"
-#define DBG_BLUE 	"\033[0;34;40m"
-#define DBG_MAGENTA 	"\033[0;35;40m"
-#define DBG_CYAN	"\033[0;36;40m"
-#define DBG_GRAY	"\033[0;37;40m"
+#if 0 /*  8 Color Console, Color Attribute Setting */
+  #define DBG_RED 	"\033[0;31;40m"
+  #define DBG_GREEN 	"\033[0;32;40m"
+  #define DBG_YELLOW 	"\033[0;33;40m"
+  #define DBG_BLUE 	"\033[0;34;40m"
+  #define DBG_MAGENTA 	"\033[0;35;40m"
+  #define DBG_CYAN	"\033[0;36;40m"
+ #define DBG_GRAY	"\033[0;37;40m"
+#else /* ----- 256 color console : env TERM=xterm-256color ---- */
+  #define DBG_RED        "\e[38;5;196;48;5;0m"      /* forecolor 196, backcolor 0 */
+  #define DBG_GREEN      "\e[38;5;34;48;5;0m"
+  #define DBG_YELLOW     "\e[38;5;220;48;5;0m"   /* forecolor 220, backcolor 0 */
+  #define DBG_BLUE       "\e[38;5;27;48;5;0m"
+  #define DBG_MAGENTA    "\e[38;5;201m"
+  #define DBG_CYAN       "\e[38;5;37;48;5;0m"
+  #define DBG_GRAY       "\e[38;5;249;48;5;0m"     /* forecolor 249, backcolor 0 */
+#endif
 #define DBG_RESET	"\e[0m"		/* Reset color to default */
 
 /* Print to stderr and stdout */

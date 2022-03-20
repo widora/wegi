@@ -67,7 +67,7 @@ Journal:
 	1. Modify start_radio() for aac_stream.  radio_info.type.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 https://github.com/widora/wegi
 ------------------------------------------------------------------*/
 #include <stdio.h>

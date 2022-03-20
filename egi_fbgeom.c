@@ -104,7 +104,7 @@ Jurnal
 	2. fdraw_dot(): consider user geom pixalpha --- NOT GOOD FOR ANTIALIAS BLENDING.
 
 Modified and appended by Midas-Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ----------------------------------------------------------------------------*/
 #include "egi_fbgeom.h"
 #include "egi.h"

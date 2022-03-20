@@ -10,7 +10,7 @@ Note:
    speed hardware! For hight speed this may lead to overlapped image.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 https://github.com/widora/wegi
 ------------------------------------------------------------------*/
 #include <egi_common.h>

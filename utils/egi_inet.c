@@ -167,7 +167,7 @@ Jurnal:
 	   inet_create_tcpClient(): close(uclit->sockfd) when fails.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 --------------------------------------------------------------------------*/
 #include <sys/types.h> /* this header file is not required on Linux */
 #include <sys/socket.h>

@@ -27,7 +27,7 @@ Journal:
 	1. MaxSlides to limit slideCnt of displayed slides.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ----------------------------------------------------------------------------------*/
 #include <string.h>
 #include <stdio.h>

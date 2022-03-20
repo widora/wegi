@@ -74,7 +74,7 @@ XXX 1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doub
    unexpectedly throw out 'Aborted' and exit just at calling curl_global_init()!
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 --------------------------------------------------------------------*/
 #include <stdio.h>
 #include <unistd.h>
@@ -816,7 +816,7 @@ CURL_CLEANUP:
 	/* NOW: ret==0 */
 
 	/* Make sure to flush metadata before recheck file size! necessary? */
-	EGI_PLOG(LOGLV_CRITICAL,"%s: Start fsync file...\n");
+	EGI_PLOG(LOGLV_CRITICAL,"%s: Start fsync file...\n", __func__);
 	if( fsync(fileno(fp)) !=0 ) {
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 	}
@@ -884,19 +884,19 @@ CURL_CLEANUP:
 CURL_END:
 
 	/* Unlock, advisory locks only */
-	EGI_PLOG(LOGLV_CRITICAL,"%s: Start flock file...\n");
+	EGI_PLOG(LOGLV_CRITICAL,"%s: Start flock file...\n",__func__);
 	if( flock(fileno(fp),LOCK_UN) !=0 ) {
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to un_flock '%s', Err'%s'", __func__, file_save, strerror(errno));
 		/* Go on .. */
 	}
 
 	/* Close file */
-	EGI_PLOG(LOGLV_CRITICAL,"%s: Start fclose(fp)...\n");
+	EGI_PLOG(LOGLV_CRITICAL,"%s: Start fclose(fp)...\n",__func__);
 	if(fclose(fp)!=0)
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fclose '%s', Err'%s'", __func__, file_save, strerror(errno));
 
 	/* Clean up */
-	EGI_PLOG(LOGLV_CRITICAL,"%s: Start curl clean...\n");
+	EGI_PLOG(LOGLV_CRITICAL,"%s: Start curl clean...\n",__func__);
 	if(curl != NULL) {
 		curl_slist_free_all(header); header=NULL;
 		curl_easy_cleanup(curl); curl=NULL;

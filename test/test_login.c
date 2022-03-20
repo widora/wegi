@@ -6,7 +6,7 @@ published by the Free Software Foundation.
 A fake login page just for testing FTcharmap functions.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------*/
 #include <stdio.h>
 #include <string.h>

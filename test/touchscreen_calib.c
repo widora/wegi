@@ -29,7 +29,7 @@ Note:
    factX=dLpx/dTpx   factY=dLpy/dTpy  ( dLpx --- delta LCD px, dTpy --- delta TOUCH PAD py )
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 --------------------------------------------------------------------------*/
 #include <stdint.h>
 #include <xpt2046.h>

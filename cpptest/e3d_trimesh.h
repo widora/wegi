@@ -262,7 +262,7 @@ Journal:
 				              draw_filled_triangle2() for FLAT_SHADING.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -----------------------------------------------------------------*/
 #ifndef __E3D_TRIMESH_H__
 #define __E3D_TRIMESH_H__

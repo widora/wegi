@@ -6,7 +6,7 @@ published by the Free Software Foundation.
 A simple CAD example, to draw line, circle and sketch.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -------------------------------------------------------------------*/
 #include <egi_common.h>
 #include <egi_utils.h>

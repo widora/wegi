@@ -27,7 +27,7 @@ Journal
 	2. init_virt_fbdev(): init FBDEV.zbuff_IgnoreEqual as FALSE.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -------------------------------------------------------------------*/
 #include "egi.h"
 #include "egi_timer.h"

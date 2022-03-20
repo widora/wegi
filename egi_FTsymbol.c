@@ -47,7 +47,7 @@ Journal:
 	   with just xleft==0, then NO need for increment of ln/xleft/py.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -------------------------------------------------------------------*/
 #include "egi_log.h"
 #include "egi_FTsymbol.h"
@@ -485,7 +485,7 @@ void FTsymbol_release_library( EGI_FONTS *symlib )
 LiberationSans-Regular.ttf
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ----------------------------------------------------------------------------------------------------------*/
 
 

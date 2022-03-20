@@ -8,6 +8,7 @@ An example to extract information from exif data in a JPEG file.
 Reference:
 1. https://www.media.mit.edu/pia/Research/deepview/exif.html
 2. https:/www.exiftool.org/TagNames/EXIF.html
+3. https://www.disktuna.com/list-of-jpeg-markers/
 
 Note:
 1. JPEG file structure:
@@ -40,6 +41,14 @@ DRI	 0xFF, 0xDD    Define Restart Interval
 SOS      0xFF, 0xDA    Start of Scan
 DNL      0xFF, 0xDC    Define number of lines (Not common)
 APPn     0xFF, 0xEn    Application specific (n=0-15)
+--------
+APP0	 0xFF, 0xE0    JFIF-JFIF JPEG image, AVI1-Motion JPEG(MJPG)
+APP1     0xFF, 0xE1    EXIF Metadata, TIFF IFD format, JPEG Thumbnail(160x120), Adobe XMP
+APP2     0xFF, 0xE2    ICC color profile, FlashPix
+APP14    0xFF, 0xEC    Picture info(older digicams), Photoshop save for web:Ducky
+--------
+JPG7	 0xFF, 0xF7    Lossless JPEG
+JPG8	 0xFF, 0xF8    Lossless JPEG Extension Parameters
 COM      0xFF, 0xFE    Comments
 EOI      0xFF, 0xD9    End of image
 (Note: the marker 0xFFE0 - 0xFFEF is named "Application Marker", theyr are
@@ -66,7 +75,7 @@ EOI      0xFF, 0xD9    End of image
    SSSS                APP1 Data Size (Start of data)
    45786966 0000       Exif Header
    49492A00 08000000   TIFF Header (Tag Image File Format)
-   ------------------------------- (IFD: ImageFileDirectory)
+   ------------------------------- (IFD: ImageFileDirectory = list of EXIF Tags )
    XXXX....               IFD0(main image) | Directory  ----> Tag 0x8769 link to SubIFD
    LLLLLLL		    		   | Link to IFD1 ----> IFD1
    XXXX....               Data area of IFD0
@@ -79,13 +88,23 @@ EOI      0xFF, 0xD9    End of image
    00000000                                | End of Link
    XXXX....               Data area of IFD1
    ------------------------------
-   FFD8XXXX...XXXXFFD9    Thumbnail image
+   FFD8XXXX...XXXXFFD9    Thumbnail JPEG image(ALSO starts with 0xFFD8, end with 0xFFD9)
+
+  4.1 IFD directory structure
+    ---------------------------------------
+    E(2Bs) : Number of directory entry
+    T(2Bs)+F(2Bs)+N(4Bs)+D(4Bs)   Entry0  (T-Tag, F-Format, N-NumberOfComponent, D-DataValue)
+    T(2Bs)+F(2Bs)+N(4Bs)+D(4Bs)   Entry1
+	    ... ...
+    T(2Bs)+F(2Bs)+N(4Bs)+D(4Bs)   Entry2
+    L(4Bs)   Offset to next IFD
 
 Journal:
 2022-03-15: Create the file.
 2022-03-16: Parse Exif IFD directory
 2022-03-17: Parse IFD0 tags 0x9c9b-0x9c9f (for Windows Explorer)
 2022-03-18: Parse SOFn for image size.
+2022-03-19: Add EGI_PICINFO and egi_picinfo_calloc() egi_picinfo_free()
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -93,20 +112,136 @@ Midas Zhou
 #include <stdio.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <arpa/inet.h>
 #include "egi_debug.h"
 #include "egi_cstring.h"
-#include <arpa/inet.h>
+#include "egi_image.h"
 
 
-int egi_parse_jpegExif(const char *fpath);
+typedef struct egi_picture_info
+{
+	/* Extract from JPEG segement SOF0, Marker 0xC0 */
+	int width; /* Size in pixels */
+	int height;
+	int cpp;   /* color components per pixel */
+	int bpc;   /* Bits per color component */
+
+	bool progressive;
+
+	/* Extract from JPEG segemnt, Marker */
+	char *comment;	   /* Marker 0xFE, segment COM */
+	char *app14com;	   /* Marker 0xEC, APP14 0xEC Picture info(older digicams), Photoshop save for web:Ducky  */
+
+	/* Extract from Exif IFD0 by TAG */
+	char *CameraMaker; /* TAG 0x010f */
+	char *CameraModel; /* TAG 0x0110 */
+	char *software;    /* TAG 0x0131 software */
+	char *ImageDescription; /* TAG 0x010e */
+	char *DateTaken;   /* TAG 0x9003 Date when the picture is taken. */
+	char *DateLastModify;    /* 0x0132 time for last modification */
+        char *title;      /* TAG 0x9c9b, ignored if ImageDescription exists */
+        char *xcomment;   /* TAG 0x9c9c, Windows comment */
+        char *author;	  /* TAG 0x9c9d */
+	char *keywords;   /* TAG 0x9c9e */
+	char *subject;	  /* TAG 0x9c9f */
+	char *copyright;  /* TAG 0x8298  Copyright information */
+
+	/* Thumbnail */
+	EGI_IMGBUF *thumbnail;
+
+} EGI_PICINFO;
+
+/*-----------------------------------
+Callocate an empty EGI_PICINFO.
+Return:
+        !NULL   OK
+        NULL    Fails
+------------------------------------*/
+EGI_PICINFO *egi_picinfo_calloc(void)
+{
+        return calloc(1, sizeof(EGI_PICINFO));
+}
+
+/*-----------------------------------
+Free an EGI_PICINFO.
+------------------------------------*/
+void egi_picinfo_free(EGI_PICINFO **info)
+{
+        if(info==NULL || *info==NULL)
+                return;
+
+        free( (*info)->comment );
+        free( (*info)->app14com );
+
+        free( (*info)->CameraMaker );
+        free( (*info)->CameraModel );
+	free( (*info)->software );
+        free( (*info)->ImageDescription );
+	free( (*info)->DateTaken );
+	free( (*info)->DateLastModify );
+        free( (*info)->title );
+        free( (*info)->xcomment );
+        free( (*info)->author );
+        free( (*info)->keywords );
+        free( (*info)->subject );
+	free( (*info)->copyright );
+
+        egi_imgbuf_free2(&(*info)->thumbnail);
+
+        free((*info));
+        *info=NULL;
+}
+
+EGI_PICINFO* egi_parse_jpegExif(const char *fpath);
+
+
+/*==========================
+	  MAIN()
+===========================*/
 
 int main(int argc, char **argv)
 {
 	int i;
+	EGI_PICINFO	*PicInfo;
 
 	for(i=1; i<argc; i++) {
+
 		printf("----------- JPEG File: %s ---------\n",argv[i]);
-		egi_parse_jpegExif(argv[i]);
+
+		PicInfo=egi_parse_jpegExif(argv[i]);
+		if(PicInfo==NULL)
+			continue;
+
+		/* Display Picture Info */
+		printf("ImageSize: W%dxH%dxCPP%dxBPC%d\n",
+				PicInfo->width, PicInfo->height, PicInfo->cpp, PicInfo->bpc);
+
+		if(PicInfo->progressive)
+			printf(DBG_"Progressive DCT\n"DBG_RESET);
+		if(PicInfo->ImageDescription)
+                        printf("Description: %s\n", PicInfo->ImageDescription);
+		if(PicInfo->CameraMaker)
+			printf("CameraMaker: %s\n", PicInfo->CameraMaker);
+		if(PicInfo->CameraModel)
+			printf("CameraModel: %s\n", PicInfo->CameraModel);
+		if(PicInfo->DateTaken)
+			printf("DateTaken: %s\n", PicInfo->DateTaken);
+		if(PicInfo->software)
+			printf("Software: %s\n", PicInfo->software);
+		if(PicInfo->title)
+			printf("Title: %s\n", PicInfo->title);
+		if(PicInfo->author)
+                        printf("Author: %s\n", PicInfo->author);
+		if(PicInfo->keywords)
+                        printf("Keywords: %s\n", PicInfo->keywords);
+		if(PicInfo->subject)
+                        printf("Subject: %s\n", PicInfo->subject);
+		if(PicInfo->comment)
+                        printf("Comment: %s\n", PicInfo->comment);
+		if(PicInfo->xcomment)
+                        printf("XComment: %s\n", PicInfo->xcomment);
+
+		egi_picinfo_free(&PicInfo);
 	}
 
 	return 0;
@@ -119,6 +254,9 @@ Read and parse Exif data in a jpeg file.
 Also read Comment segment of JPEG.
 
 Note:
+0.  Marker: Starting 2Bs token of a jpeg segement as 0xFF**.
+    Tag:  Starting 2Bs token of an Exif IFD directory entry.
+
 1. While(1) search for Markers starting with 0xFF token,
    if found, then switch() to parse the segment, after
    break/end of the case, it skips to the end of the segment
@@ -133,14 +271,14 @@ Return:
 	0	OK
 	<0 	Fails
 --------------------------------------------------------*/
-int egi_parse_jpegExif(const char *fpath)
+EGI_PICINFO* egi_parse_jpegExif(const char *fpath)
 {
 	FILE *fil=NULL;
 	unsigned char marker[2];
 	unsigned char tmpbuf[16];
 	bool IsHostByteOrder; /* TiffData byte order */
 	char buff[1024*4];
-        uint16_t uniTmp;           /* 16-bits unicode 2.o */
+        uint16_t uniTmp;           /* 16-bits unicode 2.0 */
         wchar_t uniText[1024*4];   /* 32-bits Unicode */
 	char strText[1024*4*4];      /* Encoded in UTF-8 */
 
@@ -157,11 +295,9 @@ int egi_parse_jpegExif(const char *fpath)
 	unsigned long off=0;
 	int k;
 
-
 	long TiffHeadPos;       /* File offset to Start of TiffHeader */
 	long SaveCurPos;	/* For save current file position */
 	unsigned char TiffHeader[8];
-	//long offIFD; 		/* Offset for IFD */
 	long offIFD0=0;		/* Offset to next IFD0, from TiffHeadPos */
 	long offIFD1=0;		/* Offset to next IFD1, from TiffHeadPos */
 	long offSubIFD=0;  	/* Offset to SubIFD, from TiffHeadPos */
@@ -171,6 +307,7 @@ int egi_parse_jpegExif(const char *fpath)
 	unsigned short tagcode; /* Tag code of diretory entry, dentry[0-1] */
 	unsigned int  entcomp;  /* Entry components, dentry[4-7], len=sizeof(data_format)*entcomp */
 	unsigned int  entval;   /* Entry value, dentry[8-11] */
+#if 0
 	enum data_format {
 		for_ubyte   	    =1,   //unsigned byte   *1Bs
 		for_ascii_string    =2,   //		    *1Bs
@@ -185,6 +322,7 @@ int egi_parse_jpegExif(const char *fpath)
 		for_single_float    =11,  //single float    *4Bs
 		for_double_float    =12,  //double float    *8Bs
 	} ;
+#endif
 
 	enum {
 		stage_IFD0   =0,
@@ -203,30 +341,40 @@ int egi_parse_jpegExif(const char *fpath)
                  * 0x9c9e       XPKeywords
                  * 0x9c9f       XPSubject
 	*/
-	const char *TagXPnames[] ={
+	const char *TagXPnames[] ={    /* For debug print purpose */
 		"Title", "Comment", "Author", "Keywords", "Subject" };
+
+	/* 0. Create PicInfo */
+	EGI_PICINFO *PicInfo=egi_picinfo_calloc();
+	if(PicInfo==NULL) {
+		egi_dperr("Fail to calloc PicInfo");
+		return NULL;
+	}
 
         /* 1. Open JPEG file */
         fil=fopen(fpath, "rb");
         if(fil==NULL) {
                 egi_dperr("Fail to open '%s'", fpath);
-		return -1;
+		//return -1;
+		err=-1; goto END_FUNC;
         }
 
 	/* 2. Read marker */
 	ret=fread(marker, 1, 2, fil);
 	if(ret<2) {
 		egi_dperr("Fail to read file head marker");
-		fclose(fil);
-		return -2;
+		//fclose(fil);
+		//return -2;
+		err=-2; goto END_FUNC;
 	}
 	off +=2;
 
 	/* 3. Check JPEG file header as SOI segment, no length data.  */
 	if(marker[0]!=0xFF || marker[1]!=0xD8) {
 		egi_dpstd("'%s' is NOT a JPEG file!\n", fpath);
-		fclose(fil);
-		return -3;
+		//fclose(fil);
+		//return -3;
+		err=-3; goto END_FUNC;
 	}
 	printf("SOI of a JPEG file!\n");
 	/* Notice SOI semgent has seglen=0 */
@@ -287,11 +435,29 @@ int egi_parse_jpegExif(const char *fpath)
 
 			/* Parse Segment */
 			switch(marker[1]) {
-			   /* Get image size from Segment SOF0  */
-			   case 0xC0: case 0xC1: case 0xC2: case 0xC3:
+
+			   /* Get image size from segment Start_Of_Frame(SOFn)  */
+			   /* NOTE:
+			    * 1. SOF0-3(0xC0-0XC3) non-hierarchincal Huffman coding
+			    *    SOF0(0xC0): --- Baseline DCT (Discrete Cosine Transform)
+			    *    SOF2(0xC2): --- Progresive DCT
+			    * X. (DHT 0xFFC4: Huffman table specification) <---- ignore here.
+			    * 2. SOF5-7(0xC5-0xC7): hierarchincal Huffman coding
+			    * X. (JPG 0xFFC8: Reserved for JPEG extension) <---- ignore here.
+			    * 3. SOF9-11(0xC9-0xCB): non-hierarchincal arithmetic coding
+			    * X. (DAC 0xFFCC: Arithmetic coding conditioning specification) <---- ignore here.
+			    * 4. SOF13-15(0xCD-0xCF): hierarchincal arithmetic coding
+			    */
+			   case 0xC0:
+			   case 0xC1: case 0xC2: case 0xC3:
 			   case 0xC5: case 0xC6: case 0xC7:
 			   case 0xC9: case 0xCA: case 0xCB:
 			   case 0xCD: case 0xCE: case 0xCF:
+
+				/* Check progressive DCT */
+				if(marker[1]==0xC2)
+					PicInfo->progressive=true;
+
 				/* Structure of Segment SOFn:
 				    Marker: 0xFFC0-3,5-7,9-B,D-F   	2Bytes
 				    Frame header length			2Bytes
@@ -304,8 +470,9 @@ int egi_parse_jpegExif(const char *fpath)
 				ret=fread(tmpbuf, 1, 6, fil);
 				if(ret<6) {
 					egi_dperr("Fail to read bpc,height,width,cpp.");
-					fclose(fil);
-					return -3;
+					//fclose(fil);
+					//return -3;
+					err=-3; goto END_FUNC;
 				}
 				off +=6;
 
@@ -314,46 +481,47 @@ int egi_parse_jpegExif(const char *fpath)
 				imgHeight=(tmpbuf[1]<<8) | tmpbuf[2];  /* bigenidan here */
 				imgWidth=(tmpbuf[3]<<8) | tmpbuf[4];
 				imgCPP=tmpbuf[5];
-				egi_dpstd("Image size: W%dxH%dxCPP%dxBPC%d\n", imgWidth, imgHeight, imgCPP, imgBPC);
-			   	break;
+				egi_dpstd("Marker:0x%02X, Image size: W%dxH%dxCPP%dxBPC%d\n", marker[1], imgWidth, imgHeight, imgCPP, imgBPC);
+			   	PicInfo->width=imgWidth;
+				PicInfo->height=imgHeight;
+				PicInfo->bpc=imgBPC;
+				PicInfo->cpp=imgCPP;
+
+				break;
 			   /* Define Number of lines, NOT common */
 			   case 0xDC:
 				ret=fread(tmpbuf, 1, 2, fil);
 				if(ret<2) {
 					egi_dperr("Fail to read number of lines.");
-					fclose(fil);
-					return -3;
+					//fclose(fil);
+					//return -3;
+					err=-3; goto END_FUNC;
 				}
 				off +=2;
 
 				egi_dpstd(DBG_YELLOW"Marker DNL, Get number of lines: %d\n"DBG_RESET, (tmpbuf[1]<<8) + tmpbuf[0]);
 				break;
 			   /* Comment Segment */
-			   case 0xFE:
-			   case 0xEC:  /* APP12 0xEC  Also comments  */
-#if 1 /* TEST: -------------- */
+			   case 0xFE:  /* Comment */
+			   case 0xEC:  /* APP14 0xEC Picture info(older digicams), Photoshop save for web:Ducky  */
+#if 1 /* TEST: APPx-------------- */
 			   case 0xE0: case 0xE2: case 0xE3: case 0xE4: case 0xE5: case 0xE6: case 0xE7:
 			   case 0xE8: case 0xE9: case 0xEA: case 0xEB: case 0xED: case 0xEF:
-#endif
-
-#if 0	/* TEST: --------------------------------*/
-				if( marker[1]==0xE0 ) {
-					printf("Marker 0xE0 seglen=%d\n", seglen);
-				}
 #endif
 
 				/* Read comment to buff */
 				if( sizeof(buff)-1 < sdatasize ) {
 					/* Maybe NOT comment! OR printable string! */
-					egi_dpstd(" comment len=%u > sizeof buff[]!\n", sdatasize);
+					egi_dpstd(" sdatasize=%u > sizeof(buff)-1!\n", sdatasize);
 					//fclose(fil);
 					//return -4;
 
 					ret=fread(buff, 1, sizeof(buff)-1, fil);
                                 	if(ret<sizeof(buff)-1) {
                                         	egi_dperr("Fail to read COMMENT data.");
-                                       	 	fclose(fil);
-                                        	return -4;
+                                       	 	//fclose(fil);
+                                        	//return -4;
+						err=-4; goto END_FUNC;
 					}
 					buff[sizeof(buff)-1]='\0';
 					off += sizeof(buff)-1;
@@ -362,18 +530,23 @@ int egi_parse_jpegExif(const char *fpath)
 					ret=fread(buff, 1, sdatasize, fil);
 					if(ret<sdatasize) {
 						egi_dperr("Fail to read COMMENT data.");
-						fclose(fil);
-						return -4;
+						//fclose(fil);
+						//return -4;
+						err=-4; goto END_FUNC;
 					}
 					buff[sdatasize]='\0';
 					off +=sdatasize;
 				}
 
 				/* Print comment */
-				if(marker[1]==0xFE || marker[1]==0xEC)
-					printf("Comment(FE,EC): %s\n", buff);
+				if(marker[1]==0xFE) {
+					egi_dpstd("Comment(FE): %s\n", buff);
+					PicInfo->comment = strdup(buff);
+				}
+				else if(marker[1]==0xEC)
+					egi_dpstd("Comment(EC): %s\n", buff);
 				else
-					printf("Data(E0~EF): %s\n", buff);
+					egi_dpstd("Data(MK 0x%02X, datasize=%dBs): %s\n", marker[1], sdatasize, buff);
 
 			 	break;
 
@@ -383,7 +556,8 @@ int egi_parse_jpegExif(const char *fpath)
                                 ret=fread(buff, 1, 6, fil);
                                 if(ret<6) {
                                         egi_dperr("Fail to read 6bytes Exif_Header.");
-                                        fclose(fil);  return -5;
+                                        //fclose(fil);  return -5;
+					err=-5; goto END_FUNC;
                                 }
                                 off +=6;
 				buff[6]='\0'; /* in case wrong header token */
@@ -407,7 +581,8 @@ int egi_parse_jpegExif(const char *fpath)
 				ret=fread(TiffHeader, 1, 8, fil);
 				if(ret<8) {
                                         egi_dperr("Fail to read 8bytes TIFF_Header.");
-                                        fclose(fil);  return -5;
+                                        //fclose(fil);  return -5;
+					err=-5; goto END_FUNC;
                                 }
                                 off +=8;
 
@@ -432,8 +607,8 @@ int egi_parse_jpegExif(const char *fpath)
 
 				/* Current seek offset 8bytes, so MUST offIFD>=8!  */
 				if(offIFD0<8) {
-				     egi_dpstd("Data error! offIFD<8!\n");
-				     err=-5; goto END_FUNC;
+				     	egi_dpstd("Data error! offIFD<8!\n");
+					err=-5; goto END_FUNC;
 				}
 				egi_dpstd("Offset to first IFD: %lu\n", offIFD0);
 
@@ -450,22 +625,19 @@ int egi_parse_jpegExif(const char *fpath)
 START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 				/* IFD directory
 				    E(2Bs) : Number of directory entry
-				    T(2Bs)+F(2Bs)+N(4Bs)+D(4Bs)   Entry0
+				    T(2Bs)+F(2Bs)+N(4Bs)+D(4Bs)   Entry0   (T-Tag, F-Format, N-NumberOfComponent, D-DataValue)
 				    T(2Bs)+F(2Bs)+N(4Bs)+D(4Bs)   Entry1
 				    ... ...
 				    T(2Bs)+F(2Bs)+N(4Bs)+D(4Bs)   Entry2
 				    L(4Bs)   Offset to next IFD
 				*/
 
-				//if(IFDstage==stage_IFD0)
-				//	IFDstage=stage_IFD1;
-
 
 				/* E1.5.1 Read number of directory entrys */
                                 ret=fread(buff, 1, 2, fil);
                                 if(ret<2) {
                                         egi_dperr("Fail to read 2bytes number of directory entry.");
-                                        err=-5;  goto END_FUNC;
+					err=-5; goto END_FUNC;
                                 }
                                 off +=2;
 
@@ -483,7 +655,7 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
         	                        ret=fread(dentry, 1, 12, fil); /* 2+2+4+4 */
                 	                if(ret<12) {
                         	                egi_dperr("Fail to read 12bytes directory entry content.");
-                                	        err=-5;  goto END_FUNC;
+						err=-5; goto END_FUNC;
                                 	}
                                 	off +=12;
 
@@ -520,6 +692,7 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
                         }
 			buff[sizeof(buff)-1]='\0';
 			egi_dpstd("ImageDescription: %s\n", buff);
+			PicInfo->ImageDescription=strdup(buff);
 
 			/* Restore SEEK position */
 			fseek(fil, SaveCurPos, SEEK_SET);
@@ -542,6 +715,7 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
                         }
 			buff[sizeof(buff)-1]='\0';
 			egi_dpstd("Camera Maker: %s\n", buff);
+			PicInfo->CameraMaker=strdup(buff);
 
 			/* Restore SEEK position */
 			fseek(fil, SaveCurPos, SEEK_SET);
@@ -564,6 +738,7 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
                         }
 			buff[sizeof(buff)-1]='\0';
 			egi_dpstd("Camera Model: %s\n", buff);
+			PicInfo->CameraModel=strdup(buff);
 
 			/* Restore SEEK position */
 			fseek(fil, SaveCurPos, SEEK_SET);
@@ -594,13 +769,14 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
                         }
 			buff[sizeof(buff)-1]='\0';
 			egi_dpstd("Software: %s\n", buff);
+			PicInfo->software=strdup(buff);
 
 			/* Restore SEEK position */
 			fseek(fil, SaveCurPos, SEEK_SET);
 		    }
 
 		    break;
-		case 0x0132:  /* 0x0132 DataTime, ascii string,  "YYYY:MM:DD HH:MM:SS"+0x00, 20Bytes */
+		case 0x0132:  /* 0x0132 Last DataTime, ascii string,  "YYYY:MM:DD HH:MM:SS"+0x00, 20Bytes */
 		    /* Then entval is offset value */
 		    if( 1*entcomp >4 ) {
 			SaveCurPos=ftell(fil);
@@ -616,6 +792,7 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
                         }
 			buff[sizeof(buff)-1]='\0';
 			egi_dpstd("Last Date: %s\n", buff);
+			PicInfo->DateLastModify=strdup(buff);
 
 			/* Restore SEEK position */
 			fseek(fil, SaveCurPos, SEEK_SET);
@@ -624,6 +801,12 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 		case 0x013e:  /* 0x013e WhitePoint, 2 unsigned_rational */
 		    break;
 		case 0x013f:  /* 0x013f PrimaryChromatictities, 6 unsigned rational */
+		    break;
+		case 0x0201:  /* IFD1, ThumbnailOffset in IFD1 of JPEG and some TIFF-based images */
+		    egi_dpstd("IFD1 TAG for Thumbnail Offset\n");
+		    break;
+		case 0x0202:  /* IFD1, ThumbnailLength in IFD1 of JPEG and some TIFF-based images */
+		    egi_dpstd("IFD1 TAG for Thumbnail Length\n");
 		    break;
 		case 0x0211:  /* 0x0211 YCbCrCoefficients, 3 unsigned rational */
 		    break;
@@ -647,6 +830,7 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
                         }
 			buff[sizeof(buff)-1]='\0';
 			egi_dpstd("Copyright: %s\n", buff);
+			PicInfo->copyright=strdup(buff);
 
 			/* Restore SEEK position */
 			fseek(fil, SaveCurPos, SEEK_SET);
@@ -689,6 +873,7 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
                         }
 			buff[sizeof(buff)-1]='\0';
 			egi_dpstd("Date Taken: %s\n", buff);
+			PicInfo->DateTaken=strdup(buff);
 
 			/* Restore SEEK position */
 			fseek(fil, SaveCurPos, SEEK_SET);
@@ -740,6 +925,20 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 				printf("%s: %s\n", TagXPnames[tagcode-0x9c9b], strText);
 			}
 
+			/* Write to PicInfo */
+			switch(tagcode) {
+				case 0x9c9b:
+					PicInfo->title=strdup(strText); break;
+				case 0x9c9c:
+					PicInfo->xcomment=strdup(strText); break;
+				case 0x9c9d:
+					PicInfo->author=strdup(strText); break;
+				case 0x9c9e:
+					PicInfo->keywords=strdup(strText); break;
+				case 0x9c9f:
+					PicInfo->subject=strdup(strText); break;
+			}
+
                         /* Restore SEEK position */
                         fseek(fil, SaveCurPos, SEEK_SET);
                     }
@@ -755,6 +954,8 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 
 				} /* End for(k) pase entrys */
 
+				/* NOW: At end of the file directory(TAG lists) */
+
 				/* E1.5.3 At end of the file directory, read Offset to next IFD */
         	                ret=fread(tmpbuf, 1, 4, fil);
                 	        if(ret<4) {
@@ -769,19 +970,20 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 				else
 					offNextIFD=tmpbuf[3]+(tmpbuf[2]<<8)+(tmpbuf[1]<<16)+(tmpbuf[0]<<24);
 
-				/* E1.5.5 Update/Shift IFD stage */
+				/* E1.5.5 Check current IFDstage, then Update/Shift IFD stage */
 				if(IFDstage==stage_IFD0) {
 				     offIFD0=0; /* Reset */
-				     printf("End of IFD0 directory, offNextIFD=%ld\n", offNextIFD);
+				     egi_dpstd("End of IFD0 directory, offNextIFD=%ld\n", offNextIFD);
 				     offIFD1=offNextIFD;
 				}
 				else if(IFDstage==stage_IFD1) {
-				     printf("End of IFD1 directory, offNextIFD=%ld\n", offNextIFD);
 				     offIFD1=0; /* Reset! */
+				     egi_dpstd("End of IFD1 directory, offNextIFD=%ld. --- BREAK ---\n", offNextIFD);
+				     break;  /* Break Exif_data case (case 0xE1) */
 				}
 				else if(IFDstage==stage_SubIFD) {
-				        printf("End of SubIFD directory, offNextIFD=%ld, ---- BREAK ANYWAY-----\n", offNextIFD);
-					break; /* MUST break here, it goes to IFD1 AGAIN~ LOOP... */
+				        egi_dpstd("End of SubIFD directory, offNextIFD=%ld\n", offNextIFD);
+					offSubIFD=0; /* Reset */
 				}
 				/* Sequence: IFD0-->SubIFD-->IFD1, MUST break when IFDstage==stage_SubIFD, or it loops. */
 
@@ -807,7 +1009,7 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 					goto START_IFD_DIRECTORY;
 				}
 
-				/* E1.5.8 Skip to IFDx if offNextIFD>0 ??? */
+				/* E1.5.8 Skip to IFDx if offNextIFD>0 ??? XXX ONLY IFD1 */
 
 				break;
 //////////////////////  END Exif data (case 0xE1)  /////////////////////
@@ -846,7 +1048,10 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 END_FUNC:
 	fclose(fil);
 
-	return err;
+	/* Check error */
+	if(err)	egi_picinfo_free(&PicInfo);
+
+	return PicInfo;
 }
 
 

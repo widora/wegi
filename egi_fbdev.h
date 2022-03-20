@@ -12,7 +12,7 @@ Referring to: http://blog.chinaunix.net/uid-22666248-id-285417.html
 
 
 Modified and appended by: Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -----------------------------------------------------------------------------*/
 #ifndef __EGI_FBDEV_H__
 #define __EGI_FBDEV_H__

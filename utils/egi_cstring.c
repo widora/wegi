@@ -58,7 +58,7 @@ Journal
 	2. egi_hex2str(hex,len): if hex==NULL, see it as ALL 0s!
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------*/
 #include <stdio.h>
 #include <string.h>

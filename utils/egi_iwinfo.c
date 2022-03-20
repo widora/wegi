@@ -10,7 +10,7 @@ Journal:
 	1. Add: iw_is_running(), iw_ifup(), iw_ifdown().
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -----------------------------------------------------------------*/
 #include <sys/types.h>
 #include <sys/socket.h>

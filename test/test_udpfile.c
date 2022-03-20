@@ -165,7 +165,7 @@ TODO:
 	UDP transfer: Round 1,  Retrys: 21/284,  TimeOuts: 0, Time: 1510ms
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 https://github.com/widora/wegi
 --------------------------------------------------------------------------*/
 #include <fcntl.h>

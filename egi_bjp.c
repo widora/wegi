@@ -38,7 +38,7 @@ Journal:
 	1. egi_imgbuf_loadpng(): Check size for mem allocation limit.
 
 Modified and appended by Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -----------------------------------------------------------------------*/
 #include <unistd.h>
 #include <stdio.h>

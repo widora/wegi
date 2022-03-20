@@ -63,7 +63,7 @@
         1. mad_flow output(): correct nchannels and samplerate.
 
  Midas Zhou
- midaszhou@yahoo.com
+ midaszhou@yahoo.com(Not in use since 2022_03_01)
  -------------------------------------------------------------------------------
 
 		---- Smples Per Frame ----

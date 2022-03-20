@@ -18,7 +18,7 @@ Journal:
 	1. Add  egi_ringbuffer_IsFull()
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------*/
 #include <stdlib.h>
 #include <string.h>

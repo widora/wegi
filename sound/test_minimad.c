@@ -139,7 +139,7 @@
 	1. Add madplay_resample.h and resampling codes.
 
  Midas Zhou
- midaszhou@yahoo.com
+ midaszhou@yahoo.com(Not in use since 2022_03_01)
  -------------------------------------------------------------------------------
 
 		---- Smples Per Frame ----

@@ -22,7 +22,7 @@ Add a click sound effect for the HOUR roller.
 	 H:M:S digits block: 60x60
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -------------------------------------------------------------------*/
 #include <egi_common.h>
 #include <egi_FTsymbol.h>

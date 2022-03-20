@@ -6,7 +6,7 @@ published by the Free Software Foundation.
 An example of creating a CPU load meter/indicator.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -------------------------------------------------------------------*/
 #include <stdint.h>
 #include <egi_common.h>

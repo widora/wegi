@@ -166,7 +166,7 @@ TODO: If mouse is disconnected, the mouse_callback() will be hung up.
 
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 --------------------------------------------------------------------------------------*/
 #include "egi_debug.h"
 #include "egi_input.h"
@@ -1093,7 +1093,7 @@ Reference: https://blog.csdn.net/lanmanck/article/details/8423669
 
  ---------------------------------------------------------
  Modified to select /dev/input/event* to read KEY_EV only.
- Midas Zhou   <midaszhou@yahoo.com>
+ Midas Zhou   <midaszhou@yahoo.com(Not in use since 2022_03_01)>
 
 -----------------------------------------------------------------
 Read keyboard EV_KEY event to get key codes. If kdev is NULL, then

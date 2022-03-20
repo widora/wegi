@@ -27,7 +27,7 @@ Journal:
 	1. Add egi_16bitColor_interplt4p().
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -----------------------------------------------------------------------*/
 #include "egi_color.h"
 #include "egi_debug.h"

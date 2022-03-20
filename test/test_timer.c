@@ -31,7 +31,7 @@ Note:
 4. Two sound playing threads
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ----------------------------------------------------------------------*/
 #include <stdio.h>
 #include <getopt.h>

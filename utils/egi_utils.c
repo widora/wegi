@@ -29,7 +29,7 @@ Journal
 	1. Add EGI_ID3V2TAG and related functions.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -----------------------------------------------------------------*/
 #include "egi_utils.h"
 #include "egi_debug.h"

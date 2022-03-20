@@ -8,7 +8,7 @@ published by the Free Software Foundation.
 Refer to:  https://curl.haxx.se/libcurl/c/
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -----------------------------------------------------------------*/
 #ifndef __EGI_HTTPS__
 #define __EGI_HTTPS__

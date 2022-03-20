@@ -27,7 +27,7 @@ Journal:
 	1. Add COLOR_R8_IN16BITS, COLOR_G8_IN16BITS, COLOR_B8_IN16BITS
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -------------------------------------------------------------------*/
 #ifndef	__EGI_COLOR_H__
 #define __EGI_COLOR_H__

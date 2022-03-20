@@ -7,7 +7,7 @@ An example of drawing a kind of rolling type meter, under directFB mode.
 To draw it under Non_directFB mode can avoid tear lines.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------*/
 #include <egi_common.h>
 #include <egi_FTsymbol.h>

@@ -26,7 +26,7 @@ TODO:
 	3. To read FBDE vinfo to get all screen/fb parameters as in fblines.c, it's improper in other source files.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------------------*/
 #include <stdio.h>
 #include <stdlib.h> /*malloc*/

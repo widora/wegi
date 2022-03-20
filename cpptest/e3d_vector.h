@@ -53,7 +53,7 @@ Journal:
 	1. Add E3D_combExtriRotation()
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 -------------------------------------------------------*/
 #ifndef __E3D_VECTOR_H__
 #define __E3D_VECTOR_H__

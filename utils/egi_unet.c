@@ -66,7 +66,7 @@ Journal:
 	1. ering_msg_send(): Consider if(data!=NULL && len!=0)...
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ---------------------------------------------------------------------*/
 #include <stdio.h>
 #include <stdlib.h>

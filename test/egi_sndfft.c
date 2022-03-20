@@ -7,7 +7,7 @@ EGI定点快速傅立叶变换(EGI Fixed_point FFT)展示拾音频谱
 An example to analyze MIC captured audio and display its spectrum.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------*/
 #include <stdio.h>
 #include <alsa/asoundlib.h>
