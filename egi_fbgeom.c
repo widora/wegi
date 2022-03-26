@@ -102,6 +102,9 @@ Jurnal
 2022-03-14:
 	1. draw_blend_filled_roundcorner_rect(): antialiasing for arcs.
 	2. fdraw_dot(): consider user geom pixalpha --- NOT GOOD FOR ANTIALIAS BLENDING.
+2022-03-24:
+	1. Improve draw_wline_nc(), draw_wline()
+	2. draw_spline(): Call draw_pline() instead of draw_wline()
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -1147,7 +1150,7 @@ void fdraw_line(FBDEV *dev, float x1, float y1, float x2, float y2)
 {
 	float k;
 	float xx,yy;
-	float step=0.75;  /* point sampling step, step=DX(DY)=0.5 OR step=DL=0.75 */
+	float step=0.5;  /* point sampling step, step=DX(DY)=0.5 OR step=DL=0.75 */
 	float tmp;
 
 	/* If the same pixel */
@@ -1944,7 +1947,6 @@ void draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
         }
 
 	int i;
-	int xr1,yr1,xr2,yr2;
 
 	/* half width, also as circle rad */
 	int r=w>>1; /* so w=0 and w=1 is the same */
@@ -1966,6 +1968,8 @@ void draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 		/* Add 1 more line at Low Half if w is even. */
 		if( (w&0x1)==0 )
 			draw_line(dev, x1, y1-r-1, x2, y1-r-1);
+
+		return;  /* MidasHK_2022-03-24  :() */
 	}
 	/* If Vertial straight line */
 	else if( xdif==0 ) {
@@ -1979,8 +1983,9 @@ void draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 		/* Add 1 more line at Right Half if w is even. */
 		if( (w&0x1)==0 )
 			draw_line(dev, x1+r+1, y1, x1+r+1, y2);
-	}
 
+		return;
+	}
 
         int32_t fp16_len = mat_fp16_sqrtu32(ydif*ydif+xdif*xdif);
 
@@ -1990,9 +1995,30 @@ void draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 		return;
 	}
 
-   if(fp16_len !=0 ) {
 
-	/* draw multiple lines  */
+#if 1 /* Draw filled triangles for thickness */
+	EGI_POINT pts[5];
+	float rsin=1.0*(r*ydif<<16)/fp16_len;
+	float rcos=1.0*(r*xdif<<16)/fp16_len;
+
+	pts[0].x=roundf(x1-rsin);
+	pts[0].y=roundf(y1+rcos);
+	pts[1].x=roundf(x2-rsin);
+	pts[1].y=roundf(y2+rcos);
+
+	pts[2].x=roundf(x1+rsin);
+	pts[2].y=roundf(y1-rcos);
+	pts[3].x=roundf(x2+rsin);
+	pts[3].y=roundf(y2-rcos);
+
+	pts[4]=pts[1];
+	//pts[4].x = pts[0].x; pts[4].y = pts[0].y;
+
+	draw_filled_triangle(dev, pts);
+	draw_filled_triangle(dev, pts+2);
+
+#else	/* draw multiple lines  */
+	int xr1,yr1,xr2,yr2;
 	for(i=0;i<=r;i++) {
 		/* draw UP_HALF multiple lines  */
 		xr1=x1-(i*ydif<<16)/fp16_len;
@@ -2010,11 +2036,9 @@ void draw_wline_nc(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 
 		draw_line(dev,xr1,yr1,xr2,yr2);
 	}
-
-   } /* end of len !=0, if len=0, the two points are the same position */
+#endif
 
 }
-
 
 
 /*--------------------------------------------------------------------
@@ -2066,6 +2090,8 @@ void draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 		/* Add 1 more line at Low Half if w is even. */
 		if( (w&0x1)==0 )
 			draw_line(dev, x1, y1-r-1, x2, y1-r-1);
+
+		return;  /* MidasHK_2022-03-24  :() */
 	}
 	/* If Vertial straight line */
 	else if( xdif==0 ) {
@@ -2079,6 +2105,8 @@ void draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 		/* Add 1 more line at Right Half if w is even. */
 		if( (w&0x1)==0 )
 			draw_line(dev, x1+r+1, y1, x1+r+1, y2);
+
+		return;
 	}
 
         int32_t fp16_len = mat_fp16_sqrtu32(ydif*ydif+xdif*xdif);
@@ -2091,25 +2119,37 @@ void draw_wline(FBDEV *dev,int x1,int y1,int x2,int y2, unsigned int w)
 
 #if 1 /* Draw filled triangles for thickness */
 	EGI_POINT pts[5];
+	float rsin=1.0*(r*ydif<<16)/fp16_len;
+	float rcos=1.0*(r*xdif<<16)/fp16_len;
 
-	pts[0].x=roundf(x1-1.0*(r*ydif<<16)/fp16_len);
-	pts[0].y=roundf(y1+1.0*(r*xdif<<16)/fp16_len);
-	pts[1].x=roundf(x2-1.0*(r*ydif<<16)/fp16_len);
-	pts[1].y=roundf(y2+1.0*(r*xdif<<16)/fp16_len);
+	pts[0].x=roundf(x1-rsin);
+	pts[0].y=roundf(y1+rcos);
+	pts[1].x=roundf(x2-rsin);
+	pts[1].y=roundf(y2+rcos);
 
-	pts[2].x=roundf(x1+1.0*(r*ydif<<16)/fp16_len);
-	pts[2].y=roundf(y1-1.0*(r*xdif<<16)/fp16_len);
-	pts[3].x=roundf(x2+1.0*(r*ydif<<16)/fp16_len);
-	pts[3].y=roundf(y2-1.0*(r*xdif<<16)/fp16_len);
+	pts[2].x=roundf(x1+rsin);
+	pts[2].y=roundf(y1-rcos);
+	pts[3].x=roundf(x2+rsin);
+	pts[3].y=roundf(y2-rcos);
 
 	pts[4]=pts[1];
 	//pts[4].x = pts[0].x; pts[4].y = pts[0].y;
+
+	#if 0 /* TEST: ------------ */
+	printf("pxy:(%d,%d), (%d,%d)  Tri pts:", x1,y1, x2,y2);
+	for(i=0; i<4; i++)
+	    printf(" (%d, %d)", pts[i].x, pts[i].y);
+	printf("\n");
+	#endif
 
 	draw_filled_triangle(dev, pts);
 	draw_filled_triangle(dev, pts+2);
 
 #else	/* Draw multiple lines for thickness */
 	int xr1,yr1,xr2,yr2;
+	//int rsin; =(i*ydif<<16)/fp16_len;
+	//int rcos; =(i*xdif<<16)/fp16_len;
+
 	for(i=0;i<=r;i++)
 	{
 		/* draw UP_HALF multiple lines  */
@@ -5820,7 +5860,6 @@ Note:
 TODO:
 1. To draw curve width by filled triangles!
 
-
 @np:		Number of input points.
 @pxy:		Input points
 @endtype:	Boundary type:
@@ -5847,6 +5886,11 @@ int draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int 
 	float xs=0,ys=0,xe=0,ye=0;	/* start,end x,y */
 	float dx=0.0;			/* dx=(x-xi) */
 	int step;
+
+	/* TEST: To store all points in pts, --------------- */
+	const int MAXPTS=1024;
+	EGI_POINT allpts[MAXPTS];
+	int allcnt=0;
 
 	/* check np */
 	if(np<2)
@@ -5970,13 +6014,33 @@ int draw_spline(FBDEV *fbdev, int np, EGI_POINT *pxy, int endtype, unsigned int 
 				ye=a[k]+b[k]*dx+c[k]*pow(dx,2)+d[k]*pow(dx,3);
 			}
 
+			/* Save all interpolation points */
+			if(allcnt<MAXPTS) {
+				allpts[allcnt].x=roundf(xs); allpts[allcnt].y=roundf(ys);
+				allcnt ++;
+			}
+
 			/* Draw short line */
-			draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w);
+			//draw_wline(fbdev, roundf(xs), roundf(ys), roundf(xe), roundf(ye), w);
 		}
 
 		/* reste xs,xe as for token */
-		xs=0; xe=0;
+		if(k<n-1) {  /* Keep the last one */
+			xs=0; xe=0;
+		}
 	}
+
+	/* Save the last points */
+	if(allcnt<MAXPTS) {
+		allpts[allcnt].x=roundf(xe); allpts[allcnt].y=roundf(ye);
+		allcnt++;
+	}
+
+	//for(k=0; k<allcnt; k++)
+	//	printf("pxy[%d]: %d, %d\n", k, allpts[k].x, allpts[k].y);
+
+	/* Draw pline  MidasHK_2022-03-24 */
+	draw_pline(&gv_fb_dev, allpts, allcnt, w);
 
 END_FUNC:
 	/* free */

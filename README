@@ -103,6 +103,7 @@ egi_list.c	type_list ebox
 egi_pic.c	type_pic ebox
 egi_procman.c   subprocess handling and its signal actions.
 egi_input.c	read mouse and other input events 
+egi_touch.c     For touch input
 egi_gb2unicode.c NOW: GB2312/Unicode conversion.
 
 egi_utils.c	some helper functions
@@ -116,6 +117,7 @@ egi_inet.c	TCP/UDP util module
 egi_unet.c	UNIX domain socket module for local IPC.
 egi_surface.c	EGI SURFACE module
 egi_aes.c	AES encryption module.
+egi_ringbuffer.c    A simple ring buffer module.
 
 egi_matrix.c    A matrix operation lib
 

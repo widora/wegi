@@ -49,6 +49,8 @@ Jurnal
 2022-02-10:
 	1. egi_imgbuf_mapTriWriteFB3(): with input params of float z0,z1,z2 to compute pixZ
 	   for each pixel.
+2022-03-22:
+	1. egi_imgbuf_readfile(): Call egi_simpleCheck_jpgfile() to identify JPEG or PNG.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -449,13 +451,29 @@ EGI_IMGBUF *egi_imgbuf_readfile(const char* fpath)
 	EGI_IMGBUF *eimg=egi_imgbuf_alloc();
 	if(eimg==NULL)
 		return NULL;
-
+#if 0
         if( egi_imgbuf_loadjpg(fpath, eimg)!=0 ) {
                 if ( egi_imgbuf_loadpng(fpath, eimg)!=0 ) {
 			egi_imgbuf_free2(&eimg);
 			return NULL;
                 }
         }
+#else
+	/* PNG File */
+	if(egi_simpleCheck_jpgfile(fpath)==JPEGFILE_INVALID) {
+	    if ( egi_imgbuf_loadpng(fpath, eimg)!=0 ) {
+                     egi_imgbuf_free2(&eimg);
+                     return NULL;
+            }
+	}
+	/* JPEG File */
+	else  {
+	    if ( egi_imgbuf_loadjpg(fpath, eimg)!=0 ) {
+                     egi_imgbuf_free2(&eimg);
+                     return NULL;
+            }
+	}
+#endif
 
 	return eimg;
 }

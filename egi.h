@@ -29,6 +29,7 @@ extern "C" {
 #define EGI_TAG_LENGTH 30 	/* ebox tag string length */
 #define EGI_PAGE_MAXTHREADS 5   /* MAX. number of threads in a page routine job */
 
+typedef struct egi_fpoint_coord  EGI_FPOINT;  /* MidasHK_2022-03-24 */
 typedef struct egi_point_coord  EGI_POINT;
 typedef struct egi_box_coords 	EGI_BOX;
 
@@ -57,6 +58,12 @@ struct egi_point_coord
 {
          int x;
          int y;
+};
+
+struct egi_fpoint_coord
+{
+         float x;
+         float y;
 };
 
 struct egi_box_coords

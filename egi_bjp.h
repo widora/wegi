@@ -66,11 +66,73 @@ typedef struct
 }__attribute__((packed)) PIXEL;//颜色模式RGB
 
 
+/*** struct EGI_PICINFO
+ */
+typedef struct egi_picture_info
+{
+	/* Extract from JPEG segement SOF0, Marker 0xC0 */
+	int width; /* Size in pixels */
+	int height;
+
+	int cpp;   /* color components per pixel */
+	int bpc;   /* Bits per color component */
+	unsigned char colorType;   /* NOW for PNG only, TODO JPEG */
+	/*  Same definition as PNG standard
+	   Greyscale               0
+	   Truecolour(RGB)         2
+           Indexed-colour          3
+           Greyscale + alpha       4
+           Truecolour + alpha      6
+	 */
+
+
+	bool progressive;  /* JPEG: Progressive,  PNG: Interlaced */
+
+	/* Extract from JPEG segemnt, Marker */
+	char *comment;	   /* Marker 0xFE, segment COM */
+	char *app14com;	   /* Marker 0xEC, APP14 0xEC Picture info(older digicams), Photoshop save for web:Ducky  */
+
+	/* Extract from Exif IFD0 by TAG */
+	char *CameraMaker; /* TAG 0x010f */
+	char *CameraModel; /* TAG 0x0110 */
+	char *software;    /* TAG 0x0131 software */
+	char *ImageDescription; /* TAG 0x010e */
+	char *DateTaken;   /* TAG 0x9003 Date when the picture is taken. */
+	char *DateLastModify;    /* 0x0132 time for last modification */
+        char *title;      /* TAG 0x9c9b, ignored if ImageDescription exists */
+        char *xcomment;   /* TAG 0x9c9c, Windows comment */
+        char *author;	  /* TAG 0x9c9d */
+	char *keywords;   /* TAG 0x9c9e */
+	char *subject;	  /* TAG 0x9c9f */
+	char *copyright;  /* TAG 0x8298  Copyright information */
+
+	/* Thumbnail */
+	EGI_IMGBUF *thumbnail;
+
+} EGI_PICINFO;
+
+EGI_PICINFO *egi_picinfo_calloc(void);
+void egi_picinfo_free(EGI_PICINFO **info);
+//EGI_PICINFO* egi_parse_jpegExif(const char *fpath);
+EGI_PICINFO* egi_parse_jpegFile(const char *fpath);
+
+
 
 #define SHOW_BLACK_TRANSP	1
 #define SHOW_BLACK_NOTRANSP	0
 
-/* functions */
+/* Check image file integraty */
+#define JPEGFILE_INVALID   -1
+#define JPEGFILE_COMPLETE   0
+#define JPEGFILE_INCOMPLETE 1
+int egi_check_jpgfile(const char* path);
+int egi_simpleCheck_jpgfile(const char* fpath);
+
+#define PNGFILE_INVALID   -1
+#define PNGFILE_COMPLETE   0
+#define PNGFILE_INCOMPLETE 1
+
+/*  functions */
 int compress_to_jpgFile(const char * filename, int quality, int width, int height,
 			unsigned char *rgb24, J_COLOR_SPACE inspace);
 int compress_to_jpgBuffer(unsigned char ** outbuffer, unsigned long * outsize,int quality,
@@ -90,7 +152,8 @@ int egi_imgbuf_savepng(const char* fpath, EGI_IMGBUF *egi_imgbuf);
 
 /* roaming picture in a window */
 int egi_roampic_inwin(const char *path, FBDEV *fb_dev, int step, int ntrip,
-                                			int xw, int yw, int winw, int winh);
+                              			int xw, int yw, int winw, int winh);
+
 /* find all jpg files in a path --- OBSOLEGTE --- */
 int egi_find_jpgfiles(const char* path, int *count, char **fpaths, int maxfnum, int maxflen);
 

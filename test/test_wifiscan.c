@@ -369,7 +369,7 @@ void parse_apinfo(char *info, int index)
 	pts[2].x=px_cf+bw/2*ppm;  	pts[2].y=blpy;
 
 	gv_fb_dev.antialias_on=true;
-	draw_spline(&gv_fb_dev, 3, pts, 2, 1);
+	draw_spline(&gv_fb_dev, 3, pts, 2, 5);
 	gv_fb_dev.antialias_on=false;
 
 	draw_filled_spline(&gv_fb_dev, 3,pts, 2, 1, blpy, color, 50); /* baseY, color, alpha */
@@ -514,6 +514,7 @@ void draw_cpuload(void)
 	pts[16].x=320-1;
 
 	/* Draw spline of CPU load */
+	fbset_color(WEGI_COLOR_RED);
 	gv_fb_dev.antialias_on=true;
 	draw_spline(&gv_fb_dev, st, pts, 2, 1);
 	gv_fb_dev.antialias_on=false;

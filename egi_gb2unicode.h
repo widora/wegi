@@ -15,6 +15,8 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #ifndef __EGI_GB2UNICODE_H__
 #define __EGI_GB2UNICODE_H__
 
+#include <wchar.h>
+
 typedef struct GB2312toUnicode {
                 uint16_t  gbcode;   /* GB2312 code */
                 uint16_t  unicode;  /* Unicode */

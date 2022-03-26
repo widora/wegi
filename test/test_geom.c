@@ -395,7 +395,7 @@ while(1) {
 	draw_filled_triangle(&gv_fb_dev, pts);
 //	draw_triangle(&gv_fb_dev, pts);
 
-#if 1 /* TEST: draw_blend_filled_roundcorner_rect(), NOT GOOD for antialias_on if alpha!=255!! */
+ #if 1 /* TEST: draw_blend_filled_roundcorner_rect(), NOT GOOD for antialias_on if alpha!=255!! */
    if(mat_random_range(10)<4) {
 	egi_randp_inbox(&tri_box.startxy, &box);
 	tri_box.endxy.x=tri_box.startxy.x+175;
@@ -694,13 +694,13 @@ while(1) {
 #if 0  /* <<<<<<<<<<<<<<  6. test draw_wline & draw_pline  <<<<<<<<<<<<<<<*/
 
         /* Set sys FB mode */
-        fb_set_directFB(&gv_fb_dev, false);
+        fb_set_directFB(&gv_fb_dev, true); //false);
         fb_position_rotate(&gv_fb_dev, 0);
         //gv_fb_dev.pixcolor_on=true;             /* Pixcolor ON */
         //gv_fb_dev.zbuff_on = true;              /* Zbuff ON */
         //fb_init_zbuff(&gv_fb_dev, INT_MIN);
 
-   #if 1   /* ---- draw_wline() --------- */
+   #if 0   /* ---- draw_wline() --------- */
 	int k;
 	int w;
 	EGI_POINT p1,p2;
@@ -793,6 +793,8 @@ while(1) {
 	/* draw poly line with FB FILO */
         fb_filo_on(&gv_fb_dev);
 
+	sleep(1);
+
 	/* Antialias ON, to apply fdraw_line(). */
 	gv_fb_dev.antialias_on=true;
 
@@ -803,7 +805,7 @@ while(1) {
 		points[i].y=(rad*2*fp16_sin[(i*div+delt)%360]>>16)+40*3; /* shift up axis to center */
 	}
 	fbset_color(WEGI_COLOR_PINK); //BLUE);//GREEN);
-	draw_pline(&gv_fb_dev, points, num, 5);
+	draw_pline(&gv_fb_dev, points, num, 5);//5);  /* FILO slow if draw filled triangles for thickness */
 
 	/* 2. generate 2nd sin() points  */
 	for(i=0;i<num;i++) {
@@ -811,15 +813,15 @@ while(1) {
 		points[i].y=(rad*6/5*fp16_sin[(i*div*3+delt*4)%360]>>16)+40*3; /* shift up axis to center */
 	}
 	fbset_color(WEGI_COLOR_YELLOW);//GRAYB);
-	draw_pline(&gv_fb_dev, points, num, 1); //5);
+	draw_pline(&gv_fb_dev, points, num, 3);
 
 	/* 3. generate 3rd sin() points  */
 	for(i=0;i<num;i++) {
 		points[i].x=i;
 		points[i].y=(rad*3/2*fp16_sin[(i*div/2+delt)%360]>>16)+40*3; /* shift up axis */
 	}
-	fbset_color(WEGI_COLOR_RED); //BLUE);//GREEN);
-	draw_pline(&gv_fb_dev, points, num, 1); //5);
+	fbset_color(WEGI_COLOR_BLUE); //BLUE);//GREEN);
+	draw_pline(&gv_fb_dev, points, num, 5);
 
 	/* 4. generate sin() points  */
 	for(i=0;i<num;i++) {
@@ -828,7 +830,7 @@ while(1) {
 		points[i].y=(rad*fp16_sin[( i*div + (delt<<1) )%360]>>16)+40*3; /* shift up axis */
 	}
 	fbset_color(WEGI_COLOR_ORANGE);//GREEN);
-	draw_pline(&gv_fb_dev, points, num, 1); //5);
+	draw_pline(&gv_fb_dev, points, num, 3); //5);
 
 	/* 5. generate 2nd sin() points  */
 	for(i=0;i<num;i++) {
@@ -837,7 +839,9 @@ while(1) {
 		points[i].y=(rad/2*fp16_sin[( i*div + (delt<<2) )%360]>>16)+40*3; /* shift up axis */
 	}
 	fbset_color(WEGI_COLOR_GREEN);//GREEN);
-	draw_pline(&gv_fb_dev, points, num, 1); //5);
+	draw_pline(&gv_fb_dev, points, num, 3); //5);
+
+sleep(1);
 
 	/* Antialias OFF */
 	gv_fb_dev.antialias_on=true;

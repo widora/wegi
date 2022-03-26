@@ -65,6 +65,8 @@ Jurnal:
 	1. Set header to NULL after curl_slist_free_all(header)!
 2022-01-01:
 	1. https_easy_download():  Enable option CURLOPT_HTTPGET.
+2022-03-21:
+	1. Add fflush(fb) before fsync(fileno(fp));
 
 TODO:
 XXX 1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
@@ -806,6 +808,7 @@ CURL_CLEANUP:
 		}
 
 		/* Make sure to flush metadata again! */
+		fflush(fp); // fflush first :>>>
 		if( fsync(fileno(fp)) !=0 ) {
 			EGI_PLOG(LOGLV_ERROR,"%s: [download fails] Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 		}
@@ -817,6 +820,7 @@ CURL_CLEANUP:
 
 	/* Make sure to flush metadata before recheck file size! necessary? */
 	EGI_PLOG(LOGLV_CRITICAL,"%s: Start fsync file...\n", __func__);
+	fflush(fp); // fflush first :>>>
 	if( fsync(fileno(fp)) !=0 ) {
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 	}
@@ -847,6 +851,7 @@ CURL_CLEANUP:
 			}
 
 			/* Make sure to flush metadata again! */
+			fflush(fp);
 			if( fsync(fileno(fp)) !=0 ) {
 				EGI_PLOG(LOGLV_ERROR,"%s: [fsize error] Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 			}
@@ -868,6 +873,7 @@ CURL_CLEANUP:
 				EGI_PLOG(LOGLV_ERROR, "%s: [fsize error] Fail to truncate file size to 0!",__func__);
 			}
 			/* Make sure to flush metadata again! */
+			fflush(fp);
 			if( fsync(fileno(fp)) !=0 ) {
 				EGI_PLOG(LOGLV_ERROR,"%s: [fsize error] Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 			}
@@ -1133,6 +1139,7 @@ CURL_CLEANUP:
 		}
 
 		/* Make sure to flush metadata again! */
+		fflush(fp);
 		if( fsync(fileno(fp)) !=0 ) {
 			EGI_PLOG(LOGLV_ERROR,"%s: [download fails] Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 		}
@@ -1144,6 +1151,7 @@ CURL_CLEANUP:
 	/* NOW: ret==0 */
 
 	/* Make sure to flush metadata before recheck file size! necessary? */
+	fflush(fp);
 	if( fsync(fileno(fp)) !=0 ) {
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 	}
@@ -1174,6 +1182,7 @@ CURL_CLEANUP:
 			}
 
 			/* Make sure to flush metadata again! */
+			fflush(fp);
 			if( fsync(fileno(fp)) !=0 ) {
 				EGI_PLOG(LOGLV_ERROR,"%s: [fsize error] Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 			}
@@ -1195,6 +1204,7 @@ CURL_CLEANUP:
 				EGI_PLOG(LOGLV_ERROR, "%s: [fsize error] Fail to truncate file size to 0!",__func__);
 			}
 			/* Make sure to flush metadata again! */
+			fflush(fp);
 			if( fsync(fileno(fp)) !=0 ) {
 				EGI_PLOG(LOGLV_ERROR,"%s: [fsize error] Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 			}
