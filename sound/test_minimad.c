@@ -58,9 +58,9 @@
       (For MPEG1 Layer III with sampling rate 44.1KHz, it's appr. 26ms.)
 
   3. Size of each Audio Frame MAY vary acoording to its bitrate.
-      LyaerI 使用公式:
+      LayerI 使用公式:
 	帧长度(字节) = (( 每帧采样数 / 8 * 比特率 ) / 采样频率 ) + 填充 * 4
-      LyerII 和 LyaerIII 使用公式:
+      LayrII 和 LayerIII 使用公式:
 	帧长度(字节)= (( 每帧采样数 / 8 * 比特率 ) / 采样频率 ) + 填充
 
   4. The first 4 Bytes of each Audio Frame is the Frame Header.

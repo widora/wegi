@@ -6,8 +6,7 @@ Foundation.
  		!!! This is for EGI functions TEST only !!!
 
 Journal:
-2021-12-06: Create the file.
-2022-3-31:  Display channel name.
+2022-04-01: Create the file.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -16,6 +15,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include "egi_debug.h"
 #include "egi_timer.h"
 #include "egi_log.h"
 #include "egi_https.h"
@@ -26,27 +26,30 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "egi_image.h"
 #include "egi_FTsymbol.h"
 
+
+#define TMP_IMAGE_FPATH "/tmp/_temp_imgdown_.bjp"
+
 static char buff[1024*1024];      /* for curl returned data, to be big enough! */
 static size_t curlget_callback(void *ptr, size_t size, size_t nmemb, void *userp);
 
-const char *strhtml="<p> dfsdf sdfig df </p>";
-const char *strRequest=NULL;
+const char *strHtml="https://bing.ioliu.cn";
+//const char *strRequest=NULL;
+char strRequest[1024];
+int k;
 
-unsigned char  parLines[7][1024];  /* Parsed lines for each block */
-wchar_t        unistr[1024];	   /* For unicodes */
-
-int fw=20, fh=20;	/* font size */
-int gap=6; //fh/3;
+int fw=16, fh=16;	/* font size */
+int gap=4; //fh/3;
 int ln=10;		/* lines */
 int lnleft;		/* lines left */
 
-int channel;
-const char *channelName;
-int PicTs=2;		/* Picture show time */
+int OrgTs=1;		/* Original image show time */
+int PicTs=2;		/* Resized image show time */
 int TxtTs=2;		/* Text show time */
 bool loop_ON;
 unsigned int avgLuma;   /* Avg luma for slide image. */
+bool verbose_ON;
 
+const char* channelName="Bing必应";
 char imgURL[512];
 char imgTXT[512];
 char imgDate[128];
@@ -59,14 +62,14 @@ bool divIsFound;		/* If the tagged division is found. */
 
 void print_help(const char *name)
 {
-        printf("Usage: %s [-hc:n:p:t:l] url\n", name);
+        printf("Usage: %s [-hVls:p:t:v:] url\n", name);
         printf("-h     This help\n");
-	printf("-c n   Channel number.\n");
-	printf("-n :   Channel name.\n");
+	printf("-V     Verbose on\n");
+	printf("-l     Loop\n");
+	printf("-s n   Start item number k\n");
 	printf("-p n   Pic show time in second.\n");
 	printf("-t n   Text show time in second.\n");
         printf("-v n   Avg luma.\n");
-	printf("-l   Loop\n");
 }
 
 /*----------------------------
@@ -75,29 +78,21 @@ void print_help(const char *name)
 int main(int argc, char **argv)
 {
 	int len;
-	char *pstr=NULL;
 	int ret;
+	char *pstr=NULL;
 	char *content=NULL;
-//	int k=0; /* block line count */
-
-	printf("pstr: %s\n", pstr);
-
-
 	EGI_IMGBUF *imgbuf=NULL;
 
         /* Parse input option */
         int opt;
-        while( (opt=getopt(argc,argv,"hc:n:p:t:v:l"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hVls:p:t:v:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
                                 print_help(argv[0]);
 				exit(0);
                                 break;
-			case 'c':
-				channel=atoi(optarg);
-				break;
-			case 'n':
-				channelName=optarg;
+			case 's':
+				k=atoi(optarg);
 				break;
 			case 'p':
 				PicTs=atoi(optarg);
@@ -112,6 +107,9 @@ int main(int argc, char **argv)
                                 else if(avgLuma<100)
                                         avgLuma=100;
                                 break;
+			case 'V':
+				verbose_ON=true;
+				break;
 			case 'l':
 				loop_ON=true;
 				break;
@@ -119,56 +117,15 @@ int main(int argc, char **argv)
 				break;
 		}
 	}
-
-
-	const char *http_requests[]={
-		" ",  // case 0
-		"https://www.caixinglobal.com/finance/",
-		"https://www.caixinglobal.com/business-and-tech/",
-		"https://www.caixinglobal.com/economy/",
-		"https://www.caixinglobal.com/china/",
-		"https://www.caixinglobal.com/world/",
-		"https://www.caixinglobal.com/caixin-must-read/",
-	};
-	const char *channelNames[]={
-		" ",
-		"Finance",
-		"Biz&Teck",
-		"Economy",
-		"China",
-		"World",
-		"MustRead",
-	};
-
-#if 1
-	if(channel>0 && channel<7)
-		strRequest=http_requests[channel];
-	else
+#if 0
+	/* Input URL */
+	if(optind<argc)
 		strRequest=argv[optind];
-#else
-	switch(channel) {
-		case 1:
-			strRequest="https://www.caixinglobal.com/finance/";
-			break;
-		case 2:
-			strRequest="https://www.caixinglobal.com/business-and-tech/";
-			break;
-		case 3:
-			strRequest="https://www.caixinglobal.com/economy/";
-			break;
-		case 4:
-			strRequest="https://www.caixinglobal.com/china/";
-			break;
-		case 5:
-			strRequest="https://www.caixinglobal.com/world/";
-			break;
-		case 6:
-			strRequest="https://www.caixinglobal.com/caixin-must-read/";
-			break;
-		default: /* 0 ... */
-			/* Chinese: https://finance.caixin.com/m/ >/dev/null */
-			strRequest=argv[optind];
-			break;
+
+	/* Check URL */
+	if(strRequest==NULL) {
+		printf("no URL found!\n");
+		exit(-1);
 	}
 #endif
 
@@ -179,7 +136,8 @@ int main(int argc, char **argv)
         }
         EGI_PLOG(LOGLV_INFO,"%s: Start logging...", argv[0]);
 #endif
-	egi_log_silent(true);
+	if(!verbose_ON)
+		egi_log_silent(true);
 
 #if 0   /* For http,  conflict with curl?? */
         printf("start egitick...\n");
@@ -204,13 +162,17 @@ int main(int argc, char **argv)
         //gv_fb_dev.zbuff_on = true;              /* Zbuff ON */
         //fb_init_zbuff(&gv_fb_dev, INT_MIN);
 
-
 START_REQUEST:
+
+	/* Request string */
+	if(k==185)k=0;
+	sprintf(strRequest,"%s?p=%d", strHtml, k++);
+	printf(DBG_MAGENTA"URL: %s\n"DBG_RESET, strRequest);
+
 	/* clear buff */
 	memset(buff,0,sizeof(buff));
 
         /* Https GET request */
-//        if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3, 10,
         if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3, 60,
 				strRequest, buff, NULL, curlget_callback)!=0) {
                  printf("Fail to call https_curl_request() for: %s!\n", strRequest);
@@ -219,47 +181,26 @@ START_REQUEST:
          }
 //	printf("%s\n", buff);
 
-
-        printf("   --- Start slide news ---\n");
-
-
-   ////////////////////////////// finance ////////////////////////////
+        printf("   --- Start slide images ---\n");
 
 	/* Parse HTML */
 	pstr=buff;
 
-#if 0 ///////////////////  English ///////////////////////////////
-    while( (pstr=cstr_parse_html_tag(pstr, "li", attrString, sizeof(attrString), &content, &len))!=NULL ) {
+        char *strClassID="card progressive";
 
-//	printf("   --- <li content---\n %s\n", content);
-
-	/* Confirm attribute value for class */
-	cstr_get_html_attribute(attrString, "class", value);
-	printf("attrString: %s\n", attrString);
-	printf("class=%s\n", value);
-	if(strcmp(value,"has-img cf")!=0) {
-		egi_free_char(&content);
-		continue;
-	}
-
-	/* Extract image */
-	cstr_get_html_attribute(content, "src", imgURL);
-	/* Add http: before //... */
-	if(strstr(imgURL,"http:")==NULL && strstr(imgURL,"https:")==NULL) {
-		memmove(imgURL+strlen("http:"), imgURL, strlen(imgURL)+1); /* +1 EOF */
-		strncpy(imgURL,"http:", strlen("http:"));
-	}
-
-#else  ///////////////////  Chinese ///////////////////////////////
-    char *strClassID="ListItemOfMobSame_news";
     while( (pstr=cstr_parse_html_tag(pstr, "div", attrString, sizeof(attrString), &content, &len))!=NULL ) {
 //	printf("   --- <div content---\n %s\n", content);
 
-	/* Confirm attribute value for class */
-	fprintf(stderr,"get attribute class..\n");
-	cstr_get_html_attribute(attrString, "class", value);
-	printf("attrString: %s\n", attrString);
-	printf("class=%s\n", value);
+        /* Confirm attribute value for class */
+        fprintf(stderr,"get attribute class..\n");
+        cstr_get_html_attribute(attrString, "class", value);
+        printf("attrString: %s\n", attrString);
+        printf("class=%s\n", value);
+        if(strncmp(value, strClassID, strlen(strClassID))!=0) {
+                egi_free_char(&content);
+                continue;
+        }
+
 	if(strncmp(value, strClassID, strlen(strClassID))!=0) {
 		egi_free_char(&content);
 		continue;
@@ -268,7 +209,6 @@ START_REQUEST:
 	/* Extract image */
 	fprintf(stderr,"get attribute imgURL..\n");
 	cstr_get_html_attribute(content, "src", imgURL);
-#endif /////////////////
 
 	/* Sometimes there maybe '\n' in the URL! */
 	cstr_squeeze_string(imgURL, strlen(imgURL), '\n');
@@ -293,20 +233,72 @@ START_REQUEST:
 	if(imgURL[0]==0)
 		continue;
 
+#if 1
 	/* --- 4. Download image and display with Text  --- */
 	/* 4.1 Download image */
-	printf("Download %s...\n", imgURL);
+	//printf("Download %s...\n", imgURL);
 	ret=https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 5, 60,
-			imgURL, "/tmp/slide_news.jpg", NULL, NULL);
+			imgURL, TMP_IMAGE_FPATH, NULL, NULL);
 
 	/* 4.2 Display image and text */
 	if(ret==0) {
-		printf("Succeed to download slide_news.jpg\n");
-		imgbuf=egi_imgbuf_readfile("/tmp/slide_news.jpg");
+		printf("Succeed to download image from: k=%d, %s\n", k, imgURL);
+		imgbuf=egi_imgbuf_readfile(TMP_IMAGE_FPATH);
+		if(imgbuf==NULL) {
+			printf(DBG_RED"Image NOT found!\n"DBG_RESET);
+			goto START_REQUEST;
+		}
 
-		/* D1. Resize and display image */
+		/* D0. Display with original image size, center_to_center to screen */
+                int xp=0;
+                int yp=0;
+                int xw,yw;
+                int xres=gv_fb_dev.pos_xres;
+                int yres=gv_fb_dev.pos_yres;
+                xw=imgbuf->width>xres ? 0:(xres-imgbuf->width)/2;
+                yw=imgbuf->height>yres ? 0:(yres-imgbuf->height)/2;
+                xp=imgbuf->width>xres  ? (imgbuf->width-xres)/2 : 0;
+                yp=imgbuf->height>yres  ? (imgbuf->height-yres)/2 : 0;
+                egi_imgbuf_windisplay2( imgbuf, &gv_fb_dev, xp, yp, xw, yw,
+                                        imgbuf->width, imgbuf->height);
+		fb_render(&gv_fb_dev);
+		sleep(OrgTs);
+
+		/* D1. Resize and display the image */
+		int mw,mh,mtp;
+		int step;
+		float scale;
 		int imgW=320; int imgH=240;
+
 		egi_imgbuf_get_fitsize(imgbuf, &imgW, &imgH);
+
+		/* Write fitup image to BKG_BUFF */
+		EGI_IMGBUF *tmpimg=egi_imgbuf_resize(imgbuf, false, imgW,imgH);
+		egi_subimg_writeFB(tmpimg, &gv_fb_dev, 0, -1, (320-imgW)/2, (240-imgH)/2 );
+		fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);
+		egi_imgbuf_free2(&tmpimg);
+
+		/* Step shrink */
+	  if(imgbuf->width>320) {
+	     if(imgW==320) {  /* scale width */
+		for(mw=imgbuf->width, mh=imgbuf->height, step=(mw-320)/10;
+		    mw>=320;
+		    mtp=mw, mw-=step, scale=1.0*mw/mtp, mh=scale*mh )
+		{
+			egi_imgbuf_resize_update(&imgbuf, false, mw, mh);
+			//fb_clear_workBuff(&gv_fb_dev,WEGI_COLOR_DARKPURPLE); /* OK, for RGBA image as bkgcolor.*/
+			/* imgbuf, fbdev, subnum, subcolor, x0,y0 */
+			egi_subimg_writeFB(imgbuf, &gv_fb_dev, 0, -1, (320-mw)/2, (240-mh)/2 );
+			fb_render(&gv_fb_dev);
+		}
+	     }
+	    //else if(imgH==240) /* scale height */
+	  }
+	  	/* Restore fitup image to WORKING_BUFF */
+		fb_copy_FBbuffer(&gv_fb_dev,  FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
+		fb_render(&gv_fb_dev);
+
+#if 0 //////////////////////
 		egi_imgbuf_resize_update(&imgbuf, false, imgW,imgH);
 		if(avgLuma)
 			egi_imgbuf_avgLuma(imgbuf, avgLuma);
@@ -316,6 +308,8 @@ START_REQUEST:
 			egi_subimg_writeFB(imgbuf, &gv_fb_dev, 0, -1, (320-imgW)/2, (240-imgH)/2 );
 		}
 		fb_render(&gv_fb_dev);
+#endif//////////////////////////
+
 		sleep(PicTs);
 
                 /* Free imgbuf */
@@ -336,29 +330,21 @@ START_REQUEST:
 		if(imgTXT[0]) {
 		   /* fbdev, x1,y1,x2,y2, color,alpha */
 		   //draw_blend_filled_rect( &gv_fb_dev, 0,0, 320-1, (18+3)*3+6, WEGI_COLOR_GRAY2, 200);
-		   draw_blend_filled_rect( &gv_fb_dev, 0,0, 320-1, (fh+4)*(ln-lnleft)+8, WEGI_COLOR_GRAYC, 255);
+		   draw_blend_filled_rect( &gv_fb_dev, 0,0, 320-1, (fh+4)*(ln-lnleft)+8, WEGI_COLOR_GRAYC, 160);
 		   FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold,  	/* fbdev, face */
 						fw, fh, (UFT8_PCHAR)imgTXT,   	/* fw,fh pstr */
 						320-5, ln-lnleft, 4, 5, 5,      /* pixpl, lines, gap, x0,y0 */
-						WEGI_COLOR_DARKGRAY, -1, 240, 	/* fontcolor, transpcolor, opaque */
+						WEGI_COLOR_BLACK, -1, 250, 	/* fontcolor, transpcolor, opaque */
 						NULL, NULL, NULL, NULL );	/* *cnt, *lnleft, *penx, *peny */
 		}
 
-		/* D4. Write LOGO */
-		//draw_blend_filled_rect( &gv_fb_dev, 320-100, 240-32, 320-1, 240-1, WEGI_COLOR_GRAYC, 180);
-		draw_blend_filled_roundcorner_rect(&gv_fb_dev, 320-100, 240-32, 320-1, 240-1, 8, WEGI_COLOR_GRAYC, 180);
-		FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold, /* fbdev, face */
-						1.125*24, 24, (UFT8_PCHAR)"财新网",  	/* fw,fh pstr */
-						200, 1, 0, 320-90, 240-30,        	/* pixpl, lines, gap, x0,y0 */
-						WEGI_COLOR_DARKBLUE, -1, 240, 	/* fontcolor, transpcolor, opaque */
-						NULL, NULL, NULL, NULL ); 	/* *cnt, *lnleft, *penx, *peny */
-		/* D5. Write Channel */
+		/* D4. Write Channel */
 		if(channelName) {
-		      int pixlen= FTsymbol_uft8strings_pixlen( egi_appfonts.bold, 24, 24, (UFT8_PCHAR)channelName); /* face,fw,fh,pstr */
-		      draw_blend_filled_roundcorner_rect(&gv_fb_dev, 5, 240-32, 5+(pixlen+10), 240-1, 8, WEGI_COLOR_GRAYC, 180);
+		      int pixlen= FTsymbol_uft8strings_pixlen( egi_appfonts.bold, 20, 20, (UFT8_PCHAR)channelName); /* face,fw,fh,pstr */
+		      draw_blend_filled_roundcorner_rect(&gv_fb_dev, 5, 240-5-30, 5+(pixlen+10), 240-5, 4, WEGI_COLOR_GRAYC, 180);
 		      FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.bold, /* fbdev, face */
-						24, 24, (UFT8_PCHAR)channelName,  /* fw,fh pstr */
-						200, 1, 0, 5+10/2, 240-30, /* pixpl, lines, gap, x0,y0 */
+						20, 20, (UFT8_PCHAR)channelName,  /* fw,fh pstr */
+						200, 1, 0, 5+10/2, 240-30-2, /* pixpl, lines, gap, x0,y0 */
 						WEGI_COLOR_DARKBLUE, -1, 240, 	/* fontcolor, transpcolor, opaque */
 						NULL, NULL, NULL, NULL ); 	/* *cnt, *lnleft, *penx, *peny */
 		}
@@ -367,9 +353,12 @@ START_REQUEST:
 	}
 	/* 4.3 Fail to get image */
 	else {
-		printf("Fail to download news image!\n");
+		printf("Fail to download image!\n");
 		//exit(0);
 	}
+
+#endif
+
 
    } /* while */
 

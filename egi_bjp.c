@@ -13,7 +13,7 @@ libjpeg.txt:
   * "Abbreviated table specification" (henceforth "tables-only") datastreams
     contain only table specifications.
 
-
+Note:
 1. Based on libpng-1.2.56 and jpeg_9a of 19-Jan-2014.
 2. The width of the displaying picture must be a multiple of 4.
 
@@ -45,6 +45,11 @@ Journal:
 2022-03-26:
 	1.egi_imgbuf_loadpng(): Check jstep to force function to continue when
 	  png_read_png() throws error. specially for partial (interlaced) PNG file.
+	2. Add egi_parse_pngFile()
+2022-03-26:
+	1. egi_parse_jpegFile() AND egi_check_jpgfile(): skip parsing SOS segment, just to speed up.
+2022-04-01:
+	1. egi_check_pngfile()
 
 Modified and appended by Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -107,10 +112,13 @@ Note:
   TODO: 
 
 Return:
-	0	A valid and complete JPEG file
-	>0	An incomplete JPEG file (For most case)
+	0 (JPEGFILE_COMPLETE)
+		A valid and complete JPEG file
+	>0 (JPEGFILE_INCOMPLETE)
+		An incomplete JPEG file (For most case)
 		It may be a pending image during transmission.
-	<0	An invalid or corrupted JPEG file
+	<0 (JPEGFILE_INVALID)
+		An invalid or corrupted JPEG file
 		see NOTE 2.
 ----------------------------------------------------------------------------*/
 int egi_check_jpgfile(const char* fpath)
@@ -262,9 +270,11 @@ int egi_check_jpgfile(const char* fpath)
 			}
 
 			/* Set found_SOS at end of case M1.  */
-			if(marker[1]==0xDA) /* StartOfScan */
+			if(marker[1]==0xDA) {  /* StartOfScan */
 				found_SOS=true;
-
+/* In order to speed up, just skip parsing SOS segment */
+				goto END_FUNC;
+			}
 			continue;
 		}
 		/*  M4. Padding 0xFFFF  */
@@ -336,6 +346,170 @@ END_FUNC:
 	fclose(fil);
 	return err;
 }
+
+
+/*---------------------------------------------------------------------
+Check whether the input file is a complete PNG file, which starts with
+PNG_Signature+IHDR and ends with IEND.
+
+Note:
+1. Structe of a PNG file:
+    PNG_Signature + Chunk(IHDR) + Chunk + Chunk + Chunk... + Chunk(IEND)
+   (All integer values in chunks are big-endian.)
+2. PNG_Signature:  137 80 78 71 13 10 26 10  (decimal)
+3. Structure of a chunk:
+    DataLength(4Bs) + ChunkType(4Bs) + ChunkData + CRC(4Bs)
+
+Return:
+	0 (PNGFILE_COMPLETE)
+		A valid and complete PNG file
+	>0 (PNGFILE_INCOMPLETE)
+		An incomplete PNG file (For most case)
+		It may be a pending image during transmission.
+	<0 (PNGFILE_INVALID)
+		An invalid or corrupted PNG file
+---------------------------------------------------------------------*/
+int egi_check_pngfile(const char *fpath)
+{
+	FILE *fil=NULL;
+	unsigned char tmpbuf[16];
+	char chunkTypeCode[5];
+	unsigned int  cdatalen;   /* chunk data length, counts ONLY ChunkData! excluding ChunkLengh, ChunkType and CRC */
+
+	/* Critical chunks */
+	bool found_IHDR=false;
+	bool found_PLTE=false;
+	bool found_IDAT=false;
+	bool found_IEND=false;
+
+	int err=PNGFILE_COMPLETE; //=0;
+	int ret;
+
+        /* 1. Open PNG file */
+        fil=fopen(fpath, "rb");
+        if(fil==NULL) {
+                egi_dperr("Fail to open '%s'", fpath);
+                err=PNGFILE_INVALID; goto END_FUNC;
+        }
+
+        /* 2. Read PNG signature:  137 80 78 71 13 10 26 10  (decimal) */
+        ret=fread(tmpbuf, 1, 8, fil);
+        if(ret<8) {
+                egi_dperr("Fail to read signature.");
+                err=PNGFILE_INVALID; goto END_FUNC;
+        }
+
+	/* 3. Check signature */
+	if( tmpbuf[0]!=137 || tmpbuf[1]!=80 || tmpbuf[2]!=78 || tmpbuf[3]!=71
+	   || tmpbuf[4]!=13 || tmpbuf[5]!=10 || tmpbuf[6]!=26 || tmpbuf[7]!=10 )
+	{
+		egi_dpstd("Signature error, it's NOT a legitimage PNG file!\n");
+		err=PNGFILE_INVALID; goto END_FUNC;
+	}
+
+	/* 4. Read IHDR chunck
+	 *   ChunkDataLength(4Bs) + ChunkType(4Bs) + ChunkData + CRC(4Bs)
+    	 *   Note: 1. ChunkDataLength counts ONLY the ChunkData! (EXCLUDING Lengh, ChunkType and CRC)
+		   2. For IHDR, ChunkDataLenght shall be 13Bytes
+			Width  (in pixels)	4 bytes
+			Height  (in pixels)     4 bytes
+			Bit depth		1 byte
+			Colour type		1 byte
+			Compression method	1 byte
+			Filter method		1 byte
+			Interlace method	1 byte
+	 */
+	/* 4.0 Fread  ChunkDataLength(4Bs) + ChunkType(4Bs) */
+        ret=fread(tmpbuf, 1, 8, fil);
+        if(ret<8) {
+                egi_dperr("Fail to read IHDR hearder.");
+                err=PNGFILE_INCOMPLETE; goto END_FUNC;
+        }
+	/* 4.1 Check TYPE */
+	strncpy(chunkTypeCode,(char*)tmpbuf+4, 4); chunkTypeCode[4]='\0';
+//	egi_dpstd("ChunkType: %s\n", chunkTypeCode);
+	if( strncmp(chunkTypeCode, "IHDR",4)!=0 ) {
+		egi_dpstd("First chunk is NOT IDHR, illegitimate!\n");
+		err=PNGFILE_INVALID; goto END_FUNC;
+	}
+	found_IHDR=true;
+
+	/* 4.2 ChunkData length */
+	cdatalen=(tmpbuf[0]<<24)+(tmpbuf[1]<<16)+(tmpbuf[2]<<8)+tmpbuf[3]; /* BIG_ENDIAN */
+	//printf("cdatasize: %d\n", cdatalen);
+	if(cdatalen!=13) {
+		egi_dpstd("IHDR ChunkDataLength: %d, it should be 13!\n", cdatalen);
+	}
+
+	/* 4.3 Read IHDR ChunkData */
+        ret=fread(tmpbuf, 1, 13, fil); /* Read ChunkDataLength(13Bs) */
+        if(ret<13) {
+                egi_dperr("Fail to read IHDR ChunkData.");
+                err=PNGFILE_INCOMPLETE; goto END_FUNC;
+        }
+
+	/* 4.4 Fseek to chunkEnd, pass 4Bs CRC */
+	if(fseek(fil, 4, SEEK_CUR)!=0 ) {
+        	egi_dperr("Fail to fseek to end of IHDR chunk.");
+                err=PNGFILE_INCOMPLETE; goto END_FUNC;
+         }
+
+	/* 5. Read other chunks and parse content
+	 *   ChunkDataLength(4Bs) + ChunkType(4Bs) + ChunkData + CRC(4Bs)
+	 */
+	while(1) {
+		/* 5.0 Fread  ChunkDataLength(4Bs) + ChunkType(4Bs) */
+	        ret=fread(tmpbuf, 1, 8, fil);
+        	if(ret<8) {
+			if(!feof(fil)) {
+                		egi_dperr("Fail to read chunk hearder for '%s'", fpath);
+				err=PNGFILE_INCOMPLETE;
+			}
+			/* END of FILE */
+			else if(!found_IEND)
+				err=PNGFILE_INCOMPLETE;
+                	goto END_FUNC;
+        	}
+
+		/* 5.1 Check TYPE */
+		strncpy(chunkTypeCode,(char*)tmpbuf+4, 4); chunkTypeCode[4]='\0';
+//		egi_dpstd("ChunkType: %s\n", chunkTypeCode);
+		if( strncmp(chunkTypeCode, "PLTE",4)==0 ) {
+			found_PLTE=true;
+		}
+		else if( strncmp(chunkTypeCode, "IDAT",4)==0 ) {
+			found_IDAT=true;
+		}
+		else if( strncmp(chunkTypeCode, "IEND",4)==0 ) {
+			found_IEND=true;
+egi_dpstd(DBG_MAGENTA"IEND found!\n"DBG_RESET);
+		}
+
+		/* 5.2 ChunkData length */
+		cdatalen=(tmpbuf[0]<<24)+(tmpbuf[1]<<16)+(tmpbuf[2]<<8)+tmpbuf[3]; /* BIG_ENDIAN */
+		//printf("cdatasize: %d\n", cdatalen);
+
+		/* 5.3 Fseek to the end of the chunk, skipping ChunkData + CRC(4Bs) */
+		if(fseek(fil, cdatalen+4, SEEK_CUR)!=0 ) {
+        		egi_dperr("Fail to fseek to end of IHDR chunk.");
+                	err=PNGFILE_INCOMPLETE; goto END_FUNC;
+         	}
+	}
+
+	/* 6. Check critical chunks */
+	if(!found_IDAT)
+		err=PNGFILE_INCOMPLETE;
+	if(!found_IEND)
+		err=PNGFILE_INCOMPLETE;
+
+        /* 7. END JOB */
+END_FUNC:
+        fclose(fil);
+
+	return err;
+}
+
+
 
 
 /*----------------------------------------------------------------
@@ -2053,6 +2227,7 @@ int egi_save_FBjpg(FBDEV *fb_dev, const char *fpath, int quality)
 
 
 ////////////////////////  Struct EGI_PICINFO and Functions //////////////////////////////////////
+
 #include "egi_cstring.h"
 
 /*-----------------------------------
@@ -2148,6 +2323,7 @@ Note:
         0xFFD9:     EOI
         0xFFD0-D7   RSTn
         ....
+   !!! ---- In order to speed up , we just skip this segment! (See M3.5.1) ---- !!!!
 
   1.4 0xFF padding: there maybe 0xFFs between segments.
 
@@ -2225,13 +2401,15 @@ EOI      0xFF, 0xD9    End of image
     T(2Bs)+F(2Bs)+N(4Bs)+D(4Bs)   Entry2
     L(4Bs)   Offset to next IFD
 
-Journal:
+
+Journal: (For record)
 2022-03-15: Create the file.
 2022-03-16: Parse Exif IFD directory
 2022-03-17: Parse IFD0 tags 0x9c9b-0x9c9f (for Windows Explorer)
 2022-03-18: Parse SOFn for image size.
 2022-03-19: Add EGI_PICINFO and egi_picinfo_calloc() egi_picinfo_free()
 2022-03-21: Move EGI_PICINFO and functions to egi_bjp.h egi_bjp.c
+--- END ---
 
 		==========================
 
@@ -2416,14 +2594,18 @@ EGI_PICINFO* egi_parse_jpegFile(const char *fpath)
 
 			/* M3.5 Parse Segment */
 			switch(marker[1]) {
-			   /* If SOS (Start Of Scan) segment:
+			   /* M3.5.1 If SOS (Start Of Scan) segment:
 			    * Compressed image data is followed immediately, till to the EOI.
 			    */
 			   case 0xDA:
 				//found_SOS=true;  NOT here, after switch(marker[1])! see M3.7
+
+/* To speed up, just skip compressed image data ... */
+				goto END_FUNC;
+
 				break;
 
-			   /* Get image size from segment Start_Of_Frame(SOFn)  */
+			   /* M3.5.2 Get image size from segment Start_Of_Frame(SOFn)  */
 			   /* NOTE:
 			    * 1. SOF0-3(0xC0-0XC3) non-hierarchincal Huffman coding
 			    *    SOF0(0xC0): --- Baseline DCT (Discrete Cosine Transform)
@@ -2475,7 +2657,7 @@ EGI_PICINFO* egi_parse_jpegFile(const char *fpath)
 				PicInfo->cpp=imgCPP;
 
 				break;
-			   /* Define Number of lines, NOT common */
+			   /* M3.5.3 Define Number of lines, NOT common */
 			   case 0xDC:
 				ret=fread(tmpbuf, 1, 2, fil);
 				if(ret<2) {
@@ -2488,7 +2670,7 @@ EGI_PICINFO* egi_parse_jpegFile(const char *fpath)
 
 				egi_dpstd(DBG_YELLOW"Marker DNL, Get number of lines: %d\n"DBG_RESET, (tmpbuf[1]<<8) + tmpbuf[0]);
 				break;
-			   /* Comment Segment */
+			   /* M3.5.4 Comment Segment */
 			   case 0xFE:  /* Comment */
 			   case 0xEC:  /* APP14 0xEC Picture info(older digicams), Photoshop save for web:Ducky  */
 #if 1 /* TEST: APPx-------------- */
@@ -2538,7 +2720,8 @@ EGI_PICINFO* egi_parse_jpegFile(const char *fpath)
 			 	break;
 
 //////////////////////  Start Exif data (case 0xE1)  /////////////////////
-			   case 0xE1:  /*  Exif APP1 */
+			   /*  3.5.5 Exif APP1 */
+			   case 0xE1:
 				/* ASCII character "Exif" and 2bytes of 0x00 are used. */
                                 ret=fread(buff, 1, 6, fil);
                                 if(ret<6) {
@@ -3001,6 +3184,7 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 				break;
 //////////////////////  END Exif data (case 0xE1)  /////////////////////
 
+			   /* 3.5.6 EOI */
 			   case 0xD9:
 				printf("EOI: End of JPEG file!\n");
 				goto END_FUNC;
@@ -3055,4 +3239,274 @@ END_FUNC:
 
 	return PicInfo;
 }
+
+
+
+/*------------------------------------------------
+Read and parse image information in a jpeg file.
+Also read Comment segment of JPEG.
+
+Refrence:
+1  https://www.w3.org/TR/PNG/
+2. http://www.libpng.org/pub/png/spec/
+
+Note:
+0. All integer values in chunks are big-endian.
+1. Structe of a PNG file:
+    PNG_Signature + Chunk(IHDR) + Chunk + Chunk + Chunk... + Chunk(IEND)
+
+2. PNG_Signature:  137 80 78 71 13 10 26 10  (decimal)
+
+3. Structure of a chunk:
+    DataLength(4Bs) + ChunkType(4Bs) + ChunkData + CRC(4Bs)
+
+    3.1 DataLength: It counts ONLY the ChunkData! (EXCLUDING Lenght, ChunkType and CRC)
+    3.2 Chunk Type: 4-bytes type code restricted to: A-Z and a-z (65-90 and 97-122 decimal)
+    3.3 Chunk Data: It can be of zero length.
+    3.4 CRC: 4-bytes Cyclic Redundancy Check for ChunkType+ChunkData, always present.
+    3.5 Chunks can appear in any order, except IHDR and IEND.
+4. Chunk properties
+    bit 5 of each byte of ChunkType are used to convey chunk properties.
+    4.1 Ancillary bit:    bit 5 of the 1st Byte
+	0 (uppercase) = critical
+	1 (lowercase) = ancillary
+    4.2 Private bit:      bit 5 of the 2nd Byte
+	0 (uppercase) = public
+	1 (lowercase) = private
+    4.3 Reserved bit:     bit 5 of the 3rd Byte
+	0 (uppercase) = in this version PNG
+	1 (reserved)  = datastream does NOT conform to this version of PNG
+    4.4 Safe-to-copy bit: bit 5 of the 4th Byte
+        0 (uppercase) = this chunk is unsafe to copy
+        1 (lowercase) = this chunk is safe to copy
+
+    Example:  chunk type "cHNk"
+	c(0x63)---0b01100011  bit 5 is '1' (Ancillary bit)
+	H(0x48)---0b01001000  bit 5 is '0' (Private bit)
+	N(0x4E)---0b01001110  bit 5 is '0' (Reserved bit)
+	k(0x6B)---0b01101011  bit 5 is '1' (Safe-to-copy bit)
+
+5. Chunks and ordering rules
+   5.1  Critical chunks
+ 	IHDR	   Shall be the FIRST
+	PLTE       Before first IDAT
+	IDAT       --- Multiple IDATs allowed, and shall be consecutive ---
+	IEDN	   Shall be the LAST
+   5.2  Ancillary chunks
+	cHRM       Before PLTE and IDAT
+	....       (See more in standard)
+	sPLT       Before IDAT
+	tITME      None
+	iTXt       None
+	tEXt	   None
+	zTxt       None
+6. Chunk IHDR: Image header
+   The IHDR chunk shall be the first chunk in the PNG datastream.
+         --- ChunkData ---
+   Width (in pixels)	4 bytes
+   Height (in pixels)	4 bytes
+   Bit depth		1 byte
+   Colour type		1 byte
+   Compression method	1 byte
+   Filter method	1 byte
+   Interlace method	1 byte
+
+
+Return:
+	!NULL	OK
+	NULL	Fails
+-------------------------------------------------*/
+EGI_PICINFO* egi_parse_pngFile(const char *fpath)
+{
+	FILE *fil=NULL;
+	unsigned char tmpbuf[16];
+	char chunkTypeCode[5];
+	unsigned int  cdatalen;   /* chunk data length, counts ONLY ChunkData! excluding ChunkLengh, ChunkType and CRC */
+
+	unsigned char bitDepth;
+	unsigned char colorType;
+
+	/* Critical chunks */
+	bool found_IHDR=false;
+	bool found_PLTE=false;
+	bool found_IDAT=false;
+	bool found_IEND=false;
+
+	/* Image size, read from IHDR */
+        unsigned int imgWidth=0, imgHeight=0;
+
+	int err=PNGFILE_COMPLETE; //=0;
+	int ret;
+
+        /* 0. Create PicInfo */
+        EGI_PICINFO *PicInfo=egi_picinfo_calloc();
+        if(PicInfo==NULL) {
+                egi_dperr("Fail to calloc PicInfo");
+                return NULL;
+        }
+
+        /* 1. Open PNG file */
+        fil=fopen(fpath, "rb");
+        if(fil==NULL) {
+                egi_dperr("Fail to open '%s'", fpath);
+                err=PNGFILE_INVALID; goto END_FUNC;
+        }
+
+        /* 2. Read PNG signature:  137 80 78 71 13 10 26 10  (decimal) */
+        ret=fread(tmpbuf, 1, 8, fil);
+        if(ret<8) {
+                egi_dperr("Fail to read signature.");
+                err=PNGFILE_INVALID; goto END_FUNC;
+        }
+
+	/* 3. Check signature */
+	if( tmpbuf[0]!=137 || tmpbuf[1]!=80 || tmpbuf[2]!=78 || tmpbuf[3]!=71
+	   || tmpbuf[4]!=13 || tmpbuf[5]!=10 || tmpbuf[6]!=26 || tmpbuf[7]!=10 )
+	{
+		egi_dpstd("Signature error, it's NOT a legitimage PNG file!\n");
+		err=PNGFILE_INVALID; goto END_FUNC;
+	}
+
+	/* 4. Read IHDR chunck
+	 *   ChunkDataLength(4Bs) + ChunkType(4Bs) + ChunkData + CRC(4Bs)
+    	 *   Note: 1. ChunkDataLength counts ONLY the ChunkData! (EXCLUDING Lengh, ChunkType and CRC)
+		   2. For IHDR, ChunkDataLenght shall be 13Bytes
+			Width  (in pixels)	4 bytes
+			Height  (in pixels)     4 bytes
+			Bit depth		1 byte
+			Colour type		1 byte
+			Compression method	1 byte
+			Filter method		1 byte
+			Interlace method	1 byte
+	 */
+	/* 4.0 Fread  ChunkDataLength(4Bs) + ChunkType(4Bs) */
+        ret=fread(tmpbuf, 1, 8, fil);
+        if(ret<8) {
+                egi_dperr("Fail to read IHDR hearder.");
+                err=PNGFILE_INCOMPLETE; goto END_FUNC;
+        }
+	/* 4.1 Check TYPE */
+	strncpy(chunkTypeCode,(char*)tmpbuf+4, 4); chunkTypeCode[4]='\0';
+//	egi_dpstd("ChunkType: %s\n", chunkTypeCode);
+	if( strncmp(chunkTypeCode, "IHDR",4)!=0 ) {
+		egi_dpstd("First chunk is NOT IDHR, illegitimate!\n");
+		err=PNGFILE_INVALID; goto END_FUNC;
+	}
+	found_IHDR=true;
+
+	/* 4.2 ChunkData length */
+	cdatalen=(tmpbuf[0]<<24)+(tmpbuf[1]<<16)+(tmpbuf[2]<<8)+tmpbuf[3]; /* BIG_ENDIAN */
+	//printf("cdatasize: %d\n", cdatalen);
+	if(cdatalen!=13) {
+		egi_dpstd("IHDR ChunkDataLength: %d, it should be 13!\n", cdatalen);
+	}
+
+	/* 4.3 Read IHDR ChunkData */
+        ret=fread(tmpbuf, 1, 13, fil); /* Read ChunkDataLength(13Bs) */
+        if(ret<13) {
+                egi_dperr("Fail to read IHDR ChunkData.");
+                err=PNGFILE_INCOMPLETE; goto END_FUNC;
+        }
+	/* 4.3.1 Width and Height */
+	imgWidth = (tmpbuf[0]<<24)+(tmpbuf[1]<<16)+(tmpbuf[2]<<8)+tmpbuf[3]; /* BIG_ENDIAN */
+	imgHeight = (tmpbuf[4]<<24)+(tmpbuf[5]<<16)+(tmpbuf[6]<<8)+tmpbuf[7]; /* BIG_ENDIAN */
+//	egi_dpstd("Image: W%dxH%d\n", imgWidth, imgHeight);
+	PicInfo->width=imgWidth;
+	PicInfo->height=imgHeight;
+
+	/* 4.3.2 Color type and bit depth */
+	/* Allowed combinations of colour type and bit depth
+	   PNG image type	Colour type	Allowed bit depths	Interpretation
+	   ---------------------------------------------------------------------------
+	   Greyscale	           0              1, 2, 4, 8, 16      Each pixel is a greyscale sample
+	   Truecolour	           2                  8, 16           Each pixel is an R,G,B triple
+	   Indexed-colour	   3               1, 2, 4, 8         Each pixel is a palette index; a PLTE chunk shall appear.
+	   Greyscale with alpha	   4	              8, 16	      Each pixel is a greyscale sample followed by an alpha sample.
+	   Truecolour with alpha   6                  8, 16           Each pixel is an R,G,B triple followed by an alpha sample.
+
+	*/
+	bitDepth = tmpbuf[8];
+	colorType = tmpbuf[9];
+	/* int cpp;  --- color components(samples) per pixel
+         * int bpc;  --- Bits per color component
+	 */
+	PicInfo->colorType=colorType;
+	switch(colorType) {
+		case 0:  PicInfo->cpp=1; break;  /* A greyscale sample*/
+		case 2:  PicInfo->cpp=3; break;  /* An R,G,B triple */
+		case 3:  PicInfo->cpp=1; break;  /* A palette index */
+		case 4:  PicInfo->cpp=2; break;  /* A greyscale sample + an alpha sample */
+		case 6:  PicInfo->cpp=4; break;  /* An R,G,B triple + an alpha sample */
+	}
+	PicInfo->bpc=bitDepth;
+
+	/* 4.4 The last bytes for: Interlacing/Progressive PNG */
+	PicInfo->progressive = tmpbuf[12];
+//	egi_dpstd("Interlace method: %d\n",tmpbuf[12]);
+
+	/* 4.5 Fseek to chunkEnd, pass 4Bs CRC */
+	if(fseek(fil, 4, SEEK_CUR)!=0 ) {
+        	egi_dperr("Fail to fseek to end of IHDR chunk.");
+                err=PNGFILE_INCOMPLETE; goto END_FUNC;
+         }
+
+#if 1	/* 5. Read other chunks and parse content
+	 *   ChunkDataLength(4Bs) + ChunkType(4Bs) + ChunkData + CRC(4Bs)
+	 */
+	while(1) {
+		/* 5.0 Fread  ChunkDataLength(4Bs) + ChunkType(4Bs) */
+	        ret=fread(tmpbuf, 1, 8, fil);
+        	if(ret<8) {
+			if(!feof(fil)) {
+                		egi_dperr("Fail to read chunk hearder for '%s'", fpath);
+				err=PNGFILE_INCOMPLETE;
+			}
+			/* END of FILE */
+			else if(!found_IEND)
+				err=PNGFILE_INCOMPLETE;
+                	goto END_FUNC;
+        	}
+
+		/* 5.1 Check TYPE */
+		strncpy(chunkTypeCode,(char*)tmpbuf+4, 4); chunkTypeCode[4]='\0';
+//		egi_dpstd("ChunkType: %s\n", chunkTypeCode);
+		if( strncmp(chunkTypeCode, "PLTE",4)==0 ) {
+			found_PLTE=true;
+		}
+		else if( strncmp(chunkTypeCode, "IDAT",4)==0 ) {
+			found_IDAT=true;
+		}
+		else if( strncmp(chunkTypeCode, "IEND",4)==0 ) {
+			found_IEND=true;
+		}
+
+		/* 5.2 ChunkData length */
+		cdatalen=(tmpbuf[0]<<24)+(tmpbuf[1]<<16)+(tmpbuf[2]<<8)+tmpbuf[3]; /* BIG_ENDIAN */
+		//printf("cdatasize: %d\n", cdatalen);
+
+		/* 5.3 Fseek to the end of the chunk, skipping ChunkData + CRC(4Bs) */
+		if(fseek(fil, cdatalen+4, SEEK_CUR)!=0 ) {
+        		egi_dperr("Fail to fseek to end of IHDR chunk.");
+                	err=PNGFILE_INCOMPLETE; goto END_FUNC;
+         	}
+	}
+#endif
+
+	/* 6. Check critical chunks */
+	if(!found_IDAT)
+		err=PNGFILE_INCOMPLETE;
+	if(!found_IEND)
+		err=PNGFILE_INCOMPLETE;
+
+
+        /* 7. END JOB */
+END_FUNC:
+        fclose(fil);
+
+        /* Check error */
+        if(err) egi_picinfo_free(&PicInfo);
+
+        return PicInfo;
+}
+
 

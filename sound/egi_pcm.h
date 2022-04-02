@@ -80,10 +80,12 @@ int	egi_prepare_pcm_device(unsigned int nchan, unsigned int srate, bool bl_inter
 int 	egi_pcm_period_size(void);
 void 	egi_close_pcm_device(void);
 void 	egi_play_pcm_buff(void* buffer, int nf);
-int 	egi_pcm_mute(void);
+int 	egi_pcm_mute(const char *card);
+int     egi_close_gVolMixer(const char *card);
 //int  	egi_getset_pcm_volume(int *pvol, int *percnt);
-int	egi_getset_pcm_volume(int *pgetvol, int *psetvol);
-int 	egi_adjust_pcm_volume(int vdelt);
+int	egi_getset_pcm_volume(const char *card, int *pgetvol, int *psetvol);
+int 	egi_adjust_pcm_volume(const char *card, int vdelt);
+int egi_getset_ctl_elemValue(const char *card, const char *elem_name, int *getval, int *setval, int adjust);
 
 /* --- Other PCM functions --- */
 //int snd_pcm_open(snd_pcm_t **pcm, const char *name,  snd_pcm_stream_t stream, int mode);
@@ -91,7 +93,7 @@ snd_pcm_t*  egi_open_playback_device( const char *dev_name, snd_pcm_format_t sfo
 				      bool soft_resample, unsigned int nchanl, unsigned int srate, unsigned int latency );
 int 	egi_pcmhnd_setParams( snd_pcm_t *pcm_handle, snd_pcm_format_t sformat, snd_pcm_access_t access_type,
                                unsigned int nchanl, unsigned int srate);
-void  	egi_pcmhnd_playBuff(snd_pcm_t *pcm_handle, bool Interleaved, void * buffer, int nf);
+int  	egi_pcmhnd_playBuff(snd_pcm_t *pcm_handle, bool Interleaved, void * buffer, int nf);
 
 
 /* --- EGI_PCMBUF functions --- */

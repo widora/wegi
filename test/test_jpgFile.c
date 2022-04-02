@@ -73,7 +73,7 @@ int main(int argc, char **argv)
         }
         //FTsymbol_disable_SplitWord();
 
-while(1)
+//while(1)
 { ////////////////////////  LOOP TEST  /////////////////////////////////////
 
 	for(i=1; i<argc; i++) {
@@ -82,7 +82,7 @@ while(1)
 		printf("----------- JPEG File: %s ---------\n", fpath);
 		ret=egi_check_jpgfile(fpath);
 		if(ret==JPEGFILE_COMPLETE)
-			printf("OK, integraty checked!\n");
+			printf("OK, integrity checked!\n");
 		else if(ret==JPEGFILE_INCOMPLETE)
 			printf(DBG_YELLOW"Incomplete JPEG file!\n"DBG_RESET);
 		else {
@@ -172,7 +172,7 @@ while(1)
 		printf("\n====== Pic Info ======\n%s\n",txtbuff);
 		printf("----------------------\n");
 
-#if 0 /* TEST: --------- */
+#if 1 /* TEST: --------- */
 		continue;
 #endif
 

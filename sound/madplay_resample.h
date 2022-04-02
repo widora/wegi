@@ -20,7 +20,27 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  * $Id: resample.h,v 1.9 2004/01/23 09:41:32 rob Exp $
- */
+ *
+ *-----------------------------------------------------------------
+
+ Note:
+ 1. OPT_SPEED for MIPS, truncate lower bits.
+	( --- mad.h --- )
+   ... ...
+   # if defined(OPT_SPEED)   <---------------  get rid of lower bits.
+   #  define mad_f_scale64(hi, lo)  \
+       ((mad_fixed_t) ((hi) << (32 - MAD_F_SCALEBITS)))
+   #  define MAD_F_SCALEBITS  MAD_F_FRACBITS
+   # endif
+   ... ...
+
+   1.1 Complie time warning: variable '__lo' set but not used [-Wunused-but-set-variable]
+
+   1.2 undefine OPT_SPEED in mad.h. ----> No CPU Load NO changes at all !!!
+   /home/midas-zhou/openwrt_widora/staging_dir/target-mipsel_24kec+dsp_uClibc-0.9.33.2/usr/include/mad.h
+
+MidasZhou
+-----------------------------------------------------------------*/
 
 #ifndef __MADPLAY_RESAMPLE_H__
 #define __MADPLAY_RESAMPLE_H__

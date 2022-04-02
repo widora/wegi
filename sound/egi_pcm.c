@@ -3,6 +3,11 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+Based on ALSA_lib_1.0.28.
+
+Reference:
+1. https://www.alsa-project.org/alsa-doc/alsa-lib/
+2. https://www.alsa-project.org/main/index.php/Asoundrc
 
                         <<   Glossary  >>
 
@@ -74,9 +79,18 @@ Note:
    Mplayer interrrupted by signal 2 in Module: enable_cache
    Mplayer interrrupted by signal 2 in Module: play_audio
 3. Balance between lantency, frames per write, conf rate.
+4. A virtual sound card:
+   4.1 Plugins, as plughw:x.x.
+      1. (It only support parameters(SampleRate etc.) predefined in the HW card.
+      2. CAN NOT presents as a CTL at he same time!
+   4.1 Mixers/CTLs defined in asound.conf. OK!
 
 TODO:
 1. To play PCM data with format other than SND_PCM_FORMAT_S16_LE.
+2. When the USB audio device is unpluged, it shall fallback to default/original HW,
+   or wait for replug.
+   Read /proc/asound/ for more information.
+
 
 Journal:
 	1. Modify egi_play_pcm_buff():  param (void** buffer) to (void* buffer)
@@ -89,7 +103,17 @@ Journal:
 2021-04-19:
 	1.egi_pcmbuf_playback(): If input pcmbuf->pcm_handle is NULL, then create/open it
 	  first, and close it after playback.
-
+2022-03-28:
+	1. Add argument 'const char *card' for following functions:
+		egi_getset_pcm_volume()
+		egi_adjust_pcm_volume()
+		egi_pcm_mute()
+	2. Add egi_close_gVolMixer(sndcard)
+2022-03-29:
+ 	1.egi_getset_pcm_volume(): Try other possible mixer sele_name if egi.conf
+	  provide with wrong name.
+2022-03-31:
+	1. Add egi_getset_ctl_elemValue()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -277,20 +301,26 @@ parameters.
 @nf     	number of frames
 
 Return:
-#	>0    OK
-#	<0   fails
+	>=0    OK, OR underrun
+	<0    fails, return value from snd_pcm_writei/n()
 --------------------------------------------------------------------*/
-void  egi_pcmhnd_playBuff(snd_pcm_t *pcm_handle, bool Interleaved, void *buffer, int nf)
+int  egi_pcmhnd_playBuff(snd_pcm_t *pcm_handle, bool Interleaved, void *buffer, int nf)
 {
-	int rc;
+	int err;
 
 	/* write interleaved frame data */
 	if(Interleaved)
-	        rc=snd_pcm_writei(pcm_handle, buffer, (snd_pcm_uframes_t)nf );
+	        err=snd_pcm_writei(pcm_handle, buffer, (snd_pcm_uframes_t)nf );
 	/* write noninterleaved frame data */
 	else
-       	        rc=snd_pcm_writen(pcm_handle, buffer, (snd_pcm_uframes_t)nf ); //write to hw to playback
-        if (rc == -EPIPE)
+       	        err=snd_pcm_writen(pcm_handle, buffer, (snd_pcm_uframes_t)nf ); //write to hw to playback
+
+/* Return errors
+	-EBADFD	   PCM is not in the right state (SND_PCM_STATE_PREPARED or SND_PCM_STATE_RUNNING)
+	-EPIPE	   an underrun occurred
+	-ESTRPIPE  a suspend event occurred (stream is suspended and waiting for an application recovery)
+*/
+        if (err == -EPIPE)
         {
             /* EPIPE means underrun */
             //fprintf(stderr,"snd_pcm_writen() or snd_pcm_writei(): underrun occurred\n");
@@ -298,30 +328,35 @@ void  egi_pcmhnd_playBuff(snd_pcm_t *pcm_handle, bool Interleaved, void *buffer,
 			            						__func__);
 	    snd_pcm_prepare(pcm_handle);
         }
-	else if(rc<0)
+	else if(err<0)
         {
         	//fprintf(stderr,"error from writen():%s\n",snd_strerror(rc));
-		EGI_PLOG(LOGLV_ERROR,"%s: error from writen():%s\n",__func__, snd_strerror(rc));
+		EGI_PLOG(LOGLV_ERROR,"%s: err=%d, %s\n",__func__, err, snd_strerror(err));
         }
-        else if (rc != nf)
+        else if (err != nf)
         {
-                //fprintf(stderr,"short write, write %d of total %d frames\n",rc, nf);
-		EGI_PLOG(LOGLV_ERROR,"%s: short write, write %d of total %d frames\n", __func__,rc,nf);
+                fprintf(stderr,"short write, write %d of total %d frames\n", err,nf);
+		EGI_PLOG(LOGLV_ERROR,"%s: short write, write %d of total %d frames\n", __func__,err,nf);
         }
+
+	return err;
 }
 
 
-/*-------------------------------------
+/*--------------------------------------------
 Mute/Demut EGI PCM.
 
 Note: This is for SYS PCM! It will mute/demute
       all current applications.
 
+card:  Name of ALSA virt sound card. as defined in asound.conf.
+       If null, use "default".
+
 Return:
 	0	OK
 	<0	Fails
-------------------------------------*/
-int egi_pcm_mute(void)
+---------------------------------------------*/
+int egi_pcm_mute(const char *card)
 {
 	int ret=0;
 
@@ -356,12 +391,12 @@ int egi_pcm_mute(void)
 
 	/* Mute */
 	if(save_vol==0) {
-		ret=egi_getset_pcm_volume(&save_vol, &zero);
+		ret=egi_getset_pcm_volume(card, &save_vol, &zero);
 		egi_dpstd("Get vol=%d\n", save_vol);
 	}
 	/* DeMute */
 	else {
-		ret=egi_getset_pcm_volume(NULL, &save_vol);
+		ret=egi_getset_pcm_volume(card, NULL, &save_vol);
 		egi_dpstd("Set vol=%d\n", save_vol);
 		save_vol=0;
 	}
@@ -375,8 +410,16 @@ int egi_pcm_mute(void)
 Get current volume value from the first available channel, and then set all
 volume to the given value.
 
-!!! --- WARNING: Static variabls applied, for one running thread only --- !!!
+Note:
+1. !!! --- WARNING ---- !!!
+ Static variabls applied, for one running thread only.
+2. If dBvrang is too small, then a small change of psetvol MAY have no effect at all!
+   See N.1
+3. Control volume through ALSA Mixer, NOT directly to the HW.
+   ALSA provide with snd_ctl_xxx() functions as a way to control HW direclty.
 
+card:		Name of ALSA virt sound card. as defined in asound.conf.
+		If null, use "default".
 pgetvol: 	[0-100], pointer to a value to pass the volume percentage value.
 		If NULL, ignore.
 		Forced to [0-100] if out of range.
@@ -390,9 +433,10 @@ Return:
 	0	OK
 	<0	Fails
 ------------------------------------------------------------------------------*/
-int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
+int egi_getset_pcm_volume(const char *card, int *pgetvol, int *psetvol)
 {
 	int ret;
+	int k;
 	static long  min=-1; /* selem volume value limit */
 	static long  max=-2;
 	//static long  vrange;
@@ -410,12 +454,19 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 	static snd_mixer_selem_id_t *sid;
 //	static snd_mixer_elem_t* elem;  // replaced by g_volmix_elem
 	static snd_mixer_selem_channel_id_t chn;
-	const char *card="default";
+	//xxxconst char *card="default";
 	static char selem_name[128]={0};
 	static char dBvol_type[128];	 /* linear or nonlinear */
 	static bool linear_dBvol=false;  /* default as nonlinear */
 	static bool has_selem=false;
 	static bool finish_setup=false;
+
+	/* Mixer simple element names */
+	const char *msnames[4]= { "PCM", "Speaker", "Headphone", "Playback" };
+
+	/* Default card */
+	if(card==NULL)
+		card="default";
 
     /* First time init */
     if( !finish_setup || g_volmix_handle==NULL )
@@ -469,7 +520,7 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 	}
 
 	/* Attach an HCTL specified with the CTL device name to an opened mixer */
-	ret=snd_mixer_attach(g_volmix_handle,card);
+	ret=snd_mixer_attach(g_volmix_handle,card);  /* The card need NOT to be opened>.. */
 	if(ret!=0){
 		EGI_PLOG(LOGLV_ERROR, "%s: Mixer attach fails: %s", __func__, snd_strerror(ret));
 		ret=-2;
@@ -499,13 +550,25 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 	snd_mixer_selem_id_set_index(sid,0);
 	/* Set name part of a mixer simple element identifier */
 	snd_mixer_selem_id_set_name(sid,selem_name);
-
 	/* Find a mixer simple element */
 	g_volmix_elem=snd_mixer_find_selem(g_volmix_handle,sid);
 	if(g_volmix_elem==NULL){
 		EGI_PLOG(LOGLV_ERROR, "%s: Fail to find mixer simple element '%s'.",__func__, selem_name);
-		ret=-5;
-		goto FAILS;
+		/* Try other possible selem_names... MidasHK_2022_03_29 */
+		for(k=0; k<4; k++) {
+			strcpy(selem_name,msnames[k]);
+			snd_mixer_selem_id_set_index(sid,0);
+			snd_mixer_selem_id_set_name(sid, selem_name);
+			g_volmix_elem=snd_mixer_find_selem(g_volmix_handle,sid);
+			if(g_volmix_elem) {
+				EGI_PLOG(LOGLV_CRITICAL,"%s: Found mixer simple element '%s'.", __func__, selem_name);
+				break;
+			}
+		}
+		if(g_volmix_elem==NULL) {
+		   ret=-5;
+		   goto FAILS;
+		}
 	}
 
 	/* Get range for playback volume of a mixer simple element */
@@ -547,6 +610,8 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
                 if (!snd_mixer_selem_has_playback_channel(g_volmix_elem, chn))
                         continue;
 		else {
+			EGI_PLOG(LOGLV_CRITICAL,"%s: '%s' has fisrt playback control channle %d!",
+									__func__, selem_name, chn);
 			finish_setup=true;
 			break;
 		}
@@ -607,8 +672,8 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 
 		if(linear_dBvol) {
 			/* 1. Linear type dB curve */
-			*pgetvol=(dBvol-dBmin)*100/dBvrange;
-			printf("get alsa dBvol=%ld  percent.=%d\n", dBvol, *pgetvol);
+			*pgetvol=roundf(1.0*(dBvol-dBmin)*100/dBvrange);  /* roundf() MidasHK_2022_3_27 */
+//			printf("get alsa dBvol=%ld  percent.=%d\n", dBvol, *pgetvol);
 		}
 		else {
 			/* 2. Nonlinear type dB curve */
@@ -656,17 +721,18 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 	#else /* ----- (Option 2) : Call snd_mixer_selem_set_playback_dB_all() ----
 		       *  lg(pv)/lg(100) = (dBvol-dBmin)/(dBmax-dBmin) = (dBvol-dBmin)/dBvrange
 		       *   2*(dBvol-dBmin)=lg(pv)*dBvrange  --->  dBvol=0.5*lg(pv)*dBvrange+dBmin;
+		       *   TODO: NOT accurate.
 		       */
 		//dBvol=dBmin+dBvrange*vol/100;
 		if(pvol==0)
 			dBvol=dBmin;
 		else {
 			if(linear_dBvol) {
-				/* 1. Linear type dB curve */
-				dBvol=pvol*dBvrange/100+dBmin;
+				/* N1. Linear type dB curve. Example:  dB range Min.dB-4500 - Max.dB0. */
+				dBvol=roundf(1.0*pvol*dBvrange/100)+dBmin; /* if pvol delta=2, dBvrange=4500, then NO change at all!!! */
 			}
 			else {
-				/* 2. Nonlinear tyep dB curve */
+				/* N2. Nonlinear tyep dB curve */
 				dBvol=0.5*log10(pvol)*dBvrange+dBmin;
 			}
 		}
@@ -687,26 +753,404 @@ int egi_getset_pcm_volume(int *pgetvol, int *psetvol)
 }
 
 
+/*------------------------------------------------------------------------------
+Get and set value to specified CTL element.
+
+Note:
+1. Refrence: https://www.cnblogs.com/fellow1988/p/12404645.html
+
+TODO:
+ 1. Linear/scale dB gain adjusting by: snd_tlv_convert_to_dB()
+
+
+	====== Control Element Names (sound/asound.h) ======
+
+#define SNDRV_CTL_NAME_NONE                             ""
+#define SNDRV_CTL_NAME_PLAYBACK                         "Playback "
+#define SNDRV_CTL_NAME_CAPTURE                          "Capture "
+
+#define SNDRV_CTL_NAME_IEC958_NONE                      ""
+#define SNDRV_CTL_NAME_IEC958_SWITCH                    "Switch"
+#define SNDRV_CTL_NAME_IEC958_VOLUME                    "Volume"
+#define SNDRV_CTL_NAME_IEC958_DEFAULT                   "Default"
+#define SNDRV_CTL_NAME_IEC958_MASK                      "Mask"
+#define SNDRV_CTL_NAME_IEC958_CON_MASK                  "Con Mask"
+#define SNDRV_CTL_NAME_IEC958_PRO_MASK                  "Pro Mask"
+#define SNDRV_CTL_NAME_IEC958_PCM_STREAM                "PCM Stream"
+#define SNDRV_CTL_NAME_IEC958(expl,direction,what)      "IEC958 " expl SNDRV_CTL_NAME_##direction SNDRV_CTL_NAME_IEC958_##what
+
+
+	====== STURCTs Definition (sound/asound.h) ======
+
+1).  snd_ctl_elem_type_t
+typedef int __bitwise snd_ctl_elem_type_t;
+#define SNDRV_CTL_ELEM_TYPE_NONE        ((__force snd_ctl_elem_type_t) 0) // invalid
+#define SNDRV_CTL_ELEM_TYPE_BOOLEAN     ((__force snd_ctl_elem_type_t) 1) // boolean type
+#define SNDRV_CTL_ELEM_TYPE_INTEGER     ((__force snd_ctl_elem_type_t) 2) // integer type
+#define SNDRV_CTL_ELEM_TYPE_ENUMERATED  ((__force snd_ctl_elem_type_t) 3) // enumerated type
+#define SNDRV_CTL_ELEM_TYPE_BYTES       ((__force snd_ctl_elem_type_t) 4) // byte array
+#define SNDRV_CTL_ELEM_TYPE_IEC958      ((__force snd_ctl_elem_type_t) 5) // IEC958 (S/PDIF) setup
+#define SNDRV_CTL_ELEM_TYPE_INTEGER64   ((__force snd_ctl_elem_type_t) 6) // 64-bit integer type
+#define SNDRV_CTL_ELEM_TYPE_LAST        SNDRV_CTL_ELEM_TYPE_INTEGER64
+
+2). snd_ctl_elem_iface_t
+typedef int __bitwise snd_ctl_elem_iface_t;
+#define SNDRV_CTL_ELEM_IFACE_CARD       ((__force snd_ctl_elem_iface_t) 0) // global control
+#define SNDRV_CTL_ELEM_IFACE_HWDEP      ((__force snd_ctl_elem_iface_t) 1) // hardware dependent device
+#define SNDRV_CTL_ELEM_IFACE_MIXER      ((__force snd_ctl_elem_iface_t) 2) // virtual mixer device
+#define SNDRV_CTL_ELEM_IFACE_PCM        ((__force snd_ctl_elem_iface_t) 3) // PCM device
+#define SNDRV_CTL_ELEM_IFACE_RAWMIDI    ((__force snd_ctl_elem_iface_t) 4) // RawMidi device
+#define SNDRV_CTL_ELEM_IFACE_TIMER      ((__force snd_ctl_elem_iface_t) 5) // timer device
+#define SNDRV_CTL_ELEM_IFACE_SEQUENCER  ((__force snd_ctl_elem_iface_t) 6) // sequencer client
+#define SNDRV_CTL_ELEM_IFACE_LAST       SNDRV_CTL_ELEM_IFACE_SEQUENCER
+
+
+3). struct snd_ctl_card_info {
+        int card;                       card number
+        int pad;                        reserved for future (was type)
+        unsigned char id[16];           ID of card (user selectable)
+        unsigned char driver[16];       Driver name
+        unsigned char name[32];         Short name of soundcard
+        unsigned char longname[80];     name + info text about soundcard
+        unsigned char reserved_[16];    reserved for future (was ID of mixer)
+        unsigned char mixername[80];    visual mixer identification
+        unsigned char components[128];  card components / fine identification, delimited with one space (AC97 etc..)
+};
+
+4). struct snd_ctl_elem_id {
+        unsigned int numid;             // numeric identifier, zero = invalid
+        snd_ctl_elem_iface_t iface;     // interface identifier
+        unsigned int device;            // device/client number
+        unsigned int subdevice;         // subdevice (substream) number
+        unsigned char name[44];         // ASCII name of item
+        unsigned int index;             / index of item
+};
+
+
+5). struct snd_ctl_elem_list {   // ==> snd_ctl_elem_list_t
+        unsigned int offset;            W: first element ID to get
+        unsigned int space;             W: count of element IDs to get
+        unsigned int used;              R: count of element IDs set
+        unsigned int count;             R: count of all elements
+        struct snd_ctl_elem_id __user *pids;   R: IDs
+        unsigned char reserved[50];
+};
+
+6). struct snd_ctl_elem_info {
+        struct snd_ctl_elem_id id;      // W: element ID
+        snd_ctl_elem_type_t type;       // R: value type - SNDRV_CTL_ELEM_TYPE_*
+        unsigned int access;            // R: value access (bitmask) - SNDRV_CTL_ELEM_ACCESS_*
+        unsigned int count;             // count of values
+        __kernel_pid_t owner;           // owner's PID of this control
+        union {
+                struct {
+                        long min;               // R: minimum value
+                        long max;               // R: maximum value
+                        long step;              // R: step (0 variable)
+                } integer;
+                struct {
+                        long long min;          // R: minimum value
+                        long long max;          // R: maximum value
+                        long long step;         // R: step (0 variable)
+                } integer64;
+                struct {
+                        unsigned int items;     // R: number of items
+                        unsigned int item;      // W: item number
+                        char name[64];          // R: value name
+                        __u64 names_ptr;        // W: names list (ELEM_ADD only)
+                        unsigned int names_length;
+                } enumerated;
+                unsigned char reserved[128];
+        } value;
+        union {
+                unsigned short d[4];            //dimensions
+                unsigned short *d_ptr;          //indirect - obsoleted
+        } dimen;
+        unsigned char reserved[64-4*sizeof(unsigned short)];
+};
+
+7.) struct snd_ctl_elem_value {
+        struct snd_ctl_elem_id id;      // W: element ID
+        unsigned int indirect: 1;       // W: indirect access - obsoleted
+        union {
+                union {
+                        long value[128];
+                        long *value_ptr;        // obsoleted
+                } integer;
+                union {
+                        long long value[64];
+                        long long *value_ptr;   // obsoleted
+                } integer64;
+                union {
+                        unsigned int item[128];
+                        unsigned int *item_ptr; // obsoleted
+                } enumerated;
+                union {
+                        unsigned char data[512];
+                        unsigned char *data_ptr;   // obsoleted
+                } bytes;
+                struct snd_aes_iec958 iec958;
+        } value;                // RO
+        struct timespec tstamp;
+        unsigned char reserved[128-sizeof(struct timespec)];
+};
+
+
+@card:		HW sndcard or virt sndcard as defined in asound.conf.
+@elem_name:     Name of CTL element. Such as:
+		Capture Volume	Capture Switch ...
+		Playback Volume Speaker Playback Volume ...
+		Headphone Playback Volume ...
+		3D Volume
+		....
+
+@getval: 	[0-100], pointer to a value to pass the volume percentage value.
+		If NULL, ignore.
+
+@setval: 	[0-100], pointer to a volume value of percentage*100.
+		If <0, ignore.
+@adjust:	Adjust value in percentage, applicable ONLY IF setval==NULL.
+
+		Note: first get then set, so *getval and setval MAY be the same variable!
+Return:
+        0       OK
+        <0      Fails
+------------------------------------------------------------------------------*/
+int egi_getset_ctl_elemValue(const char *card, const char *elem_name, int *getval, int *setval, int adjust)
+{
+	snd_ctl_t 		*ctl_handle=NULL;
+	snd_ctl_elem_info_t 	*info=NULL;
+	snd_ctl_elem_id_t 	*id=NULL;
+	snd_ctl_elem_value_t 	*value=NULL;
+	snd_ctl_elem_list_t 	*list=NULL;
+	snd_ctl_elem_type_t 	type;
+	unsigned int count, used, idx, info_count;
+	int maxval, minval;	/* MAX and MIN value of SND_CTL_ELEM_TYPE_INTEGER type */
+	int tmpget=0;
+	int adjval=0;
+	int err=0;
+
+
+	/* Default card */
+	if(card==NULL)
+		card="default";
+
+	/* Open Control */
+	err=snd_ctl_open(&ctl_handle, card,0);
+	if(err<0) {
+		egi_dpstd("snd_ctl_open() fails: %s\n", snd_strerror(err));
+		return err;
+	}
+
+	/* Allocate */
+	snd_ctl_elem_info_alloca(&info);   /* using standard alloca */
+	snd_ctl_elem_id_alloca(&id);	   /* using standard alloca */
+	snd_ctl_elem_value_alloca(&value); /* on the stack, need not be freed */
+	snd_ctl_elem_list_alloca(&list);   /* on the stack, need not be freed */
+	if(info==NULL || id==NULL || value==NULL) {
+		egi_dpstd("Fail to alloca!\n");
+		err=-1;
+		goto END_FUNC;
+	}
+
+	/* Get list */
+	err=snd_ctl_elem_list(ctl_handle, list);
+	if(err<0) {
+		egi_dpstd("snd_ctl_elem_list() fails: %s\n", snd_strerror(err));
+		goto END_FUNC;
+	}
+
+	/* Get total count of elements present in CTL device. */
+	count=snd_ctl_elem_list_get_count(list);
+	/* Get number of used entries in CTL element identifiers list. */
+	used=snd_ctl_elem_list_get_used(list);
+	while(count != used) {
+/* TEST: ---- */
+		egi_dpstd(DBG_YELLOW"count=%d, used=%d\n"DBG_RESET, count, used);
+
+		/* allocate space for CTL element identifiers list */
+		err=snd_ctl_elem_list_alloc_space(list,count); //????
+		if(err<0) {
+                	egi_dpstd("snd_ctl_elem_list_alloc_sapce() fails: %s\n", snd_strerror(err));
+			goto END_FUNC;
+		}
+		/* Get a list of element identifiers. */
+		err=snd_ctl_elem_list(ctl_handle, list);
+		if(err<0) {
+                        egi_dpstd("snd_ctl_elem_list() fails: %s\n", snd_strerror(err));
+                        goto END_FUNC;
+                }
+		used=snd_ctl_elem_list_get_used(list);
+        }
+
+	/* To find index for the CTL elem_name */
+	for(idx=0; idx<used; idx++) {
+//		egi_dpstd("CTL elem name: %s\n", snd_ctl_elem_list_get_name(list, idx));
+		//if(strcmp(snd_ctl_elem_list_get_name(list,idx), elem_name)==0)
+		if( strstr(snd_ctl_elem_list_get_name(list,idx), elem_name) )
+			break;
+	}
+	if( idx>=used) {
+		egi_dpstd("indx>used!\n");
+		err=-1;
+		goto END_FUNC;
+	}
+
+	/* Get info of the CTL elem  */
+	/* Get CTL element identifier for an entry of a CTL element identifiers list. */
+	snd_ctl_elem_list_get_id(list,idx,id);
+	/* Set CTL element identifier of a CTL element id/info. */
+	snd_ctl_elem_info_set_id(info,id);
+
+	/* Get CTL element information. */
+	err=snd_ctl_elem_info(ctl_handle, info);
+	if(err<0) {
+        	egi_dpstd("snd_ctl_elem_info() fails: %s\n", snd_strerror(err));
+        	goto END_FUNC;
+        }
+
+	/* Set the element identifier within the given element value. */
+	snd_ctl_elem_info_get_id(info,id);
+	/* Set control value to the CTL elem */
+	snd_ctl_elem_value_set_id(value, id);
+	/* Get CTL element value. */
+	err=snd_ctl_elem_read(ctl_handle, value);
+	if(err<0) {
+        	egi_dpstd("snd_ctl_elem_read() fails: %s\n", snd_strerror(err));
+        	goto END_FUNC;
+        }
+
+	/* Get content type from a CTL element id/info. */
+	type=snd_ctl_elem_info_get_type(info);
+
+	maxval=snd_ctl_elem_info_get_max(info);
+	minval=snd_ctl_elem_info_get_min(info);
+
+	/*/ Assume minval == 0 */
+	if(minval!=0) egi_dpstd("WARNING! Min CTL value is NOT zero!\n");
+
+	/* Get number of value entries from a CTL element id/info. */
+	info_count=snd_ctl_elem_info_get_count(info);
+	egi_dpstd("type=%d, info_count=%d, max=%d, min=%d. \n",type, info_count, maxval, minval);
+
+	/* Get and set value for CTL elem */
+	for( idx=0; idx<info_count && idx<128; idx++) {  /* Usually idx==2, for Left, Right channel etc. */
+		switch(type) {
+			case SND_CTL_ELEM_TYPE_BOOLEAN:
+			   if(getval) *getval=snd_ctl_elem_value_get_boolean(value, idx);
+			   if(setval) snd_ctl_elem_value_set_boolean(value,idx, *setval);
+			   break;
+			case SND_CTL_ELEM_TYPE_INTEGER:
+			   tmpget=snd_ctl_elem_value_get_integer(value, idx);
+			   if(getval) {
+//				egi_dpstd("idx[%d] value_get: %d\n", idx,tmpget);
+				*getval=tmpget*100/maxval;
+			   }
+			    /* TODO: Linear/scale dB gain adjusting by: snd_tlv_convert_to_dB() */
+                           if(setval) {
+//				egi_dpstd("idx[%d] value_set: %d\n", idx, (*setval)*maxval/100);
+				snd_ctl_elem_value_set_integer(value,idx, (*setval)*maxval/100);
+			   }
+			   /* Use adjust value */
+			   else if(adjust) {
+				adjval=adjust*maxval/100;
+				if(adjval==0){adjval=(adjust>0)?1:-1;}
+				egi_dpstd("idx[%d] value adjust: %d%%(%d) to value %d\n",idx, adjust, adjval, tmpget+adjval);
+				snd_ctl_elem_value_set_integer(value, idx, tmpget+adjval);
+			   }
+                           break;
+			case SND_CTL_ELEM_TYPE_INTEGER64:
+			   break;
+			case SND_CTL_ELEM_TYPE_ENUMERATED:
+			   break;
+			case SND_CTL_ELEM_TYPE_BYTES:
+			   break;
+			default:
+			   break;
+		}
+	}
+	/* Write value settings to the CTL handle */
+	if(setval || adjust) {
+		err=snd_ctl_elem_write(ctl_handle, value);
+		if(err<0) {
+	        	egi_dpstd("snd_ctl_elem_write() fails: %s\n", snd_strerror(err));
+        		goto END_FUNC;
+		}
+        }
+
+END_FUNC:
+	/* Free resources */
+	//if(info) free(info);  --NOPE, no stack!
+	//if(id) free(id); --NOPE, no stack!
+	snd_ctl_elem_list_free_space(list);
+	snd_ctl_close(ctl_handle);
+
+	return err;
+}
+
+
+/*------------------------------------------------------
+Detach a previously attached HCTL and
+close g_volmix_handler.
+
+@card: Name of HCTL(as in asound.conf) as previously attached.
+--------------------------------------------------------*/
+int egi_close_gVolMixer(const char *card)
+{
+	int ret=0;
+
+	if(g_volmix_handle==NULL || card==NULL)
+		return -1;
+
+	if( snd_mixer_detach (g_volmix_handle, card)!=0 ) {
+		egi_dpstd(DBG_RED"snd_mixer_detach failed!\n"DBG_RED);
+		ret -=2;
+	}
+	if( snd_mixer_close(g_volmix_handle)!=0 ) {
+		egi_dpstd(DBG_RED"snd_mixer_close failed!\n"DBG_RED);
+		ret -=4;
+	}
+
+	/* Reset  anynway */
+	g_volmix_handle=NULL;
+
+	return ret;
+}
+
 /*---------------------------------------------------
 Step up/down pcm volume to range [0 100]
 
+card:    Name of ALSA virt sound card. as defined in asound.conf.
+         If null, use "default".
 @vdelt:  adjusting value for volume.
+
+Note:
+1. Too small vdelt MAY have no effect!
+   see NOTE at egi_getset_pcm_volume().
 
 return
 	0	OK
 	<0	Fails
 ---------------------------------------------------*/
-int egi_adjust_pcm_volume(int vdelt)
+int egi_adjust_pcm_volume(const char *card, int vdelt)
 {
 	int vol;
 
-	if(egi_getset_pcm_volume(&vol, NULL) !=0)
+	if(card==NULL)
+		card="default";
+
+	if(egi_getset_pcm_volume(card, &vol, NULL) !=0) {
+		egi_dpstd(DBG_RED"Fail to get volume\n"DBG_RESET);
 		return -1;
+	}
 
 	vol += vdelt;
+	egi_dpstd(DBG_GREEN"vol =%d%%\n"DBG_RESET, vol);
 
-	if(egi_getset_pcm_volume(NULL,&vol) !=0)
+	if(egi_getset_pcm_volume(card, NULL,&vol) !=0) {
+		egi_dpstd(DBG_RED"Fail to set volume\n"DBG_RESET);
 		return -2;
+	}
 
 	return 0;
 }

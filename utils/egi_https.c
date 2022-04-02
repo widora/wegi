@@ -72,8 +72,17 @@ TODO:
 XXX 1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
     compressed data size  ---OK, compression data.
 
-2. After looping curl_global_init() +..+ curl_global_cleanup() with enough circle times, it will
+XXX 2. After looping curl_global_init() +..+ curl_global_cleanup() with enough circle times, it will
    unexpectedly throw out 'Aborted' and exit just at calling curl_global_init()!
+
+3. Set TCP KEEPALIVE option, and DO NOT clean up curl at end of each session,
+   try to REUSE curl, to SAVE init time. ----> for streams only.
+   MidasHK_2022_04_01
+
+4. To check HTTP response status code! --- use void *data to pass out.
+   Downloading session may still fail though function returns 0!
+   Example: Status code 404, Resource NOT found.  MidasHK_2022_04_01
+
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -581,7 +590,7 @@ Note:
 			If trys==0; unlimit.
 @file_url:		file url for downloading.
 @file_save:		file path for saving received file.
-@data:			TODO: if any more data needed
+@data:			TODO: if more data needed
 @write_callback:	Callback for writing received data
 
 		!!! CURL will disable egi tick timer? !!!
@@ -651,6 +660,13 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	/***   ---  Set options for CURL  ---   ***/
 	/* set download file URL */
 	curl_easy_setopt(curl, CURLOPT_URL, file_url);
+
+#if 0   /* Setopt TCP KEEPALIVE */
+        curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+        curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE, 120L);
+        curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, 60L);
+#endif
+
 	/*  1L --print more detail,  0L --disbale */
 	curl_easy_setopt(curl, CURLOPT_VERBOSE, 0L); //1L
    	/*  1L --disable progress meter, 0L --enable and disable debug output  */
@@ -977,10 +993,11 @@ int https_easy_download2( int opt, unsigned int trys,
 	curl_easy_setopt(curl, CURLOPT_URL, file_url);
 	//curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
 
-	/* Setopt TC KEEPAVLIVE */
+#if 0	/* Setopt TCP KEEPALIVE */
 	curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
 	curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE, 120L);
 	curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, 60L);
+#endif
 
 	/* Just request head, without body */
 //	curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
@@ -1307,10 +1324,11 @@ int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
 	curl_easy_setopt(curl, CURLOPT_URL, stream_url);
 	//curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
 
-	/* Setopt TCP KEEPAVLIVE */
+#if 0	/* Setopt TCP KEEPALIVE */
 	curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
 	curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE, 120L);
 	curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, 60L);
+#endif
 
 	/* Just request head, without body */
 //	curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);

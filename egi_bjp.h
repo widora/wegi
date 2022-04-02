@@ -115,7 +115,7 @@ EGI_PICINFO *egi_picinfo_calloc(void);
 void egi_picinfo_free(EGI_PICINFO **info);
 //EGI_PICINFO* egi_parse_jpegExif(const char *fpath);
 EGI_PICINFO* egi_parse_jpegFile(const char *fpath);
-
+EGI_PICINFO* egi_parse_pngFile(const char *fpath);
 
 
 #define SHOW_BLACK_TRANSP	1
@@ -131,6 +131,7 @@ int egi_simpleCheck_jpgfile(const char* fpath);
 #define PNGFILE_INVALID   -1
 #define PNGFILE_COMPLETE   0
 #define PNGFILE_INCOMPLETE 1
+int egi_check_pngfile(const char *fpath);
 
 /*  functions */
 int compress_to_jpgFile(const char * filename, int quality, int width, int height,

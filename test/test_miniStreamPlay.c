@@ -7,9 +7,8 @@ Reference: libmad-0.15.1b   minimad.c
 
 Usage:
 	 example:
-		./test_miniStreamPlay -m http://kathy.torontocast.com:3530/stream
+		./test_miniStreamPlay -m -v -s sndcard http://kathy.torontocast.com:3530/stream
 		( option: -m: to show StreamTitle, otherwise Untitled. )
-
         '+'     Increase volume +5%　　 增加音量
         '-'     Decrease volume -5%　　 减小音量
 	'm'	Mute/Demute
@@ -52,7 +51,9 @@ TODO:
    Resample to 48000Hz  ---OK, see madplay_resample.h
 2. Decode aac stream.
 3. XXX Dump half content of RingBuffer if overflow occurs.
-	---OK, drop each 1/10 frame seems ok.
+   ---OK, drop each 1/10 frame seems ok.
+   3.1 ---> decoding error 0x0235 (bad main_data_begin pointer)
+
 
 Journal:
 2021-11-14:
@@ -71,6 +72,18 @@ Journal:
 2022-01-09:
 	1. http_download_callback(): Check stream_type first.
 	2. madplay_ringbuffer(): If stream_type is NOT audio/mpeg, DO NOT exit.
+2022-03-27/28:
+	1. static enum mad_flow output(): Try to detect if USB sndcard unplugged, and
+	   then wait and try to reconnect/open.
+2022-03-29:
+	1. Add option -s for sound card selection.
+2022-03-30:
+	1. For a virt sncard, snd_pcm_state() CAN NOT detect HW disconnection!
+	2. If USB sncard is unplugged during stream buffering, egi_pcmhnd_playBuff()
+	   will return all 0s afterward. In this case, it needs to re_open the pcm handler.
+2022-03-31:
+	1. Test egi_getset_ctl_elemValue()
+
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -94,6 +107,8 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include <egi_pcm.h>
 #include "mad.h"
 #include "madplay_resample.h"
+
+#define MIXER_VOLUME_CONTROL  1   /* 1: By SND_Mixer, 0: By SND_CTL  */
 
 #define RINGBUFFER_SIZE (256*1024)	/* Bytes, RingBuffer MAX space. */
 #define INIT_BUFFER_SIZE (128*1025)	/* Buffer size as a threshold, before start decoding/playing buffered data. */
@@ -157,6 +172,7 @@ const char *mad_mode_str[]={
 	"Normal LR Stereo",
 };
 
+const char *sndcard="default";
 static snd_pcm_t *pcm_handle;      /* PCM播放设备句柄 */
 static int16_t  *data_s16l=NULL;   /* FORMAT_S16L 数据 */
 static bool 	pcmdev_ready;	   /* PCM 设备ready */
@@ -164,6 +180,7 @@ static bool 	pcmparam_ready;	   /* PCM 参数ready */
 struct resample_state rstate;      /* Resample state, init at output() */
 mad_fixed_t 	(*resampled)[2][MAX_NSAMPLES]; /* Resampled data, calloc at output() */
 bool  		need_resample;
+int vpercent;			  /* Volume in percent */
 
 /* Frame counter 帧头计数 */
 static unsigned long	  tmpHeadOff=0;
@@ -223,9 +240,10 @@ static int mad_decode(unsigned char const *rawdata, unsigned long length);
 
 void print_help(const char *name)
 {
-        printf("Usage: %s [-hmv] URL\n", name);
+        printf("Usage: %s [-hms:v] URL\n", name);
         printf("-h     This help.\n");
         printf("-m     Request metadata.\n");
+	printf("-s:    Plughw, or virt sound card as defined is asound.conf, Example 'plughw:1,0'\n");
 	printf("-v     Verbose debug.\n");
 }
 
@@ -238,7 +256,7 @@ int main(int argc, char **argv)
 
         /* Parse input option */
         int opt;
-        while( (opt=getopt(argc,argv,"hmv"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hms:v"))!=-1 ) {
                 switch(opt) {
                         case 'h':
                                 print_help(argv[0]);
@@ -246,6 +264,10 @@ int main(int argc, char **argv)
                                 break;
 			case 'm':
 				metadata_ON=true;
+				break;
+			case 's':
+				sndcard=optarg;
+				printf("sndcar: %s\n",sndcard);
 				break;
 			case 'v':
 				verbose_ON=true;
@@ -281,14 +303,28 @@ int main(int argc, char **argv)
   	/* Set termI/O 设置终端为直接读取单个字符方式 */
   	egi_set_termios();
 
-  	/* Prepare vol 启动系统声音调整设备 */
-  	egi_getset_pcm_volume(NULL,NULL);
+  	/* Prepare vol 启动系统声音调整设备, before snd_pcm_open() OK. */
+	#if 0
+  	if(egi_getset_pcm_volume(sndcard, &vpercent, NULL)!=0)
+		egi_dpstd(DBG_RED"Fail to init volume mixer!\n"DBG_RESET);
+	#else
+	egi_getset_ctl_elemValue(sndcard, "Speaker Playback Volume", &vpercent, NULL, 0);
+	#endif
+	egi_dpstd(DBG_GREEN"Volume: %d%%\n"DBG_RESET, vpercent);
 
   	/* Open pcm playback device 打开PCM播放设备 */
-  	if( snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0) <0 ) {  /* SND_PCM_NONBLOCK,SND_PCM_ASYNC */
-  		printf("Fail to open PCM playback device!\n");
+  	if( snd_pcm_open(&pcm_handle, sndcard, SND_PCM_STREAM_PLAYBACK, 0) <0 ) {  /* SND_PCM_NONBLOCK,SND_PCM_ASYNC */
+//  	if( snd_pcm_open(&pcm_handle, "plughw:1,0", SND_PCM_STREAM_PLAYBACK, 0) <0 ) {  /* SND_PCM_NONBLOCK,SND_PCM_ASYNC */
+  		egi_dpstd(DBG_RED"Fail to open PCM playback device!\n"DBG_RESET);
         	exit(-1);
   	}
+
+	/* Allocate space for resampled data */
+	resampled=(typeof(resampled))malloc(sizeof(*resampled));
+	if(resampled==NULL) {
+	      egi_dpstd(DBG_RED"Fail to malloc resampled!\n"DBG_RESET);
+	      exit(-1);
+	}
 
 	/* Start madplay thread */
        if( pthread_create(&thread_madplay, NULL, madplay_ringbuffer, NULL)!=0 ) {
@@ -717,11 +753,13 @@ static enum mad_flow output(void *data, struct mad_header const *header, struct 
 {
   unsigned int i,k;
   unsigned int nsamples, samplerate;
+  static int new_samplerate=0;
   mad_fixed_t const *left_ch, *right_ch;
+  int ret;
 
   /*　声道数　采样率　PCM数据 */
   /* pcm->samplerate contains the sampling frequency */
-  /* NOTE: nchannels and samplerate MAY chages for the first serveral frames. see below. */
+  /* NOTE: nchannels and samplerate MAY changes for the first serveral frames. see below. */
   if(nchannels!=pcm->channels) {
 	  nchannels = pcm->channels;
 	  refresh_display=true;
@@ -731,12 +769,13 @@ static enum mad_flow output(void *data, struct mad_header const *header, struct 
   left_ch   = pcm->samples[0];
   right_ch  = pcm->samples[1];
   nsamples  = pcm->length;
+  samplerate= pcm->samplerate;
 
   /* 为PCM播放设备设置相应参数 */
   if( !pcmdev_ready ) {  //&& header->flags&0x1 ) {  /* assume (header->flags&0x1)==1 as start of complete frame */
         /* Update nchannles and samplerate */
         nchannels=pcm->channels; //MAD_NCHANNELS(header);
-        samplerate= pcm->samplerate;
+        //samplerate= pcm->samplerate;
 
         /* NOTE: nchannels/samplerate from the first frame header MAY BE wrong!!! */
 //        printf("header_cnt:%lu, flags:0x%04X, mode: %s, nchanls=%d, sample_rate=%d, nsamples=%d\n",
@@ -746,30 +785,33 @@ static enum mad_flow output(void *data, struct mad_header const *header, struct 
         if( samplerate!=48000 && samplerate!=44100 ) {
 	   #if 1
 		float dd;
-		int new_samplerate=modff(1.0*samplerate/11025, &dd)==0.0 ? 44100:48000;
+		new_samplerate=modff(1.0*samplerate/11025, &dd)==0.0 ? 44100:48000;
 	   #else
-		int new_samplerate=48000;
+		new_samplerate=48000;
 	   #endif
                 printf("Samplerate=%dHz, init resampling to %dHz...\n", samplerate, new_samplerate );
                 resample_init(&rstate, samplerate, new_samplerate);
 
-  		/* Recalloc space for resampled data */
+  		#if 0 /* XXX Recalloc space for resampled data XXX NOPE, fixed! */
 		resampled=(typeof(resampled))realloc((void *)resampled, sizeof(*resampled));
 		if(resampled==NULL) {
 		      printf("Fail to malloc resampled!\n");
 		      exit(1);
 		}
+		#endif
 
                 need_resample=true;
         }
         else {
                 need_resample=false;
+		new_samplerate=samplerate;
         }
 
 	/* Set params */
         if( egi_pcmhnd_setParams(pcm_handle, SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, nchannels,
-	    need_resample?48000:samplerate) <0 ) {
-                printf("Fail to set params for PCM playback handle.!\n");
+//	    need_resample?48000:samplerate) <0 ) {
+	    need_resample?new_samplerate:samplerate) <0 ) {
+                egi_dpstd(DBG_RED"Fail to set params for PCM playback handle.!\n"DBG_RESET);
         } else {
                 //printf("EGI set pcm params successfully!\n");
                 pcmdev_ready=true;
@@ -800,7 +842,6 @@ static enum mad_flow output(void *data, struct mad_header const *header, struct 
         }
         /*  B. No need to resample */
         else {
-
                 /* 转换成S16L格式 */
                 /* Realloc data for S16 */
                 data_s16l=(int16_t *)realloc(data_s16l, nchannels*nsamples*2);
@@ -815,9 +856,116 @@ static enum mad_flow output(void *data, struct mad_header const *header, struct 
 
         }
 
+#if 0 /* TEST: ---------------- */
+egi_dpstd(DBG_GREEN"Samplerate: %dHz --> %dHz, Samples: %d --> %d\n"DBG_RESET,
+				samplerate, new_samplerate, pcm->length, nsamples);
+#endif
+
+
+#if 0	/* Check available space for plaback data
+	 * !!! It returns ok, even though the USB Speaker is unplugged.
+	 */
+	ret=snd_pcm_avail_update(pcm_handle);
+	if( ret <0 ) {
+	   if(ret==-EPIPE)
+		egi_dpstd(DBG_YELLOW"Xrun occured!\n"DBG_RESET);
+	   else
+		egi_dpstd(DBG_RED"ALSA avail update ret=%d\n"DBG_RESET,ret);
+	}
+	else
+		egi_dpstd("ALSA avail update ret=%d\n",ret);
+#endif
+
+    /* For computing average iwrite speed */
+	struct timeval tms, tme;
+	int tdm;
+	static int cnt=0;
+	static int cntSamples=0;
+	static int cntMs=0;
+
+	gettimeofday(&tms, NULL);
+
         /* C. Playback 播放PCM数据 */
-        egi_pcmhnd_playBuff(pcm_handle, true, (void *)data_s16l, nsamples);
-   }
+	//printf("--->\n");
+        ret=egi_pcmhnd_playBuff(pcm_handle, true, (void *)data_s16l, nsamples);
+	/* TODO: To detect audio device stuck/error, Example: USB speaker unplugged.
+	   Then try to reopen and reset pcmdev_ready
+	   Possible return status when the audio device disconnected.
+	   1. It returns -EIO, it happens when USB sncard is unplugged during playback.
+	   2. OR It ALWAYS returns ret=0, it happens if USB sncard is unplugged during stream buffering.
+	 */
+
+	/* Test if sound card lost, espcially if USB card unplugged */
+#if 1  /* NOT call snd_pcm_state(), For a virt sncard, snd_pcm_state() CAN NOT detect diconnection!!! */
+   #if 0  /* 1. Compute average iwrite speed, if too fast, the USB may be unplugged?? */
+  	//printf("nch=%d, newsrate=%d, nsamples=%d, tdm=%d\n", pcm->channels, new_samplerate, nsamples, tdm);
+	if(cnt<100) {
+		gettimeofday(&tme, NULL);
+		tdm=tm_signed_diffms(tms, tme);
+		cntSamples += nsamples;
+		cntMs += tdm;
+		cnt++;
+	}
+	else {
+		if( (cntMs==0 || cntSamples/cntMs >1000) && lastHeadOff!=MAD_FEEDBUFFER_SIZE ) {  /* lastHeadOff==MAD_FEEDBUFFER_SIZE as init */
+			printf(DBG_RED"\nSound card lost? state=%d. try to reopen it...\n"DBG_RESET, snd_pcm_state(pcm_handle));
+
+   #else  /* 2. Check return value of egi_pcmhnd_playBuff() */
+	if(ret==-EIO || ret==-EBADFD || ret==0 ) {  /* IO error, bad FD, as sound card disconnected. */
+		if( lastHeadOff!=MAD_FEEDBUFFER_SIZE ) {  /* lastHeadOff==MAD_FEEDBUFFER_SIZE as init */
+			printf(DBG_RED"\nSound card lost? state=%d. try to reopen it...\n"DBG_RESET, snd_pcm_state(pcm_handle));
+   #endif
+
+			#if 1
+			egi_close_gVolMixer(sndcard); /* after close pcm_handle?*/
+
+			//snd_pcm_drain(pcm_handle); /* stuck, as it disconneted already! */
+			//snd_pcm_drop(pcm_handle);  /* No effect,stops the PCM immediately. The pending samples on the buffer are ignored. */
+			//snd_pcm_hw_free(pcm_handle); /* Remove PCM hardware configuration and free associated resources. even slower to restore.*/
+			snd_pcm_close(pcm_handle);
+			pcm_handle=NULL;
+
+			/* Open pcm_handle */
+	        	while( snd_pcm_open(&pcm_handle, sndcard, SND_PCM_STREAM_PLAYBACK, 0) <0 ) {  /* SND_PCM_NONBLOCK,SND_PCM_ASYNC */
+                		printf(DBG_YELLOW"Try to find sound card...\n"DBG_RESET);
+				sleep(1);
+			}
+			/* Init volume mixer */
+			vpercent=30;
+			egi_getset_pcm_volume(sndcard, NULL, &vpercent); /* TODO vpercent to be 0 again! */
+
+			#else /* !!!! snd_pcm_recover() NO use for USB unplug !!! */
+			/* This functions handles -EINTR (interrupted system call), -EPIPE (overrun or underrun)
+			 and -ESTRPIPE (stream is suspended) error codes trying to prepare given stream for next I/O. */
+			while(snd_pcm_recover(pcm_handle, -ESTRPIPE, 0)!=0) {
+                		printf(DBG_YELLOW"Try to find sound card...\n"DBG_RESET);
+				sleep(1);
+			}
+
+			#endif
+
+			/*  XXX NOPE, fixed. */
+			//free(resampled); resampled=NULL;
+
+			/* Reset pcmdev_ready */
+			pcmdev_ready=false;
+			refresh_display=true;
+		}
+		cnt =0;
+		cntMs=0;
+		cntSamples=0;
+	}
+#else	/* snd_pcm_state() CAN NOT detect virtual sound card unplugged! OK for plughw. */
+	//if( snd_pcm_state(pcm_handle)==SND_PCM_STATE_DISCONNECTED ) {
+	ret=snd_pcm_state(pcm_handle);
+	if( ret!=SND_PCM_STATE_RUNNING && ret!=SND_PCM_STATE_PREPARED ) {
+		printf(DBG_RED"\nstate=%d, Sound card lost? try to reopen it...\n"DBG_RESET,ret);
+
+	}
+
+#endif
+
+   }  /* End if(pcmdev_ready) */
 
   return MAD_FLOW_CONTINUE;
 }
@@ -826,7 +974,6 @@ static enum mad_flow output(void *data, struct mad_header const *header, struct 
 /* Parse keyinput and frame header */
 static enum mad_flow header(void *data,  struct mad_header const *header )
 {
-  int percent;
   char ch;
   int mad_ret=MAD_FLOW_CONTINUE;
 
@@ -853,19 +1000,35 @@ static enum mad_flow header(void *data,  struct mad_header const *header )
 		break;
 	case 'm':	/* Mute/Demute */
 	case 'M':
-		egi_pcm_mute();
+		egi_pcm_mute(sndcard);
 		break;
 	case '+':	/* Volume up */
-		egi_adjust_pcm_volume(5);
-		egi_getset_pcm_volume(&percent,NULL);
-		printf("\r Vol: %d%%",percent); fflush(stdout);
-		usleep(250000);
+		#if MIXER_VOLUME_CONTROL
+		egi_adjust_pcm_volume(sndcard, 2);
+		egi_getset_pcm_volume(sndcard, &vpercent,NULL);
+		printf("\r Vol: %d%%",vpercent); fflush(stdout);
+		#else
+		//egi_adjust_ctl_elemValue(sndcard, "Speaker Playback Volume", 5);
+		egi_getset_ctl_elemValue(sndcard, "Speaker Playback Volume", &vpercent, NULL, 5);
+		printf("\r Vol: %d%%",vpercent>100?100:vpercent+5); fflush(stdout);
+		#endif
+
+		usleep(100000);
+		refresh_display=true;
 		break;
 	case '-':	/* Volume down */
-		egi_adjust_pcm_volume(-5);
-		egi_getset_pcm_volume(&percent,NULL);
-		printf("\r Vol: %d%%",percent); fflush(stdout);
-		usleep(250000);
+		#if MIXER_VOLUME_CONTROL
+		egi_adjust_pcm_volume(sndcard, -5);
+		egi_getset_pcm_volume(sndcard, &vpercent,NULL);
+		printf("\r Vol: %d%%",vpercent); fflush(stdout);
+		#else
+		//egi_adjust_ctl_elemValue(sndcard, "Speaker Playback Volume", -5);
+		egi_getset_ctl_elemValue(sndcard, "Speaker Playback Volume", &vpercent, NULL, -5);
+		printf("\r Vol: %d%%",vpercent-5<0?0:vpercent-5); fflush(stdout);
+		#endif
+
+		usleep(100000);
+		refresh_display=true;
 		break;
   }
 
@@ -877,6 +1040,7 @@ static enum mad_flow header(void *data,  struct mad_header const *header )
   /*** Print MP3 file info 输出播放信息到终端
    * Note:
    *	1. For some MP3 file, it should wait until the third header frame comes that it contains right layer and samplerate!
+
    */
   if(!pcmparam_ready || refresh_display ) {
 	if( header_cnt>2 ) {
@@ -901,11 +1065,11 @@ static enum mad_flow header(void *data,  struct mad_header const *header )
 		return MAD_FLOW_CONTINUE;
   }
 
-//printf(" Buffer data: %dBs\n", ringbuff->datasize);
+   //printf(" Buffer data: %dBs\n", ringbuff->datasize);
   lapHour=timelapse/3600;
   lapMin=(timelapse-lapHour*3600)/60;
   lapfSec=timelapse-3600*lapHour-60*lapMin;
-//  printf("\r %02d:%02d:%.1f of [%02d:%02d:%.1f]   ", lapHour, lapMin, lapfSec, durHour, durMin, durfSec);
+   //  printf("\r %02d:%02d:%.1f of [%02d:%02d:%.1f]   ", lapHour, lapMin, lapfSec, durHour, durMin, durfSec);
   printf("\r %02d:%02d:%.1f [Buffer: %.1fkBs]", lapHour, lapMin, lapfSec, 1.0*(ringbuff->datasize)/1024);
   fflush(stdout);
 
