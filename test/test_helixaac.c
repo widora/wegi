@@ -114,7 +114,7 @@ int main(int argc, char **argv)
   	egi_set_termios();
 
   	/* Prepare vol 启动系统声音调整设备 */
-  	egi_getset_pcm_volume(NULL,NULL);
+  	egi_getset_pcm_volume(NULL,NULL,NULL);
 
 	/* Open pcm playback device */
   	if( snd_pcm_open(&pcm_handle, "default", SND_PCM_STREAM_PLAYBACK, 0) <0 ) {  /* SND_PCM_NONBLOCK,SND_PCM_ASYNC */
@@ -230,13 +230,13 @@ RADIO_LOOP:
 				goto END_PROG;
                 		break;
 		        case '+':       /* Volume up */
-	        	        egi_adjust_pcm_volume(5);
-        	        	egi_getset_pcm_volume(&percent,NULL);
+	        	        egi_adjust_pcm_volume(NULL, 5);
+        	        	egi_getset_pcm_volume(NULL, &percent,NULL);
 		                printf("\tVol: %d%%",percent);
                 		break;
 			case '-':       /* Volume down */
-		                egi_adjust_pcm_volume(-5);
-                		egi_getset_pcm_volume(&percent,NULL);
+		                egi_adjust_pcm_volume(NULL, -5);
+                		egi_getset_pcm_volume(NULL, &percent,NULL);
 		                printf("\tVol: %d%%",percent);
                 		break;
 			case '>':

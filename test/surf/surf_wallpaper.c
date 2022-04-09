@@ -7,13 +7,15 @@ A tool program to set wallpaper for SURFMAN.
 TEST: Surface has NOT frames, and ONLY display some words on the screen.
 
 TODO:
-1. Sometime it will 
+1. sometime shell script fails to download image.
 
 Note:
 1. Call bing_today.sh to fetch/download a Bing wallpaper, and SURFMSG
    the file path to SURFMAN.
 
 Journal:
+2022-04-09:
+	1. Call https_easy_download() to download image.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -37,6 +39,8 @@ https://github.com/widora/wegi
 #include "egi_input.h"
 #include "egi_bjp.h"
 #include "egi_utils.h"
+#include "egi_https.h"
+#include "egi_cstring.h"
 
 #define BING_WALLPAPER_PATH	"/tmp/bing_today.jpg"  /* MAY save to png with same name. */
 
@@ -196,24 +200,87 @@ int main(int argc, char **argv)
 			continue;
 		}
 
-#ifdef LETS_NOTE
+
+#if 0 /* Shell script to download image */
+   #ifdef LETS_NOTE
 		ret=system("/home/midas-zhou/bing_today.sh");
-#else
+   #else
 		EGI_PLOG(LOGLV_TEST,"Start system()...\n");
 		ret=system("/home/bing_today.sh");
+   #endif
+
+	/*** ---- CURL ERROR
+	[2021-06-13 14:34:09] [LOGLV_TEST] Start system()...
+	curl: (7) Error   // Failed connect to...
+	XXXXX XXXXXXXXXXXXXXXX
+	curl: (7) Error
+	[2021-06-13 14:34:10] [LOGLV_TEST] System ret=0
+	*/
+
+#else  /* Call https_easy_download() to download image */
+		char strRequest[1024];
+		char attrString[1024];          /* To be big enough! */
+		char value[512];                /* To be big enough! */
+		char *content=NULL;
+		char imgURL[512];
+		int len;
+		int cnt=0;
+
+START_REQUEST:
+		/* Prepare request */
+		strRequest[0]=0;
+		sprintf(strRequest,"https://bing.ioliu.cn?p=%d", mat_random_range(180)); /* 1-180 */
+
+        	/* Https GET request */
+        	if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3, 60,
+                	                strRequest, NULL, NULL, NULL)!=0) {
+                 	printf("Fail to call https_curl_request() for: %s!\n", strRequest);
+
+			cnt++;
+			if(cnt==3) exit(EXIT_FAILURE);
+
+			goto START_REQUEST;
+         	}
+		char *pstr=https_easy_buff;
+
+		char *strClassID="card progressive";
+		while( (pstr=cstr_parse_html_tag(pstr, "div", attrString, sizeof(attrString), &content, &len))!=NULL ) {
+//      printf("   --- <div content---\n %s\n", content);
+
+        		/* Confirm attribute value for class */
+		        egi_dpstd("get attribute class..\n");
+		        cstr_get_html_attribute(attrString, "class", value);
+		        printf("attrString: %s\n", attrString);
+		        printf("class=%s\n", value);
+        		if(strncmp(value, strClassID, strlen(strClassID))!=0) {
+                		egi_free_char(&content);
+                		continue;
+        		}
+
+	        	/* Extract image */
+	        	fprintf(stderr,"get attribute imgURL..\n");
+        		cstr_get_html_attribute(content, "src", imgURL);
+		        printf("Orig imgURL: %s\n", imgURL);
+
+		        /* Sometimes there maybe '\n' in the URL! */
+		        cstr_squeeze_string(imgURL, strlen(imgURL), '\n');
+		        printf("imgURL: %s\n", imgURL);
+
+        		ret=https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 5, 60,
+                	        imgURL, BING_WALLPAPER_PATH, NULL, NULL);
+
+			/* OK */
+			if(ret==0)
+				break;
+		}
 #endif
 
-/*** ---- CURL ERROR
-[2021-06-13 14:34:09] [LOGLV_TEST] Start system()...
-curl: (7) Error   // Failed connect to...
-XXXXX XXXXXXXXXXXXXXXX
-curl: (7) Error
-[2021-06-13 14:34:10] [LOGLV_TEST] System ret=0
-*/
-
-
+#if 0  /* Shell script download */
 		EGI_PLOG(LOGLV_TEST, "System ret=%d\n", ret);
 		if( ret!=-1 && WIFEXITED(ret) && WEXITSTATUS(ret)==0		/* See MAN of system() for return values */
+#else
+		if( ret==0
+#endif
 		    && (bingimg=egi_imgbuf_readfile(BING_WALLPAPER_PATH))!=NULL  )
 		{
 			EGI_PLOG(LOGLV_TEST, "Editing image...\n");
@@ -249,14 +316,17 @@ curl: (7) Error
 			/* set token */
 			ret_ok=true;
 		}
+#if 0 /* Shell script download */
 		else if( ret!=-1 && WIFEXITED(ret) ) { /* ELSE if system() succeeds to create a child process to run shell script */
 			EGI_PLOG(LOGLV_TEST, "Shell script fails!\n");
-
 			snprintf(strtmp, sizeof(strtmp)-1, "下载失败！error=%d", WEXITSTATUS(ret));
+#else
+		else {
+#endif
+			snprintf(strtmp, sizeof(strtmp)-1, "下载失败！ret=%d", ret);
 
         		pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */
-
 
 			egi_imgbuf_resetColorAlpha(surfimg, WEGI_COLOR_GRAYB, 0);
 			//FTsymbol_writeFB(vfbdev, "下载必应壁纸失败！", 14, 14, WEGI_COLOR_GRAYC, 0, 0);
@@ -271,8 +341,10 @@ curl: (7) Error
 			/* set token */
 			ret_ok=true;
 		}
+#if 0 /* Shell script download */
 		else
 			EGI_PLOG(LOGLV_TEST, "Fail to call system()!\n");
+#endif
 	}
 
         /* Pos_1: Join ering_routine  */

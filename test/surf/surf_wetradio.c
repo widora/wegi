@@ -278,7 +278,7 @@ int main(int argc, char **argv)
         }
 #endif
 	/* Prepare mixer simple element for volume preparation */
-  	egi_getset_pcm_volume(NULL,NULL);
+  	egi_getset_pcm_volume(NULL,NULL,NULL);
 	/* Set 3D effect */
 	system("amixer set 3D on; amixer set 3D 93%");
 	Sound_3D_ON=true;
@@ -1007,8 +1007,9 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 	if( pmostat->mouseDZ ) {
 		int pvol=0;  /* Volume [0 100] */
 	   	if(mpbtn == BTN_PLAY ) {
-			egi_adjust_pcm_volume( -pmostat->mouseDZ);
-			egi_getset_pcm_volume(&pvol, NULL);
+			egi_adjust_pcm_volume(NULL, -pmostat->mouseDZ*2);
+			egi_getset_pcm_volume(NULL, &pvol, NULL);
+			printf("-mouseDZ: %d; pvol: %d\n", -pmostat->mouseDZ, pvol);
 
 			/* Base Line */
 			fbset_color2(vfbdev, WEGI_COLOR_WHITE);

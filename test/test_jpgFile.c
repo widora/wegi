@@ -94,6 +94,9 @@ int main(int argc, char **argv)
 		if(PicInfo==NULL)
 			continue;
 
+
+		//egi_picinfo_print(PicInfo);
+
 		/* Display Picture Info */
 		tcnt=0;
 		maxcnt=sizeof(txtbuff)-1;
@@ -172,7 +175,8 @@ int main(int argc, char **argv)
 		printf("\n====== Pic Info ======\n%s\n",txtbuff);
 		printf("----------------------\n");
 
-#if 1 /* TEST: --------- */
+
+#if 0 /* TEST: --------- */
 		continue;
 #endif
 

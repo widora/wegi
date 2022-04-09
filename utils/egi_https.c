@@ -67,6 +67,8 @@ Jurnal:
 	1. https_easy_download():  Enable option CURLOPT_HTTPGET.
 2022-03-21:
 	1. Add fflush(fb) before fsync(fileno(fp));
+2022-04-09:
+	1. Add https_easy_buff[] and easy_callback_copyToBuffer().
 
 TODO:
 XXX 1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
@@ -373,6 +375,40 @@ const char *curl_easy_strerror(CURLcode error)
   return "Unknown error";
 }
 
+/*---------------------------------------------------
+ A default callback function for https_curl_request()
+----------------------------------------------------*/
+char https_easy_buff[1024*1024];
+static size_t easy_callback_copyToBuffer(void *ptr, size_t size, size_t nmemb, void *userp)
+{
+        int blen=strlen(https_easy_buff);
+        int plen=strlen(ptr);
+        int xlen=plen+blen;
+
+        /* MUST check buff[] capacity! */
+        if( xlen > sizeof(https_easy_buff)-1) {   // OR: CURL_RETDATA_BUFF_SIZE-1-strlen(..)
+                /* "If src contains n or more bytes, strncat() writes n+1 bytes to dest
+                 * (n from src plus the terminating null byte." ---man strncat
+                 */
+                fprintf(stderr,"\033[0;31;40m strlen(buff)=%d, strlen(buff)+strlen(ptr)=%d >=sizeof(buff)-1! \e[0m\n",
+                                                        blen, xlen);
+                strncat(userp, ptr, sizeof(https_easy_buff)-1-blen); /* 1 for '\0' by strncat */
+                //strncat(buff, ptr, sizeof(buff)-1);
+        }
+        else {
+            #if 1 /* strcat */
+                strcat(userp, ptr);
+                //buff[sizeof(buff)-1]='\0';  /* <---------- return data maybe error!!??  */
+            #else /* memcpy */
+                memcpy(userp, ptr, size*nmemb); // NOPE for compressed data?!!!
+                userp[size*nmemb]='\0';
+            #endif
+        }
+
+        return size*nmemb; /* Return size*nmemb OR curl will fails! */
+}
+
+
 /*------------------------------------------------------------------------------
 			HTTPS request by libcurl
 
@@ -388,6 +424,8 @@ Note: You must have installed ca-certificates before call curl https, or
 @timeout:		Timeout in seconds.
 @request:	request string
 @reply_buff:	Buffer for returned reply string, the Caller must ensure enough space.
+
+		>>>> Applicable ONLY IF user get_callback is NOT NULL! <<<<
 
 				!!! --- CAUTION --- !!!
 		Insufficient memspace causes segmentation_fault and other strange things.
@@ -408,6 +446,7 @@ Note: You must have installed ca-certificates before call curl https, or
 		   }
 
 @data:		TODO: if any more data needed
+@get_callback:   If NULL use easy_callback_copyToBuffer() and https_easy_buff[]
 
 		!!! CURL will disable egi tick timer? !!!
 Return:
@@ -449,8 +488,15 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 	curl_easy_setopt(curl, CURLOPT_URL, request);		 	 /* set request URL */
 	curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L); //1L		 /* 1 print more detail */
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout); //EGI_CURL_TIMEOUT);	 /* set timeout */
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_callback);     /* set write_callback */
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, reply_buff); 		 /* set data dest for write_callback */
+	if(get_callback) {
+	    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_callback);     /* set write_callback */
+	    curl_easy_setopt(curl, CURLOPT_WRITEDATA, reply_buff); 		 /* set data dest for write_callback */
+	}
+	else {
+	    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, easy_callback_copyToBuffer);
+	    memset(https_easy_buff,0,sizeof(https_easy_buff));
+	    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (char *)https_easy_buff); 		 /* set data dest for write_callback */
+	}
 
 	/* User options */
 	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, (opt&HTTPS_ENABLE_REDIRECT)?1L:0L); /* Enable redirect */
@@ -549,6 +595,7 @@ CURL_CLEANUP:
 }
 
 
+
 /*-----------------------------------------------
  A default callback for https_easy_download().
 ------------------------------------------------*/
@@ -559,7 +606,12 @@ static size_t easy_callback_writeToFile(void *ptr, size_t size, size_t nmemb, vo
 
    if(stream) {
         written = fwrite(ptr, size,  nmemb, (FILE *)stream);
-        //printf("%s: written size=%zd\n",__func__, written);
+
+#if 1 /*TEST: ---------- */
+	egi_dpstd(DBG_MAGENTA"get data %zdBs\n"DBG_RESET, written);
+	sleep(2);
+#endif
+
         if(written<0) {
                 EGI_PLOG(LOGLV_ERROR,"xxxxx  Curl callback:  fwrite error!  written<0!  xxxxx");
                 written=0;
@@ -568,6 +620,7 @@ static size_t easy_callback_writeToFile(void *ptr, size_t size, size_t nmemb, vo
                 EGI_PLOG(LOGLV_ERROR,"xxxxx  Curl callback:  fwrite error!  write %uz of datasize %uz!  xxxxx", written, chunksize);
 	}
    }
+
 
    //return written;
    return chunksize; /* if(retsize != size*nmemeb) curl will fails!? */
@@ -834,13 +887,13 @@ CURL_CLEANUP:
 
 	/* NOW: ret==0 */
 
-	/* Make sure to flush metadata before recheck file size! necessary? */
+	#if 1 /* MidasHK_2022-04-02 XXX  Make sure to flush metadata before recheck file size! necessary? */
 	EGI_PLOG(LOGLV_CRITICAL,"%s: Start fsync file...\n", __func__);
 	fflush(fp); // fflush first :>>>
 	if( fsync(fileno(fp)) !=0 ) {
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fsync '%s', Err'%s'", __func__, file_save, strerror(errno));
 	}
-
+        #endif
 
 #if 0 /////////////////////   Decompressed, st_size MAY NOT as doubleinfo size ///////////////////////////////
 	/*** Check date length again. and try to adjust it.
@@ -906,7 +959,7 @@ CURL_CLEANUP:
 CURL_END:
 
 	/* Unlock, advisory locks only */
-	EGI_PLOG(LOGLV_CRITICAL,"%s: Start flock file...\n",__func__);
+	EGI_PLOG(LOGLV_CRITICAL,"%s: Start unflock file...\n",__func__);
 	if( flock(fileno(fp),LOCK_UN) !=0 ) {
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to un_flock '%s', Err'%s'", __func__, file_save, strerror(errno));
 		/* Go on .. */

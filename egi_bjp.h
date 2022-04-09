@@ -113,6 +113,7 @@ typedef struct egi_picture_info
 
 EGI_PICINFO *egi_picinfo_calloc(void);
 void egi_picinfo_free(EGI_PICINFO **info);
+int egi_picinfo_print(const EGI_PICINFO *PicInfo);
 //EGI_PICINFO* egi_parse_jpegExif(const char *fpath);
 EGI_PICINFO* egi_parse_jpegFile(const char *fpath);
 EGI_PICINFO* egi_parse_pngFile(const char *fpath);

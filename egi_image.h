@@ -50,10 +50,17 @@ int 		egi_imgbuf_init(EGI_IMGBUF *egi_imgbuf, int height, int width,  bool Alpha
 int 		egi_imgbuf_addBoundaryBox(EGI_IMGBUF *ineimg, EGI_16BIT_COLOR color, int lw);
 EGI_IMGBUF*	egi_imgbuf_create( int height, int width, unsigned char alpha, EGI_16BIT_COLOR color );
 EGI_IMGBUF*	egi_imgbuf_createWithoutAlpha( int height, int width, EGI_16BIT_COLOR color);
+
+EGI_IMGBUF*	egi_imgbuf_createLinkFBDEV(const FBDEV *fbdev);
+void 		egi_imgbuf_freeLinkFBDEV(EGI_IMGBUF **imgbuf);
+
 EGI_IMGBUF*	egi_imgbuf_readfile(const char* fpath);
 EGI_IMGBUF*	egi_imgbuf_blockCopy( const EGI_IMGBUF *ineimg, int px, int py, int height, int width );
 EGI_IMGBUF* 	egi_imgbuf_rotBlockCopy( EGI_IMGBUF *eimg, EGI_IMGBUF *oimg, int height, int width,	/* mutex_lock eimg only! */
                                   	 int px, int py, int angle);
+/* Float type */
+EGI_IMGBUF* 	egi_imgbuf_rotBlockCopy2( EGI_IMGBUF *eimg, EGI_IMGBUF *oimg, int height, int width,	/* mutex_lock eimg only! */
+                                  	 int px, int py, float angle);
 int  		egi_imgbuf_copyBlock( EGI_IMGBUF *destimg, const EGI_IMGBUF *srcimg, bool blendON,
 							 	int bw, int bh, int xd, int yd, int xs, int ys );
 EGI_IMGBUF*	egi_imgbuf_subImgCopy( const EGI_IMGBUF *eimg, int index );

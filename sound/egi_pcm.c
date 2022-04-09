@@ -679,6 +679,16 @@ int egi_getset_pcm_volume(const char *card, int *pgetvol, int *psetvol)
 			/* 2. Nonlinear type dB curve */
 			*pgetvol=pow(10,2.0*(dBvol-dBmin)/dBvrange);  /* in percent*100 */
 		}
+
+//		egi_dpstd(DBG_RED"pgetvol=%d\n"DBG_RESET,*pgetvol);
+
+#if 0		/* Set Limit */
+		if(*pgetvol<0)
+			*pgetvol=0;
+		else if(*pgetvol>100)
+			*pgetvol=100;
+#endif
+
 	#endif
 	}
 
@@ -724,7 +734,7 @@ int egi_getset_pcm_volume(const char *card, int *pgetvol, int *psetvol)
 		       *   TODO: NOT accurate.
 		       */
 		//dBvol=dBmin+dBvrange*vol/100;
-		if(pvol==0)
+		if(pvol<=0)
 			dBvol=dBmin;
 		else {
 			if(linear_dBvol) {
@@ -733,7 +743,7 @@ int egi_getset_pcm_volume(const char *card, int *pgetvol, int *psetvol)
 			}
 			else {
 				/* N2. Nonlinear tyep dB curve */
-				dBvol=0.5*log10(pvol)*dBvrange+dBmin;
+				dBvol=0.5*+log10(pvol)*dBvrange+dBmin;
 			}
 		}
 //		printf("%s: set %s dBvol=%ld\n", __func__, linear_dBvol?"linear":"nonlinear" ,dBvol);
@@ -1145,7 +1155,7 @@ int egi_adjust_pcm_volume(const char *card, int vdelt)
 	}
 
 	vol += vdelt;
-	egi_dpstd(DBG_GREEN"vol =%d%%\n"DBG_RESET, vol);
+//	egi_dpstd(DBG_GREEN"vol =%d%%\n"DBG_RESET, vol); /* Limit to [0 100] in egi_getset_pcm_volume() */
 
 	if(egi_getset_pcm_volume(card, NULL,&vol) !=0) {
 		egi_dpstd(DBG_RED"Fail to set volume\n"DBG_RESET);

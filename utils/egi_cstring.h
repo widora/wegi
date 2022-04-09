@@ -111,7 +111,7 @@ int 	cstr_txtgroup_push(EGI_TXTGROUP *txtgroup, const char *txt);
 
 
 /* --- util functions --- */
-char*	cstr_replace_string(char **src, const char *obj, const char *sub);
+char*	cstr_replace_string(char **src, int left, const char *obj, const char *sub);
 
 bool    cstr_is_absoluteURL();
 int 	cstr_parse_URL(const char *URL, char **protocol, char **hostname, unsigned int *port,

@@ -56,6 +56,10 @@ Journal
 2022-01-21L
 	1. egi_str2hex(str, size): if str==NULL, see it as ALL 0s!
 	2. egi_hex2str(hex,len): if hex==NULL, see it as ALL 0s!
+2022-04-02:
+	1.cstr_replace_string(): Add argument 'int left'.
+2022-04-04:
+	2.cstr_replace_string(): Consider N>1 substitution cases.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -1021,27 +1025,27 @@ char* cstr_decode_htmlSpecailChars(char *strHtml)
 }
 
 
-/*----------------------------------------------------------
+/*-----------------------------------------------------------------------------
 Replace the object string(obj) in the source(src) with
 the substitue(sub).
 
 @src:	Pointer poiner to the source string.
 
 			!!! --- CAUTION --- !!!
-	IF (sublen > objlen ):
+	IF (sublen > objlen+left ):
 	   Space of *src MUST be allocated by malloc/calloc,
 	   since it will be reallocated in the function!
 	ELSE
 	   src MUST NOT point to a const string, Example: char* psrc="sdfsf..".
-
+@left:  Left space available in *src. (EXCLUDING 1byte for the terminal NULL!)
 @obj:	The object/target string.
 @sub:	The substitue string.
 
 Return:
 	Pointer to a new string:	OK
 	NULL				Fails
------------------------------------------------------------*/
-char*   cstr_replace_string(char **src, const char *obj, const char *sub)
+-----------------------------------------------------------------------------*/
+char*   cstr_replace_string(char **src, int left, const char *obj, const char *sub)
 {
 	if(src==NULL || *src==NULL || obj==NULL || sub==NULL)
 		return NULL;
@@ -1049,16 +1053,27 @@ char*   cstr_replace_string(char **src, const char *obj, const char *sub)
 	int srclen=strlen(*src);
 	int objlen=strlen(obj);
 	int sublen=strlen(sub);
+	int cnt;
 
 	char *buff=NULL;
 	int  newlen;  /* buff len */
 	char *newstr=NULL;
-	char *ps=NULL; /* Start of searching position */
-	char *pe=NULL; /* End of searching position */
+	char *ps=NULL; /* Seek_start position */
+	char *pe=NULL; /* Seek_end position */
+
+	/* To count substitution cases */
+	cnt=0;
+        ps=*src;
+        while( (pe=strstr(ps, obj)) ) {
+		cnt++;
+		ps=pe+objlen;
+	}
 
 	/* No need to reallocate *src! */
-	if(sublen<=objlen) {
-		buff=malloc(srclen+1);
+	//if(sublen<=(objlen+left)) {
+	if( sublen<=objlen || left>= cnt*(sublen-objlen) ) {
+		//buff=malloc(srclen+1);
+		buff=malloc(srclen + (sublen>objlen?cnt*(sublen-objlen):0) +1 );
 		if(buff==NULL)
 			return NULL;
 		buff[srclen]=0;
@@ -1074,7 +1089,7 @@ char*   cstr_replace_string(char **src, const char *obj, const char *sub)
 			strncpy(buff+newlen, sub, sublen);
 			newlen += sublen;
 
-			/* Renwe ps */
+			/* Renwe ps, as next seek_star position. */
 			ps=pe+objlen;
 		}
 
@@ -1090,13 +1105,13 @@ char*   cstr_replace_string(char **src, const char *obj, const char *sub)
 
 		/* Replace *src with buff[] */
 		strncpy(*src, buff, newlen);
-		(*src)[newlen]=0;
+		(*src)[newlen]=0;  /* Additional 1byte space as assumed! */
 
 		/* Ok */
 		free(buff);
 		return (*src);
 	}
-	/* TODO: Need to reallocate as mem space is NOT enough! */
+	/* TODO: Need to reallocate as mem space is NOT enough! MUST consider N substition cases!*/
 	else {
 
 

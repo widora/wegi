@@ -49,7 +49,9 @@ Journal:
 2022-03-26:
 	1. egi_parse_jpegFile() AND egi_check_jpgfile(): skip parsing SOS segment, just to speed up.
 2022-04-01:
-	1. egi_check_pngfile()
+	1. Add egi_check_pngfile()
+2022-04-04:
+	1. Add egi_picinfo_print()
 
 Modified and appended by Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -288,6 +290,8 @@ int egi_check_jpgfile(const char* fpath)
 			continue;
 		}
 	}
+
+egi_dpstd(DBG_YELLOW"END_FUNC!\n"DBG_RESET);
 
 END_FUNC:
 	fclose(fil);
@@ -2271,6 +2275,101 @@ void egi_picinfo_free(EGI_PICINFO **info)
         *info=NULL;
 }
 
+/*---------------------------------------------
+Print data in PicInfo
+Return:
+	>=0	OK number of characters printed
+	<0	Fails
+----------------------------------------------*/
+int egi_picinfo_print(const EGI_PICINFO *PicInfo)
+{
+	if(PicInfo==NULL)
+		return -1;
+
+	int ret;
+	int tcnt=0;
+	char txtbuff[2048];
+	int maxcnt=sizeof(txtbuff)-1;
+
+	memset(txtbuff,0,sizeof(txtbuff));
+
+	if(PicInfo->width>0) {
+//		printf("ImageSize: W%dxH%dxCPP%dxBPC%d\n",
+//			PicInfo->width, PicInfo->height, PicInfo->cpp, PicInfo->bpc);
+		ret=snprintf(txtbuff, maxcnt-tcnt, "Image: W%dxH%dxcpp%dxbpc%d\n",
+				PicInfo->width, PicInfo->height, PicInfo->cpp, PicInfo->bpc);
+		if(ret>0)tcnt+=ret;
+	}
+
+	if(PicInfo->progressive) {
+//		printf(DBG_MAGENTA"Progressive DCT\n"DBG_RESET);
+		ret=snprintf(txtbuff+tcnt, maxcnt-tcnt, "Progressive DCT\n");
+		if(ret>0) tcnt+=ret;
+	}
+
+	if(PicInfo->CameraMaker) {
+//		printf("CameraMaker: %s\n", PicInfo->CameraMaker);
+		ret=snprintf(txtbuff+tcnt, maxcnt-tcnt, "CameraMaker: %s\n", PicInfo->CameraMaker);
+		if(ret>0) tcnt+=ret;
+	}
+	if(PicInfo->CameraModel) {
+//		printf("CameraModel: %s\n", PicInfo->CameraModel);
+		ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"CameraModel: %s\n", PicInfo->CameraModel);
+		if(ret>0) tcnt+=ret;
+	}
+	if(PicInfo->DateTaken) {
+//		printf("DateTaken: %s\n", PicInfo->DateTaken);
+		ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"DateTaken: %s\n", PicInfo->DateTaken);
+		 if(ret>0) tcnt+=ret;
+	}
+	if(PicInfo->software) {
+//		printf("Software: %s\n", PicInfo->software);
+		ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"Software: %s\n", PicInfo->software);
+		if(ret>0) tcnt+=ret;
+	}
+	if(PicInfo->title) {
+//		printf("Title: %s\n", PicInfo->title);
+		ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"Title: %s\n", PicInfo->title);
+		if(ret>0) tcnt+=ret;
+	}
+	if(PicInfo->author) {
+//              printf("Author: %s\n", PicInfo->author);
+		ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"Author: %s\n", PicInfo->author);
+		if(ret>0) tcnt+=ret;
+	}
+	if(PicInfo->keywords) {
+//              printf("Keywords: %s\n", PicInfo->keywords);
+		ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"Keywords: %s\n", PicInfo->keywords);
+		if(ret>0) tcnt+=ret;
+	}
+	if(PicInfo->subject) {
+//              printf("Subject: %s\n", PicInfo->subject);
+		ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"Subject: %s\n", PicInfo->subject);
+		if(ret>0) tcnt+=ret;
+	}
+	if(PicInfo->ImageDescription) {
+//              printf("Description: %s\n", PicInfo->ImageDescription);
+		ret=snprintf(txtbuff+tcnt, maxcnt-tcnt, "Description: %s\n", PicInfo->ImageDescription);
+		if(ret>0) tcnt+=ret;
+	}
+	if(PicInfo->comment) {
+//              printf("Comment: %s\n", PicInfo->comment);
+		ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"Comment: %s\n", PicInfo->comment);
+		if(ret>0) tcnt+=ret;
+	}
+	if(PicInfo->xcomment) {
+//              printf("XComment: %s\n", PicInfo->xcomment);
+		ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"XComment: %s\n", PicInfo->xcomment);
+		if(ret>0) tcnt+=ret;
+	}
+
+	printf("\n====== Pic Info ======\n%s\n",txtbuff);
+	printf("----------------------\n");
+
+	return tcnt;
+}
+
+
 /*-------------------------------------------------------
 Read and parse Exif data(image information) in a jpeg file.
 Also read Comment segment of JPEG.
@@ -2521,7 +2620,8 @@ EGI_PICINFO* egi_parse_jpegFile(const char *fpath)
 		//return -3;
 		err=-3; goto END_FUNC;
 	}
-	printf("SOI of a JPEG file!\n");
+	//egi_dpstd("SOI of a JPEG file!\n");
+
 	/* Notice SOI semgent has seglen=0 */
 
 	/* 4. Read other segments and parse content */

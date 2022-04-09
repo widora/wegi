@@ -7,9 +7,10 @@ Foundation.
 
 Journal:
 2022-04-01: Create the file.
+2022-04-04: Test cstr_replace_string().
 
 Midas Zhou
-midaszhou@yahoo.com(Not in use since 2022_03_01)
+知之者不如好之者好之者不如乐之者
 ----------------------------------------------------------------------------------*/
 #include <string.h>
 #include <stdio.h>
@@ -25,9 +26,14 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "egi_fbdev.h"
 #include "egi_image.h"
 #include "egi_FTsymbol.h"
+#include "egi_bjp.h"
 
-
-#define TMP_IMAGE_FPATH "/tmp/_temp_imgdown_.bjp"
+#define TMP_IMAGE_FPATH 	"/tmp/_temp_imgdown_.bjp"
+//#define PROGRESSIVE_JPG_URL     "https://tse1-mm.cn.bing.net/th/id/R-C.ed0516530f608d6a912e86b3d9c23b27?rik=IALRZpH%2fmW%2b8IA&riu=http%3a%2f%2fwww.globalgardenfriends.com%2fwp-content%2fuploads%2f2018%2f08%2fHow-to-Successfully-Grow-Fruit-Trees-in-Your-Backyard.jpeg.jpg&ehk=YxLq1%2b0Jr3qXqV11mARJIF%2b9hASX5UpiRUhL4c4OjGA%3d&risl=&pid=ImgRaw&r=0"
+#define PROGRESSIVE_JPG_URL "http://www.reasoft.com/tutorials/web/img/progress.jpg"
+pthread_t  thread_preview;
+void *preview_image(void *argv);
+bool download_complete;
 
 static char buff[1024*1024];      /* for curl returned data, to be big enough! */
 static size_t curlget_callback(void *ptr, size_t size, size_t nmemb, void *userp);
@@ -58,8 +64,6 @@ char attrString[1024];          /* To be big enough! */
 char value[512];                /* To be big enough! */
 bool divIsFound;		/* If the tagged division is found. */
 
-
-
 void print_help(const char *name)
 {
         printf("Usage: %s [-hVls:p:t:v:] url\n", name);
@@ -82,6 +86,7 @@ int main(int argc, char **argv)
 	char *pstr=NULL;
 	char *content=NULL;
 	EGI_IMGBUF *imgbuf=NULL;
+	EGI_PICINFO *picInfo=NULL;
 
         /* Parse input option */
         int opt;
@@ -162,7 +167,10 @@ int main(int argc, char **argv)
         //gv_fb_dev.zbuff_on = true;              /* Zbuff ON */
         //fb_init_zbuff(&gv_fb_dev, INT_MIN);
 
+
 START_REQUEST:
+
+
 
 	/* Request string */
 	if(k==185)k=0;
@@ -191,7 +199,7 @@ START_REQUEST:
     while( (pstr=cstr_parse_html_tag(pstr, "div", attrString, sizeof(attrString), &content, &len))!=NULL ) {
 //	printf("   --- <div content---\n %s\n", content);
 
-        /* Confirm attribute value for class */
+	        /* Confirm attribute value for class */
         fprintf(stderr,"get attribute class..\n");
         cstr_get_html_attribute(attrString, "class", value);
         printf("attrString: %s\n", attrString);
@@ -201,14 +209,17 @@ START_REQUEST:
                 continue;
         }
 
-	if(strncmp(value, strClassID, strlen(strClassID))!=0) {
-		egi_free_char(&content);
-		continue;
-	}
-
 	/* Extract image */
 	fprintf(stderr,"get attribute imgURL..\n");
 	cstr_get_html_attribute(content, "src", imgURL);
+	printf("Orig imgURL: %s\n", imgURL);
+
+#if 0	/* Replace to 1902x1080 */
+	//char *pt=&imgURL[0];
+	char *pt=(char *)imgURL;
+	if(cstr_replace_string(&pt, sizeof(imgURL)-1-strlen(imgURL),"640x480", "1920x1080")==NULL)
+		printf(DBG_RED"cstr_replace_string fails!\n"DBG_RESET);
+#endif
 
 	/* Sometimes there maybe '\n' in the URL! */
 	cstr_squeeze_string(imgURL, strlen(imgURL), '\n');
@@ -233,16 +244,47 @@ START_REQUEST:
 	if(imgURL[0]==0)
 		continue;
 
-#if 1
 	/* --- 4. Download image and display with Text  --- */
-	/* 4.1 Download image */
+	remove(TMP_IMAGE_FPATH);
+
+#if 1   /* 4.1 Start thread preview */
+	download_complete=false;
+	printf(DBG_GREEN"Create thread_preview...\n"DBG_GREEN);
+	if(pthread_create(&thread_preview, NULL, preview_image, NULL)!=0) {
+		printf("Fail to create thread_preview!\n");
+		exit(-1);
+	}
+	printf(DBG_GREEN"thread_preview created!\n"DBG_GREEN);
+	sleep(1);
+#endif
+
+
+#ifdef PROGRESSIVE_JPG_URL
+	imgURL[0]=0;
+	strcpy(imgURL, PROGRESSIVE_JPG_URL);
+#endif
+
+	/* 4.2 Easy download image */
 	//printf("Download %s...\n", imgURL);
 	ret=https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 5, 60,
 			imgURL, TMP_IMAGE_FPATH, NULL, NULL);
+	download_complete=true;
+
+	/* Printf PICINFO */
+	picInfo=egi_parse_jpegFile(TMP_IMAGE_FPATH);
+	if(picInfo)
+		egi_picinfo_print(picInfo);
+	egi_picinfo_free(&picInfo);
+
+#if 1	/* 4.3 wait thread preview */
+	printf("Try to join thread_preview...\n");
+	pthread_join(thread_preview, NULL);
+#endif
 
 	/* 4.2 Display image and text */
 	if(ret==0) {
 		printf("Succeed to download image from: k=%d, %s\n", k, imgURL);
+
 		imgbuf=egi_imgbuf_readfile(TMP_IMAGE_FPATH);
 		if(imgbuf==NULL) {
 			printf(DBG_RED"Image NOT found!\n"DBG_RESET);
@@ -253,8 +295,8 @@ START_REQUEST:
                 int xp=0;
                 int yp=0;
                 int xw,yw;
-                int xres=gv_fb_dev.pos_xres;
-                int yres=gv_fb_dev.pos_yres;
+	        int xres=gv_fb_dev.pos_xres;
+        	int yres=gv_fb_dev.pos_yres;
                 xw=imgbuf->width>xres ? 0:(xres-imgbuf->width)/2;
                 yw=imgbuf->height>yres ? 0:(yres-imgbuf->height)/2;
                 xp=imgbuf->width>xres  ? (imgbuf->width-xres)/2 : 0;
@@ -278,7 +320,7 @@ START_REQUEST:
 		fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);
 		egi_imgbuf_free2(&tmpimg);
 
-		/* Step shrink */
+#if 1  /* Scale down step by step */
 	  if(imgbuf->width>320) {
 	     if(imgW==320) {  /* scale width */
 		for(mw=imgbuf->width, mh=imgbuf->height, step=(mw-320)/10;
@@ -298,7 +340,7 @@ START_REQUEST:
 		fb_copy_FBbuffer(&gv_fb_dev,  FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
 		fb_render(&gv_fb_dev);
 
-#if 0 //////////////////////
+#else /* To fit with screen size */
 		egi_imgbuf_resize_update(&imgbuf, false, imgW,imgH);
 		if(avgLuma)
 			egi_imgbuf_avgLuma(imgbuf, avgLuma);
@@ -308,8 +350,7 @@ START_REQUEST:
 			egi_subimg_writeFB(imgbuf, &gv_fb_dev, 0, -1, (320-imgW)/2, (240-imgH)/2 );
 		}
 		fb_render(&gv_fb_dev);
-#endif//////////////////////////
-
+#endif
 		sleep(PicTs);
 
                 /* Free imgbuf */
@@ -357,14 +398,10 @@ START_REQUEST:
 		//exit(0);
 	}
 
-#endif
-
-
    } /* while */
 
 
    	if(loop_ON)goto START_REQUEST;
-
         printf("   --- END ---\n");
 
 	return 0;
@@ -404,4 +441,44 @@ static size_t curlget_callback(void *ptr, size_t size, size_t nmemb, void *userp
         return size*nmemb; /* Return size*nmemb OR curl will fails! */
 }
 
+/*-------------------------------------------
+This is a thread function.
+Try to parse and preview a (progressive)image
+during downloading.
+-------------------------------------------*/
+void *preview_image(void *argv)
+{
+        int xp=0, yp=0;
+        int xw=0, yw=0;
+        int xres=gv_fb_dev.pos_xres;
+        int yres=gv_fb_dev.pos_yres;
+	EGI_IMGBUF *imgbuf2;
 
+	egi_dpstd(DBG_GREEN"In thread ...\n"DBG_RESET);
+
+	while(!download_complete)  {
+
+		egi_dpstd(DBG_GREEN"read file ...\n"DBG_RESET);
+		imgbuf2=egi_imgbuf_readfile(TMP_IMAGE_FPATH);
+	        if(imgbuf2==NULL) {
+			usleep(200000);
+			continue;
+        	}
+
+		egi_dpstd(DBG_GREEN"Try to windisplay...\n"DBG_RESET);
+
+		// #ifdef PROGRESSIVE_JPG_URL
+	        /* Display with original image size, center_to_center to screen */
+        	xw=imgbuf2->width>xres ? 0:(xres-imgbuf2->width)/2;
+	        yw=imgbuf2->height>yres ? 0:(yres-imgbuf2->height)/2;
+        	xp=imgbuf2->width>xres  ? (imgbuf2->width-xres)/2 : 0;
+	        yp=imgbuf2->height>yres  ? (imgbuf2->height-yres)/2 : 0;
+        	egi_imgbuf_windisplay2(imgbuf2, &gv_fb_dev, xp, yp, xw, yw,
+                                    imgbuf2->width, imgbuf2->height);
+
+	        fb_render(&gv_fb_dev);
+		egi_imgbuf_free2(&imgbuf2);
+	}
+
+	return NULL;
+}

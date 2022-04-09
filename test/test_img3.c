@@ -134,7 +134,7 @@ const wchar_t *wstr2=L"转圈缩放的LINUX小企鹅";
 	}
 
 
-#if 1    /* ---------     Test egi_imgbuf_scale()    --------- */
+#if 0    /* ---------     Test egi_imgbuf_scale()    --------- */
 	EGI_IMGBUF *tmpimg;
 	int sw, sh;
 	char strtmp[256];
@@ -192,39 +192,87 @@ do {
 
 } while(1);
 
-
 #endif
 
 
-
-#if 0    /* ---------     Test egi_imgbuf_rotBlockCopy()    --------- */
+#if 1    /* ---------TEST:  egi_imgbuf_rotBlockCopy()/egi_imgbuf_rotBlockCopy2()  --------- */
 
   	fb_set_directFB(&gv_fb_dev,false);
+
+        /* Prepare backgroup grids image for transparent image */
+        for(i=0; i < gv_fb_dev.vinfo.yres/40; i++) {
+        	for(j=0; j < gv_fb_dev.vinfo.xres/40; j++) {
+                	if( (i*(gv_fb_dev.vinfo.xres/40)+j+i)%2 )
+                        	fbset_color(WEGI_COLOR_LTSKIN); //LTYELLOW); //OCEAN); //GRAY);
+                        else
+                        	fbset_color(WEGI_COLOR_GRAYB); //DARKGRAY);
+                        draw_filled_rect(&gv_fb_dev, j*40, i*40, (j+1)*40-1, (i+1)*40-1);
+                }
+        }
+	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);
+
+        /* Save FB images to a motion file. */
+	bool saveMotion_on=true;
+	EGI_IMGBUF *fbimg;
+	const char *fmotion="/mmc/rotmotion.mot";          /* File path for motion file */
+        if(saveMotion_on) {
+		fbimg=egi_imgbuf_createLinkFBDEV(&gv_fb_dev);
+		if(fbimg==NULL) exit(EXIT_FAILURE);
+		/* (fpath, width, height, delayms, compress) */
+                if( egi_imgmotion_saveHeader(fmotion, gv_fb_dev.pos_xres, gv_fb_dev.pos_yres, 50, 1) !=0 )
+                        exit(EXIT_FAILURE);
+        }
+
 //	rotimg=egi_imgbuf_createWithoutAlpha(100,150,WEGI_COLOR_BLACK);
 //	rotimg=egi_imgbuf_create(101,151,255,0);
+
 	i=0;
-
   while(1) {
-	i+=2;
-	if(i>360)i=0;
+	fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);
 
-	fb_clear_backBuff(&gv_fb_dev,WEGI_COLOR_GRAY3);
-
-	rotimg=egi_imgbuf_rotBlockCopy(eimg, NULL, 240, 320, 0,0, i); //zeimg->width/2, eimg->height/2,i); /* img, oimg, height, width, px,py, angle */
+	printf("Angle=%d\n", i);
+	#if 0  /* All fixed type */
+	//rotimg=egi_imgbuf_rotBlockCopy(eimg, NULL, 240, 320, 0,0, i); /* img, oimg, height, width, px,py, angle */
+	rotimg=egi_imgbuf_rotBlockCopy(eimg, NULL, 240, 320, eimg->width/2, eimg->height/2,i);
+	#else  /* Float type and 4p interpolation */
+	rotimg=egi_imgbuf_rotBlockCopy2(eimg, NULL, 240, 320, eimg->width/2, eimg->height/2,i);
+	#endif
 	if(rotimg==NULL)printf("fail to rotBlockCopy!\n");
+
        	egi_imgbuf_windisplay( rotimg, &gv_fb_dev, -1,		 		    /* img, fb, subcolor */
                        	       0, 0, (320-rotimg->width)/2, (240-rotimg->height)/2, /* xp,yp  xw,yw */
                	               rotimg->width, rotimg->height);	 		    /* winw, winh */
 	fb_render(&gv_fb_dev);
 
-	tm_delayms(50);
+	//tm_delayms(50);
+	//sleep(2);
+
+	/* Record Screen: Save screen as a frame of a motion file. */
+        if(saveMotion_on) {
+                if( egi_imgmotion_saveFrame(fmotion, fbimg)!=0 ) {
+                        exit(EXIT_FAILURE);
+                }
+        }
+
+
+	/* Free */
 	egi_imgbuf_free2(&rotimg);
+
+	/* Incremental */
+	i+=5;
+	if(i>360) {
+		if(saveMotion_on)
+			exit(0);
+		else
+			i=0;
+	}
   }
 
-
+ egi_imgbuf_freeLinkFBDEV(&fbimg);
+ exit(0);
 #endif
 
-#if 0    /* ---------     Test egi_imgbuf_flipY()    --------- */
+#if 0    /* -----------------  Test egi_imgbuf_flipY()  --------------- */
 	int sk=0;
   	fb_set_directFB(&gv_fb_dev,false);
 

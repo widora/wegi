@@ -51,6 +51,12 @@ Jurnal
 	   for each pixel.
 2022-03-22:
 	1. egi_imgbuf_readfile(): Call egi_simpleCheck_jpgfile() to identify JPEG or PNG.
+2022-04-05:
+	1. egi_imgbuf_resize_nolock(): Create a transition imgbuf to improve scaledown precision.
+2022-04-06:
+	1. Add egi_imgbuf_rotBlockCopy2(): float type angle and 4p interpolation.
+2022-04-08:
+	1. Add egi_imgbuf_createLinkFBDEV() and egi_imgbuf_freeLinkFBDEV().
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -433,6 +439,59 @@ int egi_imgbuf_setSubImgs(EGI_IMGBUF *eimg, int num)
 }
 
 
+/*-------------------------------------------------------
+Create an EGI_IMGBUF whose imgbuf refers/links to FBDEV buffer.
+Call egi_imgbuf_freeLinkFBDEV() to free it!
+
+Note:
+1. Only a pointer reference to FBDEV image data! NO synch mechanism!
+
+@fbdev: An pointer to FBDEV
+
+Return:
+	!NULL	OK
+	NULL	Fails
+-------------------------------------------------------*/
+EGI_IMGBUF *egi_imgbuf_createLinkFBDEV(const FBDEV *fbdev)
+{
+        EGI_IMGBUF *fbimg=egi_imgbuf_alloc();
+	if(fbimg==NULL)
+		return NULL;
+
+        fbimg->width=fbdev->pos_xres;
+        fbimg->height=fbdev->pos_yres;
+
+	/* Link imgbuf data */
+        fbimg->imgbuf=(EGI_16BIT_COLOR*)fbdev->map_fb;
+
+	return fbimg;
+}
+/*------------------------------------------------------
+Free an imgbuf whose imgbuf refers/links to FBDEV buffer.
+MUST NOT to free linked data memory!
+------------------------------------------------------*/
+void egi_imgbuf_freeLinkFBDEV(EGI_IMGBUF **imgbuf)
+{
+	if(imgbuf==NULL || *imgbuf==NULL)
+		return;
+
+	/* Hope there is no other user */
+	if(pthread_mutex_lock(&(*imgbuf)->img_mutex) !=0 ) {
+		EGI_PLOG(LOGLV_TEST,"%s:Fail to lock img_mutex!\n",__func__);
+		return;
+	}
+
+        /* Destroy thread mutex lock */
+        if(pthread_mutex_destroy(&(*imgbuf)->img_mutex) !=0 ) {
+                EGI_PLOG(LOGLV_TEST,"%s:Fail to destroy img_mutex!. Err'%s'. \n",__func__, strerror(errno));
+		return;
+	}
+
+	free(*imgbuf);
+	*imgbuf=NULL;
+}
+
+
 /*--------------------------------------------------------------
 Read an image file and load data to an EGI_IMGBUF as for return.
 
@@ -459,6 +518,7 @@ EGI_IMGBUF *egi_imgbuf_readfile(const char* fpath)
                 }
         }
 #else
+
 	/* PNG File */
 	if(egi_simpleCheck_jpgfile(fpath)==JPEGFILE_INVALID) {
 	    if ( egi_imgbuf_loadpng(fpath, eimg)!=0 ) {
@@ -1755,6 +1815,7 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 	if( ineimg==NULL || ineimg->imgbuf==NULL) //|| width<=0 || height<=0 ) adjust to 2
 		return NULL;
 
+
 	/* Get mutex lock */
 	if(pthread_mutex_lock(&ineimg->img_mutex) !=0 ){
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to lock image mutex!", __func__);
@@ -1811,6 +1872,8 @@ EGI_IMGBUF  *egi_imgbuf_resize( EGI_IMGBUF *ineimg, bool keep_ratio,
 #endif /* ----- TEST ONLY ----- */
 
 
+
+
 CREATE_OUTEIMG:
 	/* Create output imgbuf */
 	if( alpha_on )
@@ -1836,6 +1899,7 @@ CREATE_OUTEIMG:
 	}
 
 	/* TODO: NOT keep ratio, if height or width is the same size, to speed up */
+
 
 	/* Allocate mem to hold oldheight x width image for intermediate processing */
 	//printf("Malloc icolors...\n");
@@ -1891,7 +1955,7 @@ CREATE_OUTEIMG:
 
 	/* Get new rowsize in bytes */
 	color_rowsize=width*sizeof(EGI_16BIT_COLOR);
-	alpha_rowsize=width*sizeof(unsigned char);
+	alpha_rowsize=width*sizeof(EGI_8BIT_ALPHA);
 
 	/* ----- STEP 1 -----  scale image from [oldheight_X_oldwidth] to [oldheight_X_width] */
 	//printf("STEP 1 scale image to [oldheight_X_width]...\n");
@@ -2027,7 +2091,13 @@ CREATE_OUTEIMG:
 	return outeimg;
 }
 
-////////////////    egi_imgbuf_resize   NO Mutex_lock   /////////////////////////
+/*----------------  egi_imgbuf_resize No Mutex_lock  -------------------
+Refer to egi_imgbuf_resize();
+
+Note:
+1. ineimg will be replaced by transimg in scale down case.
+
+-----------------------------------------------------------------------*/
 EGI_IMGBUF  *egi_imgbuf_resize_nolock( EGI_IMGBUF *ineimg, bool keep_ratio, int width, int height )
 {
 	int i,j;
@@ -2036,6 +2106,7 @@ EGI_IMGBUF  *egi_imgbuf_resize_nolock( EGI_IMGBUF *ineimg, bool keep_ratio, int 
 	unsigned int color_rowsize, alpha_rowsize;
 	EGI_IMGBUF *outeimg=NULL;
 //	EGI_IMGBUF *tmpeimg=NULL;
+	EGI_IMGBUF *transimg=NULL;
 
 	/* for intermediate processing */
 	EGI_16BIT_COLOR **icolors=NULL;
@@ -2045,11 +2116,13 @@ EGI_IMGBUF  *egi_imgbuf_resize_nolock( EGI_IMGBUF *ineimg, bool keep_ratio, int 
 	EGI_16BIT_COLOR **fcolors=NULL;
 	unsigned char 	**falphas=NULL;
 
+
+	/* Input check */
 	if( ineimg==NULL || ineimg->imgbuf==NULL) //|| width<=0 || height<=0 ) adjust to 2
 		return NULL;
+	if(width<1 && height<1)
+		return NULL;
 
-	unsigned int oldwidth=ineimg->width;
-	unsigned int oldheight=ineimg->height;
 
 	bool alpha_on;
 	if(ineimg->alpha!=NULL)
@@ -2057,27 +2130,188 @@ EGI_IMGBUF  *egi_imgbuf_resize_nolock( EGI_IMGBUF *ineimg, bool keep_ratio, int 
 	else
 		alpha_on=false;
 
+	/* Original width/height. notice that ineimg MAY be replaced! */
+	unsigned int origwidth=ineimg->width;
+	unsigned int origheight=ineimg->height;
+
 	/* If same size, OK */
 	if( height==ineimg->height && width==ineimg->width )
 		goto CREATE_OUTEIMG;
 
-	/* If W or H is <=0: Adjust width/height proportional to oldwidth/oldheight */
-	if(width<1 && height<1) {
-		return NULL;
-	}
-	else if(width<1)
-		width=height*oldwidth/oldheight;
-	else if(height<1)
-		height=width*oldheight/oldwidth;
+#if 1   /* Create a transition imgbuf to improve scaledown precision */
 
-	/* Keep image aspect ratio */
+	/*** NOTE:
+	 *  1. Ceate a transition imgbuf with nearest size to the new image, then replace input ineimg.
+	 *  Interpolate on this transimg to scale down image to improve precsion.
+	 *  2. Pixles in each BLCOK(nsw*nsh) will be merged into just ONE pixel.
+	 *  3. TO compare with egi_imgbuf_scale()  <--------------
+	 *
+	 *  MidasHK_2202_04_05
+	 */
+	int nsw=ineimg->width/width;	/* Integer scaledown number, as BLOCK width */
+	int nsh=ineimg->height/height;  /* Integer scaledown number, as BLOCK height */
+
+	/* Limit, in case only H or W to be scaled down. */
+	if(nsw<1)nsw=1;
+	if(nsh<1)nsh=1;
+
+	if( nsw >1 || nsh >1) {
+		/* Round to get transW/transH:  transW>=nsw; tranH>=nsh */
+		int transW=roundf(1.0*ineimg->width/nsw);  /* Rounded scaledown number */
+		int transH=roundf(1.0*ineimg->height/nsh);
+
+		int k,m,l;
+		unsigned int n;
+		EGI_16BIT_COLOR color; //alpha;
+		unsigned int pcnt;
+		unsigned int Rsum,Gsum,Bsum,Asum;
+
+		/* T1. Create transimg */
+		if(alpha_on) {
+			transimg=egi_imgbuf_create(transH, transW, 0, 0);
+			if(transimg==NULL)
+				return NULL;
+		} else {
+			transimg=egi_imgbuf_createWithoutAlpha(transH, transW, 0);
+			if(transimg==NULL)
+				return NULL;
+		}
+
+		/* T1. Merge pixels in one integer BLOCK(nsh*nsw) to one pixel */
+		/* Traverse BLOCKs vertically, K as row index for transimg */
+		for(k=0; k< ineimg->height/nsh; k++) {
+			/* T1.M1. Traverse BLOCKs horizontally, M as column index for transimg */
+			for(m=0; m< ineimg->width/nsw; m++) {
+			    Rsum=Gsum=Bsum=Asum=0;
+
+			   /* T1.M1.1 Traverse block rows, l as row index of ineimg */
+			   for(l=k*nsh; l< (k+1)*nsh; l++) {
+				 /* T1.M1.1.2 Traverse pixels to be merged to one, n as ineimg pixel index */
+				for(n=l*ineimg->width+m*nsw; n < l*ineimg->width+(m+1)*nsw; n++) {
+					color=ineimg->imgbuf[n];
+					Rsum += COLOR_R8_IN16BITS(color);
+					Gsum += COLOR_G8_IN16BITS(color);
+					Bsum += COLOR_B8_IN16BITS(color);
+					if(alpha_on)
+						Asum += ineimg->alpha[n];
+				}
+			   }
+			   /* T1.M1.2 Average color/alpha for transimg */
+			   pcnt = nsw*nsh;
+			   transimg->imgbuf[k*transW+m]=COLOR_RGB_TO16BITS(Rsum/pcnt, Gsum/pcnt, Bsum/pcnt);
+			   if(alpha_on)
+				transimg->alpha[k*transW+m]=Asum/pcnt;
+			}
+
+			/* T1.M2. The last residual BLOCK if exits. */
+			if( transW > ineimg->width/nsw ) {
+			   /* T1.M2.1 The last m, as column index of transimg */
+			   m=ineimg->width/nsw;  /* <-----<<<<<  The last m */
+		    	   Rsum=Gsum=Bsum=Asum=0;
+
+			   /* T1.M2.2 Traverse block rows, l as row index of ineimg */
+			   for(l=k*nsh; l< (k+1)*nsh; l++) {
+				 /* T1.M2.2.1 Traverse pixels to be merged to one, n as ineimg pixel index */
+				for(n=l*ineimg->width+m*nsw; n < (l+1)*ineimg->width; n++) {  /* <-----<<<<< */
+					color=ineimg->imgbuf[n];
+					Rsum += COLOR_R8_IN16BITS(color);
+					Gsum += COLOR_G8_IN16BITS(color);
+					Bsum += COLOR_B8_IN16BITS(color);
+					if(alpha_on)
+						Asum += ineimg->alpha[n];
+				}
+			   }
+			   /* T1.M2.3 Average color/alpha for transimg */
+			   pcnt = (ineimg->width-m*nsw)*nsh; /* pixels in the residual Block */
+			   /* NOW: m as last column index */
+			   transimg->imgbuf[k*transW+m]=COLOR_RGB_TO16BITS(Rsum/pcnt, Gsum/pcnt, Bsum/pcnt);
+			   if(alpha_on)
+				transimg->alpha[k*transW+m]=Asum/pcnt;
+			}
+		}
+
+		/* T2. Last residul row of BLOCKs if exits. */
+		if( transH > ineimg->height/nsh) {
+			/* K as row index for transimg */
+			k= ineimg->height/nsh; /* <-----<<<<<  The last k!!! */
+
+			/* T2.M1. Traverse BLOCKs horizontally, M as column index for transimg */
+			for(m=0; m< ineimg->width/nsw; m++) {
+			    Rsum=Gsum=Bsum=Asum=0;
+			   /* T2.M1.1 Traverse block height, l as row index of ineimg */
+			   for(l=k*nsh; l< ineimg->height; l++) {  /* <-----<<<< to last row of ineimg!!! */
+				 /* T2.M1.1.2 Traverse pixels to be merged to one, n as ineimg pixel index */
+				for(n=l*ineimg->width+m*nsw; n < l*ineimg->width+(m+1)*nsw; n++) {
+					color=ineimg->imgbuf[n];
+					Rsum += COLOR_R8_IN16BITS(color);
+					Gsum += COLOR_G8_IN16BITS(color);
+					Bsum += COLOR_B8_IN16BITS(color);
+					if(alpha_on)
+						Asum += ineimg->alpha[n];
+				}
+			   }
+			   /* T2.M1.2 Average color/alpha for transimg */
+			   pcnt = nsw*(ineimg->height-k*nsh); /* NOW k as last row index for transimg */
+			   transimg->imgbuf[k*transW+m]=COLOR_RGB_TO16BITS(Rsum/pcnt, Gsum/pcnt, Bsum/pcnt);
+			   if(alpha_on)
+				transimg->alpha[k*transW+m]=Asum/pcnt;
+			}
+
+			/* T2.M2. The last residual BLOCK if exits. */
+			if( transW > ineimg->width/nsw ) {
+			   /* T2.M2.1 The last m, as column index of transimg */
+			   m=ineimg->width/nsw;  /* The last m, as column index of transimg */
+		    	   Rsum=Gsum=Bsum=Asum=0;
+
+			   /* T2.M2.2 Traverse block height, l as row index of ineimg */
+			   for(l=k*nsh; l< ineimg->height; l++) {  /* <-----<<<< to last row of ineimg!!! */
+				 /* T2.M2.2.1 Traverse pixels to be merged to one, n as ineimg pixel index */
+				for(n=l*ineimg->width+m*nsw; n < l*ineimg->width+ineimg->width; n++) {  /* <-------<<<< */
+					color=ineimg->imgbuf[n];
+					Rsum += COLOR_R8_IN16BITS(color);
+					Gsum += COLOR_G8_IN16BITS(color);
+					Bsum += COLOR_B8_IN16BITS(color);
+					if(alpha_on)
+						Asum += ineimg->alpha[n];
+				}
+			   }
+			   /* T1.M2.3 Average color/alpha for transimg */
+			   pcnt = (ineimg->width-m*nsw)*(ineimg->height-k*nsh); /* pixels in the residual Block */
+			   /* NOW: k as last row index, and m as last colum index. */
+			   transimg->imgbuf[k*transW+m]=COLOR_RGB_TO16BITS(Rsum/pcnt, Gsum/pcnt, Bsum/pcnt);
+			   if(alpha_on)
+				transimg->alpha[k*transW+m]=Asum/pcnt;
+			}
+		}
+
+/* -----> Replace ineimg with transimg <----- */
+		ineimg=transimg;
+
+		egi_dpstd("transimg W%dxH%d created!\n", transimg->width, transimg->height);
+	}
+#endif
+
+	/* Notice: orignal ineimg may be replaced by transimg!*/
+	unsigned int oldwidth=ineimg->width;   /* !!! X= origwidth */
+	unsigned int oldheight=ineimg->height; /* !!! X= origheight */
+
+	/* If W or H is <=0: Adjust width/height proportional to oldwidth/oldheight */
+	//if(width<1 && height<1) { ---- > Move to  input_check
+	//	return NULL;
+	//}
+	if(width<1)
+		width=height*origwidth/origheight;
+	else if(height<1)
+		height=width*origheight/origwidth;
+
+	/* Keep image aspect ratio. use origheight/origwidht!!!*/
 	if(keep_ratio) {
-//		if( 1.0*height/width > 1.0*oldheight/oldwidth ) {
-		if( 1.0*height/width < 1.0*oldheight/oldwidth ) {
-			width=round(1.0*height*oldwidth/oldheight);
+//		if( 1.0*height/width > 1.0*origheight/origwidth ) {
+		if( 1.0*height/width < 1.0*origheight/origwidth ) {
+			width=round(1.0*height*origwidth/origheight);
 		}
 		else
-			height=round(1.0*width*oldheight/oldwidth);
+			height=round(1.0*width*origheight/origwidth);
 	}
 
 	/* Limit width and height to 2, ==1 will cause Devide_By_Zero exception. */
@@ -2093,6 +2327,7 @@ CREATE_OUTEIMG:
 		outeimg = egi_imgbuf_createWithoutAlpha( height, width, 0);
 	if(outeimg==NULL) {
 		egi_dperr("Fail to create outeimg!");
+		egi_imgbuf_free2(&transimg);
 		return NULL;
 	}
 
@@ -2102,6 +2337,7 @@ CREATE_OUTEIMG:
 		if(alpha_on) {
 			memcpy( outeimg->alpha, ineimg->alpha, sizeof(unsigned char)*height*width);
 		}
+		egi_imgbuf_free2(&transimg);
 		return outeimg;
 	}
 
@@ -2111,6 +2347,7 @@ CREATE_OUTEIMG:
 	if(icolors==NULL) {
 		egi_dperr("Fail to malloc icolors.");
 		egi_imgbuf_free(outeimg);
+		egi_imgbuf_free2(&transimg);
 		return NULL;
 	}
 	if(alpha_on) {
@@ -2119,6 +2356,7 @@ CREATE_OUTEIMG:
 		egi_dperr("Fail to malloc ipalphas.");
 		egi_imgbuf_free(outeimg);
 		egi_free_buff2D((unsigned char **)icolors, oldheight);
+		egi_imgbuf_free2(&transimg);
 		return NULL;
 	   }
 	}
@@ -2133,6 +2371,7 @@ CREATE_OUTEIMG:
 		if(alpha_on)
 			egi_free_buff2D(ialphas, oldheight);
 
+		egi_imgbuf_free2(&transimg);
 		return NULL;
 	}
 	if(alpha_on) {
@@ -2144,6 +2383,7 @@ CREATE_OUTEIMG:
 		egi_free_buff2D(ialphas, oldheight);
 		egi_free_buff2D((unsigned char **)fcolors, height);
 
+		egi_imgbuf_free2(&transimg);
 		return NULL;
 	    }
 	}
@@ -2274,6 +2514,7 @@ CREATE_OUTEIMG:
 	egi_free_buff2D(ialphas, oldheight);   /* no matter alpha off */
 	egi_free_buff2D((unsigned char **)fcolors, height);
 	egi_free_buff2D(falphas, height);      /* no matter alpha off */
+	egi_imgbuf_free2(&transimg);
 
 #if 0 /* ----- FOR TEST ONLY ----- */
 	if(tmpeimg!=NULL) {
@@ -2743,7 +2984,7 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 		}
 	}
 
-#else /* MAPPING METHOD 2:   Back map only points which are located at rotated_eimg area of outimg */
+#else /* MAPPING METHOD 2:   Back map only points which are located at rotated_eimg area of outimg. */
 	/* Intend to save time for images with great value of |hegith-width|
 	   For a W1024xH1024 png picture, comparing with METHOD 1, it reduces abt...Min.10%... depends on |hegith-width|/Max.(height,width)
 	   TODO__ok: outimg is adjusted to have odd number of pixels for each sides, and outimg->H/W >= eimg->H/W,
@@ -2852,7 +3093,7 @@ EGI_IMGBUF* egi_imgbuf_rotate(EGI_IMGBUF *eimg, int angle)
 }
 
 
-/*-------------------------------------------------------------------------------
+/*-----------------------------------------------------------------------------------------
 Copy a block from eimg, the rectangular area of the block is not up right, but
 with a certain angle, as relative to the original eimg.
 
@@ -2861,7 +3102,9 @@ with a certain angle, as relative to the original eimg.
    as subimgs are ignored hence.
 3. Only eimg is mutex_locked, oimg is NOT mutex_locked.
 
-TODO: more accurate way is to get rotated pixel by interpolation method.
+TODO:
+1. more accurate way is to get rotated pixel by interpolation method.
+2. Correct mutex_lock operation.
 
 @eimg:		  Original imgbuf;
 @oimg:	 	  1. If oimg!=NULL, then use oimg to store color/alpha data.
@@ -2872,7 +3115,7 @@ TODO: more accurate way is to get rotated pixel by interpolation method.
 		     It may return a NULL pointer !!!
 		  3.If oimg->alpha is NULL, then alpha will NOT be copied.
 		  4.!!! NOTE !!! oimg->height and oimg->width to be 2*n+1.
-@x0,y0:		  Coordinate of the center of outimg relative to eimg coord.
+@px,py:		  Coordinate of the center of outimg relative to eimg coord.
 @width, height:   Width and height of the outimg, to be adjusted to 2*n+1.
 @angle: 	  Angle of outimg_X axis relative to eimg_X axis, in degree,
 		  clockwise as positive.	Right hand rule.
@@ -2880,7 +3123,7 @@ TODO: more accurate way is to get rotated pixel by interpolation method.
 Return:
 	A pointer to EGI_IMGBUF with block_copied image 	OK
 	NULL							Fails
---------------------------------------------------------------------------------*/
+--------------------------------------------------------------------------------------------*/
 EGI_IMGBUF* egi_imgbuf_rotBlockCopy( EGI_IMGBUF *eimg, EGI_IMGBUF *oimg, int height, int width,
 					int px, int py, int angle)
 {
@@ -2892,7 +3135,7 @@ EGI_IMGBUF* egi_imgbuf_rotBlockCopy( EGI_IMGBUF *eimg, EGI_IMGBUF *oimg, int hei
 
         /* Normalize angle to be within [0-360] */
         ang=angle%360;      /* !!! WARING !!!  The modulo result is depended on the Compiler
-			     * For C99: a%b=a-(a/b)*b	,whether a is positive or negative.
+			     * For C99: a%b=a-(a/b)*b ,whatever a is positive or negative.
 			     */
         asign= ang >= 0 ? 1 : -1; /* angle sign */
         ang= ang>=0 ? ang : -ang;
@@ -2953,7 +3196,7 @@ EGI_IMGBUF* egi_imgbuf_rotBlockCopy( EGI_IMGBUF *eimg, EGI_IMGBUF *oimg, int hei
         }
 
 	/* Clear outimg first */
-	egi_imgbuf_resetColorAlpha(outimg, 0, outimg->alpha==NULL ? -1:255 );  /* img, color, alpha */
+	egi_imgbuf_resetColorAlpha(outimg, WEGI_COLOR_GRAY2, outimg->alpha==NULL ? -1:255 );  /* img, color, alpha */
 
 	int m=height>>1;
 	int n=width>>1;
@@ -2990,7 +3233,132 @@ EGI_IMGBUF* egi_imgbuf_rotBlockCopy( EGI_IMGBUF *eimg, EGI_IMGBUF *oimg, int hei
 
 	return outimg;
 }
+/*------------------------------------------------------------------------------
+Float type version of egi_imgbuf_rotBlockCopy(), with 4_pixels interpolation.
+------------------------------------------------------------------------------*/
+EGI_IMGBUF* egi_imgbuf_rotBlockCopy2( EGI_IMGBUF *eimg, EGI_IMGBUF *oimg, int height, int width,
+					int px, int py, float angle)
+{
+	int i,j;
+	float xr,yr;		/* rotating point */
+	int index_out;
+	EGI_IMGBUF	*outimg=NULL;
 
+	float sina=sin(MATH_PI*angle/180);
+	float cosa=cos(MATH_PI*angle/180);
+
+	/* Check input eimg */
+        if(eimg==NULL || eimg->imgbuf==NULL || eimg->height<=0 || eimg->width<=0 ) {
+                egi_dpstd("Input holding eimg is NULL or uninitiliazed!\n");
+                return NULL;
+        }
+
+	/* Check input oimg */
+	if( oimg!=NULL && (oimg->imgbuf==NULL || oimg->height<3 || oimg->width<3 || (oimg->height&0x1)==0 || (oimg->width&0x1)==0 ) ) {
+		egi_dpstd("Input oimg is invalid, It may be W,H<3, or W,H is NOT odd number!\n");
+		return NULL;  /* NOTE */
+	}
+
+	/* Input oimg is NULL */
+   	if(oimg==NULL) {
+		/* Make H/W an odd value, then it has a symmetrical center point. */
+		height |= 0x1;
+		width |= 0x1;
+		if(height<3)height=3;
+		if(width<3)width=3;
+
+		/* Create an imgbuf accordingly */
+		outimg=egi_imgbuf_create(height, width, 0, 0); /* H, W, alpah, color */
+		if(outimg==NULL) {
+			egi_dpstd("Fail to create outimg!\n");
+			//pthread_mutex_unlock(&eimg->img_mutex);
+			return NULL;
+		}
+		/* Check ALPHA data */
+		if(eimg->alpha==NULL) {
+			free(outimg->alpha);
+			outimg->alpha=NULL;
+		}
+   	}
+	/* Input oimg is NOT NULL */
+	else {
+		height=oimg->height;
+		width=oimg->width;
+		outimg=oimg;
+	}
+
+        /* Get mutex lock */
+        if(pthread_mutex_lock(&eimg->img_mutex) !=0){
+                EGI_PLOG(LOGLV_ERROR,"%s: Fail to lock image mutex!", __func__);
+		return NULL; /* NOTE */
+        }
+
+	/* Clear outimg first. ALPHA to be 0, OR same as eimg.  */
+	egi_imgbuf_resetColorAlpha(outimg, WEGI_COLOR_GRAY2, outimg->alpha==NULL ? -1:0 );  /* img, color, alpha */
+
+	/* Map back point coordinates to eimg */
+	int m=height>>1;
+	int n=width>>1;
+	for(i=-m; i<=m; i++) {
+		for(j=-n; j<=n; j++) {
+			/* Map to original coordiante (xr,yr), Origin at center.
+			 * 2D point rotation formula ( a positive: Right_hand Rule. ):
+			 *	x'=x*cos(a)-y*sin(a)
+			 *	y'=x*sin(a)+y*cos(a)
+			 *   Coord axis anti_clockwise, point colokwise rotate.
+			 *   points coordinates relative to up_right block coord.
+			 */
+			xr=cosa*j-sina*i;
+			yr=sina*j+cosa*i;
+
+			/* Shift Origin to left_top, as of eimg->imgbuf */
+			xr += px;
+			yr += py;
+
+			/* Copy pixel alpha and color.  Limit xr,yr, ignore if they are out of original imgbuf area. */
+			if( xr >= 0.0 && xr <= eimg->width-1 && yr >=0.0 && yr <= eimg->height-1) {
+				index_out=width*(i+m)+(j+n);
+
+				int indx1 = eimg->width*floorf(yr)+floorf(xr);
+				int indx2 = eimg->width*floorf(yr)+ceilf(xr);
+				int indx3 = eimg->width*ceilf(yr)+floorf(xr);
+				int indx4 = eimg->width*ceilf(yr)+ceilf(xr);
+				EGI_16BIT_COLOR  pcolor;
+				EGI_8BIT_ALPHA  palpha;
+				float pft;
+
+				/* Interpolate within 4 pixles */
+				if(eimg->alpha!=NULL && outimg->alpha!=NULL) {
+				    egi_16bitColor_interplt4p(eimg->imgbuf[indx1], eimg->imgbuf[indx2],  /* color1, color2 */
+							eimg->imgbuf[indx3], eimg->imgbuf[indx4],	/* color3, color4 */
+							eimg->alpha[indx1], eimg->alpha[indx2],		/* alpha1, alpha2 */
+							eimg->alpha[indx3], eimg->alpha[indx4],		/* alpha3, alpah4 */
+							//(xr-floorf(xr))*(1<<15), (yr-floorf(yr))*(1<<15),  /* f15_x, f15_y */
+							modff(xr,&pft)*(1<<15), modff(yr, &pft)*(1<<15),  /* f15_x, f15_y */
+							&pcolor, &palpha );
+
+				   outimg->imgbuf[index_out]=pcolor;
+				   outimg->alpha[index_out]=palpha;
+				}
+				else {
+				    egi_16bitColor_interplt4p(eimg->imgbuf[indx1], eimg->imgbuf[indx2],  /* color1, color2 */
+							eimg->imgbuf[indx3], eimg->imgbuf[indx4],	/* color3, color4 */
+							0, 0, 0, 0,	/* alpha1, alpha2, alpha3, alpha4 */
+							//(xr-floorf(xr))*(1<<15), (yr-floorf(yr))*(1<<15),  /* f15_x, f15_y */
+							modff(xr,&pft)*(1<<15), modff(yr, &pft)*(1<<15),  /* f15_x, f15_y */
+							&pcolor, NULL );
+
+				   outimg->imgbuf[index_out]=pcolor;
+				}
+			}
+		}
+	}
+
+	/* unlock eimg */
+	pthread_mutex_unlock(&eimg->img_mutex);
+
+	return outimg;
+}
 
 
 /*-------------------------------------------------------------------------

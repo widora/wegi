@@ -304,7 +304,7 @@ int main(int argc, char **argv)
   	egi_set_termios();
 
   	/* Prepare vol 启动系统声音调整设备, before snd_pcm_open() OK. */
-	#if 0
+	#if 1
   	if(egi_getset_pcm_volume(sndcard, &vpercent, NULL)!=0)
 		egi_dpstd(DBG_RED"Fail to init volume mixer!\n"DBG_RESET);
 	#else
@@ -895,7 +895,7 @@ egi_dpstd(DBG_GREEN"Samplerate: %dHz --> %dHz, Samples: %d --> %d\n"DBG_RESET,
 	   2. OR It ALWAYS returns ret=0, it happens if USB sncard is unplugged during stream buffering.
 	 */
 
-	/* Test if sound card lost, espcially if USB card unplugged */
+/* TEST:-------------- if sound card lost, espcially if USB card unplugged */
 #if 1  /* NOT call snd_pcm_state(), For a virt sncard, snd_pcm_state() CAN NOT detect diconnection!!! */
    #if 0  /* 1. Compute average iwrite speed, if too fast, the USB may be unplugged?? */
   	//printf("nch=%d, newsrate=%d, nsamples=%d, tdm=%d\n", pcm->channels, new_samplerate, nsamples, tdm);
@@ -931,7 +931,7 @@ egi_dpstd(DBG_GREEN"Samplerate: %dHz --> %dHz, Samples: %d --> %d\n"DBG_RESET,
 				sleep(1);
 			}
 			/* Init volume mixer */
-			vpercent=30;
+			//vpercent=30;
 			egi_getset_pcm_volume(sndcard, NULL, &vpercent); /* TODO vpercent to be 0 again! */
 
 			#else /* !!!! snd_pcm_recover() NO use for USB unplug !!! */
@@ -1006,7 +1006,7 @@ static enum mad_flow header(void *data,  struct mad_header const *header )
 		#if MIXER_VOLUME_CONTROL
 		egi_adjust_pcm_volume(sndcard, 2);
 		egi_getset_pcm_volume(sndcard, &vpercent,NULL);
-		printf("\r Vol: %d%%",vpercent); fflush(stdout);
+		printf(DBG_GREEN"\r Vol: %d%% "DBG_RESET, vpercent); fflush(stdout);
 		#else
 		//egi_adjust_ctl_elemValue(sndcard, "Speaker Playback Volume", 5);
 		egi_getset_ctl_elemValue(sndcard, "Speaker Playback Volume", &vpercent, NULL, 5);
@@ -1018,13 +1018,13 @@ static enum mad_flow header(void *data,  struct mad_header const *header )
 		break;
 	case '-':	/* Volume down */
 		#if MIXER_VOLUME_CONTROL
-		egi_adjust_pcm_volume(sndcard, -5);
+		egi_adjust_pcm_volume(sndcard, -4);
 		egi_getset_pcm_volume(sndcard, &vpercent,NULL);
-		printf("\r Vol: %d%%",vpercent); fflush(stdout);
+		printf(DBG_GREEN"\r Vol: %d%% "DBG_RESET, vpercent); fflush(stdout);
 		#else
 		//egi_adjust_ctl_elemValue(sndcard, "Speaker Playback Volume", -5);
 		egi_getset_ctl_elemValue(sndcard, "Speaker Playback Volume", &vpercent, NULL, -5);
-		printf("\r Vol: %d%%",vpercent-5<0?0:vpercent-5); fflush(stdout);
+		printf("\r Vol: %d%%", vpercent-5 <0 ? 0:vpercent-5 ); fflush(stdout);
 		#endif
 
 		usleep(100000);

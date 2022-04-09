@@ -335,7 +335,7 @@ REGISTER_SURFUSER:
 		/* 3. Update PCM volume */
         	pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>> Surface shmem Critical Zone */
-		egi_getset_pcm_volume(&vol_pval, NULL);
+		egi_getset_pcm_volume(NULL, &vol_pval, NULL);
 		volume_level=vol_pval/30;
 		if(volume_level != volume_icon_index) {
 			volume_icon_index=volume_level;
@@ -567,7 +567,7 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 			//printf("DZ=%d\n", pmostat->mouseDZ);
 			//vol_pval += -pmostat->mouseDZ*5;
 			//egi_getset_pcm_volume(NULL, &vol_pval);
-			egi_adjust_pcm_volume(-pmostat->mouseDZ*2);
+			egi_adjust_pcm_volume(NULL,-pmostat->mouseDZ*2);
 		}
 	}
 
