@@ -535,7 +535,7 @@ static void *egi_input_loopread( void* arg )
 
 /*--------------------------------------------------------
 		  A thread function
-Read mouse input data in loop.
+Read mouse input data and upate MODULE.mostatus in loop.
 
 Note:
 1. If gv_fb_dev is NOT initialized! then gv_fb_dev.pos_xres
@@ -772,12 +772,12 @@ static void *egi_mouse_loopread( void* arg )
        * 2. XXX Screen touch data NOT in sequence occasionally, it makes mouse skip??! ---ok + for 0!
        */
 
-	unsigned char tok1=mouse_data[0]&0x10;
-	unsigned char tok2=mouse_data[0]&0x20;
+	unsigned char tok1=mouse_data[0]&0x10;  /* X sign */
+	unsigned char tok2=mouse_data[0]&0x20;  /* Y sign */
 	unsigned char data1=mouse_data[1];  /* mouseDX */
 	unsigned char data2=mouse_data[2];  /* mouseDY */
 
-	#if 0 /* DX = -DY */
+	#if 0 /* screen DX maps to touch -DY */
 	if(tok2) {
 	     mouse_data[0] &= ~(0x10); /* + */
 	     mouse_data[1] = (~data2)+1; /* - -> + 负数的反码+1就是补码, 即其相反的正数 */
@@ -791,7 +791,7 @@ static void *egi_mouse_loopread( void* arg )
 		mouse_data[1] =0;
 	   }
 	}
-	#else /* DX = DY */
+	#else /* screen DX maps to touch DY */
 	if(tok2)
 		mouse_data[0] |= 0x10; /* - */
 	else
@@ -799,7 +799,7 @@ static void *egi_mouse_loopread( void* arg )
 	mouse_data[1]=data2;
 	#endif
 
-	/* DY = -DX !!! MOUSE COORD, NOT sCREEN coord !!!  */
+	/* screen DY maps to touch -DX !!! MOUSE COORD, NOT sCREEN coord !!!  */
 	if(tok1) {
 		mouse_data[0] &= ~(0x20);  /* + */
 		mouse_data[2] = (~data1)+1;
@@ -823,8 +823,8 @@ static void *egi_mouse_loopread( void* arg )
 
 
 #if TEST_TOUCHSCREEN_MOUSE /* TOUCHSCREEN speed adjust to flow up with displaying image, as origin touch ABS_X/Y in 12bits!? */
-		mostatus.mouseDX = mostatus.mouseDX*8/5;
-		mostatus.mouseDY = mostatus.mouseDY*5/6;
+		mostatus.mouseDX = mostatus.mouseDX*8/5; // 320:240
+		mostatus.mouseDY = mostatus.mouseDY*5/6; // 240:320
 #endif
 
 	        	/* 5. Get mouse X */
@@ -886,7 +886,7 @@ static void *egi_mouse_loopread( void* arg )
 		#endif
 
 		/* Wait for MEVETN request to be proceed, TODO: use pthread_cond_wait() instead. */
-		/* Note:
+		/* Note:  (mostauts.request is set in the callback!)
 		 * 1. This is to ensure each MEVENT request is parsed/responded.
 		 * 2. Request usually is parsed/responded by another thread, other than mouse_callback(), Example: test_surfman.c */
 		while( egi_mouse_checkRequest(&mostatus) && !mostatus.cmd_end_loopread_mouse ) { tm_delayms(5); };
@@ -1697,7 +1697,7 @@ int egi_read_kbdcode(EGI_KBD_STATUS *kstat, const char *kdev)
 	 TODO: Check abskey CODE also!
  */
 	if( prev_absvalue==0x7F && kstat->conkeys.absvalue==0x7F ) {
-		//egi_dpstd("abskey released alread!\n");
+		//egi_dpstd("abskey released already!\n");
 		kstat->conkeys.abskey = ABS_MAX;
 	}
 

@@ -506,7 +506,7 @@ int main(int argc, char **argv)
 /* ------ <<<  Surface shmem Critical Zone  */
 	                pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
-			pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.bold, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
+			pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.regular, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
 
 			//start_radio(playlist[playlist_idx].address);
 			start_radio(playlist_idx);
@@ -525,7 +525,7 @@ int main(int argc, char **argv)
 /* ------ <<<  Surface shmem Critical Zone  */
 	                pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
-			pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.bold, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
+			pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.regular, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
 
 			//start_radio(playlist[playlist_idx].address);
 			start_radio(playlist_idx);
@@ -561,7 +561,7 @@ int main(int argc, char **argv)
 /* ------ <<<  Surface shmem Critical Zone  */
 	                pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
-			pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.bold, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
+			pixlen=FTsymbol_uft8strings_pixlen(egi_sysfonts.regular, 18, 18, (UFT8_PCHAR)labels[LAB_RSNAME]->text);
 
 			if( radioSTAT == STAT_PLAY || radioSTAT == STAT_CONNECT ) {
 				stop_radio();
@@ -1511,7 +1511,7 @@ void ListBox_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 --------------------------------------*/
 void FTsymbol_writeIMG(EGI_IMGBUF *imgbuf, char *txt, int fw, int fh, EGI_16BIT_COLOR color, int px, int py)
 {
-        FTsymbol_uft8strings_writeIMG(  imgbuf, egi_sysfonts.bold,       /* IMGBUF, fontface */
+        FTsymbol_uft8strings_writeIMG(  imgbuf, egi_sysfonts.regular,       /* IMGBUF, fontface */
                                         fw, fh,(const unsigned char *)txt,      /* fw,fh, pstr */
                                         320, 1, 0,                      /* pixpl, lines, fgap */
                                         px, py,                         /* x0,y0, */

@@ -10,6 +10,9 @@ Usage:
 		Move mouse onto ICON_SOUND and roll mouse wheel to turn volume UP/DOWN.
 	WiFi Control:
 		Move mouse onto ICON_WIFI and click to turn ON/OFF WiFi connection.
+	Brightness Control:
+		Move mouse onto 'EGI_Desk' and click to activate surf_brightness.
+		Roll mouse wheel to adjust brightness, Right_click or ESC to end.
 
 Journal:
 2021-05-27: Start programming...
@@ -35,6 +38,8 @@ Journal:
 	2. Make dynamic_icon effect when reloading WiFi interface.
 2021-06-05:
 	1. bool guider_in_position.
+2022-04-14:
+	1. Add a surfuser for brightness adjustment.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -112,6 +117,10 @@ int wait_status;
 void my_firstdraw_surface(EGI_SURFUSER *surfuser, int options);
 void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 void labicon_time_update(void);
+
+void surf_brightness(EGI_SURFSHMEM *surfowner, int x0, int y0);
+void draw_canvas_brightness(EGI_SURFUSER *surfuser);
+void surfbright_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 
 //"ubus call network.wireless down",
 const char *arg_wifi_down[3]={
@@ -455,6 +464,174 @@ void labicon_time_update(void)
         egi_surfLab_writeFB(vfbdev, labicons[LABICON_TIME], egi_sysfonts.regular, 16, 16, WEGI_COLOR_LTYELLOW, 0, 4);
 }
 
+/////////////////// Brightness adjust ///////////////////
+/*-------------------------------------------
+A SURF to show brightness value bar.
+--------------------------------------------*/
+void surf_brightness(EGI_SURFSHMEM *surfowner, int x0, int y0)
+{
+	int msw=220;
+	int msh=40;
+
+	EGI_SURFUSER *msurfuser=NULL;
+	EGI_SURFSHMEM *msurfshmem=NULL; /* Only a ref. to surfuser->surfshemem */
+	FBDEV	 *mvfbdev=NULL;	      /* Only a ref. to &surfuser->vfbdev */
+	EGI_IMGBUF *msurfimg=NULL;    /* Only a ref. to surfuser->imgbuf */
+	SURF_COLOR_TYPE mcolorType=SURF_RGB565_A8; /* surfuser->vfbdev color type */
+	//EGI_16BIT_COLOR  mbkgcolor;
+
+	/* 1. Register/Create a surfuser */
+	egi_dpstd("Register to create a surfuser...\n");
+	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, (320-msw)/2, (240-msh)/2, //surfowner->x0+x0, surfowner->y0+y0,
+					 msw, msh, msw, msh, mcolorType); /* Fixed size */
+	if(msurfuser==NULL) {
+		egi_dpstd(DBG_RED"Fail to register surface!\n"DBG_RESET);
+		return;
+	}
+
+	/* 2. Get ref. pointers to vfbdev/surfimg/surfshmem */
+	mvfbdev=&msurfuser->vfbdev;
+	msurfimg=msurfuser->imgbuf;
+	msurfshmem=msurfuser->surfshmem;
+
+	/* 3. Assgin OP function, connect with CLOSE/MIN./MIN. buttons etc. */
+	//msurfshmem->minimize_surface	= surfuser_minimize_surface; /* Surface module default function */
+	//msurfshmem->redraw_surface	= surfuser_redraw_surface;
+	//msurfshmem->maximize_surface	= surfuser_maximize_surface; /* Need resize */
+	//msurfshmem->normalize_surface	= surfuser_normalize_surfac; /* Need resize */
+	//msurfshmem->close_surface	= surfuser_close_surface;
+	msurfshmem->draw_canvas	        = draw_canvas_brightness;
+	msurfshmem->user_mouse_event  = surfbright_mouse_event;
+
+	/* 4. Name for the surface */
+	//strncpy(msurfshmem->surfname, "Help", SURFNAME_MAX-1);
+
+	/* 5. First draw surface */
+	msurfshmem->bkgcolor=WEGI_COLOR_GRAYA; /* OR default BLACK */
+	/* First draw */
+	surfuser_firstdraw_surface(msurfuser, TOPBAR_NONE|SURFFRAME_NONE, 0, NULL);  /* Default firstdraw operation */
+
+	/* 6. Start Ering routine */
+	egi_dpstd("Start ering routine...\n");
+	if( pthread_create(&msurfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, msurfuser)!=0 ) {
+		egi_dperr("Fail to launch thread EringRoutine!");
+		if(egi_unregister_surfuser(&msurfuser)!=0)
+			egi_dpstd("Fail to unregister surfuser!\n");
+		return;
+	}
+
+	/* 7. Other jobs... */
+
+	/* 8. Activate image */
+	msurfshmem->sync=true;
+
+	/* ===== Main Loop ===== */
+	while(msurfshmem->usersig !=1 ) {
+		usleep(100000);
+	}
+
+	/* P1. Join ering routine */
+	//surfuser->surfshmem->usersig=1; // Useless if thread is busy calling a BLOCKING function.
+	egi_dpstd("Cancel thread...\n");
+	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	/* Make sure mutex unlocked in pthread if any! */
+	egi_dpstd("Join thread_eringRoutine...\n");
+	if( pthread_join(msurfshmem->thread_eringRoutine, NULL)!=0)
+		egi_dperr("Fail to join eringRoutine!\n");
+
+	/* P2. Unregister and destroy surfuser */
+	egi_dpstd("Unregister surfuser...\n");
+	if( egi_unregister_surfuser(&msurfuser)!=0 )
+		egi_dpstd("Fail to unregister surfuser!\n");
+
+	egi_dpstd("Exit OK!\n");
+}
+
+/*--------------------------------------
+Draw canvas, as frame_round_rect.
+---------------------------------------*/
+void draw_canvas_brightness(EGI_SURFUSER *surfuser)
+{
+	int duty;
+	int rad=6;
+        egi_imgbuf_resetColorAlpha(surfuser->imgbuf, WEGI_COLOR_DARKPURPLE, 120); //180);  /*  imgbuf, color, alpha */
+        egi_imgbuf_setFrame(surfuser->imgbuf, frame_round_rect, -1, 1, &rad);
+
+	EGI_IMGBUF *icon=egi_imgbuf_readfile("/mmc/icons/brightness_24x24.png");
+	egi_subimg_writeFB(icon, &surfuser->vfbdev, 0, -1, 8, 8);
+
+	/* Write birghtness bar */
+	fbset_color2(&surfuser->vfbdev, WEGI_COLOR_GRAY2);
+	draw_wline_nc(&surfuser->vfbdev, 40, 20, 40+160, 20, 11);
+	fbset_color2(&surfuser->vfbdev, WEGI_COLOR_WHITE);
+	egi_getset_backlightPwmDuty(0, &duty, NULL, 0);
+	draw_wline_nc(&surfuser->vfbdev, 40, 20, 40+160*duty/100, 20, 11);
+}
+
+
+/*-----------------------------------------------------------------
+                Mouse Event Callback
+               (shmem_mutex locked!)
+
+1. It's a callback function called in surfuser_parse_mouse_event().
+2. pmostat is for whole desk range.
+3. This is for  SURFSHMEM.user_mouse_event() .
+------------------------------------------------------------------*/
+void surfbright_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
+{
+
+/* --------- E1. Parse Keyboard Event ---------- */
+
+	/* Parse CONKEYs F1...F12 */
+	if( pmostat->conkeys.press_F1 )
+        	printf("Press F1\n");
+
+        /* Lastkey MAY NOT cleared yet! Check press_lastkey!! */
+        if(pmostat->conkeys.press_lastkey) {
+                egi_dpstd("lastkey code: %d\n",pmostat->conkeys.lastkey);
+                switch(pmostat->conkeys.lastkey) {
+                        case KEY_ESC:
+				surfuser->surfshmem->usersig=1;
+                                break;
+                        default:
+                                break;
+                }
+        }
+        /* NOTE: pmostat->chars[] is read from ssh STDIN !!! NOT APPLICABLE here for GamePad !!! */
+
+
+/* --------- E2. Parse STDIN Input ---------- */
+	if(pmostat->nch>0)
+		egi_dpstd("chars: %-32.32s, nch=%d\n", pmostat->chars, pmostat->nch);
+
+/* --------- E3. Parse Mouse Event ---------- */
+
+	/* Adjust brightness */
+	if( pmostat->mouseDZ ) {
+		int duty;
+                egi_getset_backlightPwmDuty(0, NULL, NULL, -pmostat->mouseDZ*1);
+        	egi_getset_backlightPwmDuty(0, &duty, NULL, 0);
+
+        	/* Update birghtness bar */
+        	pthread_mutex_lock(&surfshmem->shmem_mutex);
+/* ------ >>> Surface shmem Critical Zone */
+	        fbset_color2(&surfuser->vfbdev, WEGI_COLOR_GRAY2);
+        	draw_wline_nc(&surfuser->vfbdev, 40, 20, 40+160, 20, 11);
+	        fbset_color2(&surfuser->vfbdev, WEGI_COLOR_WHITE);
+	        draw_wline_nc(&surfuser->vfbdev, 40, 20, 40+160*duty/100, 20, 11);
+/* ------ <<<  Surface shmem Critical Zone  */
+        	pthread_mutex_unlock(&surfshmem->shmem_mutex);
+	}
+	/* Quit surf_brightness: right click on the surface area. */
+	if( pmostat->RightKeyDown ) {
+        	if( pxy_inbox( pmostat->mouseX, pmostat->mouseY, surfuser->surfshmem->x0, surfuser->surfshmem->y0,
+                     surfuser->surfshmem->x0+surfuser->surfshmem->vw, surfuser->surfshmem->y0+surfuser->surfshmem->vh ) ) {
+			/* Signal to quit */
+			surfuser->surfshmem->usersig=1;
+		}
+	}
+}
+
 
 /*------------------------------------------------------------------
                 Mouse Event Callback
@@ -538,6 +715,16 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 				//XX system("wifi up");
 			}
 		}
+
+		/* Click on WiFi LABICON */
+               // if( egi_point_on_surfBox( (ESURF_BOX *)labicons[LABICON_WIFI],
+               // 	                pmostat->mouseX-surfshmem->x0, pmostat->mouseY-surfshmem->y0) ) {
+		if( pxy_inbox( pmostat->mouseX-surfshmem->x0, pmostat->mouseY-surfshmem->y0,  // px,py, x1,y1, x2,y2
+		    0, 0, 40, surfshmem->vh ) ) {
+			pthread_mutex_unlock(&surfshmem->shmem_mutex);
+			surf_brightness(surfshmem, 0,0 );
+			pthread_mutex_lock(&surfshmem->shmem_mutex);
+		}
 	}
 	/* If Surface is downhold for moving */
 	else if( guider_in_position && surfshmem->status == SURFACE_STATUS_DOWNHOLD ) {
@@ -559,7 +746,6 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 		guider_in_position=true;
 	}
 
-
 	/* If on ICON SOUND */
 	if( egi_point_on_surfBox( (ESURF_BOX *)labicons[LABICON_SOUND],
 				pmostat->mouseX-surfshmem->x0, pmostat->mouseY-surfshmem->y0) ) {
@@ -571,6 +757,20 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 		}
 	}
 
+#if 0	/* If on 'EGI_Desktop' MidasHK_2022_04_11 */
+	static int duty=50;
+	if( (pmostat->mouseX-surfshmem->x0 >0) && (pmostat->mouseX-surfshmem->x0 <60)
+	   && (pmostat->mouseY-surfshmem->y0 >0) && (pmostat->mouseY-surfshmem->y0 < surfshmem->vh ) )
+	{
+		if( pmostat->mouseDZ ) {
+			egi_getset_backlightPwmDuty(0, &duty, NULL, -pmostat->mouseDZ*2);
+			duty += -pmostat->mouseDZ*2;
+			if(duty>100)duty=100;
+			else if(duty<0)duty=0;
+			printf("PWM duty=%d\n", duty);
+		}
+	}
+#endif
 }
 
 

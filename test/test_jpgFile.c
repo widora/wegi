@@ -16,6 +16,7 @@ Journal:
 	1. Move EGI_PICINFO and functions to egi_bjp.h egi_bjp.c
 	2. Test effect of progressive JPEG.
 2022-03-23: Test egi_check_jpgfile()
+2022-04-12: Test GPS_IFD data.
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -41,7 +42,7 @@ void FTsymbol_writeFB(char *txt, int fw, int fh, EGI_16BIT_COLOR color, int px, 
 int main(int argc, char **argv)
 {
 	int i, k;
-	int bn=20;//1;  		/* Number of divided blocks for an image.  */
+	int bn=1; //20;         /* Number of divided blocks for an image. bn=1, to ignore progressive testing */
 	int bs;    		/* size of a block */
 	char *fpath=NULL;  	/* Reference only */
 	unsigned long fsize=0;
@@ -73,7 +74,7 @@ int main(int argc, char **argv)
         }
         //FTsymbol_disable_SplitWord();
 
-//while(1)
+while(1)
 { ////////////////////////  LOOP TEST  /////////////////////////////////////
 
 	for(i=1; i<argc; i++) {
@@ -94,8 +95,14 @@ int main(int argc, char **argv)
 		if(PicInfo==NULL)
 			continue;
 
-
 		//egi_picinfo_print(PicInfo);
+
+#if 1 /* TEST: ------------ */
+		if(!PicInfo->GPS_on) {
+			egi_picinfo_free(&PicInfo);
+			continue;
+		}
+#endif
 
 		/* Display Picture Info */
 		tcnt=0;
@@ -110,6 +117,7 @@ int main(int argc, char **argv)
 			if(ret>0)tcnt+=ret;
 		}
 
+#if 0  ///////////////////// EXIF DATA //////////////////////////
 		if(PicInfo->progressive) {
 //			printf(DBG_MAGENTA"Progressive DCT\n"DBG_RESET);
 			ret=snprintf(txtbuff+tcnt, maxcnt-tcnt, "Progressive DCT\n");
@@ -171,13 +179,50 @@ int main(int argc, char **argv)
 			ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"XComment: %s\n", PicInfo->xcomment);
 			if(ret>0) tcnt+=ret;
 		}
+#endif
 
-		printf("\n====== Pic Info ======\n%s\n",txtbuff);
-		printf("----------------------\n");
+#if 1 //////////////////////////   GPS Info   //////////////////////////
+		if(PicInfo->GPS_on) {
+			ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"GPS Tag Ver: %d.%d.%d.%d\n",
+					PicInfo->GPSTagVer[0],PicInfo->GPSTagVer[1],PicInfo->GPSTagVer[2],PicInfo->GPSTagVer[3]);
+			if(ret>0) tcnt+=ret;
+		    #if 0
+			ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"GPS Latitude: %s %dd_%dm_%fs (%s%fDeg)\n", PicInfo->GPSLatitudeRef>0?"North":"South",
+									PicInfo->GPSLatiDeg, PicInfo->GPSLatiMin, PicInfo->GPSLatiSec,
+									PicInfo->GPSLatitudeRef>0?"+":"-",
+									PicInfo->GPSLatiDeg+PicInfo->GPSLatiMin/60.0+PicInfo->GPSLatiSec/3600.0
+								);
+			if(ret>0) tcnt+=ret;
 
+			ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"GPS Longitude: %s %dd_%dm_%fs (%s%fDeg)\n", PicInfo->GPSLongitudeRef>0?"East":"West",
+									PicInfo->GPSLongiDeg, PicInfo->GPSLongiMin, PicInfo->GPSLongiSec,
+									PicInfo->GPSLongitudeRef>0?"+":"-",
+									PicInfo->GPSLongiDeg+PicInfo->GPSLongiMin/60.0+PicInfo->GPSLongiSec/3600.0
+								);
+			if(ret>0) tcnt+=ret;
+		   #else
+			ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"GPS Latitude: %s%f\n", PicInfo->GPSLongitudeRef>0?"+":"-",
+									PicInfo->GPSLatiDeg+PicInfo->GPSLatiMin/60.0+PicInfo->GPSLatiSec/3600.0
+								);
+			if(ret>0) tcnt+=ret;
+
+			ret=snprintf(txtbuff+tcnt, maxcnt-tcnt,"GPS Longitude: %s%f\n", PicInfo->GPSLongitudeRef>0?"+":"-",
+									PicInfo->GPSLongiDeg+PicInfo->GPSLongiMin/60.0+PicInfo->GPSLongiSec/3600.0
+								);
+			if(ret>0) tcnt+=ret;
+
+		   #endif
+
+		}
+#endif
+
+		printf(DBG_GREEN"\n====== Pic Info ======\n%s\n",txtbuff);
+		printf("----------------------\n"DBG_RESET);
 
 #if 0 /* TEST: --------- */
+		egi_picinfo_free(&PicInfo);
 		continue;
+
 #endif
 
 		/* Copy partial JPEG file and display it, demo effect of baseline_DCT and progressive_DCT */
@@ -193,7 +238,7 @@ int main(int argc, char **argv)
 			imgbuf=egi_imgbuf_readfile(fpath);
 			if(imgbuf==NULL) {
 				printf("Fail to read imgbuf from '%s'!\n", TMP_JPEG_NAME);
-				fclose(fdest);
+				//XXX fclose(fdest);
 				continue;
 			}
 
@@ -201,6 +246,7 @@ int main(int argc, char **argv)
 	                fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_DARKGRAY);
                         egi_subimg_writeFB(imgbuf, &gv_fb_dev, 0, -1, 0,0);   /* imgbuf, fbdev, subnum, subcolor, x0, y0 */
    	             	fb_render(&gv_fb_dev);
+			sleep(1);
 		}
 		/* Display image progressively .... */
 		else {
@@ -244,11 +290,11 @@ int main(int argc, char **argv)
 	        } /* END else */
 
 		/* Display picture information */
-		//draw_blend_filled_rect(&gv_fb_dev, 0, 0, 320-1, 110, WEGI_COLOR_GRAY3, 160);
-		draw_blend_filled_rect(&gv_fb_dev, 0, 0, 320-1, 240-1, WEGI_COLOR_GRAY3, 160);
-		FTsymbol_writeFB(txtbuff, 18, 18, WEGI_COLOR_BLACK, 5, 10);
+		draw_blend_filled_rect(&gv_fb_dev, 0, 0, 320-1, 110, WEGI_COLOR_GRAY3, 160);
+		//draw_blend_filled_rect(&gv_fb_dev, 0, 0, 320-1, 240-1, WEGI_COLOR_GRAY3, 160);
+		FTsymbol_writeFB(txtbuff, 20, 20, WEGI_COLOR_BLACK, 5, 10);
 		fb_render(&gv_fb_dev);
-		sleep(2);
+		sleep(1);
 
 		fclose(fsrc);
 		egi_picinfo_free(&PicInfo);
@@ -268,7 +314,7 @@ int main(int argc, char **argv)
 --------------------------------------*/
 void FTsymbol_writeFB(char *txt, int fw, int fh, EGI_16BIT_COLOR color, int px, int py)
 {
-        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular,       /* FBdev, fontface */
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold, //regular,       /* FBdev, fontface */
                                         fw, fh,(const unsigned char *)txt,      /* fw,fh, pstr */
                                         320-10, 240/(fh+fh/5), fh/5,               /* pixpl, lines, fgap */
                                         px, py,                         /* x0,y0, */

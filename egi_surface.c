@@ -283,6 +283,8 @@ Journal
 	2. EGI_SURFSHMEM: Add member 'prvbtnsMAX', 'prvbtns', 'mpprvbtn'. Init mpprvbtn=-1 at surfman_register_surface().
 2021-07-20:
 	1. surfuser_close_surface(): check confirmation.
+2022-04-15:
+	1. surfuser_firstdraw_surface(): parse option SURFFRAME_NONE and SURFFRAME_THICK.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -2234,8 +2236,8 @@ static void * surfman_render_thread(void *arg)
 		 * 2. ALPHA effect need a right render sequence!
 		 */
 		//egi_dpstd("Render surfaces...\n");
-		for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {  	     /* From top layer to bkground */
-		//for(i=0; i<SURFMAN_MAX_SURFACES; i++) {	     /* From bkground to top layer */
+//		for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {  	     /* From top layer to bkground */
+		for(i=0; i<SURFMAN_MAX_SURFACES; i++) {	     /* From bkground to top layer */
 			//egi_dpstd("Draw surfaces[%d]...\n",i);
 
 			/* C.1 Check surface availability */
@@ -2350,7 +2352,7 @@ static void * surfman_render_thread(void *arg)
 
 		} /* END for() traverse all surfaces */
 
-		/* B.X Draw Wall paper, Here OR at begin */
+#if 1		/* Draw Wall paper, Here OR at begin */
 		if(surfman->bkgimg) {
 			surfman->fbdev.pixz=0;
 			egi_subimg_writeFB(surfman->bkgimg, &surfman->fbdev, 0, -1, 0, 0);
@@ -2359,7 +2361,7 @@ static void * surfman_render_thread(void *arg)
 			surfman->fbdev.pixz=0;
 			draw_filled_rect2(&surfman->fbdev, WEGI_COLOR_BLACK, 0,0, surfman->fbdev.pos_xres-1, surfman->fbdev.pos_yres-1 );
 		}
-
+#endif
 
 		/* B.XX Draw minimized surfaces */
 #if 0 /* Display Minibar at bkground level: pixz=0  */
@@ -2437,7 +2439,7 @@ static void * surfman_render_thread(void *arg)
 #endif
 		/* B.XXX Draw MenuList Path Tree */
 		if ( surfman->menulist_ON ) {
-			surfman->fbdev.pixz=SURFMAN_MENULIST_PIXZ;    /* pixz >SURFMAN_MAX_SURFACES,  To make minibar at TOP layer */
+			surfman->fbdev.pixz=SURFMAN_MENULIST_PIXZ;    /* pixz >SURFMAN_MAX_SURFACES,  To make MenuList at TOP layer */
 			egi_surfMenuList_writeFB(&surfman->fbdev, surfman->menulist, 0, 0, 0);
 		}
 
@@ -2529,6 +2531,7 @@ int surfman_display_surface(EGI_SURFMAN *surfman, EGI_SURFACE *surface)
 
 /*---------------------------------------------------
 Check if point (x,y) in on the SURFACE.
+Note: Excluding SURF_TOPBAR area.
 
 @surfshmem	pointer to ESURF_BOX
 @x,y		Point coordinate, relative to SYS FB.
@@ -2548,6 +2551,8 @@ inline bool egi_point_on_surface(const EGI_SURFSHMEM *surfshmem, int x, int y)
 
 	return true;
 }
+
+
 
 
 	/* =======================     Functions for SURFUSER    ====================  */
@@ -3299,10 +3304,19 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int options, int menuc, 
 
 	} /* END 5. */
 
-        /* 6. Draw outline rim */
-        //fbset_color2(vfbdev, WEGI_COLOR_GRAY); //BLACK);
-	fbset_color(SURF_OUTLINE_COLOR); //WEGI_COLOR_GRAY);
-        draw_rect(vfbdev, 0,0, surfshmem->vw-1, surfshmem->vh-1);
+        /* 6. Draw outline rim/frame. MidasHK_2022-04-15 frame type NONE and DOUBLE */
+	if(options&SURFFRAME_NONE) {
+		/* None */
+	}
+	else if(options&SURFFRAME_THICK) {
+		fbset_color(SURF_OUTLINE_COLOR); //WEGI_COLOR_GRAY);
+	        draw_rect(vfbdev, 0,0, surfshmem->vw-1, surfshmem->vh-1);
+	}
+	else {
+	        //fbset_color2(vfbdev, WEGI_COLOR_GRAY); //BLACK);
+		fbset_color(SURF_OUTLINE_COLOR); //WEGI_COLOR_GRAY);
+	        draw_rect(vfbdev, 0,0, surfshmem->vw-1, surfshmem->vh-1);
+	}
 
         /* 7. Create SURFBTNs by blockcopy SURFACE image, after first_drawing the surface! */
         int xs=surfimg->width-20*nbs -3 -2;

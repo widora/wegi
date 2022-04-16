@@ -106,6 +106,24 @@ typedef struct egi_picture_info
 	char *subject;	  /* TAG 0x9c9f */
 	char *copyright;  /* TAG 0x8298  Copyright information */
 
+	/* GPS Data ____  MidasHK_2022_04_11 */
+	bool   GPS_on;	  	/* If GPS data is available */
+	char   GPSTagVer[4];    /* GPS Tag Version, string, NOW ONLY support 2.2.0.0 as [0]'2' [1]'2' [2]'0' [3]'0' */
+
+	int    GPSLatitudeRef;  /* Positive for NORTH latitudes or negative for SOUTH */
+	//double GPSLatitude;
+	unsigned int 	GPSLatiDeg;
+	unsigned int 	GPSLatiMin;
+	double		GPSLatiSec;
+
+	int    GPSLongitudeRef; /* Positive for EAST longitudes or negative for WEST */
+	//double GPSLongitude;
+	unsigned int 	GPSLongiDeg;
+	unsigned int 	GPSLongiMin;
+	double		GPSLongiSec;
+
+	//double GPSAltitude;
+
 	/* Thumbnail */
 	EGI_IMGBUF *thumbnail;
 

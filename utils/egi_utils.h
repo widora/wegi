@@ -81,6 +81,7 @@ EGI_ID3V2TAG *egi_id3v2tag_readfile(const char *fpath);
 
 /* Utils functions */
 bool 	egi_host_littleEndian(void);
+void 	egi_byteswap(int n, char *data);
 void 	egi_free_char(char **p);
 void 	egi_free_charList(char ***p, int n);
 int 	egi_mem_grow(void **ptr, size_t old_size, size_t more_size);
@@ -128,5 +129,8 @@ int 	egi_bitstatus_count_zeros(const EGI_BITSTATUS *ebits);
 int 	egi_bitstatus_posfirst_zero(EGI_BITSTATUS *ebits,  int cp);  /* ebits->pos self increase */
 int 	egi_bitstatus_posfirst_one(EGI_BITSTATUS *ebits,  int cp);   /* ebits->pos self increase */
 int 	egi_bitstatus_checksum(void *data, size_t size);
+
+/* MISC */
+int egi_getset_backlightPwmDuty(int pwmnum, int *pget, int *pset, int adjust);
 
 #endif

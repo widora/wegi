@@ -238,7 +238,7 @@ int egi_push_log(enum egi_log_level log_level, const char *fmt, ...)
 	/* If log file is NOT open/availbale, return then. */
 	if(egi_log_fp==NULL)
 		return 0;
-	printf(" ----------- egi_log_fp OK ---------\n");
+//	printf(" ----------- egi_log_fp OK ---------\n");
 
 #if 0///////////////////////////////////////////////////////////////////////////////////
 	///////   FOR HIGHT LEVEL LOG:  write directly to log file //////

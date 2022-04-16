@@ -7,7 +7,7 @@ A tool program to set wallpaper for SURFMAN.
 TEST: Surface has NOT frames, and ONLY display some words on the screen.
 
 TODO:
-1. sometime shell script fails to download image.
+XXX 1. sometime shell script fails to download image.
 
 Note:
 1. Call bing_today.sh to fetch/download a Bing wallpaper, and SURFMSG
@@ -16,6 +16,8 @@ Note:
 Journal:
 2022-04-09:
 	1. Call https_easy_download() to download image.
+2022-04-13:
+	1. Add image description on wallpaper.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -95,13 +97,14 @@ int main(int argc, char **argv)
 	EGI_IMGBUF *bingimg=NULL;
 	char strtmp[256]={0};
 
-#if 1	/* Start EGI log */
+#if 0	/* Start EGI log */
         if(egi_init_log("/mmc/surf_wallpaper.log") != 0) {
                 printf("Fail to init logger, quit.\n");
                 exit(EXIT_FAILURE);
         }
         EGI_PLOG(LOGLV_INFO,"%s: Start logging...", argv[0]);
 #endif
+
 
 #if 1        /* Load freetype fonts */
         printf("FTsymbol_load_sysfonts()...\n");
@@ -223,11 +226,14 @@ int main(int argc, char **argv)
 		char value[512];                /* To be big enough! */
 		char *content=NULL;
 		char imgURL[512];
+		char imgTXT[512];
 		int len;
 		int cnt=0;
+		int randindx=mat_random_range(10);  /* Pick a random image in the page */
 
 START_REQUEST:
 		/* Prepare request */
+		imgURL[0]=0;
 		strRequest[0]=0;
 		sprintf(strRequest,"https://bing.ioliu.cn?p=%d", mat_random_range(180)); /* 1-180 */
 
@@ -244,8 +250,10 @@ START_REQUEST:
 		char *pstr=https_easy_buff;
 
 		char *strClassID="card progressive";
+		ret=-1;
+		cnt=0;
 		while( (pstr=cstr_parse_html_tag(pstr, "div", attrString, sizeof(attrString), &content, &len))!=NULL ) {
-//      printf("   --- <div content---\n %s\n", content);
+		//      printf("   --- <div content---\n %s\n", content);
 
         		/* Confirm attribute value for class */
 		        egi_dpstd("get attribute class..\n");
@@ -259,27 +267,49 @@ START_REQUEST:
 
 	        	/* Extract image */
 	        	fprintf(stderr,"get attribute imgURL..\n");
-        		cstr_get_html_attribute(content, "src", imgURL);
-		        printf("Orig imgURL: %s\n", imgURL);
+        		if( cstr_get_html_attribute(content, "src", imgURL)==0 )
+		        	printf("Orig imgURL: %s\n", imgURL);
+			else
+				printf("Fail to get imgURL!\n");  //imgURL[0] set to 0
+
+        		/* Extract all text */
+		        printf("Extract html text..\n"); /* TODO: segmentation fault here */
+		        cstr_extract_html_text(content, imgTXT, sizeof(imgTXT));
+		        printf("imgTXT: %s\n", imgTXT);
+
+        		/* Free content */
+        		egi_free_char(&content);
+
+			/* Check imgURL */
+			if(imgURL[0]==0)
+				continue;
+
+			/* Check cnt */
+			if(cnt!=randindx) {
+				cnt++;
+				continue;
+			}
 
 		        /* Sometimes there maybe '\n' in the URL! */
 		        cstr_squeeze_string(imgURL, strlen(imgURL), '\n');
 		        printf("imgURL: %s\n", imgURL);
 
+
+			/* Easy_download image */
         		ret=https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 5, 60,
                 	        imgURL, BING_WALLPAPER_PATH, NULL, NULL);
 
 			/* OK */
-			if(ret==0)
-				break;
+			break;
 		}
 #endif
+
 
 #if 0  /* Shell script download */
 		EGI_PLOG(LOGLV_TEST, "System ret=%d\n", ret);
 		if( ret!=-1 && WIFEXITED(ret) && WEXITSTATUS(ret)==0		/* See MAN of system() for return values */
 #else
-		if( ret==0
+		if( pstr!=NULL && ret==0
 #endif
 		    && (bingimg=egi_imgbuf_readfile(BING_WALLPAPER_PATH))!=NULL  )
 		{
@@ -289,6 +319,7 @@ START_REQUEST:
 			egi_imgbuf_scale_update(&bingimg, SURF_MAXW, SURF_MAXH);
 			egi_imgbuf_avgLuma(bingimg, 135);
 			FTsymbol_writeIMG(bingimg,"Bing 必应", 16,16, WEGI_COLOR_WHITE, 320-80, 5); /* vfb, txt, fw, fh, color, px, py */
+			FTsymbol_writeIMG(bingimg, imgTXT, 12,12, WEGI_COLOR_WHITE, 5, 240-30);
 
 			EGI_FILEMMAP *fmap=egi_fmap_create("/tmp/.bing_today_title", 0, PROT_READ, MAP_PRIVATE);
 			if(fmap && fmap->fsize) {

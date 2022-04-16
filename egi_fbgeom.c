@@ -3020,7 +3020,7 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 	else
 		kmr=1.0e8; //1000000.0;
 
-	//printf("klr=%f, klm=%f, kmr=%f \n",klr,klm,kmr);
+//	egi_dpstd("klr=%f, klm=%f, kmr=%f \n",klr,klm,kmr);
 
 	/* If collinear. MidasHK_2022_03_11 */
 	if( fabs(klr-klm)<1.0e-5 && fabs(klr-kmr)<1.0e-5 ) {
@@ -3035,6 +3035,8 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 		yd=klm*i+points[nl].y;	//points[nl].y+klm*i;
 		//printf("part1: x=%d	yu=%d	yd=%d \n", points[nl].x+i, yu, yd);
 
+		//if(yu<yd) { tmp=yu; yu=yd; yd=tmp; } /* NOPE!!!  */
+
 		if(dev->antialias_on) {
 		   /* Draw inside complete pixels ONLY,
 		    * Compare floorf(yu) and ceilf(yd) to see if at lease one complete pixel
@@ -3048,12 +3050,13 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 		       if(flooryu>=ceilyd)
 		          draw_line_simple(dev, points[nl].x+i, flooryu, points[nl].x+i, ceilyd);
 		   }
-		   else  { /* NOW yd>=yu */
+		   else  { /* yu<=yd */
 		     //if(floorf(yd)>=ceilf(yu))
 		       //draw_line_simple(dev, points[nl].x+i, floorf(yd), points[nl].x+i, ceilf(yu));
 		       if(flooryd>=ceilyu)
 		          draw_line_simple(dev, points[nl].x+i, flooryd, points[nl].x+i, ceilyu);
 		   }
+
 		}
 		else
 		       draw_line_simple(dev, points[nl].x+i, roundf(yu), points[nl].x+i, roundf(yd));
@@ -3064,6 +3067,8 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 		yu=klr*i+ymu;          //yu=ymu+klr*i;
 		yd=kmr*i+points[nm].y; //yd=points[nm].y+kmr*i;
 		//printf("part2: x=%d	yu=%d	yd=%d \n", points[nm].x+i, yu, yd);
+
+		//if(yu<yd) { tmp=yu; yu=yd; yd=tmp; } /* NOPE!!  */
 
 		if(dev->antialias_on) {
 			/* Draw inside complete pixels ONLY,
@@ -3077,8 +3082,8 @@ void draw_filled_triangle(FBDEV *dev, EGI_POINT *points)
 			    draw_line_simple(dev, points[nm].x+i, flooryu, points[nm].x+i, ceilyd);
 		}
 		else
-			if(floorf(yu)>=ceilf(yd))
-			     draw_line_simple(dev, points[nm].x+i, roundf(yu), points[nm].x+i, roundf(yd));
+			//if(floorf(yu)>=ceilf(yd))  /* MidasHK_2022-04-15  Hi,U! */
+			    draw_line_simple(dev, points[nm].x+i, roundf(yu), points[nm].x+i, roundf(yd));
 	}
 
 	/* In case a vertical side. */

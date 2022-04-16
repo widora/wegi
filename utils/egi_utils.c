@@ -27,6 +27,10 @@ Journal
 	2. Add egi_copy_fileBlock()
 2022-02-18:
 	1. Add EGI_ID3V2TAG and related functions.
+2022-04-10:
+	1. Add egi_getset_backlightPwmDuty()
+2022-04-11:
+	1. Add egi_byteswap()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -96,6 +100,27 @@ inline bool egi_host_littleEndian(void)
 	return (*ch)==0x88;
 }
 
+/*-------------------------------------------
+Reverse the order of bytes in data.
+	!!! CAUTION !!!
+The caller MUST ensure data mem space.
+
+@n:	Size of data.
+@data:  Pointer to data mem;
+------------------------------------------*/
+void egi_byteswap(int n, char *data)
+{
+	if(data==NULL || n<1)
+		return;
+
+	int k;
+	char tmp;
+	for(k=0; k<n/2; k++) {
+		data[k]=tmp;
+		data[k]=data[n-1-k];
+		data[n-1-k]=tmp;
+	}
+}
 
 /*--------------------------------------------------------
 Reallocate more memory space for the pointed memory block.
@@ -2619,3 +2644,109 @@ END_FUNC:
 	else
 		return mp3tag;
 }
+
+
+////////////////////////////////////////////////////////////
+
+/*--------------------------------------------
+Adjust PWM duty cycle for backlighting.
+Stroboflash frequency is set at 100KHz.
+
+Refrence: http://blog.csdn.net/qianrushizaixian/article/details/46536005
+
+@pwmnum:  PWM number.
+          0 0R 1.
+@pget:	  Pointer to pass out backlight PWM duty value read from ioctl.
+@pset:    Pointer to pass in backlight PWM duty value to set to ioctl.
+	  Percentage value of duty cycle. [0 100]
+	  If getvalue <0, PWM is NOT enabled.
+@adjust:  Adjust value, to be added on getvalue as setvaule.
+	  If pset==NULL, then added on cfg.getduty.
+
+Return:
+        0       OK
+        <0      Fail
+----------------------------------------------*/
+#include <sys/ioctl.h>
+#include "/home/midas-zhou/Ctest/kmods/soopwm/sooall_pwm.h"
+int egi_getset_backlightPwmDuty(int pwmnum, int *pget, int *pset, int adjust)
+{
+        int pwm_fd;
+        struct pwm_cfg  cfg;
+	int duty;
+        int ret;
+
+        /* Open PWM dev */
+        pwm_fd = open("/dev/"PWM_DEV_NAME, O_RDWR);
+        if (pwm_fd < 0) {
+                egi_dperr("open pwm failed");
+                return -1;
+        }
+
+        /* Ioctl to get duty */
+       	cfg.no=pwmnum;
+        if( ioctl(pwm_fd, PWM_GETDUTY, &cfg)<0 ) {
+		close(pwm_fd);
+               	return -1;
+	}
+
+	/* To pass out duty value */
+	if(pget)
+	     *pget=cfg.getduty;
+
+	/* Need NOT to set */
+	if( pset==NULL && adjust==0) {
+		close(pwm_fd);
+		return 0;
+	}
+
+	/* Set duty */
+	if(pset)
+	    duty=*pset;
+	else if(pget)
+	    duty= (*pget)>=0 ? (*pget)+adjust : 0+adjust;  /* <0 NOT enabled */
+	else /* In case pget and pset are both NULL*/
+	    duty=cfg.getduty+adjust;
+
+        /* Limt set value */
+        if(duty<0)duty=0;
+	if(duty>100)duty=100;
+
+        /* Set PWM parameters for old/classic mode. */
+        cfg.no        =   pwmnum?1:0;    /* 0:pwm0, 1:pwm1 */
+        cfg.clksrc    =   PWM_CLK_40MHZ; /* 40MHZ or 100KHZ */
+        cfg.clkdiv    =   PWM_CLK_DIV4;  /* DIV2 40/2=20MHZ */
+        cfg.old_pwm_mode =true;          /* TRUE: old mode; FALSE: new mode */
+        cfg.idelval   =   0;
+        cfg.guardval  =   0;
+        cfg.guarddur  =   0;
+        cfg.wavenum   =   0;             /* forever loop */
+        cfg.datawidth =   100;           /* limit 2^13-1=8191 */
+        cfg.threshold =   duty;          /* Duty cycle */
+
+        /*** Check period: Min. BackLight PWM Frequence(stroboflash) >3125Hz?
+         *  100KHz CLK: period=1000/100(KHZ)*(DIV(1-128))*datawidth   (us)
+         *  40MHz CLK: period=1000/40(MHz)*(DIV)*datawidth            (ns)
+         */
+        if(cfg.old_pwm_mode == true) {
+           if(cfg.clksrc == PWM_CLK_100KHZ) {
+                egi_dpstd("Set PWM period=%d us\n",(int)(1000.0/100.0*(1<<cfg.clkdiv)*cfg.datawidth));
+           }
+           else if(cfg.clksrc == PWM_CLK_40MHZ) {
+                /* PWM_CLK_40MHZ, PWM_CLK_DIV4, datawidth=100 --> period ==10us (100KHz) */
+                egi_dpstd("Set PWM period=%d ns\n",(int)(1000.0/40.0*(1<<cfg.clkdiv)*cfg.datawidth));
+          }
+        }
+        else  /* NEW mode */
+                egi_dpstd("Set PWM senddata0: %#08x  senddata1: %#08x \n",cfg.senddata0,cfg.senddata1);
+
+        /* Configure and enable PWM */
+        if( ioctl(pwm_fd, PWM_CONFIGURE, &cfg)<0 || ioctl(pwm_fd, PWM_ENABLE, &cfg)<0 )
+                ret=-1;
+
+	/* Close pwm dev */
+        close(pwm_fd);
+
+        return ret;
+}
+

@@ -420,7 +420,7 @@ int main(int argc, char **argv)
 
 	/* MAD_1: Prepare vol 启动系统声音调整设备 */
 	egi_dpstd("Getset PCM volume...\n");
-  	egi_getset_pcm_volume(NULL,NULL);
+  	egi_getset_pcm_volume(NULL, NULL,NULL);
 
   	/* MAD_2: Open pcm playback device 打开PCM播放设备. Ubuntu takes pcm devie exclusively!? */
 	egi_dpstd("Open pcm_handle...\n");
@@ -538,7 +538,7 @@ madSTAT=STAT_PLAY;
 	egi_dpstd("Cancel thread...\n");
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
         /* Make sure mutex unlocked in pthread if any! */
-	egi_dpstd("Joint thread_eringRoutine...\n");
+	egi_dpstd("Join thread_eringRoutine...\n");
         if( pthread_join(surfshmem->thread_eringRoutine, NULL)!=0 )
                 egi_dperr("Fail to join eringRoutine");
 
@@ -613,8 +613,8 @@ if( pmostat->conkeys.press_lastkey )
 			pdelt=-5;
 		}
 		if(pdelt) {
-			egi_adjust_pcm_volume(pdelt);
-			egi_getset_pcm_volume(&pvol, NULL);
+			egi_adjust_pcm_volume(NULL, pdelt);
+			egi_getset_pcm_volume(NULL, &pvol, NULL);
 
 			/* Draw Base Line */
 			fbset_color2(vfbdev, WEGI_COLOR_WHITE);
@@ -874,7 +874,7 @@ if( pmostat->conkeys.press_lastkey )
 							0, -1, btns[BTN_VOLUME]->x0, btns[BTN_VOLUME]->y0);
 
 				/* Mute/Demute */
-				egi_pcm_mute();
+				egi_pcm_mute(NULL);
 
 				break;
 		}
@@ -916,8 +916,8 @@ if( pmostat->conkeys.press_lastkey )
 		int pvol=0;  /* Volume [0 100] */
 	   	switch(mpbtn) {
 			case BTN_VOLUME:  /* Adjust volume */
-				egi_adjust_pcm_volume( -pmostat->mouseDZ);
-				egi_getset_pcm_volume(&pvol, NULL);
+				egi_adjust_pcm_volume(NULL, -pmostat->mouseDZ);
+				egi_getset_pcm_volume(NULL, &pvol, NULL);
 
 				/* Base Line */
 				fbset_color2(vfbdev, WEGI_COLOR_WHITE);
@@ -1090,6 +1090,7 @@ SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
 		egi_dperr("Fail to launch thread_EringRoutine!");
 		if( egi_unregister_surfuser(&msurfuser)!=0 )
 			egi_dpstd("Fail to unregister surfuser!\n");
+		return;
 	}
 
 	/* 7. Write content */
@@ -1113,7 +1114,7 @@ SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
 	egi_dpstd("Cancel thread...\n");
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
         /* Make sure mutex unlocked in pthread if any! */
-	egi_dpstd("Joint thread_eringRoutine...\n");
+	egi_dpstd("Join thread_eringRoutine...\n");
         if( pthread_join(msurfshmem->thread_eringRoutine, NULL)!=0 )
                 egi_dperr("Fail to join eringRoutine");
 
@@ -1243,7 +1244,7 @@ REGISTER_SURFUSER:
 	egi_dpstd("Cancel thread...\n");
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
         /* Make sure mutex unlocked in pthread if any! */
-	egi_dpstd("Joint thread_eringRoutine...\n");
+	egi_dpstd("Join thread_eringRoutine...\n");
         if( pthread_join(msurfshmem->thread_eringRoutine, NULL)!=0 )
                 egi_dperr("Fail to join eringRoutine");
 

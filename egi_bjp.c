@@ -52,6 +52,9 @@ Journal:
 	1. Add egi_check_pngfile()
 2022-04-04:
 	1. Add egi_picinfo_print()
+2022-04-11:
+	1. egi_parse_jpegFile(): parse GPS IFD.
+
 
 Modified and appended by Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -75,6 +78,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "egi_bjp.h"
 #include "egi_color.h"
 #include "egi_timer.h"
+#include "egi_utils.h"
 
 //static BITMAPFILEHEADER FileHead;
 //static BITMAPINFOHEADER InfoHead;
@@ -153,7 +157,7 @@ int egi_check_jpgfile(const char* fpath)
 		err=JPEGFILE_INCOMPLETE; goto END_FUNC;
 	}
 	if( marker[0]!=0xFF || marker[1]!=0xD8 ) {
-		egi_dpstd(DBG_YELLOW"No marker SOI!\n"DBG_RESET);
+		egi_dpstd(DBG_YELLOW"Marker SOI not found!\n"DBG_RESET);
 		err=JPEGFILE_INVALID; goto END_FUNC;
 	}
 
@@ -165,7 +169,7 @@ int egi_check_jpgfile(const char* fpath)
 		err=JPEGFILE_INCOMPLETE; goto END_FUNC;
 	}
 	if( marker[0]!=0xFF || marker[1]!=0xD9 ) {
-		egi_dpstd(DBG_YELLOW"No marker EOI!\n"DBG_RESET);
+		egi_dpstd(DBG_YELLOW"Marker EOI not found!\n"DBG_RESET);
 		err=JPEGFILE_INCOMPLETE;
 		//goto END_FUNC;  go on to check if invalid
 	}
@@ -329,7 +333,7 @@ int egi_simpleCheck_jpgfile(const char* fpath)
 	}
 	/*  JPEG SOI Mark */
 	if( marker[0]!=0xFF || marker[1]!=0xD8 ) {
-		egi_dpstd(DBG_YELLOW"No marker SOI!\n"DBG_RESET);
+		egi_dpstd(DBG_YELLOW"Marker SOI not found!\n"DBG_RESET);
 		err=JPEGFILE_INVALID; goto END_FUNC;
 	}
 
@@ -342,7 +346,7 @@ int egi_simpleCheck_jpgfile(const char* fpath)
 	}
 	/* JPEG EOI Mark*/
 	if( marker[0]!=0xFF || marker[1]!=0xD9 ) {
-		egi_dpstd(DBG_YELLOW"No marker EOI!\n"DBG_RESET);
+		egi_dpstd(DBG_YELLOW"Marker EOI not found!\n"DBG_RESET);
 		err=JPEGFILE_INCOMPLETE; goto END_FUNC;
 	}
 
@@ -2478,18 +2482,26 @@ EOI      0xFF, 0xD9    End of image
    49492A00 08000000   TIFF Header (Tag Image File Format)
    ------------------------------- (IFD: ImageFileDirectory = list of EXIF Tags )
    XXXX....               IFD0(main image) | Directory  ----> Tag 0x8769 link to SubIFD
-   LLLLLLL		    		   | Link to IFD1 ----> IFD1
+					   | 		----> Tag 0x8825 lingk to GPS IFD.
+   LLLLLLL		    		   | Link to IFD1 ----> IFD1  <----- At LAST
    XXXX....               Data area of IFD0
 
    XXXX....               Exif SubIFD      | Directory
    00000000                                | End of Link
    XXXX....               Data area Exif SubIFD
 
+   XXXX....               GPS_IFD          | Directory
+   00000000                                | End of Link
+   XXXX....		  Data area of GPS_IFD
+
    XXXX....               IFD1(thumbnai)   | Directory
    00000000                                | End of Link
    XXXX....               Data area of IFD1
+
    ------------------------------
    FFD8XXXX...XXXXFFD9    Thumbnail JPEG image(ALSO starts with 0xFFD8, end with 0xFFD9)
+
+  (Note: GPS tags are part of the EXIF standard, and are stored in a separate IFD within the EXIF information.)
 
   4.1 IFD directory structure
     ---------------------------------------
@@ -2500,6 +2512,8 @@ EOI      0xFF, 0xD9    End of image
     T(2Bs)+F(2Bs)+N(4Bs)+D(4Bs)   Entry2
     L(4Bs)   Offset to next IFD
 
+  4.2 IFD parsing sequence: IFD0-->(SubIFD, GPSIFD)-->IFD1
+
 
 Journal: (For record)
 2022-03-15: Create the file.
@@ -2508,7 +2522,7 @@ Journal: (For record)
 2022-03-18: Parse SOFn for image size.
 2022-03-19: Add EGI_PICINFO and egi_picinfo_calloc() egi_picinfo_free()
 2022-03-21: Move EGI_PICINFO and functions to egi_bjp.h egi_bjp.c
---- END ---
+--- END function journal here, see more at the module description ---
 
 		==========================
 
@@ -2545,6 +2559,7 @@ EGI_PICINFO* egi_parse_jpegFile(const char *fpath)
 	long offIFD0=0;		/* Offset to next IFD0, from TiffHeadPos */
 	long offIFD1=0;		/* Offset to next IFD1, from TiffHeadPos */
 	long offSubIFD=0;  	/* Offset to SubIFD, from TiffHeadPos */
+	long offGPSIFD=0;	/* Offset to GPSIFD, form TiffHeadPos */
 	long offNextIFD; 	/* Offset to next IFD, from TiffHeadPos */
 	unsigned int  ndent;  	/* number of directory entry */
 	unsigned char dentry[2+2+4+4]; /* Directory entry content: TagCode(2)+Format(2)+Components(4)+value(4) */
@@ -2572,8 +2587,16 @@ EGI_PICINFO* egi_parse_jpegFile(const char *fpath)
 		stage_IFD0   =0,
 		stage_IFD1   =1,
 		stage_SubIFD =2,
+		stage_GPSIFD =3,
 	};
 	int  IFDstage;  /* Image File Directory stage */
+
+	const char *stage_name[]= {
+		"IFD0",
+		"IFD1",
+		"SubIFD",
+		"GPSIFD",
+	};
 
 	int err=0;
 	int ret;
@@ -2833,7 +2856,7 @@ EGI_PICINFO* egi_parse_jpegFile(const char *fpath)
 				buff[6]='\0'; /* in case wrong header token */
 				egi_dpstd("Exif Header token: %s\n", buff);
 
-				/* Note: Traverse sequence: IFD0->SubIFD->IFD1 */
+				/* Note: Traverse sequence: IFD0->(SubIFD, GPSIFD)->IFD1 */
 
 				if(strcmp(buff,"Exif")!=0) {
 					egi_dpstd(DBG_RED"NOT Exif data, ignore.\n"DBG_RESET);
@@ -2892,8 +2915,9 @@ EGI_PICINFO* egi_parse_jpegFile(const char *fpath)
 				/* E1.5 Start form IFD0 */
 				IFDstage=stage_IFD0;
 
-START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
-				/* IFD directory
+START_IFD_DIRECTORY:		/* Start of 'IFD0' OR 'SubIFD; OR 'IFD1' OR 'GPS_IFD' */
+
+				/* ----- IFD directory
 				    E(2Bs) : Number of directory entry
 				    T(2Bs)+F(2Bs)+N(4Bs)+D(4Bs)   Entry0   (T-Tag, F-Format, N-NumberOfComponent, D-DataValue)
 				    T(2Bs)+F(2Bs)+N(4Bs)+D(4Bs)   Entry1
@@ -2916,8 +2940,8 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 				else
 					ndent=buff[1]+(buff[0]<<8);
 
-				egi_dpstd(">>>>>>  %s directory has %d entrys  <<<<<< \n",
-					IFDstage==stage_IFD0?"IFD0":(IFDstage==stage_IFD1?"IFD1":"SubIFD"),  ndent);
+				egi_dpstd(DBG_MAGENTA">>>>>>  %s directory has %d entrys  <<<<<< \n"DBG_RESET, stage_name[IFDstage], ndent);
+					//IFDstage==stage_IFD0?"IFD0":(IFDstage==stage_IFD1?"IFD1":"SubIFD"),  ndent);
 
 				/* E1.5.2. Parse entrys */
 				for(k=0; k<ndent; k++) {
@@ -2944,6 +2968,159 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 //					egi_dpstd("Exif Tag: 0x%04X  entcomp=%d\n", tagcode, entcomp);
 
         //////////// Exif data:: Parse IFD Entrys ///////////////////////////////////////////////
+
+	/* E1.5.2.1 Parse tages of GPSIFD. */
+	if(IFDstage==stage_GPSIFD) {
+		uint16_t num, denom;
+		int deg,min; double sec;
+
+		egi_dpstd("GPSIFD tag 0x%04X, entcomp=%d, entval=%d\n", tagcode, entcomp, entval);
+
+#if 0		/* Check GPS Tag version */
+		if( !(PicInfo->GPSTagVer[0]==0 && PicInfo->GPSTagVer[1]==0) ) {  /* Init value 0000 */
+		       if( !(PicInfo->GPSTagVer[0]==2 && PicInfo->GPSTagVer[1]==2) ) { /* ONLY support 2.2.0.0 */
+				egi_dpstd("GPS Tag Version %d.%d.%d.%d NOT supported yet!\n",
+						PicInfo->GPSTagVer[0],PicInfo->GPSTagVer[1],PicInfo->GPSTagVer[2],PicInfo->GPSTagVer[3] );
+				continue;
+			}
+		}
+#endif
+
+		switch(tagcode) {
+			case 0x0000:   /* GPSVersionID, 4 BYTE */
+			    if(IsHostByteOrder==true) { /* LittleEndian */
+			         egi_dpstd("LittleEndia, GPS Tag Version: %d.%d.%d.%d\n",
+						entval&0xff, (entval>>8)&0xff, (entval>>16)&0xff, (entval>>24)&0xff);
+				 // XXX *(int *)PicInfo->GPSTagVer = entval;
+				 PicInfo->GPSTagVer[0]=entval&0xff; PicInfo->GPSTagVer[1]=(entval>>8)&0xff;
+				 PicInfo->GPSTagVer[2]=(entval>>16)&0xff; PicInfo->GPSTagVer[3]=(entval>>24)&0xff;
+			    }
+			    else {
+			         egi_dpstd("BigEndia, GPS Tag Version: %d.%d.%d.%d\n",
+						(entval>>24)&0xff,(entval>>16)&0xff,(entval>>8)&0xff,entval&0xff);
+				 // XXX *(int *)PicInfo->GPSTagVer = entval;
+				 PicInfo->GPSTagVer[0]=(entval>>24)&0xff; PicInfo->GPSTagVer[1]=(entval>>16)&0xff;
+				 PicInfo->GPSTagVer[2]=(entval>>8)&0xff; PicInfo->GPSTagVer[3]=entval&0xff;
+			    }
+			    break;
+			case 0x0001: /* 0x0001	GPSLatitudeRef	string[] */
+			   /* Positive for north latitudes or negative for south, or a string containing N, North, S or South
+			    * For GPS Tag Ver 2.2.0.0:  'N' or 'S'
+			    */
+			   //printf("LatitudeRef signed entval(N/S): %d\n",(int)entval);
+			   egi_dpstd("LatitudeRef: %c\n", IsHostByteOrder? entval&0xff: (entval>>24)&0xff);
+			   if(IsHostByteOrder==true)
+				PicInfo->GPSLatitudeRef = ( (entval&0xff)=='N' || (entval&0xff)=='n')? 1:-1;
+			   else
+				PicInfo->GPSLatitudeRef = ( ((entval>>24)&0xff)=='N' || ((entval>>24)&0xff)=='n')? 1:-1;
+			   break;
+			case 0x0002:	/* GPSLatitude */
+			   /* Then entval is offset value */
+			   SaveCurPos=ftell(fil);
+			   if(fseek(fil, TiffHeadPos+entval, SEEK_SET)!=0) {
+				egi_dperr("Fail to fseek");
+				err=-5; goto END_FUNC;
+		    	   }
+
+			   /* Read Latitude Deg/Min/Sec: Each with 4bytes numerator and 4bytes denominator */
+			   ret=fread(buff, 8, entcomp, fil);
+			   if(ret<entcomp) {
+       	                	egi_dperr("Fail to read GPS Latitude.");
+               	                err=-5;  goto END_FUNC;
+                       	   }
+			   /* ASSERT entcomp==3 */
+			   /* Reorder byte sequence */
+			   if(IsHostByteOrder==false) {
+				egi_byteswap(4, buff); egi_byteswap(4, buff+4);
+				egi_byteswap(4, buff+8); egi_byteswap(4, buff+12);
+				egi_byteswap(4, buff+16); egi_byteswap(4, buff+20);
+			   }
+			   num=*(uint16_t *)buff;
+			   denom=*(uint16_t *)(buff+4);
+			   deg=num/denom;
+			   num=*(uint16_t *)(buff+8);
+			   denom=*(uint16_t *)(buff+12);
+			   min=num/denom;
+			   num=*(uint16_t *)(buff+16);
+			   denom=*(uint16_t *)(buff+20);
+			   sec=((double)1.0)*num/denom;
+
+			   egi_dpstd("GPSLatitude: %dDeg_%dMin_%fSec\n", deg, min, sec);
+
+			   /* Assign to PicInfo */
+			   //PicInfo->GPSLatitude= 1.0*deg +1.0*min/60.0 +1.0*sec/3600.0;
+			   PicInfo->GPSLatiDeg=deg;
+			   PicInfo->GPSLatiMin=min;
+			   PicInfo->GPSLatiSec=sec;
+
+			   /* Restore SEEK position */
+			   fseek(fil, SaveCurPos, SEEK_SET);
+		           break;
+
+			case 0x0003: /* 0x0003	GPSLongitudeRef string[] */
+			   /* Positive positive for east longitudes or negative for west, or a string containing E, East, W or West
+			    * For GPS Tag Ver 2.2.0.0:  'E' or 'W'
+			    */
+			   //printf("LongitudeRef signed entval(N/S): %d\n",(int)entval);
+			   egi_dpstd("LongitudeRef: %c\n", IsHostByteOrder? entval&0xff: (entval>>24)&0xff);
+			   if(IsHostByteOrder==true)
+				PicInfo->GPSLongitudeRef = ( (entval&0xff)=='E' || (entval&0xff)=='e')? 1:-1;
+			   else
+				PicInfo->GPSLongitudeRef = ( ((entval>>24)&0xff)=='E' || ((entval>>24)&0xff)=='e')? 1:-1;
+
+			   break;
+
+			case 0x0004:	/* GPSLongitude	 */
+			   /* Then entval is offset value */
+			   SaveCurPos=ftell(fil);
+			   if(fseek(fil, TiffHeadPos+entval, SEEK_SET)!=0) {
+				egi_dperr("Fail to fseek");
+				err=-5; goto END_FUNC;
+		    	   }
+
+			   /* Read Deg/Min/Sec: Each with 4bytes numerator and 4bytes denominator */
+			   ret=fread(buff, 8, entcomp, fil);
+			   if(ret<entcomp) {
+       	                	egi_dperr("Fail to read GPS Latitude.");
+               	                err=-5;  goto END_FUNC;
+                       	   }
+			   /* ASSERT entcomp==3 */
+			   /* Reorder byte sequence */
+			   if(IsHostByteOrder==false) {
+				egi_byteswap(4, buff); egi_byteswap(4, buff+4);
+				egi_byteswap(4, buff+8); egi_byteswap(4, buff+12);
+				egi_byteswap(4, buff+16); egi_byteswap(4, buff+20);
+			   }
+			   num=*(uint16_t *)buff;
+			   denom=*(uint16_t *)(buff+4);
+			   deg=num/denom;
+			   num=*(uint16_t *)(buff+8);
+			   denom=*(uint16_t *)(buff+12);
+			   min=num/denom;
+			   num=*(uint16_t *)(buff+16);
+			   denom=*(uint16_t *)(buff+20);
+			   sec=((double)1.0)*num/denom;
+
+			   egi_dpstd("GPSLongitude: %dDeg_%dMin_%fSec\n", deg, min, sec);
+
+			   /* Assign to PicInfo */
+			   //PicInfo->GPSLongitude= 1.0*deg +1.0*min/60.0 +1.0*sec/3600.0;
+			   PicInfo->GPSLongiDeg=deg;
+			   PicInfo->GPSLongiMin=min;
+			   PicInfo->GPSLongiSec=sec;
+
+			   /* Restore SEEK position */
+			   fseek(fil, SaveCurPos, SEEK_SET);
+		           break;
+
+			default:
+			    break;
+		}
+
+		continue;  /* --------> for(k->ndent) at E1.5.2 */
+	}
+
+	/* E1.5.2.2 Parse tags of IFD0/IFD1/SubIDF */
 	switch(tagcode) {
 		case 0x010e:  /* 0x010e ImageDescription, ascii string */
 		    /* Then entval is offset value */
@@ -3109,6 +3286,7 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 
 /* ----- Exif data:: Offset to Sub IFD ----- */
 		case 0x8769: /* 0x8769 ExifOffset 1 unsigned long Offset to Exif Sub IFD */
+			egi_dpstd(DBG_MAGENTA">>>>>>>>>> Exif Tag 0x8769: Offset to SubIFD <<<<<<<<<<<\n"DBG_RESET);
 
 		#if 0
 		    /* Entval is the offset value, to Exif SubIFD */
@@ -3125,6 +3303,18 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 		    offSubIFD=entval;
 
 		    break;
+
+/* ---- Offset to GPS IFD ---- */
+		case 0x8825:
+			egi_dpstd(DBG_MAGENTA">>>>>>>>>> Exif Tag 0x8825: Offset to GPS_IFD <<<<<<<<<<<\n"DBG_RESET);
+
+			/* Save offGPSIFD */
+			offGPSIFD=entval;
+
+			/* Set GPS ON */
+			PicInfo->GPS_on=true;
+
+			break;
 
 /* ---- For SubIFD Directory ---- */
 		case 0x9003:  /* DateTime Original, ascii string 20bytes with '\0' */
@@ -3222,11 +3412,13 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 	}
         //////////// Exif data:: END Parse IFD Entrys ///////////////////////////////////////////////
 
-				} /* End for(k) pase entrys */
+				} /* End for(k) parse all entrys, */
 
 				/* NOW: At end of the file directory(TAG lists) */
 
-				/* E1.5.3 At end of the file directory, read Offset to next IFD */
+				/* E1.5.3 At end of the file directory, after parsing all entrys,
+				 * it is the Offset to next IFD.
+				 */
         	                ret=fread(tmpbuf, 1, 4, fil);
                 	        if(ret<4) {
                         	       egi_dperr("Fail to read 4bytes offset to next IFD.");
@@ -3249,33 +3441,51 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 				else if(IFDstage==stage_IFD1) {
 				     offIFD1=0; /* Reset! */
 				     egi_dpstd("End of IFD1 directory, offNextIFD=%ld. --- BREAK ---\n", offNextIFD);
-				     break;  /* Break Exif_data case (case 0xE1) */
+
+/*  Finish all IFDs ----------> Break Exif_data case (case 0xE1) */
+				     break;
 				}
 				else if(IFDstage==stage_SubIFD) {
 				        egi_dpstd("End of SubIFD directory, offNextIFD=%ld\n", offNextIFD);
 					offSubIFD=0; /* Reset */
 				}
-				/* Sequence: IFD0-->SubIFD-->IFD1, MUST break when IFDstage==stage_SubIFD, or it loops. */
+				else if(IFDstage==stage_GPSIFD) {
+				        egi_dpstd("End of PGSIFD directory, offNextIFD=%ld\n", offNextIFD);
+					offGPSIFD=0; /* Reset */
+				}
 
-				/* E1.5.6 Skip to SubIFD */
+				/* Sequence: IFD0-->(SubIFD,GPSIFD)-->IFD1, MUST break when IFDstage==stage_SubIFD, or it loops. */
+
+				/* E1.5.6 Skip/offset to SubIFD, from TiffHeadPos */
 				if(offSubIFD>0 && IFDstage!=stage_SubIFD) {
 		    			if(fseek(fil, TiffHeadPos+offSubIFD, SEEK_SET)!=0) {
 						egi_dperr("Fail to fseek to SubIFD");
 						err=-5; goto END_FUNC;
 					}
 
-		    			IFDstage=stage_SubIFD;
+		    			IFDstage=stage_SubIFD;  /* --------------> SubIFD  */
 		    			goto START_IFD_DIRECTORY;
 		    		}
 
-				/* E1.5.7 Skip to IFD1 */
+				/* E1.5.6A Skip/offset to GPSIFD ,from TiffHeadPos */
+				if(offGPSIFD!=0) {
+					if(fseek(fil, TiffHeadPos+offGPSIFD, SEEK_SET)!=0) {
+                                                egi_dperr("Fail to fseek to GPSIFD");
+                                                err=-5; goto END_FUNC;
+                                        }
+					egi_dpstd("---------> go to GPSIFD.\n");
+                                        IFDstage=stage_GPSIFD;   /* --------------> GPSIFD */
+                                        goto START_IFD_DIRECTORY;
+				}
+
+				/* E1.5.7 Skip/offset to IFD1, from TiffHeadPos. */
 				if(offIFD1!=0) {
 		    			if(fseek(fil, TiffHeadPos+offIFD1, SEEK_SET)!=0) {
 						egi_dperr("Fail to fseek to IFD1");
 						err=-5; goto END_FUNC;
 		    			}
 
-					IFDstage=stage_IFD1;
+					IFDstage=stage_IFD1;   /* --------------> IFD1 */
 					goto START_IFD_DIRECTORY;
 				}
 
@@ -3294,7 +3504,6 @@ START_IFD_DIRECTORY:		/* Start of IFD0 OR SubIFD OR IFD1  */
 
 			   	break;
 			} /* END M3.5 switch (marker[1]) */
-
 
 			/* M3.6 Get to the END of the segment */
 			if(!found_SOS) {

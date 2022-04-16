@@ -335,6 +335,8 @@ struct egi_surface_shmem {
 	int		nw;
 	int		nh;
 
+	//uint32_t	options;  	/* */
+
 	/* Top bar appearance options for firstdraw_surface() */
 #define TOPBAR_NONE	(0)		/* No topbar/topbtn/surfname */
 #define TOPBAR_COLOR	(1<<0)		/* Topbar color band: if firstdraw options >= (1<<0) */
@@ -346,11 +348,17 @@ struct egi_surface_shmem {
 #define TOPBTN_MIN	(1<<3)		/* button MINIMIZE */
 #define TOPBTN_MAX	(1<<4)		/* button MAXIMIZE */
 
+	/* Surface frame appearance */
+#define SURFFRAME_DEFAULT (0)		/* Default as single line */
+#define SURFFRAME_NONE   (1<<8)   	/* No frame */
+#define SURFFRAME_THICK  (1<<9)		/* TODO */
+
 
 #define TOPBTN_CLOSE_INDEX	0 	/* WARNGING: same order as surfshmem->mpbtn */
 #define TOPBTN_MIN_INDEX	1
 #define TOPBTN_MAX_INDEX	2
 #define TOPBTN_MAXNUM		3	/* Totally 3 buttons for sbtns[] */
+
 
 	ESURF_BTN     *sbtns[3];      /* CLOSE/MIN/MAX.  If NULL, ignore. same order as surfshmem->mpbtn */
 					/* NOW to be allocated/released by SURFUSER

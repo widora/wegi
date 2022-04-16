@@ -2886,8 +2886,8 @@ Note:
 
 Return:
 	0	OK
-	<0	Fails.
-	>0 	Not found.
+	<0	Fails.       value[0] set to 0.
+	>0 	Not found.   value[0] set to 0.
 ---------------------------------------------------------------------*/
 int cstr_get_html_attribute(const char *str, const char *name, char *value)
 {
