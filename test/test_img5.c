@@ -76,7 +76,7 @@ int main(int argc, char **argv)
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
-#if 1 /* ------------------ TEST: EGI_IMGMOTION  ---------------------*/
+#if 0 /* ------------------ TEST: EGI_IMGMOTION  ---------------------*/
 //int egi_imgmotion_saveHeader(const char *fpath, int width, int height, int delayms, int compress);
 //int egi_imgmotion_appendFrame(const char *fpath, EGI_16BIT_COLOR *imgbuf);
 
@@ -111,7 +111,7 @@ int main(int argc, char **argv)
 #endif
 
 
-#if 0 /* ------------------ TEST: egi_imgbuf_mapTriWriteFB()  ---------------------*/
+#if 1 /* ------------------ TEST: egi_imgbuf_mapTriWriteFB()  ---------------------*/
    EGI_POINT pts[3];
    int ang=0;
    struct {
@@ -123,6 +123,19 @@ int main(int argc, char **argv)
 
 EGI_IMGBUF *eimg=egi_imgbuf_readfile(argv[1]);
    egi_subimg_writeFB(eimg, &gv_fb_dev, 0, -1, 0, 0);
+
+ #if 1
+   #define  MAPTRI_MOTION_FILE "/mmc/test_maptri.motion"
+   if(egi_imgmotion_saveHeader(MAPTRI_MOTION_FILE, 320, 240, 10, 1)==0)
+	printf("Imgmotion file '%s' is created!\n", MAPTRI_MOTION_FILE);
+   else {
+	printf("Fail to create imgmotion file!\n");
+	exit(-1);
+   }
+   EGI_IMGBUF *fbimg=egi_imgbuf_createLinkFBDEV(&gv_fb_dev);
+   if(fbimg==NULL) exit(-1);
+
+ #endif
 
    /* Mapping uv on original image */
    uvs[0].u=190.0/320.0;   uvs[0].v=130.0/240.0;
@@ -137,15 +150,21 @@ EGI_IMGBUF *eimg=egi_imgbuf_readfile(argv[1]);
    fb_render(&gv_fb_dev);
    fb_copy_FBbuffer(&gv_fb_dev,FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);
 
-   sleep(2);
+ //  sleep(2);
 
    /* Triangle potins on the screen */
    pts[0].x=5;      pts[0].y=240/2;
    pts[2].x=5+240;  pts[2].y=240/2;
 
    while(1) {
-	ang +=10;
-	if(ang>360) ang=0;
+	if(ang>=0 && ang<=30)  ang+=2;
+	else if(ang>=150 && ang<=210) ang+=2;
+	else if(ang>=330) ang+=2;
+	else
+	   ang +=5;
+
+	//if(ang>360) ang=0;
+	if(ang>360) exit(0);
 
 	pts[1].x = 5+120+ 120*cos(MATH_PI*ang/180);
 	pts[1].y = 120+ 120*sin(MATH_PI*ang/180);
@@ -182,17 +201,24 @@ EGI_IMGBUF *eimg=egi_imgbuf_readfile(argv[1]);
 			);
 	#endif
 
-#if 0	/* Draw outline/edges. */
-   	fbset_color2(&gv_fb_dev, WEGI_COLOR_ORANGE);
+#if 1	/* Draw outline/edges. */
+	gv_fb_dev.antialias_on=true;
+   	fbset_color2(&gv_fb_dev, WEGI_COLOR_RED);
    	draw_line(&gv_fb_dev, pts[0].x,pts[0].y, pts[1].x,pts[1].y);
    	draw_line(&gv_fb_dev, pts[0].x,pts[0].y, pts[2].x,pts[2].y);
    	draw_line(&gv_fb_dev, pts[1].x,pts[1].y, pts[2].x,pts[2].y);
+	gv_fb_dev.antialias_on=false;
 #endif
 	fb_render(&gv_fb_dev);
 
+ #if 1
+        egi_imgmotion_saveFrame(MAPTRI_MOTION_FILE, fbimg);
+ #endif
+
 	tm_delayms(60);
-	sleep(1);
+	//sleep(1);
   }
+  //egi_imgbuf_freeLinkFBDEV(&fbimg);
 
 exit(0);
 

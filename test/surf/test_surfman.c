@@ -37,6 +37,7 @@ Note:
 	If a surface is clicked on SURFBTN_MIN and its status is changed to be SURFACE_STATUS_MINIMIZED
         by the SURFUSER itself. SURFMAN's render_thread will then categorize it to minibar menu.
 	In such case,
+	TODO: The TOP surface to be changed, and surfman->surfaces[] to be resorted.
 6. The SURFMAN requests a surface to close by eringing msg ERING_SURFACE_CLOSE to the surface.
 
 TODO:
@@ -140,6 +141,8 @@ Journal
 2021-07-01:
 	1. Delete variable 'surface_downhold', no use now.
 	2. W.2.7.2  DO NOT ering LeftKeyDownHold to may non_TOPsurfaces.
+2022-04-17:
+	1. Click on Menulist "Shut Down" to terminate surfman service.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -388,7 +391,7 @@ int main(int argc, char **argv)
 
 	/* 5. Do SURFMAN routine jobs while no command */
 	k=SURFMAN_MAX_SURFACES-1;
-	while( surfman->cmd !=1 ) {
+	while( surfman->cmd !=SURFMAN_CMD_END_SURFMAN ) {
 
 /* TEST: ------- SURFMSG ------- */
 		/* Receive msg queue _REQUEST_DISPINFO from surfaces */
@@ -466,7 +469,8 @@ KEY_INPUT:
 				else if( kbdstat.conkeys.asciikey == KEY_ESC ) {
 					pthread_mutex_lock(&surfman->surfman_mutex);
 			/* ------ >>>  Surfman Critical Zone  */
-					if(surfman->scnt >0) {
+					/* Notice that there maybe NO surface OR ALL in minibar! MidasHK_2022-04-16 */
+					if(surfman->scnt >0 && surfman_get_TopDispSurfaceID(surfman)>=0 ) {
 					    #if 1 /* unet_sendmsg, emsg type only. */
 					        emsg->type=ERING_SURFACE_CLOSE;
 			                        if( unet_sendmsg( surfman->surfaces[SURFMAN_MAX_SURFACES-1]->csFD, emsg->msghead) <=0 )
@@ -667,8 +671,27 @@ WAIT_REQUEST:
 					}
 					else
 					{
-						/* Load MenuItem Linked PROG */
-						egi_surfMenuList_runMenuProg(surfman->menulist);
+						/* Shut Down  MidasHK_2022-04-17 */
+						if(strcmp(surfman->menulist->path[surfman->menulist->depth]->mitems[surfman->menulist->fidx].descript,
+							  "Shut Down")==0 ) {
+							/* Set signal to quit */
+							surfman->cmd=1;
+
+							/* Unlock to let other thread to end */
+		        /* ------ <<<  Surfman Critical Zone  */
+                				        pthread_mutex_unlock(&surfman->surfman_mutex);
+
+							/* Turn off Menulist */
+                                                	surfman->menulist_ON = false;
+                                                	surfman->menulist->depth=0;
+							tm_delayms(100);
+
+							continue;
+						}
+						else {
+							/* Load MenuItem Linked PROG */
+							egi_surfMenuList_runMenuProg(surfman->menulist);
+						}
 						surfman->menulist_ON = false;
 						surfman->menulist->depth=0;
 					}
@@ -702,9 +725,9 @@ WAIT_REQUEST:
 					/* If A surface is brought to TOP by resorting zseq, after other surface quits.
 					 * ERING MSG TO THE SURFACE!
 					 */
-					if( userID != surfman->surfaces[surfID]->csFD ) {
+					if( userID != surfman->surfaces[surfID]->csFD ) {  /* Top surface changed! */
 
-				 #if 0 /* CANCELED: ------  BY surfman_render_thread()!!! */
+				 #if 0 /* CANCELED: ------  BY surfman_render_thread(), see B.2b !!! */
 						userID = surfman->surfaces[surfID]->csFD;
 						/* Send msg to the surface */
 						emsg->type=ERING_SURFACE_BRINGTOP;
@@ -836,7 +859,7 @@ WAIT_REQUEST:
 							emsg, ERING_MOUSE_STATUS, pmostat, sizeof(EGI_MOUSE_STATUS) ) <=0 ) {
 							egi_dpstd("Fail to sendmsg ERING_MOUSE_STATUS!\n");
 						}
-						egi_dpstd("Ering_msg_send OK! Mxy(%d,%d)\n",pmostat->mouseX, pmostat->mouseY);
+//						egi_dpstd("Ering_msg_send OK! Mxy(%d,%d)\n",pmostat->mouseX, pmostat->mouseY);
 
 	/* TEST: ------ check lastkey */
 						if(pmostat->conkeys.press_lastkey)
@@ -957,7 +980,14 @@ END_MOUSE_EVENT:
 
    	} /* End while() */
 
-	/* Free SURFMAN */
+	egi_dpstd(DBG_RED"surfman end service...\n"DBG_RESET);
+
+	/* Turn OFF MenuList before destroy surfman. let renderThread ignore it. */
+	surfman->menulist_ON = false;
+
+	/* Free SURFMAN, follow jobs to be carried out in sequence:
+         *  Stop repThread, unregister surfusers, destroy userver, stop renderThread, free surfman->menulist ...
+	 */
 	egi_destroy_surfman(&surfman);
 	//egi_imgbuf_free(mcursor)(mgrab);
 

@@ -97,15 +97,19 @@ struct egi_surface_user {
         int             msgid;                  /* Message queue identifier, SURFMAN is the Owner! */
 //      key_t           msgkey;                 /* key_t associated with msgid */
 
-	EGI_SURFSHMEM	*surfshmem;		/* Shared memory data in a surface, to release by egi_munmap_surfshmem()
+	EGI_SURFSHMEM	*surfshmem;		/* Shared memory data in a surface, to be released by egi_munmap_surfshmem()
 						 * Include surfshmem->thread_eringRoutine.
 						 * NOW: one surfuer for one surface only.
 						 * TODO: XXX More than 1 SURFACEs for a SURFUSER ???!
-						 * 	XXX 1. means more surfshmem. ( and vfbdev? imgbuf?)
-						 * 	XXX 2. This will complicate ering_msg_send() to each surface.
+						 * 	 XXX 1. means more surfshmem. ( and vfbdev? imgbuf?)
+						 *  	 XXX 2. This will complicate ering_msg_send() to each surface.
 						 */
 
-	FBDEV  		vfbdev;			/* Virtual FBDEV, statically allocated. */
+	FBDEV  		vfbdev;			/* Virtual FBDEV, statically allocated.
+						 * 1. Set VFBDEV.pixcolor_on at egi_register_surfuser()
+        					 * 2. Set VFBDEV.pixcolor_on after calling reinit_virt_fbdev().
+					  	 */
+
 	EGI_IMGBUF 	*imgbuf;		/* Imgbuf as linked to virtual FBDEV.
 						 * 1. Only allocate a EGI_IMGBUF struct.
 						 * 2. Its color/alpha data only a ref. pointer to surfshmem->color[]
@@ -178,9 +182,15 @@ struct egi_surface_manager {
 	int 		msgid;			/* message queue identifier! Careful about its PERMISSION mode. */
 //	key_t 		msgkey;			/* key_t associated with msgid */
 
+        int              cmd;           /* cmd to surfman, NOW:
+					     cmd=1: To end test_surfman main()
+					     cmd=2: To end repthread.
+					     cmd=3: To end renderThread! the last thread to quit, so keep FB updating till then.
+					 */
+#define   SURFMAN_CMD_END_SURFMAN   	1
+#define   SURFMAN_CMD_END_REPTHREAD   	2
+#define   SURFMAN_CMD_END_RENDERTHREAD  3
 
-
-        int              cmd;           /* cmd to surfman, NOW: 1 to end acpthread & renderThread! */
 
         /* 3. Surfman request processing: create and register surfaces.  */
 	pthread_t		repThread;	/* Request_processing thread */
@@ -270,7 +280,10 @@ struct egi_surface_manager {
 struct egi_surface_shmem {
 
 	#define SURFNAME_MAX	256
-	char		surfname[SURFNAME_MAX];	 /* Name of the surface/application, which MAY appears on surface topbar */
+	char		surfname[SURFNAME_MAX];	 /* Name of the surface/application,
+					 	  * It will appear on surface topbar, exept option TOPBAR_NONE.
+						  * It will appear on miniBar Menu if minimized.
+					          */
 
 	size_t		shmsize;	/* Total memory allocated for the shmem
 					 * EGI_SURFACE also holds the data!
@@ -335,7 +348,12 @@ struct egi_surface_shmem {
 	int		nw;
 	int		nh;
 
-	//uint32_t	options;  	/* */
+
+	/*		---- SURFACE APPEARANCE ----
+	 * Note:
+	 * 1. Surface appearance is defined by surfuser_firstdraw_surface().
+	 */
+	uint32_t	apoptions;  	/* Surface appearance options */
 
 	/* Top bar appearance options for firstdraw_surface() */
 #define TOPBAR_NONE	(0)		/* No topbar/topbtn/surfname */
@@ -484,7 +502,7 @@ struct egi_surface {
 
 	int 		zseq;		/* 1. Sequence as of zbuffer, =0 for BackGround. For active surface: 1,2,3,4...
 					 *    Each surface has a unique zseq, and all zseqs are in serial.
-					 * 2. Surface with bigger zseq to be rendered ahead of smaller one.
+					 * 2. Surface with bigger zseq to be rendered ahead of smaller one. <---- NOW
 					 * 3. To update when surfman->surfaces[] add/delete a surface, and keep Max_zseq = surfman.scnt!
 					 *    The latest registered/added surface always holds the Max_zseq.
 					 * 4. ALWAYAS keep surfman->surfaces[]->zseq in ascending order!
@@ -619,7 +637,7 @@ __attribute__((weak)) void surfuser_minimize_surface(EGI_SURFUSER *surfuser);
 __attribute__((weak)) void surfuser_close_surface(EGI_SURFUSER **surfuser);
 
 __attribute__((weak)) void *surfuser_ering_routine(void *surf_user);
-__attribute__((weak)) void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex */
+__attribute__((weak)) void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex, surfuser_ering_routine() */
 
 bool egi_point_on_surface(const EGI_SURFSHMEM *surfshmem, int x, int y); /* in work_area, NOT include frame_area */
 

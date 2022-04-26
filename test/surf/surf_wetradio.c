@@ -409,6 +409,7 @@ int main(int argc, char **argv)
 	/* 5. First draw surface. */
 	//surfshmem->bkgcolor=WEGI_COLOR_GRAY3; /* OR default BLACK */
 	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN, 0, NULL); /* Default firstdraw operation */
+
         /* 5A. Set Alpha Frame and Draw outline rim */
         int rad=10;
         egi_imgbuf_setFrame(surfimg, frame_round_rect, -1, 1, &rad);
@@ -719,7 +720,7 @@ int main(int argc, char **argv)
 	if( egi_unregister_surfuser(&surfuser)!=0 )
 		egi_dpstd("Fail to unregister surfuser!\n");
 
-	egi_dpstd("Exit OK!\n");
+	egi_dpstd("WetRadio: Exit OK!\n\n");
 	exit(0);
 }
 
@@ -1334,7 +1335,7 @@ EGI_16BIT_COLOR  mbkgcolor=WEGI_COLOR_GRAYB;
 	if( egi_unregister_surfuser(&msurfuser)!=0 )
 		egi_dpstd("Fail to unregister surfuser!\n");
 
-	egi_dpstd("Exit OK!\n");
+	egi_dpstd("WetRadio: Exit OK!\n");
 
 	/* Return listbox item index */
 	return listbox->SelectIdx;

@@ -4662,11 +4662,11 @@ int egi_imgbuf_uvToPixel(EGI_IMGBUF *imgbuf, float u, float v,
 
 	/* Get f15_ratio for interpolatoin. */
 	int f15_ratioX=roundf((modff(u*imgw, &ftmp)*(1<<15)));
-	Wl=roundf(ftmp);
+	Wl=ftmp; //roundf(ftmp);
 	Wr=Wl+1;
 
 	int f15_ratioY=roundf((modff(v*imgh, &ftmp)*(1<<15)));
-	Hu=roundf(ftmp);
+	Hu=ftmp; //roundf(ftmp);
 	Hd=Hu+1;
 
 	/* Get four pixel as boxing points. */
@@ -4713,17 +4713,30 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 				      float x2, float y2, float z2 )
 
 {
-	/* Check input data */
+	int i, k, kstart, kend;
+	int nl=0,nr=0; /* left and right point index */
+	int nm; /* mid point index */
+	float klr,klm,kmr;
+
+	/* OR use INT type */
+	float yu=0;
+	float yd=0;
+	float ymu=0;
+	float zu, zd;
+	//float tmp;
+	long int locimg;
+	EGI_16BIT_COLOR color;
+
+	/* 0. Check input data */
 	if( imgbuf==NULL || imgbuf->imgbuf==NULL ) {
 		egi_dpstd("Input EGI_IMBUG is NULL or uninitiliazed!\n");
 		return;
 	}
 	int imgw=imgbuf->width;
 	int imgh=imgbuf->height;
-	EGI_16BIT_COLOR color;
 
-	/* (1) Mapping matrix computation */
-	/* Prepare Matrix data for 3 vertices. */
+	/* 1. Mapping matrix computation */
+	/* 1.1 Prepare Matrix data for 3 vertices. */
 	//float uvmat[3*3]={ u0, v0, 1.0f, u1, v1, 1.0f, u2, v2, 1.0f };
 	float uvmat[3*3]={ u0, v0, 0.0f, u1, v1, 0.0f, u2, v2, 0.0f };
 	float xyzmat[3*3]={x0, y0, z0, x1, y1, z1, x2, y2, z2};
@@ -4742,16 +4755,17 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
  	struct float_Matrix matIXYZ;
 	matIXYZ.nr=3; matIXYZ.nc=3; matIXYZ.pmat=Ixyzmat;
 
-	/* Inverse matXYZ */
+	/* 1.2 Inverse matXYZ */
 	if( Matrix_Inverse(&matXYZ, &matIXYZ)==NULL ) {
 		egi_dpstd("Fail to inverse matrix_XYZ!\n");
 		return;
 	}
 
-	/* matT = matIXYZ*matUV */
+	/* 1.3 matT = matIXYZ*matUV */
 	Matrix_Multiply(&matIXYZ, &matUV, &matT);
 
-	/* (2) Map all point(xyz) in the triangle to point(uv) in the imgbuf */
+
+	/* 2. Define matPuv and matPxyz */
 	float ptuv[3]={0,0,1.0f};  /* U,V,1 */
 	struct float_Matrix matPuv;
 	matPuv.nr=1; matPuv.nc=3; matPuv.pmat=ptuv;
@@ -4760,6 +4774,7 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 	struct float_Matrix matPxyz;
 	matPxyz.nr=1; matPxyz.nc=3; matPxyz.pmat=ptxyz;
 
+	/* 3. Define a point array */
 	struct float_3dpoints {
 		float x; float y; float z;
 	} points[3];
@@ -4768,20 +4783,8 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 	points[1].x=x1; points[1].y=y1; points[1].z=z1;
 	points[2].x=x2; points[2].y=y2; points[2].z=z2;
 
-	int i, k, kstart, kend;
-	int nl=0,nr=0; /* left and right point index */
-	int nm; /* mid point index */
 
-	float klr,klm,kmr;
-
-	/* OR use INT type */
-	float yu=0;
-	float yd=0;
-	float ymu=0;
-	float zu, zd;
-	//float tmp;
-	long int locimg;
-
+	/* 4. Find Left, Right and Mid. point */
 	/* Cal nl, nr */
 	for(i=1;i<3;i++) {
 		if(points[i].x < points[nl].x) nl=i;
@@ -4798,6 +4801,7 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 	/* get x_mid point index */
 	nm=3-nl-nr;
 
+	/* 5. Compute side slopes. */
 	/* Ruled out (points[nr].x == points[nl].x), as nl==nr.  */
 	klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
 
@@ -4814,7 +4818,7 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 		kmr=1000000.0;
 	//printf("klr=%f, klm=%f, kmr=%f \n",klr,klm,kmr);
 
-	/* Draw left triangle */
+	/* 6. Left part of the triangle: traverse pixels and map to get color value. */
 	for( i=0; i<roundf(points[nm].x-points[nl].x+1); i++)
 	{
 		yu=klr*i+points[nl].y;	//points[nl].y+klr*i;
@@ -4832,6 +4836,7 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 			kend=roundf(yd);
 		}
 
+		/* Traverse pixels on the vertical line */
 		for(k=kstart; k<=kend; k++) {
 			ptxyz[0]=i+points[nl].x;   		//X
 			ptxyz[1]=k;				//Y
@@ -4844,16 +4849,24 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 			}
 
 			/* Get mapped pixel and draw_dot */
+		     #if 0 /* OPTION_1: Non_interpolation. */
                         /* image data location */
                         locimg=(roundf(ptuv[1]*imgh))*imgw+roundf(ptuv[0]*imgw); /* roundf */
 			if( locimg>=0 && locimg < imgh*imgw ) {
 		            fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
                             draw_dot(fb_dev, roundf(points[nl].x+i), k); // k as y
 			}
+                     #else /* OPTION_2: Get pixel color/alpha by interpolation */
+                        if( egi_imgbuf_uvToPixel(imgbuf, ptuv[0], ptuv[1], &color, NULL)==0 ) {
+                                fbset_color2(fb_dev, color);
+                                draw_dot(fb_dev, roundf(points[nl].x+i), k); // k as y
+                        }
+                    #endif
+
 		}
 	}
 
-   	/* Draw right triangle */
+	/* 7. Right part of the triangle: traverse pixels and map to get color value. */
 	ymu=yu;
 	for( i=0; i<roundf(points[nr].x-points[nm].x+1); i++)
 	{
@@ -4866,6 +4879,7 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 		if(yu>yd) { kstart=roundf(yd); kend=roundf(yu); }
 		else	  { kstart=roundf(yu); kend=roundf(yd); }
 
+		/* Traverse pixels on the vertical line */
 		for(k=kstart; k<=kend; k++) {
 			ptxyz[0]=i+points[nm].x;   		//X
 			ptxyz[1]=k;				//Y
@@ -4895,6 +4909,7 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 
 	}
 }
+
 
 /* OBSOLETE: replaced by egi_imgbuf_mapTriWriteFB3() */
 /* ---------<<<  ALGORITHM_2: Barycentric coordinates mapping  >>>----------

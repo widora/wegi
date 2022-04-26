@@ -5,6 +5,10 @@ published by the Free Software Foundation.
 
 Test EGI COLOR functions
 
+Journal:
+2022-04-19:
+	1. Test 143 HTML color definitions.
+
 Midas Zhou
 ------------------------------------------------------------------*/
 #include <stdio.h>
@@ -17,6 +21,22 @@ Midas Zhou
 #include "egi_color.h"
 #include "egi_log.h"
 #include "egi.h"
+#include "egi_FTsymbol.h"
+
+/*-------------------------------------
+        FTsymbol WriteFB TXT
+@txt:           Input text
+@px,py:         LCD X/Y for start point.
+--------------------------------------*/
+void FTsymbol_writeFB(char *txt, int fw, int fh, EGI_16BIT_COLOR color, int px, int py)
+{
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular,       /* FBdev, fontface */
+                                        fw, fh,(const unsigned char *)txt,      /* fw,fh, pstr */
+                                        320-10, 240/(fh+fh/5), fh/5,               /* pixpl, lines, fgap */
+                                        px, py,                         /* x0,y0, */
+                                        color, -1, 250,                 /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
+}
 
 /* Draw color band map */
 void draw_CBmap(const EGI_COLOR_BANDMAP *cbmap)
@@ -92,7 +112,101 @@ int main(void)
                 return -1;
 
 
-#if 1	/* ------- TEST: EGI COLOR BANDMAP ------ */
+
+
+#if 1	/* ------- TEST: EGI COLOR Definition ------ */
+
+EGI_16BIT_COLOR  colors[4*3*12]= {  /* 4x3 for one screen page */
+/* 8*17 + 7 = 143  */
+COLOR_AliceBlue, COLOR_AntiqueWhite, COLOR_Aqua, COLOR_Aquamarine, COLOR_Azure, COLOR_Beige, COLOR_Bisque, COLOR_Black,
+COLOR_BlanchedAlmond, COLOR_Blue, COLOR_BlueViolet, COLOR_Brown, COLOR_BurlyWood, COLOR_CadetBlue, COLOR_Chartreuse, COLOR_Chocolate,
+COLOR_Coral, COLOR_CornflowerBlue, COLOR_Cornsilk, COLOR_Crimson, COLOR_Cyan, COLOR_DarkBlue, COLOR_DarkCyan, COLOR_DarkGoldenRod,
+COLOR_DarkGray, COLOR_DarkGreen, COLOR_DarkKhaki, COLOR_DarkMagenta, COLOR_DarkOliveGreen, COLOR_DarkOrange, COLOR_DarkOrchid, COLOR_DarkRed,
+COLOR_DarkSalmon, COLOR_DarkSeaGreen, COLOR_DarkSlateBlue, COLOR_DarkSlateGray, COLOR_DarkTurquoise, COLOR_DarkViolet, COLOR_DeepPink, COLOR_DeepSkyBlue,
+COLOR_DimGray, COLOR_DodgerBlue, COLOR_Feldspar, COLOR_FireBrick, COLOR_FloraWhit, COLOR_ForestGreen, COLOR_Fuchsia, COLOR_Gainsboro,
+COLOR_GhostWhite, COLOR_Gold, COLOR_GoldenRod, COLOR_Gray, COLOR_Green, COLOR_GreenYellow, COLOR_HoneyDew, COLOR_HotPink,
+COLOR_IndianRed, COLOR_Indigo, COLOR_Ivory, COLOR_Khaki, COLOR_Lavender, COLOR_LavenderBlush, COLOR_LawnGreen, COLOR_LemonChiffon,
+COLOR_LightBlue, COLOR_LightCoral, COLOR_LightCyan, COLOR_LightGoldenRodYellow, COLOR_LightGrey, COLOR_LightGreen, COLOR_LightPink, COLOR_LightSalmon,
+COLOR_LightSeaGreen, COLOR_LightSkyBlue, COLOR_LightSlateBlue, COLOR_LightSlateGray, COLOR_LightSteelBlue, COLOR_LightYellow, COLOR_Lime, COLOR_LimeGreen,
+COLOR_Linen, COLOR_Magenta, COLOR_Maroon, COLOR_MediumAquaMarine, COLOR_MediumBlue, COLOR_MediumOrchid, COLOR_MediumPurple, COLOR_MediumSeaGreen,
+COLOR_MediumSlateBlue, COLOR_MediumSpringGreen, COLOR_MediumTurquoise, COLOR_MediumVioletRed, COLOR_MidnightBlue, COLOR_MintCream, COLOR_MistyRose, COLOR_Moccasin,
+COLOR_NavajoWhite, COLOR_Navy, COLOR_OldLace, COLOR_Olive, COLOR_OliveDrab, COLOR_Orange, COLOR_OrangeRed, COLOR_Orchid,
+COLOR_PaleGoldenRod, COLOR_PaleGreen, COLOR_PaleTurquoise, COLOR_PaleVioletRed, COLOR_PapayaWhip, COLOR_PeachPuff, COLOR_Peru, COLOR_Pink,
+COLOR_Plum, COLOR_PowderBlue, COLOR_Purple, COLOR_Red, COLOR_RosyBrown, COLOR_RoyalBlue, COLOR_SaddleBrown, COLOR_Salmon,
+COLOR_SandyBrown, COLOR_SeaGreen, COLOR_SeaShell, COLOR_Sienna, COLOR_Silver, COLOR_SkyBlue, COLOR_SlateBlue, COLOR_SlateGray,
+COLOR_Snow, COLOR_SpringGreen, COLOR_SteelBlue, COLOR_Tan, COLOR_Teal, COLOR_Thistle, COLOR_Tomato, COLOR_Turquoise,
+COLOR_Violet, COLOR_VioletRed, COLOR_Wheat, COLOR_White, COLOR_WhiteSmoke, COLOR_Yellow, COLOR_YellowGreen,
+
+};
+
+const char *color_names[4*3*12]={  /* 4*3 for one screen page */
+
+"AliceBlue", "AntiqueWhite", "Aqua", "Aquamarine", "Azure", "Beige", "Bisque", "Black",
+"BlanchedAlmond", "Blue", "BlueViolet", "Brown", "BurlyWood", "CadetBlue", "Chartreuse", "Chocolate",
+"Coral", "CornflowerBlue", "Cornsilk", "Crimson", "Cyan", "DarkBlue", "DarkCyan", "DarkGoldenRod",
+"DarkGray", "DarkGreen", "DarkKhaki", "DarkMagenta", "DarkOliveGreen", "DarkOrange", "DarkOrchid", "DarkRed",
+"DarkSalmon", "DarkSeaGreen", "DarkSlateBlue", "DarkSlateGray", "DarkTurquoise", "DarkViolet", "DeepPink", "DeepSkyBlue",
+"DimGray", "DodgerBlue", "Feldspar", "FireBrick", "FloraWhit", "ForestGreen", "Fuchsia", "Gainsboro",
+"GhostWhite", "Gold", "GoldenRod", "Gray", "Green", "GreenYellow", "HoneyDew", "HotPink",
+"IndianRed", "Indigo", "Ivory", "Khaki", "Lavender", "LavenderBlush", "LawnGreen", "LemonChiffon",
+"LightBlue", "LightCoral", "LightCyan", "LightGoldenRodYellow", "LightGrey", "LightGreen", "LightPink", "LightSalmon",
+"LightSeaGreen", "LightSkyBlue", "LightSlateBlue", "LightSlateGray", "LightSteelBlue", "LightYellow", "Lime", "LimeGreen",
+"Linen", "Magenta", "Maroon", "MediumAquaMarine", "MediumBlue", "MediumOrchid", "MediumPurple", "MediumSeaGreen",
+"MediumSlateBlue", "MediumSpringGreen", "MediumTurquoise", "MediumVioletRed", "MidnightBlue", "MintCream", "MistyRose", "Moccasin",
+"NavajoWhite", "Navy", "OldLace", "Olive", "OliveDrab", "Orange", "OrangeRed", "Orchid",
+"PaleGoldenRod", "PaleGreen", "PaleTurquoise", "PaleVioletRed", "PapayaWhip", "PeachPuff", "Peru", "Pink",
+"Plum", "PowderBlue", "Purple", "Red", "RosyBrown", "RoyalBlue", "SaddleBrown", "Salmon",
+"SandyBrown", "SeaGreen", "SeaShell", "Sienna", "Silver", "SkyBlue", "SlateBlue", "SlateGray",
+"Snow", "SpringGreen", "SteelBlue", "Tan", "Teal", "Thistle", "Tomato", "Turquoise",
+"Violet", "VioletRed", "Wheat", "White", "WhiteSmoke", "Yellow", "YellowGreen", " ",
+
+};
+
+ EGI_16BIT_COLOR fontColor,pickColor;
+
+  /* Set sys FB mode */
+  fb_set_directFB(&gv_fb_dev, true);
+  fb_position_rotate(&gv_fb_dev,0);
+
+  //gv_fb_dev.lumadelt=60; /* This will affect pickColor */
+
+   /* Load appfonts */
+   if(FTsymbol_load_appfonts() !=0 ) {     /* load FT fonts LIBS */
+          printf("Fail to load FT appfonts, quit.\n");
+          return -2;
+   }
+
+
+while(1) {
+  for(k=0; k<12; k++) {
+    for(i=0; i<3; i++) {
+	for(j=0; j<4; j++) {
+		draw_filled_rect2(&gv_fb_dev, colors[12*k+4*i+j], j*(320/4), i*(240/3), (j+1)*(320/4)-1, (i+1)*(240/3)-1);
+
+		//fontColor=WEGI_COLOR_WHITE;
+		pickColor=fbget_pixColor(&gv_fb_dev, j*(320/4)+5, i*(240/3)+10);
+		fontColor=COLOR_COMPLEMENT_16BITS(pickColor);
+		printf("Color: 0x%04X, PickColor: 0x%04X, Fontcolor: 0x%04X\n", colors[12*k+4*i+j], pickColor, fontColor);
+
+		FTsymbol_writeFB((char *)color_names[12*k+4*i+j], 12, 12, fontColor, j*(320/4)+5, i*(240/3)+10);
+
+		usleep(50000);
+	}
+    }
+    sleep(1);
+  }
+}
+
+exit(0);
+#endif
+
+
+
+
+
+
+
+#if 0	/* ------- TEST: EGI COLOR BANDMAP ------ */
 
 int inpos;  /* insert pos */
 int inlen;  /* insert len */
@@ -293,4 +407,6 @@ while(1)
 
 	return 0;
 }
+
+
 

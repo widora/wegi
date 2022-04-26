@@ -107,10 +107,10 @@ typedef struct fbdev{
 					 */
 	unsigned int	npg;		/* index of back buffer page, Now npg=0 or 1, maybe 2  */
 
-
-	EGI_IMGBUF	*virt_fb;	/* virtual FB, as an EGI_IMGBUF */
+					/* --- For Virtual FBDEV --- */
+	EGI_IMGBUF	*virt_fb;	/* virtual FB, as an EGI_IMGBUF, see also vimg_owner */
 	EGI_IMGBUF	*VFrameImg;	/* To hold a Virtual Frame IMGBUF. as result of a completed frame. render result.
-					 * vfb_render(): copy virt_fb to VFrameImg
+					 * vfb_render(): copy virt_fb to VFrameImg.
 					 */
 	bool		vimg_owner;	/* Ownership of virt_fb(imgbuf) and VFrameImg.
 					 * True:  FBDEV has the ownership, usually imgbuf is created/allocated during init_virt_fbdev().
@@ -139,7 +139,9 @@ typedef struct fbdev{
 					 * Note: Any function that need to set pixalpha_hold MUST reset it and
  					 *       reassign pixcolor to 255 before the end.
 					 */
-	int		lumadelt;	 /* Luminance adjustment value if !=0 */
+	int		lumadelt;	 /* Luminance adjustment value if !=0
+					  * If it applys, then fbget_pixColor() will NOT get the original color, since it's changed.
+					  */
 
 	 /*  Screen Position Rotation:  Not applicable for virtual FBDEV!
 	  *  Call fb_position_rotate() to change following items.

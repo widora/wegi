@@ -64,6 +64,9 @@ Journal:
 	1. userv_listen_thread(): Move checking_available_slot after calling_accept().
 2021-06-24:
 	1. ering_msg_send(): Consider if(data!=NULL && len!=0)...
+2022-04-17:
+	1. Add unet_sock_setTimeOut()
+	2. userv_listen_thread(): Set timeout for accpet, to avoid blocking when userv->cmd is set.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -167,6 +170,39 @@ int unet_default_sigAction(void)
 
 
 	/* ========================  Unet Functions  ========================== */
+
+/*--------------------------------------------------------------------
+Set SNDTIMEO/RECTIMEO for the socket.
+
+@sockfd: Socket descriptor.
+@sndtmo_sec, sndtmo_usec: send_timeout in seconds, and in microseconds.
+@rcvtmo_sec, rcvtmo_ousec: recv_timeout in seconds, and in microseconds.
+
+Return:
+        0       OK
+        <0      Fails
+--------------------------------------------------------------------*/
+int unet_sock_setTimeOut(int sockfd, long sndtmo_sec, long sndtmo_usec, long rcvtmo_sec, long rcvtmo_usec)
+{
+        struct timeval snd_timeout={sndtmo_sec, sndtmo_usec};
+        struct timeval rcv_timeout={rcvtmo_sec, rcvtmo_usec};
+
+	   if(sndtmo_sec || sndtmo_usec) {
+        if( setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, (void *)&snd_timeout, sizeof(snd_timeout)) <0 ) {
+                //printf("%s: Fail to setsockopt for snd_timeout, Err'%s'\n", __func__, strerror(errno));
+                return -1;
+        }
+   }
+   if(rcvtmo_sec || rcvtmo_usec) {
+        if( setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (void *)&rcv_timeout, sizeof(rcv_timeout)) <0 ) {
+                //printf("%s: Fail to setsockopt for recv_timeout, Err'%s'\n", __func__, strerror(errno));
+                return -2;
+        }
+   }
+
+        return 0;
+}
+
 
 
 /*-----------------------------------------------------
@@ -285,6 +321,13 @@ static void* userv_listen_thread(void *arg)
 	if(userv==NULL || userv->sockfd<=0 )
                 return (void *)-1;
 
+	/* 0. Set timeout for accpet, to avoid blocking when userv->cmd is set. */
+	if( unet_sock_setTimeOut(userv->sockfd, 0, 0, 3, 0)<0 ) {
+		egi_dperr(DBG_RED"Fail to set timeout!\n"DBG_RESET);
+		// GO ON....
+	}
+
+
         /* 1. Start listening */
         if( listen(userv->sockfd, userv->backlog) <0 ) {
                 //printf("%s: Fail to listen() sockfd, Err'%s'.\n", __func__, strerror(errno));
@@ -327,7 +370,7 @@ static void* userv_listen_thread(void *arg)
 
 
 		/* 2.3 Accept clients */
-		//egi_dpstd("accept() waiting...\n");
+		egi_dpstd(DBG_GREEN"accept() waiting...\n"DBG_RESET);
 		addrLen=sizeof(addrCLIT);
 	//csfd=accept4(userv->sockfd, (struct sockaddr *)&addrCLIT, &addrLen, SOCK_NONBLOCK|SOCK_CLOEXEC); /* flags for the new open file!!! */
 		csfd=accept(userv->sockfd, (struct sockaddr *)&addrCLIT, &addrLen);
@@ -435,7 +478,7 @@ int unet_destroy_Userver(EGI_USERV **userv )
 
 	/* Join acpthread */
 	(*userv)->cmd=1;  /* CMD to end thread */
-	//printf("%s: Join acpthread...\n", __func__);
+	egi_dpstd(DBG_YELLOW"Join acpthread...\n"DBG_RESET);
 	if( pthread_join((*userv)->acpthread, NULL)!=0 ) {
 		//printf("%s: Fail to join acpthread! Err'%s'\n", __func__, strerror(errno));
 		egi_dperr("Fail to join acpthread!");

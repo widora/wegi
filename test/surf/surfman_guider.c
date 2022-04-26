@@ -40,6 +40,8 @@ Journal:
 	1. bool guider_in_position.
 2022-04-14:
 	1. Add a surfuser for brightness adjustment.
+2022-04-24/25/26:
+	1. Add a surfuser for calender.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -121,6 +123,10 @@ void labicon_time_update(void);
 void surf_brightness(EGI_SURFSHMEM *surfowner, int x0, int y0);
 void draw_canvas_brightness(EGI_SURFUSER *surfuser);
 void surfbright_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
+
+void surf_calender(EGI_SURFUSER *surfowner);
+void calender_draw_canvas(EGI_SURFUSER *msurfuser);
+void calender_update(EGI_SURFUSER *msurfuser);
 
 //"ubus call network.wireless down",
 const char *arg_wifi_down[3]={
@@ -261,7 +267,7 @@ REGISTER_SURFUSER:
 	EGI_IMGBUF *pinyin_icon=egi_imgbuf_readfile("/mmc/icons/pinyin_icon.png");
 
 	/* Create Labels */
-        labicons[LABICON_TIME]=egi_surfLab_create(surfimg, SURF_MAXW-5-60, 1, SURF_MAXW-5-60, 1, 80, 30-2); /* img,xi,yi,x0,y0,w,h */
+        labicons[LABICON_TIME]=egi_surfLab_create(surfimg, SURF_MAXW-5-60, 1, SURF_MAXW-5-60, 1, 80, 30-8); //2); /* img,xi,yi,x0,y0,w,h */
         egi_surfLab_updateText(labicons[LABICON_TIME], "00:00");
         egi_surfLab_writeFB(vfbdev, labicons[LABICON_TIME], egi_sysfonts.bold, 16, 16, WEGI_COLOR_LTYELLOW, 0, 4);
 
@@ -376,7 +382,7 @@ REGISTER_SURFUSER:
 	if( egi_unregister_surfuser(&surfuser)!=0 )
 		egi_dpstd("Fail to unregister surfuser!\n");
 
-	printf("Exit OK!\n");
+	printf("Surfman_Guider: Exit OK!\n");
 	exit(0);
 }
 
@@ -440,7 +446,7 @@ void my_firstdraw_surface(EGI_SURFUSER *surfuser, int options)
 
 #if 1   /* 5. Draw outline rim */
 	//fbset_color(SURF_OUTLINE_COLOR);
-	fbset_color(WEGI_COLOR_BLACK);
+	fbset_color2(vfbdev, WEGI_COLOR_BLACK);
         draw_rect(vfbdev, 0,0, surfshmem->vw-1, surfshmem->vh-1);
 #endif
 
@@ -464,9 +470,10 @@ void labicon_time_update(void)
         egi_surfLab_writeFB(vfbdev, labicons[LABICON_TIME], egi_sysfonts.regular, 16, 16, WEGI_COLOR_LTYELLOW, 0, 4);
 }
 
-/////////////////// Brightness adjust ///////////////////
+/////////////////// Surface for Brightness Adjusting ///////////////////
 /*-------------------------------------------
 A SURF to show brightness value bar.
+surfowner: NOT used!
 --------------------------------------------*/
 void surf_brightness(EGI_SURFSHMEM *surfowner, int x0, int y0)
 {
@@ -491,6 +498,7 @@ void surf_brightness(EGI_SURFSHMEM *surfowner, int x0, int y0)
 
 	/* 2. Get ref. pointers to vfbdev/surfimg/surfshmem */
 	mvfbdev=&msurfuser->vfbdev;
+	//msurfuser->vfbdev.pixcolor_on=true;  //OK, default
 	msurfimg=msurfuser->imgbuf;
 	msurfshmem=msurfuser->surfshmem;
 
@@ -544,28 +552,29 @@ void surf_brightness(EGI_SURFSHMEM *surfowner, int x0, int y0)
 	if( egi_unregister_surfuser(&msurfuser)!=0 )
 		egi_dpstd("Fail to unregister surfuser!\n");
 
-	egi_dpstd("Exit OK!\n");
+	egi_dpstd("Surf_Brightness: Exit OK!\n");
 }
 
 /*--------------------------------------
 Draw canvas, as frame_round_rect.
 ---------------------------------------*/
-void draw_canvas_brightness(EGI_SURFUSER *surfuser)
+void draw_canvas_brightness(EGI_SURFUSER *msurfuser)
 {
 	int duty;
 	int rad=6;
-        egi_imgbuf_resetColorAlpha(surfuser->imgbuf, WEGI_COLOR_DARKPURPLE, 120); //180);  /*  imgbuf, color, alpha */
-        egi_imgbuf_setFrame(surfuser->imgbuf, frame_round_rect, -1, 1, &rad);
+        egi_imgbuf_resetColorAlpha(msurfuser->imgbuf, WEGI_COLOR_DARKPURPLE, 120); //180);  /*  imgbuf, color, alpha */
+        egi_imgbuf_setFrame(msurfuser->imgbuf, frame_round_rect, -1, 1, &rad);
 
 	EGI_IMGBUF *icon=egi_imgbuf_readfile("/mmc/icons/brightness_24x24.png");
-	egi_subimg_writeFB(icon, &surfuser->vfbdev, 0, -1, 8, 8);
+	egi_subimg_writeFB(icon, &msurfuser->vfbdev, 0, -1, 8, 8);
 
-	/* Write birghtness bar */
-	fbset_color2(&surfuser->vfbdev, WEGI_COLOR_GRAY2);
-	draw_wline_nc(&surfuser->vfbdev, 40, 20, 40+160, 20, 11);
-	fbset_color2(&surfuser->vfbdev, WEGI_COLOR_WHITE);
+	/* Birghtness value bar */
+	fbset_color2(&msurfuser->vfbdev, WEGI_COLOR_GRAY2);
+	draw_wline_nc(&msurfuser->vfbdev, 40, 20, 40+160, 20, 11);
+
+	fbset_color2(&msurfuser->vfbdev, WEGI_COLOR_WHITE);
 	egi_getset_backlightPwmDuty(0, &duty, NULL, 0);
-	draw_wline_nc(&surfuser->vfbdev, 40, 20, 40+160*duty/100, 20, 11);
+	draw_wline_nc(&msurfuser->vfbdev, 40, 20, 40+160*duty/100, 20, 11);
 }
 
 
@@ -608,6 +617,8 @@ void surfbright_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 
 	/* Adjust brightness */
 	if( pmostat->mouseDZ ) {
+		egi_dpstd("mouseDZ\n");
+
 		int duty;
                 egi_getset_backlightPwmDuty(0, NULL, NULL, -pmostat->mouseDZ*1);
         	egi_getset_backlightPwmDuty(0, &duty, NULL, 0);
@@ -632,6 +643,254 @@ void surfbright_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 	}
 }
 
+/////////////////// Surface for Date and Calender  ///////////////////
+
+/*-------------------------------------------
+A SURF to show brightness value bar.
+surfowner: NOT used!
+--------------------------------------------*/
+void surf_calender(EGI_SURFUSER *surfowner)
+{
+	int msw=230;  /* 5+ 30*7 +5 */
+	int msh=220;  /* 35 +30 +25*6 +5 */
+	//int x0=0, y0=0;  /* Origin relative to surfowner */
+
+	/* 0. Varaibles and Refes. */
+	EGI_SURFUSER *msurfuser=NULL;
+	EGI_SURFSHMEM *msurfshmem=NULL; /* Only a ref. to surfuser->surfshemem */
+	FBDEV	 *mvfbdev=NULL;	      /* Only a ref. to &surfuser->vfbdev */
+	EGI_IMGBUF *msurfimg=NULL;    /* Only a ref. to surfuser->imgbuf */
+	SURF_COLOR_TYPE mcolorType=SURF_RGB565_A8; /* surfuser->vfbdev color type */
+	//EGI_16BIT_COLOR  mbkgcolor;
+
+	/* 1. Register/Create a surfuser */
+	egi_dpstd("Register to create a surfuser...\n");
+	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, (320-msw)/2, (240-msh)/2, //surfowner->x0+x0, surfowner->y0+y0,
+					 msw, msh, msw, msh, mcolorType); /* Fixed size */
+	if(msurfuser==NULL) {
+		egi_dpstd(DBG_RED"Fail to register surface!\n"DBG_RESET);
+		return;
+	}
+
+	/* 2. Get ref. pointers to vfbdev/surfimg/surfshmem */
+	mvfbdev=&msurfuser->vfbdev;
+	//mvfbdev->pixcolor_on=true;  // OK, default
+	msurfimg=msurfuser->imgbuf;
+	msurfshmem=msurfuser->surfshmem;
+
+	/* 3. Assgin OP function, connect with CLOSE/MIN./MIN. buttons etc. */
+	//msurfshmem->minimize_surface	= surfuser_minimize_surface; /* Surface module default function */
+	//msurfshmem->redraw_surface	= surfuser_redraw_surface;
+	//msurfshmem->maximize_surface	= surfuser_maximize_surface; /* Need resize */
+	//msurfshmem->normalize_surface	= surfuser_normalize_surfac; /* Need resize */
+	msurfshmem->close_surface	= surfuser_close_surface;
+	msurfshmem->draw_canvas	        = calender_draw_canvas;
+	//msurfshmem->user_mouse_event  = surfbright_mouse_event;
+
+	/* 4. Name for the surface */
+	strncpy(msurfshmem->surfname, "日历", SURFNAME_MAX-1);
+
+	/* 5. First draw surface */
+	msurfshmem->bkgcolor=WEGI_COLOR_GRAYA; /* OR default BLACK */
+	/* First draw */
+	surfuser_firstdraw_surface(msurfuser, TOPBTN_CLOSE|SURFFRAME_NONE, 0, NULL);  /* Default firstdraw operation */
+
+	/* 6. Start Ering routine */
+	egi_dpstd("Start ering routine...\n");
+	if( pthread_create(&msurfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, msurfuser)!=0 ) {
+		egi_dperr("Fail to launch thread EringRoutine!");
+		if(egi_unregister_surfuser(&msurfuser)!=0)
+			egi_dpstd("Fail to unregister surfuser!\n");
+		return;
+	}
+
+	/* 7. Other jobs... */
+
+	/* 8. Activate image */
+	msurfshmem->sync=true;
+
+	/* ===== Main Loop ===== */
+	while(msurfshmem->usersig !=1 ) {
+
+		pthread_mutex_lock(&msurfshmem->shmem_mutex);
+		//calender_draw_canvas(msurfuser);
+ 		calender_update(msurfuser);
+		pthread_mutex_unlock(&msurfshmem->shmem_mutex);
+
+
+		sleep(1);
+	}
+
+	/* P1. Join ering routine */
+	//surfuser->surfshmem->usersig=1; // Useless if thread is busy calling a BLOCKING function.
+	egi_dpstd("Cancel thread...\n");
+	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	/* Make sure mutex unlocked in pthread if any! */
+	egi_dpstd("Join thread_eringRoutine...\n");
+	if( pthread_join(msurfshmem->thread_eringRoutine, NULL)!=0)
+		egi_dperr("Fail to join eringRoutine!\n");
+
+	/* P2. Unregister and destroy surfuser */
+	egi_dpstd("Unregister surfuser...\n");
+	if( egi_unregister_surfuser(&msurfuser)!=0 )
+		egi_dpstd("Fail to unregister surfuser!\n");
+
+	egi_dpstd("Surf_Brightness: Exit OK!\n");
+}
+
+
+
+/*--------------------------------------
+Draw canvas, as frame_round_rect.
+---------------------------------------*/
+void calender_draw_canvas(EGI_SURFUSER *msurfuser)
+{
+	int duty;
+	int rad=6;
+
+        egi_imgbuf_resetColorAlpha(msurfuser->imgbuf, WEGI_COLOR_DARKPURPLE, 255);  /*  imgbuf, color, alpha */
+
+	/* Draw Topbar */
+	draw_filled_rect2(&msurfuser->vfbdev, COLOR_DimGray, 0,0, msurfuser->imgbuf->width-1, SURF_TOPBAR_HEIGHT-1);
+	/* Make round corners */
+        egi_imgbuf_setFrame(msurfuser->imgbuf, frame_round_rect, -1, 1, &rad); /* For SURF_RGB565_A8 */
+
+
+//	EGI_IMGBUF *icon=egi_imgbuf_readfile("/mmc/icons/brightness_24x24.png");
+//	egi_subimg_writeFB(icon, &msurfuser->vfbdev, 0, -1, 8, 8);
+
+}
+/*---------------------------------------
+Display calender content
+----------------------------------------*/
+void calender_update(EGI_SURFUSER *msurfuser)
+{
+	//msw=230;  /* 5+ 30*7 +5 */
+        //msh=220;  /* 35 +30 +25*6 +5 */
+
+	int k;
+	int pixlen;
+	char strtmp[128];
+	int monthdays; /* Total days in this month */
+	int weekday;   /* Day of the week (0-6, Sunday = 0) */
+	int firstweekday;  /* weekday of the 1st day this month */
+	const char *strWeekday[]={"日", "一", "二", "三", "四", "五", "六"};  /* sunday =0 */
+
+	/* Clear Topbar area, -30: DO NOT cover TOPBTN_CLOSE */
+	draw_filled_rect2(&msurfuser->vfbdev, COLOR_DimGray, 0,0, msurfuser->imgbuf->width-1 -30, SURF_TOPBAR_HEIGHT-1);
+
+	/* Clear calender back ground */
+	draw_filled_rect2(&msurfuser->vfbdev, WEGI_COLOR_DARKPURPLE, 0,SURF_TOPBAR_HEIGHT,
+							msurfuser->imgbuf->width-1, msurfuser->imgbuf->height-1);
+	/* Make round corners */
+	int rad=6;
+        egi_imgbuf_setFrame(msurfuser->imgbuf, frame_round_rect, -1, 1, &rad); /* For SURF_RGB565_A8 */
+
+	/* Get local time */
+ 	time_t ttm=time(NULL);
+	struct tm *localTM;	/* Today, now */
+
+	time_t ttm2;
+	struct tm tmpTM;	/* First day (sunday) on the calender, usually day of the last month. */
+
+	localTM=localtime(&ttm);  /* The return value points to a statically allocated struct  */
+
+	/* Get days in this Month  */
+	if( localTM->tm_mon +1 != 2 )
+		monthdays=tm_MonthDays[localTM->tm_mon];  /* tm_mon: Month (0-11) */
+	else
+		monthdays=tm_daysInFeb(localTM->tm_year+1900);
+
+	/* Get weekday of 1st day this month */
+ 	firstweekday=localTM->tm_wday-((localTM->tm_mday-1)%7);     /* tm_mday:  day of the month (1-31) */
+	if(firstweekday<0)
+		firstweekday +=7;
+
+	/* Go back to the first day(sunday) on the calender, usually to be day of the last month. */
+	ttm2=time(NULL);
+	ttm2 -= (localTM->tm_mday+firstweekday-1)*24*3600;
+	localtime_r(&ttm2, &tmpTM);
+
+	/* Write date on top */
+	sprintf(strtmp, "%d年%d月%d日 星期%s", localTM->tm_year+1900, localTM->tm_mon+1, localTM->tm_mday, strWeekday[localTM->tm_wday]);
+        FTsymbol_uft8strings_writeFB( &msurfuser->vfbdev, egi_sysfonts.regular,        /* FBdev, fontface */
+                                      16, 16, (const UFT8_PCHAR)strtmp, 	/* fw,fh, pstr */
+                                      320, 1, 0,                        /* pixpl, lines, fgap */
+                                      10, 5,                           /* x0,y0, */
+                                      COLOR_White, -1, 240,             /* fontcolor, transcolor,opaque */
+                                      NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
+
+	/* Write Weekday title: 日, 一, 二, 三, 四, 五, 六 */
+	for(k=0; k<7; k++) {
+	        pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.regular, 18, 18, (const UFT8_PCHAR)strWeekday[k]);
+	        FTsymbol_uft8strings_writeFB( &msurfuser->vfbdev, egi_sysfonts.regular,        /* FBdev, fontface */
+                                      18, 18, (const UFT8_PCHAR)strWeekday[k], 		/* fw,fh, pstr */
+                                      320, 1, 0,                        /* pixpl, lines, fgap */
+                                      10+30*k+(30-pixlen)/2, 35,         /* x0,y0, */
+                                      COLOR_Tomato, -1, 240,        /* fontcolor, transcolor,opaque */
+                                      NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
+	}
+
+	/* Display days of the LAST/PREV month remaining on the calender */
+	if(firstweekday!=0) {
+
+		for(k=0; k<firstweekday; k++) {
+			weekday=k;
+			sprintf(strtmp, "%d", tmpTM.tm_mday+k);
+		        pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.bold, 18, 18, (const UFT8_PCHAR)strtmp);
+	                FTsymbol_uft8strings_writeFB( &msurfuser->vfbdev, egi_sysfonts.bold,        /* FBdev, fontface */
+                                      18, 18, (const UFT8_PCHAR)strtmp,                 /* fw,fh, pstr */
+                                      320, 1, 0,                          /* pixpl, lines, fgap */
+                                      10+30*weekday+(30-pixlen)/2, 35+30, /* x0,y0, */
+                                      COLOR_Gray, -1, 200,            /* fontcolor, transcolor,opaque */
+                                      NULL, NULL, NULL, NULL);            /* int *cnt, int *lnleft, int* penx, int* peny */
+		}
+	}
+
+	/* Draw a pad for today  30x25  */
+	draw_filled_rect2(&msurfuser->vfbdev, COLOR_DeepPink, 10+30*localTM->tm_wday, 35+30+25*((firstweekday+localTM->tm_mday)/7),
+					10+30*localTM->tm_wday +30-1, 35+30+25*((firstweekday+localTM->tm_mday)/7) +25-1 );
+	/* Draw pads for Saturday and Sunday */
+	for(k=0; k<monthdays; k++) {
+		weekday=(firstweekday+k)%7;
+		if(weekday==0 || weekday==6 ) {
+			draw_filled_rect2(&msurfuser->vfbdev, COLOR_DarkOliveGreen,  10+30*weekday, 35+30+25*((firstweekday+k)/7),
+								    10+30*weekday +30-1, 35+30+25*((firstweekday+k)/7) +25-1);
+		}
+	}
+
+	/* Write Month days. 30x25 block for one day.  */
+	for(k=0; k<monthdays; k++) {
+		weekday=(firstweekday+k)%7;
+		sprintf(strtmp, "%d", k+1);
+	        pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.bold, 18, 18, (const UFT8_PCHAR)strtmp);
+	        FTsymbol_uft8strings_writeFB( &msurfuser->vfbdev, egi_sysfonts.bold,        /* FBdev, fontface */
+                                      18, 18, (const UFT8_PCHAR)strtmp, 		/* fw,fh, pstr */
+                                      320, 1, 0,                        /* pixpl, lines, fgap */
+                                      10+30*weekday+(30-pixlen)/2, 35+30+25*((firstweekday+k)/7), /* x0,y0, */
+                                      COLOR_Cornsilk, -1, 200,        /* fontcolor, transcolor,opaque */
+                                      NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
+	}
+
+	/* Write days of the NEXT month to fill up the calender space */
+	//if( (firstweekday+monthdays)/7 <5 ) {
+	if( firstweekday+monthdays < 6*7 ) {
+		int j;  /* mday for NEXT month */
+		weekday=(firstweekday+monthdays)%7; /* the first weekday for the NEXT month */
+		//for(k=weekday,j=1; k<7; k++,j++) {
+		for(k=firstweekday+monthdays, j=1; k<6*7; k++,j++) {
+			sprintf(strtmp, "%d", j);
+			pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.bold, 18, 18, (const UFT8_PCHAR)strtmp);
+		        FTsymbol_uft8strings_writeFB( &msurfuser->vfbdev, egi_sysfonts.bold,        /* FBdev, fontface */
+        	                              18, 18, (const UFT8_PCHAR)strtmp, 		/* fw,fh, pstr */
+                	                      320, 1, 0,                        /* pixpl, lines, fgap */
+                        	              10+30*((weekday+j-1)%7)+(30-pixlen)/2, 35+30+25*(k/7), /* x0,y0, */
+                                	      COLOR_Gray, -1, 200,        /* fontcolor, transcolor,opaque */
+                                      	      NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
+		}
+	}
+
+}
 
 /*------------------------------------------------------------------
                 Mouse Event Callback
@@ -714,6 +973,12 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 				//XX iwpriv("ra0", "ApCliEnable", "1");
 				//XX system("wifi up");
 			}
+		}
+		else if ( egi_point_on_surfBox( (ESURF_BOX *)labicons[LABICON_TIME],
+					pmostat->mouseX-surfshmem->x0, pmostat->mouseY-surfshmem->y0) ) {
+			pthread_mutex_unlock(&surfshmem->shmem_mutex);
+			surf_calender(surfuser);
+			pthread_mutex_lock(&surfshmem->shmem_mutex);
 		}
 
 		/* Click on WiFi LABICON */

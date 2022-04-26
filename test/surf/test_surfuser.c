@@ -64,6 +64,8 @@ Journal
 	1. Add top menus[].
 2021-07-20:
 	1. Apply my_close_surface()
+2022-04-20:
+	1. Add menu_help()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -88,7 +90,7 @@ https://github.com/widora/wegi
 
 #define LOOP_TEST	0	/* Surface birdth and death loop test */
 
-//const char *pid_lock_file="/var/run/test_surfuser.pid";
+const char *pid_lock_file="/var/run/test_surfuser.pid";
 
 /* For SURFUSER */
 EGI_SURFUSER     *surfuser=NULL;
@@ -127,6 +129,8 @@ void  *surfuser_ering_routine(void *args);  /* For LOOP_TEST and ering_test, a l
 void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 void my_close_surface(EGI_SURFUSER *surfuer);
 
+void menu_help(EGI_SURFUSER *surfcaller);
+
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
 {
@@ -148,7 +152,8 @@ int main(int argc, char **argv)
 
 	int sw=0,sh=0; /* Width and Height of the surface */
 	int x0=0,y0=0; /* Origin coord of the surface */
-	char *pname=NULL;
+	//char *pname=NULL;
+	char pname[256]={0};
 
         /* <<<<<  EGI general initialization   >>>>>> */
 
@@ -182,7 +187,10 @@ int main(int argc, char **argv)
 				printf("Surface origin (%d,%d).\n", x0,y0);
 				break;
 			case 'n':
-				pname=optarg;
+				//pname=optarg;
+				pname[sizeof(pname)-1]=0;
+				snprintf(pname, sizeof(pname)-1, "%s[%d]", optarg, getpid()); /* MidasHK_2022-04-22 */
+				break;
                         case 'h':
 				printf("%s: [-hsc]\n", argv[0]);
 				break;
@@ -216,8 +224,10 @@ START_TEST:
 
 	/* 2. Get ref. pointers to vfbdev/surfimg/surfshmem */
 	vfbdev=&surfuser->vfbdev;
+	//OK, default: vfbdev.pixcolor_on=true;
 	surfimg=surfuser->imgbuf;
 	surfshmem=surfuser->surfshmem;
+
 
         /* Get surface mutex_lock.  ..Usually it's OK to be ignored! */
         if( pthread_mutex_lock(&surfshmem->shmem_mutex) !=0 ) {
@@ -239,8 +249,12 @@ START_TEST:
         //surfshmem->draw_canvas          = my_draw_canvas;
 	surfshmem->user_close_surface   = my_close_surface;
 
+        /* Assign BTN/MENU react funcionts, let default surfuser_parse_mouse_event() to parse and trigger in surfuser_ering_routine() */
+        //surfshmem->menu_react[MENU_OPTION]=menu_option;
+        surfshmem->menu_react[MENU_HELP]=menu_help;
+
 	/* 4. Give a name for the surface. */
-	if(pname)
+	if(pname[0])
 		strncpy(surfshmem->surfname, pname, SURFNAME_MAX-1);
 	else
 		strncpy(surfshmem->surfname, "EGI_SURF", SURFNAME_MAX-1);
@@ -352,7 +366,7 @@ START_TEST:
         /* <<<<<  EGI general release   >>>>>> */
         // Ignore;
 
-	printf("Exit OK!\n");
+	printf("Test_Surfuser: Exit OK!\n");
 	exit(0);
 }
 
@@ -535,7 +549,8 @@ void *surfuser_ering_routine(void *args)
 		    #endif
 		}
 
-		egi_dpstd("Ering_msg_recv OK\n");
+/* TEST: ------------ */
+//		egi_dpstd("Ering_msg_recv OK\n");
 
 	        /* 2. Parse ering messag */
         	switch(emsg->type) {
@@ -616,7 +631,8 @@ surfuser_parse_mouse_event(): Touch a BTN mpbtn=-1, i=0
 				mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
 				if(mouse_status->nch !=0)
 					egi_dpstd("Input chars: %-32.32s\n", mouse_status->chars);
-				egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
+/* TEST: ------- */
+//				egi_dpstd("MS(X,Y):%d,%d\n", mouse_status->mouseX, mouse_status->mouseY);
 				/* Parse mouse event */
 				surfuser_parse_mouse_event(surfuser,mouse_status);  /* mutex_lock */
 				/* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent. SURFMAN sets MEVENT before ering. */
@@ -669,5 +685,109 @@ void my_close_surface(EGI_SURFUSER *surfuer)
 /* ------ <<<  Surface shmem Critical Zone  */
         pthread_mutex_lock(&surfuser->surfshmem->shmem_mutex);
 
+}
+
+
+/*---------------------------------------------------------
+To create a SURFACE for menu_help.
+
+Note:
+1. If it's called in mouse event function, DO NOT forget to
+   unlock shmem_mutex.
+----------------------------------------------------------*/
+void menu_help(EGI_SURFUSER *surfcaller)
+{
+	int msw=210;
+	int msh=150;
+
+	/* Surface origin relative to surfcaller's */
+	int x0=20, y0=20;
+
+	const char *str_help = "  EGI_SURFACE图形界面\n\n \
+This program is under license of GNU GPL v2.\n \
+ Enjoy!";
+
+	EGI_SURFUSER	*msurfuser=NULL;
+	EGI_SURFSHMEM	*msurfshmem=NULL; /* Only a ref. to surfuser->surfshmem */
+	FBDEV           *mvfbdev=NULL;    /* Only a ref. to &surfuser->vfbdev */
+	//EGI_IMGBUF    *msurfimg=NULL;   /* ONly a ref. to surfuser->imgbuf */
+
+	SURF_COLOR_TYPE  mcolorType=SURF_RGB565; /* surfuser->vfbdev color type */
+	//EGI_16BIT_COLOR mbkgcolor;
+
+	/* 1. Register/Create a surfuser */
+	egi_dpstd("Register to create a surfuser...\n");
+	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN,NULL,surfcaller->surfshmem->x0+x0, surfcaller->surfshmem->y0+y0,
+					     msw, msh, msw, msh, mcolorType); /* Fixed size */
+	if(msurfuser==NULL) {
+		egi_dpstd("Fail to register surfuser!\n");
+		return;
+	}
+
+	/* 2. Get ref. pointers to vfbdev/surfimg/surfshmem */
+	mvfbdev=&msurfuser->vfbdev;
+	//msurfimg=msurfuser->imgbuf;
+	msurfshmem=msurfuser->surfshmem;
+
+	/* 3. Assign OP functions, connect with CLOSE/MIN./MAX. buttons etc. */
+	//surfshmem->minimize_surface      =surfuser_minimize_surface;   /* Surface module default functions */
+	//surfshmem->redraw_surface        =surfuser_redraw_surface;
+	//surfshmem->maximize_surface      =surfuser_maximize_surface;   /* Need resize */
+	//surfshmem->normalize_surface     =surfuser_normalize_surface;  /* Need resize */
+	msurfshmem->close_surface          =surfuser_close_surface;
+	//surfshmem->user_mouse_event      =my_mouse_event;
+
+	/* 4. Surface name to display */
+	strncpy(msurfshmem->surfname, "Help", SURFNAME_MAX-1);
+
+	/* 5. First draw surface */
+	msurfshmem->bkgcolor=COLOR_LightSteelBlue;
+	//msurfshmem->topmenu_bkgcolor=
+	//msurfshmem->topmenu_hltbkgcolor=
+	surfuser_firstdraw_surface(msurfuser, TOPBTN_CLOSE, 0, NULL);
+
+	/* 6. Start ering routine */
+	egi_dpstd("Start ering routine...\n");
+	if( pthread_create(&msurfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, msurfuser)!=0 ) {
+		egi_dperr("Fail to launch thread_eringRoutine!\n");
+		if( egi_unregister_surfuser(&msurfuser)!=0 )
+			egi_dpstd("Fail to unregister surfuser!\n");
+
+		return;
+	}
+
+	/* 7. Write HELP content */
+	FTsymbol_uft8strings_writeFB( mvfbdev, egi_sysfonts.regular,   	/* FBdev, fontface */
+               	                  15, 15, (UFT8_PCHAR)str_help,		/* fw,fh, pstr */
+                       	          msw-10, 10, 3,         		/* pixpl, lines, fgap */
+                               	  5,  35,    		  		/* x0,y0, */
+                                  COLOR_Black, -1, 240,     	/* fontcolor, transcolor,opaque */
+       	                          NULL, NULL, NULL, NULL);        	/* int *cnt, int *lnleft, int* penx, int* peny */
+
+	/* 8. Activate image */
+	msurfshmem->sync=true;
+
+	/* ====== Main Loop ====== */
+	while( msurfshmem->usersig !=1) {
+		usleep(100000);
+	}
+
+	/* P1. Join ering routine */
+	//surfshmem->usersig=1; //NO effect if thread is busy calling a BLOCKING function!
+	/* Actually shut down sockfd to quit ering in surfuser_close_surface() */
+	egi_dpstd("Cancel thread...\n");
+	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	/* Make sure mutex unlocked in pthread if any! */
+	egi_dpstd("Join thread_eringRoutine...\n");
+	if( pthread_join(msurfshmem->thread_eringRoutine, NULL)!=0 )
+		egi_dperr("Fail to join eringRoutine!\n");
+
+	/* P2. Unregister and destroy surfuser */
+	egi_dpstd("Unregister surfuser...\n");
+	if( egi_unregister_surfuser(&msurfuser)!=0 )
+		egi_dpstd("Fail to unregister surfuser!\n");
+
+
+	egi_dpstd("Exit OK!\n");
 }
 

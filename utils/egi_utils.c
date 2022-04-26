@@ -2686,6 +2686,7 @@ int egi_getset_backlightPwmDuty(int pwmnum, int *pget, int *pset, int adjust)
         /* Ioctl to get duty */
        	cfg.no=pwmnum;
         if( ioctl(pwm_fd, PWM_GETDUTY, &cfg)<0 ) {
+		egi_dperr("ioctl PWM_GETDUTY fails");
 		close(pwm_fd);
                	return -1;
 	}

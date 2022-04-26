@@ -85,12 +85,14 @@ SURFMAN:
      3.7 XXX Move SURFACEs by mouse dragging. (OR by SURFUSER? --OK )
 
 
-
 Note:
 1. Anonymous shared memory leakage/not_freed??  Busybox: ipcs ipcrm
 2. Surface lib functions call fbset_color() to apply fb_color, while APP set pixcolor_on and
    call fbset_color2() to use FBDEV.pixcolor, thus to avoid muti_thread interference.
-   OR: both use its own FBDEV.pixcolor.
+   OR: both use its own FBDEV.pixcolor.  
+   OK -----> Set VFBDEV.pixcolor_on at egi_register_surfuser()
+		!!! --- CAUTION --- !!!
+   Set VFBDEV.pixcolor_on after reinit_virt_fbdev().
 
 TODO:
 1. XXX Abrupt break of a surfuser will force surfman_request_process_thread()
@@ -285,6 +287,17 @@ Journal
 	1. surfuser_close_surface(): check confirmation.
 2022-04-15:
 	1. surfuser_firstdraw_surface(): parse option SURFFRAME_NONE and SURFFRAME_THICK.
+2022-04-16:
+	1. surfman_unregister_surface(): If ERR goto FREE_AND_SORT.
+	2. surfman_render_thread(): Check and bringTop in case the previou TopSurface is minimized/retired.
+2022-04-18:
+	1. egi_destroy_surfman(): To end renderThread at last when shut down, so it can show surfaces destoryed sequencely.
+2022-04-24:
+	1. surfuser_firstdraw_surface(): firstdraw all elements with vh=maxH/vw=maxW, restore vh/vw at the end.
+	2. struct SURFSHMEM: Add member 'apoptions' for apperance options.
+2022-04-026:
+	1. egi_register_surfuser(): Set VFBDEV.pixcolor_on at egi_register_surfuser()
+	2. Set VFBDEV.pixcolor_on after reinit_virt_fbdev(): surfuser_firstdraw_surface(), surfuser_redraw_surface()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -635,6 +648,8 @@ EGI_SURFUSER *egi_register_surfuser( const char *svrpath, const char *pid_lock_f
 		free(surfuser);
 		return NULL;
 	}
+	/* 7A. Set VFBDEV.pixcolor_on to avoid interference! MidasHK_2022-04-26 */
+	surfuser->vfbdev.pixcolor_on=true;
 
 	/* xxxx. Init first 3 surfuser->surfbtns[] as for CLOSE/MIN/MAX ---  */
 	/* NOW in surfuser_firstdraw_surface() */
@@ -903,7 +918,7 @@ static void* surfman_request_process_thread(void *arg)
 	/* Enter routine loop */
 	egi_dpstd("Start routine job...\n");
 	surfman->repThread_on=true;
-	while( surfman->cmd != 1 ) {
+	while( surfman->cmd != SURFMAN_CMD_END_REPTHREAD ) {
 
 		/* If there is no surfuser connected */
 		if( surfman->userv->ccnt==0) {
@@ -1070,6 +1085,8 @@ surfman_unregister_surface():           ----- (-)surfaces[7], scnt=4 -----
 
 	} /* END while() */
 
+	egi_dpstd(DBG_YELLOW"Ok, surfman->repThread ends!\n"DBG_RESET);
+
 	surfman->repThread_on=false;
 	return (void *)0;
 }
@@ -1192,8 +1209,9 @@ int egi_destroy_surfman(EGI_SURFMAN **surfman)
 	/* Get pointer to userv */
 	userv=(*surfman)->userv;
 
+#if 0 //////////// Make it the last thread to end  /////////////
 	/* 1. Join renderThread */
-	(*surfman)->cmd=1;
+	(*surfman)->cmd=SURFMAN_CMD_END_RENDERTHREAD;
 	/* Make sure mutex unlocked in pthread if any! */
 	if( pthread_join((*surfman)->renderThread, NULL) !=0 ) {
         	egi_dperr("Fail to join renderThread");
@@ -1210,6 +1228,8 @@ int egi_destroy_surfman(EGI_SURFMAN **surfman)
 	if((*surfman)->imgbuf)
 		egi_imgbuf_free2(&(*surfman)->imgbuf);
 
+#endif ///////////////////////////////////////////////////////
+
 	/* 4. Remove the message queue, awakening all waiting reader and writer processes
 	 *    (with an error return and  errno set to EIDRM).
 	 */
@@ -1220,8 +1240,9 @@ int egi_destroy_surfman(EGI_SURFMAN **surfman)
 	// mcursor, mgrab
 
 	/* 4. Join repThread */
+	egi_dpstd(DBG_YELLOW"Join repThread...\n"DBG_RESET);
 //	if( (*surfman)->repThread_on ) {  /*  NOPE! If repThread starts but repThread_on not set, it will cause mem leakage then. */
-		(*surfman)->cmd=1; /* CMD to end thread */
+		(*surfman)->cmd=SURFMAN_CMD_END_REPTHREAD; /* CMD to end thread */
 		egi_dpstd("Join repThread...\n");
 		/* Make sure mutex unlocked in pthread if any! */
 		if( pthread_join( (*surfman)->repThread, NULL)!=0) {
@@ -1232,28 +1253,67 @@ int egi_destroy_surfman(EGI_SURFMAN **surfman)
 //	}
 
 	/* 5. Unregister surfusers: close userv->sessions[].csFD and unmap all related surfaces! */
-	for(i=0; i<USERV_MAX_CLIENTS; i++) {
-		if( userv->sessions[i].csFD >0 )
-			if( surfman_unregister_surfUser(*surfman, i)<0 )
+	egi_dpstd(DBG_YELLOW"Unregister surfusers...\n"DBG_RESET);
+//	for(i=0; i<USERV_MAX_CLIENTS; i++) {
+	for(i=USERV_MAX_CLIENTS-1; i>=0; i--) {
+		if( userv->sessions[i].csFD >0 ) {
+			if( surfman_unregister_surfUser(*surfman, i)<0 ) {
 				ret = -( (-ret) | (1<<3) );
+			}
+			else {  /* TEST: MidasHK_2022-04-18 */
+			   egi_dpstd(DBG_MAGENTA"Userv sessions[%d] terminated!\n"DBG_RESET, i);
+			   /* Not so quick let renderThread to display resutls */
+			   tm_delayms(50);
+			}
+		}
 	}
 
 	/* 6. Destroy userver */
+	egi_dpstd(DBG_YELLOW"Destory userver...\n"DBG_RESET);
 	if( unet_destroy_Userver(&userv)!=0 ) {
 		egi_dpstd("Fail to destroy userv!\n");
 		ret += -(1<<4);
 		//Go on...
 	}
 
+#if 1 /////////////  End Render_Thread  ///////////////
+	egi_dpstd(DBG_YELLOW"Join renderThread...\n"DBG_RESET);
+	/* 1. Join renderThread */
+	(*surfman)->cmd=SURFMAN_CMD_END_RENDERTHREAD;
+	/* Make sure mutex unlocked in pthread if any! */
+	if( pthread_join((*surfman)->renderThread, NULL) !=0 ) {
+        	egi_dperr("Fail to join renderThread");
+                ret += -1;
+                //Go on...
+        }
+
+	/* 2. Release FBDEV */
+	if( (*surfman)->fbdev.map_fb != NULL ) {
+		release_fbdev(&(*surfman)->fbdev);
+	}
+
+	/* 3. Free imgbuf */
+	if((*surfman)->imgbuf)
+		egi_imgbuf_free2(&(*surfman)->imgbuf);
+#endif ///////////////////////////////////////////////
+
+	/* 6A. Free MenuList  MidasHK_2022-04-18 */
+	egi_dpstd(DBG_YELLOW"Free menulist...\n"DBG_RESET);
+	egi_surfMenuList_free(&(*surfman)->menulist);
+
 	/* 7. Destroy surfman_mutex */
-        pthread_mutex_unlock(&(*surfman)->surfman_mutex); /* Necessary ??? */
+	egi_dpstd(DBG_YELLOW"Destory surfman_mutex...\n"DBG_RESET);
+    	if( pthread_mutex_unlock(&(*surfman)->surfman_mutex)!=0 ) /* Necessary ??? */
+		egi_dperr(DBG_RED"Fail unlock surfman_mutext!");
+
         if(pthread_mutex_destroy(&(*surfman)->surfman_mutex) !=0 )
-		egi_dperr("Fail to destroy surfman_mutex!");
+		egi_dperr("Fail to destroy surfman_mutex!"); //Err'No such file or directory'
 
 	/* 8. Free self */
 	free( *surfman );
 	*surfman=NULL;
 
+	egi_dpstd(DBG_YELLOW"OK, surfman destroyed!\n"DBG_RESET);
 	return ret;
 }
 
@@ -1268,6 +1328,7 @@ as specified by userID.
 @maxW,maxH     	Max. width and height of a surface.
 @w,h		Default width and height of a surface.
 @colorType	Surface color type
+@pid		PID of the surfuser.
 
 TODO:
 1. To deal with more colorType.
@@ -1497,6 +1558,7 @@ int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID )
 	int i;
 	EGI_SURFACE *eface=NULL;
 	int mutexret;
+	int ret=0;
 
 	/* Check input */
 	if(surfman==NULL)
@@ -1545,16 +1607,23 @@ int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID )
 	/* 2. Close memfd */
         if(close(eface->memfd)<0) {
                 egi_dperr("close(memfd)");
-	        pthread_mutex_unlock(&surfman->surfman_mutex);
-		return -4;
+	        //pthread_mutex_unlock(&surfman->surfman_mutex);
+		//return -4;
+		ret=-4;
+		goto FREE_AND_SORT;
 	}
 
 	/* 3. Munmap surfshmem */
 	if( egi_munmap_surfshmem(&eface->surfshmem) !=0 ) {
 		egi_dpstd("Fail to munamp surfaces[%d]->surfshmem!\n", surfID);
-	        pthread_mutex_unlock(&surfman->surfman_mutex);
-		return -5;
+	        //pthread_mutex_unlock(&surfman->surfman_mutex);
+		//return -5;
+		ret=-5;
+		goto FREE_AND_SORT;
 	}
+
+
+FREE_AND_SORT:
 	/* Free surface struct */
 	free(surfman->surfaces[surfID]);
 
@@ -1577,7 +1646,7 @@ int surfman_unregister_surface( EGI_SURFMAN *surfman, int surfID )
         /* put mutex lock for ineimg */
         pthread_mutex_unlock(&surfman->surfman_mutex);
 
-	return 0;
+	return ret;
 }
 
 
@@ -1958,7 +2027,7 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID)
 	surfman->userv->ccnt -= 1;
        	egi_dpstd("\t\t----- (-)userv->sessions[%d], ccnt=%d -----\n", sessionID, surfman->userv->ccnt);
 
-	/* 5. Resort surfman->surfaces[] in ascending order of their zseq value */
+	/* 5. Re_sort surfman->surfaces[] in ascending order of their zseq value */
 	egi_dpstd("\t\t----- insertSort zseq...\n");
 	surface_insertSort_zseq(&surfman->surfaces[0], SURFMAN_MAX_SURFACES);
 
@@ -2175,7 +2244,16 @@ static void * surfman_render_thread(void *arg)
 
 	/* A.3 Routine of rendering registered surfaces */
 	surfman->renderThread_on = true;
-	while( surfman->cmd !=1 ) {
+	while( surfman->cmd !=SURFMAN_CMD_END_RENDERTHREAD ) {
+
+#if 1 /* TEST ------- */
+		if( surfman->surfaces[SURFMAN_MAX_SURFACES-1]) {
+			if( surfman_get_TopDispSurfaceID(surfman)>=0 )
+				printf("Top surface: %s\n", surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->surfname);
+			else
+				printf("All in minibar\n");
+		}
+#endif
 
 #if 0 /* TEST -----:  B.0 Block wait REQUEST_REFRESH msg  */
 		printf("surfmsg recv...\n");
@@ -2186,7 +2264,7 @@ static void * surfman_render_thread(void *arg)
 #endif
 
 		/* B.1 Get surfman_mutex ONE BY ONE!  TODO: TBD */
-		//egi_dpstd("Try surfman mutex lock...\n");
+		//egi_dpstd(DBG_BLUE"Try surfman mutex lock...\n"DBG_RESET);
 	        if(pthread_mutex_lock(&surfman->surfman_mutex) !=0 ) {
 	        //if(pthread_mutex_trylock(&surfman->surfman_mutex) !=0 ) {
 			egi_dperr("Fail to get surfman_mutex!"); /* Err'Inappropriate ioctl for device'. */
@@ -2214,8 +2292,19 @@ static void * surfman_render_thread(void *arg)
 		if( TopDispSurfID>=0 && userID != surfman->surfaces[TopDispSurfID]->csFD ) { /* A new TOP surface */
 			userID = surfman->surfaces[TopDispSurfID]->csFD;
 
-			/* NEW TOP surface! send ERING_SURFACE_BRINGTOP to it. */
-                        /* Send msg to the surface !!! WARNING: NOT sychronized with main() thread ering mstat. !!!*/
+			/* TOP surface is changed for
+			 *  1. Previous TopSurface is minimized by the user.
+			 *  2. Previous TopSurface is retired by the user.
+			 *  3. If TopSurface is changed by mouse click selection, then it will be treated/updated in test_surfman.c see W2.3_A.2
+			 *
+			 *  MidasHK_2022-04-16
+			*/
+			surfman_bringtop_surface_nolock(surfman, TopDispSurfID);
+			egi_dpstd(DBG_YELLOW"Top surface changed to be '%s'!\n"DBG_RESET,
+						surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->surfname);
+
+			/* send ERING_SURFACE_BRINGTOP to inform the surface. */
+                        /* !!! WARNING: NOT sychronized with main() thread ering mstat. !!!*/
                         emsg->type=ERING_SURFACE_BRINGTOP;
                         if( unet_sendmsg( userID, emsg->msghead) <=0 )
                         		egi_dpstd("Fail to sednmsg ERING_SURFACE_BRINGTOP!\n");
@@ -2236,8 +2325,8 @@ static void * surfman_render_thread(void *arg)
 		 * 2. ALPHA effect need a right render sequence!
 		 */
 		//egi_dpstd("Render surfaces...\n");
-//		for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {  	     /* From top layer to bkground */
-		for(i=0; i<SURFMAN_MAX_SURFACES; i++) {	     /* From bkground to top layer */
+		for(i=SURFMAN_MAX_SURFACES-1; i>=0; i--) {  	     /* From top layer to bkground */
+		//for(i=0; i<SURFMAN_MAX_SURFACES; i++) {	     /* From bkground to top layer */
 			//egi_dpstd("Draw surfaces[%d]...\n",i);
 
 			/* C.1 Check surface availability */
@@ -2486,9 +2575,11 @@ static void * surfman_render_thread(void *arg)
 		#ifdef LETS_NOTE
  		 tm_delayms(10);
 		#else
-		 tm_delayms(100);
+		 tm_delayms(50);
 		#endif
 	}
+
+egi_dpstd(DBG_YELLOW"OK to quit thread\n"DBG_RESET);
 
 	/* A.4 Unlink imgbuf data */
 	imgbuf->imgbuf=NULL;
@@ -2589,12 +2680,12 @@ void *surfuser_ering_routine(void *surf_user)
 	        //egi_dpstd("Waiting in recvmsg...\n");
 		nrecv=ering_msg_recv(surfuser->uclit->sockfd, emsg);
 		if(nrecv<0) {
-                	egi_dpstd("unet_recvmsg() fails!\n");
+                	egi_dpstd(DBG_RED"unet_recvmsg() fails!\n"DBG_RESET);
 			continue;
         	}
 		/* SURFMAN disconnects */
 		else if(nrecv==0) {
-			egi_dperr("ering_msg_recv() nrecv==0! SURFMAN disconnects!!");
+			egi_dperr(DBG_RED"ering_msg_recv() nrecv==0! SURFMAN disconnects!!"DBG_RESET);
 			surfuser->surfshmem->usersig=1; /* Signal to quit */
 			// continue;
 			// surfuser->surfshmem->eringRoutine_running=false;
@@ -2866,7 +2957,7 @@ void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmosta
             } /* END for() menus */
 	}
 
-	/* 3. If LeftClick OR?? released on SURFBTNs */
+	/* 3. If LeftClick OR?? released on SURFBTNs, OR on TOPMENU */
 	if( pmostat->LeftKeyDown ) {
 		egi_dpstd("LeftKeyDown mpbtn=%d\n", surfshmem->mpbtn);
 //	if( pmostat->LeftKeyUp ) {
@@ -3135,7 +3226,8 @@ Note:
 1. If surfuser->surfshmem->vh/vw is too small, then some
    surfshmem->menus[] will be of out surfimg, and have incomplete
    imgbuf created! appears as BLACK in label area.
-
+2. To avoid above case, firstdraw all elements with vh=maxH
+   and vw=maxW, restore them at the end. (MidasHK_2022-04-24)
 
 @surfuser:	Pointer to EGI_SURFUSER.
 @options:	Appearance and Buttons on top bar, optional.
@@ -3158,12 +3250,27 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int options, int menuc, 
 	EGI_IMGBUF *surfimg=surfuser->imgbuf;
         EGI_SURFSHMEM *surfshmem=surfuser->surfshmem;
 
-	/* Size limit */
+	/* 0A. Save appearance options */
+	surfshmem->apoptions=options;
+
+	/* 0B. Size limit */
 	if( surfshmem->vw > surfshmem->maxW )
 		surfshmem->vw=surfshmem->maxW;
 
 	if( surfshmem->vh > surfshmem->maxH )
 		surfshmem->vh=surfshmem->maxH;
+
+	/* 0C. Draw with MAX. canvas size, to avoid firstdrawing objects out of range. */
+	int tmpW=surfshmem->vw;
+	int tmpH=surfshmem->vh;
+	surfshmem->vw=surfshmem->maxW;
+	surfshmem->vh=surfshmem->maxH;
+
+        /*  Reinit virtual FBDEV, with updated w/h of the surfimg. */
+ 	surfimg->width=surfshmem->maxW;
+	surfimg->height=surfshmem->maxH;
+	reinit_virt_fbdev(vfbdev, surfimg, NULL);
+	vfbdev->pixcolor_on=true; /* !!! */
 
 	/* 1. Draw background / canvas */
 	if( surfshmem->draw_canvas ) {
@@ -3311,6 +3418,8 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int options, int menuc, 
 	else if(options&SURFFRAME_THICK) {
 		fbset_color(SURF_OUTLINE_COLOR); //WEGI_COLOR_GRAY);
 	        draw_rect(vfbdev, 0,0, surfshmem->vw-1, surfshmem->vh-1);
+		if(surfshmem->vw>2 && surfshmem->vh>2)
+	                draw_rect(vfbdev, 1,1, surfshmem->vw-2, surfshmem->vh-2);
 	}
 	else {
 	        //fbset_color2(vfbdev, WEGI_COLOR_GRAY); //BLACK);
@@ -3333,6 +3442,18 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int options, int menuc, 
 	}
 	if( options&TOPBTN_MAX )
 	        surfshmem->sbtns[TOPBTN_MAX_INDEX]=egi_surfBtn_create(surfimg,  xs+i*20,0+1,  xs+i*20,0+1, 18, 30-1);
+
+	/* 8. Restore to vw/vh */
+        surfshmem->vw=tmpW;
+	surfshmem->vh=tmpH;
+        /*  Reinit virtual FBDEV, as per original vw/vh */
+        surfimg->width=tmpW;
+        surfimg->height=tmpH;
+        reinit_virt_fbdev(vfbdev, surfimg, NULL);
+	vfbdev->pixcolor_on=true; /* !!! */
+
+	/* 9. Redraw surface with vw/vh */
+	surfuser_redraw_surface(surfuser, surfshmem->vw, surfshmem->vh);
 
 //       	pthread_mutex_unlock(&surfshmem->shmem_mutex);
 /* <<< ------  Surfman Critical Zone  */
@@ -3408,6 +3529,7 @@ void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
 
 	/* 4. Reinit virtual FBDEV, with updated w/h of the surfimg. */
 	reinit_virt_fbdev(vfbdev, surfimg, NULL);
+	vfbdev->pixcolor_on=true; /* !!! */
 
 	/* 5. Adjust surfshmem param vw/vh */
 	surfshmem->vw=w;
@@ -3434,24 +3556,42 @@ void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
 	        //egi_imgbuf_resetColorAlpha(surfimg, surfshmem->bkgcolor, -1); /* Reset color only */
 
 	        /* 1.2B  Draw top bar. */
-		//if( options >= TOPBAR_COLOR )
-	        draw_filled_rect2(vfbdev,SURF_TOPBAR_COLOR, 0,0, surfimg->width-1, SURF_TOPBAR_HEIGHT-1);
+		if( surfshmem->apoptions >= TOPBAR_COLOR )
+	             draw_filled_rect2(vfbdev,SURF_TOPBAR_COLOR, 0,0, surfimg->width-1, SURF_TOPBAR_HEIGHT-1);
 	}
 
 
-	/* 6.2 Draw outline rim */
+	/* 6.2 Draw outline rim/frame. MidasHK_2022-04-24  frame type NONE and DOUBLE */
 	//fbset_color2(vfbdev, WEGI_COLOR_GRAY); //BLACK);
-	fbset_color(WEGI_COLOR_GRAY); //BLACK);
-	draw_rect(vfbdev, 0,0, surfshmem->vw-1, surfshmem->vh-1);
+	//fbset_color(WEGI_COLOR_GRAY); //BLACK);
+	//draw_rect(vfbdev, 0,0, surfshmem->vw-1, surfshmem->vh-1);
+
+        /* 6.2 Draw outline rim/frame. MidasHK_2022-04-15  */
+        if(surfshmem->apoptions&SURFFRAME_NONE) {
+                /* None */
+        }
+        else if(surfshmem->apoptions&SURFFRAME_THICK) {
+                fbset_color2(vfbdev, SURF_OUTLINE_COLOR); //WEGI_COLOR_GRAY);
+                draw_rect(vfbdev, 0,0, surfshmem->vw-1, surfshmem->vh-1);
+		if(surfshmem->vw>2 && surfshmem->vh>2)
+	                draw_rect(vfbdev, 1,1, surfshmem->vw-2, surfshmem->vh-2);
+        }
+        else {
+                //fbset_color2(vfbdev, WEGI_COLOR_GRAY); //BLACK);
+                fbset_color2(vfbdev, SURF_OUTLINE_COLOR); //WEGI_COLOR_GRAY);
+                draw_rect(vfbdev, 0,0, surfshmem->vw-1, surfshmem->vh-1);
+        }
+
 
 #if 1   /* 6.3 Put surface name/title. */
 	//egi_dpstd("Put name\n");
-        FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, /* FBdev, fontface */
-                                        18, 18,(const UFT8_PCHAR)surfshmem->surfname,   /* fw,fh, pstr */
-                                        320, 1, 0,                        /* pixpl, lines, fgap */
-                                        10, 5,                         	  /* x0,y0, */
-                                        WEGI_COLOR_WHITE, -1, 200,        /* fontcolor, transcolor,opaque */
-                                        NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
+	 if( surfshmem-> apoptions >= TOPBAR_NAME )
+              	FTsymbol_uft8strings_writeFB(   vfbdev, egi_sysfonts.regular, /* FBdev, fontface */
+                	                        18, 18,(const UFT8_PCHAR)surfshmem->surfname,   /* fw,fh, pstr */
+                        	                320, 1, 0,                        /* pixpl, lines, fgap */
+                                	        10, 5,                         	  /* x0,y0, */
+                                        	WEGI_COLOR_WHITE, -1, 200,        /* fontcolor, transcolor,opaque */
+	                                        NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
 #endif
 
 	/* 6.5 Redraw topbar SURFBTNs: CLOSE/MIN/MAX. Also refer to surfuser_firstdraw_surface(), case 6.

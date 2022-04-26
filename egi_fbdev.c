@@ -519,6 +519,9 @@ void release_virt_fbdev(FBDEV *dev)
 Re_initilize a virtual FBDEV. Just to upate the reference
 pointer of fb_dev->virt_fb with eimg.
 
+	    !!! CAUTION !!!
+All previous parameters in fb_dev will all be reset!
+
 @dev:   Pointer to statically allocated FBDEV.
 @eimg:  Pointer to an EGI_IMGBUF.
 

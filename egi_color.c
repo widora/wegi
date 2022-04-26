@@ -25,6 +25,8 @@ EGI Color Functions
 Journal:
 2021-08-25:
 	1. Add egi_16bitColor_interplt4p().
+2022-04-19:
+	1. Add HTML color name definition.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)

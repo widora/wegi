@@ -26,7 +26,32 @@ long long tm_costus2(void);
 int main(int argc, char **argv)
 {
 
-#if 1 /* ------------ tm_wait_till() ------------ */
+#if 1 /* ------------ Linux time functions ------------ */
+  /***************
+    struct tm {
+          int tm_sec;    // Seconds (0-60)
+          int tm_min;    // Minutes (0-59)
+          int tm_hour;   // Hours (0-23)
+          int tm_mday;   // Day of the month (1-31)
+          int tm_mon;    // Month (0-11)
+          int tm_year;   // Year - 1900
+          int tm_wday;   // Day of the week (0-6, Sunday = 0)
+          int tm_yday;   // Day in the year (0-365, 1 Jan = 0)
+          int tm_isdst;  // Daylight saving time
+    };
+  ****************/
+
+ time_t ttm=time(NULL);
+ struct tm *localTM;
+ localTM=localtime(&ttm);  /* The return value points to a statically allocated struct  */
+
+ printf("wday: %d, yday: %d, year: %d, mon: %d, mday: %d, hour: %d, min: %d, sec: %d\n",
+	 localTM->tm_wday, localTM->tm_yday, localTM->tm_year+1900, localTM->tm_mon+1, localTM->tm_mday, localTM->tm_hour, localTM->tm_min, localTM->tm_sec);
+
+ exit(0);
+#endif
+
+#if 0 /* ------------ tm_wait_till() ------------ */
 	// ./test_time "0:0:10" "15:47:55" && date
 
 	time_t tnow=time(NULL);
@@ -51,7 +76,7 @@ int main(int argc, char **argv)
 exit(0);
 #endif
 
-#if 1 /* TEST: CLOCK_BOOTTIME  --------*/
+#if 0 /* TEST: CLOCK_BOOTTIME  --------*/
 
 /***
 
@@ -142,7 +167,7 @@ do {
 #endif
 
 
-#if 1 /* TEST: EGI_CLOCK    ---------- */
+#if 0 /* TEST: EGI_CLOCK    ---------- */
 int i,n,tm;
 long cost;
 long total;

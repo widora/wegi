@@ -44,7 +44,10 @@ extern const char *stru8_weekday[];
 extern const char *stru8_month[];
 extern char tm_strbuf[];
 
+extern const int tm_MonthDays[];
+
 /* functions */
+int tm_daysInFeb(unsigned int year);
 int tm_wait_till( const char *strSet,   time_t tm_set,
                    const char *strDelay, time_t tm_delay );
 

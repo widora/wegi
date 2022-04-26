@@ -243,7 +243,27 @@ START_REQUEST:
                  	printf("Fail to call https_curl_request() for: %s!\n", strRequest);
 
 			cnt++;
-			if(cnt==3) exit(EXIT_FAILURE);
+
+			/* Try MAX.3 times */
+			if(cnt==3) {
+				snprintf(strtmp, sizeof(strtmp)-1, "请求失败！");
+
+        			pthread_mutex_lock(&surfshmem->shmem_mutex);
+/* ------ >>>  Surface shmem Critical Zone  */
+
+				egi_imgbuf_resetColorAlpha(surfimg, WEGI_COLOR_GRAYB, 0);
+				FTsymbol_writeFB(vfbdev, strtmp, 14, 14, WEGI_COLOR_GRAYC, 0, 0);
+
+/* ------ <<<  Surface shmem Critical Zone  */
+				pthread_mutex_unlock(&surfshmem->shmem_mutex);
+
+				sleep(3);
+/* QUIT surface: ........................ */
+				surfshmem->usersig=1;
+
+				exit(EXIT_FAILURE);
+			}
+
 
 			goto START_REQUEST;
          	}
@@ -355,6 +375,7 @@ START_REQUEST:
 		else {
 #endif
 			snprintf(strtmp, sizeof(strtmp)-1, "下载失败！ret=%d", ret);
+			egi_dpstd("Err: %s\n", strtmp);
 
         		pthread_mutex_lock(&surfshmem->shmem_mutex);
 /* ------ >>>  Surface shmem Critical Zone  */

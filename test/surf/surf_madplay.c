@@ -73,6 +73,9 @@ Journal:
 2021-07-01:
 	1. Apply surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN, MENU_MAX, menu_names)
 	   auto draw menus[].
+2022-04-20:
+	1. Normalize menu_option() and menu_help(), then assign to surfshmem->menu_react[], and
+	   let default surfuser_parse_mouse_event() to trigger and take upon.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -167,8 +170,8 @@ bool mouseOnMenu;
 
 
 void menu_file();
-void menu_option(EGI_SURFSHMEM *surfcaller, int x0, int y0);
-void menu_help(EGI_SURFSHMEM *surfcaller, int x0, int y0);
+void menu_option(EGI_SURFUSER *surfcaller); //, int x0, int y0);
+void menu_help(EGI_SURFUSER *surfcaller);//, int x0, int y0);
 
 
 /* ESURF Lables */
@@ -233,6 +236,7 @@ int main(int argc, char **argv)
                 return -1;
         }
 #endif
+	FTsymbol_disable_SplitWord();
 
 #if 0	/* Create sysfont buffer, for fw=15,fh=15. */
 	printf("Create buffer for sysfont.bold...\n");
@@ -267,6 +271,11 @@ int main(int argc, char **argv)
         surfshmem->close_surface 	= surfuser_close_surface;
 	surfshmem->user_mouse_event	= my_mouse_event;
 
+   	/* Assign BTN/MENU react funcionts */
+	surfshmem->menu_react[MENU_OPTION]=menu_option;
+	surfshmem->menu_react[MENU_HELP]=menu_help;
+
+	/* 3A. Get usersig */
 	pUserSig = &surfshmem->usersig;
 
 	/* 4. Name for the surface. */
@@ -275,6 +284,8 @@ int main(int argc, char **argv)
 
 	/* 5. First draw surface. */
 	surfshmem->bkgcolor=  WEGI_COLOR_DARKOCEAN; //DRAKGRAY; /* OR default BLACK */
+        //surfshmem->topmenu_bkgcolor=egi_color_random(color_light);
+        surfshmem->topmenu_hltbkgcolor=WEGI_COLOR_GRAYC;
 	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MIN, MENU_MAX, menu_names); /* Default firstdraw operation */
 
 	/* ----------> Activate image immediately! */
@@ -732,6 +743,7 @@ if( pmostat->conkeys.press_lastkey )
 
 	/* NOW: mpbtn updated */
 
+#if 0 /////////////////////  As in default surfuser_parse_mouse_event()  ///////////////////////
 	/* 1.A Check if mouse hovers over any menu */
 	if( !mouseOnBtn ) {
 		for(i=0; i<MENU_MAX; i++) {
@@ -785,7 +797,7 @@ if( pmostat->conkeys.press_lastkey )
 		} /* EDN for(menus) */
 
 	}
-
+#endif  //////////////////////////////////////////////////////////////
 
         /* 2. If LeftKeyDown(Click) on buttons */
         if( pmostat->LeftKeyDown && mouseOnBtn ) {
@@ -880,6 +892,7 @@ if( pmostat->conkeys.press_lastkey )
 		}
 	}
 
+#if 0 /////////////////  As in default surfuser_parse_mouse_event()  ////////////////
         /* 3. If LeftKeyDown(Click) on menu */
         if( pmostat->LeftKeyDown && mouseOnMenu ) {
                 egi_dpstd("LeftKeyDown mpmenu=%d\n", surfshmem->mpmenu);
@@ -890,16 +903,19 @@ if( pmostat->conkeys.press_lastkey )
 				break;
 			case MENU_OPTION:
 				pthread_mutex_unlock(&surfshmem->shmem_mutex);
-				menu_option(surfshmem, 20, 20);
+				//menu_option(surfshmem, 20, 20);
+				menu_option(surfuser);
 				pthread_mutex_lock(&surfshmem->shmem_mutex);
 				break;
 			case MENU_HELP:
 				pthread_mutex_unlock(&surfshmem->shmem_mutex);
-				menu_help(surfshmem, 20, 20);
+				//menu_help(surfshmem, 20, 20);
+				menu_help(surfuser);
 				pthread_mutex_lock(&surfshmem->shmem_mutex);
 				break;
 		}
 	}
+#endif  ///////////////////////////////////////////////////////////////////////////
 
 	/* 3. LeftKeyUp */
 	if( pmostat->LeftKeyUp && mouseOnBtn) {
@@ -1039,25 +1055,28 @@ TODO:
    XXX ---- OK! Always top the surface with biggest value of level
 
 ---------------------------------------------------------*/
-void menu_help(EGI_SURFSHMEM *surfcaller, int x0, int y0)
+void menu_help(EGI_SURFUSER *surfcaller)  //, int x0, int y0)
 {
 	int msw=210;
 	int msh=150;
+
+	/* Coordinate origin relative to surfcaller's */
+	int x0=20, y0=20;
 
 	const char *str_help = "   EGI图形版Madplay\n\n \
 This program is under license of GNU GPL v2.\n \
  Enjoy!";
 
-EGI_SURFUSER     *msurfuser=NULL;
-EGI_SURFSHMEM    *msurfshmem=NULL;        /* Only a ref. to surfuser->surfshmem */
-FBDEV            *mvfbdev=NULL;           /* Only a ref. to &surfuser->vfbdev  */
-//EGI_IMGBUF       *msurfimg=NULL;          /* Only a ref. to surfuser->imgbuf */
-SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
-//EGI_16BIT_COLOR  mbkgcolor;
+	EGI_SURFUSER     *msurfuser=NULL;
+	EGI_SURFSHMEM    *msurfshmem=NULL;        /* Only a ref. to surfuser->surfshmem */
+	FBDEV            *mvfbdev=NULL;           /* Only a ref. to &surfuser->vfbdev  */
+	//EGI_IMGBUF       *msurfimg=NULL;          /* Only a ref. to surfuser->imgbuf */
+	SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
+	//EGI_16BIT_COLOR  mbkgcolor;
 
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
-	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, surfcaller->x0+x0, surfcaller->y0+y0,
+	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, surfcaller->surfshmem->x0+x0, surfcaller->surfshmem->y0+y0,
 								msw, msh, msw, msh, mcolorType ); /* Fixed size */
 	if(msurfuser==NULL) {
 		printf("Fail to register surfuser!\n");
@@ -1082,6 +1101,8 @@ SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
 
 	/* 5. First draw surface. */
 	msurfshmem->bkgcolor=WEGI_COLOR_GRAYA; /* OR default BLACK */
+        //surfshmem->topmenu_bkgcolor=egi_color_random(color_light);
+        //surfshmem->topmenu_hltbkgcolor=WEGI_COLOR_GRAYC;
 	surfuser_firstdraw_surface(msurfuser, TOPBTN_CLOSE, 0, NULL); /* Default firstdraw operation */
 
 	/* 6. Start Ering routine */
@@ -1101,7 +1122,7 @@ SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
                                   WEGI_COLOR_BLACK, -1, 240,     	/* fontcolor, transcolor,opaque */
        	                          NULL, NULL, NULL, NULL);        	/* int *cnt, int *lnleft, int* penx, int* peny */
 
-	/* 7. Activate image */
+	/* 8. Activate image */
 	msurfshmem->sync=true;
 
  	/* ====== Main Loop ====== */
@@ -1110,7 +1131,7 @@ SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
 	};
 
         /* Join ering_routine  */
-        // surfuser)->surfshmem->usersig =1;  // Useless if thread is busy calling a BLOCKING function.
+        // surfuser->surfshmem->usersig =1;  // NO EFFECT if thread is busy calling a BLOCKING function!
 	egi_dpstd("Cancel thread...\n");
         pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
         /* Make sure mutex unlocked in pthread if any! */
@@ -1136,11 +1157,15 @@ To create a SURFACE for menu help.
 		( also as previous level surface )
 
 ------------------------------------------------------------*/
-void menu_option(EGI_SURFSHMEM *surfcaller, int x0, int y0)
+void menu_option(EGI_SURFUSER *surfcaller) //, int x0, int y0)
 {
-	int msw=180; /* Surface outline size */
+	int msw=190; /* Surface outline size */
 	int msh=160;
 	int i;
+
+	/* Coord origin relative to SURFACE of the caller */
+	int x0=20, y0=20;
+
 
 	const char *str_help = "Options:\n1. -----\n2. ----- \n3. -----";
 
@@ -1157,13 +1182,16 @@ SURF_COLOR_TYPE  mcolorType=SURF_RGB565;  /* surfuser->vfbdev color type */
 REGISTER_SURFUSER:
 	/* 1. Register/Create a surfuser */
 	printf("Register to create a surfuser...\n");
-	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, surfcaller->x0+x0, surfcaller->y0+y0,
+	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, surfcaller->surfshmem->x0+x0, surfcaller->surfshmem->y0+y0,
 								msw, msh, msw, msh, mcolorType ); /* Fixed size */
 	if(msurfuser==NULL) {
                 /* If instance already running, exit */
                 int fd;
-                if( (fd=egi_lock_pidfile(pid_lock_file)) <=0 )
-                        exit(EXIT_FAILURE);
+                if( (fd=egi_lock_pidfile(pid_lock_file)) <=0 ) {
+			/* Max clients for the SURFMAN */
+                        //exit(EXIT_FAILURE);
+			return;
+		}
                 else
                         close(fd);
 
@@ -1189,6 +1217,8 @@ REGISTER_SURFUSER:
 
 	/* 5. First draw surface. */
 	msurfshmem->bkgcolor=WEGI_COLOR_GRAYA; /* OR default BLACK */
+        //surfshmem->topmenu_bkgcolor=egi_color_random(color_light);
+        surfshmem->topmenu_hltbkgcolor=WEGI_COLOR_GRAYC;
 	surfuser_firstdraw_surface(msurfuser, TOPBTN_CLOSE, 0, NULL); /* Default firstdraw operation */
 
 	/* 6. Draw top menus */
@@ -1351,7 +1381,8 @@ void testsurf_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 				break;
 			case MENU_OPTION:
 				pthread_mutex_unlock(&msurfshmem->shmem_mutex);
-				menu_option(msurfshmem, 20, 20);
+				//menu_option(msurfshmem, 20, 20);
+				menu_option(surfuser);
 				pthread_mutex_lock(&msurfshmem->shmem_mutex);
 				break;
 			case MENU_HELP:

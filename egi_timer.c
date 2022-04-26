@@ -64,10 +64,12 @@ Journal:
 	1. egi_clock_readCostUsec(), egi_clock_peekCostUsec(): Modified to be long long type.
 2022-01-04:
 	1. Add tm_wait_till().
+2022-04-25:
+	1. Add tm_daysInFeb().
 
 TODO:
 	--- Critical ---
-1. time_t overflow for 2038 YEAR problem.
+1. For 32bit system: time_t overflow for 2038 YEAR problem.
 2. To apply POSIX timer APIs:
    timer_create(), timer_settime(), timer_gettimer(), timer_getoverrun(), timer_delete()
 
@@ -96,9 +98,16 @@ const char *str_weekday[]={"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
 //const char *str_weekday[]={"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
 const char *str_month[]={"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Sub"};
 
+
+
+/* Days in a month, call tm_daysInFeb(year) to get days in Feb.
+                    Month 1   2   3   4   5   6   7   8   9   10  11  12   */
+const int tm_MonthDays[]={31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
 /* encoding uft8 */
 const char *stru8_weekday[]={"星期日","星期一","星期二","星期三","星期四","星期五","星期六"};
 const char *stru8_month[]={"一月","二月","三月","四月","五月","六月","七月","八月","九月","十月","十一月","十二月"};
+
 
 /* global tick */
 static struct itimerval tm_tick_val; //tm_tick_oval;
@@ -106,6 +115,28 @@ static long long unsigned int tm_tick_count=0;
 
 //   struct timespec ts;
 //   clock_gettime(CLOCK_MONOTONIC, &ts);
+
+
+/*-------------------------------
+Return days in the February.
+
+@year: Year. Example 2022
+--------------------------------*/
+int tm_daysInFeb(unsigned int year)
+{
+	if( year%4 ==0 ) {   /* Leap year */
+	   if( year%100 ==0 ) {
+		if( year%400 ==0 )
+			return 29;
+		else
+			return 28;
+	   }
+	   else
+		return 29;
+	}
+	else  /* Non leap year */
+		return 28;
+}
 
 /*--------------------------------------------------------
 The function will wait until the preset time comes.
@@ -817,4 +848,6 @@ long long egi_clock_peekCostUsec(EGI_CLOCK *eclock)
 
 	return 1000000LL*tm_cost.tv_sec+tm_cost.tv_usec;
 }
+
+
 
