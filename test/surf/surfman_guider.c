@@ -42,6 +42,10 @@ Journal:
 	1. Add a surfuser for brightness adjustment.
 2022-04-24/25/26:
 	1. Add a surfuser for calender.
+2022-04-29:
+	1. Add surf_menuListTree()
+2022-05-01:
+	1. Add surfmlist_mouse_event()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -80,7 +84,8 @@ enum {
         LABICON_TIME    =1,     /* Clock */
         LABICON_SOUND   =2,     /* Sound */
         LABICON_WIFI	=3,     /* WiFi Info. */
-        LABICON_MAX     =4      /* <--- Limit */
+	LABICON_SYSTEM  =4,     /* System */
+        LABICON_MAX     =5     /* <--- Limit */
 };
 ESURF_LABEL *labicons[LABICON_MAX];
 int mp=-1;   /* Index of mouse touched labicons[], <0 invalid. */
@@ -120,13 +125,22 @@ void my_firstdraw_surface(EGI_SURFUSER *surfuser, int options);
 void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 void labicon_time_update(void);
 
+/* Surface for Brightness Control */
 void surf_brightness(EGI_SURFSHMEM *surfowner, int x0, int y0);
 void draw_canvas_brightness(EGI_SURFUSER *surfuser);
 void surfbright_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 
+/* Surface for Calender */
 void surf_calender(EGI_SURFUSER *surfowner);
 void calender_draw_canvas(EGI_SURFUSER *msurfuser);
 void calender_update(EGI_SURFUSER *msurfuser);
+
+/* Surface for MenuListTree */
+ESURF_MENULIST *menulist;  /* Root menulist for LABICON_SYSTEM */
+bool menulist_ON;
+void surf_menuListTree(EGI_SURFUSER *surfowner);
+void surfmlist_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
+
 
 //"ubus call network.wireless down",
 const char *arg_wifi_down[3]={
@@ -191,6 +205,7 @@ int main(int argc, char **argv)
                 exit(EXIT_FAILURE);
         }
 #endif
+
 
 
 REGISTER_SURFUSER:
@@ -265,6 +280,7 @@ REGISTER_SURFUSER:
 //	EGI_IMGBUF *audio_volume_100=egi_imgbuf_readfile("/mmc/icons/audio_volume_100.png");
 	EGI_IMGBUF *battery_100_charging=egi_imgbuf_readfile("/mmc/icons/battery_100_charging.png");
 	EGI_IMGBUF *pinyin_icon=egi_imgbuf_readfile("/mmc/icons/pinyin_icon.png");
+	EGI_IMGBUF *system_icon=egi_imgbuf_readfile("/mmc/icons/system.png");
 
 	/* Create Labels */
         labicons[LABICON_TIME]=egi_surfLab_create(surfimg, SURF_MAXW-5-60, 1, SURF_MAXW-5-60, 1, 80, 30-8); //2); /* img,xi,yi,x0,y0,w,h */
@@ -279,10 +295,14 @@ REGISTER_SURFUSER:
 	labicons[LABICON_SOUND]->front_imgbuf=volume_icons[1];
 	egi_surfLab_writeFB(vfbdev, labicons[LABICON_SOUND], egi_sysfonts.bold, 16, 16, WEGI_COLOR_WHITE, 0, 0);
 
+	//labicons[LABICON_SYSTEM]=egi_surfLab_create(surfimg, SURF_MAXW-5-60 -40, 3, SURF_MAXW-5-60 -40, 3, 30, 30-2);
+	labicons[LABICON_SYSTEM]=egi_surfLab_create(surfimg, SURF_MAXW-5-60 -40, 3, SURF_MAXW-5-60 -40-30-30-30, 3, 30, 30-2);
+	labicons[LABICON_SYSTEM]->front_imgbuf=system_icon;
+	egi_surfLab_writeFB(vfbdev, labicons[LABICON_SYSTEM], egi_sysfonts.bold, 16,16, WEGI_COLOR_WHITE, 0,0);
+
 	/* Put icons from Right to Left */
-	egi_subimg_writeFB(battery_100_charging, vfbdev, 0, WEGI_COLOR_PINK, SURF_MAXW-5-60 -40, 3);
-//	egi_subimg_writeFB(audio_volume_100, vfbdev, 0, WEGI_COLOR_WHITE, SURF_MAXW-5-60 -40-30-30, 2);
-	egi_subimg_writeFB(pinyin_icon, vfbdev, 0, -1, SURF_MAXW-5-60 -40-30-30-30, 4);
+//	egi_subimg_writeFB(battery_100_charging, vfbdev, 0, WEGI_COLOR_PINK, SURF_MAXW-5-60 -40, 3);
+	egi_subimg_writeFB(pinyin_icon, vfbdev, 0, -1,  SURF_MAXW-5-60 -40, 4); //SURF_MAXW-5-60 -40-30-30-30, 4);
 
 	/* Test EGI_SURFACE */
 	printf("An EGI_SURFACE is registered in EGI_SURFMAN!\n"); /* Egi surface manager */
@@ -638,17 +658,21 @@ void surfbright_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
         	if( pxy_inbox( pmostat->mouseX, pmostat->mouseY, surfuser->surfshmem->x0, surfuser->surfshmem->y0,
                      surfuser->surfshmem->x0+surfuser->surfshmem->vw, surfuser->surfshmem->y0+surfuser->surfshmem->vh ) ) {
 			/* Signal to quit */
-			surfuser->surfshmem->usersig=1;
+			surfuser->surfshmem->usersig=SURFUSER_SIG_QUIT;
 		}
 	}
 }
 
 /////////////////// Surface for Date and Calender  ///////////////////
 
-/*-------------------------------------------
+/*---------------------------------------------
 A SURF to show brightness value bar.
 surfowner: NOT used!
---------------------------------------------*/
+
+Note:
+1. Calender content to be updated every 1 second.
+
+-----------------------------------------------*/
 void surf_calender(EGI_SURFUSER *surfowner)
 {
 	int msw=230;  /* 5+ 30*7 +5 */
@@ -831,6 +855,15 @@ void calender_update(EGI_SURFUSER *msurfuser)
                                       NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
 	}
 
+	/* Draw pads for Saturday and Sunday */
+	for(k=0; k<monthdays; k++) {
+		weekday=(firstweekday+k)%7;
+		if(weekday==0 || weekday==6 ) {
+			draw_filled_rect2(&msurfuser->vfbdev, COLOR_DarkOliveGreen,  10+30*weekday, 35+30+25*((firstweekday+k)/7),
+								    10+30*weekday +30-1, 35+30+25*((firstweekday+k)/7) +25-1);
+		}
+	}
+
 	/* Display days of the LAST/PREV month remaining on the calender */
 	if(firstweekday!=0) {
 
@@ -848,16 +881,8 @@ void calender_update(EGI_SURFUSER *msurfuser)
 	}
 
 	/* Draw a pad for today  30x25  */
-	draw_filled_rect2(&msurfuser->vfbdev, COLOR_DeepPink, 10+30*localTM->tm_wday, 35+30+25*((firstweekday+localTM->tm_mday)/7),
-					10+30*localTM->tm_wday +30-1, 35+30+25*((firstweekday+localTM->tm_mday)/7) +25-1 );
-	/* Draw pads for Saturday and Sunday */
-	for(k=0; k<monthdays; k++) {
-		weekday=(firstweekday+k)%7;
-		if(weekday==0 || weekday==6 ) {
-			draw_filled_rect2(&msurfuser->vfbdev, COLOR_DarkOliveGreen,  10+30*weekday, 35+30+25*((firstweekday+k)/7),
-								    10+30*weekday +30-1, 35+30+25*((firstweekday+k)/7) +25-1);
-		}
-	}
+	draw_filled_rect2(&msurfuser->vfbdev, COLOR_DeepPink, 10+30*localTM->tm_wday, 35+30+25*((firstweekday-1+localTM->tm_mday)/7),
+					10+30*localTM->tm_wday +30-1, 35+30+25*((firstweekday-1+localTM->tm_mday)/7) +25-1 );
 
 	/* Write Month days. 30x25 block for one day.  */
 	for(k=0; k<monthdays; k++) {
@@ -980,13 +1005,17 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 			surf_calender(surfuser);
 			pthread_mutex_lock(&surfshmem->shmem_mutex);
 		}
-
-		/* Click on WiFi LABICON */
-               // if( egi_point_on_surfBox( (ESURF_BOX *)labicons[LABICON_WIFI],
-               // 	                pmostat->mouseX-surfshmem->x0, pmostat->mouseY-surfshmem->y0) ) {
+		else if( egi_point_on_surfBox( (ESURF_BOX *)labicons[LABICON_SYSTEM],
+					pmostat->mouseX-surfshmem->x0, pmostat->mouseY-surfshmem->y0) ) {
+			pthread_mutex_unlock(&surfshmem->shmem_mutex);
+			surf_menuListTree(surfuser);
+			pthread_mutex_lock(&surfshmem->shmem_mutex);
+		}
+		/* Click for Brightness Control */
 		if( pxy_inbox( pmostat->mouseX-surfshmem->x0, pmostat->mouseY-surfshmem->y0,  // px,py, x1,y1, x2,y2
 		    0, 0, 40, surfshmem->vh ) ) {
 			pthread_mutex_unlock(&surfshmem->shmem_mutex);
+			menulist_ON=true;
 			surf_brightness(surfshmem, 0,0 );
 			pthread_mutex_lock(&surfshmem->shmem_mutex);
 		}
@@ -1129,3 +1158,202 @@ void *thread_ubus_wifi_up(void *arg)
 	return (void *)0;
 }
 
+
+/////////////////////  Surface for MenuListTree ////////////////////////////////
+
+
+/*-------------------------------------------
+A SURF to show brightness value bar.
+surfowner: NOT used!
+--------------------------------------------*/
+void surf_menuListTree(EGI_SURFUSER *surfowner)
+{
+	int msw=100;
+	int msh=100;
+	//int x0=0, y0=0;  /* Origin relative to surfowner */
+	ESURF_MENULIST *mlistMonitor;
+	ESURF_MENULIST *mlistSetting;
+	ESURF_MENULIST *mlistDP;
+	ESURF_MENULIST *mlistSensors;
+	ESURF_MENULIST *mlistNetstat;
+	ESURF_MENULIST *mlistNetSetting;
+
+        /* P1. Create a MenuList Tree */
+        /* P1.1 Create root mlist: ( mode, root, x0, y0, mw, mh, face, fw, fh, capacity) */
+        menulist=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, true, 0, 0, /* At this point, layout is not clear. x0/y0 set at P3 */
+                                                                                        110, 30, egi_sysfonts.regular, 16, 16, 8 );
+	mlistMonitor=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0,0, 110, 30, egi_sysfonts.bold, 16, 16, 8 );
+	mlistSetting=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0,0, 110, 30, egi_sysfonts.bold, 16, 16, 8 );
+	mlistDP=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0,0, 110, 30, egi_sysfonts.bold, 16, 16, 8 );
+	mlistSensors=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0, 30*3, 110, 30, egi_sysfonts.bold, 16, 16, 8 );
+	mlistNetstat=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0, 30*2, 110, 30, egi_sysfonts.bold, 16, 16, 8 );
+	mlistNetSetting=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0,0, 110, 30, egi_sysfonts.bold, 16, 16, 8 );
+
+	/* P2.0 Add itmes to mlistDP */
+        egi_surfMenuList_addItem(mlistDP, "DGPS", NULL, NULL);
+        egi_surfMenuList_addItem(mlistDP, "Wind", NULL, NULL);
+//        egi_surfMenuList_addItem(mlistDP, "Gyrocompass", NULL, NULL);
+//        egi_surfMenuList_addItem(mlistDP, "MRU", NULL, NULL);
+
+        /* P2.1 Add items to mlistSensors */
+        egi_surfMenuList_addItem(mlistSensors, "DP", mlistDP, NULL);
+        egi_surfMenuList_addItem(mlistSensors, "Sensor1", NULL, NULL);
+        egi_surfMenuList_addItem(mlistSensors, "Sensor2", NULL, NULL);
+        egi_surfMenuList_addItem(mlistSensors, "Sensor3", NULL, NULL);
+
+	/* P2.2 Add items to mlistNetstat */
+	egi_surfMenuList_addItem(mlistSetting, "System", NULL, NULL);
+	egi_surfMenuList_addItem(mlistSetting, "Sound", NULL, NULL);
+	egi_surfMenuList_addItem(mlistSetting, "BackLight", NULL, NULL);
+	egi_surfMenuList_addItem(mlistSetting, "Power", NULL, NULL);
+        /* P2.3 Add items to mlistMonitor */
+        egi_surfMenuList_addItem(mlistMonitor, "CPU Temp", NULL, NULL);
+        egi_surfMenuList_addItem(mlistMonitor, "CPU Load", NULL, NULL);
+        egi_surfMenuList_addItem(mlistMonitor, "Netstat", mlistNetstat, NULL);
+        egi_surfMenuList_addItem(mlistMonitor, "Sensors", mlistSensors, NULL);
+
+	/* P3.1 Add items to mlistNetSetting */
+	egi_surfMenuList_addItem(mlistNetSetting, "IP", NULL, NULL);
+	egi_surfMenuList_addItem(mlistNetSetting, "WiFi", NULL, NULL);
+
+	/* P3.2 Add items to mlistNetstat */
+	egi_surfMenuList_addItem(mlistNetstat, "Setting", mlistNetSetting, NULL);
+	egi_surfMenuList_addItem(mlistNetstat, "Interface", NULL, NULL);
+	egi_surfMenuList_addItem(mlistNetstat, "Traffic", NULL, NULL);
+
+        /* P4. Add items to menulist */
+        egi_surfMenuList_addItem(menulist, "设置", mlistSetting, NULL);
+        egi_surfMenuList_addItem(menulist, "Monitor", mlistMonitor, NULL);
+        egi_surfMenuList_addItem(menulist, "Preference", NULL, NULL);
+
+	/* P2. Get MAX layout size */
+	egi_dpstd("Get layout size...\n");
+	if( egi_surfMenuList_getMaxLayoutSize(menulist, &msw, &msh)<0 )
+		egi_dpstd(DBG_RED"Fail to get layout size!\n"DBG_RESET);
+        egi_dpstd("Max layout size: W%dxH%d\n", msw, msh);
+
+	/* P3. Reset X0,Y0 according to layout size. x0y0 under msurfusr imgbuf COORD  */
+	menulist->x0=0;   //surfowner->surfshmem->x0 + 120;
+	menulist->y0=msh-2; 	  //surfowner->surfshmem->y0 - msh-2;
+
+	/* 0. Varaibles and Refes. */
+	EGI_SURFUSER *msurfuser=NULL;
+	EGI_SURFSHMEM *msurfshmem=NULL; /* Only a ref. to surfuser->surfshemem */
+	FBDEV	 *mvfbdev=NULL;	      /* Only a ref. to &surfuser->vfbdev */
+	EGI_IMGBUF *msurfimg=NULL;    /* Only a ref. to surfuser->imgbuf */
+	SURF_COLOR_TYPE mcolorType=SURF_RGB565_A8; /* surfuser->vfbdev color type */
+	//EGI_16BIT_COLOR  mbkgcolor;
+
+	/* 1. Register/Create a surfuser */
+	egi_dpstd("Register to create a surfuser...\n");
+	msurfuser=egi_register_surfuser(ERING_PATH_SURFMAN, NULL, (320-msw)/2, (240-msh)/2, //surfowner->x0+x0, surfowner->y0+y0,
+					 msw, msh, msw, msh, mcolorType); /* Fixed size */
+	if(msurfuser==NULL) {
+		egi_dpstd(DBG_RED"Fail to register surface!\n"DBG_RESET);
+		return;
+	}
+
+	/* 2. Get ref. pointers to vfbdev/surfimg/surfshmem */
+	mvfbdev=&msurfuser->vfbdev;
+	//mvfbdev->pixcolor_on=true;  // OK, default
+	msurfimg=msurfuser->imgbuf;
+	msurfshmem=msurfuser->surfshmem;
+
+	/* 3. Assgin OP function, connect with CLOSE/MIN./MIN. buttons etc. */
+	//msurfshmem->minimize_surface	= surfuser_minimize_surface; /* Surface module default function */
+	//msurfshmem->redraw_surface	= surfuser_redraw_surface;
+	//msurfshmem->maximize_surface	= surfuser_maximize_surface; /* Need resize */
+	//msurfshmem->normalize_surface	= surfuser_normalize_surfac; /* Need resize */
+	msurfshmem->close_surface	= surfuser_close_surface;
+
+//	msurfshmem->draw_canvas	        = mlistTree_draw_canvas;
+	msurfshmem->user_mouse_event  = surfmlist_mouse_event;
+
+	/* 4. Name for the surface */
+	strncpy(msurfshmem->surfname, "MenuTree", SURFNAME_MAX-1);
+
+	/* 5. First draw surface */
+
+	//msurfshmem->bkgcolor=WEGI_COLOR_GRAYA; /* OR default BLACK */
+
+	/* First draw, SURFFRAME_NONE */
+	//surfuser_firstdraw_surface(msurfuser, TOPBAR_NONE, 0, NULL);  /* Default firstdraw operation */
+	/* Adjust menulist holding imgbuf position */
+	msurfshmem->x0 = surfowner->surfshmem->x0 + 120;
+	msurfshmem->y0 = surfowner->surfshmem->y0 - msh-2;
+	egi_surfMenuList_writeFB(mvfbdev, menulist, 0,0, 0); //0,msh, 0); /* Offset ROOT_ORIGIN down msh, for LEFT_BOTTOM mode */
+
+	/* 6. Start Ering routine */
+	egi_dpstd("Start ering routine...\n");
+	if( pthread_create(&msurfshmem->thread_eringRoutine, NULL, surfuser_ering_routine, msurfuser)!=0 ) {
+		egi_dperr("Fail to launch thread EringRoutine!");
+		if(egi_unregister_surfuser(&msurfuser)!=0)
+			egi_dpstd("Fail to unregister surfuser!\n");
+		return;
+	}
+
+	/* 7. Other jobs... */
+
+	/* 8. Activate image */
+	msurfshmem->sync=true;
+
+	/* ===== Main Loop ===== */
+	while(msurfshmem->usersig !=1 ) {
+
+		usleep(100000);
+	}
+
+	/* P1. Join ering routine */
+	//surfuser->surfshmem->usersig=1; // Useless if thread is busy calling a BLOCKING function.
+	egi_dpstd("Cancel thread...\n");
+	pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+	/* Make sure mutex unlocked in pthread if any! */
+	egi_dpstd("Join thread_eringRoutine...\n");
+	if( pthread_join(msurfshmem->thread_eringRoutine, NULL)!=0)
+		egi_dperr("Fail to join eringRoutine!\n");
+
+	/* P2. Unregister and destroy surfuser */
+	egi_dpstd("Unregister surfuser...\n");
+	if( egi_unregister_surfuser(&msurfuser)!=0 )
+		egi_dpstd("Fail to unregister surfuser!\n");
+
+	/* P3. Free MenuList Tree */
+	egi_surfMenuList_free(&menulist);
+
+	egi_dpstd("Surf_menuListTree: Exit OK!\n");
+}
+
+
+/*-----------------------------------------------------------------
+                Mouse Event Callback
+               (shmem_mutex locked!)
+
+1. It's a callback function called in surfuser_parse_mouse_event().
+2. pmostat is for whole desk range.
+3. This is for  SURFSHMEM.user_mouse_event().
+------------------------------------------------------------------*/
+void surfmlist_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
+{
+        //FBDEV *mvfbdev=&surfuser->vfbdev;
+	EGI_IMGBUF *msurfimg=surfuser->imgbuf;
+        EGI_SURFSHMEM *msurfshmem=surfuser->surfshmem;
+
+/* --------- E1. Parse Keyboard Event ---------- */
+/* --------- E2. Parse STDIN Input ---------- */
+/* --------- E3. Parse Mouse Event ---------- */
+
+	/* To quit surface */
+	//if( pmostat->LeftKeyDown || pmostat->RightKeyDown) {
+	if( pmostat->RightKeyDown) {
+		/* Signal to quit */
+                surfuser->surfshmem->usersig=SURFUSER_SIG_QUIT;
+	}
+	/* To view/expand/displayz menu list  */
+	else if( pmostat->mouseDX || pmostat->mouseDY ) {
+	//if(menulist_ON) {
+                egi_surfMenuList_updatePath(menulist, pmostat->mouseX-msurfshmem->x0, pmostat->mouseY-msurfshmem->y0);
+		/* Offset ROOT_ORIGIN down msh, for LEFT_BOTTOM mode */
+		egi_imgbuf_resetColorAlpha(msurfimg, -1, 0);  /*  imgbuf, color, alpha */
+	 	egi_surfMenuList_writeFB(&surfuser->vfbdev, menulist, 0,0, 0); //msurfshmem->vh, 0); /* fbdev, mlist, offx, offy, select_idx */
+	}
+}

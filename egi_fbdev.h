@@ -197,6 +197,7 @@ void    release_fbdev(FBDEV *dev);
 //int 	fb_set_screenPos(FBDEV *fb_dev, unsigned int xres, unsigned int yres);
 
 int 	init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *fbimg, EGI_IMGBUF *FrameImg);
+int 	virt_fbdev_updateImg(FBDEV *fb_dev, EGI_IMGBUF *fbimg, EGI_IMGBUF *FrameImg);
 int 	init_virt_fbdev2(FBDEV *fb_dev, int xres, int yres, int alpha, EGI_16BIT_COLOR color);
 void	release_virt_fbdev(FBDEV *dev);
 int	reinit_virt_fbdev(FBDEV *dev, EGI_IMGBUF *fbimg, EGI_IMGBUF *FrameImg);

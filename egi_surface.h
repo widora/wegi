@@ -272,7 +272,7 @@ struct egi_surface_manager {
  * TODO:
  *   1. If surface memfds does NOT reach the surface user, or keep inactive for a long time.
  *	check and remove it.
- *   2. Surfman data protection from Surfuser!  Spin off all private data to a new struct.
+ *   2. XXX Surfman data protection from Surfuser!  Spin off all private data to a new struct.
  *      --- OK Surfuser get EGI_SURFSHMEM pointer only
  */
 
@@ -312,6 +312,9 @@ struct egi_surface_shmem {
 	bool		eringRoutine_running;	/* An indicator, set/reset in surfuser_ering_routine(). */
 
 	int		usersig;	/* user signal: NOW 1 as quit surface ERING routine. */
+
+#define   SURFUSER_SIG_QUIT       1
+
 
 	bool		hidden;		/* True: invisible. */
 	bool		downhold;	/* If the surface is hold down ... XXX no use? */
@@ -411,7 +414,6 @@ struct egi_surface_shmem {
 						 */
 
 	void (*menu_react[TOPMENU_MAX])(EGI_SURFUSER *surfuser);
-
 
 	/* Private buttons on the surface */
 	int			prvbtnsMAX;	/* MAX. number of private buttons on the surface. */
@@ -560,7 +562,7 @@ enum surface_flags {
 };
 
 
-#if  0 /* NOTE: Following move to egi_unet.h */
+#if  0 /* NOTE: Following moved to egi_unet.h */
 enum ering_request_type {
 //      ERING_REQUEST_NONE      =0,
 //      ERING_REQUEST_EINPUT    =1,

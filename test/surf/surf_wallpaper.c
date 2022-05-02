@@ -337,7 +337,7 @@ START_REQUEST:
 			/* Edit bing_today.jpg: Put on title/mark. WARN: bing_today.sh MAY fail! */
 			//egi_imgbuf_resize_update(&bingimg, false, 320, 240); /* !!! XXX vfbdev->pos_xres, vfbdev->pos_yres  */
 			egi_imgbuf_scale_update(&bingimg, SURF_MAXW, SURF_MAXH);
-			egi_imgbuf_avgLuma(bingimg, 135);
+//			egi_imgbuf_avgLuma(bingimg, 135);
 			FTsymbol_writeIMG(bingimg,"Bing 必应", 16,16, WEGI_COLOR_WHITE, 320-80, 5); /* vfb, txt, fw, fh, color, px, py */
 			FTsymbol_writeIMG(bingimg, imgTXT, 12,12, WEGI_COLOR_WHITE, 5, 240-30);
 

@@ -214,7 +214,7 @@ struct egi_surface_menulist {
 					 * How many visible/expanded sub_MenuLists! depth of the MenuList tree.
 					 *  1. Unexpanded sub_MenuLists is NOT counted in.
 					 *  2. If only a root_MenuList, then depth==0!
-					 */
+					*/
 
 #define ESURF_MENULIST_DEPTH_MAX	32
 	//int		path[ESURF_MENULIST_DEPTH_MAX];
@@ -234,6 +234,8 @@ struct egi_surface_menulist {
 ESURF_MENULIST *egi_surfMenuList_create(int mode, bool root, int x0, int y0, int mw, int mh,
 						FT_Face face, int fw, int fh, unsigned int capacity);
 void	egi_surfMenuList_free(ESURF_MENULIST **mlist);
+int 	egi_surfMenuList_getMaxOffset(const ESURF_MENULIST *mlist, int Ox, int Oy, int *offYU, int *offYD, int *offXR, int *offXL);
+int 	egi_surfMenuList_getMaxLayoutSize(const ESURF_MENULIST *mlist, int *w, int *h);
 int 	egi_surfMenuList_addItem(ESURF_MENULIST *mlist, const char *descript, ESURF_MENULIST *submlist, const char *run_script);
 void 	egi_surfMenuList_writeFB(FBDEV *fbdev, const ESURF_MENULIST *mlist, int offx, int offy, int select_idx);
 int 	egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py); /* Pick the menu item, and update path and fidx */
@@ -326,10 +328,10 @@ int 	egi_surfListBox_PxySelectItem(EGI_SURFUSER *surfuser, ESURF_LISTBOX *listbo
 
 
 /* <<<<< Standard Common Surfaces >>>>> */
-int egi_crun_stdSurfInfo(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, int sw, int sh);
+int egi_crun_stdSurfInfo(const UFT8_PCHAR name, const UFT8_PCHAR info, int x0, int y0, int sw, int sh);
 
 #define STDSURFCONFIRM_RET_OK        0
 #define STDSURFCONFIRM_RET_CANCEL    1
-int egi_crun_stdSurfConfirm(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, int sw, int sh);
+int egi_crun_stdSurfConfirm(const UFT8_PCHAR name, const UFT8_PCHAR info, int x0, int y0, int sw, int sh);
 
 #endif

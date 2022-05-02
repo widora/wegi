@@ -23,6 +23,9 @@ Note:
  XXX downsampled (single-rate) SBR
  XXX parametric stereo
 
+TODO:
+1. To apply FIFO ring buffer.
+
 Journal:
 2021-05-03:
 	1. Test msg queue: send params to WetRadio.
@@ -71,10 +74,14 @@ int main(int argc, char **argv)
 	EGI_FILEMMAP *fmap_aac=NULL;
 	EGI_FILEMMAP *fmap_pcm=NULL;
 
+//	unsigned char tailBuffer[2*2*NSAMPS_SHORT];  /* nchanl*2*NSAMPS_SHORT, for the remaining sample data. */
+
 	int percent;
 	char ch;
-
-
+	int segFileCnt=0;  /* Counter for  segment files */
+	int feedCnt=0;     /* Counter for decoder feeding/decoding */
+	const char *title=NULL;  /* Title / Station name */
+	if(argc>1) title=argv[1];
 
 	/***  AAC Header: profile
 	 * 0. AAC Main  --- NOT SUPPORTED!
@@ -108,7 +115,7 @@ int main(int argc, char **argv)
 #endif
 
 	/* Log silent */
-//	egi_log_silent(true);
+	egi_log_silent(true);
 
   	/* Set termI/O 设置终端为直接读取单个字符方式 */
   	egi_set_termios();
@@ -163,7 +170,6 @@ int main(int argc, char **argv)
 /* ----end: MSG QUEUE---- */
 
 ///////////// --- TEST: RADIO --- /////////////
-printf("\nAAC RADIO Player\n");
 fout_path=NULL;
 RADIO_LOOP:
 
@@ -201,6 +207,9 @@ RADIO_LOOP:
 	}
 	EGI_PLOG(LOGLV_INFO, "Finish creating fmap_aac for '%s', fsize=%lld!", fin_path,fmap_aac->fsize);
 
+	/* Count segment files */
+	segFileCnt++;
+
 	/* Get pointer to AAC data */
 	pin=(unsigned char *)fmap_aac->fp;
 	bytesLeft=fmap_aac->fsize;
@@ -217,6 +226,8 @@ RADIO_LOOP:
 	}
 
 	EGI_PLOG(LOGLV_INFO, "Start to AACDecode() fmap_aac with size=%d Bs", bytesLeft);
+
+	feedCnt=0;
 	while(bytesLeft>= nchanl*2*NSAMPS_SHORT) {  /* 2*128 Too short cause decoder dump segfault! */
 		//printf("bytesLeft=%d\n", bytesLeft);
 
@@ -232,12 +243,12 @@ RADIO_LOOP:
 		        case '+':       /* Volume up */
 	        	        egi_adjust_pcm_volume(NULL, 5);
         	        	egi_getset_pcm_volume(NULL, &percent,NULL);
-		                printf("\tVol: %d%%",percent);
+		                printf("\rVol: %d%%",percent); fflush(stdout);
                 		break;
 			case '-':       /* Volume down */
 		                egi_adjust_pcm_volume(NULL, -5);
                 		egi_getset_pcm_volume(NULL, &percent,NULL);
-		                printf("\tVol: %d%%",percent);
+		                printf("\rVol: %d%%",percent); fflush(stdout);
                 		break;
 			case '>':
 				if(bytesLeft > skip_size+findlen ) {
@@ -280,9 +291,10 @@ RADIO_LOOP:
 		}
 
 		/* int AACDecode(HAACDecoder hAACDecoder, unsigned char **inbuf, int *bytesLeft, short *outbuf) */
-		printf("AACDecode bytesLeft=%d.\n", bytesLeft);
+//		printf("AACDecode bytesLeft=%d.\n", bytesLeft);
 		err=AACDecode(aacDec, &pin, &bytesLeft, pout);
 //		printf("err=%d, bytesLeft=%d.\n", err, bytesLeft);
+		feedCnt++;
 		if(err==ERR_AAC_NONE) {
 			//EGI_PLOG(LOGLV_INFO, "AACDecode: %lld bytes of aac data decoded.\n", fmap_aac->fsize-bytesLeft );
 			AACGetLastFrameInfo(aacDec, &aacFrameInfo);
@@ -301,7 +313,12 @@ RADIO_LOOP:
 			/* Sep parameters for pcm_hanle, Assume format as SND_PCM_FORMAT_S16_LE, */
 			if(!pcmdev_ready || nchanl != aacFrameInfo.nChans || samplerate!=aacFrameInfo.sampRateOut )
 			{
-				printf("\n--- Helix AAC FP Decoder ---\n");
+				printf(" Station %s\n", title);
+   			        printf(" ----------------------------\n");
+                		printf("       AAC Radio Player\n");
+				//printf("     Helic AAC FP Decoder\n");
+		                printf(" ----------------------------\n");
+				printf(" Helix AAC FP Decoder\n");
 				printf(" profile\t%s\n",
 					strprofile[aacFrameInfo.profile] );
 				printf(" nChans\t\t%d\n sampRateCore\t%d\n",
@@ -380,7 +397,8 @@ RADIO_LOOP:
 		        	egi_pcmhnd_playBuff(pcm_handle, true, pout, aacDecInfo->sbrEnabled?2048:1024); // ENABLE_AAC_SBR?2048:1024);
 			}
 
-			printf("\r%lld/%lld",fmap_aac->fsize-bytesLeft,fmap_aac->fsize); fflush(stdout);
+			if( (feedCnt&(4-1)) ==0 )
+				printf("\rPlay %lld/%lld [seg%d]",fmap_aac->fsize-bytesLeft,fmap_aac->fsize, segFileCnt); fflush(stdout);
 			EGI_PLOG(LOGLV_INFO,"##%lld/%lld",fmap_aac->fsize-bytesLeft,fmap_aac->fsize);
 
 			/* Save PCM data to file */
@@ -464,11 +482,11 @@ RADIO_LOOP:
 			EGI_PLOG(LOGLV_WARN, "AAC ERR=%d, bytesLeft=%d", err,bytesLeft);
 			break; /* Break while()! or it may do while() forever as bytesLeft may not be changed! */
 			/* Break and start a new session */
-
 		}
-	}
 
-	//printf("\nFinish decoding, %d bytes left!\n", bytesLeft);
+	} /* While */
+
+//	printf("\nFinish decoding, %d bytes left!\n", bytesLeft);
 
 ///////////// --- TEST: RADIO --- /////////////
 

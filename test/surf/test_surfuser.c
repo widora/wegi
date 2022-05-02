@@ -66,6 +66,8 @@ Journal
 	1. Apply my_close_surface()
 2022-04-20:
 	1. Add menu_help()
+2022-04-27:
+	1. Add menu_option()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -76,6 +78,7 @@ https://github.com/widora/wegi
 #include <errno.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 #include "egi_timer.h"
 #include "egi_color.h"
@@ -121,6 +124,9 @@ EGI_16BIT_COLOR	fcolor=WEGI_COLOR_BLACK;
 int fw=20, fh=20;
 int fgap=4;
 
+/* Wait pid */
+int wait_pid;
+int wait_status;
 
 /* Apply SURFACE module default function */
 void my_redraw_surface(EGI_SURFUSER *surfuser, int w, int h);
@@ -130,6 +136,7 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat);
 void my_close_surface(EGI_SURFUSER *surfuer);
 
 void menu_help(EGI_SURFUSER *surfcaller);
+void menu_option(EGI_SURFUSER *surfcaller);
 
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
@@ -228,7 +235,6 @@ START_TEST:
 	surfimg=surfuser->imgbuf;
 	surfshmem=surfuser->surfshmem;
 
-
         /* Get surface mutex_lock.  ..Usually it's OK to be ignored! */
         if( pthread_mutex_lock(&surfshmem->shmem_mutex) !=0 ) {
         	egi_dperr("Fail to get mutex_lock for surface.");
@@ -250,7 +256,7 @@ START_TEST:
 	surfshmem->user_close_surface   = my_close_surface;
 
         /* Assign BTN/MENU react funcionts, let default surfuser_parse_mouse_event() to parse and trigger in surfuser_ering_routine() */
-        //surfshmem->menu_react[MENU_OPTION]=menu_option;
+        surfshmem->menu_react[MENU_OPTION]=menu_option;
         surfshmem->menu_react[MENU_HELP]=menu_help;
 
 	/* 4. Give a name for the surface. */
@@ -262,7 +268,7 @@ START_TEST:
 	/* 5. First draw surface, set up TOPBTNs and TOPMENUs. */
 	surfshmem->bkgcolor=egi_color_random(color_all); /* OR default BLACK */
 	surfshmem->topmenu_bkgcolor=egi_color_random(color_light);
-	surfshmem->topmenu_hltbkgcolor=WEGI_COLOR_GRAYA;
+	surfshmem->topmenu_hltbkgcolor=WEGI_COLOR_GRAYB;
 	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MAX|TOPBTN_MIN, MENU_MAX, menu_names); /* Default firstdraw operation */
 
 	/* font color */
@@ -324,6 +330,12 @@ START_TEST:
 
 		surfshmem->flags &= (~SURFACE_FLAG_MEVENT);
 		//sleep(1);
+
+                /* Waitpit child if necessary */
+                if( (wait_pid=waitpid(-1, &wait_status, WNOHANG)) >0 ) {
+                        egi_dpstd("A child process PID=%d exits %s, wait_status=%d!\n",
+                                        wait_pid, WIFEXITED(wait_status)?"NORMALLY":"ABNORMALLY!",  wait_status);
+                }
 	}
 
 #endif
@@ -685,6 +697,26 @@ void my_close_surface(EGI_SURFUSER *surfuer)
 /* ------ <<<  Surface shmem Critical Zone  */
         pthread_mutex_lock(&surfuser->surfshmem->shmem_mutex);
 
+}
+
+/*---------------------------------------------------------
+To create a SURFACE for menu_option.
+
+Note:
+1. If it's called in mouse event function, DO NOT forget to
+   unlock shmem_mutex.
+----------------------------------------------------------*/
+void menu_option(EGI_SURFUSER *surfcaller)
+{
+        int msw=240;
+        int msh=30+10+2*(18+18/5)+10; /* fh=18 */
+
+        /* Coordinate origin relative to surfcaller's */
+        int x0=20, y0=20;
+
+ 	const char *info="INFO: This surface is for options.";
+
+   	egi_crun_stdSurfInfo((UFT8_PCHAR)"Option", (UFT8_PCHAR)info, surfcaller->surfshmem->x0+x0, surfcaller->surfshmem->y0+y0, msw, msh);
 }
 
 

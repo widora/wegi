@@ -151,9 +151,9 @@ Push data into buff.
 fifo:	  	a EGI_FIFO holding the buff.
 data:	  	data to push to fifo.
 size:	  	size of the data to push to fifo, in byte.
-in,out:		pusher/puller position corresponding to the data[] slot
+in,out:		To pass out pusher/puller position corresponding to the data[] slot
 		!!!! BEFORE pin++/pout++ !!!!
-ahd:    	current ahead mark.
+ahd:    	To pass out current ahead mark.
 
 Return:
 	1	overrun;
@@ -283,9 +283,10 @@ fifo:	a EGI_FIFO holding the buff.
 data:	pointer to data pulled out from the fifo.
 size:	size of the data to be extraced from the fifo, in byte.
 	if size<=0 or >fifo->itemsize, then re_asign it to fifo->itemsize.
-in,out:		pusher/puller position corresponding to the data[] slot
+
+in,out:		To pass out pusher/puller position corresponding to the data[] slot
 		!!!! BEFORE pin++/pout++ !!!!
-ahd:    	current ahead mark.
+ahd:    	To pass out current ahead mark.
 
 Return:
 	1	underrun;

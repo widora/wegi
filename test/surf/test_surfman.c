@@ -910,7 +910,7 @@ WAIT_REQUEST:
 			 *	3. A NON_TOP_surface receives mstat ONLY WHEN the mouse is within its surface area, and it CAN NOT
 			 *	   receive it once the mouse is out of the range.
 			 *   	4. If the TOP surface is downhold(RESIZing OR MOVing), it MUST NOT ering mostat to any non_TOPsurfaces.
-			 *         any the LeftKeyDownHold will mis_trigger movement....
+			 *         and the LeftKeyDownHold will mis_trigger movement....
 			 */
 
 	/* ONLY after chars/conkeys cleared by the TOP surface. Send mouse status ONLY! */

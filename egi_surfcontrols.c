@@ -43,6 +43,9 @@ Journal:
 2021-07-23:
 	1 egi_point_on_surfBox(), egi_point_on_surfBtn(), egi_point_on_surfTickBox():
           For touched point, also check imgbuf->alpha value of the surfBox.
+2022-04-28/29:
+	1. Add egi_surfMenuList_getMaxOffset().
+	2. Add egi_surfMenuList_getMaxLayoutSize().
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -682,6 +685,138 @@ void    egi_surfMenuList_free(ESURF_MENULIST **mlist)
 }
 
 
+/*-----------------------------------------------------------------
+Get Max. offset values for a menulist tree.
+
+		!!! --- This is a recursive function --- !!!
+
+Nonte:
+1. The very first call MUST input a root menulist.
+
+
+@mlist:         A pointer to a ESURF_MENULIST
+@Ox,Oy:		Origin coordinate of the mlist relative to ROOT_ORIGIN.
+		(Relative to Screen COORD:  +OY: -Y direction, +OX: +X direction )
+@offYU,offYD:   >=0!   Max. offset from ROOT_ORIGIN to Y Upper/Down most.
+		(Relative to Screen COORD:  +YU: -Y direction; +YD: +Y direction; from menulist origin )
+		Input value is current MAX. value without considering mlist.
+@offXR,offXL:	>=0!   Max. offset from ROOT_ORIGIN to X Right/Left most.
+		(Relative to Screen COORD, +XR: +X direction; +XL: -X direction; from menulist origin )
+		Init value should be offset from the ROOT ORIGIN.
+		Input value is current MAX. value without considering mlist.
+
+Return:
+	0	OK
+	<0	Fails
+------------------------------------------------------------------*/
+int egi_surfMenuList_getMaxOffset(const ESURF_MENULIST *mlist, int Ox, int Oy, int *offYU, int *offYD, int *offXR, int *offXL)
+{
+	int k; //	int yu,yd,xr,xl;
+	int maxu,maxd,maxr,maxl; /* >=0; tmpe. offYU,YD,XR,XL */
+	int tmpOx, tmpOy;
+
+	if(mlist==NULL)
+		return -1;
+
+	/* 1. If root, reset all offset value to 0 */
+	if(mlist->root) {
+		Ox=0;
+		Oy=0;
+		*offYU=0; *offYD=0;
+		*offXR=0; *offXL=0;
+	}
+
+	/* 2. Select mode case */
+	switch(mlist->mode) {
+	    case MENULIST_ROOTMODE_LEFT_BOTTOM:
+
+		/* 2.1 Compute max. offset values. for this menulist. */
+		if(mlist->root) {  /* 2.1.1 */
+			maxu=0+mlist->mcnt*mlist->mh;
+			maxd=0;
+			maxr=0 +mlist->mw;
+			maxl=0;
+		}
+		else {  /* 2.1.2 */
+			maxu=Oy+mlist->mcnt*mlist->mh -mlist->y0;
+			maxd=-Oy +mlist->y0;  /* -Oy: Down */
+			maxr=Ox +mlist->mw; /* -----> OVERLADP and x0 considered in 2.4 */
+			maxl= -Ox-mlist->x0;   /* -Ox: Left */
+		}
+
+		/* 2.3. Adjust to get MAX. offset values considering this menulist. */
+		if(maxu<*offYU) maxu=*offYU;
+		if(maxd<*offYD) maxd=*offYD;
+		if(maxr<*offXR) maxr=*offXR;
+		if(maxl<*offXL) maxl=*offXL;
+
+		egi_dpstd("maxu=%d, maxd=%d, maxr=%d, maxl=%d\n", maxu,maxd,maxr,maxl);
+
+		/* 2.4 Traverse sub_menulist items. */
+		tmpOx=Ox; tmpOy=Oy;  /* Backup OXY */
+		for(k=0; k< mlist->mcnt; k++) {
+			Ox=tmpOx; Oy=tmpOy;  /* Restore OxOy, in case changed in subitems */
+			if( mlist->mitems[k].mlist ) { /* Sub Menulist */
+				egi_dpstd(DBG_YELLOW"item[%d]: %s\n"DBG_RESET, k, mlist->mitems[k].descript);
+				/* Origin of the mitems[], relavite to ROOT_ORIGIN. */
+				//Ox=Ox +mlist->mw +mlist->mitems[k].mlist->x0 -ESURF_MENULIST_OVERLAP;
+				Ox=Ox +mlist->mw -ESURF_MENULIST_OVERLAP;  /* ----> x0 already added in 2.1.2 */
+				//Oy=Oy -mlist->mitems[k].mlist->y0 +k*mlist->mh;  /* +Oy: Upp */
+				Oy=Oy +k*mlist->mh;  /* +Oy: Upp,  ----> y0 already added in 2.1.2 */
+				egi_surfMenuList_getMaxOffset(mlist->mitems[k].mlist, Ox, Oy, &maxu, &maxd, &maxr, &maxl);
+			}
+		}
+
+		/* 2.5 Pass out */
+		*offYU=maxu;
+		*offYD=maxd;
+		*offXR=maxr;
+		*offXL=maxl;
+
+		break;
+	    case MENULIST_ROOTMODE_RIGHT_BOTTOM :
+		break;
+	    case MENULIST_ROOTMODE_LEFT_TOP:
+		break;
+	    case MENULIST_ROOTMODE_RIGHT_TOP:
+		break;
+	}
+
+	return 0;
+}
+
+
+/*--------------------------------------------
+Get MAX. layout size for a menulist tree.
+
+@mlist:         A pointer to a ESURF_MENULIST
+@w,h:		To pass out max. layout size.
+
+Return:
+	0	OK
+	<0	Fails
+----------------------------------------------*/
+int egi_surfMenuList_getMaxLayoutSize(const ESURF_MENULIST *mlist, int *w, int *h)
+{
+	int Ox, Oy;
+	int offYU, offYD, offXR, offXL;
+
+	if(!mlist->root)
+		return -1;
+
+	Ox=Oy=0;
+	offYU=offYD=offXR=offXL=0;
+
+	if(egi_surfMenuList_getMaxOffset(mlist, Ox, Oy, &offYU, &offYD, &offXR, &offXL)<0)
+		return -2;
+
+	if(w) *w=offXR+offXL;
+	if(h) *h=offYU+offYD;
+
+	return 0;
+}
+
+
 /*---------------------------------------------------------------------
 Draw a root MenuList with expanded/visible sub_MenuLists.
 
@@ -724,7 +859,6 @@ void egi_surfMenuList_writeFB(FBDEV *fbdev, const ESURF_MENULIST *mlist, int off
 		//			mlist->x0 +offx +mlist->mw-1, mlist->y0 +offy -(mlist->mh*mlist->mcnt)-1 );  /* width 1pix */
 		draw_wrect(fbdev,  mlist->x0 +offx, mlist->y0 +offy,
 					mlist->x0 +offx +mlist->mw-1, mlist->y0 +offy -(mlist->mh*mlist->mcnt)-1, 2); /* width 2pix */
-
 
 		/* 2. Draw description and mark for each MenuItem */
 		for(i=0; i < mlist->mcnt; i++) {
@@ -1510,7 +1644,7 @@ Return:
 	0	OK
 	<0	Fails
 -------------------------------------------------------------*/
-int egi_crun_stdSurfInfo(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, int sw, int sh)
+int egi_crun_stdSurfInfo(const UFT8_PCHAR name, const UFT8_PCHAR info, int x0, int y0, int sw, int sh)
 {
 	int ret=0;
 
@@ -1556,7 +1690,7 @@ int egi_crun_stdSurfInfo(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, int s
 	FTsymbol_disable_SplitWord();
 	FTsymbol_uft8strings_writeFB( vfbdev, egi_sysfonts.regular,  /* FBDEV, fontface */
 				      18, 18, info,		     /* fw, fh, pstr */
-				      sw-20, 100, 15/5, 	     /* pixpl, lines, fgap */
+				      sw-20, 100, 18/5, 	     /* pixpl, lines, fgap */
 				      10,  SURF_TOPBAR_HEIGHT+10,    /* x0, y0, relative to vfbdev */
 				      WEGI_COLOR_BLACK, -1, 240,     /* fontcolor, transcolor, opaque */
 				      NULL, NULL, NULL, NULL);	     /* int *cnt, int *lnleft, int *penx, int *peny */
@@ -1631,7 +1765,7 @@ Return:
 	>=0	OK, STDSURFCONFIRM_RETURN_OK/CANCEL
 	<0	Fails, ERR code.
 -------------------------------------------------------------*/
-int egi_crun_stdSurfConfirm(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, int sw, int sh)
+int egi_crun_stdSurfConfirm(const UFT8_PCHAR name, const UFT8_PCHAR info, int x0, int y0, int sw, int sh)
 {
 	int err=0;
 	int ret=0;		/* Default as _RETURN_OK */
@@ -1679,7 +1813,6 @@ int egi_crun_stdSurfConfirm(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, in
         if( sw< 2*btnW+btnGap+20 )      /* Taken margins at all sides as 10 */
                 sw=2*btnW+btnGap+20;
 
-
 	/* 1. Register/Create a surfuser */
 	psurfuser=egi_register_surfuser( ERING_PATH_SURFMAN, NULL,
 					 x0, y0, sw, sh, sw, sh, scolorType); /* Fixed size */
@@ -1717,7 +1850,7 @@ int egi_crun_stdSurfConfirm(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, in
 	//py see above.
 	pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.regular, fw, fh, strOk);
 
-	/* Draw effective/touched button image */
+	/* Draw effective/touched OK_button image */
 	fbset_color2(vfbdev, WEGI_COLOR_GRAYB);	/* Light bkgcolor */
 	draw_filled_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
 	fbset_color2(vfbdev, WEGI_COLOR_BLACK);
@@ -1732,8 +1865,8 @@ int egi_crun_stdSurfConfirm(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, in
 	/* egi_imgbuf_blockCopy(inimg, px, py, height, width) */
 	effectimg=egi_imgbuf_blockCopy(psurfimg, px, py, btnH, btnW);
 
-	/* Draw normal/untouched button image */
-	fbset_color2(vfbdev, WEGI_COLOR_GRAYA);	/* Deep bkgcolor */
+	/* Draw normal/untouched OK_button image */
+	fbset_color2(vfbdev, WEGI_COLOR_GRAY);	/* Deep bkgcolor */
 	draw_filled_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
 	fbset_color2(vfbdev, WEGI_COLOR_BLACK);
 	draw_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
@@ -1752,7 +1885,7 @@ int egi_crun_stdSurfConfirm(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, in
 	px += btnW+btnGap;		/* Start point of the second button */
 	pixlen=FTsymbol_uft8strings_pixlen( egi_sysfonts.regular, fw, fh, strCancel);
 
-	/* Draw effective/touched button image */
+	/* Draw effective/touched CANCEL_button image */
 	fbset_color2(vfbdev, WEGI_COLOR_GRAYB);
 	draw_filled_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
 	fbset_color2(vfbdev, WEGI_COLOR_BLACK);
@@ -1767,8 +1900,8 @@ int egi_crun_stdSurfConfirm(UFT8_PCHAR name, UFT8_PCHAR info, int x0, int y0, in
 	/* egi_imgbuf_blockCopy(inimg, px, py, height, width) */
 	effectimg=egi_imgbuf_blockCopy(psurfimg, px, py, btnH, btnW);
 
-	/* Draw normal/untouched button image */
-	fbset_color2(vfbdev, WEGI_COLOR_GRAYA);
+	/* Draw normal/untouched CANCEL_button image */
+	fbset_color2(vfbdev, WEGI_COLOR_GRAY);
 	draw_filled_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
 	fbset_color2(vfbdev, WEGI_COLOR_BLACK);
 	draw_rect(vfbdev, px, py, px+btnW-1, py+btnH-1);
@@ -1903,7 +2036,7 @@ static void stdSurfConfirm_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS 
                         draw_blend_filled_rect(mvfbdev, msurfshmem->prvbtns[i]->x0, msurfshmem->prvbtns[i]->y0,
 						msurfshmem->prvbtns[i]->x0+ msurfshmem->prvbtns[i]->imgbuf->width-1,
 						msurfshmem->prvbtns[i]->y0+ msurfshmem->prvbtns[i]->imgbuf->height-1,
-                                                WEGI_COLOR_WHITE, 100);
+                                                COLOR_White, 200);
  			#else /* imgbuf_effect */
                         egi_subimg_writeFB(msurfshmem->prvbtns[i]->imgbuf_effect, mvfbdev,
                                               0, -1, msurfshmem->prvbtns[i]->x0, msurfshmem->prvbtns[i]->y0);
@@ -1944,11 +2077,11 @@ static void stdSurfConfirm_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS 
                 switch(msurfshmem->mpprvbtn) {
                         case STDSURFCONFIRM_BTNIDX_OK:
 				surfuser->retval = STDSURFCONFIRM_RET_OK;
-				msurfshmem->usersig=1;
+				msurfshmem->usersig=SURFUSER_SIG_QUIT;
                                 break;
                         case STDSURFCONFIRM_BTNIDX_CANCEL:
 				surfuser->retval = STDSURFCONFIRM_RET_CANCEL;
-				msurfshmem->usersig=1;
+				msurfshmem->usersig=SURFUSER_SIG_QUIT;
                                 break;
                 }
         }

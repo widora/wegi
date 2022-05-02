@@ -25,6 +25,8 @@ Journal
 2021-11-11:
 	1. Add member FBDEV.zbuff_IgnoreEqual
 	2. init_virt_fbdev(): init FBDEV.zbuff_IgnoreEqual as FALSE.
+2022-05-01:
+	1. Add virt_fbdev_updateImg()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -381,7 +383,7 @@ int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *fbimg, EGI_IMGBUF *FrameImg)
 	fb_dev->zbuff_on=false;
 	fb_dev->zbuff_IgnoreEqual=false;
 
-	/* reset virtual FB, as EGI_IMGBUF */
+	/* Reset virtual FB, as EGI_IMGBUF */
 	fb_dev->virt_fb=fbimg;
 	fb_dev->VFrameImg=FrameImg;
 	/* XXX fb_dev->img_owner=false;
@@ -424,6 +426,79 @@ int init_virt_fbdev(FBDEV *fb_dev, EGI_IMGBUF *fbimg, EGI_IMGBUF *FrameImg)
         printf(" Vimg_owner:	%s\n",			fb_dev->vimg_owner?"True":"False");
         printf(" ----------------------------\n\n");
 #endif
+
+	return 0;
+}
+
+
+/*---------------------------------------------------------------------
+Update virt fbdev with NEW fbimg and FrameImg
+ONLY update parameters related with fbimg and FrameImg!
+
+@dev:   	Pointer to statically allocated FBDEV.
+@fbimg:  	Pointer to an EGI_IMGBUF, as fb_dev->virt_fb.
+		MAY be NULL!
+@FramImg:	Pointer to an EGI_IMGBUF, as fb_dev->VFrameImg.
+		MAY be NULL.
+
+Return:
+        0       OK
+        <0      Fails
+----------------------------------------------------------------------*/
+int virt_fbdev_updateImg(FBDEV *fb_dev, EGI_IMGBUF *fbimg, EGI_IMGBUF *FrameImg)
+{
+	/* Check input data */
+	if(fbimg) {
+		if( fbimg==NULL || fbimg->imgbuf==NULL || fbimg->width<=0 || fbimg->height<=0 ) {
+			egi_dpstd("Input fbimg is invalid!\n");
+			return -1;
+		}
+	}
+
+	/* Check FrameImg */
+	if( FrameImg ) {
+		if( FrameImg->imgbuf==NULL || FrameImg->width<=0 || FrameImg->height<=0 ) {
+			egi_dpstd("Input FrameImg is invalid!\n");
+			return -1;
+		}
+		/* Compare size with fbimg */
+		if(fbimg) {
+			if( fbimg->width != FrameImg->width || fbimg->height != FrameImg->height ) {
+				egi_dpstd("Input FrameImg is invalid!\n");
+				return -1;
+			}
+		}
+		else {
+			if( fb_dev->virt_fb->width != FrameImg->width || fb_dev->virt_fb->height != FrameImg->height ) {
+				egi_dpstd("Input FrameImg invalid! NOT same size as virt_fb!\n");
+				return -1;
+			}
+		}
+	}
+
+	/* Reset virtual FB, as EGI_IMGBUF */
+	if(fbimg)
+		fb_dev->virt_fb=fbimg;
+	if(FrameImg)
+		fb_dev->VFrameImg=FrameImg;
+	/* XXX fb_dev->img_owner=false;
+	 * NOTE: Since fb_dev is a static FBDEV, just let the caller set it before calling this function,
+	 * 	 see in init_virt_fbdev2(); thus it can print vimg_owner together with other paramters here.
+	 */
+
+	/* Set params for virt FB */
+	if(fbimg) {
+		fb_dev->finfo.line_length=fbimg->width*2;
+		fb_dev->vinfo.xres=fbimg->width;
+		fb_dev->vinfo.yres=fbimg->height;
+		fb_dev->screensize=fbimg->height*fbimg->width;
+
+		/* Reset pos_rotate */
+		//fb_dev->pos_rotate=0;
+		fb_dev->pos_xres=fb_dev->vinfo.xres;
+		fb_dev->pos_yres=fb_dev->vinfo.yres;
+
+	}
 
 	return 0;
 }

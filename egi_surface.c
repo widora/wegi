@@ -132,6 +132,9 @@ TODO:
 10. FT_library for mutli_thread
    NOW: Apply lib_mutex for EGI_SYSFONTS.
 
+11. A menulist tree can be created/displayed within a surface.
+    But how to create a surface for a menulist tree.
+
 Journal
 2021-02-22:
 	1. Add surfman_render_thread().
@@ -3269,8 +3272,11 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int options, int menuc, 
         /*  Reinit virtual FBDEV, with updated w/h of the surfimg. */
  	surfimg->width=surfshmem->maxW;
 	surfimg->height=surfshmem->maxH;
-	reinit_virt_fbdev(vfbdev, surfimg, NULL);
-	vfbdev->pixcolor_on=true; /* !!! */
+
+	/* !!! CAUTION: All members of vfbdev will be reset !!! */
+	//reinit_virt_fbdev(vfbdev, surfimg, NULL);
+	//vfbdev->pixcolor_on=true; /* !!! */
+	virt_fbdev_updateImg(vfbdev, surfimg, NULL);
 
 	/* 1. Draw background / canvas */
 	if( surfshmem->draw_canvas ) {
@@ -3449,8 +3455,11 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int options, int menuc, 
         /*  Reinit virtual FBDEV, as per original vw/vh */
         surfimg->width=tmpW;
         surfimg->height=tmpH;
-        reinit_virt_fbdev(vfbdev, surfimg, NULL);
-	vfbdev->pixcolor_on=true; /* !!! */
+
+	/* !!! CAUTION: All members of vfbdev will be reset !!! */
+        //reinit_virt_fbdev(vfbdev, surfimg, NULL);
+	//vfbdev->pixcolor_on=true; /* ALWAYS!!! */
+	virt_fbdev_updateImg(vfbdev, surfimg, NULL);
 
 	/* 9. Redraw surface with vw/vh */
 	surfuser_redraw_surface(surfuser, surfshmem->vw, surfshmem->vh);
@@ -3528,8 +3537,9 @@ void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
 //         pthread_mutex_unlock(&surfimg->img_mutex);
 
 	/* 4. Reinit virtual FBDEV, with updated w/h of the surfimg. */
-	reinit_virt_fbdev(vfbdev, surfimg, NULL);
-	vfbdev->pixcolor_on=true; /* !!! */
+	//reinit_virt_fbdev(vfbdev, surfimg, NULL); /* CAUTION: All members reset! */
+	//vfbdev->pixcolor_on=true; /* ALWAYS!!! */
+	virt_fbdev_updateImg(vfbdev, surfimg, NULL);
 
 	/* 5. Adjust surfshmem param vw/vh */
 	surfshmem->vw=w;
