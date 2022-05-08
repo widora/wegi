@@ -46,6 +46,13 @@ Journal:
 2022-04-28/29:
 	1. Add egi_surfMenuList_getMaxOffset().
 	2. Add egi_surfMenuList_getMaxLayoutSize().
+2022-05-03:
+	1. Add egi_surfMenuList_getItemID().
+2022-05-05:
+	1. Add menulist position mode 'MENULIST_ROOTMODE_LEFT_TOP' for:
+	   egi_surfMenuList_getMaxOffset()
+	   egi_surfMenuList_writeFB()
+	   egi_surfMenuList_updatePath()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -696,7 +703,8 @@ Nonte:
 
 @mlist:         A pointer to a ESURF_MENULIST
 @Ox,Oy:		Origin coordinate of the mlist relative to ROOT_ORIGIN.
-		(Relative to Screen COORD:  +OY: -Y direction, +OX: +X direction )
+		(Relative to Screen COORD, OXY COORD:  +OY: -Y direction, +OX: +X direction )
+		(while mlist->x0/y0 is under Screen COORD )
 @offYU,offYD:   >=0!   Max. offset from ROOT_ORIGIN to Y Upper/Down most.
 		(Relative to Screen COORD:  +YU: -Y direction; +YD: +Y direction; from menulist origin )
 		Input value is current MAX. value without considering mlist.
@@ -729,45 +737,101 @@ int egi_surfMenuList_getMaxOffset(const ESURF_MENULIST *mlist, int Ox, int Oy, i
 	/* 2. Select mode case */
 	switch(mlist->mode) {
 	    case MENULIST_ROOTMODE_LEFT_BOTTOM:
-
-		/* 2.1 Compute max. offset values. for this menulist. */
-		if(mlist->root) {  /* 2.1.1 */
+		/* 2a.1 Compute max. offset values. for this menulist. */
+		if(mlist->root) {  /* 2a.1.1 */
 			maxu=0+mlist->mcnt*mlist->mh;
 			maxd=0;
 			maxr=0 +mlist->mw;
 			maxl=0;
 		}
-		else {  /* 2.1.2 */
+		else {  /* 2a.1.2 */
 			maxu=Oy+mlist->mcnt*mlist->mh -mlist->y0;
 			maxd=-Oy +mlist->y0;  /* -Oy: Down */
-			maxr=Ox +mlist->mw; /* -----> OVERLADP and x0 considered in 2.4 */
+			maxr=Ox +mlist->mw; /* -----> OVERLADP and x0 considered in 2a.4 */
 			maxl= -Ox-mlist->x0;   /* -Ox: Left */
 		}
 
-		/* 2.3. Adjust to get MAX. offset values considering this menulist. */
+		/* 2a.3. Adjust to get MAX. offset values considering this menulist. */
 		if(maxu<*offYU) maxu=*offYU;
 		if(maxd<*offYD) maxd=*offYD;
 		if(maxr<*offXR) maxr=*offXR;
 		if(maxl<*offXL) maxl=*offXL;
 
-		egi_dpstd("maxu=%d, maxd=%d, maxr=%d, maxl=%d\n", maxu,maxd,maxr,maxl);
+		egi_dpstd("LEFT_BOTTOM: maxu=%d, maxd=%d, maxr=%d, maxl=%d\n", maxu,maxd,maxr,maxl);
 
-		/* 2.4 Traverse sub_menulist items. */
+		/* 2a.4 Update OxOy AFT updating maxu/d/r/l.  Hello....MidasHK_2022-05-02 */
+		Oy -=mlist->y0;
+		Ox +=mlist->x0;
+
+		/* 2a.5 Traverse sub_menulist items. */
 		tmpOx=Ox; tmpOy=Oy;  /* Backup OXY */
 		for(k=0; k< mlist->mcnt; k++) {
 			Ox=tmpOx; Oy=tmpOy;  /* Restore OxOy, in case changed in subitems */
 			if( mlist->mitems[k].mlist ) { /* Sub Menulist */
 				egi_dpstd(DBG_YELLOW"item[%d]: %s\n"DBG_RESET, k, mlist->mitems[k].descript);
 				/* Origin of the mitems[], relavite to ROOT_ORIGIN. */
-				//Ox=Ox +mlist->mw +mlist->mitems[k].mlist->x0 -ESURF_MENULIST_OVERLAP;
-				Ox=Ox +mlist->mw -ESURF_MENULIST_OVERLAP;  /* ----> x0 already added in 2.1.2 */
-				//Oy=Oy -mlist->mitems[k].mlist->y0 +k*mlist->mh;  /* +Oy: Upp */
-				Oy=Oy +k*mlist->mh;  /* +Oy: Upp,  ----> y0 already added in 2.1.2 */
+				Ox=Ox +mlist->mw -ESURF_MENULIST_OVERLAP;  /* ----> x0 added in 2a.1.2 as in next recursive call. */
+				Oy=Oy +k*mlist->mh;  /* +Oy: Upp,  ----> y0 added in 2a.1.2 as in next recursive call */
 				egi_surfMenuList_getMaxOffset(mlist->mitems[k].mlist, Ox, Oy, &maxu, &maxd, &maxr, &maxl);
 			}
 		}
 
-		/* 2.5 Pass out */
+		/* 2a.5 Pass out */
+		*offYU=maxu;
+		*offYD=maxd;
+		*offXR=maxr;
+		*offXL=maxl;
+
+		break;
+
+	    case MENULIST_ROOTMODE_LEFT_TOP:
+		/* 2b.1 Compute max. offset values. for this menulist. */
+		if(mlist->root) {  /* 2b.1.1 */
+			//maxu=0+mlist->mcnt*mlist->mh;
+			maxu=0;
+			//maxd=0;
+			maxd=mlist->mcnt*mlist->mh;
+
+			maxr=0 +mlist->mw;
+			maxl=0;
+		}
+		else {  /* 2b.1.2 */
+			//maxu=Oy+mlist->mcnt*mlist->mh -mlist->y0;
+			maxu=Oy-mlist->y0;
+			//maxd=-Oy +mlist->y0;  /* -Oy: Down */
+			maxd=-Oy+mlist->mcnt*mlist->mh +mlist->y0;
+
+			maxr=Ox +mlist->mw; /* -----> OVERLADP and x0 considered in 2a.4 */
+			maxl= -Ox-mlist->x0;   /* -Ox: Left */
+		}
+
+		/* 2b.3. Adjust to get MAX. offset values considering this menulist. */
+		if(maxu<*offYU) maxu=*offYU;
+		if(maxd<*offYD) maxd=*offYD;
+		if(maxr<*offXR) maxr=*offXR;
+		if(maxl<*offXL) maxl=*offXL;
+
+		egi_dpstd("LEFT_TOP: maxu=%d, maxd=%d, maxr=%d, maxl=%d\n", maxu,maxd,maxr,maxl);
+
+		/* 2b.4 Update OxOy AFT updating maxu/d/r/l, for Sub_menulist origin calculation. */
+		Oy -=mlist->y0;
+		Ox +=mlist->x0;
+
+		/* 2b.5 Traverse sub_menulist items. */
+		tmpOx=Ox; tmpOy=Oy;  /* Backup OXY */
+		for(k=0; k< mlist->mcnt; k++) {
+			Ox=tmpOx; Oy=tmpOy;  /* Restore OxOy, in case changed in subitems */
+			if( mlist->mitems[k].mlist ) { /* Sub Menulist */
+				egi_dpstd(DBG_YELLOW"item[%d]: %s\n"DBG_RESET, k, mlist->mitems[k].descript);
+				/* Origin of the mitems[], relavite to ROOT_ORIGIN. */
+				Ox=Ox +mlist->mw -ESURF_MENULIST_OVERLAP;  /* ----> x0 added in 2a.1.2 in next recursive call. */
+				//Oy=Oy +k*mlist->mh;  /* +Oy: Upp,  ----> y0 added in 2a.1.2 as next in recursive call */
+				Oy=Oy -k*mlist->mh;  /* +Oy: Upp,  ----> y0 in 2a.1.2 as in next recursive call */
+				egi_surfMenuList_getMaxOffset(mlist->mitems[k].mlist, Ox, Oy, &maxu, &maxd, &maxr, &maxl);
+			}
+		}
+
+		/* 2a.5 Pass out */
 		*offYU=maxu;
 		*offYD=maxd;
 		*offXR=maxr;
@@ -775,9 +839,6 @@ int egi_surfMenuList_getMaxOffset(const ESURF_MENULIST *mlist, int Ox, int Oy, i
 
 		break;
 	    case MENULIST_ROOTMODE_RIGHT_BOTTOM :
-		break;
-	    case MENULIST_ROOTMODE_LEFT_TOP:
-		break;
 	    case MENULIST_ROOTMODE_RIGHT_TOP:
 		break;
 	}
@@ -897,7 +958,8 @@ void egi_surfMenuList_writeFB(FBDEV *fbdev, const ESURF_MENULIST *mlist, int off
 
 		/* 3. If root_MenuList:  Draw all sub_MenuLists in path[].  */
 		if( mlist->root ) {
-			i=1; /* i=0, root_MenuList */
+			/* i=0 as root_MenuList, already finish drawing, see above. */
+			i=1;
 
 			/* Sub_MenList offsetX/Y are all (0,0)s
 			 * Convert to origin relative to root_MenuList container.
@@ -909,11 +971,13 @@ void egi_surfMenuList_writeFB(FBDEV *fbdev, const ESURF_MENULIST *mlist, int off
 			while( mlist->path[i] && i< mlist->depth+1 ) {
 				/* Cal. offset, relative to origin of the root MenuList */
 				if(i==1) {  /* OK, mlist->path[0] pointed to root mlist. */
-					offx += mlist->mw  -ESURF_MENULIST_OVERLAP; /* --- overlap effect */
-					offy -= mlist->mh * (mlist->path[1])->node;
+					//offx += mlist->mw  -ESURF_MENULIST_OVERLAP; /* --- overlap effect */
+					//offy -= mlist->mh * (mlist->path[1])->node;
+					offx += (mlist->path[0])->mw  -ESURF_MENULIST_OVERLAP; /* --- overlap effect */
+					offy += -(mlist->path[0])->mh * (mlist->path[1])->node;
 				} else {
-					offx += (mlist->path[i-1])->mw -ESURF_MENULIST_OVERLAP;  /* --- overlap effect */
-					offy -= (mlist->path[i-1])->mh * (mlist->path[i])->node;
+					offx += (mlist->path[i-1])->mw -ESURF_MENULIST_OVERLAP +(mlist->path[i-1])->x0;   /* Hi! MidasHK_2022-05-02 */
+					offy += -(mlist->path[i-1])->mh * (mlist->path[i])->node +(mlist->path[i-1])->y0;
 				}
 
 				/* Cal. select_index */
@@ -930,7 +994,86 @@ void egi_surfMenuList_writeFB(FBDEV *fbdev, const ESURF_MENULIST *mlist, int off
 
 	    case MENULIST_ROOTMODE_RIGHT_BOTTOM :
 		break;
+
 	    case MENULIST_ROOTMODE_LEFT_TOP:
+
+		/* 1. Draw MenuList bkgcolor */
+		draw_filled_rect2(fbdev, mlist->bkgcolor, mlist->x0 +offx, mlist->y0 +offy,
+					mlist->x0 +offx +mlist->mw-1, mlist->y0 +offy +(mlist->mh*mlist->mcnt) -1 ); /* + */
+		/* Rim/Edge Lines */
+		//fbset_color2(fbdev, mlist->sidecolor);
+		fbset_color2(fbdev, COLOR_COMPLEMENT_16BITS(mlist->bkgcolor));
+		draw_wrect(fbdev,  mlist->x0 +offx, mlist->y0 +offy,
+					mlist->x0 +offx +mlist->mw-1, mlist->y0 +offy +(mlist->mh*mlist->mcnt)-1, 2); /* width 2pix */
+
+		/* 2. Draw description and mark for each MenuItem */
+		for(i=0; i < mlist->mcnt; i++) {
+			/* Highlight color on selected MenuItem */
+			/* Ignore select_idx <0 */
+			if( select_idx  == i ) // xxx  -- fidx MAYBE not cleared as -1 !!!
+				//draw_filled_rect2( fbdev, mlist->hltcolor, x1,y1, x2,y2 );
+				draw_blend_filled_rect( fbdev,
+						   mlist->x0 +offx +1, 		     mlist->y0 +offy +i*mlist->mh +1,		/* x1,y1 */
+						   mlist->x0 +offx +mlist->mw -1 -1, mlist->y0 +offy +(i+1)*mlist->mh -1 -1,    /* x2,y2 */
+						   mlist->hltcolor, 220 );
+
+			/* Write Description */
+		        FTsymbol_uft8strings_writeFB( fbdev, mlist->face, 	/* FBdev, fontface */
+                                    mlist->fw, mlist->fh, (const UFT8_PCHAR)mlist->mitems[i].descript,  /* fw,fh, pstr */
+                                    mlist->mw -15, 1, 0,	 	/* pixpl, lines, fgap */
+                                    mlist->x0 +offx -ESURF_MENULIST_OVERLAP +15, mlist->y0 +offy +i*mlist->mh +5,       /* x0,y0, */
+                                    mlist->fontcolor, -1, 220,       /* fontcolor, transcolor,opaque */
+                                    NULL, NULL, NULL, NULL );        /* int *cnt, int *lnleft, int* penx, int* peny */
+
+			/* Draw NodeItem mark '>' */
+			if( mlist->mitems[i].mlist !=NULL) {
+				const char* nodemark=">";
+				int pixlen=FTsymbol_uft8strings_pixlen( mlist->face, mlist->fw, mlist->fh, (const UFT8_PCHAR)nodemark);
+				if(pixlen>0)
+		                       FTsymbol_uft8strings_writeFB( fbdev, mlist->face,       /* FBdev, fontface */
+                	                      mlist->fw, mlist->fh, (const UFT8_PCHAR)nodemark,  /* fw,fh, pstr */
+                        	              mlist->mw, 1, 0,                  /* pixpl, lines, fgap */
+                                	      mlist->x0 +offx +mlist->mw -pixlen-ESURF_MENULIST_OVERLAP-5, /* x0, y0 */
+					      mlist->y0 +offy +i*mlist->mh +5,
+                                      	      mlist->fontcolor, -1, 240,       /* fontcolor, transcolor,opaque */
+                                      	      NULL, NULL, NULL, NULL );        /* int *cnt, int *lnleft, int* penx, int* peny */
+			}
+		}
+
+		/* 3. If root_MenuList:  Draw all sub_MenuLists in path[].  */
+		if( mlist->root ) {
+			/* i=0 as root_MenuList, already finish drawing, see above. */
+			i=1;
+
+			/* Sub_MenList offsetX/Y are all (0,0)s
+			 * Convert to origin relative to root_MenuList container.
+			 */
+			offx = mlist->x0 +offx;
+			offy = mlist->y0 +offy;
+
+			/* TODO:  mlist->path[] MAY NOT cleared,  MUST check depth value! */
+			while( mlist->path[i] && i< mlist->depth+1 ) {
+				/* Cal. offset, relative to origin of the root MenuList */
+				if(i==1) {  /* OK, mlist->path[0] pointed to root mlist. */
+					//offx += mlist->mw  -ESURF_MENULIST_OVERLAP; /* --- overlap effect */
+					//offy -= mlist->mh * (mlist->path[1])->node;
+					offx += (mlist->path[0])->mw  -ESURF_MENULIST_OVERLAP; /* --- overlap effect */
+					offy += (mlist->path[0])->mh * (mlist->path[1])->node;
+				} else {
+					offx += (mlist->path[i-1])->mw -ESURF_MENULIST_OVERLAP +(mlist->path[i-1])->x0;   /* Hi! MidasHK_2022-05-02 */
+					offy += (mlist->path[i-1])->mh * (mlist->path[i])->node +(mlist->path[i-1])->y0;
+				}
+
+				/* Cal. select_index */
+				/* Recursive calling */
+				//egi_dpstd("Draw mlist->path[%d], offx=%d, offy=%d...\n", i, offx, offy);
+				egi_surfMenuList_writeFB(fbdev, mlist->path[i], offx, offy,
+						      i==mlist->depth  ? mlist->path[i]->fidx : mlist->path[i+1]->node );  /* Selected menu index */
+						      /* If ROOT or END menulist, take as fidx. */
+				i++;
+			}
+		}
+
 		break;
 	    case MENULIST_ROOTMODE_RIGHT_TOP:
 		break;
@@ -1001,6 +1144,32 @@ int  egi_surfMenuList_addItem(ESURF_MENULIST *mlist, const char *descript,  ESUR
 
 
 /*------------------------------------------------------------------
+Get and return unique ID for the last selected item in the meulist tree.
+
+@mlist:	A pointer to ESURF_MENULIST, It MUST be a root MenuList.
+
+Return:
+	>0	OK, valid ID defined by user.
+	=0	No selection, OR invalid ID number (default value.)
+	<0	Fails
+-------------------------------------------------------------------*/
+int  egi_surfMenuList_getItemID(ESURF_MENULIST *mlist)
+{
+	int fidx;
+
+        if(mlist==NULL || mlist->root==false)
+                return -1;
+        if(mlist->mcnt<1)  /* At lease one item */
+                return -1;
+
+	fidx=mlist->path[mlist->depth]->fidx;
+        if( fidx >=0 )
+                 return mlist->path[mlist->depth]->mitems[fidx].id;
+	else
+		return 0;
+}
+
+/*------------------------------------------------------------------
 Update menu selection tree path and midx.
 If the cursor is on a MenuItem that links to a sub_MenuList, then
 update mlist->path[].
@@ -1024,7 +1193,7 @@ int  egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py)
 
 	if(mlist==NULL || mlist->root==false)
 		return -1;
-	if(mlist->mcnt<1)  /* At lease on item */
+	if(mlist->mcnt<1)  /* At lease one item */
 		return -2;
 
 	/* Init. x0,y0,  NOTE: mlist is the ROOT MenuList. */
@@ -1037,7 +1206,7 @@ int  egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py)
 	/* Check if Pxy is on current MenuList tree map. */
 	for(i=0; i < mlist-> depth +1; i++) {
 
-		/* Cal. MenuList Box points */
+		/* Cal. MenuList item box */
 		switch(mlist->mode) {
     		   case MENULIST_ROOTMODE_LEFT_BOTTOM:
 			/* Cal. origin of MenuList: mlist->path[i] */
@@ -1047,7 +1216,7 @@ int  egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py)
 				y0 += -(mlist->path[i]->node)*(mlist->path[i-1]->mh)
 				      +mlist->path[i]->y0;  /* Offset from normal alignment */
 			}
-			/* Cal. diagonal corner point of the MenuList box. */
+			/* Cal. diagonal corner point of the MenuList item box. */
 			x1 = x0 +mlist->path[i]->mw -ESURF_MENULIST_OVERLAP; /* --- Deduce overlap */
 			y1 = y0 -mlist->path[i]->mh*mlist->path[i]->mcnt;
 
@@ -1055,8 +1224,22 @@ int  egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py)
 
     		   case MENULIST_ROOTMODE_RIGHT_BOTTOM :
 			break;
+
     		   case MENULIST_ROOTMODE_LEFT_TOP:
+			/* Cal. origin of MenuList: mlist->path[i] */
+			if(i>0) {
+				x0 += mlist->path[i-1]->mw -ESURF_MENULIST_OVERLAP  /* --- overlap effect */
+				      +mlist->path[i]->x0;  /* Offset from normal alignment */
+				y0 += (mlist->path[i]->node)*(mlist->path[i-1]->mh)
+				      +mlist->path[i]->y0;  /* Offset from normal alignment */
+			}
+			/* Cal. diagonal corner point of the MenuList item box. */
+			x1 = x0 +mlist->path[i]->mw -ESURF_MENULIST_OVERLAP; /* --- Deduce overlap */
+			y1 = y0 +mlist->path[i]->mh*mlist->path[i]->mcnt;
+//			egi_dpstd("x0y0: (%d,%d), x1y1: (%d,%d)\n", x0,y0, x1,y1);
+
 			break;
+
     		   case MENULIST_ROOTMODE_RIGHT_TOP:
 			break;
 		}
@@ -1065,8 +1248,9 @@ int  egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py)
 		if( pxy_inbox(px, py, x0, y0, x1, y1) ) {
 			/* Cal. index of MenuItem as pxy loacted on */
 			index = ( abs(y0-py) -2) / (mlist->path[i]->mh); /* -2: in case index == path[i]->mcnt ? NO WAY! */
+//			egi_dpstd("index=%d\n", index);
 
-			/* If current item links to a sub_MenuList, then depth +1 */
+			/* A NodeItem: If current item links to a sub_MenuList, then depth +1 */
 			if( mlist->path[i]->mitems[index].mlist !=NULL ) {
 				/* Update depth as i+1 */
 				mlist->depth = i+1;
@@ -1074,9 +1258,10 @@ int  egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py)
 				mlist->path[mlist->depth]=mlist->path[i]->mitems[index].mlist;
 				/* Node number for new added sub_MenuList */
 				mlist->path[mlist->depth]->node = index;
-				/* Marked as no item selected ??? */
+				/* Marked as no item selected for a NodeItem. */
 				mlist->path[mlist->depth]->fidx = -1;
 			}
+			/* A MenuItem */
 			else {
 				mlist->depth = i;
 				/* Update fidx for both root and end menuList!! */
@@ -1118,7 +1303,7 @@ int egi_surfMenuList_runMenuProg(const ESURF_MENULIST *mlist)
 			    * pargv[last] MUST be NULL for execv()
 			    */
 
-	if( mlist==NULL || mlist->fidx <0 ) /* No MenuItem selected */
+	if( mlist==NULL || mlist->fidx <0 ) /* No MenuItem selected,  */
 		return -1;
 
 	strp=(char *)mlist->path[mlist->depth]->mitems[mlist->fidx].run_script;

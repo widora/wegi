@@ -47,6 +47,7 @@ void 		egi_imgbuf_cleardata(EGI_IMGBUF *egi_imgbuf); /* free data inside */
 void 		egi_imgbuf_free(EGI_IMGBUF *egi_imgbuf);      /* mutex_lock */
 void 		egi_imgbuf_free2(EGI_IMGBUF **pimg);	      /* mutex_lock */
 int 		egi_imgbuf_init(EGI_IMGBUF *egi_imgbuf, int height, int width,  bool AlphaON);
+int 		egi_imgbuf_getColor(EGI_IMGBUF *imgbuf, int px, int py, EGI_16BIT_COLOR *color, EGI_8BIT_ALPHA *alpha);
 int 		egi_imgbuf_addBoundaryBox(EGI_IMGBUF *ineimg, EGI_16BIT_COLOR color, int lw);
 EGI_IMGBUF*	egi_imgbuf_create( int height, int width, unsigned char alpha, EGI_16BIT_COLOR color );
 EGI_IMGBUF*	egi_imgbuf_createWithoutAlpha( int height, int width, EGI_16BIT_COLOR color);
@@ -116,8 +117,11 @@ int egi_subimg_writeFB(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subnum,		/* mu
                                                         int subcolor, int x0,   int y0);
 void egi_subimg_serialWriteFB(FBDEV *fb_dev, EGI_IMGBUF *egi_imgbuf, int x0, int y0, int delayms);
 
-/* For whole imgbuf: rest color and alpha */
+/* For whole imgbuf: reset color and alpha */
 int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha );		/* NOPE! mutex_lock */
+
+/* For block in an imgbuf: reset color and alpha */
+int egi_imgbuf_blockResetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha, int px, int py, int height, int width);
 
 /* For subimgbuf: reset color and alpha for all pixels */
 int egi_imgbuf_reset(EGI_IMGBUF *egi_imgbuf, int subnum, int color, int alpha);		/* mutex_lock */

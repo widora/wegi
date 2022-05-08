@@ -370,6 +370,9 @@ START_TEST:
         if( pthread_join(surfshmem->thread_eringRoutine, NULL)!=0 )
                 egi_dperr("Fail to join eringRoutine");
 
+	/* Post_1A: Get retval, if there's a return value from the surface. */
+	//ret=surfuser->retval;
+
 	/* Post_2: Unregister and destroy surfuser */
 	printf("Unregister surfuser...\n");
 	if( egi_unregister_surfuser(&surfuser)!=0 )
@@ -380,6 +383,7 @@ START_TEST:
 
 	printf("Test_Surfuser: Exit OK!\n");
 	exit(0);
+	//OR: return ret;
 }
 
 
@@ -800,7 +804,7 @@ This program is under license of GNU GPL v2.\n \
 	msurfshmem->sync=true;
 
 	/* ====== Main Loop ====== */
-	while( msurfshmem->usersig !=1) {
+	while( msurfshmem->usersig !=SURFUSER_SIG_QUIT) {
 		usleep(100000);
 	}
 

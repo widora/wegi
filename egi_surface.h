@@ -83,7 +83,21 @@ enum surf_color_type {
  * 1. When an EGI_SURFUSER is created together with an EGI_SURFACE(EGI_SURFSHMEM), there is 1 ering thread:
  *    1.1 surfshmem->thread_eringRoutine: Loop calling ering_msg_recv() to receive MSG from SURFMAN.
  *	  Those MSG includes and kstat/mstat.
+ * 2. Create new SURFUSER/SURFACE:
+ *    2.1 A surfuser creates a new surfuser by calling egi_register_surfuser(), results in the same EGI_SURFACE.pid value.
+ *	  2.1.1  The latest created surfuser has the biggest EGI_SURFACE.level.
+ *	  2.1.2  ONLY the latest eringRoutine is active, others are blocked at waiting for its newly created surfuser to quit/end.
+ *		 which means ONLY the latest surface CAN react to the mouse movement.
+ *        2.1.3  The latest surface is always shown above others, and mouse click CAN NOT change the sequence.
+ *    2.2 A surfuser launches a new surfuser by thread_create(), results in the same EGI_SURFACE.pid value.
+ *        2.2.1  The latest surfuser has the biggest EGI_SURFACE.level.
+ *	  2.2.2  All eringRoutines run independently, which means all surfaces CAN react to the mouse movement.
+ *        2.2.3  The latest surface is always shown above others, and mouse click CAN NOT change the sequence.
+ *		 TODO&TBD: to make it independent??!!
+ *    2.3 A surfuser lauches a new surfuser by fork()/vfor(), results in different EGI_SURFACE.pid values.
+ *        Those surfusers all run in independent processes.
  */
+
 struct egi_surface_user {
 	EGI_UCLIT 	*uclit;			/* A uClient to EGI_SURFMAN's uServer. */
 
@@ -333,6 +347,9 @@ struct egi_surface_shmem {
 	int		maxH;
 					/* Note: If surface is MAXIMIZED, vw/vh keeps the same!
 					 * SURFMAN will use registered width/height (mem alloc params) to render the surface.
+					 *		              !!! --- CAUTION --- !!!
+					 *  maxW*maxH SHOULD be big enough so as to allocate necessray memory space for any
+					 *  possible SURFACE layouts.
 					 */
 
 	int		vw;	  	/* Adjusted surface size, To be limited within [1 maxW] and [1 maxH]*/
@@ -488,6 +505,9 @@ struct egi_surface {
 					 *    AND all surfaces with the same pid MUST unregister from the deeper level.
 					 * 3. A child MUST NOT be minimizable! also see surfman_bringtop_surface_nolock().
 					 */
+
+	/*  Surfaces creation and hierarchy -----> see notes in struct egi_surfuser  */
+
 
 	unsigned int	id;		/* [Surfman RW]: NOW as index of the surfman->surfaces[]
 					 * !!! --- Volatile value --- !!!

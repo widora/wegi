@@ -57,6 +57,10 @@ Jurnal
 	1. Add egi_imgbuf_rotBlockCopy2(): float type angle and 4p interpolation.
 2022-04-08:
 	1. Add egi_imgbuf_createLinkFBDEV() and egi_imgbuf_freeLinkFBDEV().
+2022-05-05:
+	1. Add egi_imgbuf_getColor().
+2022-05-08:
+	1. Add egi_imgbuf_blockResetColorAlpha().
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -278,6 +282,33 @@ int egi_imgbuf_init(EGI_IMGBUF *egi_imgbuf, int height, int width, bool AlphaON)
         /* Retset height and width for imgbuf */
         egi_imgbuf->height=height;
         egi_imgbuf->width=width;
+
+	return 0;
+}
+
+
+/*-----------------------------------------------
+To get color/alpha value for the specified point.
+
+@imgbuf:	An pointer to EGI_IMGBUF
+@px,py:	        Point in the imgbuf.
+@color,alpha    Pointers to pass out values.
+
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------*/
+int egi_imgbuf_getColor(EGI_IMGBUF *imgbuf, int px, int py, EGI_16BIT_COLOR *color, EGI_8BIT_ALPHA *alpha)
+{
+	if(imgbuf==NULL || imgbuf->imgbuf==NULL)
+		return -1;
+	if(px<0 || px>imgbuf->width-1 || py<0 || py>imgbuf->height-1)
+		return -1;
+
+	if(color)
+		*color=imgbuf->imgbuf[py*imgbuf->width+px];
+	if(alpha && imgbuf->alpha)
+		*alpha=imgbuf->alpha[py*imgbuf->width+px];
 
 	return 0;
 }
@@ -4020,7 +4051,7 @@ void egi_subimg_serialWriteFB(FBDEV *fb_dev, EGI_IMGBUF *egi_imgbuf, int x0, int
 
 
 /*-----------------------------------------------------------------
-		        Reset Color and Alpha value
+        	 Reset Color and Alpha value
 
 @color:		16bit color value. If <0 ingore it.
 @alpah:		8bit alpha value.  If <0 ingore it.
@@ -4070,6 +4101,79 @@ int egi_imgbuf_resetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha )
 #endif
 	return 0;
 }
+
+/*-----------------------------------------------------------------
+Reset Color and Alpha value for a block area in the imgbuf.
+
+@imgbuf:	Pointer to an EGI_IMGBUF.
+@color:		16bit color value. If <0 ingore it.
+@alpah:		8bit alpha value.  If <0 ingore it.
+@px,py:		Origin/start point of the rectangular block area.
+@height, width: Height and width of the block area.
+
+Return:
+	0	OK
+	<0	Fails
+-------------------------------------------------------------------*/
+int egi_imgbuf_blockResetColorAlpha(EGI_IMGBUF *egi_imgbuf, int color, int alpha,
+					int px, int py, int height, int width)
+{
+	int i,j;
+	int pex, pey;
+	int pos;
+
+	if( egi_imgbuf==NULL || egi_imgbuf->imgbuf==NULL )
+		return -1;
+
+	/* Limit px,py within [0  width-1],[0 height-1] */
+	if(px > egi_imgbuf->width-1) return 0;
+	if(py > egi_imgbuf->height-1) return 0;
+
+	if(px<0)px=0;
+	if(py<0)py=0;
+
+	/* Limit pex,pey */
+	pex = px+width;
+	pey = py+height;
+	if(pex>egi_imgbuf->width) pex=egi_imgbuf->width;
+	if(pey>egi_imgbuf->height) pey=egi_imgbuf->height;
+
+	/* Limit */
+	if(color>0xFFFF) color=0xFFFF;
+	if(alpha>0xFF) alpha=0xFF;
+
+	/* Case 1: Reset COLOR + ALPHA */
+	if( ( alpha>=0 && egi_imgbuf->alpha != NULL ) && color>=0 ) {
+		for(i=py; i< pey; i++) {
+			for(j=px; j< pex; j++) {
+				pos=i*egi_imgbuf->width+j;
+				egi_imgbuf->alpha[pos]=alpha;
+				egi_imgbuf->imgbuf[pos]=color;
+			}
+		}
+	}
+	/* Case 2: Reset ALPHA only */
+	else if( alpha>=0 && (egi_imgbuf->alpha != NULL) ) {
+		for(i=py; i< pey; i++) {
+			for(j=px; j< pex; j++) {
+				pos=i*egi_imgbuf->width+j;
+				egi_imgbuf->alpha[pos]=alpha;
+			}
+		}
+	}
+	/* Case 3: Reset COLOR only */
+	else if( color>=0 ) {
+		for(i=py; i< pey; i++) {
+			for(j=px; j< pex; j++) {
+				pos=i*egi_imgbuf->width+j;
+				egi_imgbuf->imgbuf[pos]=color;
+			}
+		}
+	}
+
+	return 0;
+}
+
 
 /*-----------------------------------------------------------------------------------
 Clear a subimag in an EGI_IMGBUF, reset all color and alpha data.
@@ -4732,8 +4836,8 @@ void egi_imgbuf_mapTriWriteFB(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,
 		egi_dpstd("Input EGI_IMBUG is NULL or uninitiliazed!\n");
 		return;
 	}
-	int imgw=imgbuf->width;
-	int imgh=imgbuf->height;
+//	int imgw=imgbuf->width;
+//	int imgh=imgbuf->height;
 
 	/* 1. Mapping matrix computation */
 	/* 1.1 Prepare Matrix data for 3 vertices. */

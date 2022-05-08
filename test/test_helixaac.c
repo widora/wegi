@@ -219,7 +219,7 @@ RADIO_LOOP:
 	if(fout_path) {
 		fmap_pcm=egi_fmap_create(argv[2], 1024*2*sizeof(int16_t)*nchanl*2, PROT_WRITE, MAP_SHARED);
 		if(fmap_pcm==NULL) {
-			printf("Fail to create fmap_pcm for '%s'!\n", argv[2]);
+			EGI_PLOG(LOGLV_INFO, "Fail to create fmap_pcm for '%s'!", argv[2]);
 			exit(EXIT_FAILURE);
 		}
 		printf("fmap_pcm with fisze=%lld for '%s' created!\n", fmap_pcm->fsize,argv[2]);
@@ -351,8 +351,9 @@ RADIO_LOOP:
 				if(msgerr!=0) {
 					printf("Faill to msgsnd!\n");
 				}
-				else
-					printf("Msg sent out type=%ld!\n", msgdata.msg_type);
+				else {
+					//printf("Msg sent out type=%ld!\n", msgdata.msg_type);
+				}
 		}
 		/* END: ---- MSG QUEUE ---- */
 #endif
@@ -398,7 +399,7 @@ RADIO_LOOP:
 			}
 
 			if( (feedCnt&(4-1)) ==0 )
-				printf("\rPlay %lld/%lld [seg%d]",fmap_aac->fsize-bytesLeft,fmap_aac->fsize, segFileCnt); fflush(stdout);
+				printf("\rPlaying [seg%d] %lld/%lld", segFileCnt, fmap_aac->fsize-bytesLeft,fmap_aac->fsize); fflush(stdout);
 			EGI_PLOG(LOGLV_INFO,"##%lld/%lld",fmap_aac->fsize-bytesLeft,fmap_aac->fsize);
 
 			/* Save PCM data to file */

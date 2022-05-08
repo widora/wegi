@@ -546,7 +546,7 @@ TODO:
 1. There is chance that the mice dev MAY miss/omit events!?
    Example: LeftKeyDownHold transfers to LeftKeyDown directly,
 	    and omit LeftKeyUp status.
-
+2. 
 
 
 @arg:	devname for the mouse device.
@@ -605,7 +605,6 @@ static void *egi_mouse_loopread( void* arg )
 				memset(mouse_data,0,sizeof(mouse_data));
 			}
 		}
-
 
 		/* To select fd */
 		FD_ZERO(&rfds);
@@ -671,6 +670,12 @@ static void *egi_mouse_loopread( void* arg )
 	        if( pthread_mutex_lock(&mostatus.mutex) !=0 )
 			printf("%s: Fail to mutex lock mostatus.mutex!\n",__func__);
 /*  --- >>>  Critical Zone  */
+
+		/* HK2022-05-07 Clear mostatus tokens -----> TODO clear more. */
+		//memset(&mostatus, 0, sizeof(mostatus));
+		mostatus.LeftKeyDown=false; mostatus.RightKeyDown=false; mostatus.MidKeyDown=false;
+		//mostatus.LeftKeyUpHold=true; mostatus.RightKeyUpHold=true;
+		//mostatus.MidKeyUpHold=true;  mostatus.KeysIdle=true;
 
 			/* ------ Cal. mouse status/data --------- */
 

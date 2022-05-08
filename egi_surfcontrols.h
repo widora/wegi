@@ -142,19 +142,25 @@ void 	egi_surfTickBox_writeFB(FBDEV *fbdev, const ESURF_TICKBOX *tbox,  int cx0,
  6. A Selection Tree is the path of menu selection, all selected sub_MenuLists are visibly expanded.
  7. A root MenuList maintains a path[] to map out the selection MenuList tree.
  8. The ROOT MenuList and the END MenuList shares the same fidx value, which is the index of the final selected MenuItem.
- 9. Menu_selection is a Top_Layer_Operation, it takes all events exclusively.
+ 9. A NodeItem is not like a MenuItem, when it's selected/touched, it expends linked submenulist, but the fidx is always -1!
+ 10. Menu_selection is a Top_Layer_Operation, it takes all events exclusively.
 */
 
 /* EGI_MENUITEM: free operation in _surfMenuList_free */
 struct egi_menu_item {
 #define EGI_MENU_DESCRIPT_MAXLEN 256
+	int 		id;		/* >0! The unique number to identify a MenuItem in the WHOLE menulist tree!  MidasHK_2022-05-03
+					 * It will pass out through SURFUSER.retval to the Owner/Caller of the menusurface.
+					 */
 	char 		*descript;	/* Menu description, displaying on the menu item */
 	bool		ticked;		/* TBD */
 	bool		valid;		/* TBD */
 
-	ESURF_MENULIST	*mlist;		/* Links to a ESURF_MENULIST */
+	ESURF_MENULIST	*mlist;		/* Links to a ESURF_MENULIST
+					 * 1. If mlist==NULL: it's a MenuItem.
+					 * 2. If mlist!=NULL: it's a NodeItem, and fdix=-1 for selection!
+				         */
 	const char	*run_script;	/* ESURF_PROG prog_path + argv */
-
 };
 
 /* ESURF_MENULIST */
@@ -168,7 +174,7 @@ struct egi_surface_menulist {
 #define MENULIST_ROOTMODE_RIGHT_TOP		3
 
 	bool		root;		/* True: If a root MenuList */
-	int		node;		/* Node numeber, For a sub_MenuList: as items index of its upper/parent MenuList.
+	int		node;		/* Node numeber, For a sub_MenuList: as the item index of its upper/parent MenuList.
 					 * Init. as -1, NOT a NodeItem.
 					 */
 
@@ -182,7 +188,7 @@ struct egi_surface_menulist {
 					 *		--
 					 *	    --> --
 					 *	    --
-					 *	   (ROOT)
+					 *	   (LEFT_BOTTOM ROOT)
 					 */
 
 	int 		mw;		/* Size for each menu piece. */
@@ -227,6 +233,7 @@ struct egi_surface_menulist {
 				 */
 
 	int		fidx;		/* !!! Only for the root MenuList and the end MenuList, others all -1.
+					 * For NodeItem, it's fidx value is always -1!
 					 * 1, The final item index as of path[depth]->mitems[],
 					 * 2, If <0, No item selected on current path[depth]->mitems[] ??
 					 */
@@ -237,6 +244,7 @@ void	egi_surfMenuList_free(ESURF_MENULIST **mlist);
 int 	egi_surfMenuList_getMaxOffset(const ESURF_MENULIST *mlist, int Ox, int Oy, int *offYU, int *offYD, int *offXR, int *offXL);
 int 	egi_surfMenuList_getMaxLayoutSize(const ESURF_MENULIST *mlist, int *w, int *h);
 int 	egi_surfMenuList_addItem(ESURF_MENULIST *mlist, const char *descript, ESURF_MENULIST *submlist, const char *run_script);
+int 	egi_surfMenuList_getItemID(ESURF_MENULIST *mlist);
 void 	egi_surfMenuList_writeFB(FBDEV *fbdev, const ESURF_MENULIST *mlist, int offx, int offy, int select_idx);
 int 	egi_surfMenuList_updatePath(ESURF_MENULIST *mlist, int px, int py); /* Pick the menu item, and update path and fidx */
 int 	egi_surfMenuList_runMenuProg(const ESURF_MENULIST *mlist);

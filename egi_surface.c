@@ -126,14 +126,17 @@ TODO:
 8. It's NOT reliable to deem ERING_SURFACE_BRINGTOP emsg as start of a new mevent round!
    See NOTE at surfuser_parse_mouse_event().
 
-9. Sync. mechanism for SURFACE mouse_event_suspend and 
+9. Sync. mechanism for SURFACE mouse_event_suspend and
    NOW: LeftKeyUp as mevent_suspend signal token.
 
 10. FT_library for mutli_thread
    NOW: Apply lib_mutex for EGI_SYSFONTS.
 
-11. A menulist tree can be created/displayed within a surface.
-    But how to create a surface for a menulist tree.
+11. XXX A menulist tree can be created/displayed within a surface.
+    But how to create menulist SURFACE. --- Ok
+
+12. If a SURFACE launches/creates a child SURFACE by calling egi_register_surfuser() (NOT in an new thread or process)
+    and then waits for it to end, then the last mouse event to close the child SURFACE may ALSO trigger the calling SURFACE.
 
 Journal
 2021-02-22:
@@ -3486,13 +3489,18 @@ void surfuser_move_surface(EGI_SURFUSER *surfuser, int x0, int y0)
 }
 
 
-/*---------------------------------------------------
+/*-------------------------------------------------------------
      Adjust surface size, redraw surface imgbuf.
+
+TODO:
+1. If a TOPBTN presents with imgbuf_effect(touched by mouse etc.),
+   then it changes to normal imgbuf after redraw_surface.
+   This is case, we'd better redraw working area only.
 
 @surfuser:	Pointer to EGI_SURFUSER.
 @w,h:		New size of surface imgbuf.
 
-----------------------------------------------------*/
+-------------------------------------------------------------*/
 void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
 {
 	int i;
@@ -3581,6 +3589,7 @@ void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
                 /* None */
         }
         else if(surfshmem->apoptions&SURFFRAME_THICK) {
+		//OR egi_imgbuf_addBoundaryBox()
                 fbset_color2(vfbdev, SURF_OUTLINE_COLOR); //WEGI_COLOR_GRAY);
                 draw_rect(vfbdev, 0,0, surfshmem->vw-1, surfshmem->vh-1);
 		if(surfshmem->vw>2 && surfshmem->vh>2)

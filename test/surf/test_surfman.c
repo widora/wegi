@@ -351,7 +351,7 @@ int main(int argc, char **argv)
         /* 4.1 Create root mlist: ( mode, root, x0, y0, mw, mh, face, fw, fh, capacity) */
         surfman->menulist=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, true, 0, surfman->fbdev.pos_yres-1,
 											110, 30, egi_sysfonts.regular, 16, 16, 8 );
-        mlist_System=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0, 0, 130, 30, egi_sysfonts.regular, 16, 16, 8 );
+        mlist_System=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0, 30, 130, 30, egi_sysfonts.regular, 16, 16, 8 );
         mlist_Program=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0, 30*3, 100, 30, egi_sysfonts.regular, 16, 16, 8 );
         mlist_Tools=egi_surfMenuList_create(MENULIST_ROOTMODE_LEFT_BOTTOM, false, 0, 0, 130, 30, egi_sysfonts.regular, 16, 16, 8 );
 
@@ -394,7 +394,8 @@ int main(int argc, char **argv)
 	while( surfman->cmd !=SURFMAN_CMD_END_SURFMAN ) {
 
 /* TEST: ------- SURFMSG ------- */
-		/* Receive msg queue _REQUEST_DISPINFO from surfaces */
+
+		/* W.-1  Receive msg queue _REQUEST_DISPINFO from surfaces */
 		nrcv=msgrcv(surfman->msgid, (void *)&msgdata, SURFMSG_TEXT_MAX-1, -SURFMSG_PRVTYPE_MAX, MSG_NOERROR|IPC_NOWAIT);
                 if( nrcv<0 && errno == ENOMSG ) {
                 }
@@ -421,7 +422,7 @@ int main(int argc, char **argv)
 		/* ------ >>>  Surfman Critical Zone  */
 
 						egi_imgbuf_free2(&surfman->bkgimg);
-						printf("Assing surfman->bkgimg = tmpimg!\n");
+						printf("Assign surfman->bkgimg = tmpimg!\n");
 						surfman->bkgimg = tmpimg;
 
 		/* ------ <<<  Surfman Critical Zone  */
@@ -560,7 +561,9 @@ WAIT_REQUEST:
 		/* W2. Mouse event process */
 	        if( egi_mouse_getRequest(pmostat) ) {  /* If true: pmostat->mutex_lock keeps locked! */
 
-			/* W2.0: Pack STDIN ch into pmostat->ch, while pmostat->mutex_lock MUST keep locked! */
+			/* W2.0: Pack STDIN ch into pmostat->chars and conkeys to pmostat->conkesy,
+			 *       while pmostat->mutex_lock MUST keep locked!
+			 */
 			if(pmostat) { /* To skip init NULL value. */
 
 				/* 1. Transfer nch/chars[] buffer to pmostat->nch/pmotat->ch[] */
@@ -654,31 +657,38 @@ WAIT_REQUEST:
 				pthread_mutex_lock(&surfman->surfman_mutex);
 		 /* ------ >>>  Surfman Critical Zone  */
 
+				/* W2.3.1 Update surfman->mx/my */
                                 surfman->mx  = pmostat->mouseX;
                                 surfman->my  = pmostat->mouseY;
 
-				/* Check zseq  */
+				/* W2.3.2 Get zseq  */
 				zseq=surfman_xyget_Zseq(surfman, surfman->mx, surfman->my);
 				printf("Picked zseq=%d\n", zseq);
 
 #if 1 /* ------ SurfMan::MenuList ------ */
-				/* Check if click on MenuList */
+				/* W2.3.3 Check if click on MenuList */
 				if( surfman->menulist_ON ) {
+					/* W2.3.3.1 If click out of menlist, then turn off and hide it. */
 					if( zseq != SURFMAN_MENULIST_PIXZ ) {
 						surfman->menulist_ON = false;
 						/* Reset depth to clear previous selection tree. */
 						surfman->menulist->depth=0;
 					}
+					/* W2.3.3.2 Click on menulist */
 					else
 					{
-						/* Shut Down  MidasHK_2022-04-17 */
-						if(strcmp(surfman->menulist->path[surfman->menulist->depth]->mitems[surfman->menulist->fidx].descript,
+						egi_dpstd("menulist fidx=%d, depth=%d\n", surfman->menulist->fidx, surfman->menulist->depth);
+
+#if 1  /* TEST: --------- Shut Down  MidasHK_2022-04-17 */
+						/* W2.3.3.2.1 Click on "Shut Down" item */
+						if( surfman->menulist->fidx >=0 &&    /* Exclude NodeItem. MidasHK_2022-05-07 */
+						    strcmp(surfman->menulist->path[surfman->menulist->depth]->mitems[surfman->menulist->fidx].descript,
 							  "Shut Down")==0 ) {
 							/* Set signal to quit */
-							surfman->cmd=1;
+							surfman->cmd=SURFMAN_CMD_END_SURFMAN;
 
-							/* Unlock to let other thread to end */
-		        /* ------ <<<  Surfman Critical Zone  */
+							/* Unlock to let other threads to end */
+		       				/* ------ <<<  Surfman Critical Zone  */
                 				        pthread_mutex_unlock(&surfman->surfman_mutex);
 
 							/* Turn off Menulist */
@@ -686,14 +696,25 @@ WAIT_REQUEST:
                                                 	surfman->menulist->depth=0;
 							tm_delayms(100);
 
-							continue;
+							continue; /* Loop to send surfman->cmd */
 						}
+#endif
+						/* W2.3.3.2.2 Click on other menu items. */
 						else {
-							/* Load MenuItem Linked PROG */
+							/* Load MenuItem Linked PROG, if any. */
 							egi_surfMenuList_runMenuProg(surfman->menulist);
 						}
+						/* W2.3.3.2.3 Turn off and hide menulist */
 						surfman->menulist_ON = false;
 						surfman->menulist->depth=0;
+
+			 /* ------ <<<  Surfman Critical Zone  */
+						pthread_mutex_unlock(&surfman->surfman_mutex);
+
+						/* End mouse event, OR it will carry to affect backside surface if any.
+						 * HK2022-05-07
+						 */
+						goto END_MOUSE_EVENT;
 					}
 
 				}
