@@ -275,7 +275,7 @@ START_REQUEST:
 	printf("imgURL: %s\n", imgURL);
 
 	/* Extract all text */
-	fprintf(stderr,"extract html text..\n"); /* TODO: segmentation fault here */
+	fprintf(stderr,"Extract html text..\n"); /* TODO: segmentation fault here */
 	cstr_extract_html_text(content, imgTXT, sizeof(imgTXT));
 	printf("imgTXT: %s\n", imgTXT);
 

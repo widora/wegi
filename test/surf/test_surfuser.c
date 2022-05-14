@@ -266,7 +266,7 @@ START_TEST:
 		strncpy(surfshmem->surfname, "EGI_SURF", SURFNAME_MAX-1);
 
 	/* 5. First draw surface, set up TOPBTNs and TOPMENUs. */
-	surfshmem->bkgcolor=egi_color_random(color_all); /* OR default BLACK */
+	surfshmem->bkgcolor=COLOR_FloralWhite; //egi_color_random(color_all); /* OR default BLACK */
 	surfshmem->topmenu_bkgcolor=egi_color_random(color_light);
 	surfshmem->topmenu_hltbkgcolor=WEGI_COLOR_GRAYB;
 	surfuser_firstdraw_surface(surfuser, TOPBTN_CLOSE|TOPBTN_MAX|TOPBTN_MIN, MENU_MAX, menu_names); /* Default firstdraw operation */

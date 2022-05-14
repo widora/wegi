@@ -230,7 +230,7 @@ EGI_16BIT_COLOR egi_16bitColor_blend2(EGI_16BIT_COLOR front, unsigned char falph
 #define COLOR_DodgerBlue                COLOR_24TO16BITS(0x1E90FF)
 #define COLOR_Feldspar                  COLOR_24TO16BITS(0xD19275)
 #define COLOR_FireBrick                 COLOR_24TO16BITS(0xB22222)
-#define COLOR_FloraWhit                 COLOR_24TO16BITS(0xFFFAF0)
+#define COLOR_FloralWhite               COLOR_24TO16BITS(0xFFFAF0)
 #define COLOR_ForestGreen               COLOR_24TO16BITS(0x228B22)
 #define COLOR_Fuchsia                   COLOR_24TO16BITS(0xFF00FF)
 #define COLOR_Gainsboro                 COLOR_24TO16BITS(0xDCDCDC)

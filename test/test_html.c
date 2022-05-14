@@ -6,7 +6,7 @@ Foundation.
  		!!! This is for EGI functions TEST only !!!
 
 Example:
-	./test_html -c 0 -p 2 -l
+	./test_html -c 0 -p 2 -l -f script
 	./test_html -c 2 -p 2 -t 5 -l
 	./test_html -c 1 -s -l -v 125 http://slide.news.sina.com.cn/w/
 

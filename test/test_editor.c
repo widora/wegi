@@ -150,6 +150,7 @@ static int tmargin=2;		/* top margin of text area */
 
 /* Input Method: PINYIN */
 wchar_t wcode;
+
 EGI_UNIHAN_SET *uniset;
 EGI_UNIHANGROUP_SET *group_set;
 static bool enable_pinyin=false;
@@ -357,7 +358,7 @@ MAIN_START:
 	//lndis=fh+fgap;
 	lndis=FTsymbol_get_FTface_Height(egi_sysfonts.regular, fw, fh);
 	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/lndis;
-	printf("Blank lines tlns=%d\n", tlns);
+	printf("Blank lines tlns=%d, lndis=%d\n", tlns, lndis);
 
 	/* Create charMAP */
 	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,	 /* txtsize,  x0, y0  */
@@ -366,6 +367,7 @@ MAIN_START:
 			egi_sysfonts.regular, CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis,   	 /* typeface, mapsize, lines, pixpl, lndis */
 			WEGI_COLOR_WHITE, WEGI_COLOR_BLACK, true, true );  /*  bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
+	printf("chmap->height: %d\n", chmap->height);
 
 
 	/* Load file to chmap */

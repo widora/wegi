@@ -136,6 +136,14 @@ void 	egi_surfTickBox_writeFB(FBDEV *fbdev, const ESURF_TICKBOX *tbox,  int cx0,
  3. A sub_MenuList has a node number, which is the item index of its upper/parent MenuList.
  4. A MenuList Tree consists of sub_MenuLists linked finally to a root MenuList.
 
+			--- Behaviours ---
+ 1. Cursor hovers over an NodeItem to expand it, while hovers over an MenuItems to make
+    that sub_MenuList as the last visible one.
+ 2. Click on an MenuItems to run its linked script/program.
+ 3. Click on an NodeItem to close/disappear the whole MenuList Tree.
+ 5. RightClick to close/disappear the whole MenuList Tree.
+ 6. Click elsewhere to close/disappear the whole MenuList Tree.
+
 			!!! --- WARNING --- !!!
  5. A MenuList tree MUST be assmebled/built from end branch sub_MenuLists to the root MenuList.
 

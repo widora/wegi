@@ -6,6 +6,7 @@ published by the Free Software Foundation.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
+知之者不如好之者好之者不如乐之者
 ---------------------------------------------------------------------*/
 #ifndef __EGI_SURFACE_H__
 #define __EGI_SURFACE_H__
@@ -155,7 +156,7 @@ struct egi_surface_user {
 
 /*** 			--- An EGI_SURFMAN ---
  *
- * 1. When an EGI_SURMAN is created, there are 3 threads running for routine jobs.
+ * 1. When an EGI_SURMAN is created, there are 5 threads running for routine jobs.
  *    1.1 userv_listen_thread:
  *	  1.1.1 To accept and add surfusers.
  *    1.2 surfman_request_process_thread(void *surfman):
@@ -172,11 +173,14 @@ struct egi_surface_user {
  *	  1.4.5 Desktop MinBar operation.
  *	  1.4.6 Desktop MenuList operation.
  *	  1.4.7 Waitpid child process.
+ *    1.5 A PINYIN Surfuser/Surface: For chinese text input. ( OR Other input method engine. )
+ *	  It filters STDIN and transforms pinyin/typing to Chineses(in UTF-8 encoding), then pass to the TopSurface.
  *
  * 2. The SURFMAN manages all mouse icons(imgbufs)! SURFSHMEM applys a certain mouse icon by setting its ref ID.
  * 3. The SURFMAN controls and dispatchs input data, always to the TOP surface only.
  *    NOW: Also send mostat to mouse cursor touched surface.
- *
+ * 4. If a SURFMAN creates a SURFUSER, even in the same process, SURFMAN.surfaces[]->surshmem and
+ *    SURFUSER->surfshmem DO NOT hold the same virtual address!
  */
 struct egi_surface_manager {
 	/* 1. Surface USERV */
@@ -376,8 +380,10 @@ struct egi_surface_shmem {
 	uint32_t	apoptions;  	/* Surface appearance options */
 
 	/* Top bar appearance options for firstdraw_surface() */
-#define TOPBAR_NONE	(0)		/* No topbar/topbtn/surfname */
-#define TOPBAR_COLOR	(1<<0)		/* Topbar color band: if firstdraw options >= (1<<0) */
+//#define TOPBAR_NONE	(0)		/* No topbar/topbtn/surfname, However, mouse holddown movement is still available. */
+//#define TOPBAR_COLOR	(1<<0)		/* Topbar color band: if firstdraw options >= (1<<0) */
+					/* Erase above. HK2022-05-13 */
+#define TOPBAR_NONE	(1<<0)		/* No topbar/topbtn/surfname, However, mouse holddown movement is still available. */
 #define TOPBAR_NAME	(1<<1)		/* Surface name, if firstdraw options >= (1<<1) */
 #define TOPBTN_NONE	TOPBAR_NAME	/* Same, with name/color */
 
@@ -464,6 +470,8 @@ struct egi_surface_shmem {
 		void (*minimize_surface)(EGI_SURFUSER *surfuser);
 	/* 6. Close */
 		void (*close_surface)(EGI_SURFUSER **surfuser);
+	/* 7. Refresh */
+		void (*refresh_surface)(EGI_SURFUSER *surfuser);
 
 	/* User Callbacks */
 	/* 1. Mouse Event callback in surfuser_parse_mouse_event() */
@@ -510,7 +518,7 @@ struct egi_surface {
 
 
 	unsigned int	id;		/* [Surfman RW]: NOW as index of the surfman->surfaces[]
-					 * !!! --- Volatile value --- !!!
+					 * 	!!! --- CAUTION: Volatile value --- !!!
 					 * 1. It's volatile! as surfman->surfaces[] to is being sorted when a new
 					 *    surface is registered/unregistered! Use memfd instead to locate the surface.
 				         * 2. MUST update id accordingly as sequence/index of surfman->surfaces[] changes!
@@ -611,7 +619,7 @@ enum ering_result_type {
 struct surface_msg_data {
         long msg_type;
         char msg_text[SURFMSG_TEXT_MAX];  	/* Messages of zero length also OK */
-};
+}; /* SURFMSG_DATA */
 
 /* For SURFMSG_DATA.msg_type:  MUST be positive integer value!!! */
 enum  surface_msg_type {
@@ -636,7 +644,6 @@ int surf_get_pixsize(SURF_COLOR_TYPE colorType);
 int egi_create_memfd(const char *name, size_t memsize);
 EGI_SURFSHMEM *egi_mmap_surfshmem(int memfd); 		/* mmap(memfd) to get surface pointer */
 int egi_munmap_surfshmem(EGI_SURFSHMEM **shmem);	/* unmap(surfshmem) */
-
 int surface_compare_zseq(const EGI_SURFACE *eface1, const EGI_SURFACE *eface2);
 void surface_insertSort_zseq(EGI_SURFACE **surfaces, int n); /* Re_assign all surface->id AND surface->zseq */
 /* If the function is applied for quickSort, then above re_assignment MUST NOT be included */
@@ -647,6 +654,7 @@ void surface_insertSort_zseq(EGI_SURFACE **surfaces, int n); /* Re_assign all su
 EGI_SURFUSER *egi_register_surfuser( const char *svrpath, const char* pid_lock_file,
 				     int x0, int y0, int maxW, int maxH, int w, int h, SURF_COLOR_TYPE colorType );
 int egi_unregister_surfuser(EGI_SURFUSER **surfuser);
+int surfuser_set_name(EGI_SURFUSER *surfuser, const char *name);
 
 	/* Default surface operations; OR use your own tailor_made functions. */
 __attribute__((weak)) void surfuser_draw_canvas(EGI_SURFUSER *surfuser);
@@ -660,6 +668,7 @@ __attribute__((weak)) void surfuser_close_surface(EGI_SURFUSER **surfuser);
 
 __attribute__((weak)) void *surfuser_ering_routine(void *surf_user);
 __attribute__((weak)) void surfuser_parse_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat); /* shmem_mutex, surfuser_ering_routine() */
+__attribute__((weak)) void surfuser_refresh_surface(EGI_SURFUSER *surfuser);
 
 bool egi_point_on_surface(const EGI_SURFSHMEM *surfshmem, int x, int y); /* in work_area, NOT include frame_area */
 
@@ -680,6 +689,8 @@ int surfman_unregister_surfUser(EGI_SURFMAN *surfman, int sessionID);	/* surfman
 int surfman_xyget_Zseq(EGI_SURFMAN *surfman, int x, int y);
 int surfman_xyget_surfaceID(EGI_SURFMAN *surfman, int x, int y);
 int surfman_get_TopDispSurfaceID(EGI_SURFMAN *surfman);
+int surfman_get_SurfuserCSID(EGI_SURFMAN *surfman, EGI_SURFUSER *surfuser);	    /* no mutex_lock */
+EGI_SURFACE* surfman_surfuser_surface(EGI_SURFMAN *surfman, EGI_SURFUSER *surfuser); /* no mutex_lock */
 
 void surfman_minimize_allSurfaces(EGI_SURFMAN *surfman);	/* no mutex_lock */
 void surfman_normalize_allSurfaces(EGI_SURFMAN *surfman);	/* no mutex_lock */

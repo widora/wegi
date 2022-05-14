@@ -441,7 +441,7 @@ Just modify default surfuser_firstdraw_surface() a little...
 
 @surfuser:	Pointer to EGI_SURFUSER.
 @options:	Apprance and Buttons on top bar, optional.
-		TOPBAR_NONE | TOPBAR_COLOR | TOPBAR_NAME
+		TOPBAR_NONE | XXX TOPBAR_COLOR | TOPBAR_NAME
 		TOPBTN_CLOSE | TOPBTN_MIN | TOPBTN_MAX.
 		0 No topbar
 ----------------------------------------------------------*/
@@ -470,7 +470,8 @@ void my_firstdraw_surface(EGI_SURFUSER *surfuser, int options)
        	egi_imgbuf_resetColorAlpha(surfimg, surfshmem->bkgcolor, 255); //-1); /* Reset color only */
 
         /* 1.2B  Draw top bar. */
-	if( options >= TOPBAR_COLOR )
+	//if( options >= TOPBAR_COLOR )
+	if( !(options&TOPBAR_NONE) ) /* HK2022-05-13 */
         	draw_filled_rect2(vfbdev,SURF_TOPBAR_COLOR, 0,0, surfimg->width-1, SURF_TOPBAR_HEIGHT-1);
 
 	/* 2. Case reserved intently. */
@@ -1241,7 +1242,7 @@ int surf_menuListTree(EGI_SURFUSER *surfowner)
         /* P1.1 Create root mlist: ( mode, root, x0, y0, mw, mh, face, fw, fh, capacity) */
         menulist=egi_surfMenuList_create(menuListMode, true, 0, 0, /* At this point, layout is not clear. x0/y0 set at P3 */
                                                                   110, 30, egi_sysfonts.regular, 16, 16, 8 );
-	mlistMonitor=egi_surfMenuList_create(menuListMode, false, 0,0, 110, 30, egi_sysfonts.bold, 16, 16, 8 );
+	mlistMonitor=egi_surfMenuList_create(menuListMode, false, 0,0, 110, 30, egi_sysfonts.regular, 16, 16, 8 );
 	mlistSetting=egi_surfMenuList_create(menuListMode, false, 0,0, 110, 30, egi_sysfonts.bold, 16, 16, 8 );
 	mlistDP=egi_surfMenuList_create(menuListMode, false, 0,0, 110, 30, egi_sysfonts.bold, 16, 16, 8 );
 	if(menuListMode==MENULIST_ROOTMODE_LEFT_BOTTOM) {
@@ -1274,7 +1275,7 @@ int surf_menuListTree(EGI_SURFUSER *surfowner)
         /* P2.3 Add items to mlistMonitor */
         //egi_surfMenuList_addItem(mlistMonitor, "CPU Temp", NULL, NULL);
         //egi_surfMenuList_addItem(mlistMonitor, "CPU Load", NULL, NULL);
-	egi_surfMenuList_addItem(mlistMonitor, "System", NULL, NULL);  mlistMonitor->mitems[0].id=MENU_ID_MONITOR_SYSTEM;
+	egi_surfMenuList_addItem(mlistMonitor, "系统性能", NULL, NULL);  mlistMonitor->mitems[0].id=MENU_ID_MONITOR_SYSTEM;
         egi_surfMenuList_addItem(mlistMonitor, "Netstat", mlistNetstat, NULL);
         egi_surfMenuList_addItem(mlistMonitor, "Sensors", mlistSensors, NULL);
 

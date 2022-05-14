@@ -62,6 +62,7 @@ XXX 7. If a surface is clicked on SURFBTN_MIN and its status is changed to be SU
 9. A kbdstat is read directly from Keyboard input event, kbdstat.conkeys are control_key_status, sequence of key_pressing
    also recorded. it intends to monitor keyboard shortcut command!
 
+
 Journal
 2021-03-11:
 	1. If mouse clicks on leftside minibar menu, then bring the SURFACE
@@ -143,10 +144,17 @@ Journal
 	2. W.2.7.2  DO NOT ering LeftKeyDownHold to may non_TOPsurfaces.
 2022-04-17:
 	1. Click on Menulist "Shut Down" to terminate surfman service.
+2022-05-09:
+	1. Add a thread to create surface for input method PINYIN.
+	2. To readout/empty TTY stdin after parsing keyboard shortcut control,
+	   avoid to send to TopSurface.
+2022-05-12:
+	1. Add W2.5: Process PINYIN Input if enable_pinyin.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
 https://github.com/widora/wegi
+知之者不如好之者好之者不如乐之者
 ------------------------------------------------------------------*/
 #include <stdio.h>
 #include <stdlib.h>
@@ -165,6 +173,7 @@ https://github.com/widora/wegi
 #include "egi_procman.h"
 #include "egi_input.h"
 #include "egi_utils.h"
+
 
 #ifdef LETS_NOTE
 	#define WALLPAPER_PATH   "/home/midas-zhou/Pictures/desk"
@@ -193,9 +202,11 @@ static EGI_MOUSE_STATUS *pmostat;
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
 int 	lastX;
 int 	lastY;
+
 /* TTY STDIN key buffer */
 int 	nch;
 char 	chars[32];  	/* W.2.7.1A if NO surface displayed, then clear buffer chars[] */
+			/* W0.1 To readout/empty TTY input after parsing shortcut keys. */
 
 //bool	surface_downhold; /* NO USE */
 
@@ -210,6 +221,15 @@ static int sigQuit;
 int wait_pid;
 int wait_status;
 
+/* For surface: IME PINYIN */
+//bool enable_pinyin;   	/* Set/reset in surf_pinyin(), also as mutex lock for surfuser_pinyin. */
+pthread_t thread_pinyin;	/* PINYIN or other Input Method Engine */
+EGI_SURFUSER *surfuser_pinyin;  /* A Ref to msurfuser in surf_pinyin(), set/reset in surf_pinyin() */
+EGI_SURFACE  *surface_pinyin;   /* Pointer to the PINYIN SURFACE as created by the surfman
+				 * 1. Get in main W2.5, retset in surf_pinyin().
+			 	 */
+
+#include "surf_pinyin.h"   	/* void* surf_pinyin(void *argv) */
 
 /* Signal handler for SurfUser */
 void signal_handler(int signo)
@@ -229,7 +249,7 @@ ERING_MSG *emsg;
 
 int main(int argc, char **argv)
 {
-	int j,k;
+	int j, k;
 	char ch;
 	int surfID;
 
@@ -268,6 +288,12 @@ int main(int argc, char **argv)
 
   	/* Start sys tick */
 //  	tm_start_egitick();
+
+	/* Load IME PINYIN data */
+	if(load_pinyin_data()!=0) {
+		printf("Fail to load PINYIN data!\n");
+		exit(EXIT_FAILURE);
+	}
 
 	/* Create an ERING_MSG */
 	printf("Create an ERING_MSG, sizeof(EGI_MOUSE_STATUS)=%zd ....\n", sizeof(EGI_MOUSE_STATUS));
@@ -395,7 +421,7 @@ int main(int argc, char **argv)
 
 /* TEST: ------- SURFMSG ------- */
 
-		/* W.-1  Receive msg queue _REQUEST_DISPINFO from surfaces */
+		/* W.-1  Receive msg queue from surfusers */
 		nrcv=msgrcv(surfman->msgid, (void *)&msgdata, SURFMSG_TEXT_MAX-1, -SURFMSG_PRVTYPE_MAX, MSG_NOERROR|IPC_NOWAIT);
                 if( nrcv<0 && errno == ENOMSG ) {
                 }
@@ -464,6 +490,11 @@ KEY_INPUT:
 
 					/* Delay and loop back, expecting next read_kbdcode() gets release status. */
 					tm_delayms(SHORTCUT_AFT_DELAYMS);
+
+                                        /* To readout/empty TTY input */
+                                        read(STDIN_FILENO, chars, sizeof(chars)-1);
+                                        nch=0;
+
 					continue;
 				}
 /*  ALT+ESC ...... Close current TOP surface.  */
@@ -488,6 +519,11 @@ KEY_INPUT:
 
 					/* Delay and loop back */
 					tm_delayms(SHORTCUT_AFT_DELAYMS);
+
+                                        /* To readout/empty TTY input */
+                                        read(STDIN_FILENO, chars, sizeof(chars)-1);
+                                        nch=0;
+
 					continue;
 				}
 				break;
@@ -502,6 +538,11 @@ KEY_INPUT:
 
 					/* Delay and loop back */
 					tm_delayms(SHORTCUT_AFT_DELAYMS);
+
+					/* To readout/empty TTY input */
+					read(STDIN_FILENO, chars, sizeof(chars)-1);
+					nch=0;
+
 					continue;
 				}
 /* Super+W ......  Normalize all surface. */
@@ -514,6 +555,34 @@ KEY_INPUT:
 
 					/* Delay and loop back */
 					tm_delayms(SHORTCUT_AFT_DELAYMS);
+
+					/* To readout/empty TTY input */
+					read(STDIN_FILENO, chars, sizeof(chars)-1);
+					nch=0;
+
+					continue;
+				}
+/* Super+SPACE ......  Activate/Deactivate IME PINYIN. */
+				else if( kbdstat.conkeys.asciikey == KEY_SPACE ) {
+					pthread_mutex_lock(&surfman->surfman_mutex);
+			/* ------ >>>  Surfman Critical Zone  */
+					if(!enable_pinyin) {
+						pthread_create(&thread_pinyin, NULL, surf_pinyin, NULL);
+					}
+
+					else {
+						surfuser_pinyin->surfshmem->usersig =SURFUSER_SIG_QUIT;
+					}
+			/* ------ <<<  Surfman Critical Zone  */
+					pthread_mutex_unlock(&surfman->surfman_mutex);
+
+					/* Delay and loop back */
+					tm_delayms(SHORTCUT_AFT_DELAYMS);
+
+					/* To readout/empty TTY input */
+					read(STDIN_FILENO, chars, sizeof(chars)-1);
+					nch=0;
+
 					continue;
 				}
 				break;
@@ -566,12 +635,12 @@ WAIT_REQUEST:
 			 */
 			if(pmostat) { /* To skip init NULL value. */
 
-				/* 1. Transfer nch/chars[] buffer to pmostat->nch/pmotat->ch[] */
+				/* W2.0.1. Transfer nch/chars[] buffer to pmostat->nch/pmotat->ch[] */
 				pmostat->nch = nch;
 				strncpy(pmostat->chars, chars, nch);
 				pmostat->chars[nch]=0; /* EOF */
 
-				/* 2. Transfer kbdstat->conkeys to pmostat->conkeys */
+				/* W2.0.2. Transfer kbdstat->conkeys to pmostat->conkeys */
 				/* Copy conkeys to pmostat for ERING */
 				memcpy(&pmostat->conkeys, &kbdstat.conkeys, sizeof(EGI_CONKEY_STATUS));
 
@@ -599,7 +668,7 @@ WAIT_REQUEST:
 				 */
 				//XXX nch=0;
 				//XXX memset(chars,0, sizeof(chars));
-			}
+				}
 			else
 				egi_dpstd("pmosta==NULL!\n");
 
@@ -720,7 +789,9 @@ WAIT_REQUEST:
 				}
 #endif
 
-				/* A. Check if it clicks on any SURFACEs. */
+				/* W2.3.3.4  If clicks on a FURFACE */
+
+				/* W2.3.3.4. A. Check if it clicks on any SURFACEs. */
 				surfID=surfman_xyget_surfaceID(surfman, surfman->mx, surfman->my );
 				printf("surfID=%d\n",surfID);
 
@@ -736,7 +807,7 @@ WAIT_REQUEST:
 				int topID=surfman_get_TopDispSurfaceID(surfman);
 				printf("topID=%d\n",topID);
 
-				/* A.1  IF: clicked surface already on TOP layer. ( Minimized surfaces NOT considered! ) */
+				/* W2.3.3.4. A.1  IF: clicked surface already on TOP layer. ( Minimized surfaces NOT considered! ) */
 				/* !!! Exclude surfID <0 && surfman_get_TopDispSurfaceID() <0 */
 				//if( surfID >=0 && surfID==surfman_get_TopDispSurfaceID(surfman) ) {
 				/* NOTE: See W2.7.2 */
@@ -761,7 +832,7 @@ WAIT_REQUEST:
 						printf("Already TOP surface!\n");
 					}
 				}
-				/* A.2  Else: If clicked surface is NOT current top surface. */
+				/* W2.3.3.4. A.2  Else: If clicked surface is NOT current top surface. */
 				else if(surfID>=0) { /* <0 as bkground */
 					//surface_downhold=true;
 					printf("Bring surfID %d to TOP\n", surfID);
@@ -786,7 +857,7 @@ WAIT_REQUEST:
 #endif
 				}
 
-				/* B. surfID<0: Check if it clicks on leftside minibar menu, Check IndexMpMinSurf, which is set by
+				/* W2.3.3.4. B. surfID<0: Check if it clicks on leftside minibar menu, Check IndexMpMinSurf, which is set by
 				      surfman_render_thread() based on surfmap->mx,my
 				 */
 				else if ( surfman->IndexMpMinSurf >= 0 ) {
@@ -822,7 +893,35 @@ WAIT_REQUEST:
 
 			/* W2.4. */
 
-			/* W2.5. */
+			/* W2.5. Process PINYIN Input. enable_pinyin also as mutex_lock!  */
+			if(enable_pinyin && nch>0 ) {
+				/* W2.5.0 Get Ref. to SURFACE in SURFMAN */
+				if(surface_pinyin==NULL) {
+					surface_pinyin=surfman_surfuser_surface(surfman, surfuser_pinyin);
+					if(surface_pinyin==NULL)
+						egi_dpstd("Fail to find the PINYIN surface!\n");
+					else
+						egi_dpstd(DBG_GREEN"OK! Get PINYIN surface!\n"DBG_RESET);
+				}
+
+				/* W2.5.1 Process PINYIN, convert input chars to UTF8 encodings. */
+				parse_pinyin_input(chars, &nch);
+
+                                /* W2.5.2 Transfer nch/chars[] buffer to pmostat->nch/pmotat->ch[]
+				 * Notice: Also see W2.0.1.
+				 */
+                                pmostat->nch = nch;
+                                strncpy(pmostat->chars, chars, nch);
+                                pmostat->chars[nch]=0; /* EOF */
+
+				/* W2.5.3 Inform SURF_PINYIN to refresh its displaying */
+				emsg->type=ERING_SURFACE_REFRESH;
+				/* !!! ONLY When PINYIN is TopSurface  !!! */
+				//if(unet_sendmsg(surfman->surfaces[SURFMAN_MAX_SURFACES-1]->csFD, emsg->msghead)<=0)
+				if(unet_sendmsg(surface_pinyin->csFD, emsg->msghead)<=0)
+					egi_dpstd("Fail to sendmsg ERING_SURFACE_REFRESH!\n");
+			}
+
 
 			/* W2.6. Update mouseXY to surfman */
 			//else {
@@ -970,7 +1069,7 @@ WAIT_REQUEST:
 	/* ------ <<<  Surfman Critical Zone  */
 			pthread_mutex_unlock(&surfman->surfman_mutex);
 
-#endif /* END 5. send mostat */
+#endif /* END W2.7.2 send mostat */
 
 END_MOUSE_EVENT:
 			/* Reset lastX/Y, to compare with next mouseX/Y to get deviation. */

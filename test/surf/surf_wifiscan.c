@@ -389,7 +389,7 @@ END_APSCAN:
 	/* Render VBF. Save to VFrameImg */
 	vfb_render(&workfb);
 
-	pthread_mutex_unlock(&workfb.VFrameImg->img_mutex);;
+	pthread_mutex_unlock(&workfb.VFrameImg->img_mutex);
 /* ------ <<<  workfb.virt_fb Critical Zone  */
 
 	/* Update surfuser IMGBUF, by copying workfb IMGBUF to surfuser->imgbuf */

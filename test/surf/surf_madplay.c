@@ -208,7 +208,6 @@ int main(int argc, char **argv)
 	int i,j;
 	int sw=0,sh=0; /* Width and Height of the surface */
 	int x0=0,y0=0; /* Origin coord of the surface */
-	char *pname=NULL;
 	char **mp3_paths=NULL;
 	int files;	/* Total number of MP3 files */
 
@@ -279,8 +278,7 @@ int main(int argc, char **argv)
 	pUserSig = &surfshmem->usersig;
 
 	/* 4. Name for the surface. */
-	pname="MadPlayer";
-	strncpy(surfshmem->surfname, pname, SURFNAME_MAX-1);
+	surfuser_set_name(surfuser,"MadPlayer");
 
 	/* 5. First draw surface. */
 	surfshmem->bkgcolor=  WEGI_COLOR_DARKOCEAN; //DRAKGRAY; /* OR default BLACK */

@@ -3981,7 +3981,7 @@ int egi_subimg_writeFB(EGI_IMGBUF *egi_imgbuf, FBDEV *fb_dev, int subindex,
 
 	if(egi_imgbuf==NULL || egi_imgbuf->imgbuf==NULL ) {
 		printf("%s: egi_imbuf or egi_imgbuf->imgbuf is NULL!\n",__func__);
-		return -1;;
+		return -1;
 	}
 	/* get mutex lock */
 	if( pthread_mutex_lock(&egi_imgbuf->img_mutex)!=0 ){
@@ -4201,7 +4201,7 @@ int egi_imgbuf_reset(EGI_IMGBUF *egi_imgbuf, int subindex, int color, int alpha)
 
 	if(egi_imgbuf==NULL || egi_imgbuf->imgbuf==NULL ) {
 		printf("%s: egi_imbug or egi_imgbuf->imgbuf is NULL!\n",__func__);
-		return -1;;
+		return -1;
 	}
 
 	/* get mutex lock */

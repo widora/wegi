@@ -138,6 +138,9 @@ TODO:
 12. If a SURFACE launches/creates a child SURFACE by calling egi_register_surfuser() (NOT in an new thread or process)
     and then waits for it to end, then the last mouse event to close the child SURFACE may ALSO trigger the calling SURFACE.
 
+13. If a SURFMAN creates a surfuser in the same process, then virtual addresses of surfman.surfaces[]->surfshmem and surfuser->surfshmem
+    is NOT the SAME!! Why?
+
 Journal
 2021-02-22:
 	1. Add surfman_render_thread().
@@ -304,9 +307,21 @@ Journal
 2022-04-026:
 	1. egi_register_surfuser(): Set VFBDEV.pixcolor_on at egi_register_surfuser()
 	2. Set VFBDEV.pixcolor_on after reinit_virt_fbdev(): surfuser_firstdraw_surface(), surfuser_redraw_surface()
+2022-05-08:
+	1. Add surfuser_set_name().
+2022-05-11:
+	1. Add ering_msg_type ERING_SURFACE_REFRESH.
+	2. Add SURFSHMEM.refresh_surface.
+	3. Add surfuser_refresh_surface().
+	4. surfuser_ering_routine(): case ERING_SURFACE_REFRESH, call surfuser_refresh_surface(surfuser).
+	5. egi_unregister_surfuser(): unlock fd_flock before close(fd_flock).
+2022-05-13:
+	1. Add surfman_get_SurfuserCSID()
+	2. Add surfman_surfuser_surface()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
+知之者不如好之者好之者不如乐之者
 ---------------------------------------------------------------------*/
 #include <stdio.h>
 #include <stdlib.h>
@@ -319,6 +334,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include <sys/syscall.h>
 #include <sys/select.h>
 #include <sys/msg.h>
+#include <sys/file.h>
 
 #include "egi_log.h"
 #include "egi_unet.h"
@@ -736,8 +752,11 @@ int egi_unregister_surfuser(EGI_SURFUSER **surfuser)
 
 	/* 6. close(fd_flock) to unlock file. */
 	//egi_dpstd("Close fd_flock ...\n");
-	if( (*surfuser)->fd_flock >0 )
+	if( (*surfuser)->fd_flock >0 ) {
+		flock((*surfuser)->fd_flock,LOCK_UN); /* ;) Hi!  HK2022-05-11 */
 		close((*surfuser)->fd_flock);
+	}
+
 
         /* 7. Free surfuser struct */
         free(*surfuser);
@@ -746,6 +765,22 @@ int egi_unregister_surfuser(EGI_SURFUSER **surfuser)
 	return ret;
 }
 
+/*------------------------------------------
+Set a name for SURFUSER.surfshmem->surfname.
+
+Return:
+	0	OK
+	<0	Fails
+-------------------------------------------*/
+int surfuser_set_name(EGI_SURFUSER *surfuser, const char *name)
+{
+	if(surfuser==NULL || surfuser->surfshmem==NULL || name==NULL)
+		return -1;
+
+	strncpy(surfuser->surfshmem->surfname, name, SURFNAME_MAX-1);
+
+	return 0;
+}
 
 /*---------------------------------------------------------
 Request a surface from the Surfman via local socket.
@@ -2127,9 +2162,10 @@ int surfman_get_TopDispSurfaceID(EGI_SURFMAN *surfman)
 #if 1	/* Assume surfaces[] are sorted in ascending order of zseq! */
 	for(i=0; i < surfman->scnt; i++) {
 
-		/* In case sorting error! */
-		if(surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]==NULL)
-			return -2;;
+		/* Get end */
+		if(surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]==NULL) {
+			return -2;
+		}
 
 		//egi_dpstd("surfaces[%d] status=%d\n", SURFMAN_MAX_SURFACES-1-i,
 		//		surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]->surfshmem->status );
@@ -2142,7 +2178,8 @@ int surfman_get_TopDispSurfaceID(EGI_SURFMAN *surfman)
 
 		/* In case sorting error! */
 		if(surfman->surfaces[i]==NULL) {
-			return -2;;
+			egi_dpstd("Sorting error!\n");
+			return -2;
 		}
 
 		//if(surfman->surfaces[i]->status !=SURFACE_STATUS_MINIMIZED )
@@ -2152,6 +2189,93 @@ int surfman_get_TopDispSurfaceID(EGI_SURFMAN *surfman)
 #endif
 	return -3;
 }
+
+
+/*----------------------------------------------------------------------
+To return csID for the corresponding surfuser, csID is the sessionID of
+userv->session[sessionID], and the surfuser MUST be created by the surfman
+and running in the same process!
+
+@surfman:	Pointer to an EGI_SURFMAN.
+@surfuser:	Pointer to a surfuser running in the same process as surfman.
+
+Return:
+        <0      Fails.
+        >=0     Ok.
+-----------------------------------------------------------------------*/
+int surfman_get_SurfuserCSID(EGI_SURFMAN *surfman, EGI_SURFUSER *surfuser)
+{
+	int i;
+	int csFD=-1;
+
+	if(surfman==NULL || surfman->scnt<1 || surfuser==NULL )
+		return -1;
+
+	for(i=0; i< surfman->scnt; i++) {
+                if(surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]==NULL) {
+                        return -1;
+		}
+
+		#if 0 /* In the same process, with same virt address. XXX NOPE! NOT same virt address!!!! */
+		if( surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]->surfshmem
+		    == surfuser->surfshmem ) {
+			csFD =surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]->csFD;
+			break
+		}
+		#else /* TODO: HHH ? */
+		if( surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]->surfshmem->thread_eringRoutine
+		    == surfuser->surfshmem->thread_eringRoutine ) {
+			csFD =surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]->csFD;
+			break;
+		}
+		#endif
+
+	}
+
+	return csFD;
+}
+
+
+/*------------------------------------------------------------------------
+To return pointer to a SURFACE for the corresponding surfuser,the surfuser
+MUST be created by the surfman and running in the same process.
+
+@surfman:	Pointer to an EGI_SURFMAN.
+@surfuser:	Pointer to a surfuser running in the same process as surfman.
+
+Return:
+	NULL	Fails
+	!NULL	OK
+-----------------------------------------------------------------------*/
+EGI_SURFACE* surfman_surfuser_surface(EGI_SURFMAN *surfman, EGI_SURFUSER *surfuser)
+{
+	int i;
+
+	if(surfman==NULL || surfman->scnt<1 || surfuser==NULL)
+		return NULL;
+
+	for(i=0; i< surfman->scnt; i++) {
+                if(surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]==NULL) {
+                        return NULL;
+		}
+
+		#if 0 /* In the same process, with same virt address. XXX NOPE! NOT same virt address!!!! */
+		if( surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]->surfshmem
+		    == surfuser->surfshmem ) {
+			return surfman->surfaces[SURFMAN_MAX_SURFACES-1-i];
+		}
+		#else /* TODO: HHH ? */
+		if( surfman->surfaces[SURFMAN_MAX_SURFACES-1-i]->surfshmem->thread_eringRoutine
+		    == surfuser->surfshmem->thread_eringRoutine ) {
+			return surfman->surfaces[SURFMAN_MAX_SURFACES-1-i];
+		}
+		#endif
+
+	}
+
+	return NULL;
+}
+
 
 /*---------------------------------------------------------
 Set status of all surfaces to be SURFACE_STATUS_MINIMIZED.
@@ -2709,7 +2833,7 @@ void *surfuser_ering_routine(void *surf_user)
                         	break;
                        case ERING_SURFACE_CLOSE:
                                 egi_dpstd("Surfman request to close the surface!\n");
-                                surfuser->surfshmem->usersig =1;
+                                surfuser->surfshmem->usersig =SURFUSER_SIG_QUIT; //=1
                                 break;
 		       case ERING_MOUSE_STATUS:
 				mouse_status=(EGI_MOUSE_STATUS *)emsg->data;
@@ -2718,6 +2842,9 @@ void *surfuser_ering_routine(void *surf_user)
 				surfuser_parse_mouse_event(surfuser,mouse_status);  /* mutex_lock */
 				/* Always reset MEVENT after parsing, to let SURFMAN continue to ering mevent. SURFMAN sets MEVENT before ering. */
 				surfuser->surfshmem->flags &= (~SURFACE_FLAG_MEVENT);
+				break;
+		       case ERING_SURFACE_REFRESH:
+				surfuser_refresh_surface(surfuser);
 				break;
 	               default:
         	                egi_dpstd("Undefined MSG from the SURFMAN! data[0]=%d\n", emsg->data[0]);
@@ -3292,7 +3419,8 @@ void surfuser_firstdraw_surface(EGI_SURFUSER *surfuser, int options, int menuc, 
         	egi_imgbuf_resetColorAlpha(surfimg, surfshmem->bkgcolor, 255); //-1); /* Reset color only */
 
 	        /* 1.2B  Draw top bar. */
-		if( options >= TOPBAR_COLOR )
+		//if( options >= TOPBAR_COLOR )
+		if( !(options&TOPBAR_NONE) ) /* HK2022-05-13 */
 	        	draw_filled_rect2(vfbdev,SURF_TOPBAR_COLOR, 0,0, surfimg->width-1, SURF_TOPBAR_HEIGHT-1);
 	}
 
@@ -3574,7 +3702,8 @@ void surfuser_redraw_surface(EGI_SURFUSER *surfuser, int w, int h)
 	        //egi_imgbuf_resetColorAlpha(surfimg, surfshmem->bkgcolor, -1); /* Reset color only */
 
 	        /* 1.2B  Draw top bar. */
-		if( surfshmem->apoptions >= TOPBAR_COLOR )
+		//if( surfshmem->apoptions >= TOPBAR_COLOR )
+		if( !(surfshmem->apoptions&TOPBAR_NONE) ) /* HK2022-05-13 */
 	             draw_filled_rect2(vfbdev,SURF_TOPBAR_COLOR, 0,0, surfimg->width-1, SURF_TOPBAR_HEIGHT-1);
 	}
 
@@ -3832,6 +3961,30 @@ void surfuser_close_surface(EGI_SURFUSER **surfuser)
 
 }
 
+
+/*-------------------------------------------------
+Close a surface.
+Here just put a signal to end main loop!
+
+NOTE: Mutex locked!
+
+@surfuser:      Pointer to EGI_SURFUSER.
+-------------------------------------------------*/
+void surfuser_refresh_surface(EGI_SURFUSER *surfuser)
+{
+	if(surfuser==NULL || surfuser->surfshmem==NULL)
+		return;
+
+        /* Get ref pointer of surfshmem */
+        EGI_SURFSHMEM *surfshmem=surfuser->surfshmem;
+
+	/* TODO: For common refresh operation */
+
+	/* For userdefined refresh operation */
+	if(surfshmem->refresh_surface) {
+		surfshmem->refresh_surface(surfuser);
+	}
+}
 
 /*---------------------------------------------------
 Send SURFMSG.

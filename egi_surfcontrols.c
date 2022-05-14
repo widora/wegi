@@ -2174,8 +2174,8 @@ END_FUNC:
 
 
 /*-------------------------------------------------------------------------
-                Mouse Event Callback
-             (shmem_mutex locked!)
+                      Mouse Event Callback
+                     (shmem_mutex locked!)
 
 This is for egi_crun_stdSurfConfirm().
 Click button to returen STDSURFCONFIRM_BTNIDX_OK or STDSURFCONFIRM_BTNIDX_CANCEL

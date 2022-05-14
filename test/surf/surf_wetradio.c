@@ -65,6 +65,8 @@ Journal:
 	1. Sound DAC Polarity set.
 2021-11-12:
 	1. Modify start_radio() for aac_stream.  radio_info.type.
+2022-05-08:
+	1. surf_ListBox(): Free lisbox at last.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -1217,13 +1219,14 @@ Return:
 int surf_ListBox(EGI_SURFSHMEM *surfcaller, int x0, int y0)
 {
 	int i;
+	int selectIdx;
 
 	/* Surface outline size */
 	int msw=panW+30;
 	int msh=SURF_TOPBAR_HEIGHT + 20*7 +15; /* partially show item */
 
 	/* For list box */
-	ESURF_LISTBOX	*listbox=NULL;
+	static ESURF_LISTBOX	*listbox=NULL;
 	int fh=16, fw=16;
 	int LineSpace=20; /* Line spacing */
 
@@ -1269,6 +1272,7 @@ EGI_16BIT_COLOR  mbkgcolor=WEGI_COLOR_GRAYB;
 
 
 	/* 6. Draw/Create ListBox */
+
 	/* 6.1 Firstdraw/Create ListBox */
 	egi_dpstd("Create ListBox...\n");
 	draw_filled_rect2(mvfbdev, WEGI_COLOR_WHITE, 1, SURF_TOPBAR_HEIGHT, 1+((msw-2)-ESURF_LISTBOX_SCROLLBAR_WIDTH)-1, msh-2);
@@ -1279,6 +1283,7 @@ EGI_16BIT_COLOR  mbkgcolor=WEGI_COLOR_GRAYB;
 		egi_unregister_surfuser(&msurfuser);
 		return -2;
 	}
+
 	/* Set font face */
 	listbox->face = egi_appfonts.regular;  /* Default: egi_appfonts.regular */
 
@@ -1337,8 +1342,14 @@ EGI_16BIT_COLOR  mbkgcolor=WEGI_COLOR_GRAYB;
 
 	egi_dpstd("WetRadio: Exit OK!\n");
 
+	/* Get select index from listbox */
+	selectIdx=listbox->SelectIdx;
+
+	/* Free listbox HK2022-05-08 */
+	egi_surfListBox_free(&listbox);
+
 	/* Return listbox item index */
-	return listbox->SelectIdx;
+	return selectIdx;
 }
 
 

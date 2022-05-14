@@ -440,7 +440,7 @@ int  UniHan_divide_pinyin(char *strp, char *pinyin, int n)
 			np++;
 
 			/* 4. For the next PINYIN */
-			break;; // break while()
+			break; // break while()
 
 		} /* while() */
 
@@ -1590,7 +1590,7 @@ EGI_UNIHAN_SET* UniHan_load_set(const char *fpath)
 
 		total += nq<<(i<<3);			/* Assembly uint8_t to uint32_t, The least significant byte first. */
         }
-	printf("%s: Totally %d unihans in file '%s'.\n",__func__, total, fpath);
+//	printf("%s: Totally %d unihans(汉字) in file '%s'.\n",__func__, total, fpath);
 
         /* FReadin uniset name */
         nmemb=UNIHAN_SETNAME_MAX;
@@ -5333,6 +5333,8 @@ EGI_UNIHANGROUP_SET* UniHanGroup_load_set(const char *fpath)
 	}
 	for(ugroups_size=0,i=0; i<4; i++)	/* Assemble to ugroups_size */
 		ugroups_size += size_bts[i]<<(i<<3);
+
+//       printf("%s: Totally %d unihan_groups(词组,可能包括字) in file '%s'.\n",__func__, ugroups_size, fpath);
 
 	/* Read uchars_size of unihan groups set */
 	nmemb=4;

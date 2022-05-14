@@ -95,6 +95,7 @@ enum ering_msg_type {
         ERING_SURFACE_RETIRETOP =2,
         ERING_SURFACE_CLOSE     =3, /* Surfman request the surface to close.. */
         ERING_MOUSE_STATUS      =4,
+	ERING_SURFACE_REFRESH   =5, /* Need to refresh surface. HK2022-05-11 */
 };
 
 enum ering_result_type {
