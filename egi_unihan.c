@@ -2050,7 +2050,7 @@ Each line in the file presents stricly in the same form as:
 			---- WARNING ----
 
 Some UNIHANs are NOT in kHanyuPinyin category:
-Examp: 说这宝贾们见毙...
+Example: 说这宝贾们见毙...
 
 	Example "毙"
 U+6BD9	kCantonese	bai6
@@ -3142,6 +3142,7 @@ END_FUNC:
 
 	return group_set;
 }
+
 
 
 /*---------------------------------------------------------------
@@ -5670,10 +5671,11 @@ int UniHanGroup_purify_set(EGI_UNIHANGROUP_SET* group_set)
 		/* Check all wcodes[] */
         	for(j=0; j<UHGROUP_WCODES_MAXSIZE; j++) {
                 	if( tmp_group->wcodes[j] != group_set->ugroups[i].wcodes[j] )
+			// OR typing is different
                         	break;
                 }
                 /* Redundant groups/wcodes found: tmp_group and ugroups[i] ... */
-                if( j==UHGROUP_WCODES_MAXSIZE ) {
+                if( j==UHGROUP_WCODES_MAXSIZE ) {  /* TODO: and typing is same */
 			/* Backup typings if NOT zero */
 			off=group_set->ugroups[i].pos_typing;
 			if( group_set->typings[off] != '\0' )  {
@@ -5694,7 +5696,7 @@ int UniHanGroup_purify_set(EGI_UNIHANGROUP_SET* group_set)
                 }
 		/* No redundancy, renew tmp_group */
 		else {
-			/* Copy typings to tmp_group, ASSUME mem space for typings already allocated! */
+			/* Copy typings to tmp_group(in group_set), ASSUME mem space for typings already allocated! */
 			/* Usually there is ONE unihan_group holding PINYIN typings, others are empty. */
 			if(tmp_typings[0] != '\0') {
 				off=tmp_group->pos_typing;

@@ -27,6 +27,8 @@ Journal
 	2. init_virt_fbdev(): init FBDEV.zbuff_IgnoreEqual as FALSE.
 2022-05-01:
 	1. Add virt_fbdev_updateImg()
+2022-05-16:
+	1. Add fb_block_zbuff()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -820,6 +822,9 @@ void fb_reset_zbuff(FBDEV *fb_dev)
 	unsigned int xres=fb_dev->vinfo.xres;
 	unsigned int yres=fb_dev->vinfo.yres;
 
+	if(fb_dev==NULL || fb_dev->zbuff==NULL)
+		return;
+
 	if(fb_dev->zbuff)
 		memset( fb_dev->zbuff, 0, xres*yres*sizeof(typeof(*(fb_dev->zbuff))) );
 }
@@ -834,11 +839,52 @@ void fb_init_zbuff(FBDEV *fb_dev, int z0)
 	unsigned int xres=fb_dev->vinfo.xres;
 	unsigned int yres=fb_dev->vinfo.yres;
 
+	if(fb_dev==NULL || fb_dev->zbuff==NULL)
+		return;
+
 	for(i=0; i<xres*yres; i++)
 		fb_dev->zbuff[i]=z0;
 
 }
 
+/*-----------------------------------------------
+Set pixZ value for a block area in fb_dev->zbuff].
+
+@fb_dev:  Pointer to FBDEV
+@x0,y0:   Start point of the block.
+@w,h:	  Width and height of the block.
+@pixz:    Z value for all pixels in the block.
+------------------------------------------------*/
+void fb_block_zbuff(FBDEV *fb_dev, int x0, int y0,  unsigned int w, unsigned int h, int pixz)
+{
+        int i,j;
+        unsigned int xres=fb_dev->vinfo.xres;
+        unsigned int yres=fb_dev->vinfo.yres;
+	unsigned int xmax, ymax;
+
+	if(fb_dev==NULL || fb_dev->zbuff==NULL)
+		return;
+
+	if(x0 > (int)xres-1 ) return;
+	if(y0 > (int)yres-1 ) return;
+
+	/* Limit xymax */
+	xmax=x0+w;
+	if(xmax > xres) xmax=xres;
+	ymax=y0+h;
+	if(ymax > yres) ymax=yres;
+
+	/* Limit x0y0 */
+	if(x0<0) x0=0;
+	if(y0<0) y0=0;
+
+	/* Set Z value for the block. */
+	for(i=y0; i<ymax; i++) {
+	    for(j=x0; j<xmax; j++) {
+		fb_dev->zbuff[i*xres+j]=pixz;
+	    }
+	}
+}
 
 /*----------------------------------------------------
  Refresh FB screen with FB back buffer map_buff[numpg]

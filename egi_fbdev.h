@@ -72,6 +72,7 @@ typedef struct fbdev{
 					 * NOT for virt FB.
 					 * TODO: CAVEAT: zbuff[] allocated without considering vinfo.line_length/bytes_per_pixel!
 					 * TODO: Init as  INT32_MIN (-2147483648) OR INT64_MIN (-__INT64_C(9223372036854775807)-1)
+				         * TODO: zbuff[] does NOT consider pos_rotation.
 					 */
 	bool		zbuff_on;
 	bool		zbuff_IgnoreEqual; /* If pixZ compares equal to the buffered zbuff[] value, DO NOT refresh it then!
@@ -211,6 +212,7 @@ void 	fb_clear_workBuff(FBDEV *fb_dev, EGI_16BIT_COLOR color);
 void 	fb_clear_bkgBuff(FBDEV *fb_dev, EGI_16BIT_COLOR color);
 void 	fb_reset_zbuff(FBDEV *fb_dev);
 void 	fb_init_zbuff(FBDEV *fb_dev, int z0);
+void    fb_block_zbuff(FBDEV *fb_dev, int x0, int y0,  unsigned int w, unsigned int h, int pixz);
 void 	fb_clear_mapBuffer(FBDEV *dev, unsigned int numpg, uint16_t color); /* for 16bit color only */
 int 	fb_page_refresh(FBDEV *dev, unsigned int numpg);
 void 	fb_lines_refresh(FBDEV *dev, unsigned int numpg, unsigned int startln, int n);

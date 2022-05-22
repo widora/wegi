@@ -140,7 +140,7 @@ struct egi_unihan
 
         unsigned int            freq;           /* Frequency of the wcode.  NOW: polyphonic unihans has the same freq value. */
 
-	#define			UNIHAN_TYPING_MAXLEN	8	/* 1 for EOF */
+	#define			UNIHAN_TYPING_MAXLEN	8	 /* 1 for EOF */
         char                    typing[UNIHAN_TYPING_MAXLEN];      /* Keyboard input sequence that representing the wcode , in ASCII lowercase.
 					 	 * Example: PINYIN typing of "chuǎng" is "chuang3" or "chuang"
                                                  * 1. Its size depends on input method.

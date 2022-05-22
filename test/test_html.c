@@ -112,8 +112,8 @@ void print_help(const char *name)
 	printf("   5   Aljazeera\n");
 	printf("   6   iFeng\n");
 	printf("   7   Shine video story\n");
-	printf("-p n   Pic show time in second.\n");
-	printf("-t n   Text show time in second.\n");
+	printf("-p n   Pic show time in second(0 NOT disable).\n");
+	printf("-t n   Text show time in second(0 to disable).\n");
 	printf("-v n   Avg luma.\n");
 	printf("-d n   Data code for sina stock.\n");
 	printf("-f n   A pseudo_HTML script file.\n");
@@ -143,6 +143,7 @@ int main(int argc, char **argv)
 			case 's':
 				sub_channel=true;
 				break;
+
 			case 'c':
 				channel=atoi(optarg);
 				break;
@@ -332,7 +333,7 @@ switch(channel) {
 			}
 			else {
 				/* To extract data */
-//				printf("Reply from dataURL: %s\n", buff);
+				egi_dpstd(DBG_YELLOW"Reply from dataURL: %s\n"DBG_RESET, buff);
 				char *ps=strstr(buff,",");
 				if(ps) {
 					ps++;
@@ -361,10 +362,10 @@ switch(channel) {
 				printf("Fail to request for stock notice!\n");
 			}
 			else {
-				printf("\033[0;32;40m ---- Reply from stock bulletin: %s \e[0m\n", buff);
+//				printf("\033[0;32;40m ---- Reply from stock bulletin: %s \e[0m\n", buff);
         			/* Extract notice data  */
 				cstr_parse_html_tag(buff, "tbody", NULL, 0, &content, &len);
-				printf("\033[0;31;40m ------ tbody  ----- \e[0m\n %s\n content_len=%dBytes\n", content, len);
+//				printf("\033[0;31;40m ------ tbody  ----- \e[0m\n %s\n content_len=%dBytes\n", content, len);
 				if(len<1) {
 					egi_free_char(&content);
 					goto DISPLAY_STOCK_SLIDE;
@@ -1167,7 +1168,7 @@ FTsymbol_enable_SplitWord();
 	sleep(PicTs);
 
 	/* 5. Calculate lines needed. */
-	if(imgTXT[0]==0)
+	if(imgTXT[0]==0 || TxtTs==0 )
 		goto END_FUNC;
 
 FTsymbol_disable_SplitWord();

@@ -1275,18 +1275,19 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 	if( ftsympg.alpha==NULL || advanceX==0 || wcode==9 || wcode==13 || wcode==65279 ) {
 		/* 1. With bitmap */
 		if(ftsympg.alpha && advanceX==0)
-			printf("wcode %d has bitmap, and zero width.\n", wcode);
+			printf("wcode U+%X has bitmap, and zero width.\n", wcode);
 		else if(ftsympg.alpha)
-			printf("wcode %d has bitmap, and advanceX=%d.\n", wcode, advanceX);
+			printf("wcode U+%X has bitmap, and advanceX=%d.\n", wcode, advanceX);
 
 		/* 2. Without bitmap */
 		if(ftsympg.alpha==NULL && advanceX==0 )
-			printf("wcode %d has no bitmap, and zero width.\n", wcode);
+			printf("wcode U+%X has no bitmap, and zero width.\n", wcode);
 		else if(ftsympg.alpha==NULL)
-			printf("wcode %d has no bitmap, and advanceX=%d.\n", wcode,advanceX);
+			printf("wcode U+%X has no bitmap, and advanceX=%d.\n", wcode,advanceX);
 
 	}
 #endif
+
 
      /* Check only when xleft is NOT NULL */
      if( xleft != NULL )

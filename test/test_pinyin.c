@@ -49,7 +49,7 @@ Midas Zhou
 int main(void)
 {
 	EGI_UNIHAN_SET	*uniset=NULL;
-	EGI_UNIHAN_SET  *uniset3500=NULL;
+	EGI_UNIHAN_SET  *uniset3500=NULL;  /* Check test_pinyin3500.c */
 	EGI_UNIHAN_SET  *unisetMandarin=NULL;
 	EGI_UNIHAN_SET  *tmpset=NULL;
 	char pch[4];
@@ -122,7 +122,7 @@ int main(void)
 	}
 #endif
 
-#if 0 /*----------- Load uniset and test pinyin ---------- */
+#if 1 /*----------- Load uniset and test pinyin ---------- */
 	uniset=UniHan_load_set(UNIHANS_DATA_PATH);
 	if( uniset==NULL )
 		exit(1);

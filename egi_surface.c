@@ -318,6 +318,10 @@ Journal
 2022-05-13:
 	1. Add surfman_get_SurfuserCSID()
 	2. Add surfman_surfuser_surface()
+2022-05-15:
+	1. EGI_SURFMAN: Add IME members: imeThread, imeThread_on, surfuserIME, surfaceIME.
+2022-05-16:
+	1. surfman_render_thread(): Make surfaceIME always float at top layer.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -2315,6 +2319,132 @@ void surfman_normalize_allSurfaces(EGI_SURFMAN *surfman)
 }
 
 
+#if 0 ///////////////////////////////////////////////////////
+/*------------------------------------------------------
+This is processing function for surfman_render_thread()
+
+Also cross check process in surfman_render_thread().
+
+@surfman:   See surfman in surfman_render_thread()
+@imgbuf:    See imgbuf in surfman_render_thread()
+@surface:   Pointer to EGI_SURFACE.
+
+------------------------------------------------------*/
+static void surfman_render_surface(EGI_SURFMAN *surfman, EGI_IMGBUF *imgbuf, EGI_SURFACE *surface)
+
+	int mutexret;
+	EGI_SURFSHMEM *surfshmem; /* Ref. */
+
+///////////////// START: Render Surface /////////////
+
+			/* As surfman->surfaces sorted in ascending order of zseq, NULL followed by NULL. */
+			if( surfman==NULL || surface == NULL ) {
+				return;
+			}
+			surfshmem=surface->surfshmem;
+
+			/* C.1A Check status_minimized */
+			//if( surface->status == SURFACE_STATUS_MINIMIZED ) {
+			if( surface->surfshmem->status == SURFACE_STATUS_MINIMIZED ) {
+				surfman->minsurfaces[surfman->mincnt]=surface;
+				surfman->mincnt++;
+				continue;
+			}
+			/* MINIMIZED surface will NOT be rendered!
+			 *  --- NOW --- :  Following surfaces are all of normal size and displayed on desk top!
+			 */
+
+			/* C.2 Get surfshmem as ref. */
+			surfshmem=surface->surfshmem;
+
+			/* C.3 Get surface mutex_lock */
+                        mutexret=pthread_mutex_lock(&surfshmem->shmem_mutex);
+                        if( mutexret==EOWNERDEAD ) {
+                                egi_dperr("Shmem mutex of surface[%d]'s owner is dead, try to make mutex consistent...!", i);
+				EGI_PLOG(LOGLV_CRITICAL, "%s: Shmem mutex of surface[%d]'s owner is dead, try to make mutex consistent.",
+														__func__, i);
+                                if( pthread_mutex_consistent(&surfshmem->shmem_mutex) !=0 ) {
+                                        egi_dperr("Fail to make a robust mutex consistent!");
+					EGI_PLOG(LOGLV_CRITICAL, "%s: Fail to make a robust mutex consistent!", __func__);
+					//Go on ....
+				}
+                                else {
+                                        egi_dpstd("Succeed to make mutex consistent!");
+					EGI_PLOG(LOGLV_CRITICAL, "%s: Succeed to make mutex consistent.", __func__);
+				}
+                        }
+                        else if(mutexret!=0) {
+				egi_dperr("Fail to get mutex_lock for shmem of surface[%d].", i);
+				return; //continue;  /* To traverse surfaces */
+       			}
+
+	/* ------ >>>  Surfshmem Critical Zone  */
+
+			/* Check sync, TODO more for sync. */
+			if( surfshmem->sync==false ) {
+				pthread_mutex_unlock(&surfshmem->shmem_mutex);
+				return;  //continue; /* To traverse surfaces */
+			}
+
+			/* C.4  TODO: NOW support SURF_RGB565 and SURF_RGB565_A8 only */
+			if( surface->colorType != SURF_RGB565 && surface->colorType != SURF_RGB565_A8 ) {
+				egi_dpstd("Unsupported colorType!\n");
+			        pthread_mutex_unlock(&surfshmem->shmem_mutex);
+				return; //continue; /* To traverse surfaces */
+			}
+
+			/* C.5 Link surface data to EGI_IMGBUF */
+#if 0 /* NOT necessary */
+			if( surfshmem->status == SURFACE_STATUS_MAXIMIZED ) {
+				imgbuf->width = surface->width;
+				imgbuf->height = surface->height;
+			}
+			else {
+#endif
+				imgbuf->width = surfshmem->vw > surface->width ? surface->width : surfshmem->vw;
+				imgbuf->height = surfshmem->vh > surface->height ? surface->height : surfshmem->vh;
+			//}
+
+			imgbuf->imgbuf = (EGI_16BIT_COLOR *)surfshmem->color;
+			if(surfshmem->off_alpha >0 )
+				imgbuf->alpha = (EGI_8BIT_ALPHA *)(surfshmem->color+surfshmem->off_alpha);
+			else
+				imgbuf->alpha = NULL;
+
+			/* C.6 Set Zseq as pix Z value */
+			surfman->fbdev.pixz=surface->zseq;
+
+			/* C.7 writeFB imgbuf */
+			egi_subimg_writeFB(imgbuf, &surfman->fbdev, 0, -1,  surfshmem->x0, surfshmem->y0);
+
+			/* C.7A. If status downhold, draw a rim to highlight it. */
+			if( surfshmem->status == SURFACE_STATUS_DOWNHOLD
+			   || surfshmem->status == SURFACE_STATUS_ADJUSTSIZE ) //RIGHTADJUST )
+			{
+				fbset_color2(&surfman->fbdev, WEGI_COLOR_GRAY);
+				draw_wrect( &surfman->fbdev, surfshmem->x0, surfshmem->y0 ,
+					    surfshmem->x0+surfshmem->vw-1, surfshmem->y0+surfshmem->vh-1, 2); //w=2
+			}
+
+			/* C.7A Change mouse icon for surface status */
+			/* If status rightadjust,  reset mouse icon. */
+			if( i==TopDispSurfID ) {  /* ONLY FOR TOP LAYER SURFACE!  */
+				if(surfshmem->status == SURFACE_STATUS_ADJUSTSIZE   //RIGHTADJUST) {
+				   || surfshmem->status == SURFACE_STATUS_DOWNHOLD ) {
+					mdx=-15; mdy=-15;
+					mrefimg = surfman->mgrab;
+				}
+				else {
+					mdx=0; mdy=0;
+					mrefimg = surfman->mcursor;
+				}
+			}
+
+/////////////////  END: Render Surface /////////////
+}
+#endif
+
+
 /*-----------------------------------------------
 Render surfman->surfaces[] one by one, and bring
 them to FB to display.
@@ -2327,7 +2457,6 @@ static void * surfman_render_thread(void *arg)
 {
 	int i;
 	int mutexret;
-
 
 	EGI_SURFSHMEM *surfshmem=NULL; /* Ref. */
 	EGI_SURFACE *surface=NULL;
@@ -2376,7 +2505,7 @@ static void * surfman_render_thread(void *arg)
 	surfman->renderThread_on = true;
 	while( surfman->cmd !=SURFMAN_CMD_END_RENDERTHREAD ) {
 
-#if 1 /* TEST ------- */
+#if 0 /* TEST ------- */
 		if( surfman->surfaces[SURFMAN_MAX_SURFACES-1]) {
 			if( surfman_get_TopDispSurfaceID(surfman)>=0 )
 				printf("Top surface: %s\n", surfman->surfaces[SURFMAN_MAX_SURFACES-1]->surfshmem->surfname);
@@ -2441,7 +2570,6 @@ static void * surfman_render_thread(void *arg)
 
 		}
 
-
 		/* B.2c Clear minsurfaces */
 		//memset(surfman->minsurfaces, 0, SURFMAN_MAX_SURFACES*sizeof(typeof(surfman->minsurfaces)));
 		for(i=0; i<SURFMAN_MAX_SURFACES; i++)
@@ -2461,6 +2589,9 @@ static void * surfman_render_thread(void *arg)
 
 			/* C.1 Check surface availability */
 			surface = surfman->surfaces[i];
+
+/////////////////  START: Render Surface /////////////
+
 			/* As surfman->surfaces sorted in ascending order of zseq, NULL followed by NULL. */
 			if( surface == NULL ) {
 				//break;
@@ -2537,7 +2668,17 @@ static void * surfman_render_thread(void *arg)
 				imgbuf->alpha = NULL;
 
 			/* C.6 Set Zseq as pix Z value */
-			surfman->fbdev.pixz=surface->zseq;
+			/* C.6.1 Set z vale for surfaces */
+			if( surface != surfman->surfaceIME ) {  /* surface==NULL alreay ruled out! */
+				surfman->fbdev.pixz=surface->zseq;
+			}
+			/* C.6.2 Surface_IME always floating on top layer
+			 * Note: After rendering, we'll have to reset its area with surface->zseq, so click
+			 * operation for others will keep normal. cross check <---> B.X3
+			 */
+			else {  /* surface==NULL alreay ruled out! */
+				surfman->fbdev.pixz=SURFMAN_SURFIME_PIXZ;
+			}
 
 			/* C.7 writeFB imgbuf */
 			egi_subimg_writeFB(imgbuf, &surfman->fbdev, 0, -1,  surfshmem->x0, surfshmem->y0);
@@ -2565,11 +2706,16 @@ static void * surfman_render_thread(void *arg)
 				}
 			}
 
+/////////////////  END: Render Surface /////////////
+
+
 	/* ------ <<<  Surfshmem Critical Zone  */
 			/* C.8 unlock surfshmem mutex */
-			pthread_mutex_unlock(&surfshmem->shmem_mutex);
+//			if(surface!=surfman->surfaceIME) /* Cross check B.X3.1 */
+				pthread_mutex_unlock(&surfshmem->shmem_mutex);
 
 		} /* END for() traverse all surfaces */
+
 
 #if 1		/* Draw Wall paper, Here OR at begin */
 		if(surfman->bkgimg) {
@@ -2582,7 +2728,7 @@ static void * surfman_render_thread(void *arg)
 		}
 #endif
 
-		/* B.XX Draw minimized surfaces */
+		/* B.X0 Draw minimized surfaces */
 #if 0 /* Display Minibar at bkground level: pixz=0  */
 		surfman->fbdev.pixz=0; 		/* All minimized surfaces drawn just overlap bkground! */
 		surfman->IndexMpMinSurf = -1;   /* Initial mouse NOT on minibar menu */
@@ -2648,7 +2794,7 @@ static void * surfman_render_thread(void *arg)
 
 		        FTsymbol_uft8strings_writeFB(&surfman->fbdev, egi_sysfonts.regular, /* FBdev, fontface */
                                        18, 18,(const UFT8_PCHAR)pstr,    /* fw,fh, pstr */
-                                       MiniBarWidth-10-5, 1, 0,     	         /* pixpl, lines, fgap */
+                                       MiniBarWidth-10-5, 1, 0,     	 /* pixpl, lines, fgap */
                                        10, i*30+5,	                 /* x0,y0, */
                                        WEGI_COLOR_WHITE, -1, 160,        /* fontcolor, transcolor,opaque */
                                        NULL, NULL, NULL, NULL);          /* int *cnt, int *lnleft, int* penx, int* peny */
@@ -2656,13 +2802,14 @@ static void * surfman_render_thread(void *arg)
 
 	}
 #endif
-		/* B.XXX Draw MenuList Path Tree */
+
+		/* B.X1 Draw MenuList Path Tree */
 		if ( surfman->menulist_ON ) {
 			surfman->fbdev.pixz=SURFMAN_MENULIST_PIXZ;    /* pixz >SURFMAN_MAX_SURFACES,  To make MenuList at TOP layer */
 			egi_surfMenuList_writeFB(&surfman->fbdev, surfman->menulist, 0, 0, 0);
 		}
 
-		/* B.X_1 Draw Guiding Mark at Left_Top and Left_Bottom corner. Sensing range 60x60 */
+		/* B.X2 Draw Guiding Mark at Left_Top and Left_Bottom corner. Sensing range 60x60 */
 		EGI_POINT points[3];
 		if( !surfman->minibar_ON && !surfman->menulist_ON )
 		{
@@ -2685,6 +2832,15 @@ static void * surfman_render_thread(void *arg)
 			draw_blend_filled_triangle(&surfman->fbdev, points, WEGI_COLOR_LTYELLOW,200);
 		     	surfman->fbdev.zbuff_on = true;
 		  }
+		}
+
+		/* B.X3 Restore pixz value for surfaceIME. cross check <---> C.6.2  */
+		if(surfman->surfaceIME) {
+			fb_block_zbuff(&surfman->fbdev, surfman->surfaceIME->surfshmem->x0, surfman->surfaceIME->surfshmem->y0,
+				surfman->surfaceIME->surfshmem->vw, surfman->surfaceIME->surfshmem->vh, surfman->surfaceIME->zseq);
+
+			/* B.X3.1 To unlock till now..  Cross check C.8 */
+//			pthread_mutex_unlock(&surfman->surfaceIME->surfshmem->shmem_mutex);
 		}
 
 		/* B.4 Draw cursor, disable zbuff and always make it at top. */

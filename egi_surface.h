@@ -1,4 +1,4 @@
-/*---------------------------------------------------------------------
+/*------------------------------------------------------------------
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
@@ -7,7 +7,7 @@ published by the Free Software Foundation.
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
 知之者不如好之者好之者不如乐之者
----------------------------------------------------------------------*/
+------------------------------------------------------------------*/
 #ifndef __EGI_SURFACE_H__
 #define __EGI_SURFACE_H__
 
@@ -156,7 +156,7 @@ struct egi_surface_user {
 
 /*** 			--- An EGI_SURFMAN ---
  *
- * 1. When an EGI_SURMAN is created, there are 5 threads running for routine jobs.
+ * 1. When an EGI_SURMAN is created, there are 6 threads running for routine jobs.
  *    1.1 userv_listen_thread:
  *	  1.1.1 To accept and add surfusers.
  *    1.2 surfman_request_process_thread(void *surfman):
@@ -173,8 +173,9 @@ struct egi_surface_user {
  *	  1.4.5 Desktop MinBar operation.
  *	  1.4.6 Desktop MenuList operation.
  *	  1.4.7 Waitpid child process.
- *    1.5 A PINYIN Surfuser/Surface: For chinese text input. ( OR Other input method engine. )
+ *    1.5 A PINYIN Surfuser/Surface(2 threads): For chinese text input. ( OR Other input method engine. )
  *	  It filters STDIN and transforms pinyin/typing to Chineses(in UTF-8 encoding), then pass to the TopSurface.
+ *		 STDIN/KBDIN ---->  IME Filter function  ----> TopSurface
  *
  * 2. The SURFMAN manages all mouse icons(imgbufs)! SURFSHMEM applys a certain mouse icon by setting its ref ID.
  * 3. The SURFMAN controls and dispatchs input data, always to the TOP surface only.
@@ -274,7 +275,26 @@ struct egi_surface_manager {
 					   * Zbuff ON.
 				 	   */
 	pthread_t	renderThread;	  /* Render processing thread */
-	bool		renderThread_on;  /* renderThread is running */
+	bool		renderThread_on;  /* Indicator, renderThread is running */
+
+	/* 5. Surfuser/surface for Input Method Engine HK2022-05-15 */
+#define SURFMAN_SURFIME_PIXZ	1020	  /* fbdev.pixz value for surfaceIME layer.
+					   * Note: set this value for fbdev.pixz when rendering surfaceIME, then
+					   * reset pixz of those area back to surfaceIME->zseq,so click/pick operation for
+					   * surfaces keep normal.
+				           */
+	pthread_t 	imeThread;	  /* Thread to launch surfuserIME, it's a detached thread! See example surf_pinyin(). */
+	bool		imeThread_on;	  /* Indicator, imeThread is running. */
+	EGI_SURFUSER    *surfuserIME;	  /* A surfuser for user defined input method, to display PINYIN entry panel etc.
+					   * Note:
+					   * 1. Call surfman_surfuser_surface() to get the corresponding EGI_SURFACE.
+					   * 2. The surface is only for displaying typing results, IME functions such as parse_pinyin_input()
+					   *    should be developed out of the surface.
+					   */
+	EGI_SURFACE    *surfaceIME;	  /* The corresponding EGI_SURFACE for surfuserIME.
+					   * Get by calling surfman_surfuser_surface() in test_surfman.c, reset in surf_pinyin()
+					   */
+
 };
 
 /***  			--- EGI_SURFACE ---

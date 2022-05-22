@@ -60,6 +60,8 @@ Journal
 	1.cstr_replace_string(): Add argument 'int left'.
 2022-04-04:
 	2.cstr_replace_string(): Consider N>1 substitution cases.
+2022-05-22:
+	1. char_uft8_to_unicode(): Modified for case size=4.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -1744,7 +1746,7 @@ inline int char_uft8_to_unicode(const unsigned char *src, wchar_t *dest)
 
 	/* U+ 10000 - U+ 1FFFF:	11110XXX 10XXXXXX 10XXXXXX 10XXXXXX */
 	else if(size==4) {
-		*dest= (*(sp+3)&0x3F) + ((*(sp+2)&0x3F)<<6) +((*(sp+2)&0x3F)<<12) + ((*sp&0x7)<<18);
+		*dest= (*(sp+3)&0x3F) + ((*(sp+2)&0x3F)<<6) +((*(sp+1)&0x3F)<<12) + ((*sp&0x7)<<18);
 	}
 
 	else {
@@ -1771,7 +1773,8 @@ inline int char_uft8_to_unicode(const unsigned char *src, wchar_t *dest)
 
 		/* U+ 10000 - U+ 1FFFF:	11110XXX 10XXXXXX 10XXXXXX 10XXXXXX */
 		case	4:
-			*dest= (*(sp+3)&0x3F) + ((*(sp+2)&0x3F)<<6) +((*(sp+2)&0x3F)<<12) + ((*sp&0x7)<<18);
+		//	*dest= (*(sp+3)&0x3F) + ((*(sp+2)&0x3F)<<6) +((*(sp+2)&0x3F)<<12) + ((*sp&0x7)<<18); /* Hi,U!... ;) HK2022-05-22 */
+			*dest= (*(sp+3)&0x3F) + ((*(sp+2)&0x3F)<<6) +((*(sp+1)&0x3F)<<12) + ((*sp&0x7)<<18);
 			break;
 
 		default: /* if size<=0 or size>4 */

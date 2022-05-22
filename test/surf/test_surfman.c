@@ -149,7 +149,7 @@ Journal
 	2. To readout/empty TTY stdin after parsing keyboard shortcut control,
 	   avoid to send to TopSurface.
 2022-05-12:
-	1. Add W2.5: Process PINYIN Input if enable_pinyin.
+	1. Add W2.5: Process PINYIN Input if surfman->imeThread_on(enable_pinyin).
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -221,14 +221,11 @@ static int sigQuit;
 int wait_pid;
 int wait_status;
 
-/* For surface: IME PINYIN */
-//bool enable_pinyin;   	/* Set/reset in surf_pinyin(), also as mutex lock for surfuser_pinyin. */
-pthread_t thread_pinyin;	/* PINYIN or other Input Method Engine */
-EGI_SURFUSER *surfuser_pinyin;  /* A Ref to msurfuser in surf_pinyin(), set/reset in surf_pinyin() */
-EGI_SURFACE  *surface_pinyin;   /* Pointer to the PINYIN SURFACE as created by the surfman
-				 * 1. Get in main W2.5, retset in surf_pinyin().
-			 	 */
-
+/* Surface for IME PINYIN */
+//SURFMAN. imeThread_on;    /* Set/reset in surf_pinyin(), also as mutex lock for surfuser_pinyin. */
+//SURFMAN.imeThread;     /*  PINYIN or other Input Method Engine */
+//SURFMAN.surfuserIME;   /* A Ref to msurfuser in surf_pinyin(), set/reset in surf_pinyin() */
+//SURFMAN.surfaceIME;    /* Pointer to the PINYIN SURFACE of surfman->surfuserIME. Get it in main W2.5, reset it in surf_pinyin(). */
 #include "surf_pinyin.h"   	/* void* surf_pinyin(void *argv) */
 
 /* Signal handler for SurfUser */
@@ -289,11 +286,12 @@ int main(int argc, char **argv)
   	/* Start sys tick */
 //  	tm_start_egitick();
 
-	/* Load IME PINYIN data */
+#if 1	/* Load IME PINYIN data */
 	if(load_pinyin_data()!=0) {
 		printf("Fail to load PINYIN data!\n");
 		exit(EXIT_FAILURE);
 	}
+#endif
 
 	/* Create an ERING_MSG */
 	printf("Create an ERING_MSG, sizeof(EGI_MOUSE_STATUS)=%zd ....\n", sizeof(EGI_MOUSE_STATUS));
@@ -566,12 +564,12 @@ KEY_INPUT:
 				else if( kbdstat.conkeys.asciikey == KEY_SPACE ) {
 					pthread_mutex_lock(&surfman->surfman_mutex);
 			/* ------ >>>  Surfman Critical Zone  */
-					if(!enable_pinyin) {
-						pthread_create(&thread_pinyin, NULL, surf_pinyin, NULL);
+					if(!surfman->imeThread_on) {
+						pthread_create(&surfman->imeThread, NULL, surf_pinyin, NULL);
 					}
 
 					else {
-						surfuser_pinyin->surfshmem->usersig =SURFUSER_SIG_QUIT;
+						surfman->surfuserIME->surfshmem->usersig =SURFUSER_SIG_QUIT;
 					}
 			/* ------ <<<  Surfman Critical Zone  */
 					pthread_mutex_unlock(&surfman->surfman_mutex);
@@ -612,13 +610,14 @@ KEY_INPUT:
 	 *    packed in one ERING session. If a surfuser receives broken Escape_Sequence, it will cause ERROR!
          *
          */
+	//nch=0; /* Do NOT! */
 	do {
                 if( (nread=read(STDIN_FILENO, chars+nch, sizeof(chars)-1-nch)) <0 ) {
 			egi_dperr("Fail to read STDIN");
 		}
 		if(nread>0) {
 			nch +=nread;
-			printf("chars[]: %-32.32s\n", chars);
+			printf("nread=%d, chars[]: %-32.32s\n", nread, chars);
 		}
 
 	} while( nread>0 );  /* Break nread<=0 */
@@ -635,7 +634,10 @@ WAIT_REQUEST:
 			 */
 			if(pmostat) { /* To skip init NULL value. */
 
-				/* W2.0.1. Transfer nch/chars[] buffer to pmostat->nch/pmotat->ch[] */
+				/* W2.0.1. Transfer nch/chars[] buffer to pmostat->nch/pmotat->ch[]
+				 * Notice: This will be filtered/replaced by IME PINYIN before ering to TopSurface,
+				 * see W2.5
+				 */
 				pmostat->nch = nch;
 				strncpy(pmostat->chars, chars, nch);
 				pmostat->chars[nch]=0; /* EOF */
@@ -893,12 +895,13 @@ WAIT_REQUEST:
 
 			/* W2.4. */
 
-			/* W2.5. Process PINYIN Input. enable_pinyin also as mutex_lock!  */
-			if(enable_pinyin && nch>0 ) {
+			/* W2.5. Process PINYIN Input. surfman->imeThread_on also as mutex_lock!  */
+			if(surfman->imeThread_on && nch>0 ) {
 				/* W2.5.0 Get Ref. to SURFACE in SURFMAN */
-				if(surface_pinyin==NULL) {
-					surface_pinyin=surfman_surfuser_surface(surfman, surfuser_pinyin);
-					if(surface_pinyin==NULL)
+				if(surfman->surfaceIME==NULL) {
+					/*  Also see in surf_pinyin() */
+					surfman->surfaceIME=surfman_surfuser_surface(surfman, surfman->surfuserIME);
+					if(surfman->surfaceIME==NULL)
 						egi_dpstd("Fail to find the PINYIN surface!\n");
 					else
 						egi_dpstd(DBG_GREEN"OK! Get PINYIN surface!\n"DBG_RESET);
@@ -918,7 +921,7 @@ WAIT_REQUEST:
 				emsg->type=ERING_SURFACE_REFRESH;
 				/* !!! ONLY When PINYIN is TopSurface  !!! */
 				//if(unet_sendmsg(surfman->surfaces[SURFMAN_MAX_SURFACES-1]->csFD, emsg->msghead)<=0)
-				if(unet_sendmsg(surface_pinyin->csFD, emsg->msghead)<=0)
+				if(unet_sendmsg(surfman->surfaceIME->csFD, emsg->msghead)<=0)
 					egi_dpstd("Fail to sendmsg ERING_SURFACE_REFRESH!\n");
 			}
 

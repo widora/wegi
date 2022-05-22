@@ -5,9 +5,21 @@ published by the Free Software Foundation.
 
 This file should be include in test_surfman.c
 
+Note:
+1. surf_pinyin() is a thread function called by surfman, it creates
+   a SURFUSER/SURFACE to display PINYIN input panel.
+
+2. parse_pinyin_input() funtions as an IME filter function:
+   STDIN/KBDIN ---->  IME Filter Function ----> TopSurface
+  (Other text entry method shall provide its own IME filter function.)
+
+3. Call load_pinyin_data() before launching the surfuserIME, or there'll
+   be NO result in the PINYIN selecting panel.
+
 
 TODO:
 1. Make thread_pinyin and surfuser_pinyin members of EGI_SURFMAN.
+2. Make surface_pinyin ALWAYS float at TOP layer.
 
 Journal:
 2022-05-09: Create the file.
@@ -20,7 +32,10 @@ Journal:
 	2. Add parse_pinyin_input().
 2022-05-13:
 	1. parse_pinyin_input(): Parse escape sequences for PINYIN.
-
+2022-05-17:
+	1. parse_pinyin_input(): Any upp_case alphabet and punctuation will
+           be deemed as end of PINYIN typing entry, and all remaining chars
+	   to be passed out.
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -34,9 +49,9 @@ void my_refresh_surface(EGI_SURFUSER *surfuser);
 
 /* PINYIN processing functions */
 void init_pinyin(void);		/* Call in surf_pinyin() */
-int load_pinyin_data(void);
+int  load_pinyin_data(void);
 void free_pinyin_data(void);
-int parse_pinyin_input(char *chars, int *nch);
+int  parse_pinyin_input(char *chars, int *nch); /* Or other IME function, as a filter function. */
 void FTsymbol_writeFB(FBDEV *fbdev, const char *txt, int px, int py, EGI_16BIT_COLOR color);
 
 /* Variables for Input Method: PINYIN */
@@ -45,7 +60,7 @@ int fh=20;
 wchar_t wcode;
 EGI_UNIHAN_SET *uniset;		             /* Sigle unihans */
 EGI_UNIHANGROUP_SET *group_set;              /* Unihan group sets */
-bool enable_pinyin=false; 	             /* Enable input method PINYIN, set/reset in surf_pinyin(). also as mutex_lock for surfuser_pinyin. */
+//bool enable_pinyin=false;---> surfman->imeThread_on   /* Enable input method PINYIN, set/reset in surf_pinyin(). also as mutex_lock for surfuser_pinyin. */
 char strPinyin[4*8]={0}; 	             /* To store unbroken input pinyin string */
 char group_pinyin[UNIHAN_TYPING_MAXLEN*4];   /* For divided group pinyins */
 EGI_UNICODE group_wcodes[4]; 		     /* group wcodes */
@@ -115,7 +130,7 @@ void* surf_pinyin(void *argv)
 
 	/* 5. First draw surface */
 	/* 5.1 Set colors */
-	msurfshmem->bkgcolor=COLOR_FloralWhite; //COLOR_Cornsilk; //WEGI_COLOR_GRAYB; /* OR defalt BLACK */
+	msurfshmem->bkgcolor=COLOR_PaleGoldenRod; /* OR defalt BLACK */
 	//msurfshmem->topmenu_bkgcolor=xxx;
 	//msurfshmem->topmenu_hltbkgcolor=xxx;
 	/* 5.2 First draw default */
@@ -147,8 +162,10 @@ void* surf_pinyin(void *argv)
 	msurfshmem->sync=true;
 
 	/* 9. Pass out reference params. */
-	surfuser_pinyin=msurfuser;
-	enable_pinyin=true;
+	//surfuser_pinyin=msurfuser;
+	surfman->surfuserIME=msurfuser;
+	surfman->surfaceIME=surfman_surfuser_surface(surfman,msurfuser); /* surfman,msurfuser in smae process */
+	surfman->imeThread_on=true;
 
 	/* 10. Init pinyin */
 	init_pinyin();
@@ -182,9 +199,10 @@ void* surf_pinyin(void *argv)
 	egi_dpstd("Surface exit OK!\n");
 
 	/* P3. Reset surfuser_pinyin */
-	enable_pinyin=false;
-	surfuser_pinyin=NULL;
-	surface_pinyin=NULL;
+	surfman->imeThread_on=false;
+	surfman->surfuserIME=NULL;
+	surfman->surfaceIME=NULL;
+	//surface_pinyin=NULL;
 
 	return (void *)0;
 }
@@ -207,7 +225,7 @@ void my_refresh_surface(EGI_SURFUSER *surfuser)
 
 	/* 1. Erase old images of Typing and Unihan(groups) */
 	draw_filled_rect2(&surfuser->vfbdev, surfshmem->bkgcolor, 2,2, surfshmem->vw-120, 30-2);
-	draw_filled_rect2(&surfuser->vfbdev, surfshmem->bkgcolor, 2,30-2, surfshmem->vw-1-2, surfshmem->vh-1-2);
+	draw_filled_rect2(&surfuser->vfbdev, surfshmem->bkgcolor, 2,30+2, surfshmem->vw-1-2, surfshmem->vh-1-2);
 
 	/* 2. Display PINYIN typings */
 	if(display_pinyin[0])
@@ -327,8 +345,11 @@ void free_pinyin_data(void)
 }
 
 
-/*--------------------------------------------------
-Convert PINYIN typing into UNIHANs with UTF-8 encoding.
+/*----------------------------------------------------
+Convert PINYIN typing into UNIHANs with UTF-8 encoding,
+as an IME filter function.
+
+   STDIN/KBDIN ---->  IME Filter  ----> TopSurface
 
 Note:
 1. Keys and Operations:
@@ -341,28 +362,38 @@ Note:
    ESC:		  To empty/cancel all unihan(group)s in the list panel.
    BACKSPACE:     Erase the last char in pinyin typing and update unihan(group)s.
 
+2. ONLY low_case alphabets will be processed as PINYIN typing.
+3. Upp_case alphabets and punctuations will be deemed as end of PINYIN typing entry,
+   and pass out all remaining chars.
+4. If there is no unihan(group)s in panel list, then a digit is also the
+   end of typing entry, see 3.
+5. If there are unihan(group)s in panel list, then a SPACE or DIGIT will
+   pick the first or numbered unihan(group) to pass out. (put in *char).
+   All remaining chars will be ignored in this case.
+
+
 TODO:
-1. If chars[] still has chars left ....save them.
+XXX 1. If chars[] still has chars left ....save them.
 
 
 @chars:	 Input as ASCII chars as PINYIN typings.
-	 Output as unihan/unhihan_group in UTF-8.
+	 Output as unihan/unihan_group in UTF-8 (OR output in note 3.)
 @nch:	 Total number of input ASCII chars.
-	 Length of
+	 Length/size of output unihan/unihan_group (OR output in note 3.)
 
 Return:
 	0	OK
 	<0	Fails
----------------------------------------------------*/
+-----------------------------------------------------*/
 int parse_pinyin_input(char *chars, int *nch)
 {
 	int i,j, k,n;
 	char ch;
 
 	egi_dpstd(DBG_GREEN"display_pinyin: %s\n"DBG_RESET, display_pinyin);
-	egi_dpstd("nch=%d: ", *nch);
-	for(i=0; i<*nch; i++) printf("0x%02x ",chars[i]);
-	printf("\n");
+	egi_dpstd("nch=%d, chars[]: %-32.32s\n", *nch, chars);
+	//for(i=0; i<*nch; i++) printf("0x%02x ",chars[i]);
+	//printf("\n");
 
 #if 0 /* TEST: ---------- */
 	chars[*nch]=0;
@@ -380,7 +411,7 @@ int parse_pinyin_input(char *chars, int *nch)
 		if(ch==27) {
 //		   egi_dpstd("---- Escape Sequence ----\n");
 
-		   /* F0.1 ESCAPE: 1 OR 2 chars */
+		   /* F0.1 ESCAPE:  1 OR 2 chars */
 		   if( n+1==*nch || (n+1<*nch && chars[n+1]==0) ) {
 			/* Clear */
 			bzero(strPinyin,sizeof(strPinyin));
@@ -518,8 +549,14 @@ int parse_pinyin_input(char *chars, int *nch)
 				}
 				/* F2.2.2 Keep as a digit, as No content in strPinyin[] or unihans[] */
 				else {
-					*nch=1; return 0; /* TODO: assume nch==1 */
-					//continue;
+					// *nch=1; return 0; /* TODO: assume nch==1 */
+					/* Deemed as end of PINYIN typing! pass out all remaining chars. */
+					if(n>0) {
+						*nch -=n;
+						memmove(chars, chars+n, *nch);
+						chars[*nch+1]=0;
+					}
+					return 0;
 				}
 			}
 			/* F2.3  ALPHABET:  Input as part of PINYIN typing. */
@@ -533,16 +570,20 @@ int parse_pinyin_input(char *chars, int *nch)
 					HanGroupIndex=0;
 					bzero(&unihans[0][0],sizeof(unihans));
 					UniHan_divide_pinyin(strPinyin, group_pinyin, UHGROUP_WCODES_MAXSIZE);
+					egi_dpstd("Divide pinyin OK!\n");
 					/* F2.3.1.3 Copy/Formulate group_pinyin to display_pinyin */
 					bzero(display_pinyin, sizeof(display_pinyin));
 					for(i=0; i<UHGROUP_WCODES_MAXSIZE; i++) {
 						strcat(display_pinyin, group_pinyin+i*UNIHAN_TYPING_MAXLEN);
 						strcat(display_pinyin, " ");
 					}
+					egi_dpstd("Copy pinyin OK!\n");
+
 					/* F2.3.1.4 Locate typings and get group_set */
 					unicount=0;
 					if( UniHanGroup_locate_typings(group_set, group_pinyin)==0 ) {
 						k=0;
+						egi_dpstd("group_set results_size: %d\n", group_set->results_size);
 						while( k < group_set->results_size ) {
 							pos_uchar=group_set->ugroups[group_set->results[k]].pos_uchar;
 							strcpy(unihans[unicount], (char *)group_set->uchars +pos_uchar);
@@ -555,23 +596,37 @@ int parse_pinyin_input(char *chars, int *nch)
 					/* F2.3.1.4 Reset/Init. Index/Itmes for displaying */
 					GroupStartIndex=0; GroupItems=0;
 
-					*nch=0; return 0;
+					/* NOPE! MUST NOT reset *nch to 0, maybe it's NOT last char in chars[]. */
+					// *nch=0; return 0;
+					continue;
 				}
 			}
-			/* F2.4  ELSE: Convert to SBC case(full width)  */
+			/* F2.4  ELSE: Other printable ASCIIs: Upper_case letters + punctuations.
+			         OR Convert to SBC case(full width)?
+			 */
 			else {
-				/* TODO: */
+				/* Deemed as end of PINYIN typing! pass out all remaining chars. */
+				if(n>0) {
+					*nch -=n;
+					memmove(chars, chars+n, *nch);
+					chars[*nch+1]=0;
+				}
+				return 0;
+
+				// *nch=1; return 0;
 			}
 
 		} /* End F2. Insert char */
 		/* F3. TODO: Other undefined chars, NOW ignore.... */
 		else {
+
 		}
 
 	}  /* End for() */
 
+
 	/* NOW clear it, before ering to SURFACEs. */
-	// *nch=0;  /* Nope! need to pass '!#$...' to surfaces. */
+	*nch=0;  /* Nope! need to pass '!#$...' to surfaces. */
 
 	return 0;
 }

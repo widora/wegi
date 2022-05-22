@@ -3,13 +3,22 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+Journal:
+2022-05-21:
+	1. Compare advances by calling FTsymbol_unicode_writeFB() and FT_Get_Advances()
+2022-05-22:
+	1. Test to show Emojis.
 
 Midas Zhou
+知之者不如好之者好之者不如乐之者
 ------------------------------------------------------------------*/
 #include <stdio.h>
 #include <getopt.h>
 #include "egi_common.h"
 #include "egi_FTsymbol.h"
+#include "egi_unihan.h"
+#include "egi_cstring.h"
+#include "egi_utils.h"
 #include "egi_gif.h"
 
 int main(int argc, char **argv)
@@ -53,8 +62,141 @@ int main(int argc, char **argv)
         	return -1;
   	}
 
+#if 1 /* ---------- TEST: Emoji --------------- */
+	/* Initilize sys FBDEV */
+  	printf("init_fbdev()...\n");
+  	if(init_fbdev(&gv_fb_dev))
+        	return -1;
 
-#if 1 /* ---------- TEST: EGI_FONT_BUFFER  --------------- */
+	/* Set sys FB mode */
+	fb_set_directFB(&gv_fb_dev, false);
+   	fb_position_rotate(&gv_fb_dev, 0);
+
+	clear_screen(&gv_fb_dev, WEGI_COLOR_BLACK);
+
+	FT_Face face=egi_sysfonts.special; //regular;
+	int fw=100;
+	int fh=100; //20
+	wchar_t wcode=0x1F600; //FF1A;  /* U+FF1A: full width colon */
+	int xleft;
+	FT_Fixed  advance;
+	FT_Error  error;
+        FT_UInt   gindex;
+
+	int len;
+	char uchar[UNIHAN_UCHAR_MAXLEN];
+
+#if 1 ///////////// Emoji to file /////////////////////
+//	wcode= FT_Get_First_Char(face, &gindex);
+	wcode = 0x1F600;
+ while( gindex!=0 ) {
+     #if 0
+	if(wcode>0x1FAAA)  //6A5)
+		wcode = 0x1F600;
+     #endif
+
+	#if 1 /* Save to utf8 encoding to a file */
+	len=char_unicode_to_uft8(&wcode, uchar);
+	egi_copy_to_file("/tmp/emojis.txt", (UFT8_PCHAR)uchar, len, 0);
+	#endif
+
+	clear_screen(&gv_fb_dev, WEGI_COLOR_GRAYC);
+
+	/* 1. Get advance by calling FTsymbol_unicode_writeFB() */
+	xleft=gv_fb_dev.pos_xres;
+	FTsymbol_unicode_writeFB( &gv_fb_dev, face,         /* FBdev, fontface */
+				      	  fw, fh, wcode, &xleft, 	    /* fw,fh, wcode, *xleft */
+					  (320-(fw+fw/4+fw/8))/2, (240-(fh+fh/4+fh/16))/2, //30, 30,  /* x0,y0, */
+                       	             	  WEGI_COLOR_BLACK, -1, 255);         /* fontcolor, transcolor,opaque */
+
+	printf("FTsymbol_unicode_writeFB(): Unicode U+%X advance=%d\n", wcode, gv_fb_dev.pos_xres-xleft);
+	fb_render(&gv_fb_dev);
+
+	wcode=FT_Get_Next_Char(face, wcode, &gindex);
+	//sleep(1);
+	usleep(50000);
+
+ }
+	egi_copy_to_file("/tmp/emojis.txt", (UFT8_PCHAR)"\n", 1,0);
+
+#else /////////////////// File to emojis ///////////////////////
+
+
+
+#endif
+
+
+
+exit(0);
+#endif /////////////////////////////////////////////////////////////////////////
+
+
+#if 0 /* ---------- TEST: Get advances for special Unicodes --------------- */
+/* Unicode blocks:
+   1. Halfwidht and Fullwidth forms: Unicode [U+FF00 U+FFEF]
+	U+FF1A: full width colon,
+        U+FF0C: full width comma,
+	U+FF1F fullwidth question mark,
+	U+FF01 fullwidth exclamation mark
+   2. Russian character: unicode U+401, [U+410 U+44F], U+451, ....
+	a symmetric 'e': U+44D
+*/
+	/* Initilize sys FBDEV */
+  	printf("init_fbdev()...\n");
+  	if(init_fbdev(&gv_fb_dev))
+        	return -1;
+
+	/* Set sys FB mode */
+	fb_set_directFB(&gv_fb_dev, false);
+   	fb_position_rotate(&gv_fb_dev, 0);
+
+	clear_screen(&gv_fb_dev, WEGI_COLOR_BLACK);
+
+	FT_Face face=egi_sysfonts.regular;
+	int fw=18;
+	int fh=20;
+	wchar_t wcode=0xFF1F;
+
+	int xleft;
+	FT_Fixed  advance;
+	FT_Error  error;
+
+	clear_screen(&gv_fb_dev, WEGI_COLOR_GRAY);
+
+	/* 1. Get advance by calling FTsymbol_unicode_writeFB() */
+	xleft=320;
+	FTsymbol_unicode_writeFB( &gv_fb_dev, face,         /* FBdev, fontface */
+				      	  fw, fh, wcode, &xleft, 	    /* fw,fh, wcode, *xleft */
+					  10,10, //(320-fw)/2, (240-fh)/2, //30, 30,                           /* x0,y0, */
+                       	             	  WEGI_COLOR_BLACK, -1, 255);         /* fontcolor, transcolor,opaque */
+
+	printf("FTsymbol_unicode_writeFB(): Unicode U+%X advance=%d\n", wcode, 320-xleft);
+	fb_render(&gv_fb_dev);
+
+
+	/* 2. Get advance by calling FT_Get_Advances() */
+        /* set character size in pixels before calling FT_Get_Advances()! */
+        error = FT_Set_Pixel_Sizes(face, fw, fh);
+        if(error)
+               printf("FT_Set_Pixel_Sizes() fails!\n");
+        /* !!! WARNING !!! load_flags must be the same as in FT_Load_Char( face, wcode, flags ) when writeFB
+         * the same ptr string.
+         * Strange!!! a little faster than FT_Get_Advance()
+         * TODO: advance value NOT same as FTsymbol_unicode_writeFB();
+         */
+        //error= FT_Get_Advances(face, wcode, 1, FT_LOAD_RENDER, &advance);
+        error= FT_Get_Advance(face, wcode, FT_LOAD_RENDER, &advance);
+        if(error)
+        	printf("Fail to call FT_Get_Advances().\n");
+	else {
+                 //xleft -= advance>>16;
+		printf("FT_Get_Advances(): advance=%d\n",(int)(advance>>16));
+	}
+
+exit(0);
+#endif /////////////////////////////////////////////////////////////////////////
+
+#if 0 /* ---------- TEST: EGI_FONT_BUFFER  --------------- */
 	EGI_FONT_BUFFER *fontbuff;
 
   while(1) {
@@ -127,7 +269,7 @@ int main(int argc, char **argv)
 #endif
 
 
-#if 1   /* All CJK UNICODE */
+#if 0   /* All CJK UNICODE */
 	int k;
 	char strtmp[54];
 	wchar_t wcode;

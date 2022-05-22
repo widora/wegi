@@ -170,7 +170,6 @@ struct  FTsymbol_char_map {
 
 	int		txtrlncount;		/* Counter for retlines */
 
-
 	int		txtdlines;		/* LIMIT: Size of txtdlinePos[], auto mem_grow.  */
 	unsigned int	*txtdlinePos;		/* An array to store offset position(relative to txtbuff) of each txt dlines, which
 						 * have already been charmapped, and MAYBE not displayed in the current charmap.
@@ -258,7 +257,7 @@ struct  FTsymbol_char_map {
 	int		maplncount;		/* Total number of displayed char lines in current charmap,  NOT index. */
 	unsigned int	*maplinePos;		/* Offset position(relative to pref) of the first char of each displayed lines, in bytes
 						 * redundant with: txtdlinePos[txtdlncount],...[txtdlncount+1],...[txtdlncount+2]... +maplncount-1].
-						 * ....relative to txtbuff thought. 	TODO: cancel it.
+						 * ....relative to txtbuff thought. !!!--- TODO: To cancel it. DO NOT USE IT! ---!!!
 						 */
 
 	unsigned int	pchoff;			/* Offset postion to txtbuff !!!, OnlyIf pchoff>0, it will be used to relocate pch after charmapping!

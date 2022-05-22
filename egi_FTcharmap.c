@@ -134,6 +134,9 @@ Journal:
 	   For FTcharmap_insert_char(), case of chsize<=0 is ruled out!
 	2. FTcharmap_uft8strings_writeFB(): Check FTsymbol_glyph_buffered(), and access egi_fontbuffer
 	   to quickly extract advanceX.
+2022-05-21:
+	1. FTcharmap_uft8strings_writeFB(): For Fullwidth/Halfwidth chars, get advance value by calling
+	   FTsymbol_unicode_writeFB() instead of FT_Get_Advances().
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -748,7 +751,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	int hlmarkcolor;
 	FT_Face face;
 
-	/* Check input charmap */
+	/* 1. Check input charmap */
 	if(chmap==NULL || chmap->txtbuff==NULL) {
 		printf("%s: Input chmap or its data is invalid!\n", __func__);
 		return -2;
@@ -756,13 +759,13 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 
 	// if( pixpl==0 || lines==0 ) return -1; /* move to just after initiate vars */
 
-	/*  Get mutex lock   ----------->  */
+	/*  2. Get mutex lock   ----------->  */
         if(pthread_mutex_lock(&chmap->mutex) !=0){
                 printf("%s: Fail to lock charmap mutex!", __func__);
                 return -3;
         }
 
-	/* Check chmap->request : NOT yet applied for all functions. */
+	/* 3. Check chmap->request : NOT yet applied for all functions. */
 	#if 0
 	if(!chmap->request) {
   	/*  <-------- Put mutex lock */
@@ -771,7 +774,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	}
 	#endif
 
-	/* Check input font face */
+	/* 4. Check input font face */
 	if(chmap->face==NULL) {
 		printf("%s: Input FT_Face is NULL!\n",__func__);
   	/*  <-------- Put mutex lock */
@@ -781,25 +784,25 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	/* Get typeface */
 	face=chmap->face;
 
-	/* if(chmap->fix_cursor), save charXY[pch] to  */
+	/* 5. if(chmap->fix_cursor), save charXY[pch] to  */
 	if(chmap->fix_cursor) {
 		pchx=chmap->charX[chmap->pch];
 		pchy=chmap->charY[chmap->pch];
 	}
 
-	/* Init charmap canvas params */
+	/* 6. Init charmap canvas params */
 	x0=chmap->mapx0+chmap->offx;
 	y0=chmap->mapy0+chmap->offy;
 	lines=chmap->maplines;
 	pixpl=chmap->mappixpl;
 	//gap=chmap->maplngap;
 
-	/* Get TabWidth */
+	/* 7. Get TabWidth */
 	TabWidth=FTsymbol_cooked_charWidth(9,fw);
 
 START_CHARMAP:	/* If follow_cursor, loopback here */
 
-	/* Draw/clear blank paper/canvas, not only when follow_cursor  */
+	/* 8. Draw/clear blank paper/canvas, not only when follow_cursor  */
 	if( chmap->bkgcolor >= 0 && fb_dev != NULL ) {
 	       	fbset_color(chmap->bkgcolor);
        		draw_filled_rect(&gv_fb_dev, chmap->mapx0, chmap->mapy0,  chmap->mapx0+chmap->width, chmap->mapy0+chmap->height );
@@ -810,40 +813,41 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 		#endif
 	}
 
-	/* Init pstr and p */
+	/* 9. Init pstr and p */
 	pstr=chmap->pref;  /* However, pref may be NULL */
 	p=pstr;
 
-	/* Init tmp. vars */
+	/* 10. Init tmp. vars */
 	px=x0;
 	py=y0;
 	xleft=pixpl;
 	count=0;
 	ln=0;		/* Line index from 0 */
 
-	/* Check input pixpl and lines, */
+	/* 11. Check input pixpl and lines, */
 	if(pixpl==0 || lines==0)
 		return -4; //goto CHARMAP_END;
 
-	/* Must reset temp charmap vars and clear old data */
+	/* 12. Must reset temp charmap vars and clear old data */
 	memset(chmap->maplinePos, 0, chmap->maplines*sizeof(typeof(*chmap->maplinePos)) );
 	memset(chmap->charPos, 0, chmap->mapsize*sizeof(typeof(*chmap->charPos)));
 	memset(chmap->charX, 0, chmap->mapsize*sizeof(typeof(*chmap->charX)) );
 	memset(chmap->charY, 0, chmap->mapsize*sizeof(typeof(*chmap->charY)) );
 
-	/* Reset/Init. charmap data, first maplinePos */
+	/* 13. Reset/Init. charmap data, first maplinePos */
 	chmap->chcount=0;
 	chmap->maplncount=0;
 	chmap->maplinePos[chmap->maplncount]=0; /* relative to chmap->pref */
 	chmap->maplncount++;	/* MAPLNCOUNT_PRE_INCREMENT */
 
-	/* Init.charmap global data */
+	/* 14. Init.charmap global data */
 	/* NOTE: !!! chmap->txtdlncount=xxx, MUST preset before calling this function */
 	chmap->txtdlinePos[chmap->txtdlncount++]=chmap->pref-chmap->txtbuff;
 
+	/* 15. Charmap chars till lines are used up. */
 	while( *p ) {
 
-		/* Check txtdlncount and mem_grow txtdlinePos[] if necessary. */
+		/* W.1 Check txtdlncount and mem_grow txtdlinePos[] if necessary. */
 		 if(chmap->txtdlncount >= chmap->txtdlines-2) {  /* ==chmap->txtdlines-1-1, -1 for allowance. */
 			EGI_PDEBUG(DBG_CHARMAP,"txtdlncount=%d, txtdlines=%d, maplncount=%d, mem_grow chmap->txtdlinePos...\n",
 										chmap->txtdlncount, chmap->txtdlines,chmap->maplncount);
@@ -858,22 +862,22 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 			}
 		}
 
-		/* --- check whether lines are used up --- */
+		/* W.2 check whether lines are used up */
 		if( lines < ln+1) {  /* ln index from 0, lines size_t */
 			//printf("%s: ln=%d, Lines not enough! finish only %d chars.\n", __func__, ln, count);
 			goto CHARMAP_END;
 		}
 
-		/* convert one character to unicode, return size of utf-8 code */
+		/* W.3 convert one character to unicode, return size of utf-8 code */
 		size=char_uft8_to_unicode(p, wcstr);
 
-		/* Get fontcolor from colormap here! */
+		/* W.4 Get fontcolor from colormap here! */
 		if(chmap->charColorMap!=NULL)
 			fontcolor=egi_colorBandMap_pickColor(chmap->charColorMap, p-chmap->txtbuff);
 		else
 			fontcolor=chmap->fontcolor;
 
-		/* Get highlight mark color from colormap here! */
+		/* W.5 Get highlight mark color from colormap here! */
 		if(chmap->hlmarkColorMap!=NULL) {
 			hlmarkcolor=egi_colorBandMap_pickColor(chmap->hlmarkColorMap, p-chmap->txtbuff);
 			//printf("hlmarkcolor=%u, RGB: 0x%06X, getY=%u \n",hlmarkcolor, COLOR_16TO24BITS(hlmarkcolor), egi_color_getY(hlmarkcolor));
@@ -891,7 +895,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 
 #endif /*-----TEST END----*/
 
-		/* NOTE: Shift offset to next wchar, notice that following p is for the next char!!! */
+		/* W.6  NOTE: Shift offset to next wchar, notice that following p is for the next char!!! */
 		if(size>0) {
 			p+=size;
 			count++;
@@ -902,13 +906,13 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 			continue;
 		}
 
-		/* CONTROL ASCII CODE:
+		/* W.7 CONTROL ASCII CODE:
 		 * If return to next line
 		 */
 		if(*wcstr=='\n') {  /* ASCII Newline 10 */
 			//printf(" ... ASCII code: Next Line ...\n ");
 
-			/* Check Size */
+			/* W.7.1 Check Size */
 			if ( chmap->chcount >= chmap->mapsize ) {
 				EGI_PDEBUG(DBG_CHARMAP,"mem_grow chmap->mapsize charXYPOS from %d to %d units more...\n",
 												chmap->mapsize, MAPSIZE_GROW_SIZE);
@@ -918,9 +922,9 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 											   __func__, chmap->mapsize, MAPSIZE_GROW_SIZE);
 				}
 			}
-			/* Fillin CHAR MAP before start a new line */
+			/* W.7.2 Fillin CHAR MAP before start a new line */
 			else {  /* ( chmap->chcount < chmap->mapsize ) */
-				chmap->charX[chmap->chcount]=x0+pixpl-xleft;  /* line end */
+				chmap->charX[chmap->chcount]=x0+pixpl-xleft;    /* line end */
 				chmap->charY[chmap->chcount]=py;
 				chmap->charPos[chmap->chcount]=p-pstr-size;	/* deduce size, as p now points to end of '\n'  */
 				chmap->chcount++;
@@ -935,7 +939,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 				}
 			}
 
-			/* change to next line, +gap */
+			/* W.7.3 Change to next line, +gap */
 			ln++;
 			xleft=pixpl;
 			py += chmap->maplndis; //fh+gap;
@@ -947,40 +951,47 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 			*   It will cause charmap data error in further operation, Example: when shift chmap->pchoff, it MAY
 			*   points to a char that has NO charmap data at all!!!
 		 	*/
-		/* If other control codes or DEL, skip it. To avoid print some strange icons. */
+		/* W.7X If other control codes or DEL, skip it. To avoid print some strange icons. */
 		else if( (*wcstr < 32 || *wcstr==127) && *wcstr!=9 && *wcstr!=13 ) {	/* EXCLUDE WARNING:  except TAB(9), '\r' */
 			//printf("%s: ASCII control code: %d\n", __func__, *wcstr);     /* ! ASCII Return=CR=13 */
 			continue;
 		}
 		#endif
 
-		/* Reset pen X position */
+		/* W.8 Reset pen X position */
 		px=x0+pixpl-xleft;
 
 		/* Write unicode bitmap to FB, and get xleft renewed. */
 
-		/* If TAB(9) key, align to imaginary grid */
+		/* W.9 If TAB(9) key, align to imaginary grid */
 		if( *wcstr==9 ) {
 			xleft = pixpl-((pixpl-xleft)/TabWidth +1)*TabWidth;
 			/*  NO Highlight mark for TAB! */
 		}
-		/* If fb_dev==NULL: To get xleft in a fast way */
+		/* W.10 If fb_dev==NULL: To get xleft in a fast way */
 		else if( fb_dev == NULL) {
-		    	/* If has self_cooked width for some special unicodes, bitmap ignored. */
+		    	/* W.10.1 If has self_cooked width for some special unicodes, bitmap ignored. */
 		    	sdw=FTsymbol_cooked_charWidth(wcstr[0], fw);
 		    	if(sdw>=0) {
 				xleft -= sdw;
 			}
-			/* If ASCII, call FTsymbol_unicode_writeFB()! instead of FT_Get_Advance()! See. FTsymbol_uft8strings_pixlen() also */
+			/* W.10.2 If ASCII, call FTsymbol_unicode_writeFB()! instead of FT_Get_Advance()! See. FTsymbol_uft8strings_pixlen() also */
                         else if( wcstr[0] < 0xFF+1 ) {
 		                FTsymbol_unicode_writeFB(NULL, face, fw, fh, wcstr[0], &xleft,
                 	                                         0, 0, WEGI_COLOR_BLACK, -1, -1 );
                         }
-		    	/* No self_cooked width, With bitmap */
+/* TEST:------  U+FF1A: full width colon, U+FF0C: full width comma, U+FF1F fullwidth question mark, U+FF01 fullwidth exclamation mark  */
+//			else if( wcstr[0]== 0xFF1A || wcstr[0]== 0xFF0C || wcstr[0]== 0xFF1F || wcstr[0]== 0xFF01
+			else if( (wcstr[0]>=0xFF00 && wcstr[0]<=0xFFEF)  /* Halfwidht and Fullwidth forms */
+				 || wcstr[0]== 0x44D  /* Russian character, a symmetric 'e' */
+				) {
+		                FTsymbol_unicode_writeFB(NULL, face, fw, fh, wcstr[0], &xleft, 0, 0, WEGI_COLOR_BLACK, -1, -1 );
+			}
+		    	/* W.10.3 No self_cooked width, With bitmap */
 		    	else {
 
 //////////  TEST: EGI_FONT_BUFF //////////////
-			    /* If the font is buffered in egi_fontbuffer */
+			    /* W.10.3.1 If the font is buffered in egi_fontbuffer */
 			    if( FTsymbol_glyph_buffered(face, fw, wcstr[0]) ) {
 					xleft -= egi_fontbuffer->fontdata[ wcstr[0]-egi_fontbuffer->unistart ].advanceX;
 			    } else {
@@ -992,19 +1003,24 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 				/* !!! WARNING !!! load_flags must be the same as in FT_Load_Char( face, wcode, flags ) when writeFB
 	                         * the same ptr string.
 				 * Strange!!! a little faster than FT_Get_Advance()
-				 * TODO: advance value NOT same as FTsymbol_unicode_writeFB();
+				 * TODO: advance value NOT same as FTsymbol_unicode_writeFB(); see above TEST.
+				 * Example: U+FF1A(full width colon)...
+				 *   FT_Get_Advance gets 0, while FTsymbol_unicode_writeFB() is nonzero!
 			 	 */
+				//error= FT_Get_Advance(face, *wcstr, FT_LOAD_RENDER, &advance);
 				error= FT_Get_Advances(face, *wcstr, 1, FT_LOAD_RENDER, &advance);
-        	        	if(error)
+        	        	if(error) {
                 			printf("%s: Fail to call FT_Get_Advances().\n",__func__);
+			                FTsymbol_unicode_writeFB(NULL, face, fw, fh, wcstr[0], &xleft, 0, 0, WEGI_COLOR_BLACK, -1, -1 );
+				}
 	                	else
         	                	xleft -= advance>>16;
 			    }
 		  	}
 		}
-		else /* fb_dev is NOT NULL, TODO: fake fb_dev to NULL */
-		{
-			/* Highlight mark */
+		/* W.11 fb_dev is NOT NULL, TODO: fake fb_dev to NULL */
+		else {
+			/* W.11.1 Highlight mark */
                         if( chmap->hlmarkColorMap && hlmarkcolor!=chmap->bkgcolor ) {
 				int tmp=xleft;
 				/* If selfcooked width */
@@ -1021,21 +1037,23 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 				 draw_filled_rect2(&gv_fb_dev, hlmarkcolor, px, py, px+sdw-1, py+chmap->maplndis-1);
                         }
 
-			/* Use marskchar to replace/cover original chars, such as asterisk. */
+			/* W.11.2 Use marskchar to replace/cover original chars, such as asterisk. */
 			if( chmap->maskchar !=0 ) {
 				FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, chmap->maskchar, &xleft,
 								 px, py, fontcolor, transpcolor, opaque );
 			}
-			else
+			else {
+//				egi_dpstd("Unicode: U+%X\n", wcstr[0]);
 				FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, wcstr[0], &xleft,
 								 px, py, fontcolor, transpcolor, opaque );
+			}
 
 		}
 
-		/* --- check line space --- */
+		/* W.12  --- check line space --- */
 		if(xleft<=0) {  /* ! xleft==0: for nonprintable char, xleft unchaged */
 
-			/* Get start position of next displaying line
+			/* W.12.1 Get start position of next displaying line
 			 * NOTE: for xleft==0: end line position is also the beginning of the next line!
 			 *       if leave it until next xleft<0, then the position moves 1 more char away!
 			 */
@@ -1056,14 +1074,15 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 				}
 			}
 
-			/* Fail to  writeFB. reel back pointer p, only if xleft<0 */
+			/* W.12.2 Fail to  writeFB. reel back pointer p, only if xleft<0 */
 			if(xleft<0) {
 				p-=size;
 				count--;
 			}
 
 		}
-		/* Fillin char map */
+
+		/* W.13 Fillin char map */
 		if(xleft>=0) {  /* xleft > = 0, writeFB ok */
 			/* Check Size */
 			if ( chmap->chcount >= chmap->mapsize ) {
@@ -1075,14 +1094,15 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 											   __func__, chmap->mapsize, MAPSIZE_GROW_SIZE);
 				}
 			}
-			else { /* ( chmap->chcount < chmap->mapsize) */
+			//else /* OOO... HK2022-05-20  */
+			{ /* ( chmap->chcount < chmap->mapsize) */
 				chmap->charX[chmap->chcount]=px;  //!x0+pixpl-xleft;  /* char start point! */
 				chmap->charY[chmap->chcount]=py;
 				chmap->charPos[chmap->chcount]=p-pstr-size;	/* deduce size.  only when xleft<0, p will reel back size, see above. */
 				chmap->chcount++;
 			}
 		}
-		/* NOTE: At last, reset ln/xleft/py for new line. Just after charXY updated!!! */
+		/* W.14 NOTE: At last, reset ln/xleft/py for new line. Just after charXY updated!!! */
 		if(xleft<=0) {
 			/* Set new line, even xleft==0 and next char is an nonprintable char, as we already start a new maplinePos[] as above. */
                   	ln++;
@@ -1092,13 +1112,13 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 
 	} /* end while() */
 
-	/* LN_INCREMENT: If finishing writing whole strings, ln++ to get written lines, as ln index from 0 */
+	/* 16. LN_INCREMENT: If finishing writing whole strings, ln++ to get written lines, as ln index from 0 */
 	if(*pstr)   /* To rule out NULL input */
 		ln++;
 
 CHARMAP_END:
 
-	/* 1. Update output params */
+	/* P1. Update output params */
 	//printf("%s: %d characters written to FB.\n", __func__, count);
 	if(cnt!=NULL)
 		*cnt=count;
@@ -1109,11 +1129,11 @@ CHARMAP_END:
 	if(peny != NULL)
 		*peny=py;
 
-	/* 2. Treat EOF */
+	/* P2. Treat EOF */
 	/* If all chars written to FB, then EOF is the last data in the charmap, also as the last insterting point
 	 * We MUST also rule out the case that current writting line space used up.
 	 * NOTE: You MUST NOT use (chmap->maplncount <= chmap->maplines), for chmap->maplncount is pre_incremented!
-	 *       see lable MAPLNCOUNT_PRE_INCREMENT  LIMIT_MAPLNCOUNT
+	 *       see lable MAPLNCOUNT_PRE_INCREMENT,  LIMIT_MAPLNCOUNT
 	 */
 	if( (*p)=='\0' && lines >= ln )  /* NOW ln is NOT index !!! see label LN_INCREMENT */
 	{
@@ -1128,7 +1148,7 @@ CHARMAP_END:
 	/* Total number of maplncount, after increment, Ok */
 	/* Total number of txtlncount, after increment, Ok */
 
-	/* Double check! */
+	/* P3. Double check! */
 	if( chmap->chcount > chmap->mapsize ) {
 		chmap->errbits |= CHMAPERR_MAPSIZE_LIMIT;
 		printf("%s: WARNING:  chmap.chcount > chmap.mapsize=%d, some displayed chars has NO charX/Y data! \n", __func__,chmap->mapsize);
@@ -1139,7 +1159,7 @@ CHARMAP_END:
 										__func__, chmap->txtdlncount, chmap->txtdlines);
 	}
 
-	/* 3. Reset chmap->txtdlncount as headline of current charmap */
+	/* P3a. Reset chmap->txtdlncount as headline of current charmap */
 	/* NOTE!!! Need to reset chmap->txtdlncount to let  chmape->txtdlinePos[txtdlncount] pointer to the first displaying line of current charmap
 	 * Otherwise in a loop charmap wirteFB calling, it will increment itself forever...
 	 * So let chmap->txtdlinePos[txtdlncount]==chmap->maplinePos[0] here;
@@ -1147,13 +1167,13 @@ CHARMAP_END:
 	 */
 	chmap->txtdlncount -= chmap->maplncount;
 
-	/* 4. Update chmap->pch and pch2 */
+	/* P4. Update chmap->pch and pch2 */
 	/* First set to <0, to assume the cursor is NOT in current charmap. */
 	chmap->pch=-1;
 	chmap->pch2=-1;
 	off=chmap->pref-chmap->txtbuff;
 
-	/* Ca. chmap->pch : If  pchoff is NOT align with charPos[], then it will fail to match, usually it's uft-8 coding error. */
+	/* P5. Cal. chmap->pch : If pchoff is NOT align with charPos[], then it will fail to match, usually it's uft-8 coding error. */
 	if( chmap->pchoff >= off+chmap->charPos[0] && chmap->pchoff <= off+chmap->charPos[chmap->chcount-1] ) {
 		for( i=0; i < chmap->chcount; i++) {
 			if( off+chmap->charPos[i] == chmap->pchoff ) {
@@ -1162,10 +1182,9 @@ CHARMAP_END:
 			}
 		}
 	}
-	/* Cal. chmap->pch2 : If  pchoff is NOT align with charPos[], then it will fail to match, usually it's uft-8 coding error. */
+	/* P5a. Cal. chmap->pch2 : If  pchoff is NOT align with charPos[], then it will fail to match, usually it's uft-8 coding error. */
 	if( chmap->pchoff2 == chmap->pchoff)
 		chmap->pch2=chmap->pch;
-
 	else if( chmap->pchoff2 >= off+chmap->charPos[0] && chmap->pchoff2 <= off+chmap->charPos[chmap->chcount-1] ) {
 		for( i=0; i < chmap->chcount; i++) {
 			if( off+chmap->charPos[i] == chmap->pchoff2 ) {
@@ -1176,7 +1195,7 @@ CHARMAP_END:
 	}
 	//printf("%s: pch=%d, pch2=%d \n",__func__, chmap->pch, chmap->pch2);
 
-	/* 5. If follow_cursor set: continue charmapping until pch>=0.*/
+	/* P5b. If follow_cursor set: continue charmapping until pch>=0.*/
 	if( chmap->follow_cursor && chmap->pch<0 ) {
 		EGI_PDEBUG(DBG_CHARMAP,"Continue charmapping to follow cursor...\n");
 
@@ -1222,11 +1241,11 @@ CHARMAP_END:
 
 		goto  START_CHARMAP;
 	}
-	else  {  /* Reset follow_cursor */
+	else  {  /* Reset follow_cursor, NOW pch in current charmap page. */
 		chmap->follow_cursor=false;
 	}
 
-	/* 6. After updating pchoff, IF chmap->fix_cursor set, reset pchoff. */
+	/* P6. After updating pchoff, IF chmap->fix_cursor set, reset pchoff. */
 	if( chmap->fix_cursor==true ) {
 		/* Relocate pch/pch2 as per pchx,pchy:  selection will be canclled!
 		 * chmap->pch/pch2, pchoff/pchoff2 all updated!
@@ -1236,11 +1255,11 @@ CHARMAP_END:
 		chmap->fix_cursor=false;
 	}
 
-	/* 7. Draw selection Mark: Check pch and pch2, see if selection activated. */
+	/* P7. Draw selection Mark: Check pch and pch2, see if selection activated. */
 	if( chmap->pchoff != chmap->pchoff2 )
 		FTcharmap_mark_selection(fb_dev, chmap);
 
-	/* 8. Draw blinking cursor */
+	/* P8. Draw blinking cursor */
 	if( chmap->draw_cursor != NULL && fb_dev!=NULL )
 	{
 		/* Draw cursor first, so you may manually turn on cursor_on. */
@@ -1255,7 +1274,7 @@ CHARMAP_END:
 		}
 	}
 
-	/* Clear chmap->request */
+	/* P9. Clear chmap->request */
 	chmap->request=0;
 
   	/*  <-------- Put mutex lock */
@@ -1374,6 +1393,9 @@ inline static void FTcharmap_mark_selection(FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap
 Move chmap->pref backward to pointer to the the
 start of previous displaying page.
 
+	<<< mutex_lock + request >>>
+
+
 @chmap:		pointer to an EGI_FTCHAR_MAP
 
 Return:
@@ -1430,6 +1452,8 @@ int FTcharmap_page_up(EGI_FTCHAR_MAP *chmap)
 /*----------------------------------------------
 Move chmap->pref forward to pointer to the the
 start of next displaying page.
+
+	<<< mutex_lock + request >>>
 
 @chmap:		pointer to an EGI_FTCHAR_MAP
 Return:
@@ -1504,6 +1528,8 @@ Fit the last page to the bottom dline of the charmap.
 Only if current page is the last page, AND not a full page,
 AND it has enough dlines to fill the window.
 
+	<<< mutex_lock + request >>>
+
 @chmap:		pointer to an EGI_FTCHAR_MAP
 Return:
 	0	OK, chmap->pref,txtdlncount adjusted.
@@ -1561,6 +1587,7 @@ scroll_oneline_up until the first dline (of txtbuff) gets
 to the top of the displaying window.
 
 chmap->pch unchangd!
+        <<< mutex_lock + request >>>
 
 Note:
 1. --- WARNING!!! ---
@@ -1621,6 +1648,8 @@ Move chmap->pref forward to pointer to the the start
 of the next displaying line.
 scroll_oneline_down until the last dline (of txtbuff)
 gets to top of the displaying window.
+
+        <<< mutex_lock + request >>>
 
 Note:
 1. 		--- WARNING!!! ---
