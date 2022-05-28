@@ -5,6 +5,7 @@ published by the Free Software Foundation.
 
 
 Midas Zhou
+知之者不如好之者好之者不如乐之者
 -------------------------------------------------------------------*/
 #ifndef __EGI_FTSYMBOL_H__
 #define __EGI_FTSYMBOL_H__
@@ -35,8 +36,8 @@ struct FTsymbol_library {
 	 *   across threads is possible also, as long as a mutex lock is used around FT_New_Face
 	 *   and FT_Done_Face. "
 	 */
-	FT_Library     		 library;		/* NOTE: typedef struct FT_LibraryRec_  *FT_Library */
-	pthread_mutex_t          lib_mutex;
+	FT_Library     		 library;	/* NOTE: typedef struct FT_LibraryRec_  *FT_Library */
+	pthread_mutex_t          lib_mutex;	/* NOW applys for sysfonts only, see FTsymbol_unicode_writeFB() */
 	// int refcnt....
 
 	/* Regular type */
@@ -54,6 +55,10 @@ struct FTsymbol_library {
 	/* Special type */
         FT_Face         special;
 	char 		*fpath_special;
+
+	/* Emoji */
+	FT_Face		emojis;		/* NOW applys for sysfonts only! */
+	char		*fpath_emojis;
 };
 
 
@@ -93,9 +98,11 @@ bool FTsymbol_glyph_buffered(FT_Face face, int fsize, wchar_t wcode);
 /* EGI fonts */
 extern EGI_SYMPAGE sympg_ascii;  /* default font  LiberationMono-Regular */
 
-extern EGI_FONTS   egi_sysfonts; 	/* system font set */
+extern EGI_FONTS   egi_sysfonts; 	/* System font set */
+extern EGI_FONTS   egi_sysemojis;	/* System Emojis set ---NOPE--- */
 extern EGI_FONTS   egi_appfonts; 	/* APP font set */
 extern EGI_FONT_BUFFER *egi_fontbuffer; /* TODO: NOW only with one face and one size */
+
 
 
 void	FTsymbol_set_TabWidth( float factor);
@@ -109,6 +116,7 @@ void 	FTsymbol_release_library( EGI_FONTS *symlib );
 int	FTsymbol_load_allpages(void);
 void 	FTsymbol_release_allpages(void);
 int  	FTsymbol_load_sysfonts(void);
+int  	FTsymbol_load_sysemojis(void);
 int  	FTsymbol_load_appfonts(void);
 void	FTsymbol_release_allfonts(void);
 int  	FTsymbol_load_asciis_from_fontfile( EGI_SYMPAGE *symfont_page, const char *font_path, int Wp, int Hp );

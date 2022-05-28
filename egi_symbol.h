@@ -71,6 +71,7 @@ struct symbol_page
 	char *path;
 	/* back color of the image, a font symbol may use bkcolor as transparent channel */
 	uint16_t  bkcolor;
+
 	/* page symbol mem data, store each symbol data consecutively, no hole. while img page file may have hole or blank row*/
 	uint16_t *data;		/* NOTE: for FT sympage, .data is useless */
 
@@ -79,6 +80,8 @@ struct symbol_page
 				 * Only a refrence to bitmap.buffer.
 				 * ftsympg.alpha  = slot->bitmap.buffer;
 				 */
+	/* color data */
+	EGI_16BIT_COLOR *color; /* For FT sympage, if color font. */
 
 	/* maximum index number of symbols in this page, start from 0 */
 	int  maxnum; /* maxnum+1 = total number,

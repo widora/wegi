@@ -38,6 +38,9 @@ Journal:
 	1. symbol_writeFB(): Add check zbuff.
 2021-03-25:
 	1. symbol_writeFB(): Add zpos for zbuff[].
+2022-05-27:
+	1. Add member 'color' for EGI_SYMPAGE.
+	2. symbol_writeFB(): If sym_page has color data, then assign pcolor=sym_page->color[poff].
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -1005,9 +1008,13 @@ inline void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
 					pcolor = ~pcolor;
 				}
 
-				/*  if use given symbol/font color  */
+				/* If use given symbol/font color  */
 				if(fontcolor >= 0)
 					pcolor=(uint16_t)fontcolor;
+
+				/* Finally, if has color data, color font/emoji etc. HK2022-05-27 */
+				if(sym_page->color)
+					pcolor=sym_page->color[poff];
 
 		 	   /* ------------------------ ( for Virtual FB ) ---------------------- */
 			   /* Note: Luma decrement NOT applied! */
@@ -1128,7 +1135,7 @@ inline void symbol_writeFB(FBDEV *fb_dev, const EGI_SYMPAGE *sym_page, 	\
                 			return;
         			}
 
-				/* if apply alpha: front pixel, background pixel, alpha value */
+				/* If apply alpha: front pixel, background pixel, alpha value */
 				if(sym_page->alpha) {
 					if(opaque==255) { /* Speed UP!! */
 	                    			//pcolor=COLOR_16BITS_BLEND( pcolor,

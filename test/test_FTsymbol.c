@@ -3,6 +3,11 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
+Reference:
+1. Test fonts: https://www.fontke.com
+2. Unicode emoji characters and sequences:
+   https://www.unicode.org/emoji/charts/emoji-list.html
+
 Journal:
 2022-05-21:
 	1. Compare advances by calling FTsymbol_unicode_writeFB() and FT_Get_Advances()
@@ -20,6 +25,36 @@ Midas Zhou
 #include "egi_cstring.h"
 #include "egi_utils.h"
 #include "egi_gif.h"
+
+bool IsCBDT(FT_Face face) {
+	static const uint32_t tag = FT_MAKE_TAG('C', 'B', 'D', 'T');
+	unsigned long length = 0;
+	FT_Load_Sfnt_Table(face, tag, 0, NULL, &length);
+	if (length)
+		return true;
+	return false;
+}
+
+bool IsCBLC(FT_Face face) {
+        static const uint32_t tag = FT_MAKE_TAG('C', 'B', 'L', 'C');
+        unsigned long length = 0;
+        FT_Load_Sfnt_Table(face, tag, 0, NULL, &length);
+        if (length)
+                return true;
+        return false;
+}
+
+bool IsSBIX(FT_Face face) {
+        static const uint32_t tag = FT_MAKE_TAG('S', 'B', 'I', 'X');
+        unsigned long length = 0;
+        FT_Load_Sfnt_Table(face, tag, 0, NULL, &length);
+        if (length)
+                return true;
+        return false;
+}
+
+
+
 
 int main(int argc, char **argv)
 {
@@ -62,6 +97,13 @@ int main(int argc, char **argv)
         	return -1;
   	}
 
+ 	printf("FTsymbol_load_sysemojis()...\n");
+	if(FTsymbol_load_sysemojis() !=0) {
+        	printf("Fail to load FT sysemojis, quit.\n");
+        	return -1;
+  	}
+
+
 #if 1 /* ---------- TEST: Emoji --------------- */
 	/* Initilize sys FBDEV */
   	printf("init_fbdev()...\n");
@@ -74,9 +116,12 @@ int main(int argc, char **argv)
 
 	clear_screen(&gv_fb_dev, WEGI_COLOR_BLACK);
 
-	FT_Face face=egi_sysfonts.special; //regular;
-	int fw=100;
-	int fh=100; //20
+	/* Assign face */
+	FT_Face face=egi_sysfonts.special;
+//	FT_Face face=egi_sysfonts.emojis;
+
+	int fw=50;
+	int fh=50; //20
 	wchar_t wcode=0x1F600; //FF1A;  /* U+FF1A: full width colon */
 	int xleft;
 	FT_Fixed  advance;
@@ -86,20 +131,73 @@ int main(int argc, char **argv)
 	int len;
 	char uchar[UNIHAN_UCHAR_MAXLEN];
 
-#if 1 ///////////// Emoji to file /////////////////////
-//	wcode= FT_Get_First_Char(face, &gindex);
-	wcode = 0x1F600;
- while( gindex!=0 ) {
+	/* Common */
+	printf("Style name: %s\n", face->style_name);
+	printf("It contains %ld faces and %ld glyphs.\n", face->num_faces, face->num_glyphs);
+
+	/* Check color */
+	if( FT_HAS_COLOR(face) )
+	   printf("The font face has color data!\n");
+	else
+	   printf("The font face has NO color data!\n");
+
+	if( IsCBDT(face) )
+	   printf("CBDT font!\n");
+	else if( IsSBIX(face) )
+	  printf("SBIX font!\n");
+	else if( IsCBLC(face) )
+	  printf("CBLC font!\n");
+	else
+	   printf("Not CBDT/CBLC/SBIX font!\n");
+
+	/* Chek font size */
+	if( face->num_fixed_sizes==0 )
+		printf("The font face has NO fixed sizes!\n");
+	else {
+		printf("The font face has %d fixed sizes!\n", face->num_fixed_sizes);
+		int i;
+		for(i=0; i< face-> num_fixed_sizes; i++) {
+			printf("size[%d]: W%dxH%d \n", i, face->available_sizes[i].width, face->available_sizes[i].height);
+		}
+	}
+
+	/* Get range */
+	wchar_t wlast;
+	wcode= FT_Get_First_Char(face, &gindex);
+	printf("First wcode: U+%X, gindex=%d\n", wcode, gindex);
+	wlast=wcode;
+	while (gindex!=0) { // && wcode!=0) { <---- NOPE! wcode MAYBE 0!
+		wcode=FT_Get_Next_Char(face, wlast, &gindex);
+		//printf("Last wcode: U+%X, gindex=%d\n", wlast, gindex);
+
+		if(gindex!=0)
+			wlast=wcode;
+	}
+	printf("Ok, Last wcode: U+%X, gindex=%d\n", wlast, gindex);
+
+	wcode= FT_Get_First_Char(face, &gindex);
+	//wcode = 0x10000; //0x1F600;
+	//wcode = 0x2709;
+ while(gindex!=0 ) {
+
+	#if 0
+        if(gindex==0) {
+		//break;
+		wcode= FT_Get_First_Char(face, &gindex);
+        }
+	#endif
+
      #if 0
 	if(wcode>0x1FAAA)  //6A5)
 		wcode = 0x1F600;
      #endif
 
-	#if 1 /* Save to utf8 encoding to a file */
+	#if 0 /* Save to utf8 encoding to a file */
 	len=char_unicode_to_uft8(&wcode, uchar);
-	egi_copy_to_file("/tmp/emojis.txt", (UFT8_PCHAR)uchar, len, 0);
+	egi_copy_to_file("/tmp/emojis5.txt", (UFT8_PCHAR)uchar, len, 0);
 	#endif
 
+#if 1
 	clear_screen(&gv_fb_dev, WEGI_COLOR_GRAYC);
 
 	/* 1. Get advance by calling FTsymbol_unicode_writeFB() */
@@ -107,25 +205,19 @@ int main(int argc, char **argv)
 	FTsymbol_unicode_writeFB( &gv_fb_dev, face,         /* FBdev, fontface */
 				      	  fw, fh, wcode, &xleft, 	    /* fw,fh, wcode, *xleft */
 					  (320-(fw+fw/4+fw/8))/2, (240-(fh+fh/4+fh/16))/2, //30, 30,  /* x0,y0, */
-                       	             	  WEGI_COLOR_BLACK, -1, 255);         /* fontcolor, transcolor,opaque */
+                       	             	  WEGI_COLOR_BLUE, -1, 255);         /* fontcolor, transcolor,opaque */
 
-	printf("FTsymbol_unicode_writeFB(): Unicode U+%X advance=%d\n", wcode, gv_fb_dev.pos_xres-xleft);
 	fb_render(&gv_fb_dev);
+#endif
+	printf("FTsymbol_unicode_writeFB(): Unicode U+%X advance=%d\n", wcode, gv_fb_dev.pos_xres-xleft);
 
 	wcode=FT_Get_Next_Char(face, wcode, &gindex);
 	//sleep(1);
-	usleep(50000);
-
+	//usleep(100000);
  }
-	egi_copy_to_file("/tmp/emojis.txt", (UFT8_PCHAR)"\n", 1,0);
-
-#else /////////////////// File to emojis ///////////////////////
-
-
-
-#endif
-
-
+	#if 0 /* Save to utf8 encoding to a file */
+	egi_copy_to_file("/tmp/emojis5.txt", (UFT8_PCHAR)"\n", 1,0);
+	#endif
 
 exit(0);
 #endif /////////////////////////////////////////////////////////////////////////
@@ -426,3 +518,6 @@ while(1) {
 #endif
         return 0;
 }
+
+
+

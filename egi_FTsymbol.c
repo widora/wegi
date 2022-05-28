@@ -6,6 +6,7 @@ published by the Free Software Foundation.
 Note:
 1. FreeType 2 is licensed under FTL/GPLv3 or GPLv2.
    Based on freetype-2.5.5
+2. Unicode emoji characters and sequences: https://www.unicode.org/emoji/charts/emoji-list.html
 
 TODO:
 1.Font size class, ratio of fw/fh to be fixed!
@@ -45,6 +46,13 @@ Journal:
 2021-11-26:
 	1. FTsymbol_uft8strings_writeFB(). If *p gets to the end of the string
 	   with just xleft==0, then NO need for increment of ln/xleft/py.
+2022-05-26:
+	1. Add egi_sysemojis.
+	2. FTsymbol_load_sysemojis()
+	3. Modify functions for Emojis font:
+	   FTsymbol_load_library(), FTsymbol_load_sysfonts(), FTsymbol_load_appfonts()
+2022-05-27:
+	1. FTsymbol_unicode_writeFB(): Add case FT_HAS_COLOR.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -55,7 +63,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "egi_cstring.h"
 #include "egi_utils.h"
 #include "egi_debug.h"
-//#include "sys_list.h"  /* container_of() */
+#include "sys_list.h"  /* container_of() */
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <freetype2/ft2build.h>
@@ -68,6 +76,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 EGI_SYMPAGE sympg_ascii={0}; 	/* default  LiberationMono-Regular */
 
 EGI_FONTS  egi_sysfonts = {.ftname="sysfonts",};
+EGI_FONTS  egi_sysemojis = {.ftname="sysemojis",};
 EGI_FONTS  egi_appfonts = {.ftname="appfonts",};
 EGI_FONT_BUFFER *egi_fontbuffer;
 
@@ -127,28 +136,72 @@ int  FTsymbol_load_sysfonts(void)
 	char fpath_light[EGI_PATH_MAX+EGI_NAME_MAX];
 	char fpath_bold[EGI_PATH_MAX+EGI_NAME_MAX];
 	char fpath_special[EGI_PATH_MAX+EGI_NAME_MAX];
+	char fpath_emojis[EGI_PATH_MAX+EGI_NAME_MAX];
 
-	/* read egi.conf and get fonts paths */
+	/* Read egi.conf and get fonts paths */
 	egi_get_config_value("SYS_FONTS","regular",fpath_regular);
 	egi_get_config_value("SYS_FONTS","light",fpath_light);
 	egi_get_config_value("SYS_FONTS","bold",fpath_bold);
 	egi_get_config_value("SYS_FONTS","special",fpath_special);
+	egi_get_config_value("SYS_FONTS","emojis",fpath_emojis);
 
 	egi_sysfonts.fpath_regular=fpath_regular;
 	egi_sysfonts.fpath_light=fpath_light;
 	egi_sysfonts.fpath_bold=fpath_bold;
 	egi_sysfonts.fpath_special=fpath_special;
+	egi_sysfonts.fpath_emojis=fpath_emojis;
 
-	/* load FT library with default fonts */
+	/* Load FT library with default fonts */
 	ret=FTsymbol_load_library( &egi_sysfonts );
 	if(ret) {
 		//return -1;
 		// Go on....
-		EGI_PLOG(LOGLV_ERROR,"%s: Some sysfonts missed or not configured!\n", __func__ );
+		EGI_PLOG(LOGLV_ERROR,"%s: Some sysfonts missed or NOT configured!\n", __func__ );
 	}
 
 	return 0;
 }
+
+
+#if 1 ////////////////////////////////////////
+/*--------------------------------------
+Load FreeType2 EGI_FONT egi_sysemojis
+for main process, as small as possible.
+
+return:
+	0	OK
+	<0	Fails
+---------------------------------------*/
+int  FTsymbol_load_sysemojis(void)
+{
+	int ret=0;
+	char fpath_regular[EGI_PATH_MAX+EGI_NAME_MAX];
+	char fpath_light[EGI_PATH_MAX+EGI_NAME_MAX];
+	char fpath_bold[EGI_PATH_MAX+EGI_NAME_MAX];
+	char fpath_special[EGI_PATH_MAX+EGI_NAME_MAX];
+
+	/* Read egi.conf and get fonts paths */
+	egi_get_config_value("SYS_EMOJIS","regular",fpath_regular);
+	egi_get_config_value("SYS_EMOJIS","light",fpath_light);
+	egi_get_config_value("SYS_EMOJIS","bold",fpath_bold);
+	egi_get_config_value("SYS_EMOJIS","special",fpath_special);
+
+	egi_sysemojis.fpath_regular=fpath_regular;
+	egi_sysemojis.fpath_light=fpath_light;
+	egi_sysemojis.fpath_bold=fpath_bold;
+	egi_sysemojis.fpath_special=fpath_special;
+
+	/* Load FT library with default fonts */
+	ret=FTsymbol_load_library( &egi_sysemojis );
+	if(ret) {
+		//return -1;
+		// Go on....
+		EGI_PLOG(LOGLV_ERROR,"%s: Some sysEmojis missed or NOT configured!\n", __func__ );
+	}
+
+	return 0;
+}
+#endif ////////////////////////////////////////////
 
 /*--------------------------------------
 Load FreeType2 fonts for all APPs.
@@ -164,19 +217,22 @@ int  FTsymbol_load_appfonts(void)
 	char fpath_light[EGI_PATH_MAX+EGI_NAME_MAX]={0};
 	char fpath_bold[EGI_PATH_MAX+EGI_NAME_MAX]={0};
 	char fpath_special[EGI_PATH_MAX+EGI_NAME_MAX]={0};
+	char fpath_emojis[EGI_PATH_MAX+EGI_NAME_MAX];
 
-	/* read egi.conf and get fonts paths */
+	/* Read egi.conf and get fonts paths */
 	egi_get_config_value("APP_FONTS","regular",fpath_regular);
 	egi_get_config_value("APP_FONTS","light",fpath_light);
 	egi_get_config_value("APP_FONTS","bold",fpath_bold);
 	egi_get_config_value("APP_FONTS","special",fpath_special);
+	egi_get_config_value("APP_FONTS","emojis",fpath_emojis);
 
 	egi_appfonts.fpath_regular=fpath_regular;
 	egi_appfonts.fpath_light=fpath_light;
 	egi_appfonts.fpath_bold=fpath_bold;
 	egi_appfonts.fpath_special=fpath_special;
+	egi_appfonts.fpath_emojis=fpath_emojis;
 
-	/* load FT library with default fonts */
+	/* Load FT library with default fonts */
 	ret=FTsymbol_load_library( &egi_appfonts );
 	if(ret) {
 		EGI_PLOG(LOGLV_WARN,"%s: Some appfonts missed or not configured!", __func__ );
@@ -290,13 +346,11 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
         if(error==FT_Err_Unknown_File_Format) {
                 EGI_PLOG(LOGLV_WARN,"%s: [%s] font file '%s' opens, but its font format is unsupported!",
 								__func__, symlib->ftname,symlib->fpath_regular);
-//		goto FT_FAIL;
 		ret=1;
         }
         else if ( error ) {
                 EGI_PLOG(LOGLV_WARN,"%s: Fail to open or read [%s] REGULAR font file '%s'.",
  							__func__, symlib->ftname, symlib->fpath_regular);
-//		goto FT_FAIL;
 		ret=2;
         }
 	else {
@@ -309,13 +363,11 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
         if(error==FT_Err_Unknown_File_Format) {
                 EGI_PLOG(LOGLV_WARN,"%s: [%s] font file '%s' opens, but its font format is unsupported!",
 						     	__func__, symlib->ftname, symlib->fpath_light);
-//		goto FT_FAIL;
 		ret=3;
         }
         else if ( error ) {
                 EGI_PLOG(LOGLV_WARN,"%s: Fail to open or read [%s] LIGHT font file '%s'.",
 						 	__func__, symlib->ftname, symlib->fpath_light);
-//		goto FT_FAIL;
 		ret=4;
         }
 	else {
@@ -328,13 +380,11 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
         if(error==FT_Err_Unknown_File_Format) {
                 EGI_PLOG(LOGLV_WARN,"%s: [%s] font file '%s' opens, but its font format is unsupported!",
 							__func__, symlib->ftname, symlib->fpath_bold);
-//		goto FT_FAIL;
 		ret=5;
         }
         else if ( error ) {
                 EGI_PLOG(LOGLV_WARN,"%s: Fail to open or read [%s] BOLD font file '%s'.",
 							__func__, symlib->ftname,symlib->fpath_bold);
-//		goto FT_FAIL;
 		ret=6;
         }
 	else {
@@ -347,19 +397,35 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
         if(error==FT_Err_Unknown_File_Format) {
                 EGI_PLOG(LOGLV_WARN,"%s: [%s] font file '%s' opens, but its font format is unsupported!",
 							__func__, symlib->ftname, symlib->fpath_special);
-//		goto FT_FAIL;
 		ret=7;
         }
         else if ( error ) {
                 EGI_PLOG(LOGLV_WARN,"%s: Fail to open or read [%s] SPECIAL font file '%s'.\n",
 							__func__, symlib->ftname, symlib->fpath_special);
-//		goto FT_FAIL;
 		ret=8;
         }
 	else {
         	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] SPECIAL font file '%s', type face has %s kerning value.",
 					__func__, symlib->ftname, symlib->fpath_special, FT_HAS_KERNING(symlib->special) ? " ":"NO");
 	}
+
+	/* 6. Create face object: Emojis */
+        error = FT_New_Face( symlib->library, symlib->fpath_emojis, 0, &symlib->emojis );
+        if(error==FT_Err_Unknown_File_Format) {
+                EGI_PLOG(LOGLV_WARN,"%s: [%s] font file '%s' opens, but its font format is unsupported!",
+							__func__, symlib->ftname, symlib->fpath_emojis);
+		ret=9;
+        }
+        else if ( error ) {
+                EGI_PLOG(LOGLV_WARN,"%s: Fail to open or read [%s] EMOJI font file '%s'.\n",
+							__func__, symlib->ftname, symlib->fpath_emojis);
+		ret=10;
+        }
+	else {
+        	EGI_PLOG(LOGLV_CRITICAL,"%s: Succeed to open and read [%s] EMOJI font file '%s', type face has %s kerning value.",
+					__func__, symlib->ftname, symlib->fpath_emojis, FT_HAS_KERNING(symlib->emojis) ? " ":"NO");
+	}
+
 
 	return ret;
 
@@ -369,6 +435,7 @@ int FTsymbol_load_library( EGI_FONTS *symlib )
   	FT_Done_Face    ( symlib->light );
   	FT_Done_Face    ( symlib->bold );
   	FT_Done_Face    ( symlib->special );
+  	FT_Done_Face    ( symlib->emojis );
   	FT_Done_FreeType( symlib->library );
 
 	return error;
@@ -1108,8 +1175,15 @@ void FTsymbol_unicode_print(wchar_t wcode)
    a good idea to display CJK and wester charatcters separately by calling differenct functions.
    i.e. symbol_writeFB() for alphabets and FTsymbol_unicode_writeFB() for CJKs.
 7. Note: FT_Face->size->metrics.height will cover all font height and with certain gaps.
+8. If wcode NOT available in face, then resort to  egi_sysfont.emojis.
+9. The lib_mutex applys ONLY for EGI_SYSFONT at present.
 
 TODO: buffer all font bitmaps for further use.
+
+Journal:
+2022-05-26:
+	1. If wcode NOT available in face, then resort to egi_sysfont.emojis.
+
 
 @fbdev:         FB device
 		or Virt FB!!
@@ -1145,20 +1219,20 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
   	FT_GlyphSlot slot = face->glyph;
 	EGI_SYMPAGE ftsympg={0};	/* a symbol page to hold the character bitmap */
 	ftsympg.symtype=symtype_FT2;
-
+	int gindex;	/* char glyph index */
 	int advanceX;   /* X advance in pixels */
 	int bbox_W;	/* boundary box width, taken bbox_H=fh */
 	int delX;	/* adjust bitmap position in boundary box, according to bitmap_top */
 	int delY;
 	int sdw;	/* Self defined width for the wcode */
 
-	/* check input data */
+	/* 1. Check input data */
 	if(face==NULL) {
 		printf("%s: input FT_Face is NULL!\n",__func__);
 		return;
 	}
 
-	/* Mutex lock FT_library */
+	/* 2. Mutex lock FT_library */
 	// FT_Library   FTlib=face->glyph->library;
 	// EGI_FONTS *fonts=container_of(&FTlib, EGI_FONTS, library); /* XXX NOPE! FT_Library is a pointer! */
         // if(pthread_mutex_lock(&fonts->lib_mutex) !=0 ){
@@ -1169,7 +1243,7 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 /* ------ >>>  Critical Zone  */
 
 
-#if 1 /* ----------------    TEST: EGI_FONT_BUFFER  -------------------- */
+#if 1 /* ----------------    3. TEST: EGI_FONT_BUFFER  -------------------- */
 	EGI_WCHAR_GLYPH *wchar_glyph;
 if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 	wchar_glyph=egi_fontbuffer->fontdata +(wcode-egi_fontbuffer->unistart);
@@ -1223,17 +1297,197 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 }
 #endif /* ----- END USE EGI_FONT_BUFFER ----- */
 
-	/* set character size in pixels */
-	error = FT_Set_Pixel_Sizes(face, fw, fh);
-   	/* OR set character size in 26.6 fractional points, and resolution in dpi
-   	   error = FT_Set_Char_Size( face, 32*32, 0, 100,0 ); */
+TRY_LOAD_CHAR:
+
+	/* 4. Check if wcode is included in the face. */
+	if( FT_Get_Char_Index(face, wcode)==0 ) {
+//		printf("%s: FT_Get_Char_Index fails!\n", __func__);
+		#if 0  /* Check if it's Emojis in egi_sysemojis */
+		if( FT_Get_Char_Index(egi_sysemojis.regular, wcode) ) {
+//			printf("%s: wcode U+%X is an Emoji!\n",__func__, wcode);
+			face=egi_sysemojis.regular;  /* <-------- Shift face and slot */
+			slot = face->glyph;
+		}
+		#else /* Check if its's Emojis in egi_sysfonts.emojis */
+		if( FT_Get_Char_Index(egi_sysfonts.emojis, wcode) ) {
+//			printf("%s: wcode U+%X is an Emoji!\n",__func__, wcode);
+			face=egi_sysfonts.emojis;  /* <-------- Shift face and slot */
+			slot = face->glyph;
+		}
+		#endif
+		else {
+/* ------ <<<  Critical Zone  */
+		        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+			return;
+		}
+	}
+
+    /* 5. Load char and render glyph */
+    /* 5.1 FT HAS COLOR */
+    if(FT_HAS_COLOR(face)) {   /* FT_HAS_COLOR(face) == face->face_flags & FT_FACE_FLAG_COLOR */
+	/* Note:
+	*      1. Four major color font formats: (Ref. https://www.colorfonts.co/)
+	*	   .Google CBDT/CBLC tables		 Vector+Bitmap
+	*	   .Apple sbix table			 Bitmap ( +libpng,  --with-png=yes )
+	*	   .Microsoft COLR/CPAL tables		 Bitmap
+	*	   .Joint Adobe and Mozilla SVG tables   Vector
+	*/
+
+	/* 5.1.1. FT has fixed sizes ---> Cross check 5.1.1.1  */
+	if ( FT_HAS_FIXED_SIZES(face) ){
+//		egi_dpstd("FT_HAS_FIXED_SIZES!\n");
+		//if(FT_Select_Size(face, 0)) egi_dpstd("FT_Select_Size fails!\n");
+
+		/* 5.1.1.1. Pick the nearest size  ---- Compare height ---- */
+                int i, snum; /* snum: size index */
+                for(i=0; i< face-> num_fixed_sizes; i++) {
+			if(face->available_sizes[i].height > fh ) //face->available_sizes[i].width
+				break;
+		}
+		if(i==0)  snum=0;
+		else if(i==face->num_fixed_sizes)  snum=face->num_fixed_sizes-1;
+		else {
+		   if( fh - face->available_sizes[i-1].height > face->available_sizes[i].height -fh )
+			snum=i;
+		    else
+			snum=i-1;
+		}
+//		egi_dpstd("Pick size num=%d\n", snum);
+		FT_Select_Size(face, snum);
+	}
+	/* 5.1.2. No fixed sizes */
+	else {
+		FT_Set_Pixel_Sizes(face, fw, fh);
+	}
+
+	/* 5.1.3 Get char and render */
+	gindex = FT_Get_Char_Index(face, wcode); /* Regain as face changed see 4.*/
+
+//	error = FT_Load_Glyph(face, gindex,  FT_LOAD_NO_SCALE|FT_LOAD_COLOR|FT_LOAD_FORCE_AUTOHINT|FT_LOAD_TARGET_NORMAL);
+	error = FT_Load_Glyph(face, gindex, FT_LOAD_COLOR); //XXX |FT_LOAD_NO_SCALE); //FT_LOAD_COLOR|FT_LOAD_DEFAULT);
+						//FT_LOAD_DEFAULT==0 |FT_LOAD_RENDER ; FT_LOAD_SBITS_ONLY
+	if(error) egi_dpstd("FT_Load_Glyph error=%d\n", error);
+//	error = FT_Render_Glyph(face->glyph,  FT_RENDER_MODE_NORMAL); //FT_RENDER_MODE_LCD, FT_RENDER_MODE_NORMAL
 	if(error) {
-		printf("%s: FT_Set_Pixel_Sizes() fails!\n",__func__);
+		printf("%s: FT_Load/Render_Glyph() fails with gindex=%d!\n",__func__, gindex);
 
 /* ------ <<<  Critical Zone  */
 	        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
 
 		return;
+	}
+
+#if 0	/* TEST: ----- Pixel mode : ftimage.h ----- */
+		switch(slot->bitmap.pixel_mode) {
+		case FT_PIXEL_MODE_NONE: printf("FT_PIXEL_MODE_NONE ");break;
+		case FT_PIXEL_MODE_MONO: printf("FT_PIXEL_MODE_MONO ");break;
+		case FT_PIXEL_MODE_GRAY: printf("FT_PIXEL_MODE_GRAY ");break;
+		case FT_PIXEL_MODE_GRAY2: printf("FT_PIXEL_MODE_GRAY2 ");break;
+		case FT_PIXEL_MODE_GRAY4: printf("FT_PIXEL_MODE_GRAY4 ");break;
+		case FT_PIXEL_MODE_LCD: printf("FT_PIXEL_MODE_LCD ");break;
+		case FT_PIXEL_MODE_LCD_V: printf("FT_PIXEL_MODE_LCD_V ");break;
+		case FT_PIXEL_MODE_BGRA:printf("FT_PIXEL_MODE_BGRA ");break;
+		default: printf("FT_PIXEL_MODE_UNKNOWN ");break;
+	}
+#endif
+
+	/* 5.1.4 Assign symheight/ftwidth */
+	ftsympg.symheight = slot->bitmap.rows; //fh; /* font height in pixels is bigger than bitmap.rows! */
+	ftsympg.ftwidth   = slot->bitmap.width; /* ftwidth <= (slot->advance.x>>6) */
+
+	/* 5.1.5 Extract color/alpha for ftsympg */
+	if( slot->bitmap.buffer && slot->bitmap.pixel_mode==FT_PIXEL_MODE_BGRA) {
+		/* Allocate alpha and color */
+		ftsympg.alpha = malloc(ftsympg.symheight*ftsympg.ftwidth*sizeof(EGI_8BIT_ALPHA));
+		ftsympg.color = malloc(ftsympg.symheight*ftsympg.ftwidth*sizeof(EGI_16BIT_COLOR));
+		if( ftsympg.alpha==NULL || ftsympg.color==NULL) {
+			printf("%s: Fail to malloc alpha/color for ftsympg!\n",__func__);
+
+/* ------ <<<  Critical Zone  */
+		        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+			return;
+		}
+
+		/* Get alpha and color */
+		int i,j;
+		uint8_t *bgra=slot->bitmap.buffer;
+		for(i=0; i<ftsympg.symheight; i++) {
+		   for(j=0; j<ftsympg.ftwidth; j++) {
+			/* Raw data format: BGRA */
+			ftsympg.color[i*ftsympg.ftwidth+j]=COLOR_RGB_TO16BITS(bgra[2], bgra[1], bgra[0]);
+			ftsympg.alpha[i*ftsympg.ftwidth+j]=bgra[3];
+			bgra +=4;
+	   	   }
+		}
+	}
+	//else { ftsympg.color=NULL; ftsympg.alpha=NULL; }
+
+    } /* END 5.1 */
+
+    /* 5.2 FT HAS NO COLOR */
+    else {
+
+#if 0	/* C2.1   TEST: ---  Check if Emoji/Others 2022-05-26 */
+	if( FT_Get_Char_Index(face, wcode)==0 ) {
+//		printf("%s: FT_Get_Char_Index fails!\n", __func__);
+		 // IF(IS_EMOJI()) {   https://www.unicode.org/emoji/charts/emoji-list.html
+		#if 0  /* Emojis in egi_sysemojis */
+		if( FT_Get_Char_Index(egi_sysemojis.regular, wcode) ) {
+//			printf("%s: wcode U+%X is an Emoji!\n",__func__, wcode);
+			face=egi_sysemojis.regular;  /* <-------- Shift face and slot */
+			slot = face->glyph;
+			goto TRY_LOAD_CHAR;
+		}
+		#else /* Emojis in egi_sysfonts.emojis */
+		if( FT_Get_Char_Index(egi_sysfonts.emojis, wcode) ) {
+//			printf("%s: wcode U+%X is an Emoji!\n",__func__, wcode);
+			face=egi_sysfonts.emojis;  /* <-------- Shift face and slot */
+			slot = face->glyph;
+			goto TRY_LOAD_CHAR;
+		}
+		#endif
+		else {
+/* ------ <<<  Critical Zone  */
+		        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+			return;
+		}
+	}
+#endif /////////////////////////////////////
+
+	/* C2.2 FT has fixed size, pick one.  */
+	if ( FT_HAS_FIXED_SIZES(face) ) {
+//		egi_dpstd("FT_HAS_FIXED_SIZES!\n");
+
+		/* C2.2.1. Pick the nearest size ---> Cross check C1.1.1 */
+                int i, snum; /* snum: size index */
+                for(i=0; i< face-> num_fixed_sizes; i++) {
+			if(face->available_sizes[i].height > fh ) //face->available_sizes[i].width
+				break;
+		}
+		if(i==0)  snum=0;
+		else if(i==face->num_fixed_sizes)  snum=face->num_fixed_sizes-1;
+		else {
+		   if( fh - face->available_sizes[i-1].height > face->available_sizes[i].height -fh )
+			snum=i;
+		    else
+			snum=i-1;
+		}
+//		egi_dpstd("Pick size num=%d\n", snum);
+		FT_Select_Size(face, snum);
+	}
+	/* C2.3 FT has no fixed size, set character size  */
+	else {
+		error = FT_Set_Pixel_Sizes(face, fw, fh);
+	   	/* OR set character size in 26.6 fractional points, and resolution in dpi
+   		   error = FT_Set_Char_Size( face, 32*32, 0, 100,0 ); */
+		if(error) {
+			printf("%s: FT_Set_Pixel_Sizes() fails, only fixed sizes?\n",__func__);
+
+/* ------ <<<  Critical Zone  */
+	        	pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+
+			return;
+		}
 	}
 
 	/* This is the MAX. possible height of glyph, as for line distance. */
@@ -1245,11 +1499,10 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 	/* Load char and render, old data in face->glyph will be cleared */
     	error = FT_Load_Char( face, wcode, FT_LOAD_RENDER );
     	if (error) {
-		egi_dperr("FT_Load_Char() fails! wcode=0x%04X\n", wcode);
+		egi_dperr("error=%d, FT_Load_Char() fails! wcode=0x%04X\n", error,wcode);
 
 /* ------ <<<  Critical Zone  */
 	        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
-
 		return;
 	}
 
@@ -1257,6 +1510,19 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 	ftsympg.alpha 	  = slot->bitmap.buffer;
 	ftsympg.symheight = slot->bitmap.rows; //fh; /* font height in pixels is bigger than bitmap.rows! */
 	ftsympg.ftwidth   = slot->bitmap.width; /* ftwidth <= (slot->advance.x>>6) */
+
+    }  /* END: face has NO color */
+
+
+#if 0 /* TEST: bitmap data ------------ */
+	int k,j;
+	printf("bitmap: rows=%d, width=%d\n", ftsympg.symheight, ftsympg.ftwidth);
+	for(k=0; k<ftsympg.symheight; k++) {
+		for(j=0; j<ftsympg.ftwidth; j++)
+			printf("%d ", ftsympg.alpha[ftsympg.ftwidth*k+j]);
+		printf("\n");
+	}
+#endif
 
 	/* Check whether xleft is used up first. */
 	advanceX = slot->advance.x>>6;
@@ -1286,6 +1552,14 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 			printf("wcode U+%X has no bitmap, and advanceX=%d.\n", wcode,advanceX);
 
 	}
+#endif
+
+
+#if 0	/* TEST:  ------ Bitmap and advance --------- */
+        if(ftsympg.alpha==NULL && advanceX==0 )
+                printf("wcode U+%X has no bitmap, and zero width.\n", wcode);
+        else if(ftsympg.alpha==NULL)
+                printf("wcode U+%X has no bitmap, and advanceX=%d.\n", wcode,advanceX);
 #endif
 
 
@@ -1321,6 +1595,9 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 /* ------ <<<  Critical Zone  */
 	        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
 
+		/* Free color/alpha */
+		if(FT_HAS_COLOR(face)) { free(ftsympg.alpha); free(ftsympg.color); }
+
 		return;  /* DO NOT draw image */
 	}
 	else
@@ -1338,6 +1615,9 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 /* ------ <<<  Critical Zone  */
 	        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
 
+		/* Free color/alpha */
+		if(FT_HAS_COLOR(face)) { free(ftsympg.alpha); free(ftsympg.color); }
+
 		return;		/* Ignore bitmap */
 	}
 	else  {
@@ -1351,6 +1631,9 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 /* ------ <<<  Critical Zone  */
 	        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
 
+		/* Free color/alpha */
+		if(FT_HAS_COLOR(face)) { free(ftsympg.alpha); free(ftsympg.color); }
+
 		return;
 	}
 
@@ -1358,10 +1641,18 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 
      }  /* END of if( xleft != NULL ) */
 
-	/* adjust bitmap position relative to boundary box */
-	delX= slot->bitmap_left;
-	delY= -slot->bitmap_top + fh;
+
+	/* Adjust bitmap position relative to boundary box */
+	if(FT_HAS_COLOR(face)) { /* TODO: Only for some kind of Emojis? */
+		delX=0; //delX=(fw-ftsympg.ftwidth)/2;
+		delY=0; //delY=(fh-ftsympg.symheight)/2;
+	} else {
+		delX= slot->bitmap_left;
+		delY= -slot->bitmap_top + fh;
+	}
 	//printf("symH=%d,  dely=%d\n", ftsympg.symheight,delY);
+	//printf("Origin: (%d,%d)\n",x0+delX, y0+delY);
+
 
 #if 0 /* ----TEST: Display Boundary BOX------- */
 	/* Note: Assume boundary box start from x0,y0(same as bitmap)
@@ -1375,6 +1666,9 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 	if(fb_dev != NULL) {
 		symbol_writeFB(fb_dev, &ftsympg, fontcolor, transpcolor, x0+delX, y0+delY, 0, opaque);
 	}
+
+	/* Free color/alpha */
+	if(FT_HAS_COLOR(face)) { free(ftsympg.alpha); free(ftsympg.color); }
 
 /* ------ <<<  Critical Zone:  NOTE: ftsympg has ref. to slot->bitmap.buffer!  */
         pthread_mutex_unlock(&egi_sysfonts.lib_mutex);

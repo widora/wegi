@@ -65,6 +65,8 @@ Note:
 5. Correct typing for an existed unihangroup: Input the unihangroup and correct typing in file PINYIN_UPDATE_FPATH,
    then call UniHanGroup_load_CizuTxt() and UniHanGroup_update_typings().
 
+6. Should avoid more than one thread writing/rendering the surface!
+
 TODO:
 1. English words combination.
 2. IO buffer/continuous key press/ slow writeFB response.
@@ -89,6 +91,10 @@ Journal
 	2. Add save page pos offset for bookmark.
 2022-05-20:
 	1. Compare charmap result with FBDEV=NULL and FBDEV!=NULL.
+2022-05-23:
+	1. Add refresh_surface()
+2022-05-24:
+	1. Add msg queue for requesting render.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -156,6 +162,9 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 char *strInsert="Widora和小伙伴们";
 char *fpath="/mmc/hello.txt";
 
+struct termios old_settings;
+struct termios new_settings;
+
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Text displaying area */
@@ -207,9 +216,9 @@ static int  mouseX, mouseY, mouseZ; /* Mouse point position */
 static int  mouseMidX, mouseMidY;   /* Mouse cursor mid position */
 static int  menuX0, menuY0;
 
-/* For fonts in txtbox */
-static int fw=22;//18;	/* Font size */
-static int fh=24;//20;
+/* For fonts in charmap txtbox */
+static int fw=22; //30; //18;	/* Font size */
+static int fh=24; //40; //20;
 static int fgap=20/4; //5;	/* Text line fgap : TRICKY ^_- */
 static int tlns;  //=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total available line space for displaying txt */
 
@@ -252,12 +261,29 @@ enum WBTMenu_Command {
 };
 static int WBTMenu_Command_ID=WBTMENU_COMMAND_NONE;
 
+/* Message queue */
+#include <sys/ipc.h>
+#include <sys/msg.h>
+key_t mqkey;
+int render_msgid, kev_msgid, mev_msgid;
+
+#define MSG_REFRESH_SURFACE  1
+/***  struct msgbuf {
+ *      long mtype;       // message type, must be > 0
+ *      char mtext[1];    // message data
+ *    };
+ */
+typedef struct msgbuf MSG_BUFF;
+pthread_t  pthread_render;
+void *render_surface(void* argv);
+bool chmap_ready;
+
 /* Functions */
 //static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
 static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny);
-static int FTcharmap_writeFB2(EGI_FTCHAR_MAP *chmap, FBDEV *fbdev, int *penx, int *peny);
+static int FTcharmap_writeFB2(EGI_FTCHAR_MAP *chmap, FBDEV *fbdev, int *penx, int *peny); /* For TEST */
 static void FTcharmap_goto_end(void);
-static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);
+static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);/* For UI, font is regular type. */
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
 //static void draw_mcursor(int x, int y);
 static void draw_mcursor(void);
@@ -271,6 +297,7 @@ static int  load_pinyin_data(void);
 static void save_all_data(void);
 void signal_handler(int signal);
 void draw_palette(int x0, int y0);
+void refresh_surface(void);
 
 
 /* ============================
@@ -315,6 +342,15 @@ int main(int argc, char **argv)
         printf("Fail to load FT sysfonts, quit.\n");
         return -1;
   }
+
+  #if 0  /* Load emojis NOPE */
+  printf("FTsymbol_load_sysemojis()...\n");
+  if(FTsymbol_load_sysemojis() !=0) {
+        printf("Fail to load FT sysemojis, quit.\n");
+        return -1;
+  }
+  #endif
+
   FTsymbol_set_SpaceWidth(1);
   FTsymbol_set_TabWidth(4.5);
 
@@ -353,10 +389,6 @@ int main(int argc, char **argv)
                   /*-----------------------------------
                    *            Main Program
                    -----------------------------------*/
-
-        struct termios old_settings;
-        struct termios new_settings;
-
 	char  ch;
 	int   i,j,k;
 	int   lndis; /* Distance between lines */
@@ -408,8 +440,11 @@ MAIN_START:
 	ActiveComp=CompTXTBox;
 
 	/* Total available lines of space for displaying chars */
-	//lndis=fh+fgap;
+#if 1
+	lndis=fh+fgap;
+#else
 	lndis=FTsymbol_get_FTface_Height(egi_sysfonts.regular, fw, fh);
+#endif
 	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/lndis;
 	printf("Blank lines tlns=%d, lndis=%d\n", tlns, lndis);
 
@@ -539,6 +574,37 @@ MAIN_START:
 	}
 #endif
 
+
+        /* Create System_V message queue */
+        mqkey=ftok(".", 5);
+	/* render_msgid for render */
+        render_msgid = msgget(mqkey, IPC_CREAT|0666);
+        if(render_msgid<0) {
+                egi_dperr("Fail to create render_msgid!");
+		exit(1);
+        }
+
+	/* Start thread_render_surface() */
+	if(pthread_create(&pthread_render, NULL, render_surface, NULL)<0) {
+		printf("Fail to start render_surface()!\n");
+		exit(-1);
+	}
+
+	/* mev_msgid for mouse event */
+	mev_msgid= msgget(mqkey, 0);
+        if(mev_msgid<0) {
+                egi_dperr("Fail to get mev_msgid!");
+		exit(1);
+	}
+	/* kev_msgid for keyboard event */
+	kev_msgid= msgget(mqkey, 0);
+        if(kev_msgid<0) {
+                egi_dperr("Fail to get ev_msgid!");
+		exit(1);
+	}
+
+
+
         /* Init. mouse position */
         mouseX=gv_fb_dev.pos_xres/2;
         mouseY=gv_fb_dev.pos_yres/2;
@@ -567,7 +633,7 @@ MAIN_START:
         new_settings=old_settings;
         new_settings.c_lflag &= (~ICANON);      /* disable canonical mode, no buffer */
         new_settings.c_lflag &= (~ECHO);        /* disable echo */
-        new_settings.c_cc[VMIN]=0;
+        new_settings.c_cc[VMIN]=1;//0;
         new_settings.c_cc[VTIME]=0;
         tcsetattr(0, TCSANOW, &new_settings);
 
@@ -618,12 +684,14 @@ MAIN_START:
 
 	/* TODO: Scroll to let soff to be in the first line of the charmap */
 
-
 	egi_dpstd(DBG_YELLOW"Get to bookmarked soff=%jd page: spcnt=%.2f, off=%d of %d\n"DBG_RESET, soff,
 				(float)(chmap->pref-chmap->txtbuff)/chmap->txtlen, chmap->pref-chmap->txtbuff, chmap->txtlen);
 
+/* ------ */
+chmap_ready=true;
 
 	printf("Loop editing...\n");
+
 
 	/* Loop editing ...   Read from TTY standard input, without funcion keys on keyboard ...... */
 	while(1) {
@@ -634,7 +702,7 @@ MAIN_START:
 		read(STDIN_FILENO, &ch, 1);
 		if(ch>0) {
 		  if(isalpha(ch))
-			printf("'%c'\n",ch);
+			printf("stdin:'%c'\n",ch);
 		  else
 		  	printf("ch=%d\n",ch);
 		}
@@ -772,7 +840,7 @@ MAIN_START:
 				if(enable_pinyin) {
 					/* Shrink maplines, maplinePos[] mem space Ok, increase maplines NOT ok! */
 					if(chmap->maplines>2) {
-						chmap->maplines -= 2;
+						chmap->maplines -= (60/lndis); //2; HK2022-05-28
 						chmap->height=chmap->maplines*lndis; /* Reset chmap.height, to limit chmap.fb_render() */
 					}
 					/* Clear input pinyin buffer */
@@ -781,7 +849,7 @@ MAIN_START:
 				}
 				else {
 					/* Recover maplines */
-					chmap->maplines+=2;
+					chmap->maplines+= (60/lndis); //2;
 					chmap->height=chmap->maplines*lndis;  /* restor chmap.height */
 					unicount=0; HanGroupIndex=0;	/* clear previous unihans */
 				}
@@ -1029,16 +1097,34 @@ MAIN_START:
 			ch=0;
 		}  /* END insert ch */
 
-		/* EDIT:  Need to refresh EGI_FTCHAR_MAP after editing !!! .... */
+
+
+#if 1  ////////////////////  Refresh Surface Items ////////////////////////
+//       refresh_surface();
+
+	/* TEST msg: 2022-05-25: ------------------- */
+        MSG_BUFF msgbuff;
+        int merr;
+        msgbuff.mtype=MSG_REFRESH_SURFACE;
+        merr=msgsnd(render_msgid, (void *)&msgbuff, sizeof(msgbuff.mtext), 0);
+        if(merr<0) {
+        	egi_dperr("msgsnd fails.");
+                //if(errno==EIDRM) egi_dpstd("msgid is invalid! Or the queue is removed.\n");
+                //else if(errno==EAGAIN) egi_dpstd("Insufficient space in the queue!\n");
+        }
+
+#else	/* ------- EDIT:  Need to refresh EGI_FTCHAR_MAP after editing !!! ------  */
 
 		/* Image DivisionS: 1. File top bar  2. Charmap  3. PINYIN IME  4. Sub Menus */
 	/* --- 1. File top bar */
 		draw_filled_rect2(&gv_fb_dev,WEGI_COLOR_GRAY4, 0, 0, gv_fb_dev.pos_xres-1, gv_fb_dev.pos_yres-1); //txtbox.endxy.x, txtbox.startxy.y-1);
 		FTsymbol_writeFB("File  Help",20,5,WEGI_COLOR_WHITE, NULL, NULL);
 		FTsymbol_writeFB("EGI笔记本",140,5,WEGI_COLOR_LTBLUE, NULL, NULL);
+
 	/* --- 2. Charmap Display txt */
         	//fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 		FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+
 	/* --- 3. PINYING IME */
 		if(enable_pinyin) {
 			/* Back pad */
@@ -1047,7 +1133,7 @@ MAIN_START:
 
 			/* Decoration for PINYIN bar */
 			FTsymbol_writeFB("EGI全拼输入", 320-120, txtbox.endxy.y-60+3, WEGI_COLOR_ORANGE, NULL, NULL);
-			fbset_color(WEGI_COLOR_WHITE);
+			fbset_color2(&gv_fb_dev, WEGI_COLOR_WHITE);
 			draw_line(&gv_fb_dev, 15, txtbox.endxy.y-60+3+28, 320-15,txtbox.endxy.y-60+3+28);
 
 			#if SINGLE_PINYIN_INPUT /* PINYIN Input for single UNIHANs  */
@@ -1150,6 +1236,10 @@ MAIN_START:
 		/* Render and bring image to screen */
 		fb_render(&gv_fb_dev);
 		//tm_delayms(20);
+
+#endif /////////////////////  END : Refresh Surface  ////////////////////////
+
+
 	}
 
 
@@ -1249,10 +1339,12 @@ static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny)
 {
 	int ret;
 
+
        	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,   /* FBdev, charmap*/
                                            fw, fh,         /* fontface, fw,fh */
 	                                   -1, 255,      	   	   /* transcolor,opaque */
                                            NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
+
 
         /* Double check! */
         if( chmap->chcount > chmap->mapsize ) {
@@ -1263,6 +1355,7 @@ static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny)
                 printf("WARNING:  chmap.txtdlncount=%d > chmap.txtdlines=%d, some displayed lines has NO position info. in charmap! \n",
                                                                                 	chmap->txtdlncount, chmap->txtdlines);
         }
+
 
 	return ret>0?ret:0;
 }
@@ -1325,8 +1418,8 @@ static void FTcharmap_goto_end(void)
 }
 
 
-/*-------------------------------------
-FTsymbol WriteFB TXT (NOT for Charmap)
+/*----------------------------------------------
+FTsymbol WriteFB for UI (NOT for Charmap txtbox)
 
 With fixed fw/fh/fontface.
 
@@ -1334,7 +1427,7 @@ With fixed fw/fh/fontface.
 @px,py: 	LCD X/Y for start point.
 @color: 	Color for text
 @penx, peny:    pointer to pen X.Y.
---------------------------------------*/
+-----------------------------------------------*/
 static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny)
 {
 	/* Private size */
@@ -1355,6 +1448,7 @@ static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR co
 2. Check and set ACTIVE token for menus.
 3. If click in TXTBOX, set typing cursor or marks.
 4. The function will be pending until there is a mouse event.
+5. Operation to charmap with mutex_lock (+ request).
 ------------------------------------------------------------*/
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus)
 {
@@ -1435,6 +1529,26 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
 		   	while( FTcharmap_locate_charPos2( chmap, mouseMidX, mouseMidY )!=0 ){ tm_delayms(5); } ;
 		}
 	}
+
+#if 1 /* TEST msg: 2022-05-23: ------------------- */
+	MSG_BUFF msgbuff;
+	int merr;
+	//if( mostatus->mouseDX || mostatus->mouseDY ) {
+	if( mev_msgid>0 ) {
+		msgbuff.mtype=MSG_REFRESH_SURFACE;
+	        merr=msgsnd(render_msgid, (void *)&msgbuff, sizeof(msgbuff.mtext), 0);
+	        if(merr<0) {
+            		egi_dperr("msgsnd fails.");
+                	//if(errno==EIDRM) egi_dpstd("msgid is invalid! Or the queue is removed.\n");
+                	//else if(errno==EAGAIN) egi_dpstd("Insufficient space in the queue!\n");
+		}
+
+		//if(chmap)
+		//    refresh_surface();
+	}
+#endif
+
+
 }
 
 /*--------------------------------
@@ -1499,7 +1613,7 @@ Draw right_click menu.
 static void draw_RCMenu(int x0, int y0)
 {
 	#define RCMENU_ITEMS	5
-	char *mwords[RCMENU_ITEMS]={"Words", "Copy", "Paste", "Cut", "Color"};
+	char *mwords[RCMENU_ITEMS]={"Word", "Copy", "Paste", "Cut", "Color"};
 
 	int mw=70;   /* menu width */
 	int smh=33;  /* sub menu height */
@@ -1526,21 +1640,25 @@ static void draw_RCMenu(int x0, int y0)
 	{
 		/* Menu pad */
 		if(mp==i)
-			fbset_color(WEGI_COLOR_ORANGE);
+			fbset_color2(&gv_fb_dev, WEGI_COLOR_ORANGE);
 		else
-			fbset_color(WEGI_COLOR_GRAY4);
+			fbset_color2(&gv_fb_dev,WEGI_COLOR_GRAY4);
 		draw_filled_rect(&gv_fb_dev, x0, y0+i*smh, x0+mw, y0+(i+1)*smh);
 
 		/* Menu Words */
+#if 1
         	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
-                                        fw, fh,(const unsigned char *)mwords[i],    /* fw,fh, pstr */
+                                        18, 20,(const unsigned char *)mwords[i],    /* fw,fh, pstr */
                                         100, 1, 0,      			    /* pixpl, lines, fgap */
                                         x0+10, y0+2+i*smh,                      /* x0,y0, */
                                         WEGI_COLOR_WHITE, -1, mp==i?255:100,        /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
+#else //HK2022-05-22
+		FTsymbol_writeFB(mwords[i], x0+10, y0+2+i*smh, WEGI_COLOR_WHITE, NULL, NULL);
+#endif
 	}
 	/* Draw rim */
-	fbset_color(WEGI_COLOR_BLACK);
+	fbset_color2(&gv_fb_dev, WEGI_COLOR_BLACK);
 	draw_rect(&gv_fb_dev, x0, y0, x0+mw, y0+mh);
 }
 
@@ -1593,15 +1711,15 @@ static void draw_WTBMenu(int x0, int y0)
 	{
 		/* Menu pad */
 		if(mp==i)
-			fbset_color(WEGI_COLOR_ORANGE);
+			fbset_color2(&gv_fb_dev,WEGI_COLOR_ORANGE);
 		else
-			fbset_color(WEGI_COLOR_GRAY4);
+			fbset_color2(&gv_fb_dev,WEGI_COLOR_GRAY4);
 		draw_filled_rect(&gv_fb_dev, x0, y0+i*smh, x0+mw, y0+(i+1)*smh);
 
 		/* Menu Words */
 #if 0
         	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
-                                        fw, fh,(const unsigned char *)MFileItems[i],    /* fw,fh, pstr */
+                                        18, 20,(const unsigned char *)MFileItems[i],    /* fw,fh, pstr */
                                         100, 1, 0,      			    /* pixpl, lines, fgap */
                                         x0+10, y0+2+i*smh,                      /* x0,y0, */
                                         WEGI_COLOR_WHITE, -1, 255,        /* fontcolor, transcolor,opaque */
@@ -1611,7 +1729,7 @@ static void draw_WTBMenu(int x0, int y0)
 #endif
 	}
 	/* Draw rim */
-	fbset_color(WEGI_COLOR_BLACK);
+	fbset_color2(&gv_fb_dev,WEGI_COLOR_BLACK);
 	draw_rect(&gv_fb_dev, x0, y0, x0+mw, y0+mh);
     }
 
@@ -1637,15 +1755,15 @@ static void draw_WTBMenu(int x0, int y0)
 	{
 		/* Menu pad */
 		if(mp==i)
-			fbset_color(WEGI_COLOR_ORANGE);
+			fbset_color2(&gv_fb_dev,WEGI_COLOR_ORANGE);
 		else
-			fbset_color(WEGI_COLOR_GRAY4);
+			fbset_color2(&gv_fb_dev,WEGI_COLOR_GRAY4);
 		draw_filled_rect(&gv_fb_dev, x0+45, y0+i*smh, x0+45+mw, y0+(i+1)*smh);
 
 		/* Menu Words */
 #if 0
         	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
-                                        fw, fh,(const unsigned char *)MHelpItems[i],    /* fw,fh, pstr */
+                                        18, 20,(const unsigned char *)MHelpItems[i],    /* fw,fh, pstr */
                                         100, 1, 0,      			    /* pixpl, lines, fgap */
                                         x0+45+10, y0+2+i*smh,                      /* x0,y0, */
                                         WEGI_COLOR_WHITE, -1, 255,        /* fontcolor, transcolor,opaque */
@@ -1655,7 +1773,7 @@ static void draw_WTBMenu(int x0, int y0)
 #endif
 	}
 	/* Draw rim */
-	fbset_color(WEGI_COLOR_BLACK);
+	fbset_color2(&gv_fb_dev,WEGI_COLOR_BLACK);
 	draw_rect(&gv_fb_dev, x0+45, y0, x0+45+mw, y0+MHelpNum*smh);
     }
 }
@@ -1912,12 +2030,24 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
                                 draw_mcursor();
 				fb_render(&gv_fb_dev);
 
+				/* HK2022-05-28 TODO:  NOW two threads race for the stdin, if user
+				 * input 'N' to cancel,  it may add char'N' to txtbox. ALSO the first 'Y'
+				 * may be caught by main thread.
+				*/
+				//Set as nonblocking
+				new_settings.c_cc[VMIN]=0;
+				tcsetattr(0, TCSANOW, &new_settings);
+
 				read(STDIN_FILENO, &ch, 1);
 				printf(" abort confirm ch='%c'\n", ch);
 				if( ch=='y' || ch== 'Y' )
 					exit(10);
-				else if( ch=='n' || ch== 'N' )
+				else if( ch=='n' || ch== 'N' ) {
+					// Reset blocking
+					new_settings.c_cc[VMIN]=1;
+					tcsetattr(0, TCSANOW, &new_settings);
 					break;
+				}
 			}
 			break;
 		case WBTMENU_COMMAND_HELP:
@@ -2249,4 +2379,191 @@ void draw_palette(int x0, int y0)
 
 #endif
 
+}
+
+
+
+/*-----------------------------------------
+Refresh surface items, including:
+1. Editor frame.
+2. Charmap for editor txtbox content.
+3. PINYIN IME panel list.
+4. File_Menu and RightClick_Menu.
+
+------------------------------------------*/
+void refresh_surface(void)
+{
+	int i;
+
+		/* EDIT:  Need to refresh EGI_FTCHAR_MAP after editing !!! .... */
+
+		/* Image DivisionS: 1. File top bar  2. Charmap  3. PINYIN IME  4. Sub Menus */
+
+	/* --- 1. File top bar */
+//printf("Draw editor top....\n");
+		draw_filled_rect2(&gv_fb_dev,WEGI_COLOR_GRAY4, 0, 0, gv_fb_dev.pos_xres-1, gv_fb_dev.pos_yres-1); //txtbox.endxy.x, txtbox.startxy.y-1);
+		FTsymbol_writeFB("File  Help",20,5,WEGI_COLOR_WHITE, NULL, NULL);
+		FTsymbol_writeFB("EGI笔记本",140,5,WEGI_COLOR_LTBLUE, NULL, NULL);
+
+	/* --- 2. Charmap Display txt */
+//printf("FTcharmap_writeFB....\n");
+        	//fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
+		FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+
+	/* --- 3. PINYING IME */
+		if(enable_pinyin) {
+			/* Back pad */
+			//draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYB, 0, txtbox.endxy.y-60, txtbox.endxy.x, txtbox.endxy.y );
+			draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYB, 0, txtbox.startxy.y+ chmap->height, txtbox.endxy.x, txtbox.endxy.y );
+
+			/* Decoration for PINYIN bar */
+			FTsymbol_writeFB("EGI全拼输入", 320-120, txtbox.endxy.y-60+3, WEGI_COLOR_ORANGE, NULL, NULL);
+			fbset_color(WEGI_COLOR_WHITE);
+			draw_line(&gv_fb_dev, 15, txtbox.endxy.y-60+3+28, 320-15,txtbox.endxy.y-60+3+28);
+
+			#if SINGLE_PINYIN_INPUT /* PINYIN Input for single UNIHANs  */
+			/* Display PINYIN */
+			FTsymbol_writeFB(strPinyin, 15, txtbox.endxy.y-60+3, WEGI_COLOR_FIREBRICK, NULL, NULL);
+			/* Display grouped UNIHANs for selecting  */
+			if( unicount>0 ) {
+				//printf("unicount=%d, HanGroups=%d, HanGroupIndex=%d\n", unicount, HanGroups,HanGroupIndex);
+				bzero(strHanlist, sizeof(strHanlist));
+				for( i=0; i < GroupMaxItems && i<unicount; i++ ) {
+					unindex=HanGroupIndex*GroupMaxItems+i;
+					if(unihans[unindex][0]==0) break;
+					snprintf(strItem,sizeof(strItem),"%d.%s ",i+1,unihans[unindex]);
+					strcat(strHanlist, strItem);
+				}
+				FTsymbol_writeFB(strHanlist, 15, txtbox.endxy.y-60+3+30, WEGI_COLOR_BLACK, NULL, NULL);
+			}
+			#else /* MULTIPLE_PINYIN_INPUT for UNIHANGROUPs (include UNIHANs) */
+			/* Display PINYIN */
+			FTsymbol_writeFB(display_pinyin, 15, txtbox.endxy.y-60+3, WEGI_COLOR_FIREBRICK, NULL, NULL);
+			/* Display unihan(group)s for selecting */
+			if( unicount>0 ) {
+				bzero(strHanlist, sizeof(strHanlist));
+				for( i=GroupStartIndex; i<unicount; i++ ) {
+					snprintf(strItem,sizeof(strItem),"%d.%s ",i-GroupStartIndex+1,unihans[i]);
+					strcat(strHanlist, strItem);
+					/* Check if out of range */
+					//if(FTsymbol_uft8strings_pixlen(egi_sysfonts.regular, fw, fh, (UFT8_PCHAR)strHanlist) > 320-15 )
+					if(FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fw, fh, (UFT8_PCHAR)strHanlist) > 320-15 )
+					{
+						strHanlist[strlen(strHanlist)-strlen(strItem)]='\0';
+						break;
+					}
+				}
+				GroupItems=i-GroupStartIndex;
+				FTsymbol_writeFB(strHanlist, 15, txtbox.endxy.y-60+3+30, WEGI_COLOR_BLACK, NULL, NULL);
+			}
+			#endif
+		}
+
+		/* POST:  check chmap->errbits */
+		if( chmap->errbits ) {
+			printf("WARNING: chmap->errbits=%#x \n",chmap->errbits);
+		}
+
+	   /* --- 4. Sub Menus : Handle Active Menu, active_menu_handle */
+printf("Draw submenus....\n");
+	   switch( ActiveComp )
+	   {
+		/* Righ_click menu */
+		case CompRCMenu:
+			/* Backup desktop bkg */
+	        	fb_copy_FBbuffer(&gv_fb_dev,FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
+
+			while( !start_pch ) {  /* Wait for click */
+        			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
+				draw_RCMenu(menuX0, menuY0);
+       				draw_mcursor();
+				fb_render(&gv_fb_dev);
+			}
+			/* Execute Menu Command */
+			RCMenu_execute(RCMenu_Command_ID);
+
+			/* Exit Menu handler */
+			start_pch=false;
+			ActiveComp=CompTXTBox;
+			break;
+
+		/* Window Bar menu */
+		case CompWTBMenu:
+			/* In case that start_pch MAY have NOT reset yet */
+			start_pch=false;
+
+			printf("WTBmenu Open\n");
+			/* Backup desktop bkg */
+	        	fb_copy_FBbuffer(&gv_fb_dev,FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
+
+			/* Wait for next click ... */
+			while( !start_pch || mouseLeftKeyDown==false ) {
+        			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
+				draw_WTBMenu( txtbox.startxy.x, txtbox.startxy.y );
+       				draw_mcursor();
+				fb_render(&gv_fb_dev);
+			}
+
+			printf("WTBmenu Close\n");
+			/* Execute Menu Command */
+			WBTMenu_execute(WBTMenu_Command_ID);
+
+			/* Exit Menu handler */
+			start_pch=false;
+			ActiveComp=CompTXTBox;
+			break;
+		default:
+			break;
+	    } /* END Switch */
+
+		//printf("Draw mcursor......\n");
+       		draw_mcursor();
+
+		/* Render and bring image to screen */
+		fb_render(&gv_fb_dev);
+		//tm_delayms(20);
+
+}
+
+/*--------------------------------------
+This is a detached thread function.
+
+To render/refresh the surface when
+MSG_REFRESH_SURFACE is received.
+-------------------------------------*/
+void *render_surface(void* argv)
+{
+	int mlen;
+	MSG_BUFF msgbuff;
+
+        /* 0. Detach thread */
+        pthread_detach(pthread_self());
+
+#if 0
+        /* 1. Create System_V message queue */
+        mqkey=ftok(".", 5);
+
+	/* 2. get msgid */
+        int msgid = msgget(mqkey, IPC_CREAT|0666);
+        if(msgid<0) {
+                egi_dperr("Fail msgget()!");
+		return (void *)0;
+        }
+#endif
+
+	/* Wait for MSG_REFRESH_SURFACE */
+	while(1) {
+        	mlen=msgrcv(render_msgid, &msgbuff, sizeof(msgbuff.mtext), MSG_REFRESH_SURFACE, MSG_NOERROR);
+		if(mlen<0) {
+			if(errno==EIDRM) break; /* The message queue was removed */
+		}
+
+		/* Render surface */
+		egi_dpstd("Msg: Refresh surface!\n");
+		if(chmap_ready)
+			refresh_surface();
+	}
+
+
+	return (void*)0;
 }
