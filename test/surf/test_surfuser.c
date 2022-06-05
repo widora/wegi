@@ -400,7 +400,7 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 {
 	int k;
 	char strtmp[128];
-
+	int charlen;
 
 #if 0 /* --------- E1. Parse Keyboard Event ---------- */
 
@@ -471,10 +471,16 @@ void my_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS *pmostat)
 			if( poff < 1024-1 ) {
 				if( poff)
 					poff--;  /* To earse last '|' */
-
+				/* Backspace */
 				if( poff>0 && pmostat->chars[k] == 127  ) { /* Backsapce */
+					#if 0 /* ASCII */
 					poff -=1; /*  Ok, NOW poff -= 2 */
 					ptxt[poff+1]='\0';
+					#else /* UTF-8 */
+					charlen=cstr_prevcharlen_uft8(ptxt+poff);
+					poff -= (charlen>0 ? charlen : 1); /* <0 Unrecognizable HK2022-05-30 */
+					ptxt[poff+1]='\0';
+					#endif
 				}
 				else
 					ptxt[poff++]=pmostat->chars[k];

@@ -980,6 +980,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 		                FTsymbol_unicode_writeFB(NULL, face, fw, fh, wcstr[0], &xleft,
                 	                                         0, 0, WEGI_COLOR_BLACK, -1, -1 );
                         }
+			/* W.10.2A Halfwidht and Fullwidth forms, FT_Get_Advances() NOT same as FTsymbol_unicode_writeFB()  */
 /* TEST:------  U+FF1A: full width colon, U+FF0C: full width comma, U+FF1F fullwidth question mark, U+FF01 fullwidth exclamation mark  */
 //			else if( wcstr[0]== 0xFF1A || wcstr[0]== 0xFF0C || wcstr[0]== 0xFF1F || wcstr[0]== 0xFF01
 			else if( (wcstr[0]>=0xFF00 && wcstr[0]<=0xFFEF)  /* Halfwidht and Fullwidth forms */
@@ -987,6 +988,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 				) {
 		                FTsymbol_unicode_writeFB(NULL, face, fw, fh, wcstr[0], &xleft, 0, 0, WEGI_COLOR_BLACK, -1, -1 );
 			}
+			/* W.10.2B TODO: else if( Emojis OR Others), FT_Get_Advances() may fail!  */
 		    	/* W.10.3 No self_cooked width, With bitmap */
 		    	else {
 

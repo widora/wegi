@@ -6,11 +6,10 @@ published by the Free Software Foundation.
 An example of a simple editor, read input from termios and put it on to
 the screen.
 
-      [ --- Editor Version_A ----:  With A Render_Surface Thread  ]
+             [ --- Editor Version_A ----:  Without A Render_Surface Thread ]
 
 Thread_1. Main() thread
 Thread_2. mouse_callback()
-Thread_3. Thread refresh_surface()
 
 
 		( --- 1. The Editor: Keys and functions --- )
@@ -40,7 +39,7 @@ ARROW_UP:	Show previous group of Hanzi/Cizu.
 BACKSPACE:	Roll back pinyin input buffer.
 1-7:		Use as index to select Haizi/Cizu in the displaying panel.
 SPACE:		Select the first Haizi/Cizu in the displaying panel
-'+'             Switch ON/OFF hexadecimal Unicode direct input mode.
+'+'		Switch ON/OFF hexadecimal Unicode direct input mode.
 
 Note:
   	1. Use '(0x27) as delimiter to separate PINYIN entry. Example: xian --> xi'an.
@@ -73,17 +72,6 @@ Note:
 5. Correct typing for an existed unihangroup: Input the unihangroup and correct typing in file PINYIN_UPDATE_FPATH,
    then call UniHanGroup_load_CizuTxt() and UniHanGroup_update_typings().
 
-	( ----- Following with pthread_render ----- )
-6. Three threads operation.
-   6.1 Main for stdin input  (MSG requeset for rendering).
-   6.2 Mouse callback for mouse input (MSG requeset for rendering).
-   6.3 Pthread_render for surface image rendering.
-7. Should avoid more than one thread writing/rendering the surface simutaneously!
-8. Normally tcsetattr() as blocking mode to save CPU, However in some cases, it needs nonblocking mode,
-   Example: when read ESCAPE, see 1.0, 1.3.
-9. mutex_render critical zone should encompass egi_sysfonts.lib_mutex critical zone, that can
-   avoid mutimutex conflictions.
-
 TODO:
 1. English words combination.
 2. IO buffer/continuous key press/ slow writeFB response.
@@ -95,11 +83,6 @@ TODO:
 5. If predefined search position soff happens to be WITHIN utf8-encoding of an unihan, then
    the editing cursor will NOT appear, as FTcharmap_uft8strings_writeFB() fails to get chmap->pch!
    soff shall be located somewhere just between two unihans/uchars.
-XXX 6. tan Up/Down sefault. SEE Note 9.
-XXX 7. MSG squeue auto. clear.
-8. After select and click on CompRCMenu (COPY etc.), it will get a LeftKeyDown, and MAYBE also inlucdes
-   LeftKeyDownHold(s) if you happen to press the key for a littler too longer, and the LeftKeyDownHold
-   will then change current selection unexpectedly!
 
 Journal
 2021-1-9/10:
@@ -113,22 +96,10 @@ Journal
 	2. Add save page pos offset for bookmark.
 2022-05-20:
 	1. Compare charmap result with FBDEV=NULL and FBDEV!=NULL.
-2022-05-23:
-	1. Add refresh_surface()
-2022-05-24:
-	1. Add msg queue for requesting render.
-2022-06-01:
-	1. Enable hexadecimal Unicode input mode.
-2022-06-02:
-	1. Add mutex_render to sync variables for PINYIN IME, GroupStartIndex, GroupItems ...etc.
-	2. render_surface(): Drop all MSG in the queue before rendering surface.
-	3. render_surface(): Render surface at regular intervals (without request MSG)
-2022-06-03:
-	1. mutex_render critical zone should encompass egi_sysfonts.lib_mutex critical zone.
-	2. main(): Call FTcharmap_writeFB(NULL...) to update charmap for each input round.
-	3. CTRL+V for paste.
+2022-05-31:
+	1. Enable unicode direct input.
 2022-06-05:
-        1. WBTMenu_execute(): case WBTMENU_COMMAND_HELP: show the UNICODE at current pchoff.
+	1. WBTMenu_execute() case WBTMENU_COMMAND_HELP: show the UNICODE at current pchoff.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -188,17 +159,13 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #define		CTRL_N	14	/* Ctrl + N: scroll down  */
 #define		CTRL_O	15	/* Ctrl + O: scroll up  */
 #define 	CTRL_F  6	/* Ctrl + f: save file */
-#define		CTRL_S  19	/* Ctrl + S: ... CTRL_C .... all occupied by console */
-#define         CTRL_V  22	/* Ctrl + v: Paste */
+#define		CTRL_S  19	/* Ctrl + S */
 #define		CTRL_E  5	/* Ctrl + e: go to last page */
 #define		CTRL_H  8	/* Ctrl + h: go to the first dline, head of the txtbuff */
 #define		CTRL_P  16	/* Ctrl + p: PINYIN input ON/OFF toggle */
 
 char *strInsert="Widora和小伙伴们";
-char *fpath="/mmc/hello.txt";
-
-struct termios old_settings;
-struct termios new_settings;
+char *fpath="/tmp/emojis.txt";
 
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
@@ -216,10 +183,9 @@ EGI_UNIHAN_SET *uniset;
 EGI_UNIHANGROUP_SET *group_set;
 static bool enable_pinyin=false;
 static bool enable_unicode_input=false; /* To input unicode directly for signle Unihan/Emoji,
-                                         * To enable ONLY if enable_pinyin is TRUE.
-                                         * display_pinyin[] for buffering Unicode.
-                                         */
-
+					 * To enable ONLY if enable_pinyin is TRUE
+					 * display_pinyin[] for buffering Unicode.
+					 */
 /* Enable input method PINYIN */
 char strPinyin[4*8]={0}; /* To store unbroken input pinyin string */
 char group_pinyin[UNIHAN_TYPING_MAXLEN*4]; 	/* For divided group pinyins */
@@ -233,13 +199,9 @@ char phan[4]; 		/* temp. */
 int  unicount; 		/* Count of unihan(group)s found */
 char strHanlist[128]; 	/* List of unihans to be displayed for selecting, 5-10 unihans as a group. */
 char strItem[32]; 	/* buffer for each UNIHAN with preceding index, example "1.啊" */
-int  GroupStartIndex; 	/* Start index for displayed unihan(group)s
-			 * Update in UPP/DOWN arrow, BACKSPACE, ESCAPE, insert_ch operation for PINYIN IME
-			 */
-int  GroupItems;	/* Current unihan(group)s items in selecting panel, to be updated in render_surface().
-			 * See 'Display unihan(group)s for selecting' in render_surface()
-			 */
-const int  GroupMaxItems=7; 	/* Max. number of unihan(group)s displayed for selecting */
+int  GroupStartIndex; 	/* Start index for displayed unihan(group)s */
+int  GroupItems;		/* Current unihan(group)s items in selecting panel */
+int  GroupMaxItems=7; 	/* Max. number of unihan(group)s displayed for selecting */
 int  HanGroups=0; 	/* Groups with selecting items, each group with Max. GroupMaxItems unihans.
 	          	 * Displaying one group of unihans each time on the PINYIN panel
 		  	 */
@@ -255,15 +217,16 @@ off_t soff=-1;    /* Search position, offset value from the beginning */
 
 static bool mouseLeftKeyDown;
 static bool mouseLeftKeyUp;
-static bool start_pch=false;	      /* True if mouseLeftKeyDown switch from false to true, --- RisingEdge */
-static int  mouseX, mouseY; //mouseZ; /* Mouse point position */
-static int  mouseMidX, mouseMidY;     /* Mouse cursor mid position */
+static bool start_pch=false;	/* True if mouseLeftKeyDown switch from false to true */
+static int  mouseX, mouseY, mouseZ; /* Mouse point position */
+static int  mouseMidX, mouseMidY;   /* Mouse cursor mid position */
 static int  menuX0, menuY0;
 
-/* For fonts in charmap txtbox */
-static int fw=22; //30; //18;	/* Font size */
-static int fh=24; //40; //20;
-static int fgap=20/4; //5;	/* Text line fgap : TRICKY ^_- */
+/* For emojis/text in the charmap edit box */
+FT_Face face;	/* type face for text box */
+static int fw=30; //18;	/* Font size */
+static int fh=40; //20;
+static int fgap=30*5/16;//20/4 //5;	/* Text line fgap : TRICKY ^_- */
 static int tlns;  //=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total available line space for displaying txt */
 
 /* Font size for UI */
@@ -309,31 +272,12 @@ enum WBTMenu_Command {
 };
 static int WBTMenu_Command_ID=WBTMENU_COMMAND_NONE;
 
-/* Message queue */
-#include <sys/ipc.h>
-#include <sys/msg.h>
-key_t mqkey;
-int render_msgid, kev_msgid, mev_msgid;
-
-#define MSG_REFRESH_SURFACE  1
-/***  struct msgbuf {
- *      long mtype;       // message type, must be > 0
- *      char mtext[1];    // message data
- *    };
- */
-typedef struct msgbuf MSG_BUFF;
-pthread_t  pthread_render;
-pthread_mutex_t mutex_render;	/* To lock necessary vars  */
-void *render_surface(void* argv);
-bool chmap_ready;
-
-
 /* Functions */
 //static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
 static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny);
-static int FTcharmap_writeFB2(EGI_FTCHAR_MAP *chmap, FBDEV *fbdev, int *penx, int *peny); /* For TEST */
+static int FTcharmap_writeFB2(EGI_FTCHAR_MAP *chmap, FBDEV *fbdev, int *penx, int *peny);
 static void FTcharmap_goto_end(void);
-static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny);/* For UI, font is regular type. */
+static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny); /* For UI, font is regular type. */
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus);
 //static void draw_mcursor(int x, int y);
 static void draw_mcursor(void);
@@ -347,7 +291,6 @@ static int  load_pinyin_data(void);
 static void save_all_data(void);
 void signal_handler(int signal);
 void draw_palette(int x0, int y0);
-void refresh_surface(void);
 
 
 /* ============================
@@ -361,12 +304,11 @@ int main(int argc, char **argv)
   printf("tm_start_egitick()...\n");
   tm_start_egitick();
 
-  #if 0  /* Set signal action */
+  /* Set signal action */
   if(egi_common_sigAction(SIGINT, signal_handler)!=0) {
 	printf("Fail to set sigaction!\n");
 	return -1;
   }
-  #endif
 
   #if 0
   /* Start egi log */
@@ -393,15 +335,6 @@ int main(int argc, char **argv)
         printf("Fail to load FT sysfonts, quit.\n");
         return -1;
   }
-
-  #if 0  /* Load emojis NOPE */
-  printf("FTsymbol_load_sysemojis()...\n");
-  if(FTsymbol_load_sysemojis() !=0) {
-        printf("Fail to load FT sysemojis, quit.\n");
-        return -1;
-  }
-  #endif
-
   FTsymbol_set_SpaceWidth(1);
   FTsymbol_set_TabWidth(4.5);
 
@@ -440,6 +373,10 @@ int main(int argc, char **argv)
                   /*-----------------------------------
                    *            Main Program
                    -----------------------------------*/
+
+        struct termios old_settings;
+        struct termios new_settings;
+
 	char  ch;
 	int   i,j,k;
 	int   lndis; /* Distance between lines */
@@ -475,40 +412,42 @@ int main(int argc, char **argv)
 
 	egi_dpstd(DBG_YELLOW"Input spcnt:%.2f, soff=%jd, fpath: '%s'\n"DBG_RESET, spcnt, soff, fpath);
 
-	/* S1. Load necessary PINYIN data, and do some prep. */
+	/* Load necessary PINYIN data, and do some prep. */
 	if( load_pinyin_data()!=0 )
 		exit(1);
 
+
+	/* Set face for CHARMAP */
+	//face=egi_sysfonts.special;
+	face=egi_sysfonts.regular;
+
 MAIN_START:
-	/* S2. Set TextBox size and create FTcharmap */
-	/* S2.1 Reset main window size */
+	/* Reset main window size */
 	txtbox.startxy.x=0;
 	txtbox.startxy.y=30;
 	txtbox.endxy.x=gv_fb_dev.pos_xres-1;
 	txtbox.endxy.y=gv_fb_dev.pos_yres-1;
 
-	/* S2.2 Activate main window */
+	/* Activate main window */
 	ActiveComp=CompTXTBox;
 
-	/* S2.3 Total available lines of space for displaying chars */
-#if 1
+	/* Total available lines of space for displaying chars */
 	lndis=fh+fgap;
-#else
-	lndis=FTsymbol_get_FTface_Height(egi_sysfonts.regular, fw, fh);
-#endif
+	//lndis=FTsymbol_get_FTface_Height(face, fw, fh);
 	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/lndis;
 	printf("Blank lines tlns=%d, lndis=%d\n", tlns, lndis);
 
-	/* S2.4 Create charMAP */
+	/* Create charMAP */
 	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,	 /* txtsize,  x0, y0  */
 //		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
 	  		tlns*lndis, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin, /*  height, width, offx, offy */
-			egi_sysfonts.regular, CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis,   	 /* typeface, mapsize, lines, pixpl, lndis */
+			face, CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis,   	 /* typeface, mapsize, lines, pixpl, lndis */
 			WEGI_COLOR_WHITE, WEGI_COLOR_BLACK, true, true );  /*  bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 	printf("chmap->height: %d\n", chmap->height);
 
-	/* S2.5 Load file to chmap */
+
+	/* Load file to chmap */
 	if(fpath) {
 		if(FTcharmap_load_file(fpath, chmap, CHMAP_TXTBUFF_SIZE) !=0 )
 			printf("Fail to load file to champ!\n");
@@ -519,88 +458,8 @@ MAIN_START:
 	}
 
 
-
-#if 0  /////////////// TEST: compare charmap result with FBDEV=NULL and FBDEV!=NULL //////////////
-	unsigned char uchar[4];
-	wchar_t ucode;
-	int ulen;
-	EGI_FTCHAR_MAP *chmap2;
-	chmap2=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,  /* txtsize,  x0, y0  */
-			tlns*lndis, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin, /*  height, width, offx, offy */
-			egi_sysfonts.regular, CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis,     /* typeface, mapsize, lines, pixpl, lndis */
-			WEGI_COLOR_WHITE, WEGI_COLOR_BLACK, true, true );  /*  bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
-	if(chmap2==NULL){ printf("Fail to create char map2!\n"); exit(0); };
-
-        /* Load file to chmap2 */
-        if(fpath) {
-                if(FTcharmap_load_file(fpath, chmap2, CHMAP_TXTBUFF_SIZE) !=0 )
-                        printf("Fail to load file to champ2!\n");
-        }
-        else {
-                if( FTcharmap_load_file(DEFAULT_FILE_PATH, chmap2, CHMAP_TXTBUFF_SIZE) !=0 )
-                        printf("Fail to load file to champ2!\n");
-        }
-
-	/* First charmap */
-	FTcharmap_writeFB2(chmap, &gv_fb_dev, NULL, NULL);
-	FTcharmap_writeFB2(chmap2, NULL, NULL, NULL);
-
-	/* Compare result */
-	for(k=0; k< chmap->chcount; k++) {
-		if( chmap->charPos[k] != chmap2->charPos[k] ) {
-			printf("chmap->charPos[%d] != chmap2->charPos[%d]\n", k, k);
-			exit(0);
-		}
-	}
-
-	/* Compare next 5 pages */
-	for(j=0; j<200; j++) {
-	        /* Charmap next page */
-        	FTcharmap_page_down(chmap);
-        	FTcharmap_page_down(chmap2);
-
-		FTcharmap_writeFB2(chmap, &gv_fb_dev, NULL, NULL);
-		FTcharmap_writeFB2(chmap2, NULL, NULL, NULL);
-
-		/* Compare result */
-		for(k=0; k< chmap->chcount; k++) {
-			if( chmap->charPos[k] != chmap2->charPos[k] || chmap->charX[k] != chmap2->charX[k] ) {
-			      printf("chmap->charPos[%d]=%d, chmap2->charPos[%d]=%d\n", k, chmap->charPos[k], k, chmap2->charPos[k]);
-			      printf("chmap->charX[%d]=%d, chmap2->charX[%d]=%d\n", k, chmap->charX[k], k, chmap2->charX[k]);
-			    	if(k>0) {
-					ulen=cstr_charlen_uft8(chmap->pref+chmap->charPos[k-1]);
-					if(ulen>0) {
-						bzero(uchar, sizeof(uchar));
-					 	strncpy((char *)uchar, (char *)chmap->pref+chmap->charPos[k-1], 4);
-						char_uft8_to_unicode(uchar, &ucode);
-						printf("Ucode: U+%X   ", ucode);  /* U+FF1A full width colon */
-						printf("UTF8: ");
-						for(i=0;i<ulen;i++)
-							printf("%02X", uchar[i]);
-						printf("\n");
-					}
-					printf("chmap: charX[%d]: %d, charX[%d]: %d\n", k-1, chmap->charX[k-1], k, chmap->charX[k]);
-					printf("chmap2: charX[%d]: %d, charX[%d]: %d\n", k-1, chmap2->charX[k-1], k, chmap2->charX[k]);
-/* Results:
- U+FF1A: full width colon
- chmap: charX[42]: 257, charX[43]: 275   advance=18 =fw
- chmap2: charX[42]: 257, charX[43]: 257  advance=0!
-*/
-
-
-			    	}
-			    	exit(0);
-			}
-		}
-	}
-
-	exit(0);
-#endif /////////////////////////////////////////////////////////
-
-
-	/* S3.  Insert colorBandMap for charColorMap and hlmarkColorMap
-	 *  TODO: ColorMap ALSO saved:
-	 *  Before that, we manually create monocolor map for loaded txt first.
+	/* TODO: ColorMap ALSO saved:
+	*  Before that, we manually create monocolor map for loaded txt first.
 	*/
 	if( egi_colorBandMap_insertBand(chmap->charColorMap, 0, chmap->txtlen, chmap->fontcolor)!=0 ) {  /* map, pos, len, color */
 		printf("Fail to inser char color band for loaded file!\n");
@@ -625,80 +484,47 @@ MAIN_START:
 	}
 #endif
 
-	/* S4. Create render_msgid */
-        /* Create System_V message queue */
-        mqkey=ftok(".", 5);
-	/* render_msgid for render */
-        render_msgid = msgget(mqkey, IPC_CREAT|0666);
-        if(render_msgid<0) {
-                egi_dperr("Fail to create render_msgid!");
-		exit(1);
-        }
-
-        /* S5. Init mutex_render */
-        if(pthread_mutex_init(&mutex_render,NULL) != 0) {
-                printf("Fail to initiate mutex_render.\n");
-		exit(1);
-        }
-	/* S6. Start thread_render_surface() */
-	if(pthread_create(&pthread_render, NULL, render_surface, NULL)<0) {
-		printf("Fail to start render_surface()!\n");
-		exit(1);
-	}
-
-	/* S7. Get mev_msgid for mouse event */
-	mev_msgid= msgget(mqkey, 0);
-        if(mev_msgid<0) {
-                egi_dperr("Fail to get mev_msgid!");
-		exit(1);
-	}
-	/* S8. Get kev_msgid for keyboard event */
-	kev_msgid= msgget(mqkey, 0);
-        if(kev_msgid<0) {
-                egi_dperr("Fail to get ev_msgid!");
-		exit(1);
-	}
-
-        /* S9. Init. mouse position */
+        /* Init. mouse position */
         mouseX=gv_fb_dev.pos_xres/2;
         mouseY=gv_fb_dev.pos_yres/2;
 
-        /* S10. Init. FB working buffer */
+        /* Init. FB working buffer */
         fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY4);
-	FTsymbol_writeFB("File  Help",20,5,WEGI_COLOR_WHITE, NULL, NULL);
+	FTsymbol_writeFB("File  Help", 20,5,WEGI_COLOR_WHITE, NULL, NULL);
 
 	/* TEST: getAdvances ---- */
 	int penx=140, peny=5;
-	FTsymbol_writeFB("EGI笔记本",penx,peny,WEGI_COLOR_LTBLUE, &penx, &peny);
+//	FTsymbol_writeFB("EGI笔记本",penx,peny,WEGI_COLOR_LTBLUE, &penx, &peny);
+	FTsymbol_writeFB("Emojis Demo",penx,peny,WEGI_COLOR_LTBLUE, &penx, &peny);
 	printf("FTsymbol_writFB get advanceX =%d\n", penx-140);
 	printf("FTsymbol_uft8string_getAdvances =%d\n",
 		FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fw, fh, (const unsigned char *)"EGI笔记本") );
 
 
-	/* S11. Draw blank paper + margins */
+	/* Draw blank paper + margins */
 	fbset_color(WEGI_COLOR_WHITE);
 	draw_filled_rect(&gv_fb_dev, txtbox.startxy.x, txtbox.startxy.y, txtbox.endxy.x, txtbox.endxy.y );
 
         fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 	fb_render(&gv_fb_dev);
 
-	/* S12. Set termio */
+	/* Set termio */
         tcgetattr(0, &old_settings);
         new_settings=old_settings;
         new_settings.c_lflag &= (~ICANON);      /* disable canonical mode, no buffer */
         new_settings.c_lflag &= (~ECHO);        /* disable echo */
-        new_settings.c_cc[VMIN]=1;//0;		/* 0: return immediately */
+        new_settings.c_cc[VMIN]=0;
         new_settings.c_cc[VTIME]=0;
         tcsetattr(0, TCSANOW, &new_settings);
 
-	/* S13. Fill initial charmap and get penx,peny */
+	/* To fill initial charmap and get penx,peny */
 	FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
 	fb_render(&gv_fb_dev);
 
-	/* S14. Set pchoff */
+	/* Set pchoff */
 	if(soff>=0) chmap->pchoff=chmap->pchoff2=soff;
 
-	/* S15. Charmap to file end, OR to search position soff/spcnt. */
+	/* Charmap to the end, OR to search position soff/spcnt. */
 	i=0;
 	while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
 	{
@@ -738,15 +564,14 @@ MAIN_START:
 
 	/* TODO: Scroll to let soff to be in the first line of the charmap */
 
+
 	egi_dpstd(DBG_YELLOW"Get to bookmarked soff=%jd page: spcnt=%.2f, off=%d of %d\n"DBG_RESET, soff,
 				(float)(chmap->pref-chmap->txtbuff)/chmap->txtlen, chmap->pref-chmap->txtbuff, chmap->txtlen);
 
-	/* S16. Set chmap_ready */
-	chmap_ready=true;
 
 	printf("Loop editing...\n");
 
-	/* S17. Loop editing ...   Read from TTY standard input, without funcion keys on keyboard ...... */
+	/* Loop editing ...   Read from TTY standard input, without funcion keys on keyboard ...... */
 	while(1) {
 	/* ---- OPTION 1: Read more than N bytes each time, nonblock. !!! NOT good, response slowly, and may cause parse errors !!!  -----*/
 
@@ -755,32 +580,25 @@ MAIN_START:
 		read(STDIN_FILENO, &ch, 1);
 		if(ch>0) {
 		  if(isalpha(ch))
-			printf("stdin:'%c'\n",ch);
+			printf("'%c'\n",ch);
 		  else
 		  	printf("ch=%d\n",ch);
 		}
 		//continue;
 
-/* ------ >>>  mutex_render Critical Zone  */
-		pthread_mutex_lock(&mutex_render);
 
 		/* 1. Parse TTY input escape sequences */
 		if(ch==27) {
-			/* 1.0 Setterm Nonblocking type. If ESCAPE,we need a ch=0 to confirm,
-			 *     to restore it at 1.3  HK2022-06-01 */
-	        	new_settings.c_cc[VMIN]=0;
-        		tcsetattr(0, TCSANOW, &new_settings);
-
 			ch=0;
 			read(STDIN_FILENO,&ch, 1);
 			printf("ch=%d\n",ch);
-			/* 1.1  */
+			/* 1.1 */
 			if(ch==91) {
 				ch=0;
 				read(STDIN_FILENO,&ch, 1);
 				printf("ch=%d\n",ch);
 				switch ( ch ) {
-					case 49: /* HOME */
+					case 49:
 						read(STDIN_FILENO,&ch, 1);
 						/* mkeyboard HOME  move cursor to the first of the line */
 						if( ch == 126 ) {
@@ -827,28 +645,22 @@ MAIN_START:
 						}
 						#else /* MULTIPLE_PINYIN_INPUT for UNIHANGROUPs (include UNIHANs) */
 						if( enable_pinyin && strPinyin[0]!='\0' ) {
-							/* Try item numbers, to just fit for IME display area. */
-							for( i=GroupMaxItems; i>0; i--) { //for( i=7; i>0; i--)
-								/* Get GroupItems, for pick starting index. in case itmes < GroupStartIndex */
-								if(GroupStartIndex<i) //if(GroupStartIndex-i < 0)
+							for( i=7; i>0; i--) {
+								if(GroupStartIndex-i < 0)
 									continue;
-								//printf("UP>>>: GroupStartIndex=%d\n",GroupStartIndex);
-								/* Clear strHanlist */
 								bzero(strHanlist, sizeof(strHanlist));
-								/* Fill strHanlist with GroupItems of unihans(groups), start from GroupStartIndex-i. */
 								for(j=0; j<i; j++) {
 					 			     snprintf(strItem,sizeof(strItem),"%d.%s ",j+1, unihans[GroupStartIndex-i+j]);
 								     strcat(strHanlist, strItem);
 								}
-								/* Check if space is just OK. */
-/* Note: Here uses '<=', check at 'Display unihan(group)s for selecting' where uses '>'!   HK2022-06-02  */
-								if(FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fwUI, fhUI,
+								/* Check if space is OK. */
+ /* Note: Here uses '<=', check at 'Display unihan(group)s for selecting' where uses '>'!   HK2022-06-02  */
+								if(FTsymbol_uft8string_getAdvances(face, fwUI, fhUI, //fw, fh,
 														(UFT8_PCHAR)strHanlist) <= 320-15 )
 									break;
 							}
 							/* Reset new GroupStartIndex and GroupItems */
 							GroupStartIndex -= i;
-							printf("UP>>>: GroupStartIndex=%d, i=%d, GroupItems=%d\n", GroupStartIndex, i, GroupItems);
                                                 }
 						#endif
 						else
@@ -863,15 +675,8 @@ MAIN_START:
 						}
 						#else /* MULTIPLE_PINYIN_INPUT for UNIHANGROUPs (include UNIHANs) */
 						if( enable_pinyin && strPinyin[0]!='\0' ) {
-                                                        if( GroupStartIndex+GroupItems < unicount ) {
-                                                                GroupStartIndex += GroupItems;   /* Reset new GroupStartIndex */
-								printf("DOWN>>>: GroupStartIndex=%d, GroupItems=%d\n", GroupStartIndex,GroupItems);
-							}
-							/* Note: GroupItems is updated in 'Display unihan(group)s for selecting'
-								 within pthread_render!
-								 GroupStartIndex May have updated in above case 65, WHILE GroupItems
-								 MAY NOT have been updated yet!
- 							 */
+                                                        if( GroupStartIndex+GroupItems < unicount )
+                                                                GroupStartIndex += GroupItems;
                                                 }
 						#endif
 						else
@@ -895,68 +700,56 @@ MAIN_START:
 				/* reset 0 to ch: NOT a char, just for the following precess to ignore it.  */
 				ch=0;
 			}
-                        /* 1.2 ESCAP KEY: ch1==27 AND ch2==0 */
-                        else if(ch==0) {
-				printf(" --- ESCAPE ---\n");
-                                if(enable_pinyin) {
-                                        /* Clear all pinyin buffer */
-                                        bzero(strPinyin,sizeof(strPinyin));
-                                        bzero(display_pinyin,sizeof(display_pinyin));
-                                        unicount=0; HanGroupIndex=0;
+			/* 1.2 ESCAP KEY: ch1==27 AND ch2==0 */
+			else if(ch==0) {
+				if(enable_pinyin) {
+					/* Clear all pinyin buffer */
+					bzero(strPinyin,sizeof(strPinyin));
+					bzero(display_pinyin,sizeof(display_pinyin));
+					unicount=0; HanGroupIndex=0;
 
-                                        /* Leave 'U+' for Unicode lead */
-                                        if(enable_unicode_input)
-                                                strcpy(display_pinyin, "U+");
-                                }
-                        }
-
+					/* 'U+' for Unicode lead */
+					if(enable_unicode_input)
+						strcpy(display_pinyin, "U+");
+				}
+			}
 			/* ELSE: ch1==27 and (ch2!=91 AND ch2!=0)  */
 
-			/* 1.3 Setterm blocking type... HK2022-06-01 */
-	        	new_settings.c_cc[VMIN]=1;
-        		tcsetattr(0, TCSANOW, &new_settings);
-
-			/* 1.4 continue while() read stdin HK2022-06-02 */
-
-			//.....GO on to sndmsg for refreshing surface.... ch=0
-
-/* ------ <<<  mutex_render Critical Zone  */
-//			pthread_mutex_unlock(&mutex_render);
-//			continue;
+                        /* Continue while() read stdin, NOPE! it need to go on to refresh image.... */
+                        //continue;
 		}
 		/* ELSE: ch1 != 27, go on...  */
-
 
 		/* 2. TTY Controls  */
 		switch( ch )
 		{
 		    	case CTRL_P:
-                                //enable_pinyin=!enable_pinyin;  /* Toggle input method to PINYIN */
-                                if(!enable_pinyin) {
-                                        enable_pinyin=true;
-                                        /* Disable enable_unicode */
-                                        enable_unicode_input=false;
+				//enable_pinyin=!enable_pinyin;  /* Toggle input method to PINYIN */
+				if(!enable_pinyin) {
+					enable_pinyin=true;
+					/* Disable enable_unicode */
+					enable_unicode_input=false;
 
-                                        /* Shrink maplines, maplinePos[] mem space Ok, increase maplines NOT ok! */
-                                        if(chmap->maplines>2) {
-                                                chmap->maplines -= (60/lndis); //2;
-                                                chmap->height=chmap->maplines*lndis; /* Reset chmap.height, to limit chmap.fb_render() */
-                                        }
+					/* Shrink maplines, maplinePos[] mem space Ok, increase maplines NOT ok! */
+					if(chmap->maplines>2) {
+						chmap->maplines -= (60/lndis); //2;
+						chmap->height=chmap->maplines*lndis; /* Reset chmap.height, to limit chmap.fb_render() */
+					}
 
-                                        /* Clear input pinyin buffer */
-                                        bzero(strPinyin,sizeof(strPinyin));
-                                        bzero(display_pinyin,sizeof(display_pinyin));
-                                }
-                                else {
-                                        enable_pinyin=false;
-                                        /* Default disable unicode input */
-                                        enable_unicode_input=false;
+					/* Clear input pinyin buffer */
+					bzero(strPinyin,sizeof(strPinyin));
+					bzero(display_pinyin,sizeof(display_pinyin));
+				}
+				else {
+					enable_pinyin=false;
+					/* Default disable unicode input */
+					enable_unicode_input=false;
 
-                                        /* Recover maplines */
-                                        chmap->maplines += (60/lndis); //2;
-                                        chmap->height=chmap->maplines*lndis;  /* restor chmap.height */
-                                        unicount=0; HanGroupIndex=0;    /* clear previous unihans */
-                                }
+					/* Recover maplines */
+					chmap->maplines += (60/lndis); //2;
+					chmap->height=chmap->maplines*lndis;  /* restor chmap.height */
+					unicount=0; HanGroupIndex=0;	/* clear previous unihans */
+				}
 				ch=0;
 			   	break;
 			case CTRL_H:
@@ -977,16 +770,6 @@ MAIN_START:
 				FTcharmap_scroll_oneline_up(chmap);
 				ch=0;
 				break;
-#if 0
-			case CTRL_S:
-				FTcharmap_copy_to_syspad(chmap);
-				ch=0;
-				break;
-#endif
-			case CTRL_V:
-				FTcharmap_copy_from_syspad(chmap);
-				ch=0;
-				break;
 			case CTRL_F:
 				/* Save PINYIN data first */
 				save_all_data();
@@ -1003,8 +786,9 @@ MAIN_START:
 				break;
 		}
 
-		/* 3. Edit text with input ch */
-		/* 3.1 BACKSPACE */
+		/* 3. Edit text */
+
+		/* --- EDIT:  3.1 Backspace */
 		if( ch==0x7F ) { /* backspace */
 			/* 3.1.1 Backward for unicode input */
 			if(enable_unicode_input && strlen(display_pinyin)>2 ) { /* 'U+' as unicode lead */
@@ -1060,7 +844,7 @@ MAIN_START:
 				 GroupStartIndex=0;GroupItems=0; /* reset group items */
 				#endif
 			}
-			else  { /* strPinyin is empty  OR unicode_input ONLY 'U+' */
+			else { /* strPinyin is empty OR unicode_input ONLY 'U+' */
 				FTcharmap_go_backspace( chmap );
 			}
 			ch=0;
@@ -1090,7 +874,7 @@ MAIN_START:
 			  }
 			  /* 3.2.1.1 Unicode direct input, for a signle Unihan/Emoji */
 			  if( enable_unicode_input ) {
-				/* 3.2.1.1.1 Input hexadecimal digits */
+				/* Input hexadecimal digits */
 				if( isxdigit(ch) ) {
 					/* Convert to upper case */
 					if(islower(ch)) ch -=32;
@@ -1106,7 +890,7 @@ MAIN_START:
 					else
 						unicount=0;
 				}
-				/* 3.2.1.1.2 SPACE to entry single Unihan/Emoji */
+				/* SPACE to entry single Unihan/Emoji */
 				if( ch==32 ) {
                                         /* If strPinyin is empty, insert SPACE into txt */
                                         if( display_pinyin[0]=='\0' ) {
@@ -1129,6 +913,7 @@ MAIN_START:
 
 				ch=0;
 			  }
+			  ////////////////
 			  /* 3.2.1.2  PINYING Input, put to strPinyin[] */
 			  else {
 				/* 3.2.1.2.1 SPACE: insert SAPCE */
@@ -1146,7 +931,7 @@ MAIN_START:
 						/* Clear strPinyin and unihans[]  */
 						bzero(strPinyin,sizeof(strPinyin));
 						unicount=0;
-						bzero(&unihans[0][0], sizeof(unihans)); //for Unicode input
+						bzero(&unihans[0][0], sizeof(unihans));
 						bzero(display_pinyin,sizeof(display_pinyin));
 						GroupStartIndex=0; GroupItems=0; /* reset group items */
 					}
@@ -1185,7 +970,7 @@ MAIN_START:
                                                 /* Clear strPinyin and unihans[] */
                                                 bzero(strPinyin,sizeof(strPinyin));
                                                 unicount=0;
-                                                bzero(&unihans[0][0], sizeof(unihans)); //for Unicode input
+                                                bzero(&unihans[0][0], sizeof(unihans));
 						bzero(display_pinyin,sizeof(display_pinyin));
 						GroupStartIndex=0;GroupItems=0; /* reset group items */
                                         }
@@ -1196,7 +981,7 @@ MAIN_START:
 						FTcharmap_insert_char(chmap, phan);
 					}
 				}
-				/* 3.2.1.2.3 ALPHABET: Input as PINYIN */
+				/* ALPHABET: Input as PINYIN */
 				else if( (isalpha(ch) && islower(ch)) || ch==0x27 ) {	/* ' as delimiter */
 					/* Continue input to strPinyin ONLY IF space is available */
 					if( strlen(strPinyin) < sizeof(strPinyin)-1 ) {
@@ -1246,7 +1031,7 @@ MAIN_START:
 					    #endif
         				}
 				}
-				/* 3.2.1.2.4 ELSE: convert to SBC case(full width) and insert to txt */
+				/* ELSE: convert to SBC case(full width) and insert to txt */
 				else {
 					/*  convert '.' to '。'*/
 					if( ch=='.' ) {
@@ -1265,7 +1050,7 @@ MAIN_START:
 
 			}
 
-			/* 3.2.2 Keyboard(ch) Direct Input */
+			/* 3.2.2 Keyboard Direct Input */
 			else
 			{
 				/* ---- TEST: insert string */
@@ -1287,47 +1072,18 @@ MAIN_START:
 			}
 
 			ch=0;
+		}  /* END insert ch */
 
-		}  /* END 3. insert ch */
-
-		/* 4. Update charmap, but not wirte image to FBDEV.
-	         * Note:
-		 * 1. Update charmap should be in the same thread! to ensure each input operaton will be done.
-		 *    If update charmap only in render_surface(), when chmap->request!=0, the input operation
-		 *    may be dropped then.
-		 *    Example: 2 BACKSPACEs inupt may result only 1 successful FTcharmap_go_backspace().
-		*/
-		FTcharmap_writeFB(NULL, NULL, NULL);
-
-/* ------ <<<  mutex_render Critical Zone  */
-		pthread_mutex_unlock(&mutex_render);
-
-#if 1  ///////////////////* 5.0 Msgsnd to request for refreshing surface  *//////////////////
-//       refresh_surface();
-
-	/* TEST msg: 2022-05-25: ------------------- */
-        MSG_BUFF msgbuff;
-        int merr;
-        msgbuff.mtype=MSG_REFRESH_SURFACE;
-        merr=msgsnd(render_msgid, (void *)&msgbuff, sizeof(msgbuff.mtext), 0);
-        if(merr<0) {
-        	egi_dperr("msgsnd fails.");
-                //if(errno==EIDRM) egi_dpstd("msgid is invalid! Or the queue is removed.\n");
-                //else if(errno==EAGAIN) egi_dpstd("Insufficient space in the queue!\n");
-        }
-
-#else	/* ------- EDIT:  Need to refresh EGI_FTCHAR_MAP after editing !!! ------  */
+		/* EDIT:  Need to refresh EGI_FTCHAR_MAP after editing !!! .... */
 
 		/* Image DivisionS: 1. File top bar  2. Charmap  3. PINYIN IME  4. Sub Menus */
 	/* --- 1. File top bar */
 		draw_filled_rect2(&gv_fb_dev,WEGI_COLOR_GRAY4, 0, 0, gv_fb_dev.pos_xres-1, gv_fb_dev.pos_yres-1); //txtbox.endxy.x, txtbox.startxy.y-1);
-		FTsymbol_writeFB("File  Help",20,5,WEGI_COLOR_WHITE, NULL, NULL);
-		FTsymbol_writeFB("EGI笔记本",140,5,WEGI_COLOR_LTBLUE, NULL, NULL);
-
+		FTsymbol_writeFB("File  Help", 20,5,WEGI_COLOR_WHITE, NULL, NULL);
+		FTsymbol_writeFB("Emojis Demo", 140,5,WEGI_COLOR_LTBLUE, NULL, NULL);
 	/* --- 2. Charmap Display txt */
         	//fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
 		FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
-
 	/* --- 3. PINYING IME */
 		if(enable_pinyin) {
 			/* Back pad */
@@ -1336,10 +1092,9 @@ MAIN_START:
 
 			/* Decoration for PINYIN bar */
 			FTsymbol_writeFB("EGI全拼输入", 320-120, txtbox.endxy.y-60+3, WEGI_COLOR_ORANGE, NULL, NULL);
-			fbset_color2(&gv_fb_dev, WEGI_COLOR_WHITE);
+			fbset_color(WEGI_COLOR_WHITE);
 			draw_line(&gv_fb_dev, 15, txtbox.endxy.y-60+3+28, 320-15,txtbox.endxy.y-60+3+28);
 
-/* TODO: mutex_lock */
 			#if SINGLE_PINYIN_INPUT /* PINYIN Input for single UNIHANs  */
 			/* Display PINYIN */
 			FTsymbol_writeFB(strPinyin, 15, txtbox.endxy.y-60+3, WEGI_COLOR_FIREBRICK, NULL, NULL);
@@ -1365,8 +1120,8 @@ MAIN_START:
 					snprintf(strItem,sizeof(strItem),"%d.%s ",i-GroupStartIndex+1,unihans[i]);
 					strcat(strHanlist, strItem);
 					/* Check if out of range */
-					//if(FTsymbol_uft8strings_pixlen(egi_sysfonts.regular, fwUI, fhUI, (UFT8_PCHAR)strHanlist) > 320-15 )
-					if(FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fwUI, fhUI, (UFT8_PCHAR)strHanlist) > 320-15 )
+					//if(FTsymbol_uft8strings_pixlen(face, fw, fh, (UFT8_PCHAR)strHanlist) > 320-15 )
+					if(FTsymbol_uft8string_getAdvances(face, fwUI, fhUI, (UFT8_PCHAR)strHanlist) > 320-15 )
 					{
 						strHanlist[strlen(strHanlist)-strlen(strItem)]='\0';
 						break;
@@ -1383,14 +1138,11 @@ MAIN_START:
 			printf("WARNING: chmap->errbits=%#x \n",chmap->errbits);
 		}
 
-
 	   /* --- 4. Sub Menus : Handle Active Menu, active_menu_handle */
 	   switch( ActiveComp )
 	   {
 		/* Righ_click menu */
 		case CompRCMenu:
-			start_pch=false; /* HK2022-06-03 */
-
 			/* Backup desktop bkg */
 	        	fb_copy_FBbuffer(&gv_fb_dev,FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 
@@ -1400,12 +1152,17 @@ MAIN_START:
        				draw_mcursor();
 				fb_render(&gv_fb_dev);
 			}
-
 			/* Execute Menu Command */
 			RCMenu_execute(RCMenu_Command_ID);
 
+/* TEST:-----  Wait for a LeftKeyUp: to avoid above click to change/affect txtbox selection range!
+               If you press down and hold, it surely will change/affect txtbox selection range!
+               mouse_callback() will reset start_pch=false at LeftKeyDownHold.
+               HK2022-06-04
+ */
+                        while(start_pch){usleep(100000);}
 			/* Exit Menu handler */
-			start_pch=false;
+			//start_pch=false;
 			ActiveComp=CompTXTBox;
 			break;
 
@@ -1444,10 +1201,6 @@ MAIN_START:
 		/* Render and bring image to screen */
 		fb_render(&gv_fb_dev);
 		//tm_delayms(20);
-
-#endif /////////////////////  END : Refresh Surface  ////////////////////////
-
-
 	}
 
 
@@ -1495,7 +1248,7 @@ MAIN_START:
                   /*-----------------------------------
                    *         End of Main Program
                    -----------------------------------*/
-//MAIN_END:
+MAIN_END:
 
 	/* Reset termio */
         tcsetattr(0, TCSANOW,&old_settings);
@@ -1547,12 +1300,10 @@ static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny)
 {
 	int ret;
 
-
        	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,   /* FBdev, charmap*/
                                            fw, fh,         /* fontface, fw,fh */
 	                                   -1, 255,      	   	   /* transcolor,opaque */
                                            NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
-
 
         /* Double check! */
         if( chmap->chcount > chmap->mapsize ) {
@@ -1564,13 +1315,10 @@ static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny)
                                                                                 	chmap->txtdlncount, chmap->txtdlines);
         }
 
-
 	return ret>0?ret:0;
 }
 
 /*-------------------------------------
-(Applys if pthread_render NOT used.)
-
         FTcharmap WriteFB TXT
 @txt:   	Input text
 @color: 	Color for text
@@ -1597,7 +1345,6 @@ static int FTcharmap_writeFB2(EGI_FTCHAR_MAP *chmap, FBDEV *fbdev, int *penx, in
 
 	return ret>0?ret:0;
 }
-
 
 /*----------------------------------------
     Charmap to the last page of txtbuff.
@@ -1629,26 +1376,48 @@ static void FTcharmap_goto_end(void)
 }
 
 
-/*----------------------------------------------
-FTsymbol WriteFB for UI (NOT for Charmap txtbox)
+/*-----------------------------------------
+FTsymbol WriteFB TXT for UI(NOT for Charmap)
 
 With fixed fwUI/fhUI/fontface.
 
-@txt:   	Input text
-@px,py: 	LCD X/Y for start point.
-@color: 	Color for text
+@txt:           Input text
+@px,py:         LCD X/Y for start point.
+@color:         Color for text
 @penx, peny:    pointer to pen X.Y.
------------------------------------------------*/
+-------------------------------------------*/
 static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny)
 {
-       	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
-                                        fwUI, fhUI,(const unsigned char *)txt,    	/* fw,fh, pstr */
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
+                                        fwUI, fhUI,(const unsigned char *)txt,      /* fw,fh, pstr */
                                         //320, tlns, fgap,      /* pixpl, lines, fgap */
-					320, 1, 0,
+                                        320, 1, 0,
                                         px, py,               /* x0,y0, */
                                         color, -1, 255,       /* fontcolor, transcolor,opaque */
                                         NULL, NULL, penx, peny);      /*  int *cnt, int *lnleft, int* penx, int* peny */
 }
+
+
+#if 0 /////////////////////////////////////
+/*-------------------------------------
+        FTsymbol WriteFB TXT
+@txt:   	Input text
+@px,py: 	LCD X/Y for start point.
+@color: 	Color for text
+@penx, peny:    pointer to pen X.Y.
+--------------------------------------*/
+static void FTsymbol_writeFB2(const char *txt, FT_Face ftface, int px, int py, EGI_16BIT_COLOR color, int *penx, int *peny)
+{
+	int fw=18;
+	int fh=20;
+       	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, ftface, //special, //bold,          /* FBdev, fontface */
+                                        fw, fh,(const unsigned char *)txt,    	/* fw,fh, pstr */
+                                        320, tlns, fgap,      /* pixpl, lines, fgap */
+                                        px, py,               /* x0,y0, */
+                                        color, -1, 255,       /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, penx, peny);      /*  int *cnt, int *lnleft, int* penx, int* peny */
+}
+#endif //////////////////////////////////////
 
 /*-----------------------------------------------------------
 		Callback for mouse input
@@ -1656,7 +1425,6 @@ static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR co
 2. Check and set ACTIVE token for menus.
 3. If click in TXTBOX, set typing cursor or marks.
 4. The function will be pending until there is a mouse event.
-5. Operation to charmap with mutex_lock (+ request).
 ------------------------------------------------------------*/
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus)
 {
@@ -1673,7 +1441,7 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
 		if( mouseY > txtbox.startxy.y )
 			start_pch=true;
 
-/* Note: start_pch as a sign of pressing for compRCMenu selection, see while( !start_pch ) at refresh_surface() */
+/* Note: start_pch as a sign of pressing for compRCMenu selection, see while( !start_pch ) */
 
                 /* 1.1.2 Activate window top bar menu */
                 if( mouseY < txtbox.startxy.y && mouseX <112) //90 )
@@ -1682,7 +1450,6 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
                 /* 1.1.3 Reset pch2 = pch */
                 if( ActiveComp==CompTXTBox )
                        FTcharmap_reset_charPos2(chmap);
-
 	}
 	/* 1.2 LeftKeyDownHold */
 	else if( mostatus->LeftKeyDownHold ) {
@@ -1693,21 +1460,21 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
                 start_pch=false;
 	}
 
-	/* 2. RightKeyDown */
-        //if(mouse_data[0]&0x2) {
+	/* 2. Right click down */
+       //if(mouse_data[0]&0x2) {
 	if(mostatus->RightKeyDown ) {
                 printf("Right key down!\n");
 		pxy.x=mouseX; pxy.y=mouseY;
 		/* 2.1 Activate CompRCMenu */
 		if( point_inbox(&pxy, &txtbox ) ) {
 			ActiveComp=CompRCMenu;
-			/* Menu Origin */
-			menuX0=mouseX; menuY0=mouseY;
+			menuX0=mouseX;
+			menuY0=mouseY;
 		}
 	}
 
-	/* 3. MidkeyDown */
-        //if(mouse_data[0]&0x4)
+	/* 3. MidKeyDown */
+       //if(mouse_data[0]&0x4)
 	if(mostatus->MidKeyDown)
                 printf("Mid key down!\n");
 
@@ -1732,39 +1499,20 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
 	if( (mostatus->LeftKeyDownHold || mostatus->LeftKeyDown) && ActiveComp==CompTXTBox ) {
 		/* 7.1 Set cursor position/Start of selection, LeftKeyDown */
 		if(start_pch) {
-		        /* 7.1.1 Continue checking request to locate_charPos! */
+		        /* continue checking request! */
            		while( FTcharmap_locate_charPos( chmap, mouseMidX, mouseMidY )!=0 ){ tm_delayms(5);};
-           		/* 7.1.2 Set random mark color */
+           		/* set random mark color */
            		FTcharmap_set_markcolor( chmap, egi_color_random(color_medium), 80);
+
 //			printf("---pchoff: %d\n", chmap->pchoff);
 
 		}
-		/* 7.2 Set end of selection, LeftKeyDownHold. !start_pch implys LeftKeDownHold */
+		/* 7.2 Set end of selection, LeftKeyDownHold !start_pch implys LeftKeDownHold */
 		else {
 		   	/* Continue checking request! */
 		   	while( FTcharmap_locate_charPos2( chmap, mouseMidX, mouseMidY )!=0 ){ tm_delayms(5); } ;
 		}
 	}
-
-	/* 8. smgsnd MSG_REFRESH_SURFACE */
-#if 1 /* TEST msg: 2022-05-23: ------------------- */
-	MSG_BUFF msgbuff;
-	int merr;
-	//if( mostatus->mouseDX || mostatus->mouseDY ) {
-	if( (!mostatus->KeysIdle || mostatus->mouseDX || mostatus->mouseDY) && mev_msgid>0 ) {
-		msgbuff.mtype=MSG_REFRESH_SURFACE;
-	        merr=msgsnd(render_msgid, (void *)&msgbuff, sizeof(msgbuff.mtext), 0);
-	        if(merr<0) {
-            		egi_dperr("msgsnd fails.");
-                	//if(errno==EIDRM) egi_dpstd("msgid is invalid! Or the queue is removed.\n");
-                	//else if(errno==EAGAIN) egi_dpstd("Insufficient space in the queue!\n");
-		}
-
-		//if(chmap)
-		//    refresh_surface();
-	}
-#endif
-
 }
 
 /*--------------------------------
@@ -1828,8 +1576,11 @@ Draw right_click menu.
 --------------------------------------*/
 static void draw_RCMenu(int x0, int y0)
 {
+	/* Private size */
+	int fw=18, fh=20;
+
 	#define RCMENU_ITEMS	5
-	char *mwords[RCMENU_ITEMS]={"Word", "Copy", "Paste", "Cut", "Color"};
+	char *mwords[RCMENU_ITEMS]={"Words", "Copy", "Paste", "Cut", "Color"};
 
 	int mw=70;   /* menu width */
 	int smh=33;  /* sub menu height */
@@ -1856,25 +1607,21 @@ static void draw_RCMenu(int x0, int y0)
 	{
 		/* Menu pad */
 		if(mp==i)
-			fbset_color2(&gv_fb_dev, WEGI_COLOR_ORANGE);
+			fbset_color(WEGI_COLOR_ORANGE);
 		else
-			fbset_color2(&gv_fb_dev,WEGI_COLOR_GRAY4);
+			fbset_color(WEGI_COLOR_GRAY4);
 		draw_filled_rect(&gv_fb_dev, x0, y0+i*smh, x0+mw, y0+(i+1)*smh);
 
 		/* Menu Words */
-#if 1
         	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
-                                        18, 20,(const unsigned char *)mwords[i],    /* fw,fh, pstr */
+                                        fw, fh,(const unsigned char *)mwords[i],    /* fw,fh, pstr */
                                         100, 1, 0,      			    /* pixpl, lines, fgap */
                                         x0+10, y0+2+i*smh,                      /* x0,y0, */
                                         WEGI_COLOR_WHITE, -1, mp==i?255:100,        /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
-#else //HK2022-05-22
-		FTsymbol_writeFB(mwords[i], x0+10, y0+2+i*smh, WEGI_COLOR_WHITE, NULL, NULL);
-#endif
 	}
 	/* Draw rim */
-	fbset_color2(&gv_fb_dev, WEGI_COLOR_BLACK);
+	fbset_color(WEGI_COLOR_BLACK);
 	draw_rect(&gv_fb_dev, x0, y0, x0+mw, y0+mh);
 }
 
@@ -1886,6 +1633,9 @@ static void draw_RCMenu(int x0, int y0)
 -----------------------------------------*/
 static void draw_WTBMenu(int x0, int y0)
 {
+	/* Private size */
+	int fw=18, fh=20;
+
 	static int  mtag=-1;	/* [0]-File,  [1]-Help */
 
 	const char *MFileItems[4]={"Open", "Save", "Exit", "Abort"};
@@ -1927,25 +1677,21 @@ static void draw_WTBMenu(int x0, int y0)
 	{
 		/* Menu pad */
 		if(mp==i)
-			fbset_color2(&gv_fb_dev,WEGI_COLOR_ORANGE);
+			fbset_color(WEGI_COLOR_ORANGE);
 		else
-			fbset_color2(&gv_fb_dev,WEGI_COLOR_GRAY4);
+			fbset_color(WEGI_COLOR_GRAY4);
 		draw_filled_rect(&gv_fb_dev, x0, y0+i*smh, x0+mw, y0+(i+1)*smh);
 
 		/* Menu Words */
-#if 0
         	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
-                                        18, 20,(const unsigned char *)MFileItems[i],    /* fw,fh, pstr */
+                                        fw, fh,(const unsigned char *)MFileItems[i],    /* fw,fh, pstr */
                                         100, 1, 0,      			    /* pixpl, lines, fgap */
                                         x0+10, y0+2+i*smh,                      /* x0,y0, */
                                         WEGI_COLOR_WHITE, -1, 255,        /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
-#else //HK2022-05-22
-		FTsymbol_writeFB(MFileItems[i], x0+10, y0+2+i*smh, WEGI_COLOR_WHITE, NULL, NULL);
-#endif
 	}
 	/* Draw rim */
-	fbset_color2(&gv_fb_dev,WEGI_COLOR_BLACK);
+	fbset_color(WEGI_COLOR_BLACK);
 	draw_rect(&gv_fb_dev, x0, y0, x0+mw, y0+mh);
     }
 
@@ -1971,25 +1717,21 @@ static void draw_WTBMenu(int x0, int y0)
 	{
 		/* Menu pad */
 		if(mp==i)
-			fbset_color2(&gv_fb_dev,WEGI_COLOR_ORANGE);
+			fbset_color(WEGI_COLOR_ORANGE);
 		else
-			fbset_color2(&gv_fb_dev,WEGI_COLOR_GRAY4);
+			fbset_color(WEGI_COLOR_GRAY4);
 		draw_filled_rect(&gv_fb_dev, x0+45, y0+i*smh, x0+45+mw, y0+(i+1)*smh);
 
 		/* Menu Words */
-#if 0
         	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_sysfonts.regular, //special, //bold,          /* FBdev, fontface */
-                                        18, 20,(const unsigned char *)MHelpItems[i],    /* fw,fh, pstr */
+                                        fw, fh,(const unsigned char *)MHelpItems[i],    /* fw,fh, pstr */
                                         100, 1, 0,      			    /* pixpl, lines, fgap */
                                         x0+45+10, y0+2+i*smh,                      /* x0,y0, */
                                         WEGI_COLOR_WHITE, -1, 255,        /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL);      /*  *charmap, int *cnt, int *lnleft, int* penx, int* peny */
-#else //HK2022-05-22
-		FTsymbol_writeFB(MHelpItems[i], x0+45+10, y0+2+i*smh, WEGI_COLOR_WHITE, NULL, NULL);
-#endif
 	}
 	/* Draw rim */
-	fbset_color2(&gv_fb_dev,WEGI_COLOR_BLACK);
+	fbset_color(WEGI_COLOR_BLACK);
 	draw_rect(&gv_fb_dev, x0+45, y0, x0+45+mw, y0+MHelpNum*smh);
     }
 }
@@ -2247,42 +1989,26 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
                                 draw_mcursor();
 				fb_render(&gv_fb_dev);
 
-				/* HK2022-05-28 TODO:  NOW two threads race for the stdin, if user
-				 * input 'N' to cancel,  it may add char'N' to txtbox. ALSO the first 'Y'
-				 * may be caught by main thread.
-				*/
-				//Set as nonblocking
-				new_settings.c_cc[VMIN]=0;
-				tcsetattr(0, TCSANOW, &new_settings);
-
 				read(STDIN_FILENO, &ch, 1);
 				printf(" abort confirm ch='%c'\n", ch);
 				if( ch=='y' || ch== 'Y' )
 					exit(10);
-				else if( ch=='n' || ch== 'N' ) {
-					// Reset blocking
-					new_settings.c_cc[VMIN]=1;
-					tcsetattr(0, TCSANOW, &new_settings);
+				else if( ch=='n' || ch== 'N' )
 					break;
-				}
 			}
 			break;
 		case WBTMENU_COMMAND_HELP:
 			//printf("txtdlinePos/txtlen: %d/%d\n", chmap->txtdlinePos[chmap->txtdlncount], chmap->txtlen);
 			//if(soff>=0)
-			//sprintf(strbuff, "当前页面位置: %.3f%%\nPoffset: %d/%d\",
-			//	    	    	100*(float)(chmap->pref-chmap->txtbuff)/chmap->txtlen,
-			//		    	chmap->pref-chmap->txtbuff, chmap->txtlen);
-
-                        unicode=0; /* Init as invalid Unicode */
-                        char_uft8_to_unicode(chmap->txtbuff+chmap->pchoff, &unicode);
-                        sprintf(strbuff, "当前页面位置: %.3f%%\n  Poffset: %d/%d\n当前光标位置off: %d\n  U+%X",
-                                                100*(float)(chmap->pref-chmap->txtbuff)/chmap->txtlen,
-                                                chmap->pref-chmap->txtbuff, chmap->txtlen,
-                                                chmap->pchoff<0 ? -1 : chmap->pchoff, unicode); /* 当前光标位置off: %d\  U+%X  */
+			unicode=0; /* Init as invalid Unicode */
+			char_uft8_to_unicode(chmap->txtbuff+chmap->pchoff, &unicode);
+			sprintf(strbuff, "当前页面位置: %.3f%%\n  Poffset: %d/%d\n当前光标位置off: %d\n  U+%X",
+				    	    	100*(float)(chmap->pref-chmap->txtbuff)/chmap->txtlen,
+					    	chmap->pref-chmap->txtbuff, chmap->txtlen,
+						chmap->pchoff<0 ? -1 : chmap->pchoff, unicode); /* 当前光标位置off: %d\  U+%X  */
 			draw_msgbox( &gv_fb_dev, 30, 50, 260, strbuff);
 			fb_render(&gv_fb_dev);
-			sleep(3);
+			sleep(2);
 			printf("WBTMENU_COMMAND_HELP\n");
 			break;
 		case WBTMENU_COMMAND_RENEW:
@@ -2329,19 +2055,19 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 			break;
 
 		case WBTMENU_COMMAND_SAVEPOS: /* Save current offset for bookmark */
-			/* Save current editting cursor position */
-			if(chmap->pch>=0)
-				sprintf(strval,"%d", chmap->pchoff);
-			/* Save start position of current page */
-			else
-			   	sprintf(strval,"%d", chmap->pref-chmap->txtbuff);
-			if( egi_update_config_value("BOOKMARK", "offset", strval)==0 ) {
-				sprintf(strbuff, "当前书签位置已经保存: Pos offset=%s\n(请注意先保存文件)", strval);
-				draw_msgbox( &gv_fb_dev, 30, 50, 260, strbuff);
-				fb_render(&gv_fb_dev);
-				sleep(2);
-			}
-			break;
+                        /* Save current editting cursor position */
+                        if(chmap->pch>=0)
+                                sprintf(strval,"%d", chmap->pchoff);
+                        /* Save start position of current page */
+                        else
+                                sprintf(strval,"%d", chmap->pref-chmap->txtbuff);
+                        if( egi_update_config_value("BOOKMARK", "offset", strval)==0 ) {
+                                sprintf(strbuff, "当前书签位置已经保存: Pos offset=%s\n(请注意先保存文件)", strval);
+                                draw_msgbox( &gv_fb_dev, 30, 50, 260, strbuff);
+                                fb_render(&gv_fb_dev);
+                                sleep(2);
+                        }
+                        break;
 		default:
 			printf("WBTMENU_COMMAND_NONE\n");
 			break;
@@ -2520,11 +2246,11 @@ Draw a simple palette.
 ---------------------*/
 void draw_palette(int x0, int y0)
 {
-	int i;
+	int i,j;
 	int row=6;
 	int col=10;
 	int side=20; /* color square side, in pixels */
-	//int gap=3;  /* Gap between color squares, also as pad side margin */
+	int gap=3;  /* Gap between color squares, also as pad side margin */
 	int x,y;
 	EGI_16BIT_COLOR color;
 
@@ -2603,216 +2329,4 @@ void draw_palette(int x0, int y0)
 
 #endif
 
-}
-
-
-
-/*-----------------------------------------
-Refresh surface items, including:
-1. Editor frame.
-2. Charmap for editor txtbox content.
-3. PINYIN IME panel list.
-4. File_Menu and RightClick_Menu.
-
-------------------------------------------*/
-void refresh_surface(void)
-{
-	int i;
-
-		/* EDIT:  Need to refresh EGI_FTCHAR_MAP after editing !!! .... */
-
-		/* Image DivisionS: 1. File top bar  2. Charmap  3. PINYIN IME  4. Sub Menus */
-
-/* ------ >>>  mutex_render Critical Zone  */
-	pthread_mutex_lock(&mutex_render);
-
-	/* --- 1. File top bar */
-//printf("Draw editor top....\n");
-	draw_filled_rect2(&gv_fb_dev,WEGI_COLOR_GRAY4, 0, 0, gv_fb_dev.pos_xres-1, gv_fb_dev.pos_yres-1); //txtbox.endxy.x, txtbox.startxy.y-1);
-	FTsymbol_writeFB("File  Help",20,5,WEGI_COLOR_WHITE, NULL, NULL);
-	FTsymbol_writeFB("EGI笔记本",140,5,WEGI_COLOR_LTBLUE, NULL, NULL);
-
-	/* --- 2. Charmap Display txt */
-//printf("FTcharmap_writeFB....\n");
-        //fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-	FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
-//printf("FTcharmap_writeFB finish\n");
-
-	/* --- 3. PINYING IME */
-	if(enable_pinyin) {
-		/* Back pad */
-		//draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYB, 0, txtbox.endxy.y-60, txtbox.endxy.x, txtbox.endxy.y );
-		draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYB, 0, txtbox.startxy.y+ chmap->height, txtbox.endxy.x, txtbox.endxy.y );
-
-		/* Decoration for PINYIN bar */
-		FTsymbol_writeFB("EGI全拼输入", 320-120, txtbox.endxy.y-60+3, WEGI_COLOR_ORANGE, NULL, NULL);
-		fbset_color(WEGI_COLOR_WHITE);
-		draw_line(&gv_fb_dev, 15, txtbox.endxy.y-60+3+28, 320-15,txtbox.endxy.y-60+3+28);
-
-		#if SINGLE_PINYIN_INPUT /* PINYIN Input for single UNIHANs  */
-		/* Display PINYIN */
-		FTsymbol_writeFB(strPinyin, 15, txtbox.endxy.y-60+3, WEGI_COLOR_FIREBRICK, NULL, NULL);
-		/* Display grouped UNIHANs for selecting  */
-		if( unicount>0 ) {
-			//printf("unicount=%d, HanGroups=%d, HanGroupIndex=%d\n", unicount, HanGroups,HanGroupIndex);
-			bzero(strHanlist, sizeof(strHanlist));
-			for( i=0; i < GroupMaxItems && i<unicount; i++ ) {
-				unindex=HanGroupIndex*GroupMaxItems+i;
-				if(unihans[unindex][0]==0) break;
-				snprintf(strItem,sizeof(strItem),"%d.%s ",i+1,unihans[unindex]);
-				strcat(strHanlist, strItem);
-			}
-			FTsymbol_writeFB(strHanlist, 15, txtbox.endxy.y-60+3+30, WEGI_COLOR_BLACK, NULL, NULL);
-		}
-		#else /* MULTIPLE_PINYIN_INPUT for UNIHANGROUPs (include UNIHANs) */
-		/* Display PINYIN */
-//printf("Display PINYIN....\n");
-		FTsymbol_writeFB(display_pinyin, 15, txtbox.endxy.y-60+3, WEGI_COLOR_FIREBRICK, NULL, NULL);
-		/* Display unihan(group)s for selecting */
-		if( unicount>0 ) {
-			bzero(strHanlist, sizeof(strHanlist));
-			for( i=GroupStartIndex; i<unicount; i++ ) {
-				snprintf(strItem,sizeof(strItem),"%d.%s ",i-GroupStartIndex+1,unihans[i]);
-				strcat(strHanlist, strItem);
-				/* Check if out of range */
-				//if(FTsymbol_uft8strings_pixlen(egi_sysfonts.regular, fwUI, fhUI, (UFT8_PCHAR)strHanlist) > 320-15 )
-				if(FTsymbol_uft8string_getAdvances(egi_sysfonts.regular, fwUI, fhUI, (UFT8_PCHAR)strHanlist) > 320-15 )
-				{
-					strHanlist[strlen(strHanlist)-strlen(strItem)]='\0';
-					break;
-				}
-			}
-			GroupItems=i-GroupStartIndex;
-			FTsymbol_writeFB(strHanlist, 15, txtbox.endxy.y-60+3+30, WEGI_COLOR_BLACK, NULL, NULL);
-		}
-		#endif
-	}
-
-	/* POST:  check chmap->errbits */
-	if( chmap->errbits ) {
-		printf("WARNING: chmap->errbits=%#x \n",chmap->errbits);
-	}
-
-printf("Display PINYIN finishes, GroupStartIndex=%d, GroupItems=%d \n", GroupStartIndex, GroupItems);
-
-/* ------ <<<  mutex_render Critical Zone  */
-	pthread_mutex_unlock(&mutex_render);
-
-
-	/* --- 4. Sub Menus : Handle Active Menu, active_menu_handle */
-	switch( ActiveComp )
-	{
-		/* Righ_click menu */
-		case CompRCMenu:
-			/* Backup desktop bkg */
-	        	fb_copy_FBbuffer(&gv_fb_dev,FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
-
-			while( !start_pch ) {  /* Wait for click */
-        			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-				draw_RCMenu(menuX0, menuY0);
-       				draw_mcursor();
-				fb_render(&gv_fb_dev);
-			}
-
-
-			/* Execute Menu Command */
-			RCMenu_execute(RCMenu_Command_ID);
-
-/* TEST:-----  Wait for a LeftKeyUp: to avoid above click to change/affect txtbox selection range!
-               If you press down and hold, it surely will change/affect txtbox selection range!
-	       mouse_callback() will reset start_pch=false at LeftKeyDownHold.
-	       HK2022-06-04
- */
-			while(start_pch){usleep(50000);}
-
-			/* Exit Menu handler */
-			//start_pch=false;
-			ActiveComp=CompTXTBox;
-			break;
-
-		/* Window Bar menu */
-		case CompWTBMenu:
-			/* In case that start_pch MAY have NOT reset yet */
-			start_pch=false;
-
-			printf("WTBmenu Open\n");
-			/* Backup desktop bkg */
-	        	fb_copy_FBbuffer(&gv_fb_dev,FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
-
-			/* Wait for next click ... */
-			while( !start_pch || mouseLeftKeyDown==false ) {
-        			fb_copy_FBbuffer(&gv_fb_dev, FBDEV_BKG_BUFF, FBDEV_WORKING_BUFF);  /* fb_dev, from_numpg, to_numpg */
-				draw_WTBMenu( txtbox.startxy.x, txtbox.startxy.y );
-       				draw_mcursor();
-				fb_render(&gv_fb_dev);
-			}
-
-			printf("WTBmenu Close\n");
-			/* Execute Menu Command */
-			WBTMenu_execute(WBTMenu_Command_ID);
-
-			/* Exit Menu handler */
-			start_pch=false;
-			ActiveComp=CompTXTBox;
-			break;
-		default:
-			break;
-	} /* END Switch */
-
-	/* 5. Draw cursor */
-//printf("Draw mcursor......\n");
-	draw_mcursor();
-
-	/* 6. Render and bring image to screen */
-	fb_render(&gv_fb_dev);
-}
-
-/*--------------------------------------
-This is a detached thread function.
-
-To render/refresh the surface when
-MSG_REFRESH_SURFACE is received.
--------------------------------------*/
-void *render_surface(void* argv)
-{
-	int mlen;
-	MSG_BUFF msgbuff;
-
-        /* 1. Detach thread */
-        pthread_detach(pthread_self());
-
-	/* 2. Wait for MSG_REFRESH_SURFACE */
-	while(1) {
-		/* 2.1 Msgrcv() */
-        	//mlen=msgrcv(render_msgid, &msgbuff, sizeof(msgbuff.mtext), MSG_REFRESH_SURFACE, MSG_NOERROR);
-		/* MSG_NOERROR: To truncate the message text if longer than msgsz bytes. */
-        	mlen=msgrcv(render_msgid, &msgbuff, sizeof(msgbuff.mtext), MSG_REFRESH_SURFACE, MSG_NOERROR|IPC_NOWAIT);
-		if(mlen<0) {
-			if(errno==EIDRM) {
-				egi_dpstd("The message queue was removed!\n");
-				break;
-			}
-			/* At lease 2 times refresh each second. */
-			else if(errno==ENOMSG) {
-				usleep(500000);
-				egi_dpstd("Refresh at regular intervals.\n");
-			}
-		}
-#if 0		/* 2.2 Drop all remaining MSGs in the queue! */
-		else {
-			//msgctl(render_msgid, IPC_RMID, NULL); Erase MSG queue from kernel.
-			while( msgrcv(render_msgid, &msgbuff, sizeof(msgbuff.mtext), MSG_REFRESH_SURFACE, IPC_NOWAIT)>=0 )
-			{  }
-		}
-#endif
-
-		/* 2.3 Render surface */
-//		egi_dpstd("Msg: Refresh surface!\n");
-		if(chmap_ready)
-			refresh_surface();
-	}
-
-
-	/* 3. Return */
-	return (void*)0;
 }

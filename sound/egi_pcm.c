@@ -84,6 +84,7 @@ Note:
       1. (It only support parameters(SampleRate etc.) predefined in the HW card.
       2. CAN NOT presents as a CTL at he same time!
    4.1 Mixers/CTLs defined in asound.conf. OK!
+5. 
 
 TODO:
 1. To play PCM data with format other than SND_PCM_FORMAT_S16_LE.
@@ -241,7 +242,7 @@ int egi_pcm_period_size(void)
 void egi_close_pcm_device(void)
 {
 	if(g_ffpcm_handle != NULL) {
-		snd_pcm_drain(g_ffpcm_handle);
+		snd_pcm_drain(g_ffpcm_handle);  //snd_pcm_drop() STOP playing remaining data
 		snd_pcm_close(g_ffpcm_handle);
 		g_ffpcm_handle=NULL;
 	}
@@ -1764,7 +1765,7 @@ int  egi_pcmbuf_playback( const char* dev_name, EGI_PCMBUF *pcmbuf, int vstep,
 
 	/* Close private pcm handle */
 	if( without_pcm_handle ) {
-		snd_pcm_drain(pcmbuf->pcm_handle);
+		snd_pcm_drain(pcmbuf->pcm_handle);//snd_pcm_drop() STOP playing remaining data
 		snd_pcm_close(pcmbuf->pcm_handle);
 		pcmbuf->pcm_handle=NULL;
 	}

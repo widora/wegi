@@ -988,9 +988,13 @@ transforms etc. The purpose is to get the space needed for writFBing the string 
 		the same string.
 @pstr:          pointer to a string with UTF-8 encoding.
 
+
 NOTE:
   1. For ASCII symbols, results are NOT same as FTsymbol_uft8strings_pixlen()??! Example: abc , . : ...
      So the function will call FTsymbol_uft8strings_pixlen() in that case.
+
+TODO:
+  1. Cross check with FTsymbol_unicode_writeFB(), for EMOJIs etc.
 
 Return:
 	>0	Sum of andvances of the chars that successfully parsed. (in pixels)
@@ -1010,29 +1014,44 @@ inline int FTsymbol_uft8string_getAdvances(FT_Face face, int fw, int fh, const u
 	if(ptr==NULL)
 		return -1;
 
-	/* set character size in pixels */
+#if 0	/* 1. Mutex lock FT_library for SYSFONTs */
+        if(pthread_mutex_lock(&egi_sysfonts.lib_mutex) !=0 ){
+                EGI_PLOG(LOGLV_ERROR,"%s: Fail to lock lib_mutex! Err'%s'.", __func__, strerror(errno));
+                return -1;
+	}
+/* ------ >>>  Critical Zone  */
+#endif
+
+	/* 2. Set character size in pixels */
 	error = FT_Set_Pixel_Sizes(face, fw, fh);
    	/* OR set character size in 26.6 fractional points, and resolution in dpi
    	   error = FT_Set_Char_Size( face, 32*32, 0, 100,0 ); */
 	if(error) {
 		printf("%s: FT_Set_Pixel_Sizes() fails!\n",__func__);
+
+/* ------ <<<  Critical Zone  */
+	        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+
 		return -2;
 	}
 
+	/* 3. Get advance of each unicode and sum up. */
 	while(*p) {
 		/* convert one character to unicode, return size of utf-8 code */
 		size=char_uft8_to_unicode(p, wcstr);
 		if(size > 0) {
-			/* If cooked width */
+			/* If it has cooked width. */
 			sdw=FTsymbol_cooked_charWidth(*wcstr, fw);
 			if( sdw >= 0 ) {
 				sum += sdw;
 			}
+			/* ASCII */
 			else if( size==1 ) { //&& isascii(*p) ) {  /* If ASCII, NOT apply FT_Get_Advance() */
 				pch[0]=*p;
 			 	sdw=FTsymbol_uft8strings_pixlen(face, fw, fh, (unsigned char *)pch);
 				if(sdw>0) sum += sdw;
 			}
+			/* Other unicodes, call FT_Get_Advances */
 			else {
 				/* FT_Get_Advances(FT_Face face, FT_UInt start, FT_UInt count, FT_Int32 load_flags, FT_Fixed *padvances)
 				 * !!! WARNING !!! load_flags must be the same as in FT_Load_Char( face, wcode, flags ) when writeFB
@@ -1053,6 +1072,9 @@ inline int FTsymbol_uft8string_getAdvances(FT_Face face, int fw, int fh, const u
 			continue;
 		}
 	}
+
+/* ------ <<<  Critical Zone  */
+//        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
 
 	return sum;
 }
@@ -1366,10 +1388,9 @@ TRY_LOAD_CHAR:
 //	error = FT_Load_Glyph(face, gindex,  FT_LOAD_NO_SCALE|FT_LOAD_COLOR|FT_LOAD_FORCE_AUTOHINT|FT_LOAD_TARGET_NORMAL);
 	error = FT_Load_Glyph(face, gindex, FT_LOAD_COLOR); //XXX |FT_LOAD_NO_SCALE); //FT_LOAD_COLOR|FT_LOAD_DEFAULT);
 						//FT_LOAD_DEFAULT==0 |FT_LOAD_RENDER ; FT_LOAD_SBITS_ONLY
-	if(error) egi_dpstd("FT_Load_Glyph error=%d\n", error);
-//	error = FT_Render_Glyph(face->glyph,  FT_RENDER_MODE_NORMAL); //FT_RENDER_MODE_LCD, FT_RENDER_MODE_NORMAL
+	//error = FT_Render_Glyph(face->glyph,  FT_RENDER_MODE_NORMAL); //FT_RENDER_MODE_LCD, FT_RENDER_MODE_NORMAL
 	if(error) {
-		printf("%s: FT_Load/Render_Glyph() fails with gindex=%d!\n",__func__, gindex);
+		egi_dpstd("FT_Load_Glyph fails with gindex=%d, error=%d, \n", gindex, error);
 
 /* ------ <<<  Critical Zone  */
 	        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);

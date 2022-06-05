@@ -299,7 +299,8 @@ int load_pinyin_data(void)
         }
 
         /* 2. Load group_set from text first, if it fails, then try data file. */
-        group_set=UniHanGroup_load_CizuTxt(UNIHANGROUPS_EXPORT_TXT_PATH);
+        //group_set=UniHanGroup_load_CizuTxt(UNIHANGROUPS_EXPORT_TXT_PATH);
+	group_set=NULL;
         if( group_set==NULL) {
                 egi_dpstd(DBG_YELLOW"Fail to load group_set from %s, try to load from %s...\n"DBG_RESET,
 							UNIHANGROUPS_EXPORT_TXT_PATH,UNIHANGROUPS_DATA_PATH);

@@ -278,7 +278,7 @@ struct egi_surface_manager {
 	bool		renderThread_on;  /* Indicator, renderThread is running */
 
 	/* 5. Surfuser/surface for Input Method Engine HK2022-05-15 */
-#define SURFMAN_SURFIME_PIXZ	1020	  /* fbdev.pixz value for surfaceIME layer.
+#define SURFMAN_SURFIME_PIXZ	1005	  /* fbdev.pixz value for surfaceIME layer.
 					   * Note: set this value for fbdev.pixz when rendering surfaceIME, then
 					   * reset pixz of those area back to surfaceIME->zseq,so click/pick operation for
 					   * surfaces keep normal.
