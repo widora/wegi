@@ -6,6 +6,12 @@ Foundation.
 Journal:
 2021-12-17:
 	1. test cstr_parse_simple_html().
+2022-06-06:
+	1. test cstr_check_uft8encoding().
+2022-06-14:
+	1. cstr_count_lines(), egi_check_uft8File()
+2022-06-15:
+	1. str_nextchar_uft8()  cstr_prevchar_uft8()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -24,14 +30,146 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 int main( int  argc,   char**  argv )
 {
   int 		i,j,k;
+
   wchar_t *wbook=L"assd人心生一念，天地尽皆知。善恶若无报，乾坤必有私。\
 　　那菩萨闻得此言，满心欢喜，对大圣道：“圣经云：‘出其言善。\
 　　则千里之外应之；出其言不善，则千里之外适之。’你既有此心，待我到了东土大唐国寻一个取经的人来，教他救你。你可跟他做个徒弟，秉教伽持，入我佛门。再修正果，如何？”大圣声声道：“愿去！愿去！”菩萨道：“既有善果，我与你起个法名。”大圣道：“我已有名了，叫做孙悟空。”菩萨又喜道：“我前面也有二人归降，正是‘悟’字排行。你今也是‘悟’字，却与他相合，甚好，甚好。这等也不消叮嘱，我去也。”那大圣见性明心归佛教，这菩萨留情在意访神谱。\
 　　他与木吒离了此处，一直东来，不一日就到了长安大唐国。敛雾收云，师徒们变作两个疥癫游憎，入长安城里，竟不觉天晚。行至大市街旁，见一座土地庙祠，二人径进，唬得那土地心慌，鬼兵胆战。知是菩萨，叩头接入。那土地又急跑报与城隍社令及满长安城各庙神抵，都来参见，告道：“菩萨，恕众神接迟之罪。”菩萨道：“汝等不可走漏消息。我奉佛旨，特来此处寻访取经人。借你庙宇，权住几日，待访着真僧即回。”众神各归本处，把个土地赶到城隍庙里暂住，他师徒们隐遁真形。\
 　　毕竟不知寻出那个取经来，且听下回分解。";
 
+#if 1 /////////////////// cstr_nextchar_uft8()  cstr_prevchar_uft8()  //////////////////
+   struct timeval tms,tme;
+   UFT8_PCHAR pch;
+   unsigned int ucnt;  /* uchar counter */
 
-#if 1 /////////////////  egi_free_charList()  ///////////////////////
+   EGI_FILEMMAP *fmap=egi_fmap_create(argv[1], 0, PROT_READ, MAP_PRIVATE);
+   if(fmap==NULL) {
+	printf("Please input nonzero file path!\n");
+	exit(0);
+   }
+
+   /* TEST cstr_nextchar_uft8() */
+   gettimeofday(&tms,NULL);
+   pch=(UFT8_PCHAR)fmap->fp;
+   ucnt=0;
+   while(pch && *pch) {  /* Kick out '\0' */
+	ucnt++;
+	pch=cstr_nextchar_uft8(pch); /* '\0' count in <-------- */
+   }
+   gettimeofday(&tme,NULL);
+   printf("cstr_nextchar_uft8(): Total %d uchars, cost %luus\n", ucnt, tm_diffus(tms,tme));
+//cstr_nextchar_uft8(): Total 881378 uchars, cost 216753us
+
+   /* TEST cstr_prevchar_uft8() */
+   gettimeofday(&tms,NULL);
+   pch=(UFT8_PCHAR)fmap->fp+fmap->fsize;
+   ucnt=0;
+   pch=cstr_prevchar_uft8(pch, (UFT8_PCHAR)fmap->fp); /* '\0' NOT count in <----- */
+   while(pch) {
+	ucnt++;
+	pch=cstr_prevchar_uft8(pch, (UFT8_PCHAR)fmap->fp);
+   }
+   gettimeofday(&tme,NULL);
+   printf("cstr_prevchar_uft8(): Total %d uchars, cost %luus\n", ucnt, tm_diffus(tms,tme));
+//cstr_prevchar_uft8(): Total 881378 uchars, cost 596791us
+
+   egi_fmap_free(&fmap);
+   exit(0);
+#endif
+
+#if 0 //////////////////  cstr_count_lines()  ///////////////////////
+   struct timeval tms,tme;
+   printf("egi_count_file_lines: %d\n", egi_count_file_lines(argv[1]));
+
+   EGI_FILEMMAP *fmap=egi_fmap_create(argv[1], 0, PROT_READ, MAP_PRIVATE);
+   if(fmap==NULL) {
+	printf("Please input nonzero file path!\n");
+	exit(0);
+   }
+   while(1) {
+	   gettimeofday(&tms,NULL);
+	   printf("cstr_count_lines: %d\n", cstr_count_lines(fmap->fp));
+	   gettimeofday(&tme,NULL);
+
+	   printf("----- cost time in us: %lu ----\n",tm_diffus(tms,tme));
+   }
+
+   egi_fmap_free(&fmap);
+   exit(0);
+#endif
+
+#if 0  /////////////////  off_t   egi_check_uft8File(const char *fpath)  ///////////////////////
+	off_t offset;
+	offset=egi_check_uft8File(argv[1]);
+
+	if(offset==0) printf("Check UTF-8 encoding OK!\n");
+	else if(offset>0) printf("Error uchar found at offset position %jd.\n", offset);
+#endif
+
+#if 0  /////////////////  cstr_check_uft8encoding(const unsigned char *ustr, off_t strlen)  ///////////////////////
+   off_t off;
+
+//   EGI_FILEMMAP *fmap=egi_fmap_create("utf8error.txt", 0, PROT_READ|PROT_WRITE, MAP_SHARED);
+   EGI_FILEMMAP *fmap=egi_fmap_create(argv[1], 0, PROT_READ, MAP_PRIVATE);
+   if(fmap==NULL) {
+	printf("Please input nonzero file path!\n");
+	exit(0);
+   }
+
+   /* TEST: Byte_Order_Mark
+	UTF-8 Without BOM   ...
+	UTF-8 with BOM      EF BB BF
+        UTF-16LE            FF FE  //0xFEFF(65279) ZERO_WIDTH_NO_BREAK SPACE
+	UTF-16BE	    FE FF
+	UTF-32LE	    FF FE 00 00
+	UTF-32BE	    00 00 FE FF
+    */
+   int skip=0;  /* Skip UTF8 BOM if any. */
+   if( fmap->fsize >=4 ) {
+   	if(fmap->fp[0]==0xEF && fmap->fp[1]==0xBB && fmap->fp[0]==0xBF ) {
+		egi_dpstd("UTF-8 with BOM EF_BB_BF\n");
+		skip=3;  /* <---- skip */
+   	}
+   	else if((unsigned char)(fmap->fp[0]) == (unsigned char)(0xFF) ) {
+		if((unsigned char)(fmap->fp[1])==(unsigned char)0xFE) {
+			if(fmap->fp[2]==0 && fmap->fp[3]==0)
+				egi_dpstd("UTF-32LE with BOM FF_FE_00_00\n");
+			else
+				egi_dpstd("UTF-16LE with BOM FF_FE\n");
+		}
+   	}
+	else if((unsigned char)(fmap->fp[0])==(unsigned char)0xFE && (unsigned char)(fmap->fp[1])==(unsigned char)0xFF )
+		egi_dpstd("UTF-16BE with BOM FE_FF\n");
+	else if( fmap->fp[0]==0x00 && fmap->fp[1]==0x00 && (unsigned char)(fmap->fp[2])==(unsigned char)0xFE
+		 && (unsigned char)(fmap->fp[2])==(unsigned char)0xFF )
+		egi_dpstd("UTF-32LE with BOM 00_00_FE_FF\n");
+	else
+		egi_dpstd("fsize>4, UTF-8 without BOM\n");
+   }
+   else { /* fsize<4 */
+	egi_dpstd("fsize<4, UTF-8 without BOM\n");
+   }
+
+   #if 0 /* TEST: ---------- */
+   printf("fmap->fp[10000]=0x%02X\n", ((unsigned char *)(fmap->fp))[10000] );
+   fmap->fp[10000]=(char)0x60; //0b01100000;  /* 0x60 */
+   printf("fmap->fp[10000]=0x%02X\n", ((unsigned char *)(fmap->fp))[10000] );
+//   fmap->fp[2000]=0b01100000;
+//   fmap->fp[3000]=0b01100000;
+   egi_fmap_msync(fmap);
+   #endif
+
+   printf("Check...\n");
+   off=cstr_check_uft8encoding((UFT8_PCHAR)fmap->fp+skip, fmap->fsize-skip);
+   printf("Finish checking, off=%jd, fsize=%jd\n", off, fmap->fsize-skip);
+
+
+   egi_fmap_free(&fmap);
+   exit(0);
+#endif
+
+
+#if 0 /////////////////  egi_free_charList()  ///////////////////////
 	int n=128;
    	char **ps=NULL;
 
@@ -49,7 +187,7 @@ while(1) {
 }
 #endif
 
-#if 1 /////////////////  cstr_parse_URL()  ///////////////////////
+#if 0 /////////////////  cstr_parse_URL()  ///////////////////////
 	const char * myURL="https://www.abcde.com:1234/doc/test?id=3&lan=en#p1";
 
 	char *protocol, *hostname, *path, *dir, *filename, *dirURL;
@@ -68,7 +206,7 @@ while(1) {
 	exit(0);
 #endif
 
-#if 1 /////////////////  cstr_parse_simple_html()  ///////////////////////
+#if 0 /////////////////  cstr_parse_simple_html()  ///////////////////////
    char text[1024*5];
    int len;
 

@@ -104,7 +104,61 @@ int main(int argc, char **argv)
   	}
 
 
-#if 1 /* ---------- TEST: Emoji --------------- */
+#if 1 /* ---------- FTsymbol_uft8strings_writeFB() --------------- */
+	struct timeval tms,tme;
+	int fw=22, fh=24;
+
+	/* ----------- FTsymbol_create_fontBuffer() ----------- */
+	printf("Start creating egi_fontBuffer...\n");
+	gettimeofday(&tms, NULL);
+        egi_fontbuffer=FTsymbol_create_fontBuffer(egi_sysfonts.regular, fw,fh, 0x4E00, 21000); /*  face, fw,  fh, wchar_t unistart, size_t size */
+	gettimeofday(&tme, NULL);
+        if(egi_fontbuffer) {
+                printf("Font buffer size=%zd! cost time=%luus \n", egi_fontbuffer->size, tm_diffus(tms,tme));
+        }
+
+	/* ----------- FTsymbol_create_fontBuffer() ----------- */
+	printf("Start saving fontBuffer...\n");
+	gettimeofday(&tms, NULL);
+	FTsymbol_save_fontBuffer(egi_fontbuffer, "/tmp/fontbuff.dat");
+	gettimeofday(&tme, NULL);
+        printf("Finish saving fontBuffer, cost time=%luus \n", tm_diffus(tms,tme));
+	exit(0);
+
+	//int     FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, const unsigned char *pstr,
+        //                       unsigned int pixpl,  unsigned int lines,  unsigned int gap,
+        //                       int x0, int y0,
+        //                       int fontcolor, int transpcolor, int opaque,
+        //                       int *cnt, int *lnleft, int* penx, int* peny );
+
+
+   	EGI_FILEMMAP *fmap=egi_fmap_create(argv[1], 0, PROT_READ, MAP_PRIVATE);
+   	if(fmap==NULL) {
+        	printf("Please input file path!\n");
+        	exit(0);
+   	}
+
+   	int lines=INT_MAX;
+   	int lnleft;
+   	int cnt;
+	gettimeofday(&tms, NULL);
+	printf("Start FTsymbol_uft8strings_writeFB()...\n");
+   	FTsymbol_uft8strings_writeFB( NULL, egi_sysfonts.regular, fw,fh, (UFT8_PCHAR)fmap->fp, /* fbdev, face ,fw,fh, pstr */
+				 320, lines, 24/4,  /* pixpl, lines, gap */
+				 0,0, -1, -1, 255, /* fontcolor, trnaspcolor, opaque */
+				 &cnt, &lnleft, NULL, NULL); /* *cnt, *lnleft, *penx, *peny */
+
+	gettimeofday(&tme, NULL);
+   	printf("\nuchar counter cnt=%d (including LineFeeds, and Linux text end token LF), \
+		\nlines=%d, lnleft=%d, lns=lines-lnleft=%d,  \ncost time=%luus\n",
+		cnt, lines, lnleft, lines-lnleft, tm_diffus(tms,tme));
+
+   	egi_fmap_free(&fmap);
+   	FTsymbol_free_fontBuffer(&egi_fontbuffer);
+   	exit(0);
+#endif
+
+#if 0 /* ---------- TEST: Emoji --------------- */
 	/* Initilize sys FBDEV */
   	printf("init_fbdev()...\n");
   	if(init_fbdev(&gv_fb_dev))

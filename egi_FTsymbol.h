@@ -21,7 +21,8 @@ Midas Zhou
  extern "C" {
 #endif
 
-typedef unsigned char   UFT8_CHAR;
+//UTF-8 Encoded Character  UCHAR
+typedef unsigned char   UFT8_CHAR; //NOT so correct!
 typedef unsigned char * UFT8_PCHAR;
 typedef wchar_t         EGI_UNICODE;
 
@@ -62,30 +63,40 @@ struct FTsymbol_library {
 };
 
 
-/* EGI_FONT_BUFFER:  To buffer frequently used wchars.  TODO: To compare with FreeType cache manager. */
-
+/* EGI_FONT_BUFFER:  To buffer frequently used wchars.  TODO: To compare with FreeType cache manager.
+ *  Note:
+ *  1. Cross check with FTsymbol_save_fontBuffer().
+ */
 /* font glyph data */
 typedef struct wchar_glyph_data EGI_WCHAR_GLYPH;
 struct wchar_glyph_data {
-	unsigned char	*alpha;  	/* as per slot->bitmap.buffer,symheight*ftwidth pixels */
-	int		symheight;	/* as per slot->bitmap.rows, font height in pixels is bigger than bitmap.rows! */
-	int		ftwidth;	/* as per slot->bitmap.width, ftwidth <= (slot->advance.x>>6) */
-	int		advanceX;	/* as per advanceX = slot->advance.x>>6, OR self cooked width. */
+	int	symheight;	/* as per slot->bitmap.rows, font height in pixels is bigger than bitmap.rows! */
+	int	ftwidth;	/* as per slot->bitmap.width, ftwidth <= (slot->advance.x>>6) */
+	int	advanceX;	/* as per advanceX = slot->advance.x>>6, OR self cooked width. */
+
         /* bitmap position relative to boundary box */
        	int delX;			/* = slot->bitmap_left; */
        	int delY; 			/* = -slot->bitmap_top + fh */
+
+	unsigned char	*alpha;  	/* ALPHA as per slot->bitmap.buffer, symheight*ftwidth pixels */
+//	EGI_16BIT_COLOR *color;		/* COLOR as per slot->bitmap.buffer, symheight*ftwidth pixels. For EMOJIs etc. */
 };				/* index 0 --> unistart, 1 --> unistart+1, ... size-1 --> unistart+size-1 */
 
+#define FONTBUFFER_MAGIC_WORDS        "EGI_FONTBUFF0000"      /* 12+4(Ver)=16bytes, font buffer data file magic words */
 typedef struct FTsymbol_font_buffer  EGI_FONT_BUFFER;
 struct FTsymbol_font_buffer {
 	FT_Face face;	/* A face object in FreeType2 library, MUST be a ref. to an already loaded facetype in sys EGI_FONTS */
+
+#define EGI_FONTBUFF_NAME_MAX  64
+	char    name[EGI_FONTBUFF_NAME_MAX];
+
 	int	fw; 	/* Font size */
 	int	fh;
 
 	/* TODO: lookup scatter/hash table */
 
-	wchar_t unistart;		/* Start of wcode/unicode. */
-	size_t  size;			/* Fontdata size, as of fontdata[], total number of wchars buffered, with glyphs/data */
+	wchar_t  unistart;		/* Start of wcode/unicode. */
+	int  size;			/* Fontdata size, as of fontdata[], total number of wchars buffered, with glyphs/data */
 
 	/* Font glyph data */
 	EGI_WCHAR_GLYPH *fontdata;       /* index 0 --> unistart, 1 --> unistart+1, ... size-1 --> unistart+size-1 */
@@ -93,6 +104,7 @@ struct FTsymbol_font_buffer {
 
 EGI_FONT_BUFFER* FTsymbol_create_fontBuffer(FT_Face face, int fw, int fh, wchar_t unistart, size_t size);
 void FTsymbol_free_fontBuffer(EGI_FONT_BUFFER **fontbuff);
+int FTsymbol_save_fontBuffer(const EGI_FONT_BUFFER *fontbuff, const char *fpath);
 bool FTsymbol_glyph_buffered(FT_Face face, int fsize, wchar_t wcode);
 
 /* EGI fonts */
@@ -101,9 +113,9 @@ extern EGI_SYMPAGE sympg_ascii;  /* default font  LiberationMono-Regular */
 extern EGI_FONTS   egi_sysfonts; 	/* System font set */
 extern EGI_FONTS   egi_sysemojis;	/* System Emojis set ---NOPE--- */
 extern EGI_FONTS   egi_appfonts; 	/* APP font set */
-extern EGI_FONT_BUFFER *egi_fontbuffer; /* TODO: NOW only with one face and one size */
-
-
+extern EGI_FONT_BUFFER *egi_fontbuffer; /* TODO: NOW only with one face and one size
+					 * ReadONLY, NO mutex lock applied!
+					 */
 
 void	FTsymbol_set_TabWidth( float factor);
 void	FTsymbol_set_SpaceWidth( float factor);

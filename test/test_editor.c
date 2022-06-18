@@ -6,7 +6,7 @@ published by the Free Software Foundation.
 An example of a simple editor, read input from termios and put it on to
 the screen.
 
-      [ --- Editor Version_A ----:  With A Render_Surface Thread  ]
+      [ --- Editor Version_B ----:  With A Render_Surface Thread  ]
 
 Thread_1. Main() thread
 Thread_2. mouse_callback()
@@ -100,6 +100,7 @@ XXX 7. MSG squeue auto. clear.
 8. After select and click on CompRCMenu (COPY etc.), it will get a LeftKeyDown, and MAYBE also inlucdes
    LeftKeyDownHold(s) if you happen to press the key for a littler too longer, and the LeftKeyDownHold
    will then change current selection unexpectedly!
+9. Input 'y' for PINYIN will make group_set->results_size exceed group_set->results_capacity, see UniHanGroup_locate_typings().
 
 Journal
 2021-1-9/10:
@@ -129,6 +130,8 @@ Journal
 	3. CTRL+V for paste.
 2022-06-05:
         1. WBTMenu_execute(): case WBTMENU_COMMAND_HELP: show the UNICODE at current pchoff.
+	2. main()::Case PageUp/Down: To avoid incomplete charmap being displayed, replace &gv_fb_dev with NULL.
+	3. Add sigQuit, and tcsetattr() also be render_mutex_locked!
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -199,6 +202,8 @@ char *fpath="/mmc/hello.txt";
 
 struct termios old_settings;
 struct termios new_settings;
+
+bool sigQuit;	/* Signal token to quit program */
 
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
@@ -361,7 +366,7 @@ int main(int argc, char **argv)
   printf("tm_start_egitick()...\n");
   tm_start_egitick();
 
-  #if 0  /* Set signal action */
+  #if 1  /* Set signal action */
   if(egi_common_sigAction(SIGINT, signal_handler)!=0) {
 	printf("Fail to set sigaction!\n");
 	return -1;
@@ -474,6 +479,16 @@ int main(int argc, char **argv)
 	}
 
 	egi_dpstd(DBG_YELLOW"Input spcnt:%.2f, soff=%jd, fpath: '%s'\n"DBG_RESET, spcnt, soff, fpath);
+
+	/* Buffer sysfonts.regular */
+	printf("Start buffer egi_sysfonts.regular...\n");
+        egi_fontbuffer=FTsymbol_create_fontBuffer(egi_sysfonts.regular, fw,fh, 0x4E00, 21000); /*  face, fw,  fh, wchar_t unistart, size_t size */
+        if(egi_fontbuffer)
+                printf("Font buffer size=%zd!\n", egi_fontbuffer->size);
+	else {
+		printf("Fail to buffer egi_sysfonts.regular!\n");
+		exit(1);
+	}
 
 	/* S1. Load necessary PINYIN data, and do some prep. */
 	if( load_pinyin_data()!=0 )
@@ -695,8 +710,18 @@ MAIN_START:
 	FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
 	fb_render(&gv_fb_dev);
 
+/* TEST: -------- */
+	soff = chmap->txtlen/5;
+
 	/* S14. Set pchoff */
-	if(soff>=0) chmap->pchoff=chmap->pchoff2=soff;
+	if(soff>=0) {
+                printf(">>>>> Try to refit soff:  \n");
+                cstr_print_byteInBits(chmap->txtbuff[soff], " ----> ");
+	  	soff=soff+cstr_charfit_uft8(chmap->txtbuff+soff); /* In case soff is NOT correct */
+		cstr_print_byteInBits(chmap->txtbuff[soff], "\n");
+		chmap->pchoff=chmap->pchoff2=soff;
+	}
+	sleep(1);
 
 	/* S15. Charmap to file end, OR to search position soff/spcnt. */
 	i=0;
@@ -705,6 +730,8 @@ MAIN_START:
 		/* If search position is in current page */
 		egi_dpstd(DBG_GREEN"Page range offset [%d, %d]\n"DBG_RESET,
 				chmap->pref-chmap->txtbuff, chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff);
+
+#if 1
 		/* soff applys */
 		if(soff>=0 ) {
 		    if(chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff >= soff)
@@ -713,6 +740,7 @@ MAIN_START:
 		/* spcnt applys */
 		else if( chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff > chmap->txtlen*spcnt/100)
 			break;
+#endif
 
 		/* Charmap next page */
 		FTcharmap_page_down(chmap);
@@ -723,6 +751,7 @@ MAIN_START:
 		   FTcharmap_writeFB(&gv_fb_dev, NULL,NULL);
 		   fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 		   draw_progress_msgbox( &gv_fb_dev, (320-260)/2, (240-120)/2, "文件加载中...",
+					  //chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff, chmap->txtlen);
 					  //chmap->txtdlinePos[chmap->txtdlncount +chmap->maplncount-1],
 					  //chmap->txtlen*spcnt/100 );
 					  chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff, soff);
@@ -747,7 +776,7 @@ MAIN_START:
 	printf("Loop editing...\n");
 
 	/* S17. Loop editing ...   Read from TTY standard input, without funcion keys on keyboard ...... */
-	while(1) {
+	while( !sigQuit ) {
 	/* ---- OPTION 1: Read more than N bytes each time, nonblock. !!! NOT good, response slowly, and may cause parse errors !!!  -----*/
 
 	/* ---- OPTION 2: Read in char one by one, nonblock  -----*/
@@ -804,7 +833,11 @@ MAIN_START:
 						read(STDIN_FILENO,&ch, 1);
 						if( ch == 126 ) {
 							FTcharmap_page_up(chmap);
-							FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+							/* To avoid incomplete charmap displayed by thread refresh_surface(),
+							 * as fb_render() is out of render_mutex_lock zone in refresh_surface(). HK2022-06-5
+							 */
+							//FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+				//			FTcharmap_writeFB(NULL, NULL, NULL);
  	egi_dpstd(DBG_GREEN"Page range offset [%d, %d]\n"DBG_RESET, chmap->pref-chmap->txtbuff,
 								    chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff);
 						}
@@ -813,7 +846,11 @@ MAIN_START:
 						read(STDIN_FILENO,&ch, 1);
 						if( ch == 126 ) {
 							FTcharmap_page_down(chmap);
-							FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+							/* To avoid incomplete charmap displayed by thread refresh_surface(),
+							 * as fb_render() is out of render_mutex_lock zone in refresh_surface().
+							 */
+							//FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
+				//			FTcharmap_writeFB(NULL, NULL, NULL);
  	egi_dpstd(DBG_GREEN"Page range offset [%d, %d]\n"DBG_RESET, chmap->pref-chmap->txtbuff,
 								    chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff);
 						}
@@ -1404,8 +1441,14 @@ MAIN_START:
 			/* Execute Menu Command */
 			RCMenu_execute(RCMenu_Command_ID);
 
+	/* TEST:-----  Wait for a LeftKeyUp: to avoid above click to change/affect txtbox selection range!
+        	       If you press down and hold, it surely will change/affect txtbox selection range!
+	               mouse_callback() will reset start_pch=false at LeftKeyDownHold.
+	 */
+                        while(start_pch){usleep(100000);}
+
 			/* Exit Menu handler */
-			start_pch=false;
+			//start_pch=false;
 			ActiveComp=CompTXTBox;
 			break;
 
@@ -1430,8 +1473,11 @@ MAIN_START:
 			/* Execute Menu Command */
 			WBTMenu_execute(WBTMenu_Command_ID);
 
+			/* Wait for a LeftKeyUp, TRY to prevent above menu_click from changing txtbox selection range. */
+			while(start_pch){usleep(100000);}
+
 			/* Exit Menu handler */
-			start_pch=false;
+			//start_pch=false;
 			ActiveComp=CompTXTBox;
 			break;
 		default:
@@ -1444,7 +1490,6 @@ MAIN_START:
 		/* Render and bring image to screen */
 		fb_render(&gv_fb_dev);
 		//tm_delayms(20);
-
 #endif /////////////////////  END : Refresh Surface  ////////////////////////
 
 
@@ -1498,13 +1543,16 @@ MAIN_START:
 //MAIN_END:
 
 	/* Reset termio */
+printf("tcsetattr old...\n");
         tcsetattr(0, TCSANOW,&old_settings);
 
+printf("Free charmap...\n");
 	/* My release */
 	FTcharmap_free(&chmap);
 
-goto MAIN_START;
+//goto MAIN_START;
 
+printf("Free uniset and group_set...\n");
 	/* Free UNIHAN data */
 	UniHan_free_set(&uniset);
 	UniHanGroup_free_set(&group_set);
@@ -2213,6 +2261,7 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 	char strbuff[1024];
 	EGI_16BIT_COLOR color;
 	wchar_t unicode;
+	char cha;
 
 	if(Command_ID<0)
 		return;
@@ -2241,25 +2290,29 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 			break;
 		case WBTMENU_COMMAND_ABORT:
 			printf("WBTMENU_COMMAND_ABORT\n");
-			char ch;
 	                while(1) {
 				draw_msgbox( &gv_fb_dev, 30, 50, 260, "放弃后修改的数据都将不会被保存！\n　　[N]取消　[Y]确认！" );
                                 draw_mcursor();
 				fb_render(&gv_fb_dev);
 
-				/* HK2022-05-28 TODO:  NOW two threads race for the stdin, if user
+				/* HK2022-05-28 XXXTODO:  NOW two threads race for the stdin, if user
 				 * input 'N' to cancel,  it may add char'N' to txtbox. ALSO the first 'Y'
 				 * may be caught by main thread.
+				 * ----- OK, WBTMenu_execute() be locked by render_mutex in render_surface()
 				*/
 				//Set as nonblocking
 				new_settings.c_cc[VMIN]=0;
 				tcsetattr(0, TCSANOW, &new_settings);
 
-				read(STDIN_FILENO, &ch, 1);
-				printf(" abort confirm ch='%c'\n", ch);
-				if( ch=='y' || ch== 'Y' )
-					exit(10);
-				else if( ch=='n' || ch== 'N' ) {
+				cha=0;
+				read(STDIN_FILENO, &cha, 1);
+				printf(" abort confirm cha='%c'\n", cha);
+				if( cha=='y' || cha== 'Y' ) {
+					//exit(10);
+					sigQuit=true;
+					break;
+				}
+				else if( cha=='n' || cha== 'N' ) {
 					// Reset blocking
 					new_settings.c_cc[VMIN]=1;
 					tcsetattr(0, TCSANOW, &new_settings);
@@ -2625,6 +2678,7 @@ void refresh_surface(void)
 
 /* ------ >>>  mutex_render Critical Zone  */
 	pthread_mutex_lock(&mutex_render);
+	/* Note: Page up/down also calls FTcharmap_writeFB(&gv_fb_dev, NULL, NULL); */
 
 	/* --- 1. File top bar */
 //printf("Draw editor top....\n");
@@ -2693,10 +2747,10 @@ void refresh_surface(void)
 		printf("WARNING: chmap->errbits=%#x \n",chmap->errbits);
 	}
 
-printf("Display PINYIN finishes, GroupStartIndex=%d, GroupItems=%d \n", GroupStartIndex, GroupItems);
+//printf("Display PINYIN finishes, GroupStartIndex=%d, GroupItems=%d \n", GroupStartIndex, GroupItems);
 
 /* ------ <<<  mutex_render Critical Zone  */
-	pthread_mutex_unlock(&mutex_render);
+//	pthread_mutex_unlock(&mutex_render);
 
 
 	/* --- 4. Sub Menus : Handle Active Menu, active_menu_handle */
@@ -2714,7 +2768,6 @@ printf("Display PINYIN finishes, GroupStartIndex=%d, GroupItems=%d \n", GroupSta
 				fb_render(&gv_fb_dev);
 			}
 
-
 			/* Execute Menu Command */
 			RCMenu_execute(RCMenu_Command_ID);
 
@@ -2723,7 +2776,7 @@ printf("Display PINYIN finishes, GroupStartIndex=%d, GroupItems=%d \n", GroupSta
 	       mouse_callback() will reset start_pch=false at LeftKeyDownHold.
 	       HK2022-06-04
  */
-			while(start_pch){usleep(50000);}
+			while(start_pch){usleep(100000);} // try adjust time
 
 			/* Exit Menu handler */
 			//start_pch=false;
@@ -2751,13 +2804,21 @@ printf("Display PINYIN finishes, GroupStartIndex=%d, GroupItems=%d \n", GroupSta
 			/* Execute Menu Command */
 			WBTMenu_execute(WBTMenu_Command_ID);
 
+			/* Wait for a LeftKeyUp, TRY to prevent above menu_click from changing txtbox selection range. */
+			while(start_pch){usleep(100000);} //try adjust
+
 			/* Exit Menu handler */
-			start_pch=false;
+			//start_pch=false;
 			ActiveComp=CompTXTBox;
 			break;
 		default:
 			break;
 	} /* END Switch */
+
+	/* CompWTBMenu ABORT confirmation needs tcsetattr for stdin read, must be mutex_locked! */
+/* ------ <<<  mutex_render Critical Zone  */
+	pthread_mutex_unlock(&mutex_render);
+
 
 	/* 5. Draw cursor */
 //printf("Draw mcursor......\n");
@@ -2782,7 +2843,7 @@ void *render_surface(void* argv)
         pthread_detach(pthread_self());
 
 	/* 2. Wait for MSG_REFRESH_SURFACE */
-	while(1) {
+	while(!sigQuit) {
 		/* 2.1 Msgrcv() */
         	//mlen=msgrcv(render_msgid, &msgbuff, sizeof(msgbuff.mtext), MSG_REFRESH_SURFACE, MSG_NOERROR);
 		/* MSG_NOERROR: To truncate the message text if longer than msgsz bytes. */

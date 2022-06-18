@@ -102,6 +102,8 @@ typedef struct egi_txt_group {
  	#define         TXTGROUP_BUFF_GROW_SIZE   1024
 } EGI_TXTGROUP;
 
+
+
 unsigned char* egi_str2hex(char *str, size_t size);
 char* egi_hex2str(unsigned char *hex, size_t len);
 
@@ -111,6 +113,7 @@ int 	cstr_txtgroup_push(EGI_TXTGROUP *txtgroup, const char *txt);
 
 
 /* --- util functions --- */
+void    cstr_print_byteInBits(char ch, const char *end);
 char*	cstr_replace_string(char **src, int left, const char *obj, const char *sub);
 
 bool    cstr_is_absoluteURL();
@@ -125,9 +128,14 @@ char* 	cstr_dup_repextname(char *fpath, char *new_extname);
 char* 	cstr_split_nstr(const char *str, const char *split, unsigned n);
 char* 	cstr_trim_space(char *buf);
 int 	cstr_copy_line(const char *src, char *dest, size_t size);
+int     cstr_charfit_uft8(const unsigned char *cp); // uft8 char == uchar
 int 	cstr_charlen_uft8(const unsigned char *cp);
 int 	cstr_prevcharlen_uft8(const unsigned char *cp);
+unsigned char* cstr_nextchar_uft8(unsigned char *cp);
+unsigned char* cstr_prevchar_uft8(unsigned char *cp, const unsigned char *header);
 int 	cstr_strlen_uft8(const unsigned char *cp);
+off_t   cstr_check_uft8encoding(const unsigned char *ustr, off_t strlen);
+off_t	egi_check_uft8File(const char *fpath);
 int 	cstr_strcount_uft8(const unsigned char *pstr);
 char* 	cstr_get_peword(const unsigned char *cp);
 int 	cstr_strlen_eword(const unsigned char *cp);
@@ -139,6 +147,7 @@ int 	char_DBC2SBC_to_uft8(char dbc, char *dest);
 int 	cstr_unicode_to_uft8(const wchar_t *src, char *dest);
 int 	cstr_uft8_to_unicode(const unsigned char *src, wchar_t *dest);
 
+int 	cstr_count_lines(const char *pstr);
 int 	egi_count_file_lines(const char *fpath);
 
 #define EGI_CONFIG_LMAX         256     /* Max. length of one line in a config file */

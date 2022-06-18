@@ -53,6 +53,10 @@ Journal:
 	   FTsymbol_load_library(), FTsymbol_load_sysfonts(), FTsymbol_load_appfonts()
 2022-05-27:
 	1. FTsymbol_unicode_writeFB(): Add case FT_HAS_COLOR.
+2022-06-16:
+	1. FTsymbol_unicode_writeFB(): TEST___ NO mutexlock for EGI_FONT_BUFFER.
+2022-06-18:
+	1. Add FTsymbol_save_fontBuffer()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -1197,8 +1201,10 @@ void FTsymbol_unicode_print(wchar_t wcode)
    a good idea to display CJK and wester charatcters separately by calling differenct functions.
    i.e. symbol_writeFB() for alphabets and FTsymbol_unicode_writeFB() for CJKs.
 7. Note: FT_Face->size->metrics.height will cover all font height and with certain gaps.
-8. If wcode NOT available in face, then resort to  egi_sysfont.emojis.
+8. If wcode NOT available in face, then resort to egi_sysfont.emojis.
 9. The lib_mutex applys ONLY for EGI_SYSFONT at present.
+10.  Combining Characters/Emojis NOT supported yet!
+     Example: Keycap 3 -- 'U+0033 U+FE0F U+2043'
 
 TODO: buffer all font bitmaps for further use.
 
@@ -1254,6 +1260,50 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 		return;
 	}
 
+#if 1 /* ----- 1A. TEST: EGI_FONT_BUFFER, NO mutexlock applied, to spped up!(HK2022-06-16)  ----- */
+	EGI_WCHAR_GLYPH *wchar_glyph;
+	if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
+		wchar_glyph=egi_fontbuffer->fontdata +(wcode-egi_fontbuffer->unistart);
+
+	        /* Check only when xleft is NOT NULL */
+       		if( xleft != NULL ) {
+		        /* Check if the wcode has re_defined width, those wcodes are assumed to have no bitmap.*/
+       			sdw=FTsymbol_cooked_charWidth(wcode, fw);
+		        if( sdw >=0 )  {
+       			        *xleft -= sdw;
+               			return;         /* Ignore bitmap */
+			}
+			/* Use face width */
+	        	else  {
+        	        	/* Reduce xleft */
+	        	        *xleft -= wchar_glyph->advanceX; //  advanceX;
+				if(fb_dev==NULL)
+        	        		return;
+        		}
+
+	        	/* If NO space left, do NOT writeFB then. */
+        		if( *xleft < 0 )
+                		return;
+		}
+
+		/* Get glyph data from font buffer */
+        	ftsympg.alpha     =  wchar_glyph->alpha; 	/* Ref. only */
+	        ftsympg.symheight =  wchar_glyph->symheight;	/* MAYBE 0!? */
+        	ftsympg.ftwidth   =  wchar_glyph->ftwidth;
+		delX		  =  wchar_glyph->delX;
+		delY		  =  wchar_glyph->delY;
+		advanceX	  =  wchar_glyph->advanceX;
+
+        	/* write to FB,  symcode =0, whatever  */
+	        if(fb_dev != NULL) {
+        	        symbol_writeFB(fb_dev, &ftsympg, fontcolor, transpcolor, x0+delX, y0+delY, 0, opaque);
+	        }
+
+		return;
+	}
+#endif /* ----- END USE EGI_FONT_BUFFER ----- */
+
+
 	/* 2. Mutex lock FT_library */
 	// FT_Library   FTlib=face->glyph->library;
 	// EGI_FONTS *fonts=container_of(&FTlib, EGI_FONTS, library); /* XXX NOPE! FT_Library is a pointer! */
@@ -1264,14 +1314,16 @@ inline void FTsymbol_unicode_writeFB(FBDEV *fb_dev, FT_Face face, int fw, int fh
 	}
 /* ------ >>>  Critical Zone  */
 
+/////////////////// With lib_mutex ---- NOT NECESSAR ---- /////////////////////////
+#if 0 /* ----------------    3. TEST: EGI_FONT_BUFFER  -------------------- */
 
-#if 1 /* ----------------    3. TEST: EGI_FONT_BUFFER  -------------------- */
-	EGI_WCHAR_GLYPH *wchar_glyph;
+EGI_WCHAR_GLYPH *wchar_glyph;
 if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 	wchar_glyph=egi_fontbuffer->fontdata +(wcode-egi_fontbuffer->unistart);
 
-	//printf(" --- Wchar glyph is buffered! ---\n");
+//	printf("Wcharuffered!\n");
 
+ #if 0 // NOT here, no need if fb_dev==NULL */
 	/* Get glyph data from font buffer */
         ftsympg.alpha     =  wchar_glyph->alpha; 	/* Ref. only */
         ftsympg.symheight =  wchar_glyph->symheight;
@@ -1279,6 +1331,7 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 	delX		  =  wchar_glyph->delX;
 	delY		  =  wchar_glyph->delY;
 	advanceX	  =  wchar_glyph->advanceX;
+ #endif
 
         /* Check only when xleft is NOT NULL */
         if( xleft != NULL )
@@ -1295,7 +1348,14 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
 	        }
         	else  {
                 	/* reduce xleft */
-	                *xleft -= advanceX;
+	                *xleft -= wchar_glyph->advanceX; //  advanceX;
+
+			if(fb_dev==NULL) {   /* HK2022-06-14 */
+/* ------ <<<  Critical Zone  */
+			        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
+
+        	        	return;
+			}
         	}
 
 	        /* If NO space left, do NOT writeFB then. */
@@ -1306,6 +1366,14 @@ if( FTsymbol_glyph_buffered(face, fw, wcode) ) {
                 	return;
 		}
 	}
+
+	/* Get glyph data from font buffer */
+        ftsympg.alpha     =  wchar_glyph->alpha; 	/* Ref. only */
+        ftsympg.symheight =  wchar_glyph->symheight;
+        ftsympg.ftwidth   =  wchar_glyph->ftwidth;
+	delX		  =  wchar_glyph->delX;
+	delY		  =  wchar_glyph->delY;
+	advanceX	  =  wchar_glyph->advanceX;
 
         /* write to FB,  symcode =0, whatever  */
         if(fb_dev != NULL) {
@@ -1332,7 +1400,7 @@ TRY_LOAD_CHAR:
 		}
 		#else /* Check if its's Emojis in egi_sysfonts.emojis */
 		if( FT_Get_Char_Index(egi_sysfonts.emojis, wcode) ) {
-//			printf("%s: wcode U+%X is an Emoji!\n",__func__, wcode);
+//			printf("%s: U+%X is an Emoji!\n",__func__, wcode);
 			face=egi_sysfonts.emojis;  /* <-------- Shift face and slot */
 			slot = face->glyph;
 		}
@@ -1390,7 +1458,12 @@ TRY_LOAD_CHAR:
 						//FT_LOAD_DEFAULT==0 |FT_LOAD_RENDER ; FT_LOAD_SBITS_ONLY
 	//error = FT_Render_Glyph(face->glyph,  FT_RENDER_MODE_NORMAL); //FT_RENDER_MODE_LCD, FT_RENDER_MODE_NORMAL
 	if(error) {
-		egi_dpstd("FT_Load_Glyph fails with gindex=%d, error=%d, \n", gindex, error);
+		egi_dpstd("FT_Load_Glyph fails for U+%X, gindex=%d, error=%d, \n", wcode, gindex, error);
+
+		/* Note: Combining Emojis NOT supported! Example: Keycap 3 -- 'U+0033 U+FE0F U+2043'.
+                 * So U+20E3(Combning enclosing keycap) will fail here!
+		 * HK2022-06-05
+		 */
 
 /* ------ <<<  Critical Zone  */
 	        pthread_mutex_unlock(&egi_sysfonts.lib_mutex);
@@ -1907,6 +1980,10 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 
 	while( *p ) {
 
+#if 1 /* TEST: ----------- */
+		printf("\r count=%d, ln=%d", count, ln);  fflush(stdout);
+#endif
+
 		/* --- check whether lines are used up --- */
 		if( ln >= lines) {  /* ln index from 0 */
 //			printf("%s: Lines not enough! finish only %d chars.\n", __func__, count);
@@ -1986,7 +2063,8 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 		/* write unicode bitmap to FB, and get xleft renewed. */
 		px=x0+pixpl-xleft;
 		FTsymbol_unicode_writeFB(fb_dev, face, fw, fh, wcstr[0], &xleft,
-							 px, py, fontcolor, transpcolor, opaque );
+							 px, py, fontcolor, transpcolor, opaque);
+
 
 #if 0  //////* Check if ERROR in Freetype fonts! *//////////
 		//printf("xleft=%d\n", xleft);
@@ -2501,6 +2579,7 @@ EGI_FONT_BUFFER* FTsymbol_create_fontBuffer(FT_Face face, int fw, int fh, wchar_
   	FT_Error      error;
 	size_t i;
 	int	alphasize;
+	int	memsize=0; /* Space for EGI_FONT_BUFFER */
 
 	/* Check input data */
 	if(face==NULL) {
@@ -2518,6 +2597,7 @@ EGI_FONT_BUFFER* FTsymbol_create_fontBuffer(FT_Face face, int fw, int fh, wchar_
 		printf("%s: Fail to calloc fontbuff!\n",__func__);
 		return NULL;
 	}
+	memsize +=sizeof(EGI_FONT_BUFFER);
 
 	/* Allocate fontbuff->fontdata */
 	fontbuff->fontdata=calloc(size, sizeof(typeof(*fontbuff->fontdata)));
@@ -2526,6 +2606,7 @@ EGI_FONT_BUFFER* FTsymbol_create_fontBuffer(FT_Face face, int fw, int fh, wchar_
 		free(fontbuff);
 		return NULL;
 	}
+	memsize +=size*sizeof(typeof(*fontbuff->fontdata));
 
 	/* set character size in pixels */
 	error = FT_Set_Pixel_Sizes(face, fw, fh);
@@ -2564,8 +2645,16 @@ EGI_FONT_BUFFER* FTsymbol_create_fontBuffer(FT_Face face, int fw, int fh, wchar_
 				return NULL;
 			}
 			memcpy(fontbuff->fontdata[i].alpha, face->glyph->bitmap.buffer, alphasize);
+
+			memsize +=alphasize;
 		}
 		/* ELSE: The wchar has NO bitmap! */
+#if 1 /* TEST: ------- */
+		else if(face->glyph->bitmap.width) {
+			printf("%s: Unicode U+%X has NO bitmap while its bitmap.width=%d!\n",
+								__func__, unistart+i, face->glyph->bitmap.width);
+		}
+#endif
 
 	}
 
@@ -2576,6 +2665,7 @@ EGI_FONT_BUFFER* FTsymbol_create_fontBuffer(FT_Face face, int fw, int fh, wchar_
 	fontbuff->unistart=unistart;
 	fontbuff->size=size;
 
+	printf("%s: memsize=%.2fKBs\n", __func__, memsize/1024.0);
 	return fontbuff;
 }
 
@@ -2601,6 +2691,176 @@ void FTsymbol_free_fontBuffer(EGI_FONT_BUFFER **fontbuff)
 	*fontbuff=NULL;
 }
 
+/*-----------------------------------------------------------------------
+Save fontbuffer to a file.
+If the file already exists, then it truncates the file first.
+
+--- Cross check with struct EGI_FONT_BUFFER and EGI_WCHAR_GLYPH ---
+
+@fontbuffer: Pointer to an EGI_FONT_BUFFER
+@fpath:	     File path
+
+Return:
+	0 	OK
+	<0	Fails
+-----------------------------------------------------------------------*/
+int FTsymbol_save_fontBuffer(const EGI_FONT_BUFFER *fontbuff, const char *fpath)
+{
+	int i,j;
+	int nwrite;
+	int nmemb;
+	FILE *fil;
+	int ret=0;
+
+	if( fontbuff==NULL || fpath==NULL)
+		return -1;
+
+	/* Open/Create file */
+	fil=fopen(fpath, "wb");
+	if(fil==NULL) {
+		egi_dperr("Fail to open file '%s'.", fpath);
+		return -2;
+	}
+
+	/* Write magic words, Totally 16bytes. */
+	nwrite=fwrite(FONTBUFFER_MAGIC_WORDS, 16, 1, fil);
+	if(nwrite<1) {
+		egi_dperr("Fail to write magic words!");
+		ret=-3;
+		goto END_FUNC;
+	}
+
+	/* Write Byte_Order_Mark. "FFFE"--Little_Endian, "FEFF"--Big Endian  0xFEFF(65279) ZERO_WIDTH_NO_BREAK SPACE  */
+	char bomark[2];
+	if(egi_host_littleEndian()) {
+		bomark[0]=0xFF; bomark[1]=0xFE;
+	} else {
+		bomark[0]=0xFE; bomark[1]=0xFF;
+	}
+	nmemb=2;
+	nwrite=fwrite(bomark, 1, nmemb, fil);
+	if(nwrite<nmemb) {
+		egi_dperr("Fail to write byte order mark!");
+		ret=-4;
+		goto END_FUNC;
+	}
+
+	/* Write name */
+	nmemb=strlen(fontbuff->name)+1; /* +1 EOF */
+	nwrite=fwrite(fontbuff->name, 1, nmemb, fil);
+	if(nwrite<nmemb) {
+		egi_dperr("Fail to write fontbuff->name!");
+		ret=-5;
+		goto END_FUNC;
+	}
+
+	/* Write fw, fh */
+	nmemb=sizeof(typeof(fontbuff->fw));
+	nwrite=fwrite(&fontbuff->fw, 1, nmemb, fil);
+	if(nwrite<nmemb) {
+		egi_dperr("Fail to write fontbuff->fw!");
+		ret=-6;
+		goto END_FUNC;
+	}
+	nmemb=sizeof(typeof(fontbuff->fh));
+	nwrite=fwrite(&fontbuff->fh, 1, nmemb, fil);
+	if(nwrite<nmemb) {
+		egi_dperr("Fail to write fontbuff->fh!");
+		ret=-7;
+		goto END_FUNC;
+	}
+
+	/* Write unistart */
+	nmemb=sizeof(typeof(fontbuff->unistart));
+	nwrite=fwrite(&fontbuff->unistart, 1, nmemb, fil);
+	if(nwrite<nmemb) {
+		egi_dperr("Fail to write fontbuff->unistart!");
+		ret=-8;
+		goto END_FUNC;
+	}
+
+	/* Write size */
+	nmemb=sizeof(typeof(fontbuff->size));
+	nwrite=fwrite(&fontbuff->size, 1, nmemb, fil);
+	if(nwrite<nmemb) {
+		egi_dperr("Fail to write fontbuff->size!");
+		ret=-9;
+		goto END_FUNC;
+	}
+
+	/* Check fontdata */
+	if(fontbuff->fontdata==NULL) {
+		egi_dperr("fontbuff->fontdata is NULL!");
+		ret=-9;
+		goto END_FUNC;
+	}
+
+	/* Write fontbuff->fontdata;  index 0 --> unistart, 1 --> unistart+1, ... size-1 --> unistart+size-1 */
+	for(i=0; i< fontbuff->size; i++) {
+		/* Write symheight */
+		nmemb=sizeof(typeof(fontbuff->fontdata[0].symheight));
+		nwrite=fwrite(&fontbuff->fontdata[i].symheight, 1, nmemb, fil);
+		if(nwrite<nmemb) {
+			egi_dperr("Fail to write fontbuff->fontdata[%d].symheight!", i);
+			ret=-10;
+			goto END_FUNC;
+		}
+
+		/* Write ftwidth */
+		nmemb=sizeof(typeof(fontbuff->fontdata[0].ftwidth));
+		nwrite=fwrite(&fontbuff->fontdata[i].ftwidth, 1, nmemb, fil);
+		if(nwrite<nmemb) {
+			egi_dperr("Fail to write fontbuff->fontdata[%d].ftwidth!", i);
+			ret=-10;
+			goto END_FUNC;
+		}
+
+		/* Write advanceX */
+		nmemb=sizeof(typeof(fontbuff->fontdata[0].advanceX));
+		nwrite=fwrite(&fontbuff->fontdata[i].advanceX, 1, nmemb, fil);
+		if(nwrite<nmemb) {
+			egi_dperr("Fail to write fontbuff->fontdata[%d].advanceX!", i);
+			ret=-10;
+			goto END_FUNC;
+		}
+
+		/* Write delX/Y */
+		nmemb=sizeof(typeof(fontbuff->fontdata[0].delX));
+		nwrite=fwrite(&fontbuff->fontdata[i].delX, 1, nmemb, fil);
+		if(nwrite<nmemb) {
+			egi_dperr("Fail to write fontbuff->fontdata[%d].delX!", i);
+			ret=-10;
+			goto END_FUNC;
+		}
+		//nmemb=sizeof(typeof(fontbuff->fontdata[0].delY));
+		nwrite=fwrite(&fontbuff->fontdata[i].delY, 1, nmemb, fil);
+		if(nwrite<nmemb) {
+			egi_dperr("Fail to write fontbuff->fontdata[%d].delY!", i);
+			ret=-10;
+			goto END_FUNC;
+		}
+
+		/* Write alpha data */
+		int datasize=fontbuff->fontdata[i].symheight * fontbuff->fontdata[i].ftwidth;
+		nwrite=fwrite(fontbuff->fontdata[i].alpha, datasize, 1, fil); /* write at once */
+		if(nwrite<1) {
+			egi_dperr("Fail to write fontbuff->fontdata[%d].alpha!", j);
+			ret=-10;
+			goto END_FUNC;
+		}
+	}
+
+
+END_FUNC:
+	/* Close fil */
+	if( fclose(fil) !=0 ) {
+		egi_dperr("Fail to close file!\n");
+		ret=-10;
+	}
+
+	return ret;
+}
+
 /*----------------------------------------------------
 To check whether the font is buffered!
 
@@ -2619,3 +2879,6 @@ inline bool FTsymbol_glyph_buffered(FT_Face face, int fsize, wchar_t wcode)
 
 	return true;
 }
+
+
+

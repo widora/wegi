@@ -272,6 +272,19 @@ enum WBTMenu_Command {
 };
 static int WBTMenu_Command_ID=WBTMENU_COMMAND_NONE;
 
+/* For scroll bar area */
+//#define ESURF_LISTBOX_SCROLLBAR_WIDTH   10
+int     ScrollBarW;     /* Size of vertical scroll area */
+int     ScrollBarH;
+//int SBx0, SBy0;      /* SCroll bar origin relative to its container. (this surface) */
+
+/* For scroll Guiding Block   */
+int     pastPos;        /* Height of scroll area above the Scroll slider, stands for passed/viewed content. */
+int     GuideBlockH;    /* control      block height */
+int     GuideBlockW;    /* == ScrollAreaW */
+//bool          GuideBlockDownHold;  /* If GuideBlock is hold_down for dragging */
+
+
 /* Functions */
 //static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
 static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny);
@@ -416,7 +429,6 @@ int main(int argc, char **argv)
 	if( load_pinyin_data()!=0 )
 		exit(1);
 
-
 	/* Set face for CHARMAP */
 	//face=egi_sysfonts.special;
 	face=egi_sysfonts.regular;
@@ -522,7 +534,15 @@ MAIN_START:
 	fb_render(&gv_fb_dev);
 
 	/* Set pchoff */
-	if(soff>=0) chmap->pchoff=chmap->pchoff2=soff;
+	if(soff>=0) {
+                printf(">>>>> Try to refit soff:  \n");
+                cstr_print_byteInBits(chmap->txtbuff[soff], " ----> ");
+	        soff=soff+cstr_charfit_uft8(chmap->txtbuff+soff); /* In case soff is NOT correct */
+		cstr_print_byteInBits(chmap->txtbuff[soff], "\n");
+
+		chmap->pchoff=chmap->pchoff2=soff;
+	}
+	sleep(1);
 
 	/* Charmap to the end, OR to search position soff/spcnt. */
 	i=0;
@@ -1161,6 +1181,7 @@ MAIN_START:
                HK2022-06-04
  */
                         while(start_pch){usleep(100000);}
+
 			/* Exit Menu handler */
 			//start_pch=false;
 			ActiveComp=CompTXTBox;
@@ -1187,8 +1208,11 @@ MAIN_START:
 			/* Execute Menu Command */
 			WBTMenu_execute(WBTMenu_Command_ID);
 
+			/* Wait for a LeftKeyUp, TRY to prevent above menu_click from changing txtbox selection range. */
+			while(start_pch){usleep(100000);}
+
 			/* Exit Menu handler */
-			start_pch=false;
+			//start_pch=false;
 			ActiveComp=CompTXTBox;
 			break;
 		default:
@@ -2002,10 +2026,11 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 			//if(soff>=0)
 			unicode=0; /* Init as invalid Unicode */
 			char_uft8_to_unicode(chmap->txtbuff+chmap->pchoff, &unicode);
-			sprintf(strbuff, "当前页面位置: %.3f%%\n  Poffset: %d/%d\n当前光标位置off: %d\n  U+%X",
+			sprintf(strbuff, "当前页面位置: %.3f%%\n  Poffset: %d/%d\n当前光标位置off: %d\n  U+%X\nLines: %d",
 				    	    	100*(float)(chmap->pref-chmap->txtbuff)/chmap->txtlen,
 					    	chmap->pref-chmap->txtbuff, chmap->txtlen,
-						chmap->pchoff<0 ? -1 : chmap->pchoff, unicode); /* 当前光标位置off: %d\  U+%X  */
+						chmap->pchoff<0 ? -1 : chmap->pchoff, unicode, /* 当前光标位置off: %d\  U+%X  */
+						cstr_count_lines((char *)chmap->txtbuff) ); /* Total lines */
 			draw_msgbox( &gv_fb_dev, 30, 50, 260, strbuff);
 			fb_render(&gv_fb_dev);
 			sleep(2);

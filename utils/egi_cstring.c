@@ -62,8 +62,19 @@ Journal
 	2.cstr_replace_string(): Consider N>1 substitution cases.
 2022-05-22:
 	1. char_uft8_to_unicode(): Modified for case size=4.
+2022-06-06:
+	1. Add cstr_print_byteInBits()
+	2. Add cstr_check_uft8encoding().
+2022-06-07:
+	1. Add egi_check_uft8File()
+	2. Add cstr_charfit_uft8()
+2022-06-14:
+	1. Add cstr_count_lines()
+2022-06-15:
+	1. Add str_nextchar_uft8(), cstr_prevchar_uft8()
 
 Midas Zhou
+知之者不如好之者好之者不如乐之者
 midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------*/
 #include <stdio.h>
@@ -81,6 +92,8 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "egi_log.h"
 #include "egi_utils.h"
 #include "egi_debug.h"
+
+
 
 
 /*-----------------------------------------------
@@ -1027,6 +1040,30 @@ char* cstr_decode_htmlSpecailChars(char *strHtml)
 }
 
 
+/*------------------------------------------
+Print a BYTE in binary format.
+
+@ch	A byte data
+@end	Char or string to print at end.
+	If NULL, ignore.
+-------------------------------------------*/
+void cstr_print_byteInBits(char ch, const char *end)
+{
+	int i;
+
+	printf("0b");
+	for(i=7; i>=0; i--) {
+	   if( ch & (1<<i) )
+		printf("1");
+	   else
+		printf("0");
+	}
+
+	if(end)
+	   printf("%s",end);
+}
+
+
 /*-----------------------------------------------------------------------------
 Replace the object string(obj) in the source(src) with
 the substitue(sub).
@@ -1406,10 +1443,61 @@ int cstr_copy_line(const char *src, char *dest, size_t size)
 	return i;
 }
 
+/*-----------------------------------------------------
+If cp is NOT pointed to the header of an UCHAR, then try
+to find a header, by forward searching.
+
+	--- Forward searching ---
+
+@ustr:  Pointer to a byte in somewhere of a string with
+        UTF-8 encoding. The string MUST end with a
+	terminating NULL.
+
+Return:
+	0	Not found OR Fails
+	>0	Found at ustr+Return_Value
+
+//	NULL	Not found!
+//	!NULL   Pointer to header of an uchar/character.
+------------------------------------------------------*/
+int cstr_charfit_uft8(const unsigned char *ustr)
+{
+    	const unsigned char *cp=ustr;
+
+	if(cp==NULL)
+		return 0; //NULL;
+
+   	while(1) {
+		if( *cp == '\0' )
+			return cp-ustr;//NULL;
+
+		if( *cp < 0b10000000 )  /* 1 byte uchar */
+			return cp-ustr;
+
+		if( (*cp)>>6 == 0b10 ) {  /* Within a 2-4_byte uchar */
+			cp++;
+			continue;
+		}
+		else if( (*cp)>>3 == 0b11110 )   /* Header of a 4_byte uchar */
+			return cp-ustr;
+		else if( (*cp)>>4 == 0b1110 )  /* Header of a 3_byte uchar */
+			return cp-ustr;
+		else if( (*cp)>>5 == 0b110 )  /* Header of a 2_byte uchar */
+			return cp-ustr;
+		else {
+			cp++;
+			continue;
+		}
+	}
+}
 
 
 /*-----------------------------------------------------------------------
 Get length of a character with UTF-8 encoding.
+
+		!!! --- CAUTION --- !!!
+If there is an error in UTF-8 encoding for the last
+uchar, it may be out of string EOF!
 
 @cp:	A pointer to a character with UTF-8 encoding.
 	OR any ASCII value, include '\0'.
@@ -1452,6 +1540,45 @@ inline int cstr_charlen_uft8(const unsigned char *cp)
 	}
 }
 
+/*--------------------------------------------------
+Get pointer to the next character with UTF-8 encoding.
+
+	!!! --- CAUTION --- !!!
+If there is an error in UTF-8 encoding for the last
+uchar, it may be out of string EOF!
+
+NOTE:
+1. It still returns a pointer even there is
+   an error in UTF-8 encoding.
+
+@cp:	A pointer to a character with UTF-8 encoding.
+	OR any ASCII value, include '\0'.
+
+Return:
+	!NULL	ok
+	NULL	Fails or gets to terminating NULL.
+--------------------------------------------------*/
+inline unsigned char* cstr_nextchar_uft8(unsigned char *cp)
+{
+        if(cp==NULL)
+                return NULL;
+
+        if( *cp == '\0' )
+                return NULL;
+        else if( *cp < 0b10000000 )
+                return cp+1;       /* 1 byte */
+        else if( *cp >= 0b11110000 )
+                return cp+4;       /* 4 bytes */
+        else if( *cp >= 0b11100000 )
+                return cp+3;       /* 3 bytes */
+        else if( *cp >= 0b11000000 )
+                return cp+2;       /* 2 bytes */
+        else {
+                egi_dpstd("Unrecognizable starting byte for UFT8!\n");
+                return cp+1;      /* unrecognizable starting byte */
+        }
+}
+
 
 /*-----------------------------------------------------------------------
 Get length of a character which is located BEFORE *cp, all in UTF-8 encoding.
@@ -1472,6 +1599,7 @@ Note:
         (TODO: consider >U+1FFFF unicode conversion)
 
 2. The caller MUST ensure that the pointer will NOT move out of range!
+3. Caller: FTcharmap_shift_cursor_left()
 
 Return:
 	>0	OK, length in bytes.
@@ -1490,26 +1618,110 @@ inline int cstr_prevcharlen_uft8(const unsigned char *cp)
 	if( *(cp-1) < 0b10000000 )
 		return 1;
 
+/* NOW: each BYTE MUST >= 0b10000000! */
+
 	/* ----------------------------------------------------------
         U+  0080 - U+  07FF:    110XXXXX 10XXXXXX
         U+  0800 - U+  FFFF:    1110XXXX 10XXXXXX 10XXXXXX
         U+ 10000 - U+ 1FFFF:    11110XXX 10XXXXXX 10XXXXXX 10XXXXXX
 	----------------------------------------------------------- */
+#if 0
 	for( i=1; i<5; i++) {
 		if( *(cp-i) >= 0b10000000 ) {
 			if( *(cp-i-1) >= 0b11000000 && i<4 )
 				return i+1;
 		}
 	}
+#else  /* HK2022-06-06 */
+	for(i=1; i<5; i++) {
+		if( ( (*(cp-i)) & 0b11000000 ) == 0b10000000 ) /* 10xxxxxx */
+			continue;
+		else if	( (*(cp-i))>>(7-i) == (1<<(i+1))-2 ) { /* 110,1110,11110 */
+			return i;
+		}
+		else
+			break;  /* Error in UTF-8 Encoding */
+	}
+#endif
+
 
 	return -2;	/* unrecognizable */
 }
 
+/*-----------------------------------------
+Get pointer to the previous character.
+
+Note:
+1. It still returns a pointer even there is
+   an error in UTF-8 encoding.
+2. Set header as NULL to ignore limit.
+
+@cp:	A pointer to a character with UTF-8 encoding.
+	OR any ASCII value, include '\0'.
+
+@header: Header of the string, as limiter.
+	NULL, ignore the limit.
+
+Return:
+	!NULL	ok
+	NULL	Fails or Get to the header.
+------------------------------------------*/
+inline unsigned char* cstr_prevchar_uft8(unsigned char *cp, const unsigned char *header)
+{
+
+	int i;
+
+	if(cp==NULL)
+		return NULL;
+
+	/* ------------------------------
+	U+  0000 - U+  007F:	0XXXXXXX
+	--------------------------------*/
+	if(cp==header)	return NULL;
+
+	//if(cp-header <1), Ok NOW cp-header>0, see above.
+	if( *(cp-1) < 0b10000000 )
+		return cp-1;
+
+/* NOW: each BYTE MUST >= 0b10000000! */
+
+        /* ----------------------------------------------------------
+        U+  0080 - U+  07FF:    110XXXXX 10XXXXXX
+        U+  0800 - U+  FFFF:    1110XXXX 10XXXXXX 10XXXXXX
+        U+ 10000 - U+ 1FFFF:    11110XXX 10XXXXXX 10XXXXXX 10XXXXXX
+        ----------------------------------------------------------- */
+        for(i=1; i<5; i++) {
+		/* F1. Get to Header limit. */
+		if( cp-header <i ) {
+			egi_dpstd("cp-header<i!\n");
+			return cp-i+1;
+		}
+		/* F2. Case 10xxxxxx */
+                if( ( (*(cp-i)) & 0b11000000 ) == 0b10000000 ) /* 10xxxxxx */
+                        continue;
+		/* F3. Case 110xxxxx,1110xxxx,11110xxx, as uchar header. */
+                else if ( (*(cp-i))>>(7-i) == (1<<(i+1))-2 ) { /* 110,1110,11110 */
+                        return cp-i;
+                }
+                else {
+			egi_dpstd("Error in UTF-8 Encoding!\n");
+			return cp-i;
+                        //break;  /* Error in UTF-8 Encoding */
+		}
+        }
+
+	/* ERROR when i==5>4 */
+	egi_dpstd("cp-header>4!\n");
+	return cp-i+1;
+}
+
 
 /*--------------------------------------------------
-Get length of a string with UTF-8 encoding.
+Get length of a string with UTF-8 encoding, OR stops
+where error UTF-8 encoding found.
 
-@cp:	A pointer to a string with UTF-8 encoding.
+@cp:	A pointer to a string with UTF-8 encoding
+	with a terminating NULL.
 
 Return:
 	>0	OK, string length in bytes.
@@ -1526,6 +1738,191 @@ int cstr_strlen_uft8(const unsigned char *cp)
 	}
 
 	return sum;
+}
+
+
+/*------------------------------------------------------------
+Check integrity of UTF-8 encoding for a string with a
+terminating NULL.
+
+@cp:	Pointer to string.
+@len:   Total length of the string.
+
+Return:
+	Total bytes checked as OK, OR offset to the start byte
+	of a WRONG uchar.
+	If return==strlen, Complete and perfect!
+-----------------------------------------------------------*/
+off_t cstr_check_uft8encoding(const unsigned char *ustr, off_t strlen)
+{
+	const unsigned char *cp=NULL;
+	int i;
+	unsigned char ustart;
+
+        if(ustr==NULL)
+                return -1;
+
+	/* Get pointer to ustr */
+	cp=ustr;
+
+	while(*cp) {
+		/* 1. byte uchar */
+	        if( *cp < 0b10000000 ) {
+        	        cp+=1; continue;
+		}
+
+		/* 2. Get ustart */
+		ustart=*cp;
+
+		/* 3. 4 bytes uchar */
+	        //else if( *cp >= 0b11110000 ) {
+		if( ustart>>3 == 0b11110 ) {
+			/* Check length */
+			if(cp+4-ustr > strlen)
+				break;
+			/* Check integrity */
+			for(i=1; i<4; i++) {
+			   if( (*(cp+i)>>6) != 2 ) /* For 0b10xxxxxx */
+				break;
+			}
+			if(i!=4) break;
+
+			/* OK */
+        	        cp+=4; continue;
+		}
+		/* 4. 3 bytes uchar */
+	        //else if( *cp >= 0b11100000 ) {
+		else if( ustart>>4 == 0b1110 ) {
+			/* Check length */
+			if(cp+3-ustr > strlen)
+				break;
+			/* Check integrity */
+			for(i=1; i<3; i++) {
+			   if( (*(cp+i)>>6) != 2 )
+				break;
+			}
+			if(i!=3) break;
+
+			/* OK */
+        	        cp+=3; continue;
+		}
+		/* 5. 2 bytes uchar */
+	        //else if( *cp >= 0b11000000 ) {
+		else if( ustart>>5 == 0b110 ) {
+			/* Check length */
+			if(cp+2-ustr > strlen)
+				break;
+			/* Check integrity */
+			if( (*(cp+1)>>6) != 2 )
+				break;
+
+			/* OK */
+        	        cp+=2; continue;
+		}
+		/* 6. First byte error */
+	        else {
+        	        egi_dpstd("First byte error: 0x%02X!\n", ustart);
+			break;
+	        }
+	}
+
+#if 1 /* TEST: ------------- */
+	if(cp-ustr<strlen)
+		printf("%s: Error uchar at off=%d: ",__func__, cp-ustr);
+	for(i=0; i< (ustr+strlen-cp>4 ? 4 : ustr+strlen-cp); i++) {
+		//printf(" 0x%02X", *(cp+i));
+		cstr_print_byteInBits(*(cp+i), " ");
+	}
+	printf("\n");
+#endif
+
+	return cp-ustr;
+}
+
+/*------------------------------------------------
+Check integrity of a text file with UTF-8 encoding.
+
+@fpath: File path.
+
+Return:
+	0:	OK
+	<0	Fails
+	>0      Error, offset to the start byte
+                of a WRONG uchar.
+----------------------------------------------*/
+off_t  egi_check_uft8File(const char *fpath)
+{
+   	off_t off;
+   	int skip=0;  /* Skip UTF8 BOM if any. */
+	bool typeUTF8=false;
+
+	if(fpath==NULL)
+		return -1;
+
+   	EGI_FILEMMAP *fmap=egi_fmap_create(fpath, 0, PROT_READ, MAP_PRIVATE);
+   	if(fmap==NULL) {
+		return -2;
+   	}
+
+   	/*--------- Check yte_Order_Mark ----------
+        	UTF-8 Without BOM   ...
+	        UTF-8 with BOM      EF BB BF
+        	UTF-16LE            FF FE  //0xFEFF(65279) ZERO_WIDTH_NO_BREAK SPACE
+	        UTF-16BE            FE FF
+        	UTF-32LE            FF FE 00 00
+	        UTF-32BE            00 00 FE FF
+    	------------------------------------------*/
+   	if( fmap->fsize >=4 ) {
+           if(fmap->fp[0]==0xEF && fmap->fp[1]==0xBB && fmap->fp[0]==0xBF ) {
+                egi_dpstd("UTF-8 with BOM EF_BB_BF\n");
+                skip=3;  /* <---- skip */
+		typeUTF8=true;
+           }
+           else if((unsigned char)(fmap->fp[0]) == (unsigned char)(0xFF) ) {
+                if((unsigned char)(fmap->fp[1])==(unsigned char)0xFE) {
+                        if(fmap->fp[2]==0 && fmap->fp[3]==0)
+                                egi_dpstd("UTF-32LE with BOM FF_FE_00_00\n");
+                        else
+                                egi_dpstd("UTF-16LE with BOM FF_FE\n");
+                }
+           }
+           else if(  (unsigned char)(fmap->fp[0])==(unsigned char)0xFE
+		  && (unsigned char)(fmap->fp[1])==(unsigned char)0xFF )
+                egi_dpstd("UTF-16BE with BOM FE_FF\n");
+           else if( fmap->fp[0]==0x00 && fmap->fp[1]==0x00
+		  && (unsigned char)(fmap->fp[2])==(unsigned char)0xFE
+                  && (unsigned char)(fmap->fp[2])==(unsigned char)0xFF )
+                egi_dpstd("UTF-32LE with BOM 00_00_FE_FF\n");
+           else {
+                egi_dpstd("fsize>4, UTF-8 without BOM\n");
+		typeUTF8=true;
+	   }
+   	}
+   	else { /* fsize < 4 */
+        	egi_dpstd("fsize<4, UTF-8 without BOM\n");
+		typeUTF8=true;
+   	}
+
+	/* If NOT UTF-8 encoding */
+	if(!typeUTF8) {
+		egi_dpstd("NOT UTF-8 encoding!\n");
+	    	egi_fmap_free(&fmap);
+		return -3;
+	}
+
+	/* Check encoding */
+   	off=cstr_check_uft8encoding((unsigned char *)fmap->fp+skip, fmap->fsize-skip);
+
+	/* Free fmap then return */
+	if(off==fmap->fsize-skip) {
+	    egi_fmap_free(&fmap);
+	    return 0;
+	}
+	else {
+	   egi_dpstd("Error uchar found at offset position %jd.\n", off);
+	   egi_fmap_free(&fmap);
+	   return off;
+	}
 }
 
 
@@ -2038,9 +2435,44 @@ int cstr_uft8_to_unicode(const unsigned char *src, wchar_t *dest)
 int   cstr_gb2312_to_unicode(const char *src,  wchar_t *dest)
 -------------------------------------------------------------*/
 
+
+/*-------------------------------------------
+Count lines ending with '\n' in a string.
+
+Note:
+1 The text ending FeedLine is also counted
+in, as start of a new line.  However command
+'wc' NOT includes this line.
+
+@pstr:	Pointer to a string.
+
+Return:
+	Lines in the strings.
+-------------------------------------------*/
+inline int cstr_count_lines(const char *pstr)
+{
+	int lines;
+
+	if( pstr==NULL )
+		return 0;
+
+	/* NOW: At least 1 line */
+	lines=1;
+
+        /* Count new lines */
+        while(*pstr) {
+            if( *pstr == '\n' )
+            	lines++;
+            pstr++;
+        }
+
+	/* For Linux text, it ends with a LineFeed '\n'. */
+	return lines;
+}
+
 /*---------------------------------------------------------------------------
 Count lines in an text file. 	To check it with 'wc' command.
-For ASCII or UFT-8 files.
+For ASCII or UTF-8 files.
 
 @fpath: Full path of the file
 
@@ -2082,7 +2514,7 @@ int egi_count_file_lines(const char *fpath)
                 return -3;
         }
 
-	/* Count new lines */
+	/* Count new lines: Suppose that Linux text ends with a LineFeed '\n'. */
 	cp=fp;
 	lines=0;
 	while(*cp) {

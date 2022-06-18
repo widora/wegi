@@ -2404,6 +2404,7 @@ int FTcharmap_shift_cursor_left(EGI_FTCHAR_MAP *chmap)
 			charlen=cstr_prevcharlen_uft8((const unsigned char *)(chmap->txtbuff+chmap->pchoff));
 			if(charlen<0) {
 				printf("%s: WARNING: cstr_prevcharlen_uft8() negative! \n",__func__);
+				charlen=0; ///// !!!! ???? //////
 			}
 		}
 
@@ -2948,7 +2949,7 @@ int FTcharmap_get_txtdlIndex(EGI_FTCHAR_MAP *chmap,  unsigned int pchoff)
 
 @chmap: 	Pointer to the EGI_FTCHAR_MAP.
 
- Return:
+Return:
         0       OK,    chmap->pch modifed accordingly.
         <0      Fail   chmap->pch, unchanged.
 -------------------------------------------------------------*/

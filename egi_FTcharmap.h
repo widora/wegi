@@ -159,6 +159,8 @@ struct  FTsymbol_char_map {
 						 * To be updated if content of txtbuff changed.
 						 */
 
+				/* ----- For Charmap Window ----- */
+
 	/* disline/dline: displayed/charmapped line, A line starts/ends at displaying window left/right end side.
 	 * retline/rline: A line starts/ends by a new line token '\n'.
 	 */
