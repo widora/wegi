@@ -57,6 +57,10 @@ Journal:
 	1. FTsymbol_unicode_writeFB(): TEST___ NO mutexlock for EGI_FONT_BUFFER.
 2022-06-18:
 	1. Add FTsymbol_save_fontBuffer()
+	2. Add FTsymbol_load_fontBuffer()
+2022-06-19:
+	1. EGI_FONT_BUFFER: Add member 'family_name' and 'style_name'.
+	   modify FTsymbol_save_fontBuffer(), FTsymbol_load_fontBuffer()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -1980,7 +1984,7 @@ int  FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, 
 
 	while( *p ) {
 
-#if 1 /* TEST: ----------- */
+#if 0 /* TEST: ----------- */
 		printf("\r count=%d, ln=%d", count, ln);  fflush(stdout);
 #endif
 
@@ -2563,6 +2567,9 @@ a series of UNICODES.
 		!!! It MUST be a ref. to a facetype of already loaded sys EGI_FONTS
 @fw,fh		Expected font width/height, in pixels.
 @unistart	A unicode, as start of the character group.
+		Basic Han Unicode range:      U+4E00 - U+9FA5
+		Basic CJK Unified Ideographs: 0x4E00 - U+9FFC
+
 @size:		Size of the character group, total number of characters buffered.
 
 Note:
@@ -2591,6 +2598,11 @@ EGI_FONT_BUFFER* FTsymbol_create_fontBuffer(FT_Face face, int fw, int fh, wchar_
 		return NULL;
 	}
 
+        /* Face info. */
+        printf("%s: Face family_name:%s, style_name: %s\n", __func__, face->family_name, face->style_name);
+        printf("%s: It contains %ld faces and %ld glyphs.\n", __func__, face->num_faces, face->num_glyphs);
+	printf("%s: It contains %d num_charmaps.\n", __func__, face->num_charmaps);
+
 	/* Allocate EGI_FONT_BUFFER */
 	fontbuff=calloc(1, sizeof(EGI_FONT_BUFFER));
 	if(fontbuff==NULL) {
@@ -2598,6 +2610,12 @@ EGI_FONT_BUFFER* FTsymbol_create_fontBuffer(FT_Face face, int fw, int fh, wchar_
 		return NULL;
 	}
 	memsize +=sizeof(EGI_FONT_BUFFER);
+
+	/* Family_name and Style_name  */
+	if(face->family_name)
+		strncpy(fontbuff->family_name, face->family_name, EGI_FONTBUFF_NAME_MAX-1);
+	if(face->style_name)
+		strncpy(fontbuff->style_name, face->style_name, EGI_FONTBUFF_NAME_MAX-1);
 
 	/* Allocate fontbuff->fontdata */
 	fontbuff->fontdata=calloc(size, sizeof(typeof(*fontbuff->fontdata)));
@@ -2651,7 +2669,7 @@ EGI_FONT_BUFFER* FTsymbol_create_fontBuffer(FT_Face face, int fw, int fh, wchar_
 		/* ELSE: The wchar has NO bitmap! */
 #if 1 /* TEST: ------- */
 		else if(face->glyph->bitmap.width) {
-			printf("%s: Unicode U+%X has NO bitmap while its bitmap.width=%d!\n",
+			printf("%s: !!! CAUTION !!!\n  Unicode U+%X has NO bitmap while its bitmap.width=%d!\n",
 								__func__, unistart+i, face->glyph->bitmap.width);
 		}
 #endif
@@ -2710,6 +2728,7 @@ int FTsymbol_save_fontBuffer(const EGI_FONT_BUFFER *fontbuff, const char *fpath)
 	int nwrite;
 	int nmemb;
 	FILE *fil;
+	char name[EGI_FONTBUFF_NAME_MAX]={0};
 	int ret=0;
 
 	if( fontbuff==NULL || fpath==NULL)
@@ -2745,14 +2764,38 @@ int FTsymbol_save_fontBuffer(const EGI_FONT_BUFFER *fontbuff, const char *fpath)
 		goto END_FUNC;
 	}
 
-	/* Write name */
-	nmemb=strlen(fontbuff->name)+1; /* +1 EOF */
-	nwrite=fwrite(fontbuff->name, 1, nmemb, fil);
+	/* Write family_name */
+	if(fontbuff->family_name) {
+		strncpy(name, fontbuff->family_name, EGI_FONTBUFF_NAME_MAX-1);
+		nmemb=strlen(fontbuff->family_name)+1; /* +1 EOF */
+	}
+	else { /* At least write a EOF */
+		name[0]=0;
+		nmemb=1;
+	}
+	nwrite=fwrite(fontbuff->family_name, 1, nmemb, fil);
 	if(nwrite<nmemb) {
-		egi_dperr("Fail to write fontbuff->name!");
+		egi_dperr("Fail to write fontbuff->family_name!");
 		ret=-5;
 		goto END_FUNC;
 	}
+
+	/* Write style_name */
+	if(fontbuff->style_name) {
+		strncpy(name, fontbuff->style_name, EGI_FONTBUFF_NAME_MAX-1);
+		nmemb=strlen(fontbuff->style_name)+1; /* +1 EOF */
+	}
+	else { /* At least write a EOF */
+		name[0]=0;
+		nmemb=1;
+	}
+	nwrite=fwrite(fontbuff->style_name, 1, nmemb, fil);
+	if(nwrite<nmemb) {
+		egi_dperr("Fail to write fontbuff->style_name!");
+		ret=-5;
+		goto END_FUNC;
+	}
+
 
 	/* Write fw, fh */
 	nmemb=sizeof(typeof(fontbuff->fw));
@@ -2859,6 +2902,247 @@ END_FUNC:
 	}
 
 	return ret;
+}
+
+/*----------------------------------------------------------------
+Load an EGI_FONT_BUFFER from a data file.
+
+--- Cross check with struct EGI_FONT_BUFFER and EGI_WCHAR_GLYPH ---
+
+TODO:
+1. ByteOrder auto conversion.
+
+@fpath:      File path
+
+Return:
+        !NULL       OK
+        NULL        Fails
+----------------------------------------------------------------*/
+EGI_FONT_BUFFER* FTsymbol_load_fontBuffer(const char *fpath)
+{
+        int i,j;
+        int nread;
+        int nmemb;
+        FILE *fil;
+	char magic_words[16+1]={0};
+	char name[EGI_FONTBUFF_NAME_MAX]={0};
+	int pos;
+	bool IsHostByteOrder; /* If ByteOrder is the same as host's */
+	EGI_FONT_BUFFER *fontbuff=NULL;
+	bool ret=0;
+
+	if(fpath==NULL)
+		return NULL;
+
+	fontbuff=(EGI_FONT_BUFFER *)calloc(1, sizeof(EGI_FONT_BUFFER));
+	if(fontbuff==NULL) {
+		egi_dperr("Fail to calloc fontbuff!");
+		return NULL;
+	}
+
+	/* Open file */
+	fil=fopen(fpath, "rb");
+	if(fil==NULL) {
+		egi_dperr("Fail to open file '%s'.", fpath);
+		free(fontbuff); // FTsymbol_free_fontBuffer(&fontbuff));
+		return NULL;
+	}
+
+	/* Read magic words, Totally 16bytes */
+	nmemb=16;
+	nread=fread(magic_words, 1, nmemb, fil);
+	if(nread<nmemb) {
+		egi_dperr("Fail to read magic_words!");
+		ret=-1;
+		goto END_FUNC;
+	}
+	egi_dpstd("Magic words: %s\n", magic_words);
+	/* Check magic words */
+	if( strncmp(magic_words, FONTBUFFER_MAGIC_WORDS, 12) !=0 ) {
+		egi_dpstd("magic words error! NOT a fontbuffer data file?\n");
+		ret=-2;
+		goto END_FUNC;
+	}
+
+	/* Read Byte_Order_Mark. "FFFE"--Little_Endian, "FEFF"--Big Endian  0xFEFF(65279) ZERO_WIDTH_NO_BREAK SPACE  */
+	unsigned char bomark[2];
+	nmemb=2;
+	nread=fread(bomark, 1, nmemb, fil);
+	if(nread<nmemb) {
+		egi_dperr("Fail to read byte order mark!");
+		ret=-3;
+		goto END_FUNC;
+	}
+	if( bomark[0]==(unsigned char)0xFF && bomark[1]==(unsigned char)0xFE ) {
+		egi_dpstd("Byte Order: Little_Endian\n");
+		if(egi_host_littleEndian())
+			IsHostByteOrder=true;
+		else
+			IsHostByteOrder=false;
+	}
+	else if( bomark[0]==(unsigned char)0xFE && bomark[1]==(unsigned char)0xFF ) {
+		egi_dpstd("Byte Order: Big_Endian\n");
+		if(!egi_host_littleEndian())
+			IsHostByteOrder=true;
+		else
+			IsHostByteOrder=false;
+	}
+	else {
+		egi_dpstd("Byte Order Mark error! bomark: %X%X\n", (unsigned char)bomark[0], (unsigned char)bomark[1]);
+		ret=-4;
+		goto END_FUNC;
+	}
+
+	/* Read family_name */
+	pos=0;
+	while( fread(name+pos,1,1,fil)>0 ) {
+		if(name[pos]=='\0') break;
+		pos++;
+	}
+	egi_dpstd("Fontbuffer family_name: '%s'\n", name);
+	/* set name */
+	strncpy(fontbuff->family_name, name, EGI_FONTBUFF_NAME_MAX-1);
+
+	/* Read style_name */
+	pos=0;
+	while( fread(name+pos,1,1,fil)>0 ) {
+		if(name[pos]=='\0') break;
+		pos++;
+	}
+	egi_dpstd("Fontbuffer styple_name: '%s'\n", name);
+	/* set name */
+	strncpy(fontbuff->style_name, name, EGI_FONTBUFF_NAME_MAX-1);
+
+
+	/* TODO: ByteOrder conversion */
+	if(!IsHostByteOrder) {
+		egi_dpstd("Byte Order Mark NOT same as the host!\n");
+		ret=-5;
+		goto END_FUNC;
+	}
+
+	/* Read fw, fh */
+	nmemb=sizeof(typeof(fontbuff->fw));
+	nread=fread(&fontbuff->fw, 1, nmemb, fil);
+	if(nread<nmemb) {
+		egi_dperr("Fail to read fontbuff->fw!");
+		ret=-6;
+		goto END_FUNC;
+	}
+	nmemb=sizeof(typeof(fontbuff->fh));
+	nread=fread(&fontbuff->fh, 1, nmemb, fil);
+	if(nread<nmemb) {
+		egi_dperr("Fail to read fontbuff->fh!");
+		ret=-7;
+		goto END_FUNC;
+	}
+	egi_dpstd("Fontsize fw=%d, fh=%d\n", fontbuff->fw,fontbuff->fh);
+
+	/* Read unistart */
+	nmemb=sizeof(typeof(fontbuff->unistart));
+	nread=fread(&fontbuff->unistart, 1, nmemb, fil);
+	if(nread<nmemb) {
+		egi_dperr("Fail to read fontbuff->unistart!");
+		ret=-8;
+		goto END_FUNC;
+	}
+	egi_dpstd("unistart: U+%X\n", fontbuff->unistart);
+
+	/* Read size */
+	nmemb=sizeof(typeof(fontbuff->size));
+	nread=fread(&fontbuff->size, 1, nmemb, fil);
+	if(nread<nmemb) {
+		egi_dperr("Fail to read fontbuff->size!");
+		ret=-9;
+		goto END_FUNC;
+	}
+	egi_dpstd("%d unicodes in the fontbuffer.\n", fontbuff->size);
+
+	/* Allocate fontbuff->fontdata */
+	fontbuff->fontdata=calloc(fontbuff->size, sizeof(EGI_WCHAR_GLYPH));
+	if(fontbuff==NULL) {
+		egi_dperr("Fail to calloc fontbuff->fontdata!");
+                ret=-10;
+                goto END_FUNC;
+	}
+
+
+	/* Read fontbuff->fontdata;  index 0 --> unistart, 1 --> unistart+1, ... size-1 --> unistart+size-1 */
+	EGI_WCHAR_GLYPH  tmpGlyph;
+	for(i=0; i< fontbuff->size; i++) {
+		/* Read symheight */
+		nmemb=sizeof(typeof(tmpGlyph.symheight));
+		nread=fread(&fontbuff->fontdata[i].symheight, 1, nmemb, fil);
+		if(nread<nmemb) {
+			egi_dperr("Fail to read fontbuff->fontdata[%d].symheight!", i);
+			ret=-11;
+			goto END_FUNC;
+		}
+
+		/* Read ftwidth */
+		nmemb=sizeof(typeof(tmpGlyph.ftwidth));
+		nread=fread(&fontbuff->fontdata[i].ftwidth, 1, nmemb, fil);
+		if(nread<nmemb) {
+			egi_dperr("Fail to read fontbuff->fontdata[%d].ftwidth!", i);
+			ret=-11;
+			goto END_FUNC;
+		}
+
+		/* Read advanceX */
+		nmemb=sizeof(typeof(tmpGlyph.advanceX));
+		nread=fread(&fontbuff->fontdata[i].advanceX, 1, nmemb, fil);
+		if(nread<nmemb) {
+			egi_dperr("Fail to read fontbuff->fontdata[%d].advanceX!", i);
+			ret=-11;
+			goto END_FUNC;
+		}
+
+		/* Write delX/Y */
+		nmemb=sizeof(typeof(tmpGlyph.delX));
+		nread=fread(&fontbuff->fontdata[i].delX, 1, nmemb, fil);
+		if(nread<nmemb) {
+			egi_dperr("Fail to read fontbuff->fontdata[%d].delX!", i);
+			ret=-11;
+			goto END_FUNC;
+		}
+		//nmemb=sizeof(typeof(tmpGlyph.delY));
+		nread=fread(&fontbuff->fontdata[i].delY, 1, nmemb, fil);
+		if(nread<nmemb) {
+			egi_dperr("Fail to read fontbuff->fontdata[%d].delY!", i);
+			ret=-11;
+			goto END_FUNC;
+		}
+
+		/* Callocate  alpha */
+		int datasize=fontbuff->fontdata[i].symheight * fontbuff->fontdata[i].ftwidth;
+		fontbuff->fontdata[i].alpha=calloc(1,datasize);
+		if(fontbuff->fontdata[i].alpha==NULL) {
+			egi_dperr("Fail to calloc fontbuff->fontdata[%d].alpha!", i);
+			ret=-11;
+			goto END_FUNC;
+		}
+
+		/* Read alpha data */
+		nread=fread(fontbuff->fontdata[i].alpha, datasize, 1, fil); /* write at once */
+		if(nread<1) {
+			egi_dperr("Fail to read fontbuff->fontdata[%d].alpha!", j);
+			ret=-10;
+			goto END_FUNC;
+		}
+	}
+
+END_FUNC:
+	/* If fails, free fontbuff */
+	if(ret<0) {
+ 		FTsymbol_free_fontBuffer(&fontbuff);
+	}
+
+	/* Close fil */
+	if( fclose(fil) !=0 ) {
+		egi_dperr("Fail to close file!\n");
+	}
+
+	return fontbuff;
 }
 
 /*----------------------------------------------------

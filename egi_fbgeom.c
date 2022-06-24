@@ -110,6 +110,8 @@ Jurnal
 	   draw_line_antialias()  draw_blend_filled_roundcorner_rect()
 	   draw_blend_filled_rect() draw_blend_filled_triangle()
 	   draw_blend_filled_annulus() draw_blend_filled_circle() draw_filled_spline()
+2022-06-22:
+	1. Add pxy_inbox2().
 
 Modified and appended by Midas-Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -238,15 +240,43 @@ inline bool pxy_inbox(int px,int py, int x1, int y1,int x2, int y2)
 		yh=y2;yl=y1;
 	}
 
+#if 0
 	if( (px>=xl && px<=xh) && (py>=yl && py<=yh))
 		return true;
 	else
 		return false;
+#else  /* HK2022-06-22 */
+	if(px<xl || px>xh || py<yl || py>yh)
+		return false;
+	else
+		return true;
+#endif
 }
 
+/*--------------------------------------------
+ check if (px,py) in box.
+
+ return:
+	 True:  within the box or on the edge
+	 False
+
+ Midas Zhou
+---------------------------------------------*/
+inline bool pxy_inbox2(int px,int py, const EGI_BOX* box)
+{
+        if(box==NULL)
+             return false;
+
+        return pxy_inbox( px, py,
+                            box->startxy.x, box->startxy.y,
+                            box->endxy.x, box->endxy.y
+                           );
+
+}
 
 /*--------------------------------------------
  check if (px,py) in on line(x1,y1,x2,y2).
+
 
  Return:
 	 True

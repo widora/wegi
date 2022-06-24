@@ -137,6 +137,13 @@ Journal:
 2022-05-21:
 	1. FTcharmap_uft8strings_writeFB(): For Fullwidth/Halfwidth chars, get advance value by calling
 	   FTsymbol_unicode_writeFB() instead of FT_Get_Advances().
+2022-06-20:
+	1. EGI_FTCHAR_MAP: add member 'readOnly' and modify related functions:
+	   FTcharmap_go_backspace(), FTcharmap_insert_string_nolock(), FTcharmap_insert_string(),
+	   FTcharmap_insert_char(), FTcharmap_delete_string_nolock(), FTcharmap_delete_string(),
+	   FTcharmap_copy_from_syspad(), FTcharmap_cut_to_syspad().
+2022-06-22:
+	1. Add FTcharmap_goto_dline().
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -178,8 +185,8 @@ To create a char map with given params.
 @txtsize: Size of txtbuff[], exclude '\0'.
 	 ! txtsize+1(EOF) bytes to be allocated.
 @x0,y0:  	charmap left top point.
-@height,width:  Charmap window size
-@offx,offy:	offset
+@height,width:  Charmap window size,including margin area + mappixpl.
+@offx,offy:	offset, used to adjust margins.
 @face:		FT_Face
 @mapsize:	How many chars hold in the displaying map.
 		or Max. number of chars to be displayed once.
@@ -296,9 +303,9 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
 	/* 9. Assign other params */
 	chmap->mapx0=x0;
 	chmap->mapy0=y0;
-	chmap->width=width;
+	chmap->width=width;	/* Include margin area */
 	chmap->height=height;
-	chmap->offx=offx;
+	chmap->offx=offx;	/* offx/offy is to adjust margin. */
 	chmap->offy=offy;
 	chmap->mapsize=mapsize;
 
@@ -804,12 +811,13 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 
 	/* 8. Draw/clear blank paper/canvas, not only when follow_cursor  */
 	if( chmap->bkgcolor >= 0 && fb_dev != NULL ) {
-	       	fbset_color(chmap->bkgcolor);
-       		draw_filled_rect(&gv_fb_dev, chmap->mapx0, chmap->mapy0,  chmap->mapx0+chmap->width, chmap->mapy0+chmap->height );
+	       	fbset_color2(fb_dev, chmap->bkgcolor);
+		/* Include margin area, offx/offy is to adjust margin. */
+       		draw_filled_rect(fb_dev, chmap->mapx0, chmap->mapy0,  chmap->mapx0+chmap->width -1, chmap->mapy0+chmap->height -1 );
 		#if 0 /* Draw grids */
 	        fbset_color(WEGI_COLOR_GRAYB);
         	for(k=0; k<=chmap->maplines; k++)
-                	draw_line(&gv_fb_dev, x0, y0+k*chmap->maplndis-1, x0+chmap->mappixpl-1, y0+k*chmap->maplndis-1);
+                	draw_line(fb_dev, x0, y0+k*chmap->maplndis-1, x0+chmap->mappixpl-1, y0+k*chmap->maplndis-1);
 		#endif
 	}
 
@@ -995,6 +1003,7 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 //////////  TEST: EGI_FONT_BUFF //////////////
 			    /* W.10.3.1 If the font is buffered in egi_fontbuffer */
 			    if( FTsymbol_glyph_buffered(face, fw, wcstr[0]) ) {
+					//egi_dpstd("---> glyph_buffed!");
 					xleft -= egi_fontbuffer->fontdata[ wcstr[0]-egi_fontbuffer->unistart ].advanceX;
 			    } else {
 
@@ -2687,6 +2696,59 @@ int FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap )
         return 0;
 }
 
+/*-------------------------------------------------------
+Go to the specified dline.
+
+@chmap: an EGI_FTCHAR_MAP
+@dline: Index of chmap->txtdlinePos[]
+
+Return:
+        0       OK
+        <0      Fail
+--------------------------------------------------------*/
+int FTcharmap_goto_dline(EGI_FTCHAR_MAP *chmap, int dline)
+{
+        if( chmap==NULL ) {
+                printf("%s: Input FTCHAR map is empty!\n", __func__);
+                return -1;
+        }
+
+	if(dline<0) return -1;
+
+        /*  Get mutex lock   ----------->  */
+        if(pthread_mutex_lock(&chmap->mutex) !=0){
+                printf("%s: Fail to lock charmap mutex!", __func__);
+                return -2;
+        }
+	/* Check request ? OR wait ??? */
+	if( chmap->request !=0 ) {
+/*  <-------- Put mutex lock */
+	        pthread_mutex_unlock(&chmap->mutex);
+		return -3;
+	}
+
+	/* Check if txtdlinePos[] has invalid data. */
+	if( dline > chmap->txtdlines-1 || (dline>0 && chmap->txtdlinePos[dline]<1) ) {
+/*  <-------- Put mutex lock */
+	        pthread_mutex_unlock(&chmap->mutex);
+		return -4;
+	}
+
+        /* PRE_1. Update chmap->txtdlncount */
+	chmap->txtdlncount=dline;
+        /* PRE_2. Update chmap->pref */
+	chmap->pref=chmap->txtbuff +chmap->txtdlinePos[dline];
+	/* PRE_3. Set pchoff/pchoff2 */
+
+	/* Set chmap->request for charmapping */
+	chmap->request=1;
+
+        /*  <-------- Put mutex lock */
+        pthread_mutex_unlock(&chmap->mutex);
+
+        return 0;
+}
+
 /*---------------------------------------------------------
 Go to the first dline of the txtbuff, and set pchoff/pchoff2
 to the very beginning.
@@ -2697,7 +2759,7 @@ Return:
         0       OK
         <0      Fail
 ----------------------------------------------------------*/
-int FTcharmap_goto_firstDline ( EGI_FTCHAR_MAP *chmap )
+int FTcharmap_goto_firstDline( EGI_FTCHAR_MAP *chmap )
 {
         if( chmap==NULL ) {
                 printf("%s: Input FTCHAR map is empty!\n", __func__);
@@ -2732,7 +2794,6 @@ int FTcharmap_goto_firstDline ( EGI_FTCHAR_MAP *chmap )
 
         return 0;
 }
-
 
 #if 0 ////////////////////* TODO *////////////////////////////////
 /*---------------------------------------------------------
@@ -2974,7 +3035,7 @@ int FTcharmap_go_backspace( EGI_FTCHAR_MAP *chmap )
         }
 
 	/* Check request ? OR wait ??? */
-	if( chmap->request !=0 ) {
+	if( chmap->readOnly || chmap->request !=0 ) { /* ReadOnly HK2022-06-20 */
        	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
 		return -3;
@@ -3175,6 +3236,9 @@ inline int FTcharmap_insert_string_nolock( EGI_FTCHAR_MAP *chmap, const unsigned
         if( chmap==NULL || pstr==NULL ) {
                 return -1;
         }
+
+	if(chmap->readOnly)  /* ReadOnly HK2022-06-20 */
+		return -1;
 
 	/* We want to trigger cursor follow_up... */
 	//if(strsize==0)
@@ -3449,7 +3513,7 @@ int FTcharmap_insert_string( EGI_FTCHAR_MAP *chmap, const unsigned char *pstr, s
         }
 
 	/* Check request ? OR wait ??? */
-	if( chmap->request !=0 ) {
+	if( chmap->readOnly || chmap->request !=0 ) {    /* ReadOnly HK2022-06-20 */
 		printf("%s: chmap->request !=0 \n",__func__);
        	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
@@ -3518,6 +3582,10 @@ int FTcharmap_insert_char( EGI_FTCHAR_MAP *chmap, const char *ch )
 	if(ch==NULL)
 		return -1;
 	if( ch[0]=='\0' )  /* This also included in cstr_charlen_uft8() */
+		return -1;
+
+	/* Read Only */
+	if(chmap->readOnly) /* ReadOnly HK2022-06-20 */
 		return -1;
 
 	/* Verify pch, if ch[0]==0, then chsize=0! */
@@ -3813,6 +3881,10 @@ inline int FTcharmap_delete_string_nolock( EGI_FTCHAR_MAP *chmap )
                 return -1;
         }
 
+	/* Read Only */
+	if( chmap->readOnly ) /* ReadOnly HK2022-06-20 */
+		return -1;
+
 	#if 0 /* -----TEST:  */
 	wchar_t wcstr;
 	if(char_uft8_to_unicode(chmap->pref+chmap->charPos[chmap->pch], &wcstr) >0) {
@@ -4006,7 +4078,7 @@ int FTcharmap_delete_string( EGI_FTCHAR_MAP *chmap )
         }
 
 	/* Check request ? OR wait ??? */
-	if( chmap->request !=0 ) {
+	if( chmap->readOnly || chmap->request !=0 ) {	/* ReadOnly HK2022-06-20 */
        	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
 		return -3;
@@ -4406,6 +4478,9 @@ int FTcharmap_copy_from_syspad( EGI_FTCHAR_MAP *chmap )
 	if( chmap==NULL || chmap->txtbuff==NULL )
 		return -1;
 
+	if( chmap->readOnly )	 /* ReadOnly HK2022-06-20 */
+		return -1;
+
 	/* Get buffer from EGI SYSPAD */
 	EGI_SYSPAD_BUFF *padbuff=egi_buffer_from_syspad();
 	if(padbuff==NULL)
@@ -4487,7 +4562,7 @@ int FTcharmap_cut_to_syspad( EGI_FTCHAR_MAP *chmap )
         }
 
 	/* Check request ? OR wait ??? */
-	if( chmap->request !=0 ) {
+	if( chmap->readOnly || chmap->request !=0 ) { /* ReadOnly HK2022-06-20 */
        	/*  <-------- Put mutex lock */
 	        pthread_mutex_unlock(&chmap->mutex);
 		return -3;

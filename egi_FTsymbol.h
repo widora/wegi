@@ -88,8 +88,12 @@ struct FTsymbol_font_buffer {
 	FT_Face face;	/* A face object in FreeType2 library, MUST be a ref. to an already loaded facetype in sys EGI_FONTS */
 
 #define EGI_FONTBUFF_NAME_MAX  64
-	char    name[EGI_FONTBUFF_NAME_MAX];
-
+	char    family_name[EGI_FONTBUFF_NAME_MAX]; /* Including EOF/terminating NULL
+						     * like `Times New Roman', `Bodoni', `Garamond', etc
+						     */
+	char    style_name[EGI_FONTBUFF_NAME_MAX];  /* Including EOF/terminating NULL
+					       	     * Like 'Regular', 'Bold'.. etc.
+					             */
 	int	fw; 	/* Font size */
 	int	fh;
 
@@ -105,6 +109,7 @@ struct FTsymbol_font_buffer {
 EGI_FONT_BUFFER* FTsymbol_create_fontBuffer(FT_Face face, int fw, int fh, wchar_t unistart, size_t size);
 void FTsymbol_free_fontBuffer(EGI_FONT_BUFFER **fontbuff);
 int FTsymbol_save_fontBuffer(const EGI_FONT_BUFFER *fontbuff, const char *fpath);
+EGI_FONT_BUFFER* FTsymbol_load_fontBuffer(const char *fpath);
 bool FTsymbol_glyph_buffered(FT_Face face, int fsize, wchar_t wcode);
 
 /* EGI fonts */

@@ -107,23 +107,74 @@ int main(int argc, char **argv)
 #if 1 /* ---------- FTsymbol_uft8strings_writeFB() --------------- */
 	struct timeval tms,tme;
 	int fw=22, fh=24;
+	wchar_t wcode;
 
-	/* ----------- FTsymbol_create_fontBuffer() ----------- */
+#if 0	/* ----------- FTsymbol_create_fontBuffer() ----------- */
 	printf("Start creating egi_fontBuffer...\n");
 	gettimeofday(&tms, NULL);
+	//Basic Han Unicode range:      U+4E00 - U+9FA5
         egi_fontbuffer=FTsymbol_create_fontBuffer(egi_sysfonts.regular, fw,fh, 0x4E00, 21000); /*  face, fw,  fh, wchar_t unistart, size_t size */
 	gettimeofday(&tme, NULL);
         if(egi_fontbuffer) {
                 printf("Font buffer size=%zd! cost time=%luus \n", egi_fontbuffer->size, tm_diffus(tms,tme));
         }
 
-	/* ----------- FTsymbol_create_fontBuffer() ----------- */
+	/* Give a name */
+	//strncpy(egi_fontbuffer->name, "egi_sysfonts.regular", EGI_FONTBUFF_NAME_MAX-1);
+
+	/* ----------- FTsymbol_save_fontBuffer() ----------- */
 	printf("Start saving fontBuffer...\n");
 	gettimeofday(&tms, NULL);
 	FTsymbol_save_fontBuffer(egi_fontbuffer, "/tmp/fontbuff.dat");
 	gettimeofday(&tme, NULL);
         printf("Finish saving fontBuffer, cost time=%luus \n", tm_diffus(tms,tme));
-	exit(0);
+
+	printf("Press a key to continue...\n");
+	getchar();
+#endif
+
+
+while(1) {
+	/* ----------- FTsymbol_load_fontBuffer() ----------- */
+	printf("Start load fontBuffer...\n");
+	gettimeofday(&tms, NULL);
+	EGI_FONT_BUFFER *fontbuff=FTsymbol_load_fontBuffer("/tmp/fontbuff.dat");
+	gettimeofday(&tme, NULL);
+        printf("Finish loading fontBuffer, cost time=%luus \n", tm_diffus(tms,tme));
+
+    #if 1 /* To display unicode in fontbuff */
+	/* Initilize sys FBDEV */
+  	printf("init_fbdev()...\n");
+  	if(init_fbdev(&gv_fb_dev))
+        	return -1;
+
+	/* Set sys FB mode */
+	fb_set_directFB(&gv_fb_dev, false);
+   	fb_position_rotate(&gv_fb_dev, 0);
+
+	wchar_t uniend=fontbuff->unistart+fontbuff->size-1;
+	printf("Fontbuff range: U+%X - U+%X\n", fontbuff->unistart, uniend);
+	//for(wcode=uniend; wcode>uniend-2000; wcode--) {
+	for(wcode=fontbuff->unistart; wcode<uniend; wcode++) {
+		printf("U+%X: symheight=%d\n", wcode, fontbuff->fontdata[wcode-fontbuff->unistart].symheight);
+	        clear_screen(&gv_fb_dev, WEGI_COLOR_GRAYC);
+	        FTsymbol_unicode_writeFB( &gv_fb_dev, egi_sysfonts.regular,         /* FBdev, fontface */
+        	                          fontbuff->fw, fontbuff->fh, wcode, NULL,         /* fw,fh, wcode, *xleft */
+                	                  50, 50, //30, 30,  /* x0,y0, */
+                        	          WEGI_COLOR_BLUE, -1, 255);         /* fontcolor, transcolor,opaque */
+	        fb_render(&gv_fb_dev);
+		usleep(100000);
+	}
+    #endif /* End display */
+
+
+   FTsymbol_free_fontBuffer(&fontbuff);
+   sleep(1);
+}
+
+exit(0);
+
+
 
 	//int     FTsymbol_uft8strings_writeFB( FBDEV *fb_dev, FT_Face face, int fw, int fh, const unsigned char *pstr,
         //                       unsigned int pixpl,  unsigned int lines,  unsigned int gap,
@@ -257,9 +308,9 @@ int main(int argc, char **argv)
 	/* 1. Get advance by calling FTsymbol_unicode_writeFB() */
 	xleft=gv_fb_dev.pos_xres;
 	FTsymbol_unicode_writeFB( &gv_fb_dev, face,         /* FBdev, fontface */
-				      	  fw, fh, wcode, &xleft, 	    /* fw,fh, wcode, *xleft */
-					  (320-(fw+fw/4+fw/8))/2, (240-(fh+fh/4+fh/16))/2, //30, 30,  /* x0,y0, */
-                       	             	  WEGI_COLOR_BLUE, -1, 255);         /* fontcolor, transcolor,opaque */
+			      	  fw, fh, wcode, &xleft, 	    /* fw,fh, wcode, *xleft */
+				  (320-(fw+fw/4+fw/8))/2, (240-(fh+fh/4+fh/16))/2, //30, 30,  /* x0,y0, */
+               	             	  WEGI_COLOR_BLUE, -1, 255);         /* fontcolor, transcolor,opaque */
 
 	fb_render(&gv_fb_dev);
 #endif

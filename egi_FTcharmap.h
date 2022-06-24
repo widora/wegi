@@ -158,6 +158,13 @@ struct  FTsymbol_char_map {
 	int		txtlen;			/* string length of txtbuff,  txtbuff EOF '\0' is NOT counted in!
 						 * To be updated if content of txtbuff changed.
 						 */
+	bool		readOnly;		/* If TRUE, then any editting operation will be ignored!
+						 * Note:
+						 * 1. NOT all functions check readOnly within critical zone, see example: FTcharmap_insert_char().
+						 * 2. NOT for color moidifications.
+						 * 3. NOT for FTcharmap_copy_to_syspad(), FTcharmap_save_words()
+						 */
+
 
 				/* ----- For Charmap Window ----- */
 
@@ -312,7 +319,6 @@ struct  FTsymbol_char_map {
 						       */
 };
 
-
 EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, int width, int offx, int offy,
                                  FT_Face face, size_t mapsize, size_t maplines, size_t mappixpl, int maplndis,
 				 int bkgcolor, EGI_16BIT_COLOR fontcolor, bool charColorMap_ON, bool hlmarkColorMap_ON);
@@ -360,6 +366,7 @@ int 	FTcharmap_set_pchoff( EGI_FTCHAR_MAP *chmap, unsigned int pchoff, unsigned 
 int 	FTcharmap_goto_lineBegin( EGI_FTCHAR_MAP *chmap );  	/* mutex_lock + request */
 int 	FTcharmap_goto_lineEnd( EGI_FTCHAR_MAP *chmap );	/* mutex_lock + request */
 
+int     FTcharmap_goto_dline(EGI_FTCHAR_MAP *chmap, int dline); /* mutex_lock + request */
 int     FTcharmap_goto_firstDline ( EGI_FTCHAR_MAP *chmap );    /* mutex_lock + request */
 //int     FTcharmap_goto_lastDline ( EGI_FTCHAR_MAP *chmap );    /* mutex_lock + request */
 
@@ -383,7 +390,7 @@ int     FTcharmap_modify_charColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color
 int  	FTcharmap_modify_hlmarkColor( EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, bool request);	/* mutex_lock + request + hlmarkColorMap */
 
 /* For XTERM */
-int  FTcharmap_shrink_dlines( EGI_FTCHAR_MAP *chmap, size_t dlns);	/* mutex_lock + request  +charColorMap|hlmarkColorMap */
+int     FTcharmap_shrink_dlines( EGI_FTCHAR_MAP *chmap, size_t dlns);	/* mutex_lock + request  +charColorMap|hlmarkColorMap */
 
 /* To/from EGI_SYSPAD */
 int 	FTcharmap_copy_from_syspad( EGI_FTCHAR_MAP *chmap );		/* mutex_lock + request */

@@ -343,6 +343,48 @@ int 	egi_surfListBox_adjustPastPos(ESURF_LISTBOX *listbox, int delt);  /* pastPo
 int 	egi_surfListBox_PxySelectItem(EGI_SURFUSER *surfuser, ESURF_LISTBOX *listbox, int px, int py);
 
 
+
+/***
+			--- An EGI_VSCROLLBAR ---
+ 1. A simple vertical scroll bar
+*/
+typedef struct egi_vscrollbar EGI_VSCROLLBAR;
+struct egi_vscrollbar {
+	int		x0;		/* Origin position relative to its container */
+	int		y0;
+
+#define VSCROLLBAR_BKG_COLOR	COLOR_DarkGray
+#define VSCROLLBAR_BLOCK_COLOR	COLOR_LightSalmon
+
+	EGI_16BIT_COLOR	 bkgColor;	/* scroll bar bkg color */
+	EGI_16BIT_COLOR	 blockColor;	/* ScrollGuideBlock Color */
+
+
+	/* Underlying data length */
+	unsigned int    maxLen;		/* Max length of all data ---> takes for ScrollBarH */
+	unsigned int	winLen; 	/* Window scope/length of displayed data ----> takes for GuideBlockH */
+	unsigned int 	pastLen;	/* Past data length, as passed/viewed content ---> takes for pastPos */
+
+	/* Geometrical variables */
+       	int 		ScrollBarW;	/* Width of scroll area  */
+        int 		ScrollBarH;     /* Hight of scroll area ---> in proportion to maxLen */
+        //int SBx0, SBy0;      /* SCroll bar origin relative to its container. (this surface) */
+
+	/* For Guiding Block. Origin at TOP.   */
+	int 		GuideTopPos;	/* Height of scroll area above the Scroll slider, stands for passed/viewed content. */
+	int 		GuideBlockH;	/* Height of the Block ---> in proportion to winLen */
+	int 		GuideBlockW;	/* Normally same as ScrollBarW */
+	bool		GuideBlockDownHold;  /* If GuideBlock is hold_down for dragging */
+};
+EGI_VSCROLLBAR *egi_VScrollBar_create(int x0, int y0, int height, int width);
+void egi_VScrollBar_free(EGI_VSCROLLBAR **vsbar);
+void egi_VScrollBar_writeFB(FBDEV* fbdev, const EGI_VSCROLLBAR *vsbar);
+int egi_VScrollBar_updateValues(EGI_VSCROLLBAR *vsbar, int barH, unsigned int maxLen, unsigned int winLen, unsigned int pastLen);
+bool egi_VScrollBar_pxyInVSBar(EGI_VSCROLLBAR *vsbar, int px, int py);
+bool egi_VScrollBar_pxyOnGuide(EGI_VSCROLLBAR *vsbar, int px, int py);
+int egi_VScrollBar_clickUpdateValues(EGI_VSCROLLBAR *vsbar, int mx, int my);
+int egi_VScrollBar_dyUpdateValues(EGI_VSCROLLBAR *vsbar, int dy);
+
 /* <<<<< Standard Common Surfaces >>>>> */
 int egi_crun_stdSurfInfo(const UFT8_PCHAR name, const UFT8_PCHAR info, int x0, int y0, int sw, int sh);
 

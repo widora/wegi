@@ -53,9 +53,19 @@ Journal:
 	   egi_surfMenuList_getMaxOffset()
 	   egi_surfMenuList_writeFB()
 	   egi_surfMenuList_updatePath()
+2022-06-21:
+	1. Add EGI_VSCROLLBAR and its functions:
+	  egi_VScrollBar_create(), egi_VScrollBar_free(), egi_VScrollBar_writeFB()
+2022-06-22:
+	1. Add egi_VScrollBar_pxyInVSBar().
+	2. Add egi_VScrollBar_clickUpdateValues().
+2022-06-23:
+	1. Add egi_VScrollBar_dyUpdateValues()
+	2. Add egi_VScrollBar_pxyOnGuide()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
+知之者不如好之者好之者不如乐之者
 ------------------------------------------------------------------*/
 #include "egi_surfcontrols.h"
 #include "egi_surface.h"
@@ -2271,4 +2281,233 @@ static void stdSurfConfirm_mouse_event(EGI_SURFUSER *surfuser, EGI_MOUSE_STATUS 
                 }
         }
 
+}
+
+////////////////////////// EGI Vertical Scroll Bar //////////////////////////
+
+/*-------------------------------------------------------
+Create and initialize an EGI_VSCROLLBAR.
+
+@x0,y0:		Origin position relative to its container
+@height,widht:  Height and width of the scrolling area.
+
+Return:
+	!NULL	Ok
+	NULL	Fails
+-------------------------------------------------------*/
+EGI_VSCROLLBAR *egi_VScrollBar_create(int x0, int y0, int height, int width)
+{
+	EGI_VSCROLLBAR *vsbar=calloc(1,sizeof(EGI_VSCROLLBAR));
+	if(vsbar==NULL)
+		return NULL;
+
+	/* Assign members */
+	vsbar->x0=x0;
+	vsbar->y0=y0;
+
+	vsbar->ScrollBarH=height;
+	vsbar->ScrollBarW=width;
+	vsbar->GuideBlockW=width;
+
+	/* Defaults */
+        vsbar->bkgColor=VSCROLLBAR_BKG_COLOR;
+        vsbar->blockColor=VSCROLLBAR_BLOCK_COLOR;
+
+	vsbar->maxLen=100;
+	vsbar->winLen=100;
+	vsbar->pastLen=0;
+
+	vsbar->GuideBlockH=100;
+	vsbar->GuideTopPos=0;
+
+	return vsbar;
+}
+
+/*-----------------------------------------
+Free an EGI_VSCROOLBAR
+------------------------------------------*/
+void egi_VScrollBar_free(EGI_VSCROLLBAR **vsbar)
+{
+	if( vsbar==NULL || *vsbar==NULL )
+		return;
+
+	free(*vsbar);
+	*vsbar=NULL;
+}
+
+/*-----------------------------------------
+Draw EGI_VSCROLLBAR to FBDEV.
+
+@fbdev:	Pointer to a FBDEV
+@vsbar: Pointer to an EGI_VSCROLLBAR
+------------------------------------------*/
+void egi_VScrollBar_writeFB(FBDEV* fbdev, const EGI_VSCROLLBAR *vsbar)
+{
+	if(fbdev==NULL || vsbar==NULL)
+		return;
+
+	/* TODO: Draw as 3 parts */
+
+	/* Draw scroll bar bkg area */
+	draw_filled_rect2(fbdev, vsbar->bkgColor, vsbar->x0, vsbar->y0,
+				vsbar->x0+vsbar->ScrollBarW-1, vsbar->y0+vsbar->ScrollBarH-1);
+
+	/* Draw scroll bar guide block */
+	draw_filled_rect2(fbdev, vsbar->blockColor, vsbar->x0, vsbar->y0+vsbar->GuideTopPos,
+                                vsbar->x0+vsbar->ScrollBarW-1, vsbar->y0+vsbar->GuideTopPos+vsbar->GuideBlockH-1);
+
+//printf("ScrollBarH=%d, GuideBlockH=%d, GuideTopPos=%d\n", vsbar->ScrollBarH, vsbar->GuideBlockH, vsbar->GuideTopPos);
+
+}
+
+
+/*--------------------------------------------------------------------------
+Updates values of an EGI_VSCROLLBAR.
+
+@vsbar:	  Pointer to EGI_VSCROLLBAR
+@barH:    ScrollBarH, if<1, ignore.
+@maxLen:  Max length of all data ---> takes for ScrollBarH
+@winLen:  Window scope/length of displayed data ----> takes for GuideBlockH
+@pastLen: Past data length, as passed/viewed content ---> takes for pastPos
+
+Return:
+	0	OK
+	<0 	Fails
+---------------------------------------------------------------------------*/
+int egi_VScrollBar_updateValues(EGI_VSCROLLBAR *vsbar, int barH, unsigned int maxLen, unsigned int winLen, unsigned int pastLen)
+{
+	if(vsbar==NULL)
+		return -1;
+
+	/* Limit and check */
+	if(winLen>maxLen)
+		winLen=maxLen;
+	if(pastLen+winLen>maxLen)
+		pastLen=maxLen-winLen;
+
+	/* Assign values */
+	vsbar->maxLen=maxLen;
+	vsbar->winLen=winLen;
+	vsbar->pastLen=pastLen;
+
+	/* Update ScrollBarH */
+	if(barH>0)
+	    vsbar->ScrollBarH=barH;
+
+	/* Update GuideBlockH */
+	vsbar->GuideBlockH=vsbar->ScrollBarH*winLen/maxLen;
+	if(vsbar->GuideBlockH > vsbar->ScrollBarH)
+	    vsbar->GuideBlockH = vsbar->ScrollBarH;
+	else if(vsbar->GuideBlockH<1)
+	    vsbar->GuideBlockH = 1;
+
+	/* Update GuideTopPos */
+	vsbar->GuideTopPos=vsbar->ScrollBarH*pastLen/maxLen;
+
+printf("maxLen=%d, winLen=%d, pastLen=%d, ScrollBarH=%d, GuideBlockH=%d, GuideTopPos=%d\n",
+	vsbar->maxLen,vsbar->winLen,vsbar->pastLen, vsbar->ScrollBarH, vsbar->GuideBlockH, vsbar->GuideTopPos);
+
+	return 0;
+}
+
+
+/*----------------------------------------------
+Check if point(px,py) is in VScrollBar area.
+
+Return:
+	True	Yes
+	False	No
+----------------------------------------------*/
+inline bool egi_VScrollBar_pxyInVSBar(EGI_VSCROLLBAR *vsbar, int px, int py)
+{
+	if(vsbar==NULL)
+		return false;
+
+	if(pxy_inbox(px,py, vsbar->x0,vsbar->y0, vsbar->x0+vsbar->ScrollBarW-1,vsbar->y0+vsbar->ScrollBarH-1))
+		return true;
+
+	return false;
+}
+
+/*------------------------------------------------------
+Check if point(px,py) is on the GuideBloack of VScrollBar
+
+Return:
+        True    Yes
+        False   No
+-------------------------------------------------------*/
+inline bool egi_VScrollBar_pxyOnGuide(EGI_VSCROLLBAR *vsbar, int px, int py)
+{
+        if(vsbar==NULL)
+                return false;
+
+        if(!pxy_inbox(px,py, vsbar->x0,vsbar->y0, vsbar->x0+vsbar->ScrollBarW-1,vsbar->y0+vsbar->ScrollBarH-1))
+                return false;
+
+	if(py < vsbar->y0+vsbar->GuideTopPos-1)
+		return false;
+
+	if(py > vsbar->y0+vsbar->GuideTopPos+vsbar->GuideBlockH-1)
+		return false;
+
+        return true;
+}
+
+/*------------------------------------------------------------------------
+Update values of an EGI_VSCROLLBAR according to clicking mouse point.
+
+@vsbar:	  Pointer to EGI_VSCROLLBAR
+@mx,my:   Mouse pxy.
+
+Return:
+	0	OK
+	<0 	Fails not click on VSCROLL area.
+-------------------------------------------------------------------------*/
+int egi_VScrollBar_clickUpdateValues(EGI_VSCROLLBAR *vsbar, int mx, int my)
+{
+	if(vsbar==NULL)
+		return -1;
+
+	if(!pxy_inbox(mx,my, vsbar->x0,vsbar->y0, vsbar->x0+vsbar->ScrollBarW-1,vsbar->y0+vsbar->ScrollBarH-1))
+		return -1;
+
+	/* C1. If in PastLen: Update GuideTopPos */
+	//if(pxy_inbox(mx,my, vsbar->x0,vsbar->y0, vsbar->x0+vsbar->ScrollBarW-1,vsbar->y0+vsbar->GuideTopPos-1))
+	if(my < vsbar->y0+vsbar->GuideTopPos-1)
+		vsbar->GuideTopPos=my-vsbar->y0;
+	/* C2. Else in maxLen-winLen:  Update GuideTopPos */
+	else if(my > vsbar->y0+vsbar->GuideTopPos+vsbar->GuideBlockH-1)
+		vsbar->GuideTopPos=my-vsbar->y0+1 -vsbar->GuideBlockH;
+	/* C3. Click on the GuideBlock */
+	else {
+		egi_dpstd("Click on the GuideBlock!\n");
+	}
+
+	return 0;
+}
+
+/*-------------------------------------------------------------
+Update values of an EGI_VSCROLLBAR according to delat_Y.
+
+@vsbar:   Pointer to EGI_VSCROLLBAR
+@dy:   	  Delat Y.
+
+Return:
+        0       OK
+        <0      Fails not click on VSCROLL area.
+--------------------------------------------------------------*/
+int egi_VScrollBar_dyUpdateValues(EGI_VSCROLLBAR *vsbar, int dy)
+{
+        if(vsbar==NULL)
+                return -1;
+
+	/* Adjust GuideTopPos */
+	vsbar->GuideTopPos += dy; //*vsbar->ScrollBarH/vsbar->maxLen;
+	/* Check limit */
+	if(vsbar->GuideTopPos<0)
+		vsbar->GuideTopPos=0;
+	else if(vsbar->GuideTopPos > vsbar->ScrollBarH-vsbar->GuideBlockH)
+		vsbar->GuideTopPos=vsbar->ScrollBarH-vsbar->GuideBlockH;
+
+	return 0;
 }

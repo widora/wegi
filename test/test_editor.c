@@ -51,13 +51,12 @@ Note:
 
 1. char:    A printable ASCII code OR a local character with UFT-8 encoding.
 2. dline:   A displayed/charmapped line, A line starts/ends at displaying window left/right end side.
-   retline: A line starts/ends by a new line token '\n'.
+   retline: A line starts/ends by a new line token '\n'. OR the very first line.
 3. scroll up/down:  scroll up/down charmap by mouse, keep cursor position relative to txtbuff.
 	  (UP: decrease chmap->pref (-txtbuff), 	  DOWN: increase chmap->pref (-txtbuff) )
 
    shift  up/down:  shift typing cursor up/down by ARROW keys.
 	  (UP: decrease chmap->pch, 	  DOWN: increase chmap->pch )
-
 
 Note:
 1. You must have PINYIN_UPDATE_FPATH("/tmp/update_words.txt") created, otherwise it will fail.
@@ -83,6 +82,7 @@ Note:
    Example: when read ESCAPE, see 1.0, 1.3.
 9. mutex_render critical zone should encompass egi_sysfonts.lib_mutex critical zone, that can
    avoid mutimutex conflictions.
+10. The VSCROLLBAR is active ONLY when the file opens in read_only mode.
 
 TODO:
 1. English words combination.
@@ -132,6 +132,12 @@ Journal
         1. WBTMenu_execute(): case WBTMENU_COMMAND_HELP: show the UNICODE at current pchoff.
 	2. main()::Case PageUp/Down: To avoid incomplete charmap being displayed, replace &gv_fb_dev with NULL.
 	3. Add sigQuit, and tcsetattr() also be render_mutex_locked!
+2022-06-21:
+	1. Add VScrollBar for charmap.
+2022-06-21:
+	1. To display VScrollBar beside txtbox. --- For read_only mode.
+	2. Click on VScrollBar to update vsbar and chmap.
+
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -153,6 +159,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "egi_cstring.h"
 #include "egi_utils.h"
 #include "egi_procman.h"
+#include "egi_surfcontrols.h"
 
 #ifdef LETS_NOTE
 	#define DEFAULT_FILE_PATH	"/home/midas-zhou/egi/hlm_all.txt"
@@ -205,14 +212,9 @@ struct termios new_settings;
 
 bool sigQuit;	/* Signal token to quit program */
 
-//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
-//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
-//static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1-10} };	/* Text displaying area */
 static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 240-1} };	/* Text displaying area */
-/* To adjust later */
+/* ----> To adjust later */
 
-static int smargin=5; 		/* left and right side margin of text area */
-static int tmargin=2;		/* top margin of text area */
 
 /* Input Method: PINYIN */
 wchar_t wcode;
@@ -252,7 +254,14 @@ int  HanGroupIndex=0;	/* group index number, < HanGroups */
 
 /* NOTE: char position, in respect of txtbuff index and data_offset: pos=chmap->charPos[pch] */
 static EGI_FTCHAR_MAP *chmap;	/* FTchar map to hold char position data */
+static bool ReadOnly;		/* Readonly for chmap */
 static unsigned int chns;	/* total number of chars in a string */
+/* Vertical SCROLLBAR */
+EGI_VSCROLLBAR *vsbar;		/* Vertical scroll bar */
+/* Note:
+ 1. NOW ONLY for read_only case.
+ 2. vsbar->maxLen holds the max numbers of txtdlines charmped, as numbers of valid chmap->txtdlinePos[].
+*/
 
 /* Search position, if soff>=0, then spcnt will be ignored */
 float spcnt;      /* Search position, percent of total txtlen, ---> abt 0.01 for one page */
@@ -266,9 +275,11 @@ static int  mouseMidX, mouseMidY;     /* Mouse cursor mid position */
 static int  menuX0, menuY0;
 
 /* For fonts in charmap txtbox */
-static int fw=22; //30; //18;	/* Font size */
-static int fh=24; //40; //20;
-static int fgap=20/4; //5;	/* Text line fgap : TRICKY ^_- */
+static int fw=20; //30; //18;	/* Font size */
+static int fh=22; //40; //20;
+static int fgap=22/3; //5;	/* Text line fgap : TRICKY ^_- */
+static int smargin=5; 		/* left and right side margin of text area, If NOT big enough, part of glyph may extend to next line. example ','. */
+static int tmargin=3; //fh/4	/* top margin of text area */
 static int tlns;  //=(txtbox.endxy.y-txtbox.startxy.y)/(fh+fgap); /* Total available line space for displaying txt */
 
 /* Font size for UI */
@@ -278,6 +289,7 @@ int fhUI=20;
 //static int penx;	/* Pen position */
 //static int peny;
 
+
 /* Component elements in the APP, Only one of them is active at one point. */
 enum CompElem
 {
@@ -285,6 +297,7 @@ enum CompElem
 	CompTXTBox,	/* Txtbox */
 	CompRCMenu,	/* Right click menu */
 	CompWTBMenu,	/* Window top bar menu */
+	CompVSBar,	/* VScrollBar */
 };
 static enum CompElem ActiveComp;  /* Active component element */
 
@@ -331,7 +344,6 @@ pthread_t  pthread_render;
 pthread_mutex_t mutex_render;	/* To lock necessary vars  */
 void *render_surface(void* argv);
 bool chmap_ready;
-
 
 /* Functions */
 //static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
@@ -450,15 +462,19 @@ int main(int argc, char **argv)
 	int   lndis; /* Distance between lines */
 
         int opt;
-        while( (opt=getopt(argc,argv,"hp:o:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hrp:o:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
-				printf("Usage: %s hp:o:\n", argv[0]);
-				printf(" -h:  This help\n");
+				printf("Usage: %s hrp:o:\n", argv[0]);
+				printf(" -h   This help\n");
+				printf(" -r   For read_only\n");
 				printf(" -p:  Position in percentage\n");
 				printf(" -o:  Offset\n");
                                 exit(0);
                                 break;
+			case 'r':
+				ReadOnly=true;
+				break;
                         case 'p':
                                 spcnt=atof(optarg);
                                 break;
@@ -480,7 +496,7 @@ int main(int argc, char **argv)
 
 	egi_dpstd(DBG_YELLOW"Input spcnt:%.2f, soff=%jd, fpath: '%s'\n"DBG_RESET, spcnt, soff, fpath);
 
-	/* Buffer sysfonts.regular */
+#if 0	/* S0. Buffer sysfonts.regular */
 	printf("Start buffer egi_sysfonts.regular...\n");
         egi_fontbuffer=FTsymbol_create_fontBuffer(egi_sysfonts.regular, fw,fh, 0x4E00, 21000); /*  face, fw,  fh, wchar_t unistart, size_t size */
         if(egi_fontbuffer)
@@ -489,6 +505,20 @@ int main(int argc, char **argv)
 		printf("Fail to buffer egi_sysfonts.regular!\n");
 		exit(1);
 	}
+#else  /* S0. Load buffered sysfonts.regular */
+	printf("Start loading fontBuffer of egi_sysfonts.regular...\n");
+	egi_fontbuffer=FTsymbol_load_fontBuffer("/mmc/fontbuff_regular.dat");
+        if(egi_fontbuffer) {
+                printf("Finish loading egi_fontbuffer, size=%zd!, fw=%d, fw=%d\n",
+					egi_fontbuffer->size, egi_fontbuffer->fw, egi_fontbuffer->fh);
+		/* !!! Have to assign !!! */
+		egi_fontbuffer->face=egi_sysfonts.regular;
+	}
+	else {
+		printf("Fail to load fontBuffer for egi_sysfonts.regular!\n");
+		exit(1);
+	}
+#endif
 
 	/* S1. Load necessary PINYIN data, and do some prep. */
 	if( load_pinyin_data()!=0 )
@@ -499,7 +529,7 @@ MAIN_START:
 	/* S2.1 Reset main window size */
 	txtbox.startxy.x=0;
 	txtbox.startxy.y=30;
-	txtbox.endxy.x=gv_fb_dev.pos_xres-1;
+	txtbox.endxy.x=gv_fb_dev.pos_xres-1 -(ReadOnly?10:0);
 	txtbox.endxy.y=gv_fb_dev.pos_yres-1;
 
 	/* S2.2 Activate main window */
@@ -511,17 +541,27 @@ MAIN_START:
 #else
 	lndis=FTsymbol_get_FTface_Height(egi_sysfonts.regular, fw, fh);
 #endif
-	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/lndis;
+	tlns=(txtbox.endxy.y-txtbox.startxy.y+1 -2*tmargin)/lndis;  // 10 for VScrollBar 
 	printf("Blank lines tlns=%d, lndis=%d\n", tlns, lndis);
 
-	/* S2.4 Create charMAP */
+	/* S2.4 Create charMAP. chmapHeidth/Widht should include margin area. */
+	int chmapHeight=2*tmargin+tlns*lndis;//last fgap!  +fh/2;
+	int chmapWidth=txtbox.endxy.x-txtbox.startxy.x+1;
+	int pixpl=chmapWidth-2*smargin;
 	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,	 /* txtsize,  x0, y0  */
-//		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
-	  		tlns*lndis, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin, /*  height, width, offx, offy */
-			egi_sysfonts.regular, CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis,   	 /* typeface, mapsize, lines, pixpl, lndis */
-			WEGI_COLOR_WHITE, WEGI_COLOR_BLACK, true, true );  /*  bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
+	  		chmapHeight, chmapWidth, smargin, tmargin, /*  height, width, offx, offy */
+			egi_sysfonts.regular, CHMAP_SIZE, tlns, pixpl, lndis,   	 /* typeface, mapsize, lines, pixpl, lndis */
+			//WEGI_COLOR_WHITE, WEGI_COLOR_BLACK, true, true );  /*  bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
+			COLOR_LemonChiffon, WEGI_COLOR_BLACK, true, true );  /*  bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 	printf("chmap->height: %d\n", chmap->height);
+
+	/* Set READ_ONLY */
+	chmap->readOnly=ReadOnly;
+
+	/* S2.4A Create VScrollBar */
+	if(chmap->readOnly)
+  	     vsbar=egi_VScrollBar_create(txtbox.endxy.x+1, txtbox.startxy.y, chmapHeight, 10);
 
 	/* S2.5 Load file to chmap */
 	if(fpath) {
@@ -532,8 +572,6 @@ MAIN_START:
 		if( FTcharmap_load_file(DEFAULT_FILE_PATH, chmap, CHMAP_TXTBUFF_SIZE) !=0 )
 			printf("Fail to load file to champ!\n");
 	}
-
-
 
 #if 0  /////////////// TEST: compare charmap result with FBDEV=NULL and FBDEV!=NULL //////////////
 	unsigned char uchar[4];
@@ -710,8 +748,9 @@ MAIN_START:
 	FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
 	fb_render(&gv_fb_dev);
 
+
 /* TEST: -------- */
-	soff = chmap->txtlen/5;
+//	soff = chmap->txtlen/3; // 4.992/100
 
 	/* S14. Set pchoff */
 	if(soff>=0) {
@@ -732,29 +771,39 @@ MAIN_START:
 				chmap->pref-chmap->txtbuff, chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff);
 
 #if 1
+		/* spcnt applys */
+		if( spcnt>0 ) {
+		     if(chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff > chmap->txtlen*spcnt/100)
+			break;
+		}
 		/* soff applys */
-		if(soff>=0 ) {
+		else if(soff>=0 ) {
 		    if(chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff >= soff)
 			break;
 		}
-		/* spcnt applys */
-		else if( chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff > chmap->txtlen*spcnt/100)
-			break;
 #endif
 
 		/* Charmap next page */
 		FTcharmap_page_down(chmap);
+
+//		printf("FTcharmap_writeFB...\n");
 		FTcharmap_writeFB(NULL, NULL, NULL);
 		//FTcharmap_writeFB(&gv_fb_dev, WEGI_COLOR_BLACK, NULL,NULL);
 
 		if( i==20 ) {  /* Every time when i counts to 20 */
 		   FTcharmap_writeFB(&gv_fb_dev, NULL,NULL);
+
 		   fb_copy_FBbuffer(&gv_fb_dev, FBDEV_WORKING_BUFF, FBDEV_BKG_BUFF);  /* fb_dev, from_numpg, to_numpg */
 		   draw_progress_msgbox( &gv_fb_dev, (320-260)/2, (240-120)/2, "文件加载中...",
 					  //chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff, chmap->txtlen);
 					  //chmap->txtdlinePos[chmap->txtdlncount +chmap->maplncount-1],
 					  //chmap->txtlen*spcnt/100 );
 					  chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff, soff);
+
+		   /* Update values for vsbar ( vsbar, barH, maxLen, winLen, pastLen ) */
+		   egi_VScrollBar_updateValues(vsbar, 0, chmap->txtdlncount+chmap->maplines, chmap->maplines, chmap->txtdlncount);
+		   /* Vertical Scroll Bar */
+		   egi_VScrollBar_writeFB(&gv_fb_dev, vsbar);
 
 		   fb_render(&gv_fb_dev);
 		   i=0;
@@ -766,12 +815,19 @@ MAIN_START:
 //	goto MAIN_END;
 
 	/* TODO: Scroll to let soff to be in the first line of the charmap */
-
 	egi_dpstd(DBG_YELLOW"Get to bookmarked soff=%jd page: spcnt=%.2f, off=%d of %d\n"DBG_RESET, soff,
 				(float)(chmap->pref-chmap->txtbuff)/chmap->txtlen, chmap->pref-chmap->txtbuff, chmap->txtlen);
 
+	/* Update values for vsbar ( vsbar, barH, maxLen, winLen, pastLen ) */
+	egi_VScrollBar_updateValues(vsbar, 0, chmap->txtdlncount+chmap->maplines, chmap->maplines, chmap->txtdlncount);
+        /* Vertical Scroll Bar */
+        egi_VScrollBar_writeFB(&gv_fb_dev, vsbar);
+        fb_render(&gv_fb_dev);
+
+/* TEST_TEST_TEST:  ---------------------- */
 	/* S16. Set chmap_ready */
 	chmap_ready=true;
+
 
 	printf("Loop editing...\n");
 
@@ -977,7 +1033,7 @@ MAIN_START:
                                         /* Shrink maplines, maplinePos[] mem space Ok, increase maplines NOT ok! */
                                         if(chmap->maplines>2) {
                                                 chmap->maplines -= (60/lndis); //2;
-                                                chmap->height=chmap->maplines*lndis; /* Reset chmap.height, to limit chmap.fb_render() */
+                                                chmap->height=chmap->maplines*lndis+2*tmargin; /* Reset chmap.height, to limit chmap.fb_render() */
                                         }
 
                                         /* Clear input pinyin buffer */
@@ -991,7 +1047,7 @@ MAIN_START:
 
                                         /* Recover maplines */
                                         chmap->maplines += (60/lndis); //2;
-                                        chmap->height=chmap->maplines*lndis;  /* restor chmap.height */
+                                        chmap->height=chmap->maplines*lndis+2*tmargin;  /* restor chmap.height */
                                         unicount=0; HanGroupIndex=0;    /* clear previous unihans */
                                 }
 				ch=0;
@@ -1601,7 +1657,6 @@ static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny)
 	                                   -1, 255,      	   	   /* transcolor,opaque */
                                            NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
-
         /* Double check! */
         if( chmap->chcount > chmap->mapsize ) {
                 printf("WARNING:  chmap.chcount > chmap.mapsize=%d, some displayed chars has NO charX/Y data! \n",
@@ -1612,6 +1667,8 @@ static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny)
                                                                                 	chmap->txtdlncount, chmap->txtdlines);
         }
 
+	/* Vertical Scroll Bar */
+	egi_VScrollBar_writeFB(fbdev, vsbar);
 
 	return ret>0?ret:0;
 }
@@ -1698,17 +1755,19 @@ static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR co
                                         NULL, NULL, penx, peny);      /*  int *cnt, int *lnleft, int* penx, int* peny */
 }
 
+
 /*-----------------------------------------------------------
 		Callback for mouse input
 1. Just update mouseXYZ
 2. Check and set ACTIVE token for menus.
 3. If click in TXTBOX, set typing cursor or marks.
-4. The function will be pending until there is a mouse event.
-5. Operation to charmap with mutex_lock (+ request).
+4. If click on VSCROLLBAR,  then go to indicated position.
+5. The function will be pending until there is a mouse event.
+6. Operation to charmap with mutex_lock (+ request).
 ------------------------------------------------------------*/
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus)
 {
-	EGI_POINT  pxy={0,0};
+	//EGI_POINT  pxy={0,0};
 
         /* 0. Get mouseLeftKeyDown/Up */
 	mouseLeftKeyDown=mostatus->LeftKeyDown; // || mostatus->LeftKeyDownHold;
@@ -1717,6 +1776,14 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
         /* 1. Check mouse Left Key status */
 	/* 1.1 LeftKeyDown */
 	if( mostatus->LeftKeyDown ) {
+
+		/* 1.1.0 Click on VSCROLLBAR */
+		//if(vsbar) { //vsbar==NULL is OK for all functions
+		egi_VScrollBar_clickUpdateValues(vsbar, mostatus->mouseX, mostatus->mouseY);
+		if(egi_VScrollBar_pxyInVSBar(vsbar, mostatus->mouseX, mostatus->mouseY))
+			FTcharmap_goto_dline(chmap, vsbar->maxLen*vsbar->GuideTopPos/vsbar->ScrollBarH);
+		//}
+
 		/* 1.1.1 Set start_pch */
 		if( mouseY > txtbox.startxy.y )
 			start_pch=true;
@@ -1724,8 +1791,16 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
 /* Note: start_pch as a sign of pressing for compRCMenu selection, see while( !start_pch ) at refresh_surface() */
 
                 /* 1.1.2 Activate window top bar menu */
-                if( mouseY < txtbox.startxy.y && mouseX <112) //90 )
-                        ActiveComp=CompWTBMenu;
+	        if( mouseY < txtbox.startxy.y && mouseX <112) //90 )
+                   ActiveComp=CompWTBMenu;
+		else if( ActiveComp!=CompRCMenu && ActiveComp!=CompWTBMenu ) {
+		   if(vsbar && egi_VScrollBar_pxyInVSBar(vsbar, mostatus->mouseX, mostatus->mouseY))
+			ActiveComp=CompVSBar;
+		   else if(pxy_inbox2(mostatus->mouseX, mostatus->mouseY, &txtbox))
+			ActiveComp=CompTXTBox;
+		   else
+			ActiveComp=CompNone;
+		}
 
                 /* 1.1.3 Reset pch2 = pch */
                 if( ActiveComp==CompTXTBox )
@@ -1735,6 +1810,23 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
 	/* 1.2 LeftKeyDownHold */
 	else if( mostatus->LeftKeyDownHold ) {
 		start_pch=false; /* disable pch mark */
+
+		/* on VSCROLLBAR */
+		if(ActiveComp==CompVSBar) {
+		   #if 0 /* Mouse drag at head/tail of the GuideBlock */
+		   egi_VScrollBar_clickUpdateValues(vsbar, mostatus->mouseX, mostatus->mouseY);
+		   if(egi_VScrollBar_pxyInVSBar(vsbar, mostatus->mouseX, mostatus->mouseY))
+			FTcharmap_goto_dline(chmap, vsbar->maxLen*vsbar->GuideTopPos/vsbar->ScrollBarH);
+		   #else
+		   //printf("MouseDY=%d\n", mostatus->mouseDY);
+		   //if(egi_VScrollBar_pxyOnGuide(vsbar, mostatus->mouseX, mostatus->mouseY)) {
+		   //if(egi_VScrollBar_pxyInVSBar(vsbar, mostatus->mouseX, mostatus->mouseY)) 
+		   {
+			egi_VScrollBar_dyUpdateValues(vsbar, mostatus->mouseDY);
+			FTcharmap_goto_dline(chmap, vsbar->maxLen*vsbar->GuideTopPos/vsbar->ScrollBarH);
+		   }
+		   #endif
+		}
 	}
 	/* 1.3 LeftKeyUp */
 	else if( mostatus->LeftKeyUp ) {
@@ -1745,9 +1837,10 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
         //if(mouse_data[0]&0x2) {
 	if(mostatus->RightKeyDown ) {
                 printf("Right key down!\n");
-		pxy.x=mouseX; pxy.y=mouseY;
+		//pxy.x=mouseX; pxy.y=mouseY;
 		/* 2.1 Activate CompRCMenu */
-		if( point_inbox(&pxy, &txtbox ) ) {
+		//if( point_inbox(&pxy, &txtbox ) ) {
+		if( pxy_inbox2(mouseX,mouseY, &txtbox) ) {
 			ActiveComp=CompRCMenu;
 			/* Menu Origin */
 			menuX0=mouseX; menuY0=mouseY;
@@ -2682,9 +2775,13 @@ void refresh_surface(void)
 
 	/* --- 1. File top bar */
 //printf("Draw editor top....\n");
-	draw_filled_rect2(&gv_fb_dev,WEGI_COLOR_GRAY4, 0, 0, gv_fb_dev.pos_xres-1, gv_fb_dev.pos_yres-1); //txtbox.endxy.x, txtbox.startxy.y-1);
+	//draw_filled_rect2(&gv_fb_dev,WEGI_COLOR_GRAY4, 0, 0, gv_fb_dev.pos_xres-1, gv_fb_dev.pos_yres-1); //txtbox.endxy.x, txtbox.startxy.y-1);
+	draw_filled_rect2(&gv_fb_dev,WEGI_COLOR_GRAY4, 0, 0, gv_fb_dev.pos_xres-1, txtbox.startxy.y-1);
 	FTsymbol_writeFB("File  Help",20,5,WEGI_COLOR_WHITE, NULL, NULL);
-	FTsymbol_writeFB("EGI笔记本",140,5,WEGI_COLOR_LTBLUE, NULL, NULL);
+	if(chmap->readOnly)
+		FTsymbol_writeFB("EGI笔记本(Read)",140,5,WEGI_COLOR_LTBLUE, NULL, NULL);
+	else
+		FTsymbol_writeFB("EGI笔记本(Edit)",140,5,WEGI_COLOR_LTBLUE, NULL, NULL);
 
 	/* --- 2. Charmap Display txt */
 //printf("FTcharmap_writeFB....\n");
@@ -2695,7 +2792,8 @@ void refresh_surface(void)
 	/* --- 3. PINYING IME */
 	if(enable_pinyin) {
 		/* Back pad */
-		//draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYB, 0, txtbox.endxy.y-60, txtbox.endxy.x, txtbox.endxy.y );
+	        //draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYB, 0, txtbox.endxy.y-60, txtbox.endxy.x, txtbox.endxy.y );
+		/* Since chmap->height has been adjusted. */
 		draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAYB, 0, txtbox.startxy.y+ chmap->height, txtbox.endxy.x, txtbox.endxy.y );
 
 		/* Decoration for PINYIN bar */

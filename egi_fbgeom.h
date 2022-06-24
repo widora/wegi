@@ -55,6 +55,7 @@ bool 	pxy_online(int px,int py, int x1, int y1,int x2, int y2);
 bool	point_online(const EGI_POINT *pxy, const EGI_POINT *pts);
 //bool 	point_inbox(int px,int py,int x1,int y1,int x2,int y2);
 bool 	pxy_inbox(int px,int py,int x1,int y1,int x2,int y2);
+bool    pxy_inbox2(int px,int py, const EGI_BOX* box);
 //bool 	point_inbox2(const EGI_POINT *point, const EGI_BOX* box);
 bool 	point_inbox(const EGI_POINT *point, const EGI_BOX* box);
 bool 	point_incircle(const EGI_POINT *pxy, const EGI_POINT *pc, int r);
