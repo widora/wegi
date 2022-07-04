@@ -17,6 +17,8 @@
 
 int main(void)
 {
+	printf("__WORDSIZE: %d, as sizeof(long int): %ldBytes\n", __WORDSIZE, sizeof(long int));
+	printf("LONG_MAX: %ld  LONG_MIN: %ld\n", LONG_MAX, LONG_MIN);
 	printf("INT32_MIN: %d	INT32_MAX: %d\n", INT32_MIN, INT32_MAX);
 	printf("INT_MIN: %d	INT_MAX: %d\n", INT_MIN, INT_MAX);
 	printf("\n	===============  Float Limits  =============\n");

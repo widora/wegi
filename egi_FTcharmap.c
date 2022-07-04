@@ -144,6 +144,13 @@ Journal:
 	   FTcharmap_copy_from_syspad(), FTcharmap_cut_to_syspad().
 2022-06-22:
 	1. Add FTcharmap_goto_dline().
+2022-06-25:
+	1. EGI_FTCHAR_MAP: Add member 'txtdlntotal'
+	2. FTcharmap_create(): Add param 'fw,fh'
+	3. FTcharmap_uft8strings_writeFB(): Remove param 'fw,fh'
+	4. FTcharmap_load_file():
+	   4.1 Remove param 'txtsize',  add param 'fullmap'.
+	   4.2 Add segment 7-8, charmap to end to get txtdlntotal.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -207,7 +214,7 @@ Return:
 	NULL			Fails
 ---------------------------------------------------------------------------*/
 EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, int width, int offx, int offy,
-				 FT_Face face, size_t mapsize, size_t maplines, size_t mappixpl, int maplndis,
+				 FT_Face face, int fw, int fh, size_t mapsize, size_t maplines, size_t mappixpl, int maplndis,
 				 int bkgcolor, EGI_16BIT_COLOR fontcolor, bool charColorMap_ON, bool hlmarkColorMap_ON)
 {
 	if( height<=0 || width <=0 ) {
@@ -311,6 +318,8 @@ EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, i
 
 	/* 10. Assign font typeface */
 	chmap->face=face;
+	chmap->fw=fw;
+	chmap->fh=fh;
 
 	/* 11. Set default draw_cursor function */
 	chmap->draw_cursor=FTcharmap_draw_cursor;
@@ -442,32 +451,35 @@ If create a new file, then chmap->txtbuff will be realloced to (txtsize+1) bytes
 
 @fpath:		file path
 @chmap:		An EGI_FTCHAR_MAP
-@txtsize:	If new file, the txtsize is chmap->txtbuff->txtsize=txtsize+1.
-		Else	chmap->txtbuff=fsize+txtsize+1
-
+@fullmap:	True: charmap to the end.
+		False: charmap only the first page.
+XXX@txtsize:	If new file, the txtsize is chmap->txtbuff->txtsize=txtsize+1.
+		Else	chmap->txtbuff->txtsize=fsize+txtsize+1
+		(txtsize is as appendable size...OK chmap->txtbuff will atuo_grow)
 Return:
 	0	Succeed
 	<0	Fail
 -------------------------------------------------------------------------------*/
-int FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize)
+int FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, bool fullmap)
 {
 
         int             fd;
         int             fsize;
         struct stat     sb;
         char *          fp=NULL;
+	size_t		txtsize=1024; /* As appendable size */
 
 	/* Check input */
 	if(chmap==NULL)
 		return -1;
 
-	/* Mmap input file */
+	/* 1. Mmap input file */
         fd=open(fpath, O_CREAT|O_RDWR|O_CLOEXEC, S_IRWXU|S_IRWXG );
         if(fd<0) {
                 printf("%s: Fail to open input file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
                 return -1;
         }
-        /* Obtain file stat */
+        /* 2. Obtain file stat */
         if( fstat(fd,&sb)<0 ) {
                 printf("%s: Fail call fstat for file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
 		if( close(fd) !=0 )
@@ -476,7 +488,7 @@ int FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize
         }
         fsize=sb.st_size;
 
-        /* If not new file: mmap txt file */
+        /* 3. If not new file: mmap txt file */
 	if(fsize >0) {
 	        fp=mmap(NULL, fsize, PROT_READ, MAP_PRIVATE, fd, 0);
         	if(fp==MAP_FAILED) {
@@ -487,7 +499,7 @@ int FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize
 		}
 	}
 
-	/* Free and realloc chmap->txtbuff */
+	/* 4. Free and realloc chmap->txtbuff */
 	free(chmap->txtbuff); chmap->txtbuff=NULL;
         chmap->txtbuff=calloc(1,sizeof(typeof(*chmap->txtbuff))*(fsize+txtsize+1) );  /* +1 EOF */
         if( chmap->txtbuff == NULL) {
@@ -499,21 +511,62 @@ int FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize
         chmap->txtsize=fsize+txtsize+1;     /* txtsize is appendable size */
         chmap->pref=chmap->txtbuff; 	    /* Init. pref pointing to txtbuff */
 
-	/* If not new file: Copy file content to txtbfuff */
+	/* 5. If not new file: Copy file content to txtbfuff */
 	if(fsize>0)
 		memcpy(chmap->txtbuff, fp, fsize);
 
-        /* Set txtlen */
+        /* 6. Set txtlen */
         chmap->txtlen=strlen((char *)chmap->txtbuff);
         EGI_PDEBUG(DBG_CHARMAP,"Copy from '%s' chmap->txtlen=%d bytes, totally %d characters.\n", fpath, chmap->txtlen,
 	        					cstr_strcount_uft8((const unsigned char *)chmap->txtbuff) );
 
-	/* munmap file */
+	/* 7. Init charmap PRE_1-6, and charmap first page. */
+	chmap->txtdlncount=0;
+	chmap->pref=chmap->txtbuff;
+	chmap->pchoff=chmap->pchoff2=0;
+	chmap->fix_cursor=false;
+	chmap->follow_cursor=false;
+	chmap->request=1;
+	/* charmap first page */
+        FTcharmap_uft8strings_writeFB(NULL, chmap, //chmap->fw, chmap->fh,  /* FBdev, charmap, fw, fh */
+                                           -1, 255,        /* transcolor, opaque */
+                                           NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
+
+	/* 7A. Get charmap->txtlntotlal */
+	chmap->txtdlntotal=chmap->txtdlncount+chmap->maplncount;
+	egi_dpstd("----- chmap->txtdlntotal=%d \n", chmap->txtdlntotal);
+
+    if(fullmap) {
+        /* 8. Charmap to file end, to get txtlntotal */
+        while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
+        {
+                /* Charmap next page */
+                FTcharmap_page_down(chmap);
+
+		/* Update charmap data */
+	        FTcharmap_uft8strings_writeFB(NULL, chmap, //chmap->fw, chmap->fh,  /* FBdev, charmap, fw, fh */
+                                           -1, 255,        /* transcolor, opaque */
+                                           NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
+	}
+	/* 8A. Get charmap->txtlntotlal */
+	chmap->txtdlntotal=chmap->txtdlncount+chmap->maplncount;
+	egi_dpstd("----- chmap->txtdlntotal=%d \n", chmap->txtdlntotal);
+
+	/* 9. Go to head page */
+	FTcharmap_goto_firstDline(chmap);
+	/* Update charmap data */
+        FTcharmap_uft8strings_writeFB(NULL, chmap, //chmap->fw, chmap->fh,  /* FBdev, charmap, fw, fh */
+                                      -1, 255,        /* transcolor, opaque */
+                                      NULL, NULL, NULL, NULL);        /* int *cnt, int *lnleft, int* penx, int* peny */
+    }
+
+	/* 10. munmap file */
 	if( fsize>0 && munmap(fp,fsize) !=0 )
 		printf("%s: Fail to munmap file '%s'. ERR:%s!\n",__func__, fpath, strerror(errno));
 
 	if( close(fd) !=0 )
 		printf("%s: Fail to close file '%s'. ERR:%s!\n",__func__, fpath, strerror(errno));
+
 
 	return 0;
 }
@@ -728,7 +781,7 @@ return:
                 <0      fails
 ------------------------------------------------------------------------------------------------*/
 int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
-			       	    int fw, int fh,
+			       	    //int fw, int fh,
 			            int transpcolor, int opaque,
 			            int *cnt, int *lnleft, int* penx, int* peny )
 {
@@ -757,6 +810,7 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	int fontcolor;
 	int hlmarkcolor;
 	FT_Face face;
+	int fw,fh;
 
 	/* 1. Check input charmap */
 	if(chmap==NULL || chmap->txtbuff==NULL) {
@@ -788,8 +842,9 @@ int  FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,
 	  	pthread_mutex_unlock(&chmap->mutex);
 		return -1;
 	}
-	/* Get typeface */
+	/* Get typeface and font size */
 	face=chmap->face;
+	fw=chmap->fw; fh=chmap->fh;
 
 	/* 5. if(chmap->fix_cursor), save charXY[pch] to  */
 	if(chmap->fix_cursor) {
@@ -1014,14 +1069,14 @@ START_CHARMAP:	/* If follow_cursor, loopback here */
 				/* !!! WARNING !!! load_flags must be the same as in FT_Load_Char( face, wcode, flags ) when writeFB
 	                         * the same ptr string.
 				 * Strange!!! a little faster than FT_Get_Advance()
-				 * TODO: advance value NOT same as FTsymbol_unicode_writeFB(); see above TEST.
+				 * TODO: advance value NOT same as FTsymbol_unicode_writeFB(); see TEST at W.10.2A
 				 * Example: U+FF1A(full width colon)...
 				 *   FT_Get_Advance gets 0, while FTsymbol_unicode_writeFB() is nonzero!
 			 	 */
 				//error= FT_Get_Advance(face, *wcstr, FT_LOAD_RENDER, &advance);
 				error= FT_Get_Advances(face, *wcstr, 1, FT_LOAD_RENDER, &advance);
         	        	if(error) {
-                			printf("%s: Fail to call FT_Get_Advances().\n",__func__);
+                			printf("%s: FT_Get_Advances() fails for U+%X, try _unicode_writeFB().\n",__func__, *wcstr);
 			                FTsymbol_unicode_writeFB(NULL, face, fw, fh, wcstr[0], &xleft, 0, 0, WEGI_COLOR_BLACK, -1, -1 );
 				}
 	                	else
@@ -1157,7 +1212,7 @@ CHARMAP_END:
 
 	/* Total number of chcount, after increment, Ok */
 	/* Total number of maplncount, after increment, Ok */
-	/* Total number of txtlncount, after increment, Ok */
+	/* Total number of txtdlncount, after increment, Ok */
 
 	/* P3. Double check! */
 	if( chmap->chcount > chmap->mapsize ) {
@@ -1496,7 +1551,7 @@ int FTcharmap_page_down(EGI_FTCHAR_MAP *chmap)
 	/* 1. Current IS a full page/window AND not the EOF page */
  	if( chmap->maplncount == chmap->maplines  && chmap->pref[ chmap->charPos[chmap->chcount-1] ] != '\0' )
 	{
-		EGI_PDEBUG(DBG_CHARMAP, "Before pgdown: maplncount=%d, maplines=%d\n", chmap->maplncount,chmap->maplines);
+//		EGI_PDEBUG(DBG_CHARMAP, "Before pgdown: maplncount=%d, maplines=%d\n", chmap->maplncount,chmap->maplines);
 
 		/* Get to the start point of the next page */
 		pos=chmap->charPos[chmap->chcount-1]+cstr_charlen_uft8(chmap->pref+chmap->charPos[chmap->chcount-1]);
@@ -1505,7 +1560,7 @@ int FTcharmap_page_down(EGI_FTCHAR_MAP *chmap)
        		chmap->pref=chmap->pref+pos;
 		chmap->txtdlncount += chmap->maplines;
 
-       		EGI_PDEBUG(DBG_CHARMAP, "Page down to: chmap->txtdlncount=%d \n", chmap->txtdlncount);
+//     		EGI_PDEBUG(DBG_CHARMAP, "Page down to: chmap->txtdlncount=%d \n", chmap->txtdlncount);
         }
 	/* 2. Current is the last page */
 	else {
@@ -1565,7 +1620,7 @@ int FTcharmap_page_fitBottom(EGI_FTCHAR_MAP *chmap)
 	}
 
 	/* Keep selection marks, as chmap->pchoff/pchoff2 unchanged */
-	EGI_PDEBUG(DBG_CHARMAP,"Before fitPG: maplines=%d, maplncount=%d, txtlncount=%d\n",
+	EGI_PDEBUG(DBG_CHARMAP,"Before fitPG: maplines=%d, maplncount=%d, txtdlncount=%d\n",
 				chmap->maplines, chmap->maplncount,chmap->txtdlncount );
 
 	/* Only if current page is the last page, AND not a full page, AND it has enough dlines */

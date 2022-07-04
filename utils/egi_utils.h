@@ -132,5 +132,6 @@ int 	egi_bitstatus_checksum(void *data, size_t size);
 
 /* MISC */
 int egi_getset_backlightPwmDuty(int pwmnum, int *pget, int *pset, int adjust);
+int egi_extract_aac_from_ts(const char *fts, const char *faac);
 
 #endif

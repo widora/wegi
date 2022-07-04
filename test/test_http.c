@@ -12,6 +12,12 @@ Journal:
 2021-09-29:
 	1. main():  memset buff[] before https_curl_request().
 	2. parse_m3u8list(): If https_easy_download() fails, return immediately!
+2022-06-29:
+	1. For case *.ts file in m3u8.
+2022-07-02:
+	1. Extract AAC from TS.
+2022-07-03:
+	1. Save as a._stream/b._stream, then rename to a.stream/b.stream
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -22,12 +28,16 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include <string.h>
 #include <egi_https.h>
 #include <egi_timer.h>
+#include <egi_debug.h>
 #include <egi_log.h>
+#include <egi_cstring.h>
+#include <egi_utils.h>
 
 int curl_nwrite;
 size_t curl_callback(void *ptr, size_t size, size_t nmemb, void *userp);
 void parse_m3u8list(char *strm3u);
 char aacLastURL[1024];  /* The last URL of downloaded AAC file */
+char* dirURL; /* Dir URL of input m3u8 address */
 
 int main(int argc, char **argv)
 {
@@ -66,13 +76,19 @@ int main(int argc, char **argv)
 #endif
         EGI_PLOG(LOGLV_CRITICAL,"Http request head:\n %s\n", strRequest);
 
+	/* Get dirURL */
+	/* URL, protocol, **hostname, *port, **path, **filename, **dir, **dirURL */
+	cstr_parse_URL(strRequest, NULL, NULL, NULL, NULL, NULL, NULL, &dirURL);
+	printf("dirULR: %s\n", dirURL);
+
+
 while(1) {
 	/* Reset buff */
 	memset(buff, 0, sizeof(buff));
 
 	/* Https GET request */
 	EGI_PLOG(LOGLV_INFO,"Start https curl request...");
-        if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 5,3,
+        if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION|HTTPS_ENABLE_REDIRECT, 5,3, /* HK2022-07-03 */
 				strRequest, buff, NULL, curl_callback) !=0 )
 	{
 		EGI_PLOG(LOGLV_ERROR, "Fail to call https_curl_request()! try again...");
@@ -93,6 +109,7 @@ while(1) {
 	sleep(7/2);
 }
 
+	free(dirURL);
 	exit(EXIT_SUCCESS);
 }
 
@@ -130,7 +147,7 @@ size_t download_callback(void *ptr, size_t size, size_t nmemb, void *stream)
 	}
 	curl_nwrite += written;
 
-	EGI_PLOG(LOGLV_CRITICAL," curl_nwritten=%d ", curl_nwrite);
+//	EGI_PLOG(LOGLV_CRITICAL," curl_nwritten=%d ", curl_nwrite);
         return written;
 }
 
@@ -145,42 +162,77 @@ void parse_m3u8list(char *strm3u)
 	int k;
 	const char *delim="\r\n";
 	char *ps;
-	char aacURL[1024]={0};
+	char aacURL[1024]={0}; /* OR tsURL */
+	bool Is_AAC=false; /* *.aac segment */
+	bool Is_TS=false;  /* *.ts segment */
 
 	/* Get m3u8 params: VERSION,TARGETDURATION,SEQUENCE,EXTINF .....  */
 
 	/* Parse AAC URL List */
         ps=strtok(strm3u, delim);
         for(k=0; ps!=NULL; k++) {
-		if( strstr(ps,"aac") && strstr(ps,"//") ) {
-			EGI_PLOG(LOGLV_INFO, "AAC URL: '%s'.",ps);
+		printf(">>>> Ps[]: %s\n",ps);
+		/* Check type */
+		Is_AAC=Is_TS=false;
+		if( strstr(ps,"aac") && strstr(ps,"//") )
+			Is_AAC=true;
+		else if( strstr(ps, ".ts") )
+			Is_TS=true;
 
-			/* Get right URL for AAC file */
-			memset(aacURL,0,sizeof(aacURL));
-			if( strstr(ps,"http:")==NULL ) {
-				strcat(aacURL, "http:");
-				strncat(aacURL, ps, sizeof(aacURL)-1-strlen("http:"));
+		//if( (strstr(ps,"aac") && strstr(ps,"//") ) || (strstr(ps, ".ts") ) {
+		if( Is_AAC || Is_TS ) {
+			EGI_PLOG(LOGLV_INFO, "URL: '%s'.",ps);
+
+			if(Is_AAC) {
+				/* Get right URL for AAC file, suppose ps starts with "//" */
+				memset(aacURL,0,sizeof(aacURL));
+				if( strstr(ps,"http:")==NULL ) {
+					strcat(aacURL, "http:");
+					strncat(aacURL, ps, sizeof(aacURL)-1-strlen("http:"));
+				}
+				else {
+					strncat(aacURL, ps, sizeof(aacURL)-1);
+				}
 			}
-			else {
-				strncat(aacURL, ps, sizeof(aacURL)-1);
-			}
+			else { // Is_TS
+				/* Get right URL for .ts file, suppose ps starts without "//"  */
+				memset(aacURL,0,sizeof(aacURL));
+				if(strstr(ps, "http:")==NULL && strstr(ps, "https:")==NULL ) {
+					//strcat(aacURL, "http:");
+					//strncat(aacURL, ps, sizeof(aacURL)-1-strlen("http:"));
+					strcat(aacURL,dirURL);
+					strncat(aacURL, ps, sizeof(aacURL)-1);
+				}
+				else {
+					strncat(aacURL, ps, sizeof(aacURL)-1);
+				}
+		   	}
+			egi_dpstd(DBG_BLUE"Stream URL: %s\n"DBG_RESET, aacURL);
+
 
 			/* 1. Check and download a.stream */
 			if( access("/tmp/a.stream",F_OK)!=0 && strcmp(aacURL, aacLastURL) > 0) {
 				/* Download AAC */
 				curl_nwrite=0;
-				EGI_PLOG(LOGLV_INFO, "Downloading a.stream AAC from: %s",  aacURL);
-		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3, 3,
-							 aacURL, "/tmp/a.stream", NULL, download_callback) !=0 )
+				EGI_PLOG(LOGLV_INFO, "Downloading a.stream/a.ts from: %s",  aacURL);
+		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3, 20,  //3,3
+							 aacURL, Is_AAC?"/tmp/a._stream":"/tmp/a.ts", NULL, download_callback) !=0 )
 				{
-                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download a.stream from '%s'.", aacURL);
-					remove("/tmp/a.stream");
-					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/a.stream.");
+                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download a._stream/a.ts from '%s'.", aacURL);
+					remove(Is_AAC?"/tmp/a._stream":"/tmp/a.ts");
+					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/a._stream(or a.ts.");
 
 					/* !!! Break NOW, in case next acc url NOT available either, as downloading time goes by!!! */
 					EGI_PLOG(LOGLV_INFO, "Case_1. End parsing m3u8list, and starts a new http request...\n");
 					return;
 				} else {
+					/* Extract AAC from TS */
+					if(Is_TS)
+					    egi_extract_aac_from_ts("/tmp/a.ts", "/tmp/a._stream");
+
+					/* Rename to a.stream */
+					rename("/tmp/a._stream","/tmp/a.stream");
+
 					/* Update aacLastURL */
 					EGI_PLOG(LOGLV_INFO, "Ok, a.stream updated! curl_nwrite=%d", curl_nwrite);
 					strncpy( aacLastURL, aacURL, sizeof(aacLastURL)-1 );
@@ -191,19 +243,27 @@ void parse_m3u8list(char *strm3u)
 			else if( access("/tmp/b.stream",F_OK)!=0 && strcmp(aacURL, aacLastURL) > 0) {
 				/* Download AAC */
 				curl_nwrite=0;
-				EGI_PLOG(LOGLV_INFO, "Downloading b.stream AAC from: %s",  aacURL);
-		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3,3,
-							 aacURL, "/tmp/b.stream", NULL, download_callback) !=0 )
+				EGI_PLOG(LOGLV_INFO, "Downloading b._stream/b.ts from: %s",  aacURL);
+		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3, 20, //3,3
+							 aacURL, Is_AAC?"/tmp/b._stream":"/tmp/b.ts", NULL, download_callback) !=0 )
 				{
-                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download b.stream from '%s'.", aacURL);
-					remove("/tmp/b.stream");
-					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/b.stream.");
+                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download b._stream/b.ts from '%s'.", aacURL);
+
+					remove(Is_AAC?"/tmp/b._stream":"/tmp/b.ts");
+					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/b._stream(or b.ts).");
 
 					/* !!! Break NOW, in case next acc url NOT available either, as downloading time goes by!!! */
 					EGI_PLOG(LOGLV_INFO, "Case_2. End parsing m3u8list, and starts a new http request...\n");
 					return;
 
 				} else {
+					/* Extract AAC from TS */
+					if(Is_TS)
+					    egi_extract_aac_from_ts("/tmp/b.ts", "/tmp/b._stream");
+
+					/* Rename to a.stream */
+					rename("/tmp/b._stream","/tmp/b.stream");
+
 					/* Update aacLastURL */
 					EGI_PLOG(LOGLV_INFO, "Ok, b.stream updated! curl_nwrite=%d", curl_nwrite);
 					strncpy( aacLastURL, aacURL, sizeof(aacLastURL)-1 );
@@ -213,18 +273,25 @@ void parse_m3u8list(char *strm3u)
 			else if( access("/tmp/a.stream",F_OK)!=0  && access("/tmp/b.stream",F_OK)!=0 ) {
 				/* Download AAC */
 				curl_nwrite=0;
-				EGI_PLOG(LOGLV_ERROR, "Case 3: a.stream & b.stream both missing! downloading a.stream AAC from: %s",  aacURL);
-		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3,3,
-							 aacURL, "/tmp/a.stream", NULL, download_callback) !=0 )
+				EGI_PLOG(LOGLV_ERROR, "Case 3: a.stream & b.stream both missing! downloading a._stream/a.ts from: %s",  aacURL);
+		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION, 3,20, //3,3
+							 aacURL, Is_AAC?"/tmp/a._stream":"/tmp/a.ts", NULL, download_callback) !=0 )
 				{
-                        		EGI_PLOG(LOGLV_ERROR, "Case 3: Fail to easy_download a.stream from '%s'.", aacURL);
-					remove("/tmp/a.stream");
-					EGI_PLOG(LOGLV_INFO, "Case 3: Finsh remove /tmp/a.stream.");
+                        		EGI_PLOG(LOGLV_ERROR, "Case 3: Fail to easy_download a._stream/a.ts from '%s'.", aacURL);
+					remove(Is_AAC?"/tmp/a._stream":"/tmp/a.ts");
+					EGI_PLOG(LOGLV_INFO, "Case 3: Finsh remove /tmp/a._stream(or a.ts).");
 
 					/* !!! Break NOW, in case next acc url NOT available either, as downloading time goes by!!! */
 					EGI_PLOG(LOGLV_INFO, "Case_3. End parsing m3u8list, and starts a new http request...\n");
 					return;
 				} else {
+					/* Extract AAC from TS */
+					if(Is_TS)
+					    egi_extract_aac_from_ts("/tmp/a.ts", "/tmp/a._stream");
+
+					/* Rename to a.stream */
+					rename("/tmp/a._stream","/tmp/a.stream");
+
 					/* Update aacLastURL */
 					EGI_PLOG(LOGLV_INFO, "Ok, a.stream updated! curl_nwrite=%d", curl_nwrite);
 					strncpy( aacLastURL, aacURL, sizeof(aacLastURL)-1 );
@@ -233,6 +300,9 @@ void parse_m3u8list(char *strm3u)
 			/* 4. Both OK */
 			else
 				EGI_PLOG(LOGLV_CRITICAL, "a.stream and b.stream both available!\n");
+		}
+		else /* NOT .aac OR .ts */ {
+			egi_dpstd(DBG_YELLOW"Only support AAC/TS stream, fail to support URL: '%s'.\n"DBG_RESET,ps);
 		}
 
 		/* Get next URL */

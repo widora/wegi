@@ -165,7 +165,15 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #define		CTRL_P  16	/* Ctrl + p: PINYIN input ON/OFF toggle */
 
 char *strInsert="Widora和小伙伴们";
-char *fpath="/tmp/emojis.txt";
+
+#ifdef LETS_NOTE
+   char *fpath="/home/midas-zhou/egi/emojis.txt";
+#else
+   char *fpath="/mmc/emojis.txt";
+#endif
+
+struct termios old_settings;
+struct termios new_settings;
 
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 30+5+20+5} };	/* Onle line displaying area */
 //static EGI_BOX txtbox={ { 10, 30 }, {320-1-10, 120-1-10} };	/* Text displaying area */
@@ -284,7 +292,6 @@ int     GuideBlockH;    /* control      block height */
 int     GuideBlockW;    /* == ScrollAreaW */
 //bool          GuideBlockDownHold;  /* If GuideBlock is hold_down for dragging */
 
-
 /* Functions */
 //static int FTcharmap_writeFB(FBDEV *fbdev, EGI_16BIT_COLOR color, int *penx, int *peny);
 static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny);
@@ -351,14 +358,12 @@ int main(int argc, char **argv)
   FTsymbol_set_SpaceWidth(1);
   FTsymbol_set_TabWidth(4.5);
 
-
   #if 0
   printf("FTsymbol_load_appfonts()...\n");
   if(FTsymbol_load_appfonts() !=0) {
         printf("Fail to load FT appfonts, quit.\n");
         return -1;
   }
-
 
   /* Start touch read thread */
   printf("Start touchread thread...\n");
@@ -381,14 +386,9 @@ int main(int argc, char **argv)
  /* <<<<<  End of EGI general init  >>>>>> */
 
 
-
-
                   /*-----------------------------------
                    *            Main Program
                    -----------------------------------*/
-
-        struct termios old_settings;
-        struct termios new_settings;
 
 	char  ch;
 	int   i,j,k;
@@ -426,6 +426,9 @@ int main(int argc, char **argv)
 	egi_dpstd(DBG_YELLOW"Input spcnt:%.2f, soff=%jd, fpath: '%s'\n"DBG_RESET, spcnt, soff, fpath);
 
 	/* Load necessary PINYIN data, and do some prep. */
+        fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY);
+        draw_msgbox(&gv_fb_dev, 30, 50, 260, "Loading UNIHAN PINYIN data...");
+        fb_render(&gv_fb_dev);
 	if( load_pinyin_data()!=0 )
 		exit(1);
 
@@ -449,15 +452,15 @@ MAIN_START:
 	tlns=(txtbox.endxy.y-txtbox.startxy.y+1)/lndis;
 	printf("Blank lines tlns=%d, lndis=%d\n", tlns, lndis);
 
+
 	/* Create charMAP */
 	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,	 /* txtsize,  x0, y0  */
 //		  txtbox.endxy.y-txtbox.startxy.y+1, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin,      /*  height, width, offx, offy */
 	  		tlns*lndis, txtbox.endxy.x-txtbox.startxy.x+1, smargin, tmargin, /*  height, width, offx, offy */
-			face, CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis,   	 /* typeface, mapsize, lines, pixpl, lndis */
+			face, fw,fh, CHMAP_SIZE, tlns, gv_fb_dev.pos_xres-2*smargin, lndis,   	 /* typeface, mapsize, lines, pixpl, lndis */
 			WEGI_COLOR_WHITE, WEGI_COLOR_BLACK, true, true );  /*  bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
 	printf("chmap->height: %d\n", chmap->height);
-
 
 	/* Load file to chmap */
 	if(fpath) {
@@ -468,7 +471,6 @@ MAIN_START:
 		if( FTcharmap_load_file(DEFAULT_FILE_PATH, chmap, CHMAP_TXTBUFF_SIZE) !=0 )
 			printf("Fail to load file to champ!\n");
 	}
-
 
 	/* TODO: ColorMap ALSO saved:
 	*  Before that, we manually create monocolor map for loaded txt first.
@@ -549,8 +551,9 @@ MAIN_START:
 	while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
 	{
 		/* If search position is in current page */
-		egi_dpstd(DBG_GREEN"Page range offset [%d, %d]\n"DBG_RESET,
-				chmap->pref-chmap->txtbuff, chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff);
+		egi_dpstd(DBG_GREEN"Page range offset [%ld, %ld]\n"DBG_RESET,
+					(long int)(chmap->pref-chmap->txtbuff),
+					(long int)(chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff) );
 		/* soff applys */
 		if(soff>=0 ) {
 		    if(chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff >= soff)
@@ -583,11 +586,8 @@ MAIN_START:
 //	goto MAIN_END;
 
 	/* TODO: Scroll to let soff to be in the first line of the charmap */
-
-
-	egi_dpstd(DBG_YELLOW"Get to bookmarked soff=%jd page: spcnt=%.2f, off=%d of %d\n"DBG_RESET, soff,
-				(float)(chmap->pref-chmap->txtbuff)/chmap->txtlen, chmap->pref-chmap->txtbuff, chmap->txtlen);
-
+	egi_dpstd(DBG_YELLOW"Get to bookmarked soff=%jd page: spcnt=%.2f, off=%ld of %d\n"DBG_RESET, soff,
+				(float)(chmap->pref-chmap->txtbuff)/chmap->txtlen, (long int)(chmap->pref-chmap->txtbuff), chmap->txtlen);
 
 	printf("Loop editing...\n");
 
@@ -605,7 +605,6 @@ MAIN_START:
 		  	printf("ch=%d\n",ch);
 		}
 		//continue;
-
 
 		/* 1. Parse TTY input escape sequences */
 		if(ch==27) {
@@ -643,8 +642,8 @@ MAIN_START:
 						if( ch == 126 ) {
 							FTcharmap_page_up(chmap);
 							FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
- 	egi_dpstd(DBG_GREEN"Page range offset [%d, %d]\n"DBG_RESET, chmap->pref-chmap->txtbuff,
-								    chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff);
+ 	egi_dpstd(DBG_GREEN"Page range offset [%ld, %ld]\n"DBG_RESET, (long int)(chmap->pref-chmap->txtbuff),
+							(long int)(chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff) );
 						}
                                                 break;
 					case 54: /* PAGE DOWN */
@@ -652,8 +651,8 @@ MAIN_START:
 						if( ch == 126 ) {
 							FTcharmap_page_down(chmap);
 							FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
- 	egi_dpstd(DBG_GREEN"Page range offset [%d, %d]\n"DBG_RESET, chmap->pref-chmap->txtbuff,
-								    chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff);
+ 	egi_dpstd(DBG_GREEN"Page range offset [%ld, %ld]\n"DBG_RESET, (long int)(chmap->pref-chmap->txtbuff),
+						      	(long int)(chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff) );
 						}
                                                 break;
 					case 65:  /* UP arrow : move cursor one display_line up  */
@@ -1275,7 +1274,7 @@ MAIN_START:
 MAIN_END:
 
 	/* Reset termio */
-        tcsetattr(0, TCSANOW,&old_settings);
+        tcsetattr(0, TCSANOW, &old_settings);
 
 	/* My release */
 	FTcharmap_free(&chmap);
@@ -1325,7 +1324,7 @@ static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny)
 	int ret;
 
        	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,   /* FBdev, charmap*/
-                                           fw, fh,         /* fontface, fw,fh */
+                                           //fw, fh,         /* fontface, fw,fh */
 	                                   -1, 255,      	   	   /* transcolor,opaque */
                                            NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
@@ -1353,7 +1352,7 @@ static int FTcharmap_writeFB2(EGI_FTCHAR_MAP *chmap, FBDEV *fbdev, int *penx, in
 	int ret;
 
        	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,   /* FBdev, charmap*/
-                                           fw, fh,         /* fontface, fw,fh */
+                                           //fw, fh,         /* fontface, fw,fh */
 	                                   -1, 255,      	   	   /* transcolor,opaque */
                                            NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
@@ -1833,7 +1832,7 @@ static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg
 
 
 /*-----------------------------------------------------------
-WriteFB a progressing msg box
+WriteFB a msg box.
 
 Limit: Max. 100 line text.
 
@@ -2015,8 +2014,10 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 
 				read(STDIN_FILENO, &ch, 1);
 				printf(" abort confirm ch='%c'\n", ch);
-				if( ch=='y' || ch== 'Y' )
+				if( ch=='y' || ch== 'Y' ) {
+					tcsetattr(0, TCSANOW, &old_settings);
 					exit(10);
+				}
 				else if( ch=='n' || ch== 'N' )
 					break;
 			}
@@ -2026,11 +2027,11 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 			//if(soff>=0)
 			unicode=0; /* Init as invalid Unicode */
 			char_uft8_to_unicode(chmap->txtbuff+chmap->pchoff, &unicode);
-			sprintf(strbuff, "当前页面位置: %.3f%%\n  Poffset: %d/%d\n当前光标位置off: %d\n  U+%X\nLines: %d",
+			sprintf(strbuff, "当前页面位置: %.3f%%\n  Poffset: %ld/%d\n当前光标位置off: %d\n  U+%X\nRLines: %d",
 				    	    	100*(float)(chmap->pref-chmap->txtbuff)/chmap->txtlen,
-					    	chmap->pref-chmap->txtbuff, chmap->txtlen,
+					    	(long int)(chmap->pref-chmap->txtbuff), chmap->txtlen,
 						chmap->pchoff<0 ? -1 : chmap->pchoff, unicode, /* 当前光标位置off: %d\  U+%X  */
-						cstr_count_lines((char *)chmap->txtbuff) ); /* Total lines */
+						cstr_count_lines((char *)chmap->txtbuff) ); /* Total Rlines */
 			draw_msgbox( &gv_fb_dev, 30, 50, 260, strbuff);
 			fb_render(&gv_fb_dev);
 			sleep(2);
@@ -2085,7 +2086,7 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
                                 sprintf(strval,"%d", chmap->pchoff);
                         /* Save start position of current page */
                         else
-                                sprintf(strval,"%d", chmap->pref-chmap->txtbuff);
+                                sprintf(strval,"%ld", (long int)(chmap->pref-chmap->txtbuff));
                         if( egi_update_config_value("BOOKMARK", "offset", strval)==0 ) {
                                 sprintf(strbuff, "当前书签位置已经保存: Pos offset=%s\n(请注意先保存文件)", strval);
                                 draw_msgbox( &gv_fb_dev, 30, 50, 260, strbuff);

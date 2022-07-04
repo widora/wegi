@@ -137,7 +137,9 @@ Journal
 2022-06-21:
 	1. To display VScrollBar beside txtbox. --- For read_only mode.
 	2. Click on VScrollBar to update vsbar and chmap.
-
+2022-06-27:
+	1. Test LETS_NOTE
+	2. Add semaphore for render sync.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -163,8 +165,10 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 
 #ifdef LETS_NOTE
 	#define DEFAULT_FILE_PATH	"/home/midas-zhou/egi/hlm_all.txt"
+	#define DEFAULT_FONTBUFF_PATH   "/home/midas-zhou/egi/fontbuff_regular.dat"
 #else
 	#define DEFAULT_FILE_PATH	"/mmc/hlm_all.txt"
+	#define DEFAULT_FONTBUFF_PATH   "/mmc/fontbuff_regular.dat"
 #endif
 
 #define SINGLE_PINYIN_INPUT	0       /* !0: Single chinese_phoneticizing input method.
@@ -327,19 +331,28 @@ enum WBTMenu_Command {
 };
 static int WBTMenu_Command_ID=WBTMENU_COMMAND_NONE;
 
-/* Message queue */
-#include <sys/ipc.h>
-#include <sys/msg.h>
-key_t mqkey;
-int render_msgid, kev_msgid, mev_msgid;
+//#define MSG_SYNC_RENDER
+#ifdef MSG_SYNC_RENDER  /* Message queue ----- MSG_SYNC_RENDER for Render ----- */
 
-#define MSG_REFRESH_SURFACE  1
-/***  struct msgbuf {
- *      long mtype;       // message type, must be > 0
- *      char mtext[1];    // message data
- *    };
- */
-typedef struct msgbuf MSG_BUFF;
+   #include <sys/ipc.h>
+   #include <sys/msg.h>
+   key_t mqkey;
+   int render_msgid, kev_msgid, mev_msgid;
+
+   #define MSG_REFRESH_SURFACE  1
+   /***  struct msgbuf {
+    *      long mtype;       // message type, must be > 0
+    *      char mtext[1];    // message data
+    *    };
+    */
+   typedef struct msgbuf MSG_BUFF;
+
+#else     /* Unnamed semaphore ----- SEM_SYNC_RENDER for Render ----- */
+   #include <semaphore.h>
+   sem_t render_sem;
+
+#endif
+
 pthread_t  pthread_render;
 pthread_mutex_t mutex_render;	/* To lock necessary vars  */
 void *render_surface(void* argv);
@@ -507,9 +520,12 @@ int main(int argc, char **argv)
 	}
 #else  /* S0. Load buffered sysfonts.regular */
 	printf("Start loading fontBuffer of egi_sysfonts.regular...\n");
-	egi_fontbuffer=FTsymbol_load_fontBuffer("/mmc/fontbuff_regular.dat");
+	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY);
+	draw_msgbox(&gv_fb_dev, 30, 50, 260, "Loading fontBuffer of egi_sysfonts.regular...");
+	fb_render(&gv_fb_dev);
+	egi_fontbuffer=FTsymbol_load_fontBuffer(DEFAULT_FONTBUFF_PATH);
         if(egi_fontbuffer) {
-                printf("Finish loading egi_fontbuffer, size=%zd!, fw=%d, fw=%d\n",
+                printf("Finish loading egi_fontbuffer, size=%d!, fw=%d, fw=%d\n",
 					egi_fontbuffer->size, egi_fontbuffer->fw, egi_fontbuffer->fh);
 		/* !!! Have to assign !!! */
 		egi_fontbuffer->face=egi_sysfonts.regular;
@@ -521,6 +537,9 @@ int main(int argc, char **argv)
 #endif
 
 	/* S1. Load necessary PINYIN data, and do some prep. */
+	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY);
+	draw_msgbox(&gv_fb_dev, 30, 50, 260, "Loading UNIHAN PINYIN data...");
+	fb_render(&gv_fb_dev);
 	if( load_pinyin_data()!=0 )
 		exit(1);
 
@@ -550,7 +569,7 @@ MAIN_START:
 	int pixpl=chmapWidth-2*smargin;
 	chmap=FTcharmap_create( CHMAP_TXTBUFF_SIZE, txtbox.startxy.x, txtbox.startxy.y,	 /* txtsize,  x0, y0  */
 	  		chmapHeight, chmapWidth, smargin, tmargin, /*  height, width, offx, offy */
-			egi_sysfonts.regular, CHMAP_SIZE, tlns, pixpl, lndis,   	 /* typeface, mapsize, lines, pixpl, lndis */
+			egi_sysfonts.regular, fw,fh, CHMAP_SIZE, tlns, pixpl, lndis,   	 /* typeface, fw, fh, mapsize, lines, pixpl, lndis */
 			//WEGI_COLOR_WHITE, WEGI_COLOR_BLACK, true, true );  /*  bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
 			COLOR_LemonChiffon, WEGI_COLOR_BLACK, true, true );  /*  bkgcolor, fontcolor, charColorMap_ON, hlmarkColorMap_ON */
 	if(chmap==NULL){ printf("Fail to create char map!\n"); exit(0); };
@@ -564,14 +583,19 @@ MAIN_START:
   	     vsbar=egi_VScrollBar_create(txtbox.endxy.x+1, txtbox.startxy.y, chmapHeight, 10);
 
 	/* S2.5 Load file to chmap */
+	fb_clear_workBuff(&gv_fb_dev, WEGI_COLOR_GRAY);
+	draw_msgbox(&gv_fb_dev, 30, 50, 260, "Loading file to chmap...");
+	fb_render(&gv_fb_dev);
+	printf("Start to load file to chmap...\n");
 	if(fpath) {
-		if(FTcharmap_load_file(fpath, chmap, CHMAP_TXTBUFF_SIZE) !=0 )
+		if(FTcharmap_load_file(fpath, chmap, true) !=0 )  /* Load all content */
 			printf("Fail to load file to champ!\n");
 	}
 	else {
-		if( FTcharmap_load_file(DEFAULT_FILE_PATH, chmap, CHMAP_TXTBUFF_SIZE) !=0 )
+		if( FTcharmap_load_file(DEFAULT_FILE_PATH, chmap, true) !=0 )
 			printf("Fail to load file to champ!\n");
 	}
+
 
 #if 0  /////////////// TEST: compare charmap result with FBDEV=NULL and FBDEV!=NULL //////////////
 	unsigned char uchar[4];
@@ -678,15 +702,24 @@ MAIN_START:
 	}
 #endif
 
-	/* S4. Create render_msgid */
+
+#if MSG_SYNC_RENDER /* OR Semaphore sync */
+	/* S4. Create render_msgid.  */
         /* Create System_V message queue */
         mqkey=ftok(".", 5);
-	/* render_msgid for render */
+	/* Get render_msgid for render */
         render_msgid = msgget(mqkey, IPC_CREAT|0666);
         if(render_msgid<0) {
                 egi_dperr("Fail to create render_msgid!");
 		exit(1);
         }
+#else /* SEM_SYNC_RENDER */
+	/* S4. Create/initialize an unnamed semaphore */
+	if(sem_init(&render_sem, 0, 0)!=0) {
+		egi_dperr("Fail to init render_rem!");
+		exit(2);
+	}
+#endif
 
         /* S5. Init mutex_render */
         if(pthread_mutex_init(&mutex_render,NULL) != 0) {
@@ -699,6 +732,7 @@ MAIN_START:
 		exit(1);
 	}
 
+#if MSG_SYNC_RENDER
 	/* S7. Get mev_msgid for mouse event */
 	mev_msgid= msgget(mqkey, 0);
         if(mev_msgid<0) {
@@ -711,6 +745,8 @@ MAIN_START:
                 egi_dperr("Fail to get ev_msgid!");
 		exit(1);
 	}
+#else /* SEMAPHORE_SYMC */
+#endif
 
         /* S9. Init. mouse position */
         mouseX=gv_fb_dev.pos_xres/2;
@@ -744,7 +780,7 @@ MAIN_START:
         new_settings.c_cc[VTIME]=0;
         tcsetattr(0, TCSANOW, &new_settings);
 
-	/* S13. Fill initial charmap and get penx,peny */
+	/* S13. Render initial charmap. After FTcharmap_load_file(). */
 	FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
 	fb_render(&gv_fb_dev);
 
@@ -762,13 +798,16 @@ MAIN_START:
 	}
 	sleep(1);
 
-	/* S15. Charmap to file end, OR to search position soff/spcnt. */
+	/* S15. Charmap to file end, OR to search position soff/spcnt.
+	 * Note: If load file with fullmap, then it's NOT necessary!
+	 */
 	i=0;
 	while( chmap->pref[chmap->charPos[chmap->chcount-1]] != '\0' )
 	{
 		/* If search position is in current page */
-		egi_dpstd(DBG_GREEN"Page range offset [%d, %d]\n"DBG_RESET,
-				chmap->pref-chmap->txtbuff, chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff);
+		egi_dpstd(DBG_GREEN"Page range offset [%ld, %ld]\n"DBG_RESET,
+				(long int)(chmap->pref-chmap->txtbuff),
+				(long int)(chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff) );
 
 #if 1
 		/* spcnt applys */
@@ -815,11 +854,12 @@ MAIN_START:
 //	goto MAIN_END;
 
 	/* TODO: Scroll to let soff to be in the first line of the charmap */
-	egi_dpstd(DBG_YELLOW"Get to bookmarked soff=%jd page: spcnt=%.2f, off=%d of %d\n"DBG_RESET, soff,
-				(float)(chmap->pref-chmap->txtbuff)/chmap->txtlen, chmap->pref-chmap->txtbuff, chmap->txtlen);
+	egi_dpstd(DBG_YELLOW"Get to bookmarked soff=%jd page: spcnt=%.2f, off=%ld of %d\n"DBG_RESET, soff,
+				(float)(chmap->pref-chmap->txtbuff)/chmap->txtlen, (long int)(chmap->pref-chmap->txtbuff), chmap->txtlen);
 
 	/* Update values for vsbar ( vsbar, barH, maxLen, winLen, pastLen ) */
-	egi_VScrollBar_updateValues(vsbar, 0, chmap->txtdlncount+chmap->maplines, chmap->maplines, chmap->txtdlncount);
+	//egi_VScrollBar_updateValues(vsbar, 0, chmap->txtdlncount+chmap->maplines, chmap->maplines, chmap->txtdlncount);
+	egi_VScrollBar_updateValues(vsbar, 0, chmap->txtdlntotal, chmap->maplines, chmap->txtdlncount);
         /* Vertical Scroll Bar */
         egi_VScrollBar_writeFB(&gv_fb_dev, vsbar);
         fb_render(&gv_fb_dev);
@@ -827,7 +867,6 @@ MAIN_START:
 /* TEST_TEST_TEST:  ---------------------- */
 	/* S16. Set chmap_ready */
 	chmap_ready=true;
-
 
 	printf("Loop editing...\n");
 
@@ -894,8 +933,8 @@ MAIN_START:
 							 */
 							//FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
 				//			FTcharmap_writeFB(NULL, NULL, NULL);
- 	egi_dpstd(DBG_GREEN"Page range offset [%d, %d]\n"DBG_RESET, chmap->pref-chmap->txtbuff,
-								    chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff);
+ 	egi_dpstd(DBG_GREEN"Page range offset [%ld, %ld]\n"DBG_RESET, (long int)(chmap->pref-chmap->txtbuff),
+								    (long int)(chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff) );
 						}
                                                 break;
 					case 54: /* PAGE DOWN */
@@ -907,8 +946,8 @@ MAIN_START:
 							 */
 							//FTcharmap_writeFB(&gv_fb_dev, NULL, NULL);
 				//			FTcharmap_writeFB(NULL, NULL, NULL);
- 	egi_dpstd(DBG_GREEN"Page range offset [%d, %d]\n"DBG_RESET, chmap->pref-chmap->txtbuff,
-								    chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff);
+ 	egi_dpstd(DBG_GREEN"Page range offset [%ld, %ld]\n"DBG_RESET, (long int)(chmap->pref-chmap->txtbuff),
+							(long int)(chmap->pref+chmap->charPos[chmap->chcount-1]-chmap->txtbuff) );
 						}
                                                 break;
 					case 65:  /* UP arrow : move cursor one display_line up  */
@@ -1395,7 +1434,7 @@ MAIN_START:
 /* ------ <<<  mutex_render Critical Zone  */
 		pthread_mutex_unlock(&mutex_render);
 
-#if 1  ///////////////////* 5.0 Msgsnd to request for refreshing surface  *//////////////////
+#if MSG_SYNC_RENDER  ///////////////////* 5.0 Msgsnd to request for refreshing surface  *//////////////////
 //       refresh_surface();
 
 	/* TEST msg: 2022-05-25: ------------------- */
@@ -1408,6 +1447,9 @@ MAIN_START:
                 //if(errno==EIDRM) egi_dpstd("msgid is invalid! Or the queue is removed.\n");
                 //else if(errno==EAGAIN) egi_dpstd("Insufficient space in the queue!\n");
         }
+#elif 1 ///////////// SEMAPHORE_SYNC_RENDER //////////////
+	if(sem_post(&render_sem)!=0)
+		egi_dperr("sem_post fails");
 
 #else	/* ------- EDIT:  Need to refresh EGI_FTCHAR_MAP after editing !!! ------  */
 
@@ -1549,7 +1591,7 @@ MAIN_START:
 #endif /////////////////////  END : Refresh Surface  ////////////////////////
 
 
-	}
+	} /* End while() */
 
 
 #if 0	/* <<<<<<<<<<<<<<<<<<<<    Read from USB Keyboard HIDraw   >>>>>>>>>>>>>>>>>>> */
@@ -1600,7 +1642,7 @@ MAIN_START:
 
 	/* Reset termio */
 printf("tcsetattr old...\n");
-        tcsetattr(0, TCSANOW,&old_settings);
+        tcsetattr(0, TCSANOW, &old_settings);
 
 printf("Free charmap...\n");
 	/* My release */
@@ -1650,12 +1692,15 @@ return 0;
 static int FTcharmap_writeFB(FBDEV *fbdev, int *penx, int *peny)
 {
 	int ret;
+	struct timeval tms,tme;
 
-
+	gettimeofday(&tms, NULL);
        	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,   /* FBdev, charmap*/
-                                           fw, fh,         /* fontface, fw,fh */
+                                           //fw, fh,         /* fw,fh */
 	                                   -1, 255,      	   	   /* transcolor,opaque */
                                            NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
+        gettimeofday(&tme, NULL);
+	printf("FTcharmap cost time=%luus \n",tm_diffus(tms,tme));
 
         /* Double check! */
         if( chmap->chcount > chmap->mapsize ) {
@@ -1686,7 +1731,7 @@ static int FTcharmap_writeFB2(EGI_FTCHAR_MAP *chmap, FBDEV *fbdev, int *penx, in
 	int ret;
 
        	ret=FTcharmap_uft8strings_writeFB( fbdev, chmap,   /* FBdev, charmap*/
-                                           fw, fh,         /* fontface, fw,fh */
+                                           //fw, fh,         /* fw,fh */
 	                                   -1, 255,      	   	   /* transcolor,opaque */
                                            NULL, NULL, penx, peny);        /* int *cnt, int *lnleft, int* penx, int* peny */
 
@@ -1768,6 +1813,7 @@ static void FTsymbol_writeFB(const char *txt, int px, int py, EGI_16BIT_COLOR co
 static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS *mostatus)
 {
 	//EGI_POINT  pxy={0,0};
+//	printf("mouse_callback\n");
 
         /* 0. Get mouseLeftKeyDown/Up */
 	mouseLeftKeyDown=mostatus->LeftKeyDown; // || mostatus->LeftKeyDownHold;
@@ -1888,7 +1934,7 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
 	}
 
 	/* 8. smgsnd MSG_REFRESH_SURFACE */
-#if 1 /* TEST msg: 2022-05-23: ------------------- */
+#if MSG_SYNC_RENDER /* TEST msg: 2022-05-23: ------------------- */
 	MSG_BUFF msgbuff;
 	int merr;
 	//if( mostatus->mouseDX || mostatus->mouseDY ) {
@@ -1900,9 +1946,13 @@ static void mouse_callback(unsigned char *mouse_data, int size, EGI_MOUSE_STATUS
                 	//if(errno==EIDRM) egi_dpstd("msgid is invalid! Or the queue is removed.\n");
                 	//else if(errno==EAGAIN) egi_dpstd("Insufficient space in the queue!\n");
 		}
-
 		//if(chmap)
 		//    refresh_surface();
+	}
+#else  /* SEM_SYNC_RENDER */
+	if( (!mostatus->KeysIdle) || mostatus->mouseDX || mostatus->mouseDY ) {
+		if(sem_post(&render_sem)!=0)
+			egi_dperr("sem_post fails");
 	}
 #endif
 
@@ -2208,7 +2258,7 @@ static void draw_progress_msgbox( FBDEV *fb_dev, int x0, int y0, const char *msg
 
 
 /*-----------------------------------------------------------
-WriteFB a progressing msg box
+WriteFB a msg box.
 
 Limit: Max. 100 line text.
 
@@ -2422,10 +2472,13 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 
                         unicode=0; /* Init as invalid Unicode */
                         char_uft8_to_unicode(chmap->txtbuff+chmap->pchoff, &unicode);
-                        sprintf(strbuff, "当前页面位置: %.3f%%\n  Poffset: %d/%d\n当前光标位置off: %d\n  U+%X",
+              sprintf(strbuff, "当前页面位置: %.3f%%\n  Poffset: %ld/%d\n当前光标位置off: %d\n  U+%X\nRlines: %d Dlines: %d\nUchars: %d",
                                                 100*(float)(chmap->pref-chmap->txtbuff)/chmap->txtlen,
-                                                chmap->pref-chmap->txtbuff, chmap->txtlen,
-                                                chmap->pchoff<0 ? -1 : chmap->pchoff, unicode); /* 当前光标位置off: %d\  U+%X  */
+                                                (long int)(chmap->pref-chmap->txtbuff), chmap->txtlen,
+                                                chmap->pchoff<0 ? -1 : chmap->pchoff, unicode, /* 当前光标位置off: %d\  U+%X  */
+                                                cstr_count_lines((char *)chmap->txtbuff), /* Total Rlines */
+						chmap->txtdlntotal,	/* Total Dlines */
+						cstr_strcount_uft8(chmap->txtbuff) ); /* Total uchars */
 			draw_msgbox( &gv_fb_dev, 30, 50, 260, strbuff);
 			fb_render(&gv_fb_dev);
 			sleep(3);
@@ -2480,7 +2533,7 @@ static void WBTMenu_execute(enum WBTMenu_Command Command_ID)
 				sprintf(strval,"%d", chmap->pchoff);
 			/* Save start position of current page */
 			else
-			   	sprintf(strval,"%d", chmap->pref-chmap->txtbuff);
+			   	sprintf(strval,"%ld", (long int)(chmap->pref-chmap->txtbuff));
 			if( egi_update_config_value("BOOKMARK", "offset", strval)==0 ) {
 				sprintf(strbuff, "当前书签位置已经保存: Pos offset=%s\n(请注意先保存文件)", strval);
 				draw_msgbox( &gv_fb_dev, 30, 50, 260, strbuff);
@@ -2935,13 +2988,22 @@ MSG_REFRESH_SURFACE is received.
 void *render_surface(void* argv)
 {
 	int mlen;
+        struct timeval tms,tme;
+
+#if MSG_SYNC_RENDER
 	MSG_BUFF msgbuff;
+#else /* SEM_SYNC_RENDER */
+	struct timespec tmout;
+	int sret;
+#endif
 
         /* 1. Detach thread */
         pthread_detach(pthread_self());
 
 	/* 2. Wait for MSG_REFRESH_SURFACE */
 	while(!sigQuit) {
+
+ #if MSG_SYNC_RENDER
 		/* 2.1 Msgrcv() */
         	//mlen=msgrcv(render_msgid, &msgbuff, sizeof(msgbuff.mtext), MSG_REFRESH_SURFACE, MSG_NOERROR);
 		/* MSG_NOERROR: To truncate the message text if longer than msgsz bytes. */
@@ -2953,22 +3015,45 @@ void *render_surface(void* argv)
 			}
 			/* At lease 2 times refresh each second. */
 			else if(errno==ENOMSG) {
+				#ifdef LETS_NOTES
+				//usleep(10000);
+				#else
 				usleep(500000);
+				#endif
 				egi_dpstd("Refresh at regular intervals.\n");
 			}
 		}
-#if 0		/* 2.2 Drop all remaining MSGs in the queue! */
+          #if 0	/* 2.2 Drop all remaining MSGs in the queue! */
 		else {
 			//msgctl(render_msgid, IPC_RMID, NULL); Erase MSG queue from kernel.
 			while( msgrcv(render_msgid, &msgbuff, sizeof(msgbuff.mtext), MSG_REFRESH_SURFACE, IPC_NOWAIT)>=0 )
 			{  }
 		}
+          #endif
+
+#else /* SME_SYNC_RENDER */
+		/* 2.1 Wait semaphore */
+		tmout.tv_sec=0;
+		tmout.tv_nsec=10000000;//500000000;
+        gettimeofday(&tms, NULL);
+		sret=sem_timedwait(&render_sem, &tmout);
+		if(sret<0 ) {
+			if(sret==ETIMEDOUT) { /* OK */ }
+		}
+        gettimeofday(&tme, NULL);
+        printf("set_timedwait cost time=%luus \n",tm_diffus(tms,tme));
+
+		/* 2.2 BLANK */
 #endif
 
 		/* 2.3 Render surface */
-//		egi_dpstd("Msg: Refresh surface!\n");
-		if(chmap_ready)
+		egi_dpstd("---> Refresh surface!\n");
+		if(chmap_ready)  {
+		        gettimeofday(&tms, NULL);
 			refresh_surface();
+		        gettimeofday(&tme, NULL);
+		        printf("Refresh surface cost time=%luus \n",tm_diffus(tms,tme));
+		}
 	}
 
 

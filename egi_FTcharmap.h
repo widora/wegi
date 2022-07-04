@@ -149,6 +149,8 @@ struct  FTsymbol_char_map {
 	pthread_mutex_t mutex;      		/* mutex lock for charmap */
 
 	FT_Face		face;			/* Freetype font typeface, A handle to a given typographic face object. */
+	int		fw;			/* Font size */
+	int 		fh;
 
 	int		txtsize;		/* Size of txtbuff mem space allocated, in bytes */
 	//unsigned int	txtsize;		/* Size of txtbuff mem space allocated, in bytes */
@@ -179,15 +181,18 @@ struct  FTsymbol_char_map {
 
 	int		txtrlncount;		/* Counter for retlines */
 
-	int		txtdlines;		/* LIMIT: Size of txtdlinePos[], auto mem_grow.  */
+	int		txtdlines;		/* LIMIT: Capacity/Size of txtdlinePos[], auto mem_grow.  */
 	unsigned int	*txtdlinePos;		/* An array to store offset position(relative to txtbuff) of each txt dlines, which
 						 * have already been charmapped, and MAYBE not displayed in the current charmap.
 						 * 1. In FTcharmap_get_txtdlIndex(), txtdlinePos[] after current charmap are considered as
 						 *    VALID if they are >0!
 					         */
 	#define TXTDLINES_GROW_SIZE     1024    /* Auto. mem_grow size for chmap->txtdlines and chmap->txtdlinePos[] */
-
-	int		txtdlncount;		/* displayed/charmapped line count, for all txtbuff
+	int 		txtdlntotal;		/* Total number of txtdlinePos[] that holds valid offset of each dline.
+						 * Including dlines above/at/after current charmap window.
+						 */
+	int		txtdlncount;		/* ( For charmap window loaction )
+						 * Displayed/charmapped dlines above current charmap, for all txtbuff
 						 * 			--- NOTE ---
 						 * 1. ALWAYS set txtdlncount to the start/right position before calling FTcharmap_uft8strings_writeFB(),
 						 *     			--- IMPORTANT ---
@@ -320,7 +325,7 @@ struct  FTsymbol_char_map {
 };
 
 EGI_FTCHAR_MAP* FTcharmap_create(size_t txtsize,  int x0, int y0,  int height, int width, int offx, int offy,
-                                 FT_Face face, size_t mapsize, size_t maplines, size_t mappixpl, int maplndis,
+                                 FT_Face face, int fw, int fh, size_t mapsize, size_t maplines, size_t mappixpl, int maplndis,
 				 int bkgcolor, EGI_16BIT_COLOR fontcolor, bool charColorMap_ON, bool hlmarkColorMap_ON);
 				 //bool charColorMap_ON, EGI_16BIT_COLOR fontcolor );
 
@@ -328,14 +333,14 @@ void 	FTcharmap_set_markcolor(EGI_FTCHAR_MAP *chmap, EGI_16BIT_COLOR color, EGI_
 int 	FTcharmap_memGrow_txtbuff(EGI_FTCHAR_MAP *chmap, size_t more_size);	/* NO lock */
 int 	FTcharmap_memGrow_txtdlinePos(EGI_FTCHAR_MAP *chmap, size_t more_size); /* No lock */
 int 	FTcharmap_memGrow_mapsize(EGI_FTCHAR_MAP *chmap, size_t more_size);   	/* NO lock */
-int 	FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, size_t txtsize);
+int 	FTcharmap_load_file(const char *fpath, EGI_FTCHAR_MAP *chmap, bool fullmap); //size_t txtsize);
 int 	FTcharmap_save_file(const char *fpath, EGI_FTCHAR_MAP *chmap);	/* mutex_lock */
 
 void 	FTcharmap_free(EGI_FTCHAR_MAP **chmap);
 int 	FTcharmap_set_pref_nextDispLine(EGI_FTCHAR_MAP *chmap);
 int  	FTcharmap_uft8strings_writeFB( FBDEV *fb_dev, EGI_FTCHAR_MAP *chmap,			/* mutex_lock, request_clear */
                                     //FT_Face face, int fw, int fh,
-                                    int fw, int fh,
+                                    //int fw, int fh,
                                     //int fontcolor, int transpcolor, int opaque,
                                     int transpcolor, int opaque,
                                     int *cnt, int *lnleft, int* penx, int* peny );

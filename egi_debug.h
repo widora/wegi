@@ -103,9 +103,15 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 
 /* Print to stderr and stdout */
 /* printf() format:
-   off_t 	%jd
-   size_t	%zu
-   ssize_t      %zd
+	     type:	      'long'      'pointer'
+    32bits system:            32bits        32bits
+    64bits system(LP64):      64bits        64bits
+
+   off_t 	%jd  For both 32/64bits system,  offt_t: int(32bits) long int(64bit)
+   size_t	%zu  For both 32/64bits system,  size_t: unsigned int(32bits) unsigned long(64bits)
+   ssize_t      %zd  For both 32/64bits system,  ssize_t: signed int(32bits) signed long(64bits)
+   char*   	%ld  For both 32/64bits system,  (char*)-(char*): int(32bits), long int(64bits)
+		Example: sprintf("%ld", (long int)(chmap->pref-chmap->txtbuff));
  */
 #define egi_dperr(fmt, args...)			\
 	do {						\

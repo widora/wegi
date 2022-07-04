@@ -31,6 +31,8 @@ Journal
 	1. Add egi_getset_backlightPwmDuty()
 2022-04-11:
 	1. Add egi_byteswap()
+2022-07-02:
+	1. Add egi_extract_aac_from_ts()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -229,7 +231,7 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize, int prot, int fl
 	/* Check size */
         fmap->fsize=sb.st_size;
 	if( fmap->fsize <= 0 && resize<1 ) {
-		//printf("%s: file size is 0! Fail to mmap '%s'!\n", __func__, fpath);
+		printf("%s: file size is 0! Fail to mmap '%s'!\n", __func__, fpath);
 		goto END_FUNC;
 	}
 
@@ -2635,7 +2637,7 @@ NEXT_FRAME:
 
 END_FUNC:
 	/* Close file */
-	fclose(fil);
+	if(fil) fclose(fil);
 
 	if(err) {
 		egi_id3v2tag_free(&mp3tag);
@@ -2751,3 +2753,614 @@ int egi_getset_backlightPwmDuty(int pwmnum, int *pget, int *pset, int adjust)
         return ret;
 }
 
+
+/*-----------------------------------------------------------------------------------------------
+Extract AAC audio data from a Transport Stream packet file fts, and it save to faac.
+
+
+Reference:
+  1. https://blog.csdn.net/leek5533/article/details/104993932
+　2. ISO/IEC13818-1 Information technology — Generic coding of moving
+	       pictures and associated audio information: Systems
+
+Abbreviations
+   PAT --- Program Association Table, list Program_Number and related PMT PID.
+   PMT --- Program Map Table, list Elementary Stream type and PID.
+	   If ONLY one program, then PMT maybe omitted!??? <--------
+   CAT --- Condition Access Table
+   NIT --- Network Information Table
+
+   PSI --- Program Specific Information. (PAT,PMT,CAT,...etc)
+   PES --- Packetized Elementary Stream
+
+Note:
+1. Suppose there's ONLY one audio(and/or one video) stream in ts file.
+   In this case PMT is NOT necessary.
+
+	      ( TS packets ---> PES packets ---> ES packets )
+2. A Transport Stream packet consists of:
+   TS Header(4Bs) + AdaptationField(option)(XBs) + Payload(184-X Bs)
+
+   1.2 A TS packet has 188 bytes totally.
+   1.1 PAT and PMT has no adaption field, and are filled with stuffing data.
+
+3. A PES packet consists of:
+   PES Header(6Bs) + OptionHeader(xBs) + Payload(xBs)
+
+   2.1 A PES packet is divided into stream data blocks, each block is packed into a TS packet as payload.
+   2.2 A PES packet == a playload_unit
+   2.3 (payload_unit_start_indicator==1 && packet_start_code_prefix) indicates start of a PES packet.
+
+4. Typical strucutre of ES data:
+   Audio ES:  ADTS_Header(7Bs) + AAC data(xBs)
+   Video ES:  NAL Header(4Bs) + NAL Type(1B) + H264 data(xBs)
+
+   3.1 A ES unit(a Frame etc.) is divied into data blocks, each block is packed into a PES packet as payload.
+
+5. Procedure:
+   1.Read TsHeader
+     ---> 2.Read TsAdaptation Field
+        ---> 3. Read Payload Data
+	       3.1 Case: TsHead.PID==0 (PMT_PID):
+			  Clear/init pcnt,...
+			  Get pmt_PID, nit_PID. ---> Reel back to end of TsHeader
+	       3.2 Case: TsHead.PID==pmt_PID: Parse PMT ---> Reel back to end of TsHeader
+               3.3 Other case:  PES data
+		   3.3.1 IF(TsHeader.payload_unit_start_indicator==1 && packet_start_code_prefix==1)
+			 Read a new PES Header + PES palylaod data.
+		   3.3.2 ELSE
+			 Read PES playload data.
+	           3.3.4 Save PES playload data as ES
+
+   <---- Skip to next TsHeader from end of current TsHeader.
+
+TODO:
+1. Ffplay fout with msg: skip_data_stream_element: Input buffer exhausted before END element found
+
+Journal:
+2022-06-30: Create the file.
+2022-07-01/02: Extract ES and save to fout.
+2022-07-02: Put to egi_utils.c
+
+@fts:  TS packet file path.
+@faac: Output AAC file path.
+
+Return:
+	0 	OK
+	<0	Fails
+-----------------------------------------------------------------------------------------------*/
+int egi_extract_aac_from_ts(const char *fts, const char *faac)
+{
+     //////////////////  TS_HEADER, TS_ADPT_FIELD   ////////////////////
+     typedef struct ts_header {   /* Total 4Bytes */
+	/*** BitsMark
+	 * bslbf:   Left bit first.
+	 * tcimsbf: Two’s complement integer, msb (sign) bit first
+	 * uimsbf:  Unsigned integer, most significant bit first
+	 * vlclbf:  Variable length code, left bit first,
+	 */
+	uint8_t sync_byte; 		    	/* 8b bslbf,  0x47 */
+	uint8_t transport_error_indicator;  	/* 1b bslbf, usually 0 */
+	uint8_t payload_unit_start_indicator; 	/* 1b bslbf */
+	uint8_t transport_priority;		/* 1b bslbf */
+	uint16_t PID;			  	/* 13 uimsbf */
+	uint8_t transport_scrambling_control;   /* 2 bslbf, 00 - no scrambling/encroption */
+	uint8_t adaptation_field_control;	/* 2 bslfb
+						 *  00- Reserved
+					 	 *  01- No adaptation_field, playload only
+						 *  10- Adapatation_field only, no payload
+						 *  11- Adapatation_field followed by payload
+						 */
+	uint8_t continuity_counter;		/* 4 uimsbf */
+     } TS_HEADER;
+
+     typedef struct ts_adapt_field {
+	/* This is from adaptation_field ONLY if it exists */
+	uint8_t adaptation_field_length;
+
+	uint8_t discontinuity_indicator;
+	uint8_t random_access_indicator;
+	/* more... */
+
+     } TS_ADPT_FIELD;
+     ///////////////////////////////////////////////////////////////
+
+	FILE *fil=NULL;
+	FILE *fout=NULL;    /* For output data */
+	int err=0;
+
+	TS_HEADER 	TsHeader;
+	TS_ADPT_FIELD 	TsAdptField;
+	uint8_t 	TsHeaderBytes[4];
+	const int TS_PSIZE=188;  /* TS packet size, No CRC */
+	long  		fpos;    /* current file position */
+
+	uint16_t 	PES_packet_length=0; /* PES packet length */
+        uint16_t 	program_map_PID=0; /* PID=0 will parsed as PID first, */
+//	bool 	        IsAudioStream=false;
+	int		TsAudioPID=0;	/* TS PID for audio */
+	int 		TsVideoPID=0;	/* TS PID for video */
+	int hcnt=0;  /* TsHeader counter */
+	char data[188]; /* Form temp. data */
+	int datasize;
+	int dcnt=0;	/* data count for one PES packet */
+	int pcnt=0;	/* PES packet count */
+
+
+	if(fts==NULL || faac==NULL)
+		return -1;
+
+	/* Open ts file */
+        fil=fopen(fts, "rb");
+        if(fil==NULL) {
+                egi_dperr("Fail to open '%s'", fts);
+                err=-1; goto END_FUNC;
+        }
+
+	/* Open file for output */
+	fout=fopen(faac, "wb");
+	if(fout==NULL) {
+		fclose(fil);
+		egi_dperr("Fail to open/create fout!");
+		err=-1; goto END_FUNC;
+	}
+
+   /* Loop parse TS packets data */
+   while(1) {
+
+	/* 1. Read TsHeader */
+        /* 1.1 Read TsHeaderBytes[], 4Bytes */
+        if( fread(TsHeaderBytes, 4, 1, fil)!=1 ) {
+		if(feof(fil)) {
+			egi_dpstd("End of file!\n");
+			break;
+		}
+		else{
+	                egi_dperr("Fail to read TsHeaderBytes!");
+        	        err=-2;  goto END_FUNC;
+		}
+        }
+	/* 1.2 Fill in TsHeader */
+	TsHeader.sync_byte = TsHeaderBytes[0];  /* 8b */
+	TsHeader.transport_error_indicator = TsHeaderBytes[1]>>7; /* 1b */
+	TsHeader.payload_unit_start_indicator = (TsHeaderBytes[1]&0b01000000)>>6; /* 1b */
+	TsHeader.transport_priority = (TsHeaderBytes[1]&0b00100000)>>5;  /* 1b */
+	TsHeader.PID = ((TsHeaderBytes[1]&0b00011111)<<8)+TsHeaderBytes[2];  /* 13b */
+	TsHeader.transport_scrambling_control = TsHeaderBytes[3]>>6;   /* 2b */
+	TsHeader.adaptation_field_control = (TsHeaderBytes[3]&0b00110000)>>4; /* 2b */
+	TsHeader.continuity_counter = (TsHeaderBytes[3]&0b00001111); /* 4b */
+
+	/* 1.3 Count TsHeader */
+	hcnt++;
+
+	/* 1.4 Check SYNC BYTE */
+	if(TsHeader.sync_byte!=0x47) {
+		egi_dpstd(DBG_RED"Data error, TsHeader.sync_byte != 0x47.n"DBG_RESET);
+//		err=-3; goto END_FUNC;
+	}
+
+#if 0  /* TEST: ------------ */
+	egi_dpstd("TsHeader PID: 0x%04X,  payload_unit_start_indicator: %d, contiCounter: %d, adaptation_field_control: %d, %s + %s\n",
+		TsHeader.PID, TsHeader.payload_unit_start_indicator, TsHeader.continuity_counter,
+		TsHeader.adaptation_field_control,
+		(TsHeader.adaptation_field_control&0b10)?"AdaptionField":"NoAdaptionField",
+		(TsHeader.adaptation_field_control&0b01)?"Payload":"NoPayLoad" );
+#endif
+
+        /* 1.5 Get current file position as end of TsHeader, later to reel back here. */
+        fpos=ftell(fil);
+
+	/* 2. Read TsAdptField if adaptation_field exists. */
+	if(TsHeader.adaptation_field_control&0b10) {
+//		egi_dpstd(" --- Adaptation Field ---\n");
+	   	/* Read adaptation_field_length */
+           	if( fread(&TsAdptField.adaptation_field_length, 1, 1, fil)!=1 ) {
+                	egi_dperr("Fail to read adaptation_field_length!");
+                	err=-4; goto END_FUNC;
+           	}
+//	   	egi_dpstd("adaptation_field_length: %d\n", TsAdptField.adaptation_field_length);
+//	   	egi_dpstd(" -----------\n");
+
+		/* Skip adaptation field */
+		if( fseek(fil, TsAdptField.adaptation_field_length, SEEK_CUR)!=0 ) {
+			egi_dpstd("fseek to skip adaptation field error!\n");
+			err=-4; goto END_FUNC;
+		}
+	}
+
+/*** PID Table --------------------------------------------
+	0x0000		  Program Associaton Table
+	0x0001  	  Conditional Access Table
+	0x0002  	  Transport Stream Descripton Table
+	0x0003-0x000F 	  Reserved
+	0x00010...0x1FFE  May be assigned as network_PID, Program_map_PID, elementary_PID,...
+	0x1FFF 		  Null packet
+----------------------------------------------------------*/
+
+	/* 3. ===== Read and parse payload data of TS packets ====== */
+
+	/* 3.1 Parse PAT(Program Association Table), reel back to fpos at end.
+	 *    Notice that No adaptation field for a PAT ts.
+	 */
+	if(TsHeader.PID==0) {
+	   egi_dpstd(" --- PAT ---\n");
+
+	   /*** Program Association Table
+		  table_id   			8b	uimsbf
+		  section_syntax_indicator	1b	bslbf
+		  '0'				1b      bslbf
+		  reserved			2b      bslbf
+		  section_length		12b     uimsbf
+		  transport_stream_id		16b	uimsbf
+		  reserved                      2b	bslbf
+		  version_number		5b	uimsbf
+		  current_next_indicator	1b	bslbf   1--Current applicable, 0--Not yet applicable
+		  section_number		8b	uimsbf
+		  last_section_number		8b      uimsbf
+		  for( i=0; i<N; i++) {
+			program_number		16b     uimsbf
+			reserved		 3b	bslbf
+			if(program_number=='0')
+			   network_PID(NIT) 	13b	uimsbf
+			else
+			   program_map_PID(PMT)	13b    	uimsbf
+		  }
+		  CRC_32			32b	uimsbf
+	    ***/
+
+		int i;
+		uint8_t  table_id;
+		uint16_t transport_stream_id;
+		uint8_t	 current_next_indicator;
+		uint8_t  last_section_number;
+		uint8_t  bytes[2];
+		uint16_t program_number;
+		uint16_t sectPID;
+
+		/* 3.1.1 Get table_id */
+	        if( fread(&table_id, 1, 1, fil)!=1 ) {
+        	        egi_dperr("Fail to read table_id!");
+                	err=-4; goto END_FUNC;
+        	}
+		egi_dpstd("table_id=0x%02X\n",table_id);
+
+/*** Table_ID assignment values  --------------
+ *	0x00	Program Association Section
+ *      0x01    Conditional Access Section
+ *	0x02    TS Program Map Section
+ *	0x03    TS Description Section
+ *	....
+ ---------------------------------------------*/
+
+		/* Check table_id */
+		if(table_id!=0x00) {
+			egi_dpstd(DBG_RED"Error, PAT table_id!=0x00"DBG_RESET);
+			/* Skip following data */
+			goto REEL_BACK;
+		}
+
+		/* 3.1.2 Clear IsAudioStream,dcnt...BEFORE next PES starts! */
+//		IsAudioStream=false;
+		dcnt=0;
+
+		/* 3.1.3 Get transport_stream_id */
+		if( fseek(fil, 2, SEEK_CUR)!=0 ) {  /* bypass 2bytes */
+			egi_dpstd("fseek error!\n");
+			err=-4;	goto END_FUNC;
+		}
+		if( fread(bytes, 2, 1, fil)!=1 ) {
+                       	egi_dperr("Fail to read transport_stream_id!");
+       	                err=-4; goto END_FUNC;
+                }
+		transport_stream_id=(bytes[0]<<8)+bytes[1];
+		egi_dpstd("transport_stream_id=%d\n",transport_stream_id);
+
+		/* 3.1.3 Get current_next_indicator */
+		if( fread(bytes, 1, 1, fil)!=1 ) {
+                        egi_dperr("Fail to read current_next_indicator!");
+                        err=-4; goto END_FUNC;
+                }
+		current_next_indicator=bytes[0]&0b1;
+		egi_dpstd("current_next_indicator=%d\n",current_next_indicator);
+
+		/* 3.1.4 Get last_section_number */
+		if( fseek(fil, 1, SEEK_CUR)!=0 ) {  /* bypass 1bytes */
+			egi_dpstd("fseek error!\n");
+			err=-4; goto END_FUNC;
+		}
+	        if( fread(&last_section_number, 1, 1, fil)!=1 ) {
+        	        egi_dperr("Fail to read last_section_number!");
+                	err=-4; goto END_FUNC;
+        	}
+		egi_dpstd("last_section_number=%d, totally %d sections.\n",last_section_number,last_section_number+1);
+
+		/* 3.1.5 Read all sections */
+		for(i=0; i< last_section_number+1; i++) {
+			/* Read program_number */
+			if( fread(bytes, 2, 1, fil)!=1 ) {
+                        	egi_dperr("Fail to read program_number!");
+        	                err=-4; goto END_FUNC;
+	                }
+			program_number=(bytes[0]<<8)+bytes[1];
+			egi_dpstd("program_number: %d\n", program_number);
+			/* Read sectPID */
+			if( fread(bytes, 2, 1, fil)!=1 ) {
+                                egi_dperr("Fail to read sectPID!");
+                                err=-4; goto END_FUNC;
+                        }
+			/* Check reserved as 0b111 */
+			egi_dpstd("PAT Reserved mark: %d\n", (bytes[0]>>5));
+			/* Get PID */
+			sectPID = ((bytes[0]&0b00011111)<<8)+bytes[1];   /* 0x01F0 --> 0x1001 */
+			if(program_number==0)
+				egi_dpstd("network_PID: 0x%04X\n", sectPID);
+			else {
+				egi_dpstd("program_map_PID: 0x%04X\n", sectPID);
+				program_map_PID=sectPID;
+			}
+		}
+		/* 3.1.6 Skip CRC to the end */
+		if( fseek(fil, 4, SEEK_CUR)!=0 ) {
+			egi_dpstd("CRC size error!\n");
+			err=-4;  goto END_FUNC;
+		}
+
+	        egi_dpstd(" -----------\n");
+
+REEL_BACK:
+		/* 3.1.7 Reel back to end of current TsHeader */
+		if( fseek(fil, fpos, SEEK_SET)!=0 ){
+			egi_dperr("fseek fpos");
+			err=-4; goto END_FUNC;
+		}
+	}
+
+#if 0	/* 3.2 Parse Program_Map_Table(PMT): If only 1 program in TS, then PMT will NOT exist!??? */
+        else if(TsHeader.PID==program_map_PID) {
+		//egi_dpstd("TsHeader.PID==progrem_map_PID\n");
+
+	   /*** Program Association Table
+		  table_id   			8b	uimsbf
+		  section_syntax_indicator	1b	bslbf
+		  '0'				1b      bslbf
+		  reserved			2b      bslbf
+		  section_length		12b     uimsbf
+		  program_number		16b	uimsbf
+		  reserved			2b	bslbf
+		  version_number		5b	uimsbf
+		  current_next_indicator	1b	bslbf
+		  section_number		8b	uimsbf
+		  last_section_number		8b	uimsbf
+		  reserved			3b	bslbf
+		  PCR_PID			13b	uimsbf
+		  reserved			4b	bslbf
+		  program_info_length		12b	uimsbf
+		  for(i=0; i<N; i++)
+			descriptor()
+		  for(i=0; i<N1; i++) {
+			stream_type		8b	uimsbf
+			reserved		3b	bslbf
+			elementary_PID		13b	uimsbf
+			reserved		4b	bslbf
+			ES_info_length		12b	uimsbf
+			for(i=0; i<N2; i++)
+				descriptor()
+		  }
+		  CRC_32			32b	rpchof
+	    **/
+
+		uint8_t  table_id;
+		uint8_t  bytes[2];
+		uint16_t program_number;
+
+	        egi_dpstd(" --- PMT ---\n");
+
+		/* M1. Get table_id */
+	        if( fread(&table_id, 1, 1, fil)!=1 ) {
+        	        egi_dperr("Fail to read table_id!");
+                	err=-4; goto END_FUNC;
+        	}
+		egi_dpstd("table_id=0x%02X\n",table_id);
+
+		/* Get program_number */
+		if( fseek(fil, 2, SEEK_CUR)!=0 ) {  /* bypass 2bytes */
+			egi_dpstd("fseek error!\n");
+			err=-4; goto END_FUNC;
+		}
+	        if( fread(&bytes, 2, 1, fil)!=1 ) {
+        	        egi_dperr("Fail to read program_number!");
+                	err=-4; goto END_FUNC;
+        	}
+		program_number=(bytes[0]<<8)+bytes[1];
+		egi_dpstd("program_number: %d\n", program_number);
+
+
+	        egi_dpstd(" -----------\n");
+
+		/* Reel back to end of current TsHeader */
+		if( fseek(fil, fpos, SEEK_SET)!=0 ){
+			egi_dperr("fseek fpos");
+			err=-4; goto END_FUNC;
+		}
+	}
+#endif
+
+	/* 3.3 Parse Program_Elementary_Stream(PES) packet ----- */
+	/* Note:
+	 *  1. Suppose there's ONLY one programe with one Audio(and/or one Video)stream(s) in TS packets.
+	 *     In this case, PMT is NOT necessary.
+	 *  2. Suppose other PIDs as for PES.
+	 */
+        //if(TsHeader.PID==0x0101 || TsHeader.PID==0x0100 || TsHeader.PID==0x1001 ) {
+	else {
+	   /***  PES  Header
+		  packet_start_code_prefix	24b	bslbf   // ==0x000001
+		  stream_id			8b	uimsbf
+			1011 1100	program_stream_map
+			1011 1101	private_stream_1
+			1011 1110	padding_stream
+			1011 1111	private_stream_2
+			110x xxxx	Audio stream number x xxxx
+			1110 xxxx	Video stream number xxxx
+
+		  PES_packet_length		16b	uimsbf
+			....
+	  ***/
+
+		uint8_t bytes[4];
+		bool IsPaddingStream=false;
+		uint32_t packet_start_code_prefix;
+		uint8_t stream_id;
+
+	        egi_dpstd(" --- PES PID:0x%04x [%s] ---\n", TsHeader.PID,
+			TsHeader.PID==TsAudioPID?"Audio":(TsHeader.PID==TsVideoPID?"Video":"Unkn") );
+
+		/* 3.3.1 Skip adaptation field if exists....OK */
+
+		/* 3.3.2 Get packet_start_code_prefix */
+	        if( fread(bytes, 3, 1, fil)!=1 ) {
+        	        egi_dperr("Fail to read packet_start_code_prefix!");
+                	err=-4; goto END_FUNC;
+        	}
+//		egi_dpstd("packet_start_code_prefix: 0x%02X%02X%02X\n",bytes[0],bytes[1],bytes[2]);
+		packet_start_code_prefix=(bytes[0]<<16)+(bytes[1]<<8)+bytes[2];
+
+	   /* Start of a new EPS packet */
+     	   if(packet_start_code_prefix==1) {
+
+		/* 3.3.3 Get stream_id */
+	        if( fread(&stream_id, 1, 1, fil)!=1 ) {
+        	        egi_dperr("Fail to read PES stream_id!");
+                	err=-4; goto END_FUNC;
+        	}
+
+		egi_dpstd("PES stream_id: ");
+		cstr_print_byteInBits((char)stream_id, "\n");
+
+		if(stream_id==0b10111100) /* program_stream_map */
+			egi_dpstd(DBG_GRAY"program_stream_map\n"DBG_RESET);
+		else if(stream_id==0b10111110) {
+			egi_dpstd(DBG_CYAN"...Padding stream....\n"DBG_RESET);
+			IsPaddingStream=true;
+		}
+
+		/* 3.3.4 Get PES_packet_length, if found packet_start_code_prefix. */
+		/* Read out PES_packet_length field, MAYBE invalid! */
+	        if( fread(bytes, 2, 1, fil)!=1 ) {
+       		        egi_dperr("Fail to read PES_packet_length!");
+               		err=-4;  goto END_FUNC;
+       		}
+
+		/* 3.3.5.2 Audio/Video Stream id */
+		if ( (stream_id>>4)==0b1110 ) {
+			egi_dpstd(DBG_BLUE"Video stream number %d\n"DBG_RESET, stream_id&0b00001111);
+//			IsAudioStream=false;
+			/* Get TsVideoPID */
+			TsVideoPID = TsHeader.PID;
+		}
+		else if ( (stream_id>>5)==0b110 ) {
+			egi_dpstd(DBG_GREEN"Audio stream number %d\n"DBG_RESET, stream_id&0b00011111);
+//			IsAudioStream=true;
+			/* Get TsAudioPID */
+			TsAudioPID = TsHeader.PID;
+		}
+		else {
+			egi_dpstd("Unknown PES\n");
+//			IsAudioStream=false;
+		}
+
+		/* 3.3.5 Start of a PES packet,  TsHeader payload_unit_start_indicator MUST be 1 */
+		//if(  IsAudioStream && TsHeader.payload_unit_start_indicator==1 && packet_start_code_prefix==1 ) {
+		if(  TsHeader.PID==TsAudioPID && TsHeader.payload_unit_start_indicator==1 && packet_start_code_prefix==1 ) {
+
+			/* 3.3.5.1 Finish last PES packet */
+			if(dcnt) {
+			    if(dcnt!=PES_packet_length)
+			        egi_dpstd(DBG_RED"Error! Last PES packet dcnt=%dBs, while PES_packet_length=%dBs\n"DBG_RESET,
+					dcnt, PES_packet_length);
+			    else
+			        egi_dpstd(DBG_GREEN"Last PES packet dcnt=%dBs, while PES_packet_length=%dBs\n"DBG_RESET,
+					dcnt, PES_packet_length);
+			    dcnt=0;
+//			    IsAudioStream=false;
+			    pcnt++; /* Finish a complet PES packet */
+			}
+
+			/* 3.3.5.3 Assign PES_packet_length NOW */
+			PES_packet_length=(bytes[0]<<8)+bytes[1];
+			egi_dpstd(DBG_GREEN"PES_packet_length: %d\n"DBG_RESET, PES_packet_length);
+		}
+	   }
+	   /* Not start of a new PES packet, rewind back, to read it as PES data. */
+	   else {
+		fseek(fil, -3, SEEK_CUR);
+	   }
+
+		/* 3.3.6 Read PES data */
+		//if(IsAudioStream && PES_packet_length>0) {
+		if( TsHeader.PID == TsAudioPID && PES_packet_length>0 ){
+			/* TODO: padding or other type data */
+//			printf("ftell(fil)=%ld, fpos=%ld, ftell-fpos=%ld\n", ftell(fil), fpos, ftell(fil)-fpos);
+			datasize=TS_PSIZE-(ftell(fil)-(fpos-4));  /* 4-sizeof(TsHeader), NOW ftell() at end of PES Header */
+
+			egi_dpstd("PES_packet_length=%d, datasize=%d, dcnt=%d\n", PES_packet_length,datasize,dcnt);
+			/* Get rid of tail data ??? This indicates data error~ */
+			if( dcnt+datasize > PES_packet_length ) {
+				egi_dpstd(DBG_RED"Adjust datasize...\n"DBG_RESET);
+				datasize=PES_packet_length-dcnt;
+			}
+			if( fread(data, datasize, 1, fil)!=1 ) {
+				egi_dperr("Fail to read PES data!\n");
+				err=-4; goto END_FUNC;
+			}
+			/* Write to fout */
+			if( fwrite(data, datasize, 1, fout)!=1 ) {
+				egi_dperr("Fail to write data to fout!");
+				err=-4; goto END_FUNC;
+			}
+
+			/* Count dcnt */
+			dcnt +=datasize;
+
+			/* Clear dcnt... XXX NOT here, at 3.1.2 AND 3.3.5.1 */
+
+		}
+//	        egi_dpstd(" -----------\n");
+
+		/* Reel back to end of current TsHeader */
+		if( fseek(fil, fpos, SEEK_SET)!=0 ){
+			egi_dperr("fseek fpos");
+			err=-4; goto END_FUNC;
+		}
+	} /* end 3.3 */
+
+	/* 4. Skip to next TS, from end of current TsHeader */
+	if( fseek(fil, TS_PSIZE-4, SEEK_CUR)!=0 )
+		break;
+
+   } /* End while */
+
+	/* Finish last PES packet */
+	if(feof(fil) && dcnt) {
+	    if(dcnt!=PES_packet_length)
+	        egi_dpstd(DBG_RED"Error! Last PES packet dcnt=%dBs, while PES_packet_length=%dBs\n"DBG_RESET,
+			dcnt, PES_packet_length);
+	    else
+	        egi_dpstd(DBG_GREEN"Last PES packet dcnt=%dBs, while PES_packet_length=%dBs\n"DBG_RESET,
+			dcnt, PES_packet_length);
+
+	    pcnt++; /* Finish a complet PES packet */
+	}
+
+END_FUNC:
+	egi_dpstd("Totally %d TsHeader found, %d PES packets parsed.\n", hcnt, pcnt);
+
+        /* Close file */
+	if(fil) fclose(fil);
+	if(fout) fclose(fout);
+
+        if(err) {
+	}
+
+	return err;
+}

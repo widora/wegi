@@ -16,7 +16,7 @@ Note:
 1. ONLY support profile of AAC LC(Low Complexity).
 2. Only support 2 channels NOW.
 3. Non_support:
- XXX Profile 'main' or 'SSR' profile, LTP
+ XXX Profile 'main' or 'SSR' profile, LTP(Long Term Prediction)
  XXX coupling channel elements (CCE)
  XXX 960/1920-sample frame size
  XXX low-power mode SBR
@@ -94,6 +94,7 @@ int main(int argc, char **argv)
 	/* input/output file */
 	char *fin_path=argv[1];
 	char *fout_path=argv[2];
+	char *fin_path2;
 
 	/* Allocate buffer for decoded PCM data */
 	/* A typical raw AAC frame includes 1024 samples
@@ -169,6 +170,8 @@ int main(int argc, char **argv)
 
 /* ----end: MSG QUEUE---- */
 
+
+
 ///////////// --- TEST: RADIO --- /////////////
 fout_path=NULL;
 RADIO_LOOP:
@@ -178,10 +181,15 @@ RADIO_LOOP:
 	/* Flush codec before a new session */
 	AACFlushCodec(aacDec); /* Not necessary? */
 
-	if(access("/tmp/a.stream",R_OK)==0)  /* ??? F_OK: can NOT ensure the file is complete !??? */
+
+	if(access("/tmp/a.stream",R_OK)==0) { /* ??? F_OK: can NOT ensure the file is complete !??? */
 		fin_path="/tmp/a.stream";
-	else if(access("/tmp/b.stream",R_OK)==0)
+		fin_path2="/tmp/a.ts";
+	}
+	else if(access("/tmp/b.stream",R_OK)==0) {
 		fin_path="/tmp/b.stream";
+		fin_path2="/tmp/b.ts";
+	}
 	else {
 		printf("\rConnecting...  "); fflush(stdout);
 		EGI_PLOG(LOGLV_INFO,"No downloaded stream file, wait...");
@@ -313,14 +321,14 @@ RADIO_LOOP:
 			/* Sep parameters for pcm_hanle, Assume format as SND_PCM_FORMAT_S16_LE, */
 			if(!pcmdev_ready || nchanl != aacFrameInfo.nChans || samplerate!=aacFrameInfo.sampRateOut )
 			{
-				printf(" Station %s\n", title);
+				printf("\n   %s\n", title);
    			        printf(" ----------------------------\n");
                 		printf("       AAC Radio Player\n");
 				//printf("     Helic AAC FP Decoder\n");
 		                printf(" ----------------------------\n");
-				printf(" Helix AAC FP Decoder\n");
+				printf(" Helix AAC FP Decoder(fmt=%d)\n", aacDecInfo->format);
 				printf(" profile\t%s\n",
-					strprofile[aacFrameInfo.profile] );
+					strprofile[aacFrameInfo.profile]);
 				printf(" nChans\t\t%d\n sampRateCore\t%d\n",
 					aacFrameInfo.nChans, aacFrameInfo.sampRateCore );
 				printf(" sampRateOut\t%d\n bitsPerSample\t%d\n outputSamps\t%d\n",  /* outputSamps=nchan*frames */
@@ -530,6 +538,11 @@ END_SESSION:  /* End current radio aac seq file session */
 		EGI_PLOG(LOGLV_ERROR, "Fail to remove '%s'.",fin_path);
 	else
 		EGI_PLOG(LOGLV_INFO, "OK, '%s' removed!", fin_path);
+
+	if(remove(fin_path2)!=0)
+		EGI_PLOG(LOGLV_ERROR, "Fail to remove '%s'.",fin_path2);
+	else
+		EGI_PLOG(LOGLV_INFO, "OK, '%s' removed!", fin_path2);
 
 
   	goto RADIO_LOOP;

@@ -2026,7 +2026,7 @@ char* cstr_get_peword(const unsigned char *cp)
 }
 
 
-/*------------------------------------------------------
+/*-----------------------------------------------------------
 Get byte length of an English word.
 An English word is separated by any UFT-8 char which is NOT
 an alphanumeric character.
@@ -2039,7 +2039,7 @@ This is to make left side of any word editor aligned.
 Return:
 	>=0	OK, length in bytes.
 	<0	Fails
-----------------------------------------------------*/
+-----------------------------------------------------------*/
 int cstr_strlen_eword(const unsigned char *cp)
 {
 	char *p;
@@ -2049,7 +2049,8 @@ int cstr_strlen_eword(const unsigned char *cp)
 		return 0;
 
 	p=(char *)cp;
-	while(*p && isalnum(*p)) {
+//	while(*p && isalnum(*p)) {
+	while(*p && ( isalnum(*p) || (*p==0x27) ) ) {  /* HK2022-06-24  Case "Mary's horse" */
 #if 0		/* XXX Shift p to next UFT8 char. */
 		len=cstr_charlen_uft8((const unsigned char *)p);
 		if(len<0) {

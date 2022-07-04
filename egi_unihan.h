@@ -32,17 +32,27 @@ typedef wchar_t 	EGI_UNICODE;
 
 #define MANDARIN_TXT_PATH    	"/mmc/kMandarin.txt"		/* kMandarin.txt from Unihan_Readings.txt, see UniHan_load_MandarinTxt() */
 #define HANYUPINYIN_TXT_PATH    "/mmc/kHanyuPinyin.txt"		/* kHanyuPinyin.txt from Unihan_Readings.txt, see UniHan_load_HanyuPinyinTxt() */
-#define UNIHANS_DATA_PATH       "/mmc/unihans_pinyin.dat"	/* Saved UNIHAN SET containing above unihans */
 
-#define CIZU_TXT_PATH			"/mmc/chinese_cizu.txt"		/* Cizu TXT file path */
-#define UNIHANGROUPS_DATA_PATH   	"/mmc/unihangroups_pinyin.dat"	/* Saved UNIHANGROUP set
+
+#ifdef LETS_NOTE  /* ------ For LETS_NOTE -------- */
+   #define UNIHANS_DATA_PATH       	"/home/midas-zhou/egi/unihans_pinyin.dat"
+   #define UNIHANGROUPS_DATA_PATH  	"/home/midas-zhou/egi/unihangroups_pinyin.dat"
+   #define UNIHANGROUPS_EXPORT_TXT_PATH "/home/midas-zhou/egi/group_test.txt"
+   #define PINYIN_NEW_WORDS_FPATH   	"/home/midas-zhou/egi/pinyin_new_words"
+   #define PINYIN_UPDATE_FPATH		"/home/midas-zhou/egi/update_words.txt"
+
+#else		 /* ------ For Widora -------- */
+   #define UNIHANS_DATA_PATH       "/mmc/unihans_pinyin.dat"	/* Saved UNIHAN SET containing above unihans */
+
+   #define CIZU_TXT_PATH		"/mmc/chinese_cizu.txt"		/* Cizu TXT file path */
+   #define UNIHANGROUPS_DATA_PATH   	"/mmc/unihangroups_pinyin.dat"	/* Saved UNIHANGROUP set
 									 * In practice, it's usually merged with UNIHANs set fir PINYIN IME */
-#define UNIHANGROUPS_EXPORT_TXT_PATH	"/mmc/group_test.txt"		/* Text file exported from an UNIHANGROUP set
+   #define UNIHANGROUPS_EXPORT_TXT_PATH	"/mmc/group_test.txt"		/* Text file exported from an UNIHANGROUP set
 									 * In practice, it's without UNIHNAs exported.*/
 
-#define PINYIN_NEW_WORDS_FPATH	"/mmc/pinyin_new_words" 	/* For collecting new Cizus/Phrases */
-#define PINYIN_UPDATE_FPATH	"/tmp/update_words.txt"		/* For updating typings of some Cizus/Phrases */
-
+   #define PINYIN_NEW_WORDS_FPATH	"/mmc/pinyin_new_words" 	/* For collecting new Cizus/Phrases */
+   #define PINYIN_UPDATE_FPATH	"/tmp/update_words.txt"		/* For updating typings of some Cizus/Phrases */
+#endif
 
 /* -----------  TXT and DATA files in EGI editor: test_editor.c  ----------------
 
