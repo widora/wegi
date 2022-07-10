@@ -72,6 +72,8 @@ Journal
 	1. Add cstr_count_lines()
 2022-06-15:
 	1. Add str_nextchar_uft8(), cstr_prevchar_uft8()
+2022-07-05:
+	1. cstr_parse_URL(): ':' exists in URL and may NOT follow hostname as port number.
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -443,51 +445,53 @@ int cstr_parse_URL(const char *URL, char **protocol, char **hostname,
 	pe=strstr(URL,"://");
 	if(pe==NULL)
 		return -2;
-
+	/* 1a. */
 	pe +=strlen("://");
 	if(protocol) *protocol=strndup(ps, pe-ps);
 
-	/* If port number specified in the URL */
+	/* 2. If port number specified in the URL */
 	ps=pe; /* Now ps points to end of '://'  <---------- */
 	pc=strstr(ps,":");
-	if(pc!=NULL) {
-		/* 2. Extract port number */
+        /* 2a. Check pc<pe, for ':' may be after the first '/', Example:  http://aaa.bb.cc/channels/dd/tv1/m3u8:500k/live.m3u8 */
+	pe=strstr(ps, "/"); /* the first '/' */
+	if(pc!=NULL && (pe==NULL || (pe!=NULL && pc<pe)) ) {
+		/* 2.1 Extract port number */
 		if(port) *port=atoi(pc+1);
 
-		/* 3. Eextract hostname */
+		/* 2.2 Eextract hostname */
 		if(hostname) *hostname=strndup(ps, pc-ps);
 
-		/* Extract path and dir */
+		/* 2.3 Extract path and dir */
 		ps=pc+strlen(":");
-		pe=strstr(ps, "/"); /* the first '/' */
+		//OK, see 2a.  pe=strstr(ps, "/"); /* the first '/' */
 		if(pe!=NULL) {
-			/* 4. Extract path */
+			/* 2.3.1 Extract path */
 			if(path) *path=strndup(pe, strlen(URL)-(pe-URL));
 
-			/* 5. Extract dir */
+			/* 2.3.2 Extract dir */
 			/* Locate the last '/' */
 			pc=(char *)URL+strlen(URL);
 			while(*pc != '/') pc--;
 			if(dir) *dir=strndup(pe, pc+1 -pe); /* +1 to include the last '/' */
 
-			/* 6. Extract filename */
+			/* 2.3.3 Extract filename */
 			if(filename) *filename=strdup(pc+1);
 
-			/* 7. Extract dirURL */
+			/* 2.3.4 Extract dirURL */
 			if(dirURL) *dirURL=strndup((char *)URL, pc+1 -(char *)URL);
 		}
-		/* If no subdir */
+		/* 2.4 If no subdir */
 		else {
-			/* 4. Extract dir */
+			/* 2.4.1 Extract path, TODO: with default file/resource name. */
 			if(path) *path=strdup("/");
 
-			/* 5. Extract dir */
+			/* 2.4.2 Extract dir */
 			if(dir) *dir=strdup("/");
 
-			/* 6. Extract filename */
-			// No filename, default!
+			/* 2.4.3 Extract filename */
+			// No filename, TODO: default file/resource name
 
-			/* 7. Extract dirURL */
+			/* 2.4.4 Extract dirURL */
 			if(dirURL) {
 				*dirURL=calloc(1, strlen(URL)+1+1);
 				if(*dirURL) {
@@ -503,50 +507,55 @@ int cstr_parse_URL(const char *URL, char **protocol, char **hostname,
 		return 0;
 	}
 
-	/* NOW: no ':' and port number in the URL string */
+	/* Function returns with port number in the URL */
 
-	/* 2a. Extract portnumber */
+	/* 3. NOW: no ':' and port number in the URL string */
+
+	/* 3.1 Extract portnumber */
 	if(port) *port=0; // TODO: Default port number according to protocols
 
-	/* Now ps points to end of '://'  <---------- */
-	pe=strstr(ps, "/"); /* the first '/' */
-	/* If '/' exists in the URL */
+	/* 3.2 Now ps points to end of '://'  <---------- */
+	//pe=strstr(ps, "/"); OK, see 2a.
+
+	/* NOW: pe points the first '/',  see 2a.  */
+
+	/* 3.3 If '/' exists in the URL */
 	if(pe!=NULL) { /* With subdir */
-		/* 3a. Extract hostname */
+		/* 3.3.1 Extract hostname */
 		if(hostname) *hostname=strndup(ps, pe-ps);
 
-		/* 4a. Extract path */
+		/* 3.3.2 Extract path */
 		if(path) *path=strndup(pe, strlen(URL)-(pe-URL));
 
-		/* 5a. Extract dir */
+		/* 3.3.3 Extract dir */
 		/* Locate the last '/' */
 		pc=(char *)URL+strlen(URL);
 		while(*pc != '/') pc--;
 		if(dir) *dir=strndup(pe, pc+1 -pe); /* +1 to include the last '/' */
 
-		/* 6a. Extract filename */
+		/* 3.3.4 Extract filename */
 		if(filename) *filename=strdup(pc+1);
 
-		/* 7a. Extract dirURL */
+		/* 3.3.5 Extract dirURL */
 		if(dirURL) *dirURL=strndup((char *)URL, pc+1 -(char *)URL);
 
 		/* TODO: to separate and extract query string&params from path */
 	}
-	/* Else: no subdir, no '/' in the URL */
+	/* 3.4 Else: no subdir, no '/' in the URL */
 	else {
-		/* 3b. Extract hostname */
+		/* 3.4.1 Extract hostname */
 		if(hostname) *hostname=strdup(ps);
 
-		/* 4b. Extract path */
+		/* 3.4.2 Extract path */
 		if(path) *path=strdup("/");
 
-		/* 5b. Extract dir */
+		/* 3.4.3 Extract dir */
 		if(dir) *dir=strdup("/");
 
-		/* 6b. Extract filename */
+		/* 3.4.4 Extract filename */
 		// No filename, default!
 
-		/* 7b. Extract dirURL */
+		/* 3.4.5 Extract dirURL */
 		if(dirURL) {
 			*dirURL=calloc(1, strlen(URL)+1+1);
 			if(*dirURL) {

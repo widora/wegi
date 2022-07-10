@@ -33,6 +33,9 @@ Journal
 	1. Add egi_byteswap()
 2022-07-02:
 	1. Add egi_extract_aac_from_ts()
+2022-07-06:
+	1. Add egi_extract_aac_from_ts(): Save video data.
+	2.  egi_extract_aac_from_ts() rename to egi_extract_AV_from_ts()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -231,7 +234,7 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize, int prot, int fl
 	/* Check size */
         fmap->fsize=sb.st_size;
 	if( fmap->fsize <= 0 && resize<1 ) {
-		printf("%s: file size is 0! Fail to mmap '%s'!\n", __func__, fpath);
+//		printf("%s: file size is 0! Fail to mmap '%s'!\n", __func__, fpath);
 		goto END_FUNC;
 	}
 
@@ -2757,7 +2760,6 @@ int egi_getset_backlightPwmDuty(int pwmnum, int *pget, int *pset, int adjust)
 /*-----------------------------------------------------------------------------------------------
 Extract AAC audio data from a Transport Stream packet file fts, and it save to faac.
 
-
 Reference:
   1. https://blog.csdn.net/leek5533/article/details/104993932
 　2. ISO/IEC13818-1 Information technology — Generic coding of moving
@@ -2780,9 +2782,12 @@ Note:
 	      ( TS packets ---> PES packets ---> ES packets )
 2. A Transport Stream packet consists of:
    TS Header(4Bs) + AdaptationField(option)(XBs) + Payload(184-X Bs)
-
-   1.2 A TS packet has 188 bytes totally.
-   1.1 PAT and PMT has no adaption field, and are filled with stuffing data.
+   1.1 A Transport Stream(TS) is a multiplex of Elementary Streams.
+   1.2 A TS packet has 188 bytes totally, or 204 bytes with CRC. (TS_204 NOT supported here).
+   1.3 PAT and PMT has no adaption field, and are filled with stuffing data.
+   1.4 TS PID may NOT be in sequence, as TS packets carrying Audio/Video ES data may be
+ 	mixed or interlaced.
+	However TS PID for the same Audio(or Video) ES stream MUST be in sequence.
 
 3. A PES packet consists of:
    PES Header(6Bs) + OptionHeader(xBs) + Payload(xBs)
@@ -2792,12 +2797,13 @@ Note:
    2.3 (payload_unit_start_indicator==1 && packet_start_code_prefix) indicates start of a PES packet.
 
 4. Typical strucutre of ES data:
-   Audio ES:  ADTS_Header(7Bs) + AAC data(xBs)
-   Video ES:  NAL Header(4Bs) + NAL Type(1B) + H264 data(xBs)
+   4.1 An ES unit(a Frame etc.) is divied into data blocks, each block is packed into a PES packet as payload.
+	An AAC Audio ES uint(a AAC frame):  ADTS_Header(7Bs) + AAC data(xBs)
 
-   3.1 A ES unit(a Frame etc.) is divied into data blocks, each block is packed into a PES packet as payload.
+	(H264 Annexb byte-stream)
+   	An H264 Video ES uint(a H264 frame):  Start_Code](3or4Bs) + NALU_Header(1Bs) + H264 data(xBs)
 
-5. Procedure:
+5. Audio data demuliplex/extraction procedure:
    1.Read TsHeader
      ---> 2.Read TsAdaptation Field
         ---> 3. Read Payload Data
@@ -2810,26 +2816,32 @@ Note:
 			 Read a new PES Header + PES palylaod data.
 		   3.3.2 ELSE
 			 Read PES playload data.
-	           3.3.4 Save PES playload data as ES
+	           3.3.4 Save PES playload data as ES, addup to be a complet unit/frame.
 
    <---- Skip to next TsHeader from end of current TsHeader.
 
 TODO:
-1. Ffplay fout with msg: skip_data_stream_element: Input buffer exhausted before END element found
+1. Ffplay faout with msg: skip_data_stream_element: Input buffer exhausted before END element found
+2. TS_204 NOT supportd yet.
+3. In some case audio stream is NOT marked by stream_id = 110x xxxx.
+   PID = 0x0101 default as audio stream??
 
 Journal:
 2022-06-30: Create the file.
-2022-07-01/02: Extract ES and save to fout.
+2022-07-01/02: Extract ES and save to faout.
 2022-07-02: Put to egi_utils.c
 
 @fts:  TS packet file path.
 @faac: Output AAC file path.
+	If exits, it will be trauncated.
+@fvd:  Output video file path.
+	If exits, it will be trauncated.
 
 Return:
 	0 	OK
 	<0	Fails
 -----------------------------------------------------------------------------------------------*/
-int egi_extract_aac_from_ts(const char *fts, const char *faac)
+int egi_extract_AV_from_ts(const char *fts, const char *faac, const char *fvd)
 {
      //////////////////  TS_HEADER, TS_ADPT_FIELD   ////////////////////
      typedef struct ts_header {   /* Total 4Bytes */
@@ -2866,26 +2878,30 @@ int egi_extract_aac_from_ts(const char *fts, const char *faac)
      ///////////////////////////////////////////////////////////////
 
 	FILE *fil=NULL;
-	FILE *fout=NULL;    /* For output data */
+	FILE *faout=NULL;    /* For audio output */
+	FILE *fvout=NULL;    /* For video output */
 	int err=0;
 
 	TS_HEADER 	TsHeader;
 	TS_ADPT_FIELD 	TsAdptField;
 	uint8_t 	TsHeaderBytes[4];
-	const int TS_PSIZE=188;  /* TS packet size, No CRC */
-	long  		fpos;    /* current file position */
+	const int TS_PSIZE=188;  /* TS packet size, No CRC. TS_204 NOT supported here. */
+	long  		fpos;    /* current fil file position */
 
-	uint16_t 	PES_packet_length=0; /* PES packet length */
+	uint16_t 	PES_audio_length=0; /* Audio PES packet length  */
+	uint16_t 	PES_video_length=0; /* Video PES packet length  */
+
         uint16_t 	program_map_PID=0; /* PID=0 will parsed as PID first, */
 //	bool 	        IsAudioStream=false;
 	int		TsAudioPID=0;	/* TS PID for audio */
 	int 		TsVideoPID=0;	/* TS PID for video */
-	int hcnt=0;  /* TsHeader counter */
-	char data[188]; /* Form temp. data */
+	int hcnt=0;     /* TsHeader counter */
+	char data[204]; /* Form temp. data <TS_PSIZE */
 	int datasize;
-	int dcnt=0;	/* data count for one PES packet */
-	int pcnt=0;	/* PES packet count */
-
+	int dacnt=0;	/* Data byter counter for one audio PES packet */
+	int dvcnt=0;	/* Data byter counter for one audio PES packet */
+	int pacnt=0;	/* Audio PES packet counter */
+	int pvcnt=0;	/* Vidoe PES packet counter */
 
 	if(fts==NULL || faac==NULL)
 		return -1;
@@ -2897,13 +2913,22 @@ int egi_extract_aac_from_ts(const char *fts, const char *faac)
                 err=-1; goto END_FUNC;
         }
 
-	/* Open file for output */
-	fout=fopen(faac, "wb");
-	if(fout==NULL) {
-		fclose(fil);
-		egi_dperr("Fail to open/create fout!");
+	/* Open file for Audio output */
+	faout=fopen(faac, "wb");
+	if(faout==NULL) {
+		egi_dperr("Fail to open/create faout!");
 		err=-1; goto END_FUNC;
 	}
+
+	/* Open file for Video output */
+	if(fvd) {
+		fvout=fopen(fvd, "wb");
+		if(fvout==NULL) {
+			egi_dperr("Fail to open/create fvout!");
+			err=-1; goto END_FUNC;
+		}
+	}
+
 
    /* Loop parse TS packets data */
    while(1) {
@@ -2933,10 +2958,10 @@ int egi_extract_aac_from_ts(const char *fts, const char *faac)
 	/* 1.3 Count TsHeader */
 	hcnt++;
 
-	/* 1.4 Check SYNC BYTE */
+	/* 1.4 Check SYNC BYTE, Suppose its' TS_188, NOT TS_204 */
 	if(TsHeader.sync_byte!=0x47) {
-		egi_dpstd(DBG_RED"Data error, TsHeader.sync_byte != 0x47.n"DBG_RESET);
-//		err=-3; goto END_FUNC;
+		egi_dpstd(DBG_RED"sync_byte error! or it's TS_204."DBG_RESET);
+		err=-3; goto END_FUNC;
 	}
 
 #if 0  /* TEST: ------------ */
@@ -3039,9 +3064,9 @@ int egi_extract_aac_from_ts(const char *fts, const char *faac)
 			goto REEL_BACK;
 		}
 
-		/* 3.1.2 Clear IsAudioStream,dcnt...BEFORE next PES starts! */
-//		IsAudioStream=false;
-		dcnt=0;
+		/* 3.1.2 Clear IsAudioStream,dacnt...BEFORE next PES starts! */
+		/* Not necessary? To clear it at 3.3.5.1 and 3.3.5a.1 */
+//		dacnt=0; dvcnt=0;
 
 		/* 3.1.3 Get transport_stream_id */
 		if( fseek(fil, 2, SEEK_CUR)!=0 ) {  /* bypass 2bytes */
@@ -3115,7 +3140,14 @@ REEL_BACK:
 		}
 	}
 
-#if 0	/* 3.2 Parse Program_Map_Table(PMT): If only 1 program in TS, then PMT will NOT exist!??? */
+	/* 3.2 Parse Program_Map_Table(PMT): If only 1 program in TS, then PMT will NOT exist!??? */
+#if 1
+        else if(TsHeader.PID==program_map_PID) {
+	        egi_dpstd(DBG_CYAN" --- PMT ---\n"DBG_RESET);
+		//egi_dpstd("TsHeader.PID==progrem_map_PID\n");
+		exit(0);
+	}
+#else
         else if(TsHeader.PID==program_map_PID) {
 		//egi_dpstd("TsHeader.PID==progrem_map_PID\n");
 
@@ -3174,7 +3206,6 @@ REEL_BACK:
 		program_number=(bytes[0]<<8)+bytes[1];
 		egi_dpstd("program_number: %d\n", program_number);
 
-
 	        egi_dpstd(" -----------\n");
 
 		/* Reel back to end of current TsHeader */
@@ -3192,6 +3223,7 @@ REEL_BACK:
 	 *  2. Suppose other PIDs as for PES.
 	 */
         //if(TsHeader.PID==0x0101 || TsHeader.PID==0x0100 || TsHeader.PID==0x1001 ) {
+
 	else {
 	   /***  PES  Header
 		  packet_start_code_prefix	24b	bslbf   // ==0x000001
@@ -3212,10 +3244,13 @@ REEL_BACK:
 		uint32_t packet_start_code_prefix;
 		uint8_t stream_id;
 
+#if 0		/* NOT HERE, Just after 3.3.5.2 */
 	        egi_dpstd(" --- PES PID:0x%04x [%s] ---\n", TsHeader.PID,
 			TsHeader.PID==TsAudioPID?"Audio":(TsHeader.PID==TsVideoPID?"Video":"Unkn") );
+#endif
 
 		/* 3.3.1 Skip adaptation field if exists....OK */
+		/* NOW fil points to the TS payload data */
 
 		/* 3.3.2 Get packet_start_code_prefix */
 	        if( fread(bytes, 3, 1, fil)!=1 ) {
@@ -3225,16 +3260,16 @@ REEL_BACK:
 //		egi_dpstd("packet_start_code_prefix: 0x%02X%02X%02X\n",bytes[0],bytes[1],bytes[2]);
 		packet_start_code_prefix=(bytes[0]<<16)+(bytes[1]<<8)+bytes[2];
 
-	   /* Start of a new EPS packet */
-     	   if(packet_start_code_prefix==1) {
+/* ------------> Start of a new EPS packet */
+     	 if(packet_start_code_prefix==1) {
 
 		/* 3.3.3 Get stream_id */
 	        if( fread(&stream_id, 1, 1, fil)!=1 ) {
         	        egi_dperr("Fail to read PES stream_id!");
-                	err=-4; goto END_FUNC;
+	                	err=-4; goto END_FUNC;
         	}
 
-		egi_dpstd("PES stream_id: ");
+		egi_dpstd("PID:0x%04x, PES stream_id: ", TsHeader.PID);
 		cstr_print_byteInBits((char)stream_id, "\n");
 
 		if(stream_id==0b10111100) /* program_stream_map */
@@ -3251,80 +3286,138 @@ REEL_BACK:
                		err=-4;  goto END_FUNC;
        		}
 
-		/* 3.3.5.2 Audio/Video Stream id */
+		/* 3.3.4a Audio/Video Stream id */
 		if ( (stream_id>>4)==0b1110 ) {
 			egi_dpstd(DBG_BLUE"Video stream number %d\n"DBG_RESET, stream_id&0b00001111);
-//			IsAudioStream=false;
 			/* Get TsVideoPID */
 			TsVideoPID = TsHeader.PID;
 		}
 		else if ( (stream_id>>5)==0b110 ) {
 			egi_dpstd(DBG_GREEN"Audio stream number %d\n"DBG_RESET, stream_id&0b00011111);
-//			IsAudioStream=true;
 			/* Get TsAudioPID */
 			TsAudioPID = TsHeader.PID;
 		}
 		else {
 			egi_dpstd("Unknown PES\n");
-//			IsAudioStream=false;
 		}
 
-		/* 3.3.5 Start of a PES packet,  TsHeader payload_unit_start_indicator MUST be 1 */
-		//if(  IsAudioStream && TsHeader.payload_unit_start_indicator==1 && packet_start_code_prefix==1 ) {
-		if(  TsHeader.PID==TsAudioPID && TsHeader.payload_unit_start_indicator==1 && packet_start_code_prefix==1 ) {
+		/* 3.3.5 Start of a Audio PES packet,  TsHeader payload_unit_start_indicator MUST be 1
+		 * Note: start of PES packet identified by PUSI bit in TS header */
+		if(  (TsHeader.PID==TsAudioPID  || TsHeader.PID==0x0101)   /* TODO PID 0x0101 default as audio stream? */
+		     && TsHeader.payload_unit_start_indicator==1 && packet_start_code_prefix==1 ) {
 
-			/* 3.3.5.1 Finish last PES packet */
-			if(dcnt) {
-			    if(dcnt!=PES_packet_length)
-			        egi_dpstd(DBG_RED"Error! Last PES packet dcnt=%dBs, while PES_packet_length=%dBs\n"DBG_RESET,
-					dcnt, PES_packet_length);
+			/* 3.3.5.1 Finish last TS for the PES packet */
+			if(dacnt) {
+			    if(dacnt!=PES_audio_length)
+			        egi_dpstd(DBG_RED"Error! Last Audio PES packet dacnt=%dBs, while PES_audio_length=%dBs\n"DBG_RESET,
+					dacnt, PES_audio_length);
 			    else
-			        egi_dpstd(DBG_GREEN"Last PES packet dcnt=%dBs, while PES_packet_length=%dBs\n"DBG_RESET,
-					dcnt, PES_packet_length);
-			    dcnt=0;
-//			    IsAudioStream=false;
-			    pcnt++; /* Finish a complet PES packet */
+			        egi_dpstd(DBG_GREEN"Last Audio PES packet dacnt=%dBs, while PES_audio_length=%dBs\n"DBG_RESET,
+					dacnt, PES_audio_length);
+			    dacnt=0;
+			    pacnt++; /* Finish a complet PES packet */
 			}
 
-			/* 3.3.5.3 Assign PES_packet_length NOW */
-			PES_packet_length=(bytes[0]<<8)+bytes[1];
-			egi_dpstd(DBG_GREEN"PES_packet_length: %d\n"DBG_RESET, PES_packet_length);
+			/* 3.3.5.2 Assign PES_audio_length NOW for the coming PES packet. */
+			PES_audio_length=(bytes[0]<<8)+bytes[1];
+			egi_dpstd(DBG_GREEN"PES_audio_length: %d\n"DBG_RESET, PES_audio_length);
 		}
-	   }
-	   /* Not start of a new PES packet, rewind back, to read it as PES data. */
-	   else {
-		fseek(fil, -3, SEEK_CUR);
-	   }
+		/* 3.3.5a  Start of a Vidoe PES packet */
+		else if( TsHeader.PID==TsVideoPID
+				&& TsHeader.payload_unit_start_indicator==1 && packet_start_code_prefix==1 ) {
 
-		/* 3.3.6 Read PES data */
-		//if(IsAudioStream && PES_packet_length>0) {
-		if( TsHeader.PID == TsAudioPID && PES_packet_length>0 ){
+			/* 3.3.5a.1 Finish last TS for the PES packet */
+			if(dvcnt) {
+			    /* For video stream, PES_video_length MAY be 0! */
+			    if(PES_video_length>0) {
+			   	if( dvcnt!=PES_video_length )
+				        egi_dpstd(DBG_RED"Error! Last Video PES packet dvcnt=%dBs, while PES_video_length=%dBs\n"DBG_RESET,
+						dvcnt, PES_video_length);
+			    	else
+			        	egi_dpstd(DBG_GREEN"Last Video PES packet dvcnt=%dBs, while PES_video_length=%dBs\n"DBG_RESET,
+						dvcnt, PES_video_length);
+			    }
+			    dvcnt=0;
+			    pvcnt++; /* Finish a complet PES packet */
+			}
+
+			/* 3.3.5a.2 Assign PES_video_length NOW for the coming PES packet. */
+			PES_video_length=(bytes[0]<<8)+bytes[1];
+			egi_dpstd(DBG_GREEN"PES_video_length: %d\n"DBG_RESET, PES_video_length);
+		}
+
+	   }
+/* <------------  Not start of a new PES packet, rewind back, to read it as PES data. */
+	 else {
+		fseek(fil, -3, SEEK_CUR);
+	 }
+
+/* TEST: ------------ */
+	        egi_dpstd(" --- PES PID:0x%04x [%s] ---\n", TsHeader.PID,
+			TsHeader.PID==TsAudioPID?"Audio":(TsHeader.PID==TsVideoPID?"Video":"Unkn") );
+
+		/* 3.3.6 Read Audio PES data */
+		if( (TsHeader.PID == TsAudioPID || TsHeader.PID==0x0101 )   /* TODO PID 0x0101 default as audio stream? */
+		    && PES_audio_length>0 ){
 			/* TODO: padding or other type data */
 //			printf("ftell(fil)=%ld, fpos=%ld, ftell-fpos=%ld\n", ftell(fil), fpos, ftell(fil)-fpos);
 			datasize=TS_PSIZE-(ftell(fil)-(fpos-4));  /* 4-sizeof(TsHeader), NOW ftell() at end of PES Header */
 
-			egi_dpstd("PES_packet_length=%d, datasize=%d, dcnt=%d\n", PES_packet_length,datasize,dcnt);
+			egi_dpstd("Audio PES_audio_length=%d, datasize=%d, dacnt=%d\n", PES_audio_length,datasize,dacnt);
 			/* Get rid of tail data ??? This indicates data error~ */
-			if( dcnt+datasize > PES_packet_length ) {
-				egi_dpstd(DBG_RED"Adjust datasize...\n"DBG_RESET);
-				datasize=PES_packet_length-dcnt;
+			if( dacnt+datasize > PES_audio_length ) {
+				egi_dpstd(DBG_RED"Audio adjust datasize...\n"DBG_RESET);
+				datasize=PES_audio_length-dacnt;
 			}
 			if( fread(data, datasize, 1, fil)!=1 ) {
-				egi_dperr("Fail to read PES data!\n");
+				egi_dperr("Fail to read Audio PES data!\n");
 				err=-4; goto END_FUNC;
 			}
-			/* Write to fout */
-			if( fwrite(data, datasize, 1, fout)!=1 ) {
-				egi_dperr("Fail to write data to fout!");
+			/* Write to faout */
+			if( fwrite(data, datasize, 1, faout)!=1 ) {
+				egi_dperr("Fail to write Audio data to faout!");
 				err=-4; goto END_FUNC;
 			}
 
-			/* Count dcnt */
-			dcnt +=datasize;
+			/* Count dacnt */
+			dacnt +=datasize;
 
-			/* Clear dcnt... XXX NOT here, at 3.1.2 AND 3.3.5.1 */
-
+			/* Clear dacnt... XXX NOT here, at 3.1.2 AND 3.3.5.1 */
 		}
+		/* 3.3.6a Read Video PES data. !!!OK, PES_video_length may be 0! */
+		else if( TsHeader.PID == TsVideoPID ) { //  && PES_video_length>0 ) {
+			/* TODO: padding or other type data */
+//			printf("ftell(fil)=%ld, fpos=%ld, ftell-fpos=%ld\n", ftell(fil), fpos, ftell(fil)-fpos);
+			datasize=TS_PSIZE-(ftell(fil)-(fpos-4));  /* 4-sizeof(TsHeader), NOW ftell() at end of PES Header */
+
+			egi_dpstd("PES_video_length=%d, datasize=%d, dvcnt=%d\n", PES_video_length,datasize, dvcnt);
+
+			#if 0 /* OK, PES_video_length MAY be 0!  Get rid of tail data ??? This indicates data error~ */
+			if( dvcnt+datasize > PES_video_length ) {
+				egi_dpstd(DBG_RED"Video adjust datasize...\n"DBG_RESET);
+				datasize=PES_video_length-dvcnt;
+			}
+			#endif
+
+			/* If need to save video data */
+			if(fvout) {
+			    if( fread(data, datasize, 1, fil)!=1 ) {
+				egi_dperr("Fail to read Video PES data!\n");
+				err=-4; goto END_FUNC;
+			    }
+			    /* Write to fout */
+			    if( fwrite(data, datasize, 1, fvout)!=1 ) {
+				egi_dperr("Fail to write Video data to fvout!");
+				err=-4; goto END_FUNC;
+			    }
+			}
+
+			/* Count dvcnt */
+			dvcnt +=datasize;
+
+			/* Clear dvcnt... XXX NOT here, at 3.1.2 AND 3.3.5a.1 */
+		}
+
 //	        egi_dpstd(" -----------\n");
 
 		/* Reel back to end of current TsHeader */
@@ -3341,23 +3434,39 @@ REEL_BACK:
    } /* End while */
 
 	/* Finish last PES packet */
-	if(feof(fil) && dcnt) {
-	    if(dcnt!=PES_packet_length)
-	        egi_dpstd(DBG_RED"Error! Last PES packet dcnt=%dBs, while PES_packet_length=%dBs\n"DBG_RESET,
-			dcnt, PES_packet_length);
-	    else
-	        egi_dpstd(DBG_GREEN"Last PES packet dcnt=%dBs, while PES_packet_length=%dBs\n"DBG_RESET,
-			dcnt, PES_packet_length);
+	if(feof(fil)) {
+	    /* Audio */
+	    if(dacnt) {
+	    	if(dacnt!=PES_audio_length)
+	        	egi_dpstd(DBG_RED"Error! Last PES packet dacnt=%dBs, while PES_audio_length=%dBs\n"DBG_RESET,
+				dacnt, PES_audio_length);
+	    	else
+	        	egi_dpstd(DBG_GREEN"Last PES packet dacnt=%dBs, while PES_audio_length=%dBs\n"DBG_RESET,
+				dacnt, PES_audio_length);
 
-	    pcnt++; /* Finish a complet PES packet */
+	    	pacnt++; /* PES count */
+	    }
+	    /* Video */
+	    if(dvcnt) {
+	    	if(dvcnt!=PES_video_length)
+	        	egi_dpstd(DBG_RED"Error! Last video PES packet dvcnt=%dBs, while PES_video_length=%dBs\n"DBG_RESET,
+				dvcnt, PES_video_length);
+	    	else
+	        	egi_dpstd(DBG_GREEN"Last video PES packet dvcnt=%dBs, while PES_video_length=%dBs\n"DBG_RESET,
+				dvcnt, PES_video_length);
+
+	    	pvcnt++; /* PES count */
+	    }
 	}
 
+
 END_FUNC:
-	egi_dpstd("Totally %d TsHeader found, %d PES packets parsed.\n", hcnt, pcnt);
+	egi_dpstd("Totally %d TsHeader found, %d Audio and %d Video PES packets received.\n", hcnt, pacnt,pvcnt);
 
         /* Close file */
 	if(fil) fclose(fil);
-	if(fout) fclose(fout);
+	if(faout) fclose(faout);
+	if(fvout) fclose(fvout);
 
         if(err) {
 	}

@@ -662,9 +662,11 @@ pFormatCtx->probesize2=128*1024;
                                     18, 18, fbsname,               	/* fw,fh, pstr */
                                     240, 1, 0,           		/* pixpl, lines, gap */
                                     0, 10,                      	/* x0,y0, */
-                                    WEGI_COLOR_GRAY, -1, -1);   	/* fontcolor, stranscolor,opaque */
+                                    WEGI_COLOR_GRAY, -1, -1,	   	/* fontcolor, stranscolor,opaque */
+				    NULL,NULL,NULL,NULL);
 	pic_info.fname=fbsname;
 	//free(fname); fname=NULL; /* to be freed at last */
+
 
 /* disable audio */
 if(disable_audio && audioStream>=0 )
@@ -828,7 +830,7 @@ if(disable_audio && audioStream>=0 )
 			return (void *)-1;
 		}
 
-		/* <<<<<<<<<<<<     create a thread to display audio spectrum    >>>>>>>>>>>>>>> */
+#if 0		/* <<<<<<<<<<<<     create a thread to display audio spectrum    >>>>>>>>>>>>>>> */
 	       if(enable_audio_spectrum)
                {
 	           if(pthread_create(&pthd_audioSpectrum, NULL, ff_display_spectrum, NULL ) != 0) {
@@ -841,6 +843,7 @@ if(disable_audio && audioStream>=0 )
 	           /* set running token */
 		   pthd_audioSpectrum_running=true;
 	       }
+#endif
 
 	} /* end of if(audioStream =! -1) */
 

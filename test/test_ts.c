@@ -46,7 +46,7 @@ Midas Zhou
 int main(int argc, char **argv)
 {
 
-	egi_extract_aac_from_ts(argv[1], "/tmp/ts.aac");
+	egi_extract_AV_from_ts(argv[1], "/tmp/ts.aac", "/tmp/ts.h264");
 
 	return 0;
 }

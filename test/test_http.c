@@ -4,6 +4,8 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 An example to parse and download AAC m3u8 file.
+AAC stream data to be saved as a.stream/b.stream.
+H264 stream data to be save as a.h264/b.h264.
 
 TODO:
 1. For some m3u8 address, it sometimes exits accidently when calling https_easy_download().
@@ -18,6 +20,8 @@ Journal:
 	1. Extract AAC from TS.
 2022-07-03:
 	1. Save as a._stream/b._stream, then rename to a.stream/b.stream
+2022-07-08:
+	1. Extract NAUL data and save to a._h264/b._h264 then rename to a.h264/b.h264
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -38,6 +42,8 @@ size_t curl_callback(void *ptr, size_t size, size_t nmemb, void *userp);
 void parse_m3u8list(char *strm3u);
 char aacLastURL[1024];  /* The last URL of downloaded AAC file */
 char* dirURL; /* Dir URL of input m3u8 address */
+char* hostName;
+char* protocolName;
 
 int main(int argc, char **argv)
 {
@@ -77,10 +83,9 @@ int main(int argc, char **argv)
         EGI_PLOG(LOGLV_CRITICAL,"Http request head:\n %s\n", strRequest);
 
 	/* Get dirURL */
-	/* URL, protocol, **hostname, *port, **path, **filename, **dir, **dirURL */
-	cstr_parse_URL(strRequest, NULL, NULL, NULL, NULL, NULL, NULL, &dirURL);
-	printf("dirULR: %s\n", dirURL);
-
+	/* URL, **protocol, **hostname, *port, **path, **filename, **dir, **dirURL */
+	cstr_parse_URL(strRequest, &protocolName, &hostName, NULL, NULL, NULL, NULL, &dirURL);
+	printf("protocolName: %s\n hostName: %s\n dirULR: %s\n", protocolName,hostName,dirURL);
 
 while(1) {
 	/* Reset buff */
@@ -171,6 +176,12 @@ void parse_m3u8list(char *strm3u)
 	/* Parse AAC URL List */
         ps=strtok(strm3u, delim);
         for(k=0; ps!=NULL; k++) {
+		/* Skip # line */
+		if(ps[0]=='#') {
+			ps=strtok(NULL, delim);
+			continue;
+		}
+
 		printf(">>>> Ps[]: %s\n",ps);
 		/* Check type */
 		Is_AAC=Is_TS=false;
@@ -178,37 +189,37 @@ void parse_m3u8list(char *strm3u)
 			Is_AAC=true;
 		else if( strstr(ps, ".ts") )
 			Is_TS=true;
+		else
+			Is_TS=true;
 
 		//if( (strstr(ps,"aac") && strstr(ps,"//") ) || (strstr(ps, ".ts") ) {
 		if( Is_AAC || Is_TS ) {
-			EGI_PLOG(LOGLV_INFO, "URL: '%s'.",ps);
+			EGI_PLOG(LOGLV_INFO, "sub URL: '%s'.",ps);
+			memset(aacURL,0,sizeof(aacURL));
 
-			if(Is_AAC) {
-				/* Get right URL for AAC file, suppose ps starts with "//" */
-				memset(aacURL,0,sizeof(aacURL));
-				if( strstr(ps,"http:")==NULL ) {
-					strcat(aacURL, "http:");
-					strncat(aacURL, ps, sizeof(aacURL)-1-strlen("http:"));
-				}
-				else {
-					strncat(aacURL, ps, sizeof(aacURL)-1);
-				}
+			/* To assemble and get complete URL for .ts file HK2022-07-05 */
+		        /* Given full URL */
+			if(strstr(ps, "http:") || strstr(ps, "https:")) {
+				strncat(aacURL, ps, sizeof(aacURL)-1);
 			}
-			else { // Is_TS
-				/* Get right URL for .ts file, suppose ps starts without "//"  */
-				memset(aacURL,0,sizeof(aacURL));
-				if(strstr(ps, "http:")==NULL && strstr(ps, "https:")==NULL ) {
-					//strcat(aacURL, "http:");
-					//strncat(aacURL, ps, sizeof(aacURL)-1-strlen("http:"));
-					strcat(aacURL,dirURL);
-					strncat(aacURL, ps, sizeof(aacURL)-1);
-				}
-				else {
-					strncat(aacURL, ps, sizeof(aacURL)-1);
-				}
-		   	}
+			/* Given hostname+path */
+			else if( ps[0]=='/' && (strlen(ps)>1 && ps[1]=='/') ) {
+				strcat(aacURL, protocolName);  /* including "//" */
+				strncat(aacURL, ps+2, sizeof(aacURL)-1-strlen(aacURL));
+			}
+			/* Given path */
+			else if( ps[0]=='/' && (strlen(ps)>1 && ps[1]!='/') ) {
+				 strcat(aacURL, protocolName);
+				 strncat(aacURL, hostName, sizeof(aacURL)-1-strlen(aacURL));
+				 strncat(aacURL, ps, sizeof(aacURL)-1-strlen(aacURL));
+			}
+			/* Given file/resource name */
+			//else if(strstr(ps, "http:")==NULL && strstr(ps, "https:")==NULL ) {
+			else {
+				strcat(aacURL,dirURL);
+				strncat(aacURL, ps, sizeof(aacURL)-1-strlen(aacURL));
+			}
 			egi_dpstd(DBG_BLUE"Stream URL: %s\n"DBG_RESET, aacURL);
-
 
 			/* 1. Check and download a.stream */
 			if( access("/tmp/a.stream",F_OK)!=0 && strcmp(aacURL, aacLastURL) > 0) {
@@ -228,10 +239,14 @@ void parse_m3u8list(char *strm3u)
 				} else {
 					/* Extract AAC from TS */
 					if(Is_TS)
-					    egi_extract_aac_from_ts("/tmp/a.ts", "/tmp/a._stream");
+					    egi_extract_AV_from_ts("/tmp/a.ts", "/tmp/a._stream", "/tmp/a._h264");
 
 					/* Rename to a.stream */
 					rename("/tmp/a._stream","/tmp/a.stream");
+
+					/* Rename to a.h264 */
+					if(access("/tmp/a.h264",F_OK)!=0 )
+						rename("/tmp/a._h264", "/tmp/a.h264");
 
 					/* Update aacLastURL */
 					EGI_PLOG(LOGLV_INFO, "Ok, a.stream updated! curl_nwrite=%d", curl_nwrite);
@@ -259,10 +274,14 @@ void parse_m3u8list(char *strm3u)
 				} else {
 					/* Extract AAC from TS */
 					if(Is_TS)
-					    egi_extract_aac_from_ts("/tmp/b.ts", "/tmp/b._stream");
+					    egi_extract_AV_from_ts("/tmp/b.ts", "/tmp/b._stream", "/tmp/b._h264");
 
 					/* Rename to a.stream */
 					rename("/tmp/b._stream","/tmp/b.stream");
+
+                                        /* Rename to b.h264 */
+                                        if(access("/tmp/b.h264",F_OK)!=0 )
+                                                rename("/tmp/b._h264", "/tmp/b.h264");
 
 					/* Update aacLastURL */
 					EGI_PLOG(LOGLV_INFO, "Ok, b.stream updated! curl_nwrite=%d", curl_nwrite);
@@ -287,7 +306,7 @@ void parse_m3u8list(char *strm3u)
 				} else {
 					/* Extract AAC from TS */
 					if(Is_TS)
-					    egi_extract_aac_from_ts("/tmp/a.ts", "/tmp/a._stream");
+					    egi_extract_AV_from_ts("/tmp/a.ts", "/tmp/a._stream", NULL);
 
 					/* Rename to a.stream */
 					rename("/tmp/a._stream","/tmp/a.stream");

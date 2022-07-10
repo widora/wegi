@@ -10,7 +10,7 @@ Test libhelixaac
 To make a simple m3u8 radio player:
 	test_heliaac.c 	---> radio_aacdecode
 	test_http.c	---> http_aac
-
+	test_decodeh264.c ---> h264_decode
 
 Note:
 1. ONLY support profile of AAC LC(Low Complexity).
