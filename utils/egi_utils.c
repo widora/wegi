@@ -36,6 +36,9 @@ Journal
 2022-07-06:
 	1. Add egi_extract_aac_from_ts(): Save video data.
 	2.  egi_extract_aac_from_ts() rename to egi_extract_AV_from_ts()
+2022-07-14:
+	1. egi_extract_AV_from_ts() 3.3.6/3.3.6a: fread/fwrite will fail
+	   if datasize==0!
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -3352,31 +3355,35 @@ REEL_BACK:
 		fseek(fil, -3, SEEK_CUR);
 	 }
 
-/* TEST: ------------ */
+#if 0 /* TEST: ------------ */
 	        egi_dpstd(" --- PES PID:0x%04x [%s] ---\n", TsHeader.PID,
 			TsHeader.PID==TsAudioPID?"Audio":(TsHeader.PID==TsVideoPID?"Video":"Unkn") );
-
+#endif
 		/* 3.3.6 Read Audio PES data */
 		if( (TsHeader.PID == TsAudioPID || TsHeader.PID==0x0101 )   /* TODO PID 0x0101 default as audio stream? */
 		    && PES_audio_length>0 ){
 			/* TODO: padding or other type data */
-//			printf("ftell(fil)=%ld, fpos=%ld, ftell-fpos=%ld\n", ftell(fil), fpos, ftell(fil)-fpos);
+			//printf("ftell(fil)=%ld, fpos=%ld, ftell-fpos=%ld\n", ftell(fil), fpos, ftell(fil)-fpos);
 			datasize=TS_PSIZE-(ftell(fil)-(fpos-4));  /* 4-sizeof(TsHeader), NOW ftell() at end of PES Header */
 
-			egi_dpstd("Audio PES_audio_length=%d, datasize=%d, dacnt=%d\n", PES_audio_length,datasize,dacnt);
+//			egi_dpstd("Audio PES_audio_length=%d, datasize=%d, dacnt=%d\n", PES_audio_length,datasize,dacnt);
 			/* Get rid of tail data ??? This indicates data error~ */
 			if( dacnt+datasize > PES_audio_length ) {
 				egi_dpstd(DBG_RED"Audio adjust datasize...\n"DBG_RESET);
 				datasize=PES_audio_length-dacnt;
 			}
 			if( fread(data, datasize, 1, fil)!=1 ) {
-				egi_dperr("Fail to read Audio PES data!\n");
-				err=-4; goto END_FUNC;
+				if(datasize>0) {  /* !!!datasize may be 0! */
+					egi_dperr("Fail to read Audio PES data!\n");
+					err=-4; goto END_FUNC;
+				}
 			}
 			/* Write to faout */
 			if( fwrite(data, datasize, 1, faout)!=1 ) {
-				egi_dperr("Fail to write Audio data to faout!");
-				err=-4; goto END_FUNC;
+				if(datasize>0) { /* !!!datasize may be 0! */
+					egi_dperr("Fail to write Audio data to faout!");
+					err=-4; goto END_FUNC;
+				}
 			}
 
 			/* Count dacnt */
@@ -3387,10 +3394,10 @@ REEL_BACK:
 		/* 3.3.6a Read Video PES data. !!!OK, PES_video_length may be 0! */
 		else if( TsHeader.PID == TsVideoPID ) { //  && PES_video_length>0 ) {
 			/* TODO: padding or other type data */
-//			printf("ftell(fil)=%ld, fpos=%ld, ftell-fpos=%ld\n", ftell(fil), fpos, ftell(fil)-fpos);
+			//printf("ftell(fil)=%ld, fpos=%ld, ftell-fpos=%ld\n", ftell(fil), fpos, ftell(fil)-fpos);
 			datasize=TS_PSIZE-(ftell(fil)-(fpos-4));  /* 4-sizeof(TsHeader), NOW ftell() at end of PES Header */
 
-			egi_dpstd("PES_video_length=%d, datasize=%d, dvcnt=%d\n", PES_video_length,datasize, dvcnt);
+//			egi_dpstd("PES_video_length=%d, datasize=%d, dvcnt=%d\n", PES_video_length,datasize, dvcnt);
 
 			#if 0 /* OK, PES_video_length MAY be 0!  Get rid of tail data ??? This indicates data error~ */
 			if( dvcnt+datasize > PES_video_length ) {
@@ -3399,16 +3406,22 @@ REEL_BACK:
 			}
 			#endif
 
+			/* Read out */
+		        if( fread(data, datasize, 1, fil)!=1 ) {
+				egi_dperr("Fail to read Video PES data with size=%d, at file pos=%ld!\n", datasize, ftell(fil));
+				//if(!feof(fil)) {
+				if(datasize>0) {   /* !!! datasize may be 0! */
+					err=-4; goto END_FUNC;
+				}
+			}
 			/* If need to save video data */
 			if(fvout) {
-			    if( fread(data, datasize, 1, fil)!=1 ) {
-				egi_dperr("Fail to read Video PES data!\n");
-				err=-4; goto END_FUNC;
-			    }
 			    /* Write to fout */
 			    if( fwrite(data, datasize, 1, fvout)!=1 ) {
-				egi_dperr("Fail to write Video data to fvout!");
-				err=-4; goto END_FUNC;
+				if(datasize>0) {  /* !!! datasize may be 0! */
+					egi_dperr("Fail to write Video data to fvout!");
+					err=-4; goto END_FUNC;
+				}
 			    }
 			}
 
@@ -3448,13 +3461,15 @@ REEL_BACK:
 	    }
 	    /* Video */
 	    if(dvcnt) {
-	    	if(dvcnt!=PES_video_length)
-	        	egi_dpstd(DBG_RED"Error! Last video PES packet dvcnt=%dBs, while PES_video_length=%dBs\n"DBG_RESET,
-				dvcnt, PES_video_length);
-	    	else
-	        	egi_dpstd(DBG_GREEN"Last video PES packet dvcnt=%dBs, while PES_video_length=%dBs\n"DBG_RESET,
-				dvcnt, PES_video_length);
-
+	        /* For video stream, PES_video_length MAY be 0! */
+	        if(PES_video_length>0) {
+	    		if(dvcnt!=PES_video_length)
+	        		egi_dpstd(DBG_RED"Error! Last video PES packet dvcnt=%dBs, while PES_video_length=%dBs\n"DBG_RESET,
+					dvcnt, PES_video_length);
+	    		else
+	        		egi_dpstd(DBG_GREEN"Last video PES packet dvcnt=%dBs, while PES_video_length=%dBs\n"DBG_RESET,
+					dvcnt, PES_video_length);
+		}
 	    	pvcnt++; /* PES count */
 	    }
 	}

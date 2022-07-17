@@ -118,7 +118,7 @@ char*	cstr_replace_string(char **src, int left, const char *obj, const char *sub
 
 bool    cstr_is_absoluteURL();
 int 	cstr_parse_URL(const char *URL, char **protocol, char **hostname, unsigned int *port,
-		 	 char **filename, char **path, char **dir, char **dirURL);
+		        char **filename, char **path, char **dir, char **dirURL);
 //int 	m3u_parse_simple_HLS(char *strHLS, char ***URI, int *ns);
 char* 	cstr_decode_htmlSpecailChars(char *strHtml);
 int 	cstr_squeeze_string(char *buff, int size, char spot);

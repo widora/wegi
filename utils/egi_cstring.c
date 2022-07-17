@@ -74,6 +74,8 @@ Journal
 	1. Add str_nextchar_uft8(), cstr_prevchar_uft8()
 2022-07-05:
 	1. cstr_parse_URL(): ':' exists in URL and may NOT follow hostname as port number.
+2022-07-12:
+	1. cstr_parse_URL(): fileName excludes params starting with '?'
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -94,7 +96,6 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "egi_log.h"
 #include "egi_utils.h"
 #include "egi_debug.h"
-
 
 
 
@@ -426,6 +427,7 @@ int cstr_parse_URL(const char *URL, char **protocol, char **hostname,
 	char *ps=NULL;
 	char *pe=NULL;
 	char *pc=NULL;  /* Point to the ':' before port number */
+	char *pt=NULL;
 
 	/* Check URL */
 	if(URL==NULL)
@@ -475,7 +477,14 @@ int cstr_parse_URL(const char *URL, char **protocol, char **hostname,
 			if(dir) *dir=strndup(pe, pc+1 -pe); /* +1 to include the last '/' */
 
 			/* 2.3.3 Extract filename */
-			if(filename) *filename=strdup(pc+1);
+			if(filename) {
+			   // *filename=strdup(pc+1);
+			   /* Erase params */
+			   if( (pt=strstr(pc+1,"?")) !=NULL)
+				*filename=strndup(pc+1, pt-pc-1);
+			   else
+				*filename=strdup(pc+1);
+			}
 
 			/* 2.3.4 Extract dirURL */
 			if(dirURL) *dirURL=strndup((char *)URL, pc+1 -(char *)URL);
@@ -534,7 +543,14 @@ int cstr_parse_URL(const char *URL, char **protocol, char **hostname,
 		if(dir) *dir=strndup(pe, pc+1 -pe); /* +1 to include the last '/' */
 
 		/* 3.3.4 Extract filename */
-		if(filename) *filename=strdup(pc+1);
+		//if(filename) *filename=strdup(pc+1);
+		/* Erase params */
+		if(filename) {
+		    if( (pt=strstr(pc+1,"?")) !=NULL)
+			*filename=strndup(pc+1, pt-pc-1);
+		    else
+			*filename=strdup(pc+1);
+		}
 
 		/* 3.3.5 Extract dirURL */
 		if(dirURL) *dirURL=strndup((char *)URL, pc+1 -(char *)URL);

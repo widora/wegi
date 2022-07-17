@@ -340,10 +340,12 @@ static int WBTMenu_Command_ID=WBTMENU_COMMAND_NONE;
    int render_msgid, kev_msgid, mev_msgid;
 
    #define MSG_REFRESH_SURFACE  1
-   /***  struct msgbuf {
-    *      long mtype;       // message type, must be > 0
-    *      char mtext[1];    // message data
-    *    };
+
+   /*** See 'uapi/linux/msg.h': message buffer for msgsnd and msgrcv calls
+    *	struct msgbuf {
+    *    	__kernel_long_t mtype;          // type of message
+    *    	char mtext[1];                  // message text
+    *	};
     */
    typedef struct msgbuf MSG_BUFF;
 

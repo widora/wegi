@@ -67,5 +67,11 @@ int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
                        const char *stream_url, int nr, const char **reqs, void *data,
                        curlget_callback_t write_callback, curlget_callback_t header_callback );
 
+/* ----- MultiThread Easy Download ----- */
+size_t https_easy_getFileSize(const char *file_url);
+//static size_t callback_mThreadWriteToFile(void *ptr, size_t size, size_t nmemb, void *arg)
+//void *thread_easy_download(void *arg)
+int https_easy_mThreadDownload(int opt, unsigned int nthreads, unsigned int trys, unsigned int timeout,
+                                const char *file_url, const char *file_save );
 
 #endif

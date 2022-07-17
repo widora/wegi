@@ -143,7 +143,6 @@ int main(int argc, char **argv)
 	aacDecInfo = (AACDecInfo *)aacDec;
 
 
-
 /* TEST: -------- MSG QUEUE ----------- */
 	#include <sys/msg.h>
 
@@ -181,14 +180,21 @@ RADIO_LOOP:
 	/* Flush codec before a new session */
 	AACFlushCodec(aacDec); /* Not necessary? */
 
-
 	if(access("/tmp/a.stream",R_OK)==0) { /* ??? F_OK: can NOT ensure the file is complete !??? */
-		fin_path="/tmp/a.stream";
-		fin_path2="/tmp/a.ts";
+		fin_path="/tmp/a.stream"; /* If AAC only */
+		fin_path2="/tmp/a.ts";    /* If *.ts segment */
+
+                /* Rename a._h264 to a.h264, as sync to h264_decode */
+                if(access("/tmp/a._h264",F_OK)==0 )
+                	rename("/tmp/a._h264", "/tmp/a.h264");
 	}
 	else if(access("/tmp/b.stream",R_OK)==0) {
 		fin_path="/tmp/b.stream";
 		fin_path2="/tmp/b.ts";
+
+                /* Rename b._h264 to b.h264, as sync to h264_decode */
+                if(access("/tmp/b._h264",F_OK)==0 )
+                	rename("/tmp/b._h264", "/tmp/b.h264");
 	}
 	else {
 		printf("\rConnecting...  "); fflush(stdout);
