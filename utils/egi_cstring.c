@@ -76,6 +76,10 @@ Journal
 	1. cstr_parse_URL(): ':' exists in URL and may NOT follow hostname as port number.
 2022-07-12:
 	1. cstr_parse_URL(): fileName excludes params starting with '?'
+2022-07-19:
+	1. m3u_parse_simple_HLS(): Add  W1.7: #EXT-X-ENDLIST.
+2022-07-21:
+	1. Add egi_URI2URL().
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -587,6 +591,70 @@ int cstr_parse_URL(const char *URL, char **protocol, char **hostname,
 }
 
 
+/*----------------------------------------------------
+Convert URI to URL.
+
+@refURL:    Gives the URL location for reference.
+@strURI:    The resource identifier, its location
+	    is relative to refURL, but not necessary.
+
+ 	 !!! --- CAUTION --- !!!
+  The caller SHOULD free URI after use.
+
+Return:
+	!NULL	OK
+	NULL	Fails
+----------------------------------------------------*/
+char *egi_URI2URL(char *refURL, char *strURI)
+{
+	char* dirURL=NULL;
+	char* hostName=NULL;
+	char* protocolName=NULL;
+
+	if(refURL==NULL||strURI==NULL)
+		return NULL;
+
+	/* Calloc myURL */
+	char *myURL=calloc(1, EGI_URL_MAX);
+	if(myURL==NULL)
+		return NULL;
+
+        /* URL, **protocol, **hostname, *port, **path, **filename, **dir, **dirURL */
+        cstr_parse_URL(refURL, &protocolName, &hostName, NULL, NULL, NULL, NULL, &dirURL);
+//        egi_dpstd("ProtocolName: '%s' HostName: '%s'  dirULR: '%s'\n", protocolName, hostName, dirURL);
+
+        /* Case_1: URI is URL, with full location  ||  http(s)://x.x.x.x/x/x/..  */
+	if(strstr(strURI, "http:") || strstr(strURI, "https:") ) {
+        	strncat(myURL, strURI, EGI_URL_MAX-1);
+        }
+        /* Case_2: Given hostname+path  ||   //x.x.x.x/x/x/..  */
+        else if( strURI[0]=='/' && (strlen(strURI)>1 && strURI[1]=='/') ) {
+                 strcat(myURL, protocolName);  /* protocolName including "//" */
+                 strncat(myURL, strURI+2, EGI_URL_MAX-1-strlen(myURL));
+        }
+        /* Case_3: Given path || /xxx/xxx/xx/..  */
+        else if( strURI[0]=='/' && (strlen(strURI)>1 && strURI[1]!='/') ) {
+                 strcat(myURL, protocolName);
+                 strncat(myURL, hostName, EGI_URL_MAX-1-strlen(myURL));
+                 strncat(myURL, strURI, EGI_URL_MAX-1-strlen(myURL));
+        }
+        /* Case)4: Given file/resource name  x.jpg, x.ts, ... */
+        else {
+                 strcat(myURL,dirURL);
+                 strncat(myURL, strURI, EGI_URL_MAX-1-strlen(myURL));
+        }
+//        egi_dpstd(DBG_BLUE"Get URL: %s\n"DBG_RESET, myURL);
+
+	/* Free temp. vars */
+	free(dirURL);
+	free(hostName);
+	free(protocolName);
+
+	return myURL;
+}
+
+
+
 /*-------------------------------------
 	Free an EGI_M3U8_LIST
 --------------------------------------*/
@@ -752,6 +820,13 @@ EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS)
         while(ps!=NULL) {
 	   egi_dpstd("line[]: %s\n", ps);
 
+	   /* If already get EXT-X-ENDLIST tag, ignore to parse them. */
+	   if(list->isEndList) {
+		/* Next line */
+		ps=strtok_r(NULL, delimNL, &saveps);
+		continue;
+	   }
+
 	   /* Check if a legal playlist */
 	   if(lcnt==0 && strncmp("#EXTM3U",ps,7)!=0) {
 		egi_dperr("The first tag line in a HLS playlist file MUST be #EXTM3U!\n");
@@ -846,6 +921,11 @@ EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS)
 			else if(strncmp("EVENT", ps+21,5)==0)
                                 list->type=M3U8PLTYPE_EVENT;
 		}
+		/* W1.7: #EXT-X-ENDLIST: no more Media Segments will be added to the Media Playlist file. */
+		else if(strncmp("#EXT-X-ENDLIST", ps,14)==0) {
+			list->isEndList=true;
+			egi_dpstd(DBG_RED"     ------ END LIST ------\n"DBG_RESET);
+		}
 	   }
 	   /* W2. Two tags without '-X-': EXTINF and EXTM3U  */
  	   else if( strncmp("#EXT",ps, 4)==0 ) {
@@ -893,6 +973,18 @@ EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS)
 	return list;
 }
 
+
+#if 0
+/*---------------------------------------------
+To make URLs in mlist with full path.
+---------------------------------------------*/
+int m3u_full_URL(EGI_M3U8_LIST *mlist)
+{
+
+
+
+}
+#endif
 
 /*----------------------------------------------------------------------
 Decode HTML entity names in a string into special chars(uft-8 coding).

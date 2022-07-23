@@ -39,6 +39,8 @@ Journal
 2022-07-14:
 	1. egi_extract_AV_from_ts() 3.3.6/3.3.6a: fread/fwrite will fail
 	   if datasize==0!
+2022-07-20:
+	1. Add egi_create_charList()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -75,6 +77,37 @@ inline void egi_free_char(char **p)
 }
 
 /*---------------------------------------
+Create a charList.
+@items: Number of items in the list
+@size:  Size for each item.
+---------------------------------------*/
+char** egi_create_charList(int items, int size)
+{
+	char **p=NULL;
+	int i,j;
+
+	if(items<1 || size <1)
+		return NULL;
+
+	p=calloc(items, sizeof(char *));
+	if(p==NULL)
+		return NULL;
+
+	for(i=0; i<items; i++) {
+		p[i]=calloc(size, sizeof(char));
+		if(p[i]==NULL) {
+			for(j=0; j<i; j++)
+				free(p[j]);
+			free(p);
+			return NULL;
+		}
+	}
+
+	return p;
+}
+
+
+/*---------------------------------------
 Free a char pointer list and reset
 it to NULL
 @p: Pointer to PPointer(string list).
@@ -85,8 +118,10 @@ inline void egi_free_charList(char ***p, int n)
 	int i;
 	if( p!=NULL && *p!=NULL ) {
 		/* Free list items */
-		for(i=0; i<n; i++)
+		for(i=0; i<n; i++) {
+		   //if((*p)[i]) /* HK2022-07-18 */
 			free((*p)[i]);
+		}
 		/* Free list pointers */
 		free(*p);
 		*p=NULL;
@@ -2761,12 +2796,13 @@ int egi_getset_backlightPwmDuty(int pwmnum, int *pget, int *pset, int adjust)
 
 
 /*-----------------------------------------------------------------------------------------------
-Extract AAC audio data from a Transport Stream packet file fts, and it save to faac.
+Extract AAC audio data from a (MPEG-2) Transport Stream packet file fts, and it save to faac.
 
 Reference:
   1. https://blog.csdn.net/leek5533/article/details/104993932
-　2. ISO/IEC13818-1 Information technology — Generic coding of moving
-	       pictures and associated audio information: Systems
+　2. ISO/IEC13818-1 Information technology — Generic coding of moving pictures and associated
+     audio information: Systems
+
 
 Abbreviations
    PAT --- Program Association Table, list Program_Number and related PMT PID.
@@ -2828,6 +2864,8 @@ TODO:
 2. TS_204 NOT supportd yet.
 3. In some case audio stream is NOT marked by stream_id = 110x xxxx.
    PID = 0x0101 default as audio stream??
+4. If PES_video_length==0, it indicates that all palyload is PES data???
+   and PES_audio_length SHOULD NOT be ommitted.???
 
 Journal:
 2022-06-30: Create the file.
@@ -2974,6 +3012,7 @@ int egi_extract_AV_from_ts(const char *fts, const char *faac, const char *fvd)
 		(TsHeader.adaptation_field_control&0b10)?"AdaptionField":"NoAdaptionField",
 		(TsHeader.adaptation_field_control&0b01)?"Payload":"NoPayLoad" );
 #endif
+
 
         /* 1.5 Get current file position as end of TsHeader, later to reel back here. */
         fpos=ftell(fil);
@@ -3272,8 +3311,10 @@ REEL_BACK:
 	                	err=-4; goto END_FUNC;
         	}
 
+#if 0 /* TEST: --------- */
 		egi_dpstd("PID:0x%04x, PES stream_id: ", TsHeader.PID);
 		cstr_print_byteInBits((char)stream_id, "\n");
+#endif
 
 		if(stream_id==0b10111100) /* program_stream_map */
 			egi_dpstd(DBG_GRAY"program_stream_map\n"DBG_RESET);
@@ -3291,12 +3332,12 @@ REEL_BACK:
 
 		/* 3.3.4a Audio/Video Stream id */
 		if ( (stream_id>>4)==0b1110 ) {
-			egi_dpstd(DBG_BLUE"Video stream number %d\n"DBG_RESET, stream_id&0b00001111);
+//			egi_dpstd(DBG_BLUE"Video stream number %d\n"DBG_RESET, stream_id&0b00001111);
 			/* Get TsVideoPID */
 			TsVideoPID = TsHeader.PID;
 		}
 		else if ( (stream_id>>5)==0b110 ) {
-			egi_dpstd(DBG_GREEN"Audio stream number %d\n"DBG_RESET, stream_id&0b00011111);
+//			egi_dpstd(DBG_GREEN"Audio stream number %d\n"DBG_RESET, stream_id&0b00011111);
 			/* Get TsAudioPID */
 			TsAudioPID = TsHeader.PID;
 		}
@@ -3323,7 +3364,7 @@ REEL_BACK:
 
 			/* 3.3.5.2 Assign PES_audio_length NOW for the coming PES packet. */
 			PES_audio_length=(bytes[0]<<8)+bytes[1];
-			egi_dpstd(DBG_GREEN"PES_audio_length: %d\n"DBG_RESET, PES_audio_length);
+//			egi_dpstd(DBG_GREEN"PES_audio_length: %d\n"DBG_RESET, PES_audio_length);
 		}
 		/* 3.3.5a  Start of a Vidoe PES packet */
 		else if( TsHeader.PID==TsVideoPID
@@ -3346,7 +3387,7 @@ REEL_BACK:
 
 			/* 3.3.5a.2 Assign PES_video_length NOW for the coming PES packet. */
 			PES_video_length=(bytes[0]<<8)+bytes[1];
-			egi_dpstd(DBG_GREEN"PES_video_length: %d\n"DBG_RESET, PES_video_length);
+//			egi_dpstd(DBG_GREEN"PES_video_length: %d\n"DBG_RESET, PES_video_length);
 		}
 
 	   }
@@ -3391,7 +3432,7 @@ REEL_BACK:
 
 			/* Clear dacnt... XXX NOT here, at 3.1.2 AND 3.3.5.1 */
 		}
-		/* 3.3.6a Read Video PES data. !!!OK, PES_video_length may be 0! */
+		/* 3.3.6a Read Video PES data. !!!OK, PES_video_length may be 0!!! */
 		else if( TsHeader.PID == TsVideoPID ) { //  && PES_video_length>0 ) {
 			/* TODO: padding or other type data */
 			//printf("ftell(fil)=%ld, fpos=%ld, ftell-fpos=%ld\n", ftell(fil), fpos, ftell(fil)-fpos);
@@ -3451,23 +3492,23 @@ REEL_BACK:
 	    /* Audio */
 	    if(dacnt) {
 	    	if(dacnt!=PES_audio_length)
-	        	egi_dpstd(DBG_RED"Error! Last PES packet dacnt=%dBs, while PES_audio_length=%dBs\n"DBG_RESET,
+	        	egi_dpstd(DBG_RED"Error! Last audo PES packet dacnt=%dBs, while PES_audio_length=%dBs\n"DBG_RESET,
 				dacnt, PES_audio_length);
 	    	else
-	        	egi_dpstd(DBG_GREEN"Last PES packet dacnt=%dBs, while PES_audio_length=%dBs\n"DBG_RESET,
+	        	egi_dpstd(DBG_GREEN"Last audio PES packet dacnt=%dBs, while PES_audio_length=%dBs\n"DBG_RESET,
 				dacnt, PES_audio_length);
 
 	    	pacnt++; /* PES count */
 	    }
 	    /* Video */
 	    if(dvcnt) {
-	        /* For video stream, PES_video_length MAY be 0! */
+	        /* For video stream, --- PES_video_length MAY be 0! ----- */
 	        if(PES_video_length>0) {
 	    		if(dvcnt!=PES_video_length)
 	        		egi_dpstd(DBG_RED"Error! Last video PES packet dvcnt=%dBs, while PES_video_length=%dBs\n"DBG_RESET,
 					dvcnt, PES_video_length);
 	    		else
-	        		egi_dpstd(DBG_GREEN"Last video PES packet dvcnt=%dBs, while PES_video_length=%dBs\n"DBG_RESET,
+	        		egi_dpstd(DBG_MAGENTA"Last video PES packet dvcnt=%dBs, while PES_video_length=%dBs\n"DBG_RESET,
 					dvcnt, PES_video_length);
 		}
 	    	pvcnt++; /* PES count */
@@ -3476,7 +3517,7 @@ REEL_BACK:
 
 
 END_FUNC:
-	egi_dpstd("Totally %d TsHeader found, %d Audio and %d Video PES packets received.\n", hcnt, pacnt,pvcnt);
+	egi_dpstd(DBG_MAGENTA"Totally %d TsHeader found, %d Audio and %d Video PES packets received.\n"DBG_RESET, hcnt, pacnt,pvcnt);
 
         /* Close file */
 	if(fil) fclose(fil);

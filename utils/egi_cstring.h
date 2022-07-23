@@ -44,12 +44,15 @@ typedef struct egi_m3u8_list {
 	bool  isMasterList;	/* TRUE: It's a Master Playlist, it defines/lists Media Playlists.
 				 * FALSE: It's a Media Playlist, it defines/lists Media Segments.
 				 */
+	bool  isEndList;	/* #EXT-X-ENDLIST  HK2022-07-19
+				 * TRUE: This is the last list of all Playlists, indicates the END of Program.
+				 */
 
 	/* For Media Playlist */
 	int type;		/* 1. M3U8PLTYPE_VOD(Video On Demand): the playlist contains all segments
 				 *    and the Media Playlist cannot change.
 				 * 2. M3U8PLTYPE_EVENT: the server MUST NOT change or delete any part of the Playlist file;
-					 it MAY append lines to it.
+				 *    it MAY append lines to it.
 				 * 3. M3U8PLTYPE_NONE: The tag omitted, NO constrains as VOD or EVENT.
 				 */
 	float maxDuration;	/* EXT-X-TARGETDURATION: Max duration for any segement in the list, in seconds. */
@@ -66,7 +69,7 @@ typedef struct egi_m3u8_list {
 			  		 applied to it; otherwise, playback errors can occur. '
 				 */
 
-  	/* For Media Segment attributes */
+  	/* For Media Segment attributes    !!! CAUTION !!! Types will affect allocation in m3u_parse_simple_HLS()  */
 	float *tsec;		/* Duration for each segment, in seconds. NOW: also including segments with DISCONTINUITY tags. */
 	int   *encrypt;		/* Method/type of encryption for each segement, default as NONE */
 
@@ -119,6 +122,7 @@ char*	cstr_replace_string(char **src, int left, const char *obj, const char *sub
 bool    cstr_is_absoluteURL();
 int 	cstr_parse_URL(const char *URL, char **protocol, char **hostname, unsigned int *port,
 		        char **filename, char **path, char **dir, char **dirURL);
+char*	egi_URI2URL(char *refURL, char *strURI);
 //int 	m3u_parse_simple_HLS(char *strHLS, char ***URI, int *ns);
 char* 	cstr_decode_htmlSpecailChars(char *strHtml);
 int 	cstr_squeeze_string(char *buff, int size, char spot);

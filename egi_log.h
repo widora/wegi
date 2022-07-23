@@ -61,10 +61,10 @@ int egi_quit_log(void);
     * 1. If log file is NOT open/available and log_is_silent==false, it only prints out the log string
     *    and will NOT push/write the log.
     * 2. Let the caller to put FILE and FUNCTION, we can not ensure that two egi_push_log()
-    * will push string to the log buff exactly one after the other,because of concurrency
-    * race condition.
+    *    will push string to the log buff exactly one after the other,because of concurrency
+    *    race condition.
     * 3. A '\n' included in egi_push_log(), so NOT necessary to put it in EGI_PLOG()!
-    * egi_push_log(" From file %s, %s(): \n",__FILE__,__FUNCTION__);
+    *    egi_push_log(" From file %s, %s(): \n",__FILE__,__FUNCTION__);
     */
 	#define EGI_PLOG(level, fmt, args...)                 \
         	do {                                            \

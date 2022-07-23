@@ -103,14 +103,14 @@ int AES_cbc128_encrypt(unsigned char *indata, size_t insize,  unsigned char *out
 	/* 3. Separate multiples_of_16 and remainder from data size.  16=AES_BLOCK_SIZE */
 	int lenm16=(insize/16)*16; /* PART1: Multipls of 16. */
 	int lenr16=insize%16;	   /* PART2: Remainder */
-	printf("lenm16=%dBs, lenr16=%dBs\n", lenm16, lenr16);
+//	printf("lenm16=%dBs, lenr16=%dBs\n", lenm16, lenr16);
 
-#if 1 /* TEST iv---> */
+#if 0 /* TEST iv---> */
 	egi_dpstd("Init tmpiv[]: %s\n", strtmp=egi_hex2str((unsigned char *)tmpiv, 16));
 	free(strtmp);
 #endif
 
-	egi_dpstd("Start %s ...\n", encode==AES_ENCRYPT?"encrypting":"decrypting");
+//	egi_dpstd("Start %s ...\n", encode==AES_ENCRYPT?"encrypting":"decrypting");
 
 	/* 4. [ENCRYPT+DECRYPT]:  PART1 (lenm16 part). notice that for decrypto, lenr16==0! */
 	AES_cbc_encrypt( (unsigned char *)indata,
@@ -142,7 +142,7 @@ int AES_cbc128_encrypt(unsigned char *indata, size_t insize,  unsigned char *out
 		AES_cbc_encrypt( tmp, (unsigned char *)outdata+lenm16, 16, /* NOT lenr16!! AES_cbc_encrypt() pad with 0 ONLY! */
 				 encode==AES_ENCRYPT?(&enckey):(&deckey), tmpiv, encode);  /* tmpiv is always changing! */
 
-#if 1 /* TEST iv---> */
+#if 0 /* TEST iv---> */
 		printf("Aft 9.2: tmpiv[]: %s\n", strtmp=egi_hex2str((unsigned char *)tmpiv, 16));
 		free(strtmp);
 #endif

@@ -16,6 +16,9 @@ Note:
 3. (MT7688 OPenwrt) A BLUETooth USB dongle (for mouse/keyboard etc.)
    MAY (clog/hamper) (CURL/http/wifi?) connecting/downloading!
    Just unplug it if such case arises!
+4. Shorter segments will trigger more rounds of Easy_downloads, and more
+   CPU/Resoruces consumed(?). In such case, it's a good idea to disable
+   mthread_download.
 
 Jurnal:
 2021-02-09:
@@ -75,7 +78,8 @@ Jurnal:
 	   https_easy_getFileSiz()
 2022-07-17:
 	1. Add  https_easy_mThreadDownload()
-
+2022-07-21:
+	1. Add https_easy_mURLDownload()
 
 TODO:
 XXX 1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
@@ -404,7 +408,8 @@ static size_t easy_callback_copyToBuffer(void *ptr, size_t size, size_t nmemb, v
         }
         else {
             #if 1 /* strcat */
-                strcat(userp, ptr);
+                //strcat(userp, ptr);
+		strncat(userp, ptr, size*nmemb); /* HK2022-07-19  string data MAY have terminating NULL! */
                 //buff[sizeof(buff)-1]='\0';  /* <---------- return data maybe error!!??  */
             #else /* memcpy */
                 memcpy(userp, ptr, size*nmemb); // NOPE for compressed data?!!!
@@ -506,7 +511,11 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 	}
 
 	/* User options */
-	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, (opt&HTTPS_ENABLE_REDIRECT)?1L:0L); /* Enable redirect */
+        if(HTTPS_ENABLE_REDIRECT & opt) {
+        	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); /* Enable redirect */
+                curl_easy_setopt(curl, CURLOPT_AUTOREFERER, 1L);
+                curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3);
+        }
 
 	/* TODO:  unsupported compression method may produce corrupted data! */
 	/* "" --- Containing all built-in supported encodings. */
@@ -616,7 +625,7 @@ static size_t easy_callback_writeToFile(void *ptr, size_t size, size_t nmemb, vo
 
 #if 1 /*TEST: ---------- */
 	egi_dpstd(DBG_MAGENTA"get data %zdBs\n"DBG_RESET, written);
-	sleep(2);
+	//sleep(2);
 #endif
 
         if(written<0) {
@@ -700,16 +709,21 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
  /* Try Max. tru times */
  for(i=0; i<trys || trys==0; i++)
  {
-	/* init curl */
+#if 1	/* Global init curl */
 	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...",__func__);
         if( curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK ) {
                 EGI_PLOG(LOGLV_ERROR, "%s: curl_global_init() fails!",__func__);
+/* TEST: ------------ */
+		exit(1);
+
   		//curl_global_cleanup();
 		if(fclose(fp)!=0)   /* HK2022-07-17 */
 			EGI_PLOG(LOGLV_ERROR,"%s: Fail to fclose '%s', Err'%s'", __func__, file_save, strerror(errno));
 		return -1;
         }
+#endif
 
+	/* Init easy curl */
 	curl = curl_easy_init();
 	if(curl==NULL) {
 		EGI_PLOG(LOGLV_ERROR, "%s: Fail to init curl!",__func__);
@@ -732,16 +746,16 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
    	/*  1L --disable progress meter, 0L --enable and disable debug output */
 	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
-	/*  1L --enable redirection */
-	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+	/* Redirection */
+        if(HTTPS_ENABLE_REDIRECT & opt) {
+                curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); /* Enable redirect */
+                curl_easy_setopt(curl, CURLOPT_AUTOREFERER, 1L);
+                curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3);
+        }
 
 /* TEST: ---- HK2022-07-11 */
-	/* Set Autoreferer */
-	curl_easy_setopt(curl, CURLOPT_AUTOREFERER, 1L);
-	/* Set max redirect */
-	curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3);
 	/* Set recive buffer size */
-	curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, (32L*1024));
+//	curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, (32L*1024));
 	/* Set Max speed */
 	//curl_easy_setopt(curl, CURLOPT_MAX_RECV_SPEED_LARGE,(1024L*1024));
 
@@ -749,10 +763,10 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout); //EGI_CURL_TIMEOUT);
 
 	/* TODO:  unsupported compression method may produce corrupted data! */
-	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");		 /* enables automatic decompression of HTTP downloads */
+	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");  /* enables automatic decompression of HTTP downloads */
 
 	/* Force the HTTP request to get back to using GET. in case the serve NOT provide Access-Control-Allow-Methods! */
-	curl_easy_setopt(curl,CURLOPT_HTTPGET, 1L);
+//	curl_easy_setopt(curl,CURLOPT_HTTPGET, 1L);
 
 	/* For name lookup timed out error: use ipv4 as default */
 	//curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
@@ -764,8 +778,8 @@ int https_easy_download( int opt, unsigned int trys, unsigned int timeout,
 		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, easy_callback_writeToFile);
 
 	/* Append HTTP request header */
-	//header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
-	header=curl_slist_append(header,"User-Agent: Mozilla/5.0(Linux; Ubuntu/16.04)");
+	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
+	//header=curl_slist_append(header,"User-Agent: Mozilla/5.0(Linux; Ubuntu/16.04)");
 	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
 
 	/* Param opt set */
@@ -992,10 +1006,10 @@ CURL_END:
 	/* Clean up */
 	EGI_PLOG(LOGLV_CRITICAL,"%s: Start curl clean...\n",__func__);
 	if(curl != NULL) {
-		curl_slist_free_all(header); header=NULL;
-		curl_easy_cleanup(curl); curl=NULL;
-  		curl_global_cleanup();
+		curl_slist_free_all(header);
+		curl_easy_cleanup(curl);
 	}
+	curl_global_cleanup();
 
 	return ret;
 }
@@ -1364,7 +1378,7 @@ int https_easy_stream( int opt, unsigned int trys, unsigned int timeout,
   	CURLcode res;
 	double doubleinfo=0;
 	long longinfo=0;
-	long filetime;
+//	long filetime;
 	int sizedown;
 	struct curl_slist *header=NULL;
 
@@ -1595,7 +1609,7 @@ typedef struct  easy_MultiThreadDownload_Context
 	pthread_t  	tid;    /* Thread ID */
 	CURL 		*curl;	/* Related curl handler, to clean up at thread_easy_download() */
 
-	FILE		*fil;   /* Relate FILE for download data. */
+	FILE		*fil;   /* Relate FILE for download data. Just refer.  */
 	off_t 		woff;	/* Offset position for writing data */
 
 	size_t		szleft;  /* Data size need to download/write */
@@ -1614,11 +1628,12 @@ static size_t callback_mThreadWriteToFile(void *ptr, size_t size, size_t nmemb, 
 	if(mctx==NULL)
 		return -1;
 
+	egi_dpstd(DBG_GREEN">>>>> thread[%d] writing data size[%zuBytes]*nmemb[%zu] >>>>>\n"DBG_RESET, mctx->index, size, nmemb);
+
         if(pthread_mutex_lock(&mutex_mtd) !=0 ) {
                 return -1;
         }
 /* ------ >>>  Critical Zone  */
-	egi_dpstd(DBG_GREEN">>>>> thread[%d] writing data size[%zuBytes]*nmemb[%zu] >>>>>\n"DBG_RESET, mctx->index, size, nmemb);
 
 	if(mctx->szleft==0)
 		written=0;
@@ -1664,21 +1679,28 @@ void *thread_easy_download(void *arg)
 
 END_THREAD:
 	curl_easy_cleanup(mctx->curl);
+	mctx->curl=NULL;
 
 	return (void *)ret;
 }
 
 
-/*-----------------------------------------------
+/*-------------------------------------------------------
 To get remote file size by easy_perform.
 
+Note:
+1. To avoid nesting of calling curl_global_init() and
+   curl_global_cleanup(), the Caller SHOULD take care of
+   curl_global_init before call this functioin.
+
 @file_url:	File URL.
+@opt:		Http options, Use '|' to combine.
 
 Return:
 	<0	Fails
 	>=0	OK
-------------------------------------------------*/
-size_t https_easy_getFileSize(const char *file_url)
+---------------------------------------------------------*/
+size_t https_easy_getFileSize(const char *file_url, int opt)
 {
 	int ret=0;
 	double fsize;
@@ -1686,20 +1708,20 @@ size_t https_easy_getFileSize(const char *file_url)
   	CURLcode res;
 	unsigned int timeout=30;
 
-
-    	/* Init curl */
+#if 0   /* Init curl.... Nope! to avoid nesting of calling curl_global_init/curl_global_cleanup....*/
         EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...\n",__func__);
         if( curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK ) {
                 EGI_PLOG(LOGLV_ERROR, "%s: curl_global_init() fails!",__func__);
                 curl_global_cleanup();
                 return -1;
         }
+#endif
 
 	/* Easy init */
         curl = curl_easy_init();
         if(curl==NULL) {
                 EGI_PLOG(LOGLV_ERROR, "%s: Fail to init curl!",__func__);
-                curl_global_cleanup();
+//              curl_global_cleanup();
 		return -2;
         }
 
@@ -1710,7 +1732,18 @@ size_t https_easy_getFileSize(const char *file_url)
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
 	curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 	curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
-	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+        /* Redirection */
+        if(HTTPS_ENABLE_REDIRECT & opt) {
+        	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); /* Enable redirect */
+                curl_easy_setopt(curl, CURLOPT_AUTOREFERER, 1L);
+                curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3);
+        }
+	/* Verification */
+        if(HTTPS_SKIP_PEER_VERIFICATION & opt)
+                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        if(HTTPS_SKIP_HOSTNAME_VERIFICATION & opt)
+                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
 	/* Curl easy perform */
 	res = curl_easy_perform(curl);
@@ -1736,14 +1769,14 @@ size_t https_easy_getFileSize(const char *file_url)
 CURL_END:
 	/* Clean up */
 	if(curl != NULL) {
-		//curl_slist_free_all(header); header=NULL;
-		curl_easy_cleanup(curl); curl=NULL;
-  		curl_global_cleanup();
+		//curl_slist_free_all(header);
+		curl_easy_cleanup(curl);
+//  		curl_global_cleanup();
 	}
 
 	if(ret==0)
 		return fsize;
-	else
+	else //ret<0
 		return ret;
 }
 
@@ -1759,12 +1792,20 @@ Note:
    The caller MAY need to remove file_save file in case https_easy_download fails!
    OR the file will remain!
 
+3. 		----  !!! CAUTION !!!!  ---
+   3.1 Licurl is thread safe, except for signals and SSL/TLS handlers.
+   3.2 You should set CURLOPT_NOSIGNAL option to 1 for all handers! In this case,
+       timeout are NOT honored during the DNS lookup.
+   3.3 A multi-threaded example with SSL: curl-xxx/docs/examples/threaded-ssl.c
+
+
 @opt:			Http options, Use '|' to combine.
 			HTTPS_SKIP_PEER_VERIFICATION
 			HTTPS_SKIP_HOSTNAME_VERIFICATION
 @nthreads:		Number of threads for downloading file.
-@trys:			Max. try times for each thread.
+@trys: (TODO)		Max. try times for each thread.
 			If trys==0; unlimit.
+@timeout:		Timeout in seconds.
 @file_url:		file url for downloading.
 @file_save:		file path for saving received file.
 
@@ -1779,10 +1820,9 @@ int https_easy_mThreadDownload(int opt, unsigned int nthreads, unsigned int trys
 {
 	int ret=0;
 	int i,j;
-	CURL *curl=NULL;
-	EASY_MTHREADDOWN_CTX *mctx=NULL;
 	//CURLcode res;
-	FILE *fp;	/* File to save */
+	EASY_MTHREADDOWN_CTX *mctx=NULL;
+	FILE *fp=NULL;	/* File to save */
 	size_t ofsize;
 	struct curl_slist *header=NULL;
 	size_t fsize;
@@ -1806,44 +1846,40 @@ int https_easy_mThreadDownload(int opt, unsigned int nthreads, unsigned int trys
 		return -2;
 	}
 
-#if 0	/* 3. Put lock, advisory locks only. TODO: it doesn't work???  */
-	if( flock(fileno(fp),LOCK_EX) !=0 ) {
-		EGI_PLOG(LOGLV_ERROR,"%s: Fail to flock '%s', Err'%s'", __func__, file_save, strerror(errno));
-		/* Go on .. */
-	}
-#endif
+	/* 3. BLANK  */
 
-	/* 4. Get remote file size */
-	fsize=https_easy_getFileSize(file_url);
-	if(fsize<0) {
-		EGI_PLOG(LOGLV_ERROR,"%s: https_easy_getFileSize() fails!\n", __func__);
-		fclose(fp);
-		return -4;
-	}
-	else if(fsize==0) {
-		EGI_PLOG(LOGLV_ERROR,"%s: https_easy_getFileSize()==0!\n", __func__);
-		fclose(fp);
-		return 0;
-	}
-	/* 4.1 Part size for each thread */
-	tsize=fsize/nthreads;
-
-	/* 5. Create EASY_MTHREADDOWN_CTX for each thread */
+	/* 4. Create EASY_MTHREADDOWN_CTX for each thread */
 	mctx=calloc(nthreads, sizeof(EASY_MTHREADDOWN_CTX));
 	if(mctx==NULL) {
                 EGI_PLOG(LOGLV_ERROR, "%s: Fail to callocate mtx!",__func__);
 		fclose(fp);
-		return -5;
+		return -4;
 	}
 
-	/* 6. Global init curl */
+#if 1	/* 5. Global init curl.. BEFORE https_easy_getFileSize() */
 	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...",__func__);
         if( curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK ) {
                 EGI_PLOG(LOGLV_ERROR, "%s: curl_global_init() fails!",__func__);
+                //curl_global_cleanup();
 		if(fclose(fp)!=0)
 			EGI_PLOG(LOGLV_ERROR,"%s: Fail to fclose '%s', Err'%s'", __func__, file_save, strerror(errno));
-		return -6;
+		free(mctx);
+		return -5;
         }
+#endif
+
+	/* 6. Get remote file size */
+	fsize=https_easy_getFileSize(file_url, opt);
+	if(fsize<0) {
+		EGI_PLOG(LOGLV_ERROR,"%s: https_easy_getFileSize() fails!\n", __func__);
+		ret=-6; goto CURL_END;
+	}
+	else if(fsize==0) {
+		EGI_PLOG(LOGLV_ERROR,"%s: https_easy_getFileSize()==0!\n", __func__);
+		ret=0; goto CURL_END;
+	}
+	/* 6.1 Part size for each thread */
+	tsize=fsize/nthreads;
 
 	/* 7. Common header */
 	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
@@ -1854,7 +1890,7 @@ int https_easy_mThreadDownload(int opt, unsigned int nthreads, unsigned int trys
 		CURL *curl=curl_easy_init();
 		if(curl==NULL) {
 			EGI_PLOG(LOGLV_ERROR, "%s: Fail to init curl for mctx[%d]!",__func__, i);
-			for(j=0; j<i; j++)
+			for(j=0; j<i; j++)  /* TODO:  This MAY cause crash if threads alreay running?  */
 				curl_easy_cleanup(mctx[j].curl);
 			ret=-8;
 			goto CURL_END;
@@ -1863,8 +1899,9 @@ int https_easy_mThreadDownload(int opt, unsigned int nthreads, unsigned int trys
 		/* fp, curl, szleft, woff */
 		mctx[i].index =i;
 		mctx[i].fil =fp;
-		mctx[i].curl =curl;
+		mctx[i].curl =curl; /* mctx[] is Owner */
 		if(i==nthreads-1) {
+			/* The last thread need to download all remaining data size. */
 			mctx[i].szleft =fsize-tsize*(nthreads-1);
 			mctx[i].woff =i*tsize;
 		}
@@ -1876,15 +1913,23 @@ int https_easy_mThreadDownload(int opt, unsigned int nthreads, unsigned int trys
 		/* 8.3 Set strRange */
 		strRange[sizeof(strRange)-1]=0;
 		snprintf(strRange, sizeof(strRange)-1, "%jd-%jd", mctx[i].woff, mctx[i].woff+mctx[i].szleft-1);
+		curl_easy_setopt (curl, CURLOPT_RANGE, strRange);
 
 		/* 8.4 Set download file URL */
 		curl_easy_setopt(curl, CURLOPT_URL, file_url);
 		curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
 		curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1);
-		curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); /* Enable redirect */
 
-		curl_easy_setopt(curl, CURLOPT_AUTOREFERER, 1L);
-		curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3);
+		/* For multiple threads! */
+		curl_easy_setopt(curl, CURLOPT_NOSIGNAL,1L);
+
+		/* Redirection */
+		if(HTTPS_ENABLE_REDIRECT & opt) {
+			curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); /* Enable redirect */
+			curl_easy_setopt(curl, CURLOPT_AUTOREFERER, 1L);
+			curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3);
+		}
+
 		curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, (32L*1024));
 
 		/* Set Max speed */
@@ -1903,7 +1948,7 @@ int https_easy_mThreadDownload(int opt, unsigned int nthreads, unsigned int trys
 		//curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
 		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, callback_mThreadWriteToFile);
-		curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&mctx[i]);
+		curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)(&mctx[i]));
 
 		/* Append HTTP request header */
 		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
@@ -1914,7 +1959,7 @@ int https_easy_mThreadDownload(int opt, unsigned int nthreads, unsigned int trys
 		if(HTTPS_SKIP_HOSTNAME_VERIFICATION & opt)
 			curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
-#if 0 /////////////////////////////
+#if 0 //////////////   Critical Zone  ///////////////
 	       if(pthread_mutex_lock(&mutex_mtd) !=0 ) {
 			EGI_PLOG(LOGLV_ERROR, "%s: Fail to get mutex_tmd!",__func__);
 			for(j=0; j<i; j++)
@@ -1929,18 +1974,19 @@ int https_easy_mThreadDownload(int opt, unsigned int nthreads, unsigned int trys
 /* ------- <<<  Critical Zone  */
 	        pthread_mutex_unlock(&mutex_mtd);
 
-#endif ///////////////////////
+#endif ////////////////////////////////////////////
 
 		/* 8.5 Create thread */
-		if(pthread_create(&mctx[i].tid, NULL, thread_easy_download, (void *)&mctx[i])!=0) {
-			EGI_PLOG(LOGLV_ERROR, "%s: Fail to get pthread_create for mctx[%d]!", __func__, i);
-			for(j=0; j<i; j++)
+		if(pthread_create(&mctx[i].tid, NULL, thread_easy_download, (void *)(&mctx[i]))!=0) {
+			EGI_PLOG(LOGLV_ERROR, "%s: Fail to create thread for mctx[%d]!", __func__, i);
+			for(j=0; j<i; j++)  /* TODO: This MAY cause crash if threads alreay running? */
 				curl_easy_cleanup(mctx[j].curl);
                 	ret=-8;
 			goto CURL_END;
 		}
+		EGI_PLOG(LOGLV_CRITICAL,"%s: Thread mctx[%d] is created!\n", __func__, i);
 
-	} /* END for() */
+	} /* END for(i) */
 
 	/* 9. Join all downloading threads */
 	void *tdret=(void *)-1;
@@ -1960,29 +2006,309 @@ int https_easy_mThreadDownload(int opt, unsigned int nthreads, unsigned int trys
 
 
 CURL_END:
-#if 0	/* Unlock, advisory locks only */
-	EGI_PLOG(LOGLV_CRITICAL,"%s: Start unflock file...\n",__func__);
-	if( flock(fileno(fp),LOCK_UN) !=0 ) {
-		EGI_PLOG(LOGLV_ERROR,"%s: Fail to un_flock '%s', Err'%s'", __func__, file_save, strerror(errno));
-		/* Go on .. */
-	}
-#endif
-
-	/* Close file */
+	/* P1. Close file */
 	EGI_PLOG(LOGLV_CRITICAL,"%s: Start fclose(fp)...\n",__func__);
 	if(fclose(fp)!=0)
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fclose '%s', Err'%s'", __func__, file_save, strerror(errno));
 
-	/* Clean up main curl */
-	EGI_PLOG(LOGLV_CRITICAL,"%s: Start curl clean...\n",__func__);
-	if(curl != NULL) {
-		curl_slist_free_all(header); header=NULL;
-		curl_easy_cleanup(curl); curl=NULL;
-  		curl_global_cleanup();
+	/* P2. Free mctx[] and its content */
+	/* P2.1 Clear up thread curl ----> ALSO see in thread function. */
+	for(i=0; i<nthreads; i++) {
+	    if(mctx[i].curl)
+		    curl_easy_cleanup(mctx[i].curl);
 	}
+	/* P2.2 Free mctx */
+	free(mctx);
 
-	/* Clear up thread curl ---- in thread function. */
+	/* P3. Clean up main curl */
+	EGI_PLOG(LOGLV_CRITICAL,"%s: Start curl clean...\n",__func__);
+	curl_slist_free_all(header); //header=NULL;
+	curl_global_cleanup();
 
 	return ret;
 }
 
+
+/* ==========================  Mutli_URL Easy Downloading  ================= */
+
+typedef struct  easy_MultiURL_Download_Context
+{
+	//int		index;	/* Thread index 0,1,2... */
+	pthread_t  	tid;    /* Thread ID */
+	CURL 		*curl;	/* Related curl handler, to clean up at thread_easy_download() */
+
+        //const char      *url;   /* URL for the remote file */
+        //const char      *file_save;  /* Fath to save the file */
+} EASY_MURLDOWN_CTX;
+
+
+/*---------------------------------------
+A thread function for mURLDownload.
+--------------------------------------*/
+void *thread_easy_download2(void *arg)
+{
+	int ret=0;
+  	CURLcode res;
+	CURL *curl=arg;
+	if(curl==NULL) {
+		ret=-1;
+		goto END_THREAD;
+	}
+
+        if( (res=curl_easy_perform(curl)) !=CURLE_OK ) {
+        	EGI_PLOG(LOGLV_ERROR,"%s: curl_easy_perform() failed! res=%d, Err'%s'\n",
+						__func__, res, curl_easy_strerror(res));
+		ret=-2;
+		goto END_THREAD;
+        }
+
+END_THREAD:
+	curl_easy_cleanup(curl);
+
+	return (void *)ret;
+}
+
+
+
+/*----------------------------------------------------------------------------
+Easy_download multiple remote files at the same time.
+
+Note:
+1. You must have installed ca-certificates before call curl https, or
+   define SKIP_PEER/HOSTNAME_VERIFICATION to use http instead.
+2. --- !!! WARNING !!! ---
+   Filesize of fila_save will be truncated to 0 if it fails!
+   The caller MAY need to remove file_save file in case https_easy_download fails!
+   OR the file will remain!
+
+3. 		----  !!! CAUTION !!!!  ---
+   3.1 Licurl is thread safe, except for signals and SSL/TLS handlers.
+   3.2 You should set CURLOPT_NOSIGNAL option to 1 for all handers! In this case,
+       timeout are NOT honored during the DNS lookup.
+   3.3 A multi-threaded example with SSL: curl-xxx/docs/examples/threaded-ssl.c
+
+
+@n:             	Numbers of files/segments to download
+@urls:          	URLs for above files/segments.
+@file_save(TODO):	file path for saving received file.
+
+@opt:			Http options, Use '|' to combine.
+			HTTPS_SKIP_PEER_VERIFICATION
+			HTTPS_SKIP_HOSTNAME_VERIFICATION
+@trys: (TODO)		Max. try times for each thread.
+			If trys==0; unlimit.
+@timeout:		Timeout in seconds.
+
+		!!! CURL will disable egi tick timer? !!!
+
+Return:
+	0	ok
+	<0	fails
+-------------------------------------------------------------------------------*/
+int https_easy_mURLDownload( unsigned int n, const char **urls, const char *file_save,
+			     int opt, unsigned int trys, unsigned int timeout )
+{
+	int ret=0;
+	int i,j;
+	//CURLcode res;
+	FILE *fp=NULL;	/* Final mergered file. */
+
+	/* For each URL thread */
+	char **filenames=NULL;  /* Save file for each URL */
+	FILE **fils=NULL;
+	CURL **curls=NULL;
+	pthread_t *tids=NULL;
+
+	size_t ofsize;
+	struct curl_slist *header=NULL;
+
+	/* 1. Check input */
+	if(n<1 || urls==NULL || file_save==NULL)
+		return -1;
+
+	/* 2. Open file to save */
+	fp=fopen(file_save, "wb");
+	if(fp==NULL) {
+		EGI_PLOG(LOGLV_ERROR,"%s: open file '%s', Err'%s'", __func__, file_save, strerror(errno));
+		return -2;
+	}
+
+	/* 3. Callocate fils  */
+	fils=calloc(n, sizeof(FILE *));
+	if(fils==NULL) {
+		EGI_PLOG(LOGLV_ERROR,"%s: Fail to calloc fils, Err'%s'", __func__, strerror(errno));
+		fclose(fp);
+		return -3;
+	}
+
+	/* 4. Create filenames[] */
+	filenames=egi_create_charList(n, EGI_PATH_MAX+EGI_NAME_MAX);
+	if(filenames==NULL) {
+		EGI_PLOG(LOGLV_ERROR,"%s: Fail to calloc filenames, Err'%s'", __func__, strerror(errno));
+		ret=-4; goto CURL_END;
+	}
+
+	/* 5. Calloc curls[] */
+	curls=calloc(n, sizeof(CURL *));
+	if(curls==NULL) {
+		EGI_PLOG(LOGLV_ERROR,"%s: Fail to calloc curls, Err'%s'", __func__, strerror(errno));
+		ret=-5; goto CURL_END;
+	}
+
+	/* 6. Calloc tids[] */
+	tids=calloc(n, sizeof(pthread_t));
+	if(tids==NULL) {
+		EGI_PLOG(LOGLV_ERROR,"%s: Fail to calloc tids, Err'%s'", __func__, strerror(errno));
+		ret=-6; goto CURL_END;
+	}
+
+	/* 7. Open files for write dowloaded data */
+	for(i=0; i<n; i++) {
+		sprintf(filenames[i], "/tmp/__%d__.ts", i);
+		fils[i]=fopen(filenames[i], "wb");
+		if(fils[i]==NULL) {
+			EGI_PLOG(LOGLV_ERROR,"%s: open file '%s', Err'%s'", __func__, filenames[i], strerror(errno));
+			ret=-5; goto CURL_END;
+		}
+	}
+
+	/* 8. Global init curl.. BEFORE https_easy_getFileSize() */
+	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...",__func__);
+        if( curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK ) {
+                EGI_PLOG(LOGLV_ERROR, "%s: curl_global_init() fails!",__func__);
+		free(fils);
+		if(fclose(fp)!=0)
+			EGI_PLOG(LOGLV_ERROR,"%s: Fail to fclose '%s', Err'%s'", __func__, file_save, strerror(errno));
+		return -6;
+        }
+
+	/* 9. Common header */
+	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
+
+	/* 10. Create downloading threads */
+	for(i=0; i<n; i++) {
+		/* 10.1 Init each curl */
+		curls[i]=curl_easy_init();
+		if(curls[i]==NULL) {
+			EGI_PLOG(LOGLV_ERROR, "%s: Fail to init curl[%d]!",__func__, i);
+			for(j=0; j<i; j++)  /* TODO  This MAY cause crash if threads alreay running? */
+				curl_easy_cleanup(curls[j]);
+			ret=-8;
+			goto CURL_END;
+		}
+
+		/* 10.2 Set download file URL */
+		curl_easy_setopt(curls[i], CURLOPT_URL, urls[i]);
+		curl_easy_setopt(curls[i], CURLOPT_VERBOSE, 1L);
+		curl_easy_setopt(curls[i], CURLOPT_NOPROGRESS, 1);
+
+		/* For multiple threads! */
+		curl_easy_setopt(curls[i], CURLOPT_NOSIGNAL,1L);
+
+		/* Redirection */
+		if(HTTPS_ENABLE_REDIRECT & opt) {
+			curl_easy_setopt(curls[i], CURLOPT_FOLLOWLOCATION, 1L); /* Enable redirect */
+			curl_easy_setopt(curls[i], CURLOPT_AUTOREFERER, 1L);
+			curl_easy_setopt(curls[i], CURLOPT_MAXREDIRS, 3);
+		}
+
+		curl_easy_setopt(curls[i], CURLOPT_BUFFERSIZE, (32L*1024));
+
+		/* Set Max speed */
+		//curl_easy_setopt(curl, CURLOPT_MAX_RECV_SPEED_LARGE,(1024L*1024));
+
+		/* Low speed limit in bytes per second */
+		//curl_easy_setopt(curl, CURLOPT_LOW_SPEED, 1L);
+		//culr_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 10L);
+
+		curl_easy_setopt(curls[i], CURLOPT_TIMEOUT, timeout);
+		/* TODO:  unsupported compression method may produce corrupted data! */
+		curl_easy_setopt(curls[i], CURLOPT_ACCEPT_ENCODING, "");  /* enables automatic decompression */
+		/* Force the HTTP request to get back to using GET. in case the serve NOT provide Access-Control-Allow-Methods! */
+		curl_easy_setopt(curls[i],CURLOPT_HTTPGET, 1L);
+		/* For name lookup timed out error: use ipv4 as default */
+		//curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+		curl_easy_setopt(curls[i], CURLOPT_WRITEFUNCTION, easy_callback_writeToFile);
+		curl_easy_setopt(curls[i], CURLOPT_WRITEDATA, (void *)fils[i]);
+
+		/* Append HTTP request header */
+		curl_easy_setopt(curls[i], CURLOPT_HTTPHEADER, header);
+
+		/* Peer/hostname verification */
+		if(HTTPS_SKIP_PEER_VERIFICATION & opt)
+			curl_easy_setopt(curls[i], CURLOPT_SSL_VERIFYPEER, 0L);
+		if(HTTPS_SKIP_HOSTNAME_VERIFICATION & opt)
+			curl_easy_setopt(curls[i], CURLOPT_SSL_VERIFYHOST, 0L);
+
+		/* 10.3 Create thread to download each URL */
+		if(pthread_create(&tids[i], NULL, thread_easy_download2, (void *)curls[i])!=0) {
+			EGI_PLOG(LOGLV_ERROR, "%s: Fail to create thread for curls[%d]!", __func__, i);
+			for(j=0; j<i; j++)  /* TODO: This MAY cause crash if threads alreay running? */
+				curl_easy_cleanup(&curls[j]);
+                	ret=-8;
+			goto CURL_END;
+		}
+		EGI_PLOG(LOGLV_CRITICAL,"%s: Thread_easy_download with curls[%d] is created!\n", __func__, i);
+
+	} /* END for(i) */
+
+	/* 11. Join all downloading threads */
+	void *tdret=(void *)-1;
+	for(i=0; i<n; i++) {
+		EGI_PLOG(LOGLV_CRITICAL,"%s: Wait to join thread for curls[%d] ...\n", __func__, i);
+		if( pthread_join(tids[i], &tdret)!=0 ) {
+			EGI_PLOG(LOGLV_ERROR, "%s: pthread_join curls[%d] fails, Err'%s' ", __func__, i, strerror(errno));
+		}
+		else {
+			EGI_PLOG(LOGLV_CRITICAL, "%s: pthread_join curls[%d] with tdret=%d.\n", __func__, i, (int)tdret);
+		}
+
+		/* Check error */
+		if((int)tdret)
+			ret=-9;
+	}
+
+CURL_END:
+	/* P1. Free tids */
+	if(tids) free(tids);
+
+	/* P2. curls[i] cleanup at thread function */
+	/* P3. Free curls */
+	if(curls) free(curls);
+
+	/* P4. Close the final merged file */
+	EGI_PLOG(LOGLV_CRITICAL,"%s: Start fclose(fp)...\n",__func__);
+	if(fclose(fp)!=0)
+		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fclose '%s', Err'%s'", __func__, file_save, strerror(errno));
+
+	/* P5. Close(and Remove) temp. fils */
+	for(i=0; i<n; i++) {
+	    if(fils[i]) {
+		int fd=fileno(fils[i]);
+		fflush(fils[i]); fsync(fd);
+
+		fclose(fils[i]);
+
+		/* P5.1 Remove file if fails */
+		if(ret) {
+			egi_dpstd("Remove '%s'...\n", filenames[i]);
+	                if(remove(filenames[i])!=0)
+        	                EGI_PLOG(LOGLV_ERROR,"%s: Fail to remove '%s'.",__func__, filenames[i]);
+		}
+	    }
+	}
+
+	/* P6. Free fils */
+	if(fils) free(fils);
+
+	/* P7. Free filenames */
+	if(filenames) egi_free_charList(&filenames, n);
+
+	/* P8. Clean up main curl env. */
+	EGI_PLOG(LOGLV_CRITICAL,"%s: Start curl clean...\n",__func__);
+	curl_slist_free_all(header);
+	curl_global_cleanup();
+
+	return ret;
+}

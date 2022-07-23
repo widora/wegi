@@ -305,9 +305,9 @@ RADIO_LOOP:
 		}
 
 		/* int AACDecode(HAACDecoder hAACDecoder, unsigned char **inbuf, int *bytesLeft, short *outbuf) */
-//		printf("AACDecode bytesLeft=%d.\n", bytesLeft);
+		//printf("AACDecode bytesLeft=%d.\n", bytesLeft);
 		err=AACDecode(aacDec, &pin, &bytesLeft, pout);
-//		printf("err=%d, bytesLeft=%d.\n", err, bytesLeft);
+		//printf("err=%d, bytesLeft=%d.\n", err, bytesLeft);
 		feedCnt++;
 		if(err==ERR_AAC_NONE) {
 			//EGI_PLOG(LOGLV_INFO, "AACDecode: %lld bytes of aac data decoded.\n", fmap_aac->fsize-bytesLeft );
@@ -466,14 +466,17 @@ RADIO_LOOP:
 				EGI_PLOG(LOGLV_INFO, "Try synch...\n");
 				npass=AACFindSyncWord(pin, trysyn_len);
 				if(npass <= 0) {  /* TODO ??? ==0 also fails!?? */
-					EGI_PLOG(LOGLV_CRITICAL,"Fail to AACFindSyncWord, npass=%d!\n", npass);
+					//EGI_PLOG(LOGLV_CRITICAL,"Fail to AACFindSyncWord, npass=%d!\n", npass);
 					pin +=trysyn_len;
 					bytesLeft -=trysyn_len;
+					EGI_PLOG(LOGLV_CRITICAL,"Fail to AACFindSyncWord, npass=%d, bytesLeft=%d!\n",
+								npass, bytesLeft);
 
 					/* Flush codec */
 //					AACFlushCodec(aacDec);
 
-					continue;
+					/* HK2022-07-20: If continues, AACDecode() will throw out segmentation fault! */
+					break; //continue;
 				}
 				else {
 					EGI_PLOG(LOGLV_CRITICAL,"Succeed to AACFindSyncWord! npass=%d\n", npass);

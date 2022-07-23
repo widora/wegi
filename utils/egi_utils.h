@@ -78,11 +78,11 @@ void egi_id3v2tag_free(EGI_ID3V2TAG **tag);
 EGI_ID3V2TAG *egi_id3v2tag_readfile(const char *fpath);
 
 
-
 /* Utils functions */
 bool 	egi_host_littleEndian(void);
 void 	egi_byteswap(int n, char *data);
 void 	egi_free_char(char **p);
+char** egi_create_charList(int items, int size);
 void 	egi_free_charList(char ***p, int n);
 int 	egi_mem_grow(void **ptr, size_t old_size, size_t more_size);
 unsigned long egi_get_fileSize(const char *fpath);
