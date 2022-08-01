@@ -16,7 +16,7 @@ https://github.com/widora/wegi
 
 char *path="/mmc";
 
-int main(void)
+int main(int argc, char **argv)
 {
 	int i;
 	DIR *dir;
@@ -27,7 +27,20 @@ int main(void)
 
 	EGI_TXTGROUP *txtgroup=NULL;
 
-#if 1	//////////////  TEST: egi_host_littleEndian()  /////////////////
+
+#if 1	//////////////  TEST: egi_getset_backlightPwmDuty()  /////////////////
+	if(argc<2)
+		printf("Usage: %s  backlight(in percentage)\n", argv[0]);
+	int duty=atoi(argv[1]);
+
+	/* pwmnum, int *pget, int *pset, int adjust */
+	egi_getset_backlightPwmDuty(0, NULL, &duty, 0);
+
+	return 0;
+#endif
+
+
+#if 0	//////////////  TEST: egi_host_littleEndian()  /////////////////
 
 	printf("The host is a %s system!\n", egi_host_littleEndian()?"little-endian":"big-endian");
 	exit(0);

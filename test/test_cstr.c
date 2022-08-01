@@ -37,7 +37,35 @@ int main( int  argc,   char**  argv )
 　　他与木吒离了此处，一直东来，不一日就到了长安大唐国。敛雾收云，师徒们变作两个疥癫游憎，入长安城里，竟不觉天晚。行至大市街旁，见一座土地庙祠，二人径进，唬得那土地心慌，鬼兵胆战。知是菩萨，叩头接入。那土地又急跑报与城隍社令及满长安城各庙神抵，都来参见，告道：“菩萨，恕众神接迟之罪。”菩萨道：“汝等不可走漏消息。我奉佛旨，特来此处寻访取经人。借你庙宇，权住几日，待访着真僧即回。”众神各归本处，把个土地赶到城隍庙里暂住，他师徒们隐遁真形。\
 　　毕竟不知寻出那个取经来，且听下回分解。";
 
-#if 1 /////////////////// cstr_nextchar_uft8()  cstr_prevchar_uft8()  //////////////////
+
+#if 1 /////////// strtok_r ///////////////////
+   //char *strp="111,222,333,444,555";  const char string, strtok_r() segmentaton fault!
+   char strp[256];
+   strcpy(strp, "111,222,333,444,555");
+
+   char *savept;
+   char *pt=NULL;
+   const char *delim=", ";
+
+   printf("strp before strtok_r(): %s\n", strp);
+
+   pt=strtok_r(strp, delim, &savept);
+   if(pt==NULL)
+	printf("pt is NULL\n");
+   else
+   	printf("%s\n", pt);
+
+   while(pt!=NULL) {
+	printf("%s\n", pt);
+	pt=strtok_r(NULL, delim, &savept);
+   }
+
+   printf("strp after strtok_r(): %s\n", strp);
+   exit(0);
+#endif
+
+
+#if 0 /////////////////// cstr_nextchar_uft8()  cstr_prevchar_uft8()  //////////////////
    struct timeval tms,tme;
    UFT8_PCHAR pch;
    unsigned int ucnt;  /* uchar counter */

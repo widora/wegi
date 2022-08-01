@@ -29,7 +29,9 @@ TODO:
 Journal:
 2021-05-03:
 	1. Test msg queue: send params to WetRadio.
-
+2022-07-29:
+	1. 7.6 Case: ERR_AAC_INVALID_ADTS_HEADER, passing ADTS_Header(7Bs)
+	   before try to sync again.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -100,6 +102,7 @@ int main(int argc, char **argv)
 	/* A typical raw AAC frame includes 1024 samples
   	   aac_pub/aacdec.h:		#define AAC_MAX_NSAMPS          1024
 	  libhelix-aac/aaccommon.h:	#define NSAMPS_LONG		1024
+	  libhelix-aac/aaccommon.h:	#define NSAMPS_SHORT		128
          */
   	pout=(int16_t *)calloc(1, 1024*2*nchanl*sizeof(int16_t)); /* MAX. for 2 channels,  assume SBR enbaled */
   	if(pout==NULL) {
@@ -116,7 +119,7 @@ int main(int argc, char **argv)
 #endif
 
 	/* Log silent */
-	egi_log_silent(true);
+//	egi_log_silent(true);
 
   	/* Set termI/O 设置终端为直接读取单个字符方式 */
   	egi_set_termios();
@@ -177,19 +180,20 @@ RADIO_LOOP:
 
 	//egi_fmap_free(&fmap_aac);  /* Before remove ... */
 
-	/* Flush codec before a new session */
+	/* 1. Flush codec before a new session */
 	AACFlushCodec(aacDec); /* Not necessary? */
 
-	if(access("/tmp/a.stream",R_OK)==0) { /* ??? F_OK: can NOT ensure the file is complete !??? */
-		fin_path="/tmp/a.stream"; /* If AAC only */
+	/* 2. Check buffer file */
+	if(access("/tmp/a.aac",R_OK)==0) { /* ??? F_OK: can NOT ensure the file is complete !??? */
+		fin_path="/tmp/a.aac"; /* If AAC only */
 		fin_path2="/tmp/a.ts";    /* If *.ts segment */
 
                 /* Rename a._h264 to a.h264, as sync to h264_decode */
                 if(access("/tmp/a._h264",F_OK)==0 )
                 	rename("/tmp/a._h264", "/tmp/a.h264");
 	}
-	else if(access("/tmp/b.stream",R_OK)==0) {
-		fin_path="/tmp/b.stream";
+	else if(access("/tmp/b.aac",R_OK)==0) {
+		fin_path="/tmp/b.aac";
 		fin_path2="/tmp/b.ts";
 
                 /* Rename b._h264 to b.h264, as sync to h264_decode */
@@ -203,7 +207,7 @@ RADIO_LOOP:
 		goto RADIO_LOOP;
 	}
 
-	/* Mmap aac input file */
+	/* 3. Mmap aac input file */
 	EGI_PLOG(LOGLV_INFO, "Start to wait for flock and create fmap_aac for '%s'!", fin_path);
 	fmap_aac=egi_fmap_create(fin_path, 0, PROT_READ, MAP_SHARED);
 	if(fmap_aac==NULL) {
@@ -221,15 +225,15 @@ RADIO_LOOP:
 	}
 	EGI_PLOG(LOGLV_INFO, "Finish creating fmap_aac for '%s', fsize=%lld!", fin_path,fmap_aac->fsize);
 
-	/* Count segment files */
+	/* 4. Count segment files */
 	segFileCnt++;
 
-	/* Get pointer to AAC data */
+	/* 5. Get pointer to AAC data */
 	pin=(unsigned char *)fmap_aac->fp;
 	bytesLeft=fmap_aac->fsize;
 	checksize=fmap_aac->fsize;
 
-	/* Mmap output PCM file */
+	/* 6. Mmap output PCM file */
 	if(fout_path) {
 		fmap_pcm=egi_fmap_create(argv[2], 1024*2*sizeof(int16_t)*nchanl*2, PROT_WRITE, MAP_SHARED);
 		if(fmap_pcm==NULL) {
@@ -241,11 +245,12 @@ RADIO_LOOP:
 
 	EGI_PLOG(LOGLV_INFO, "Start to AACDecode() fmap_aac with size=%d Bs", bytesLeft);
 
+	/* 7. Loop decoding */
 	feedCnt=0;
-	while(bytesLeft>= nchanl*2*NSAMPS_SHORT) {  /* 2*128 Too short cause decoder dump segfault! */
+	while(bytesLeft>= nchanl*2*NSAMPS_SHORT) {  /* 2*128 Too short cause decoder dump segfault! NSAMPS_SHORT=128 */
 		//printf("bytesLeft=%d\n", bytesLeft);
 
-		/* Parse keyinput */
+		/* 7.1 Parse keyinput */
 		ch=0;
   		read(STDIN_FILENO, &ch,1);
   		switch(ch) {
@@ -304,11 +309,121 @@ RADIO_LOOP:
 				break;
 		}
 
-		/* int AACDecode(HAACDecoder hAACDecoder, unsigned char **inbuf, int *bytesLeft, short *outbuf) */
-		//printf("AACDecode bytesLeft=%d.\n", bytesLeft);
+
+#if 0 /////////////////////  TEST : Pravite Info before Syncword  /////////////////////////
+		uint8_t seqmark=0;
+		int k;
+		bool seqmark_error=false;
+
+		npass=AACFindSyncWord(pin, trysyn_len);
+		if(npass <0) {  /* TODO ??? ==0 also fails!?? */
+			//EGI_PLOG(LOGLV_CRITICAL,"Fail to AACFindSyncWord, npass=%d!\n", npass);
+			//pin +=trysyn_len;
+			//bytesLeft -=trysyn_len;
+			EGI_PLOG(LOGLV_CRITICAL,"PRE_AACFindSyncWord fails, npass=%d, bytesLeft=%d!\n",
+				npass, bytesLeft);
+			break;
+		}
+		else if( npass>=0 ) { //&& npass==8 ) {
+			//EGI_PLOG(LOGLV_CRITICAL,"Succeed to AACFindSyncWord! npass=%d\n", npass);
+			printf("npass=%d\n", npass);
+
+			/* Leading 8Bytes what?
+			 * Example:  84 80 05 2B 63 D1 5D C1
+			 */
+			printf("Leading bytes: ");
+			for(k=0; k<npass; k++) {
+				printf("%02X ", pin[k]);
+			}
+			printf("\n");
+
+  #if 0 ///////////////////
+			/* Check sequemark */
+			if(seqmark==0)
+				seqmark=pin[5];
+			else if( seqmark!=pin[5] ) {
+				seqmark +=2;
+				if( seqmark+2 != pin[5] ) {
+					printf("seqmark error!...................\n");
+					seqmark_error=true;
+				}
+			}
+  #endif ///////////////////
+
+			printf("seqmark: 0x%02X\n", seqmark);
+
+			/* Pass private bytes */
+			pin +=npass; //NO change
+			bytesLeft -= npass;
+
+			/* NOW: pin pointers to the beginning(syncwords) of an aac frame */
+
+		       /* Fixed header(28bits) + Var Header(28bits) = 7Bytes
+			  Byte[bits]:  0[0:7]  1[8:15]  2[16:23]  3[24:31]  4[32:39]  5[40:47]  6[48:56] */
+
+		        /* Get channel_configuration bits[23 : 25] bslbf: (msb)Left bit first
+			   1: 1 channel: front-center，
+			   2: 2 channels: front-left, front-right，
+			   3: 3 channels: front-center, front-left, front-right，
+			   4: 4 channels: front-center, front-left, front-right, back-center
+			*/
+			unsigned int chanConfig= ((pin[2]&0b1)<<3) + (pin[3]>>6);
+			printf("chanConfig=%u \n", chanConfig);
+
+			/* Get AAC frame length bits[30 : 42]    bslbf: (msb)Left bit first
+			 * frameLength MAX. =188-4=184, when TS option_field =0byte
+			 */
+			unsigned int frameLength= ( (pin[3]&0b11)<<11 ) + (pin[4]<<3) + (pin[5]>>5);
+			printf("frameLen=%u \n", frameLength);
+
+			 /* TEST: print aac_frame_data + next_8bytes --------- */
+			printf("pin[0]:%02X,pin[1]:%02X, pin[2]:%02X,pin[3]:%02X,\n", pin[0], pin[1], pin[2], pin[3]);
+			printf("pin[4]:%02X,pin[5]:%02X, pin[6]:%02X \n", pin[4], pin[5], pin[6]);
+			//if(bytesLeft==5607-8) {
+			{
+				int i;
+				//for(i=0; i<bytesLeft; i++) {
+				for(i=0; i<frameLength +8; i++) {
+					printf("%02X ", pin[i]);
+				}
+				printf("\n");
+			}
+			//printf("seqmark: 0x%02X\n", seqmark);
+
+#if 0			/* Check framelength ---- NOPE!	 'FFF' may appear in aac data  */
+			int nxpass=AACFindSyncWord(pin+7, trysyn_len);
+			if(nxpass < frameLength-7 +8) {
+				printf(" ---- frameLength Error ----\n");
+				/* Get to next syncword */
+				pin += 7+nxpass;	/* 7Bytes header */
+				bytesLeft -= 7+nxpass;
+				exit(1);
+			}
+
+#endif
+#if 0			/* Skip if seqmark_error, pass this frame. */
+			if(seqmark_error) {
+				pin += frameLength;
+				bytesLeft -= frameLength;
+				seqmark=0;
+				AACFlushCodec(aacDec);
+			}
+#endif
+
+
+		}
+#endif  //////////////////////  END TEST  ////////////////////////////////
+
+
+		/* 7.3  int AACDecode(HAACDecoder hAACDecoder, unsigned char **inbuf, int *bytesLeft, short *outbuf) */
+//		AACDecInfo *aacDecInfo = (AACDecInfo *)aacDec;
+//		printf("AAC format: %d\n", aacDecInfo->format); /* 0=Unknown, 1=AAC_FF_ADTS, 2=AAC_FF_ADIF, 3=AAC_FF_RAW */
+
+//		printf("AACDecode bytesLeft=%d.\n", bytesLeft);
 		err=AACDecode(aacDec, &pin, &bytesLeft, pout);
-		//printf("err=%d, bytesLeft=%d.\n", err, bytesLeft);
+//		printf("err=%d, bytesLeft=%d.\n", err, bytesLeft);
 		feedCnt++;
+		/* 7.4 Case: ERR_AAC_NONE */
 		if(err==ERR_AAC_NONE) {
 			//EGI_PLOG(LOGLV_INFO, "AACDecode: %lld bytes of aac data decoded.\n", fmap_aac->fsize-bytesLeft );
 			AACGetLastFrameInfo(aacDec, &aacFrameInfo);
@@ -319,7 +434,6 @@ RADIO_LOOP:
 					strprofile[aacFrameInfo.profile], strprofile[1]);
 				exit(1);
 			}
-
 
 		/* TEST: ------------ MSG QUEUE ------------------*/
 		/* END: ---- MSG QUEUE ---- */
@@ -414,7 +528,8 @@ RADIO_LOOP:
 
 			if( (feedCnt&(4-1)) ==0 )
 				printf("\rPlaying [seg%d] %lld/%lld", segFileCnt, fmap_aac->fsize-bytesLeft,fmap_aac->fsize); fflush(stdout);
-			EGI_PLOG(LOGLV_INFO,"##%lld/%lld",fmap_aac->fsize-bytesLeft,fmap_aac->fsize);
+
+//			EGI_PLOG(LOGLV_INFO,"##%lld/%lld",fmap_aac->fsize-bytesLeft,fmap_aac->fsize);
 
 			/* Save PCM data to file */
 			if(fout_path) {
@@ -434,6 +549,7 @@ RADIO_LOOP:
 					printf("fmap_pcm resize to %lld bytes!\n", fmap_pcm->fsize);
 			}
 		}
+		/* 7.5 Case: ERR_AAC_INDATA_UNDERFLOW */
 		else if(err==ERR_AAC_INDATA_UNDERFLOW) {
 			EGI_PLOG(LOGLV_WARN, "ERR_AAC_INDATA_UNDERFLOW! bytesLeft=%d \n", bytesLeft);
 
@@ -451,6 +567,7 @@ RADIO_LOOP:
 
 			continue;
 		}
+		/* 7.6 Case: ERR_AAC_INVALID_ADTS_HEADER */
 		else if(err==ERR_AAC_INVALID_ADTS_HEADER ) {
 
 			EGI_PLOG(LOGLV_WARN, "ERR_AAC_INVALID_ADTS_HEADER! bytesLeft=%d, trysyn_len=%d \n", bytesLeft, trysyn_len);
@@ -464,11 +581,11 @@ RADIO_LOOP:
 
 			if(bytesLeft > trysyn_len) {
 				EGI_PLOG(LOGLV_INFO, "Try synch...\n");
-				npass=AACFindSyncWord(pin, trysyn_len);
-				if(npass <= 0) {  /* TODO ??? ==0 also fails!?? */
-					//EGI_PLOG(LOGLV_CRITICAL,"Fail to AACFindSyncWord, npass=%d!\n", npass);
-					pin +=trysyn_len;
-					bytesLeft -=trysyn_len;
+				npass=AACFindSyncWord(pin+7, trysyn_len);  /* Skip ADTS_Header(7Bs)...HK2022_07_29 */
+				if(npass <= 0) {  /* TODO ??? ==0 also fails, npass==0 will trap into dead looping. */
+					EGI_PLOG(LOGLV_CRITICAL,"Fail to AACFindSyncWord, npass=%d!\n", npass);
+					pin +=trysyn_len+7;   /* ADTS_Header(7Bs) */
+					bytesLeft -=trysyn_len+7;
 					EGI_PLOG(LOGLV_CRITICAL,"Fail to AACFindSyncWord, npass=%d, bytesLeft=%d!\n",
 								npass, bytesLeft);
 
@@ -481,8 +598,8 @@ RADIO_LOOP:
 				else {
 					EGI_PLOG(LOGLV_CRITICAL,"Succeed to AACFindSyncWord! npass=%d\n", npass);
 					//printf("npass=%d\n", npass);
-					pin +=npass;
-					bytesLeft -= npass;
+					pin +=npass+7;   /* ADTS_Header(7Bs) */
+					bytesLeft -= npass+7;
 
 					/* Flush codec */
 //					AACFlushCodec(aacDec);
@@ -496,25 +613,27 @@ RADIO_LOOP:
 #endif /* END try sync */
 
 		}
+		/* 7.7 Case: Other errors */
 		else {
 			EGI_PLOG(LOGLV_WARN, "AAC ERR=%d, bytesLeft=%d", err,bytesLeft);
 			break; /* Break while()! or it may do while() forever as bytesLeft may not be changed! */
 			/* Break and start a new session */
 		}
 
-	} /* While */
+	} /* While() */
 
 //	printf("\nFinish decoding, %d bytes left!\n", bytesLeft);
 
 ///////////// --- TEST: RADIO --- /////////////
 
 END_SESSION:  /* End current radio aac seq file session */
-	/* Free fmap_aac and close its file before remove() operation!??? */
+
+	/* 8. Free fmap_aac and close its file before remove() operation!??? */
 	if( (err=egi_fmap_free(&fmap_aac)) !=0) {
 		EGI_PLOG(LOGLV_ERROR, "Fail to free fmap_aac! err=%d.", err);
 	}
 
-	/* TEST: Re_check filesize again, if first mmap get wrong filesize! */
+	/* 9. TEST: Re_check filesize again, if first mmap get wrong filesize! */
 	/* Cause  */
 	if(fin_path!=NULL) {
 		int fd;
@@ -542,7 +661,7 @@ END_SESSION:  /* End current radio aac seq file session */
 		}
 	}
 
-	/* Remove file */
+	/* 10. Remove buffer files: a.aac/b.aac, a.ts/b.ts */
 	if(remove(fin_path)!=0)
 		EGI_PLOG(LOGLV_ERROR, "Fail to remove '%s'.",fin_path);
 	else
@@ -559,16 +678,16 @@ END_SESSION:  /* End current radio aac seq file session */
 
 END_PROG:
 	EGI_PLOG(LOGLV_CRITICAL,"--- ENG_PROG ---");
-	/* Free source */
+	/* 11. Free source */
 	AACFreeDecoder(aacDec);
 	egi_fmap_free(&fmap_aac);
 	if(fout_path)
 		egi_fmap_free(&fmap_pcm);
 
-  	/* Close pcm handle */
+  	/* 12. Close pcm handle */
   	snd_pcm_close(pcm_handle);
 
-  	/* Reset termI/O */
+  	/* 13. Reset termI/O */
   	egi_reset_termios();
 
 	return 0;

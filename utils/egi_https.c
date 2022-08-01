@@ -514,7 +514,7 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
         if(HTTPS_ENABLE_REDIRECT & opt) {
         	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); /* Enable redirect */
                 curl_easy_setopt(curl, CURLOPT_AUTOREFERER, 1L);
-                curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3);
+//               curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3);
         }
 
 	/* TODO:  unsupported compression method may produce corrupted data! */
@@ -623,7 +623,7 @@ static size_t easy_callback_writeToFile(void *ptr, size_t size, size_t nmemb, vo
    if(stream) {
         written = fwrite(ptr, size,  nmemb, (FILE *)stream);
 
-#if 1 /*TEST: ---------- */
+#if 0 /*TEST: ---------- */
 	egi_dpstd(DBG_MAGENTA"get data %zdBs\n"DBG_RESET, written);
 	//sleep(2);
 #endif

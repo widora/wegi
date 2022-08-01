@@ -94,6 +94,7 @@ int 	egi_util_mkdir(char *dir, mode_t mode);
 int 	egi_read_fileBlock(FILE *fsrc, char *fdes, int tnulls, size_t bs);
 int 	egi_copy_fileBlock(FILE *fsrc, FILE *fdest, size_t bs);
 int 	egi_copy_file(char const *fsrc_path, char const *fdest_path, bool append);
+int 	egi_append_file(char const *fpath, void* data, size_t size);
 
 unsigned char** egi_malloc_buff2D(int items, int item_size) __attribute__((__malloc__));
 int 	egi_realloc_buff2D(unsigned char ***buff, int old_items, int new_items, int item_size);

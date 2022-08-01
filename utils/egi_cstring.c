@@ -80,6 +80,8 @@ Journal
 	1. m3u_parse_simple_HLS(): Add  W1.7: #EXT-X-ENDLIST.
 2022-07-21:
 	1. Add egi_URI2URL().
+2022-07-28:
+	1. m3u_parse_simple_HLS(): make a copy of input string, and keep input string intact.
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -643,6 +645,13 @@ char *egi_URI2URL(char *refURL, char *strURI)
                  strcat(myURL,dirURL);
                  strncat(myURL, strURI, EGI_URL_MAX-1-strlen(myURL));
         }
+
+	/* To get rid of params after '?' ---- NOPE! DO NOT! */
+	//char *pt=NULL;
+	//if( (pt=strstr(myURL,"?"))!=NULL ) {
+	//	*pt='\0';
+	//}
+
 //        egi_dpstd(DBG_BLUE"Get URL: %s\n"DBG_RESET, myURL);
 
 	/* Free temp. vars */
@@ -719,13 +728,14 @@ TODO:
 PARAMs:
 @strHLS:   Pointer to a m3u playlist file content, encoded in UFT-8.
 			!!! --- CAUTION --- !!!
-	   XXX Content in strHLS will be modified/changed by strtok(). ---> strotk_r()
+	   Content in strHLS will be modified/changed by strtok() or strotk_r()
 Return:
 	!NULL	OK
 	NULL	Fails
 ------------------------------------------------------------------------*/
-EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS)
+EGI_M3U8_LIST* m3u_parse_simple_HLS(const char *strbuff)
 {
+	char *strHLS;
 	const char *delimNL="\r\n"; /* delim for new line.  DO NOT add SPACE here! */
 	char *ps=NULL;
 	char *saveps; /* For strtok_r(..) to save ps content */
@@ -739,6 +749,11 @@ EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS)
 	int lcnt;	/* Line counter */
 	int mscnt;	/* Media segment counter */
 
+	if(strbuff==NULL)
+		return NULL;
+
+	/* Backup strbuff */
+	strHLS = strdup(strbuff);
 	if(strHLS==NULL)
 		return NULL;
 
@@ -780,13 +795,17 @@ EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS)
 
 	if(ns==0) {
 		egi_dpstd("NO media segment address found!\n");
+
+		free(strHLS);
 	   	return NULL;
 	}
 
 	/* Create m3u8 list */
 	list=calloc(1, sizeof(EGI_M3U8_LIST));
-	if(list==NULL)
+	if(list==NULL) {
+		free(strHLS);
 		return NULL;
+	}
 
 	/* Calloc items */
 	list->ns=ns;
@@ -795,6 +814,7 @@ EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS)
 	list->msURI=calloc(ns, sizeof(char*));
 	if(list->msURI==NULL || list->encrypt==NULL ) {
 		m3u_free_list(&list);
+		free(strHLS);
 		return NULL;
 	}
 
@@ -806,6 +826,7 @@ EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS)
 		/* Check result */
 		if(list->tsec==NULL || list->keyURI==NULL || list->strIV==NULL) {
 			m3u_free_list(&list);
+			free(strHLS);
 			return NULL;
 		}
 	}
@@ -831,6 +852,7 @@ EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS)
 	   if(lcnt==0 && strncmp("#EXTM3U",ps,7)!=0) {
 		egi_dperr("The first tag line in a HLS playlist file MUST be #EXTM3U!\n");
 		m3u_free_list(&list);
+		free(strHLS);
 		return NULL;
 	   }
 
@@ -968,6 +990,9 @@ EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS)
 	   ps=strtok_r(NULL, delimNL, &saveps);
 
 	} /* End while() */
+
+	/* Free temp strHLS */
+	free(strHLS);
 
 	/* Finally */
 	return list;

@@ -51,6 +51,10 @@ typedef struct egi_m3u8_list {
 	/* For Media Playlist */
 	int type;		/* 1. M3U8PLTYPE_VOD(Video On Demand): the playlist contains all segments
 				 *    and the Media Playlist cannot change.
+				 *    			!!! CAUTION !!!
+				 *    A VOD tag may be omitted!
+				 *    A VOD playlist usually has ENDLIST tag at the end, However, an ENDLIST tag
+				 *    does NOT necessarily means it's a VOD playlist!
 				 * 2. M3U8PLTYPE_EVENT: the server MUST NOT change or delete any part of the Playlist file;
 				 *    it MAY append lines to it.
 				 * 3. M3U8PLTYPE_NONE: The tag omitted, NO constrains as VOD or EVENT.
@@ -87,7 +91,7 @@ typedef struct egi_m3u8_list {
 				 */
 } EGI_M3U8_LIST;
 void m3u_free_list(EGI_M3U8_LIST **list);
-EGI_M3U8_LIST* m3u_parse_simple_HLS(char *strHLS);
+EGI_M3U8_LIST* m3u_parse_simple_HLS(const char *strbuff);
 
 
 /* --- EGI_TXTGROUP --- */

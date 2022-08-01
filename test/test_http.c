@@ -4,12 +4,24 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
 An example to parse and download AAC/TS m3u8 file.
-AAC stream data to be saved as a.stream/b.stream.
-H264 stream data to be save as a.h264/b.h264.
+
+        test_heliaac.c  ---> radio_aacdecode
+        test_http.c     ---> http_aac
+        test_decodeh264.c ---> h264_decode
+
+TS compound stream data to be saved as a.ts/b.ts
+	To be deleted by radio_aacdecode after playing AAC.
+AAC stream data to be saved as a.stream/b.stream (a.aac/b.aac).
+	To be deleted by radio_aacdecode after playing.
+H264 stream data to be saved as a.h264/b.h264.
+
+
 
 Note:
 1. A small TARGETDURATION is good for A/V synchronization in this case?
-2. As there's only 1 segment buffer file, it means each segment SHOULD
+    Smaller TARGETDURATON results in more frequent calling of Easy_downloading,
+    which is costly for CPU.
+2. If there's only 1 segment buffer file, it means each segment SHOULD
    be downloaded within TARGETDURATION.
 3. XXX Complete URL strings in m3u8 list may NOT be in alphabetical/numberical
    (timestamp)sequence, however the URL source name of the SHOULD be in sequence.
@@ -19,7 +31,7 @@ Note:
    http://118.177.160.150:5050/fdfdfd/live/123-130.ts
    http://118.177.160.151:5050/fdfdfd/live/123-140.ts
    ...
-   XXX   ----- NOT NECESSARY! -----
+   XXX   ----- !!! NOT NECESSARY, see SequenceNumber. !!! -----
 
 4. Current and the next m3u8 list may have overlapped URL items.
    TODO: If reset regLastName[] when regName[]<regLastName[], then overlapped
@@ -32,12 +44,15 @@ Note:
 6. This program supports downloading MULTIPLE remote files simultaneously
    with ONE thread for ONE file. (Enable_mURL_Download)
    Suggest to apply when segment TARGETDURATION < 5s.
+7. If playing an ENDLIST, then parse_m3u8list() will try relentlessly to download all
+   segments before ends the while() loop.
 
 TODO:
 1. For some m3u8 address, it sometimes exits accidently when calling https_easy_download().
 2. Too big TARGETDURATION value(10) causes disconnection/pause between
    playing two segments, for it's too long time for downloading a segment?
 3. If too big timeout value, then ignore following items and skip to NEXT m3u8 list.
+4. TODO: mem leakage.
 
 Journal:
 2021-09-29:
@@ -48,7 +63,7 @@ Journal:
 2022-07-02:
 	1. Extract AAC from TS.
 2022-07-03:
-	1. Save as a._stream/b._stream, then rename to a.stream/b.stream
+	1. Save as a._stream/b._stream(a._aac/b._aac), then rename to a.stream/b.stream(a._aac/b._aac).
 2022-07-08:
 	1. Extract NAUL data and save to a._h264/b._h264 then rename to a.h264/b.h264
 2022-07-12:
@@ -63,6 +78,12 @@ Journal:
 	1. Add decrypt_file() to decrypt segments.
 2022-07-22:
 	1. Test https_easy_mURLDownload().
+2022-07-27:
+	1. Rename a.stream/b.stream to a.aac/b.aac; a._stream/b._stream to a._aac/b._aac.
+	2. Case F3 NOT necessary.
+2022-07-28:
+	1. Check start of a new round of program.
+	2. Get sublist from Master List.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -86,9 +107,16 @@ char strRequest[256+64];
 
 /* For mURL_Download */
 bool Enable_mURL_Download=false;   /* To enable downloading multiple files simultaneously
-				    * Auto. set TURE if mlist->maxDuraion<5.0
+				    * 1. Auto. set TURE if mlist->maxDuraion<5.0
+				    * 2. OR set in input option.
 				    */
-int  	nurls=6; /* Number of URLs(Files) downloading at same time */
+int  	nurls=2; /* MAX number of URLs(Files) downloading at same time
+		  * 1. If mlist->maxDuraion<5.0, then nurls=6;
+		  * 2. OR set in input option.
+		  */
+int     nseg;  /*  Actual number of URLs(Files) downloading at same time,
+		* Usually =nurls, for the last group of URLs, nseq<=nurls
+		*/
 char**	strURL;
 int  	uindx;
 char**	filenames; /* For temporary files */
@@ -104,8 +132,8 @@ int tss;		/* Start playing from index number tss of the list. (skipping tss segm
 
 #define TMP_KEY_FPATH  "/tmp/ts_aesKey.dat"
 
-
-
+/* #EXT-X-PLAYLIST-TYPE:VOD */
+bool isVOD;	 /* NOTE: sometimes VOD tags is missing, so use isEndList instead. */
 /* #EXT-X-ENDLIST */
 bool isEndList;	 /* The last list for the remote file, no more media segments. */
 /* #EXT-X-MEDIA-SEQUENCE */
@@ -117,7 +145,6 @@ int mbcnt; 	   /* MBytes downloaded */
 size_t curl_callback(void *ptr, size_t size, size_t nmemb, void *userp);
 void parse_m3u8list(char *strm3u);
 char segLastURL[1024];  /* The last URL for (aac or ts) segment */
-char* segName; /* segment file name at URL (aac or ts) */
 char segLastName[1024];  /* Segment file name of the URL (aac or ts) */
 char* dirURL; /* Dir URL of input m3u8 address */
 char* hostName;
@@ -125,6 +152,18 @@ char* protocolName;
 
 /* Functions */
 int decrypt_file(const char *fin, const char *fkey, const char *strIV);
+
+
+void print_help(const char* cmd)
+{
+        printf("Usage: %s [-hn:m:s:] file\n", cmd);
+        printf("        -h   This Help \n");
+        printf("        -n:  Threads to download a file, Default 1. Ineffective if -m option is set.\n");
+        printf("        -m:  To download m files simultaneously, one thread for one file. min=2.\n");
+        printf("        -s:  Skip first N segments in the list.\n");
+	printf("  !!! Note:  If segment maxDruation<5.0, then '-m 6' will apply automatically, and user options will be ignored.\n");
+	printf("\n");
+}
 
 
 /*----------------------------
@@ -135,10 +174,10 @@ int main(int argc, char **argv)
 	char buff[CURL_RETDATA_BUFF_SIZE];
 	int opt;
 	char *argURL;
-        while( (opt=getopt(argc,argv,"hn:s:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hn:m:s:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
-                                printf("%s: -hn:s:\n", argv[0]);
+				print_help( argv[0]);
                                 exit(0);
                                 break;
                         case 'n':
@@ -146,6 +185,11 @@ int main(int argc, char **argv)
 				if(nthreads<1)
 					nthreads=1;
                                 break;
+			case 'm':
+				Enable_mURL_Download=true;
+				nurls=atoi(optarg);
+				if(nurls<2) nurls=2;
+				break;
 			case 's':  /* Skip first N segments in the list */
 				tss=atoi(optarg);
 				if(tss<0)
@@ -208,7 +252,7 @@ while(1) {
 		//EGI_PLOG(LOGLV_ERROR, "Try https_curl_request() again...");
 		//exit(EXIT_FAILURE);
 	}
-        printf("        --- Http GET Reply ---\n %s\n",buff);
+        //printf("        --- Http GET Reply ---\n %s\n",buff);
 	EGI_PLOG(LOGLV_INFO,"Http curl get: %s\n", buff);
 
 #if 0 /* TEST: --------------- */
@@ -222,9 +266,11 @@ while(1) {
 	EGI_PLOG(LOGLV_INFO,"Start parse m3u8list...");
 	parse_m3u8list(buff);
 
-	/* Check ENDLIST */
-	if(isEndList)
+	/* Check ENDLIST, Sometimes VOD tag is missing.  */
+	if(isEndList) {
+		system("echo  ----Endlist--- >>/mmc/test_http.log");
 		break;
+	}
 
 	/* Sleep of TARGETDURATION --- If too small, it will fetch the same segment? */
 	//sleep(7/2);
@@ -301,6 +347,7 @@ void parse_m3u8list(char *strm3u)
 	char *ps;
 //	char segURL[1024]={0}; /* URL item in m3u8 list */
 	char *segURL=NULL; /* Segment file full URL */
+	char* segName; /* segment file name at URL (aac or ts) */
 	bool Is_AAC=false; /* *.aac segment */
 	bool Is_TS=false;  /* *.ts segment */
 	long timeout=30;
@@ -318,38 +365,79 @@ void parse_m3u8list(char *strm3u)
 							mlist->ns, mlist->seqnum, lastSeqNum, mlist->maxDuration);
 	}
 
+	/* 1a. If Master List, then update strRequest */
+	if(mlist->isMasterList) {
+	   if(mlist->ns>0) {
+		 /* Get first sublist */
+		 char *sublist=egi_URI2URL(strRequest, mlist->msURI[0]);
+		 /* Update strRequest */
+		 strRequest[sizeof(strRequest)-1]='\0';
+                 strncpy(strRequest,sublist, sizeof(strRequest)-1);
+		 /* Free sublist */
+		 free(sublist);
+	   }
+	   else {
+		egi_dpstd(DBG_RED"M3U8 master list has NO sublist inside!\n"DBG_RESET);
+		sleep(1);
+	   }
+	   goto END_FUNC;
+	}
+
+
 	/* 1A. Get isEndList before releasing mlist. */
 	isEndList = mlist->isEndList;
+	isVOD = (mlist->type==M3U8PLTYPE_VOD);
 
 	/* 1B. Set Enable_mURL_Download */
-	if(mlist->maxDuration <5.0)
+	if(mlist->maxDuration <5.0) {
+		/* Set nurls */
 		Enable_mURL_Download=true;
-	else
-		Enable_mURL_Download=false;
+		nurls=6;
+	}
+	//else  /* As user input option */
+	//	Enable_mURL_Download=false;
 
 	/* 1C. Create charList for mURL_Download */
 	if( Enable_mURL_Download ) {
 		strURL=egi_create_charList(nurls,EGI_URL_MAX);
 		filenames=egi_create_charList(nurls, EGI_PATH_MAX); //+EGI_NAME_MAX);
-		if(strURL==NULL || filenames==NULL)
+		if(strURL==NULL || filenames==NULL) {
+			m3u_free_list(&mlist);
 			exit(1);
+		}
 	}
 
+	/* 2. Skip if all old items, except for start of a new round with mlist->seqnum==0.  */
+	if(mlist->seqnum!=0 && lastSeqNum >= mlist->seqnum+mlist->ns-1) {
+		egi_dpstd(DBG_CYAN" <----- All Obsolete List? ----->\n"DBG_RESET);
 
-	/* 2. Skip if all old itmes */
-	if(lastSeqNum >= mlist->seqnum+mlist->ns-1) {
-		egi_dpstd(DBG_CYAN" <----- Old List ----->\n"DBG_RESET);
-		m3u_free_list(&mlist);
-		return;
+#if 1 /* TEST: ------------------ */
+			const char *strnote="<----- All Obsolete List? ----->\n";
+			egi_append_file("/mmc/test_http.log", (void*)strnote, strlen(strnote)+1);
+			egi_append_file("/mmc/test_http.log", strm3u, strlen(strm3u));
+			egi_append_file("/mmc/test_http.log", "\n", 1);
+#endif
+		goto END_FUNC;
+		// If server seqnumb error! then Go on to rest lastSeqNum==mlist->seqnum+mlist->ns-1 ..... see 5.0
+
 	}
 
-	/* 3. Get startIndx <------------ */
+	/* 3. Get startIndx of mlist->msURI[], to succeed the last played segment. */
 	if(mlist->seqnum==0) {
-		startIndx=0;   /* Reset */
-		lastSeqNum=0;  /* Reset */
+
+#if 1 /* TEST: ------------------ */
+			const char *strnote="<----- New round ----->\n";
+			egi_append_file("/mmc/test_http.log", (void*)strnote, strlen(strnote));
+			egi_append_file("/mmc/test_http.log", strm3u, strlen(strm3u));
+			egi_append_file("/mmc/test_http.log", "\n", 1);
+#endif
+
+		/* Reset startIndx and lastSeqNum */
+		startIndx=0;
+		lastSeqNum=0;
 
 		/* Skip segments */
-		if(tss>0) {
+		if(tss>0 && mlist->ns > tss ) {
 			startIndx=tss;
 			lastSeqNum=tss;
 		}
@@ -361,17 +449,17 @@ void parse_m3u8list(char *strm3u)
 		startIndx=lastSeqNum-mlist->seqnum +1;
 	}
 
-	printf("startIndx=%d\n", startIndx);
+	printf("Playlsit seqnum=%d, startIndx=%d\n", mlist->seqnum, startIndx);
 
-	/* 4. Proceed each URI */
+	/* 4. Process each URI */
 	for(k=startIndx; k < mlist->ns;  k++) {
-		egi_dpstd(DBG_BLUE"startIndx=%d, k=%d/%d\n"DBG_RESET, startIndx, k, mlist->ns);
+		egi_dpstd(DBG_BLUE"startIndx=%d, k=%d/(%d-1)\n"DBG_RESET, startIndx, k, mlist->ns);
 		ps=mlist->msURI[k];
 		printf(DBG_YELLOW"Sequence %d, ps: %s\n"DBG_RESET, mlist->seqnum+k, ps);
 
 		/* 4.1 Check segment type */
 		Is_AAC=Is_TS=false;
-		if( strstr(ps,"aac") && strstr(ps,"//") )
+		if( strstr(ps,".aac") && strstr(ps,"//") )
 			Is_AAC=true;
 		//else if( strstr(ps, ".ts") )
 		//	Is_TS=true;
@@ -394,35 +482,69 @@ void parse_m3u8list(char *strm3u)
 
 		/* 4.2 Parse AAC or TS segment file */
 		if( Is_AAC || Is_TS ) {
-			EGI_PLOG(LOGLV_INFO, "sub URL: '%s'.",ps);
+			//EGI_PLOG(LOGLV_INFO, "sub URL: '%s'.",ps);
 
-			/* Get full segment URL */
+			/* 4.2.1 Get full path segment URL: segURL */
 			free(segURL); segURL=NULL;
 			segURL=egi_URI2URL(strRequest, ps);
 			egi_dpstd(DBG_BLUE"Stream URL: %s\n"DBG_RESET, segURL);
 
-	///////////////*   https_easy_mURLDownload()   */////////////////
+#if 1 /* TEST: ------------------ */
+			egi_append_file("/mmc/test_http.log", DBG_BLUE, strlen(DBG_BLUE));
+			egi_append_file("/mmc/test_http.log", segURL, strlen(segURL));
+			egi_append_file("/mmc/test_http.log", "\n", 1);
+			egi_append_file("/mmc/test_http.log", DBG_RESET, strlen(DBG_RESET));
+#endif
+
+	///////////////*   4.2.2 https_easy_mURLDownload()   */////////////////
 	if(Enable_mURL_Download && Is_TS ) {
+
 		/* M1. Get URLs */
 		strURL[uindx][0]=0;
 		strcat(strURL[uindx],segURL);
 
 		/* M2. Count URLs */
 		uindx ++;
-		if(uindx!=nurls)
+		/* For the last segment, we may NOT get nurls number of URLs */
+		if( k==mlist->ns-1 && uindx!=nurls ) {
+			nseg=uindx;
+			//uindx=0;
+		}
+		/* Continue to read urls */
+		else if(uindx!=nurls)
 			continue;
-		else
-			uindx=0;
+		else  { /* Ok, Get all URLs */
+			/* Set actual segments */
+			nseg=nurls;
+			/*Reset uindx */
+			//uindx=0;
+		}
+
+#if 1 /* TEST: ------------- */
+			int m=0;
+			for(m=0; m<nseg; m++) {
+				egi_dpstd(DBG_YELLOW"mURLs[%d]: '%s'\n"DBG_RESET, m, strURL[m]);
+			}
+#endif
+
+		/* M2a. Clear/Reset uindx */
+		uindx=0;
 
 		/* M3. mURL Downloading */
-   		ret=https_easy_mURLDownload(nurls, (const char**)strURL, "/tmp/4seg.ts",   /* n, **urls, file_save */
+   		ret=https_easy_mURLDownload(nseg, (const char**)strURL, "/tmp/4seg.ts",   /* n, **urls, file_save */
 			    HTTPS_SKIP_PEER_VERIFICATION | HTTPS_SKIP_HOSTNAME_VERIFICATION
                                                          | HTTPS_ENABLE_REDIRECT, 1, timeout); /* opt, trys, timeout */
 		if(ret) {
 			/* Rewind k */
-			k -=nurls;
-			continue;
+			k -=nseg;
+			if(k<-1)k=-1;
+
+			if(isVOD || isEndList) /* Sometimes VOD tag is missing... so check isEndlist instread */
+				continue;  /* VOD ok, continue... */
+			else
+				break; /* To break loop, playlist maybe already obsolete for the timeout! */
 		}
+
 
 		/* M4. Create c.ts */
 		FILE *fil=fopen("/tmp/c.ts", "wb");
@@ -433,7 +555,7 @@ void parse_m3u8list(char *strm3u)
 
 		/* M5. Decrypt files and merge into 'c.ts' */
 		int i;
-		for(i=0; i<nurls; i++) {
+		for(i=0; i<nseg; i++) {
 			sprintf(filenames[i], "/tmp/__%d__.ts", i);
 			if(access(filenames[i],F_OK)==0) {
 	  			if(mlist->keyURI[0]!=NULL)
@@ -447,38 +569,40 @@ void parse_m3u8list(char *strm3u)
 	}
 	//////////////////////////////////////////////////////////////////
 
-			/* Extract segName from URL */
+			/* 4.2.3 Extract segName from URL */
 			free(segName); segName=NULL;
 			cstr_parse_URL(segURL, NULL, NULL, NULL, NULL, &segName, NULL, NULL);
 			//printf(DBG_GREEN"segName: %s  <<<<<<  segLastName: %s\n"DBG_RESET, segName, segLastName);
 
-			/* F1. Check and download a.stream */
-			if( access("/tmp/a.stream",F_OK)!=0 ) {
+CHECK_BUFF_FILES:	/* 4.2.4 Check and download buffer files */
+			/* 4.2.4_F1. Check and download a.aac */
+			if( access("/tmp/a.aac",F_OK)!=0 ) {
 				/* Download AAC */
 				curl_nwrite=0; mbcnt=0;
-				EGI_PLOG(LOGLV_INFO, "Downloading a.stream/a.ts from: %s",  segURL);
+				EGI_PLOG(LOGLV_INFO, "Downloading a.aac/a.ts from: %s",  segURL);
 				if(Enable_mURL_Download && Is_TS ) {  /* mURL Download */
-					rename("/tmp/c.ts", "/tmp/a.ts");
+					if(access("/tmp/c.ts",F_OK)==0)
+						rename("/tmp/c.ts", "/tmp/a.ts");
 					ret=0;
 				}
 				else if(nthreads==1) // || !Enable_mThread_Download)  /* Easy download */
 		                	ret=https_easy_download( HTTPS_SKIP_PEER_VERIFICATION | HTTPS_SKIP_HOSTNAME_VERIFICATION
 										      | HTTPS_ENABLE_REDIRECT, 3, timeout,  //3,3
-								 segURL, Is_AAC?"/tmp/a._stream":"/tmp/a.ts", NULL, download_callback);
+								 segURL, Is_AAC?"/tmp/a._aac":"/tmp/a.ts", NULL, download_callback);
 				else /* Multi_thread easy download */
 			        	ret=https_easy_mThreadDownload( HTTPS_SKIP_PEER_VERIFICATION | HTTPS_SKIP_HOSTNAME_VERIFICATION
 								     | HTTPS_ENABLE_REDIRECT, nthreads, 0, timeout, /* threads, trys, timeout */
-                                    				segURL, Is_AAC?"/tmp/a._stream":"/tmp/a.ts");
+                                    				segURL, Is_AAC?"/tmp/a._aac":"/tmp/a.ts");
 
 				if(ret!=0)
 				{
-                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download a._stream/a.ts from '%s'.", segURL);
-					remove(Is_AAC?"/tmp/a._stream":"/tmp/a.ts");
-					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/a._stream(or a.ts.");
+                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download a._aac/a.ts from '%s'.", segURL);
+					remove(Is_AAC?"/tmp/a._aac":"/tmp/a.ts");
+					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/a._aac(or a.ts.");
 
-					/* !!! Break NOW, in case next acc url NOT available either, as downloading time goes by!!! */
+					/* !!! Break NOW, in case playlist is already obsolete, as downloading time goes by!!! */
 					EGI_PLOG(LOGLV_INFO, "Case_1. End parsing m3u8list, and starts a new http request...\n");
-					continue; //break; //return;
+					if(mlist->isEndList)continue; else break;
 				} else {
 
 					if(Is_TS)  {
@@ -487,50 +611,51 @@ void parse_m3u8list(char *strm3u)
 						  decrypt_file("/tmp/a.ts", TMP_KEY_FPATH, mlist->strIV[k]);
 
 					    /* Extract AAC from TS */
-					    egi_extract_AV_from_ts("/tmp/a.ts", "/tmp/a._stream", "/tmp/a._h264");
+					    egi_extract_AV_from_ts("/tmp/a.ts", "/tmp/a._aac", "/tmp/a._h264");
 					}
 
-					/* Rename to a.stream */
-					printf("rename a._stream to a.stream\n");
-					rename("/tmp/a._stream","/tmp/a.stream");
+					/* Rename to a.aac */
+					printf("rename a._aac to a.aac\n");
+					rename("/tmp/a._aac","/tmp/a.aac");
 
 					/* Rename to a.h264,  ---by test_helixaac  */
 					//if(access("/tmp/a.h264",F_OK)!=0 )
 					//	rename("/tmp/a._h264", "/tmp/a.h264");
 
 					/* Update segLastURL */
-					EGI_PLOG(LOGLV_INFO, "Ok, a.stream updated! curl_nwrite=%d", curl_nwrite);
+					EGI_PLOG(LOGLV_INFO, "Ok, a.aac updated! curl_nwrite=%d", curl_nwrite);
 				}
 			}
 
-			/* F2. Check and download b.stream */
-			else if( access("/tmp/b.stream",F_OK)!=0 ) {
+			/* 4.2.4_F2. Check and download b.aac */
+			else if( access("/tmp/b.aac",F_OK)!=0 ) {
 				/* Download AAC */
 				curl_nwrite=0; mbcnt=0;
-				EGI_PLOG(LOGLV_INFO, "Downloading b._stream/b.ts from: %s",  segURL);
+				EGI_PLOG(LOGLV_INFO, "Downloading b._aac/b.ts from: %s",  segURL);
 				if(Enable_mURL_Download && Is_TS ) {  /* mURL Download */
-					rename("/tmp/c.ts", "/tmp/b.ts");
+					if(access("/tmp/c.ts",F_OK)==0)
+						rename("/tmp/c.ts", "/tmp/b.ts");
 					ret=0;
 				}
 			        else if(nthreads==1) // || !Enable_mThread_Download)  /* Easy download */
 		                	ret=https_easy_download( HTTPS_SKIP_PEER_VERIFICATION | HTTPS_SKIP_HOSTNAME_VERIFICATION
 										      | HTTPS_ENABLE_REDIRECT , 3, timeout, //3,3
-								 segURL, Is_AAC?"/tmp/b._stream":"/tmp/b.ts", NULL, download_callback);
+								 segURL, Is_AAC?"/tmp/b._aac":"/tmp/b.ts", NULL, download_callback);
 			   	else /* Multi_thread easy download */
 			        	ret=https_easy_mThreadDownload( HTTPS_SKIP_PEER_VERIFICATION | HTTPS_SKIP_HOSTNAME_VERIFICATION
 								     | HTTPS_ENABLE_REDIRECT, nthreads, 0, timeout, /* threads, trys, timeout */
-                                    				segURL, Is_AAC?"/tmp/b._stream":"/tmp/b.ts");
+                                    				segURL, Is_AAC?"/tmp/b._aac":"/tmp/b.ts");
 
 			        if(ret!=0)
 				{
-                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download b._stream/b.ts from '%s'.", segURL);
+                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download b._aac/b.ts from '%s'.", segURL);
 
-					remove(Is_AAC?"/tmp/b._stream":"/tmp/b.ts");
-					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/b._stream(or b.ts).");
+					remove(Is_AAC?"/tmp/b._aac":"/tmp/b.ts");
+					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/b._aac(or b.ts).");
 
-					/* !!! Break NOW, in case next acc url NOT available either, as downloading time goes by!!! */
+					/* !!! Break NOW, in case playlist is already obsolete, as downloading time goes by!!! */
 					EGI_PLOG(LOGLV_INFO, "Case_2. End parsing m3u8list, and starts a new http request...");
-					continue; //break; //return;
+					if(mlist->isEndList)continue; else break;
 
 				} else {
 
@@ -540,47 +665,49 @@ void parse_m3u8list(char *strm3u)
 						  decrypt_file("/tmp/b.ts", TMP_KEY_FPATH, mlist->strIV[k]);
 
 					    /* Extract AAC from TS */
-					    egi_extract_AV_from_ts("/tmp/b.ts", "/tmp/b._stream", "/tmp/b._h264");
+					    egi_extract_AV_from_ts("/tmp/b.ts", "/tmp/b._aac", "/tmp/b._h264");
 					}
 
-					/* Rename to a.stream */
-					printf("rename b._stream to b.stream\n");
-					rename("/tmp/b._stream","/tmp/b.stream");
+					/* Rename to a.aac */
+					printf("rename b._aac to b.aac\n");
+					rename("/tmp/b._aac","/tmp/b.aac");
 
                                         /* Rename to b.h264 ---by test_helixaac */
 
 					/* Update segLastURL */
-					EGI_PLOG(LOGLV_INFO, "Ok, b.stream updated! curl_nwrite=%d", curl_nwrite);
+					EGI_PLOG(LOGLV_INFO, "Ok, b.aac updated! curl_nwrite=%d", curl_nwrite);
 				}
 			}
-			/* F3.!! In some cases, time stamp is NOT consistent with former URL list, strcmp() will fail!???  */
-			else if( access("/tmp/a.stream",F_OK)!=0  && access("/tmp/b.stream",F_OK)!=0 ) {
+		#if 0	/*  F3.!! In some cases, time stamp is NOT consistent with former URL list, strcmp() will fail!???  */
+			/* TODO: NOT necesasry ??? */
+			else if( access("/tmp/a.aac",F_OK)!=0  && access("/tmp/b.aac",F_OK)!=0 ) {
 				// && strcmp(segName, segLastName) > 0 ) {
 				/* Download AAC */
 				curl_nwrite=0; mbcnt=0;
-				EGI_PLOG(LOGLV_ERROR, "Case 3: a.stream & b.stream both missing! downloading a._stream/a.ts from: %s",  segURL);
+				EGI_PLOG(LOGLV_ERROR, "Case 3: a.aac & b.aac both missing! downloading a._aac/a.ts from: %s",  segURL);
 				if(Enable_mURL_Download && Is_TS ) {  /* mURL Download */
-					rename("/tmp/c.ts", "/tmp/a.ts");
+					if(access("/tmp/c.ts",F_OK)==0)
+						rename("/tmp/c.ts", "/tmp/a.ts");
 					ret=0;
 				}
 				else if(nthreads==1) // || !Enable_mThread_Download) /* Easy download */
 			                ret=https_easy_download( HTTPS_SKIP_PEER_VERIFICATION | HTTPS_SKIP_HOSTNAME_VERIFICATION
 										      | HTTPS_ENABLE_REDIRECT, 3,timeout, //3,3
-								 segURL, Is_AAC?"/tmp/a._stream":"/tmp/a.ts", NULL, download_callback);
+								 segURL, Is_AAC?"/tmp/a._aac":"/tmp/a.ts", NULL, download_callback);
 				else /* Multi_thread easy download */
 			        	ret=https_easy_mThreadDownload( HTTPS_SKIP_PEER_VERIFICATION | HTTPS_SKIP_HOSTNAME_VERIFICATION
 								     | HTTPS_ENABLE_REDIRECT, 2, nthreads, timeout, /* threads, trys, timeout */
-                                    				segURL, Is_AAC?"/tmp/a._stream":"/tmp/a.ts");
+                                    				segURL, Is_AAC?"/tmp/a._aac":"/tmp/a.ts");
 
 				if(ret!=0)
 				{
-                        		EGI_PLOG(LOGLV_ERROR, "Case 3: Fail to easy_download a._stream/a.ts from '%s'.", segURL);
-					remove(Is_AAC?"/tmp/a._stream":"/tmp/a.ts");
-					EGI_PLOG(LOGLV_INFO, "Case 3: Finsh remove /tmp/a._stream(or a.ts).");
+                        		EGI_PLOG(LOGLV_ERROR, "Case 3: Fail to easy_download a._aac/a.ts from '%s'.", segURL);
+					remove(Is_AAC?"/tmp/a._aac":"/tmp/a.ts");
+					EGI_PLOG(LOGLV_INFO, "Case 3: Finsh remove /tmp/a._aac(or a.ts).");
 
-					/* !!! Break NOW, in case next acc url NOT available either, as downloading time goes by!!! */
+					/* !!! Break NOW, in case playlist is already obsolete, as downloading time goes by!!! */
 					EGI_PLOG(LOGLV_INFO, "Case_3. End parsing m3u8list, and starts a new http request...");
-					continue; //break; //return;
+					if(mlist->isEndList)continue; else break;
 				} else {
 
 					if(Is_TS)  {
@@ -589,36 +716,42 @@ void parse_m3u8list(char *strm3u)
 						  decrypt_file("/tmp/a.ts", TMP_KEY_FPATH, mlist->strIV[k]);
 
 					    /* Extract AAC from TS */
-					    egi_extract_AV_from_ts("/tmp/a.ts", "/tmp/a._stream", "/tmp/a._h264");
+					    egi_extract_AV_from_ts("/tmp/a.ts", "/tmp/a._aac", "/tmp/a._h264");
 					}
 
-					/* Rename to a.stream */
-					printf("rename2 a._stream to a.stream\n");
-					rename("/tmp/a._stream","/tmp/a.stream");
+					/* Rename to a.aac */
+					printf("rename2 a._aac to a.aac\n");
+					rename("/tmp/a._aac","/tmp/a.aac");
 
 					/* Rename to a.h264,  ---by test_helixaac  */
                                         //if(access("/tmp/a.h264",F_OK)!=0 )
 					//	rename("/tmp/a._h264","/tmp/a.h264");
 
 					/* Update segLastURL */
-					EGI_PLOG(LOGLV_INFO, "Ok2, a.stream updated! curl_nwrite=%d", curl_nwrite);
+					EGI_PLOG(LOGLV_INFO, "Ok2, a.aac updated! curl_nwrite=%d", curl_nwrite);
 				}
 			}
-			/* F4. Both OK */
-			else if(access("/tmp/a.stream",F_OK)==0 && access("/tmp/b.stream",F_OK)==0) {
-				EGI_PLOG(LOGLV_CRITICAL, "a.stream and b.stream both available!");
+	          #endif  /* F3. END */
+			/* 4.2.4_F4. Both OK */
+			else if(access("/tmp/a.aac",F_OK)==0 && access("/tmp/b.aac",F_OK)==0) {
+				EGI_PLOG(LOGLV_CRITICAL, "a.aac and b.aac both available!");
 
-				/* Rewind back */
+				/* Wait for consuming.... */
 				do {
 					if(mlist->tsec[k]>4.0)
 				   		sleep(1);
 					else
 				   		usleep(200000);
-				} while( access("/tmp/a.stream",F_OK)==0 && access("/tmp/b.stream",F_OK)==0);
+				} while( access("/tmp/a.aac",F_OK)==0 && access("/tmp/b.aac",F_OK)==0);
 
+				if(Enable_mURL_Download) {
+					//egi_dpstd("Go to CHECK_BUFF_FILES...\n");
+					goto CHECK_BUFF_FILES;
+				}
 				/* Rewind k */
-				if(!Enable_mURL_Download)
+				else {
 					k--;
+				}
 			}
 
 			/* F5. Sequence reset?  */
@@ -629,21 +762,36 @@ void parse_m3u8list(char *strm3u)
 			//}
 
 		}
-		else /* NOT .aac OR .ts */ {
+		/* 4.3 NOT .aac OR .ts */
+		else  {
 			egi_dpstd(DBG_YELLOW"Only support AAC/TS stream, fail to support URL: '%s'.\n"DBG_RESET,ps);
 		}
 
 	} /* END for(K) */
 
-	/* Renew lastSeqNum */
-	printf("Renew lastSeqNum....\n");
-	lastSeqNum = mlist->seqnum+mlist->ns-1;
 
-	/* Free charList */
+END_FUNC:
+	/* 5. Update or Reset lastSeqNum. */
+	if( mlist->isMasterList==false ) {
+	   if(isEndList==false) {
+		lastSeqNum = mlist->seqnum+mlist->ns-1;
+		printf("End sub playlist, lastSeqNum is %d\n", lastSeqNum);
+	   }
+	   else {
+		printf("End all playlists, lastSeqNum is %d\n", lastSeqNum);
+		lastSeqNum=0;
+	   }
+	}
+
+	/* 6. Free temp var. In case break in mid of processing...*/
+	free(segURL); segURL=NULL;
+	free(segName); segName=NULL;
+
+	/* 7. Free charList */
 	egi_free_charList(&strURL, nurls);
 	egi_free_charList(&filenames, nurls);
 
-	/* Free mlist */
+	/* 8. Free mlist */
 	printf("Free list...\n");
 	m3u_free_list(&mlist);
 	printf("free OK\n");
@@ -735,6 +883,10 @@ END_FUNC:
 	egi_fmap_free(&fmap);
 	return ret;
 }
+
+
+
+
 
 
 #if 0 ////////////////////////////////   OBSOLETE   ///////////////////////////////////
@@ -843,19 +995,19 @@ https://....
 			cstr_parse_URL(segURL, NULL, NULL, NULL, NULL, &segName, NULL, NULL);
 			printf(DBG_GREEN"segName: %s  <<<<<<  segLastName: %s\n"DBG_RESET, segName, segLastName);
 
-			/* 1. Check and download a.stream */
-			//if( access("/tmp/a.stream",F_OK)!=0 && strcmp(segURL, segLastURL) > 0) {
-			if( access("/tmp/a.stream",F_OK)!=0 && strcmp(segName, segLastName) > 0) {
+			/* 1. Check and download a.aac */
+			//if( access("/tmp/a.aac",F_OK)!=0 && strcmp(segURL, segLastURL) > 0) {
+			if( access("/tmp/a.aac",F_OK)!=0 && strcmp(segName, segLastName) > 0) {
 				/* Download AAC */
 				curl_nwrite=0; mbcnt=0;
-				EGI_PLOG(LOGLV_INFO, "Downloading a.stream/a.ts from: %s",  segURL);
+				EGI_PLOG(LOGLV_INFO, "Downloading a.aac/a.ts from: %s",  segURL);
 		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION | HTTPS_SKIP_HOSTNAME_VERIFICATION
 										      | HTTPS_ENABLE_REDIRECT, 3, timeout,  //3,3
-							 segURL, Is_AAC?"/tmp/a._stream":"/tmp/a.ts", NULL, download_callback) !=0 )
+							 segURL, Is_AAC?"/tmp/a._aac":"/tmp/a.ts", NULL, download_callback) !=0 )
 				{
-                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download a._stream/a.ts from '%s'.", segURL);
-					remove(Is_AAC?"/tmp/a._stream":"/tmp/a.ts");
-					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/a._stream(or a.ts.");
+                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download a._aac/a.ts from '%s'.", segURL);
+					remove(Is_AAC?"/tmp/a._aac":"/tmp/a.ts");
+					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/a._aac(or a.ts.");
 
 					/* !!! Break NOW, in case next acc url NOT available either, as downloading time goes by!!! */
 					EGI_PLOG(LOGLV_INFO, "Case_1. End parsing m3u8list, and starts a new http request...\n");
@@ -863,35 +1015,35 @@ https://....
 				} else {
 					/* Extract AAC from TS */
 					if(Is_TS)
-					    egi_extract_AV_from_ts("/tmp/a.ts", "/tmp/a._stream", "/tmp/a._h264");
+					    egi_extract_AV_from_ts("/tmp/a.ts", "/tmp/a._aac", "/tmp/a._h264");
 
-					/* Rename to a.stream */
-					rename("/tmp/a._stream","/tmp/a.stream");
+					/* Rename to a.aac */
+					rename("/tmp/a._aac","/tmp/a.aac");
 
 					/* Rename to a.h264,  ---by test_helixaac  */
 					//if(access("/tmp/a.h264",F_OK)!=0 )
 					//	rename("/tmp/a._h264", "/tmp/a.h264");
 
 					/* Update segLastURL */
-					EGI_PLOG(LOGLV_INFO, "Ok, a.stream updated! curl_nwrite=%d", curl_nwrite);
+					EGI_PLOG(LOGLV_INFO, "Ok, a.aac updated! curl_nwrite=%d", curl_nwrite);
 					strncpy( segLastName, segName, sizeof(segLastName)-1 );
 				}
 			}
 
-			/* 2. Check and download b.stream */
-			//else if( access("/tmp/b.stream",F_OK)!=0 && strcmp(segURL, segLastURL) > 0) {
-			else if( access("/tmp/b.stream",F_OK)!=0 && strcmp(segName, segLastName) > 0) {
+			/* 2. Check and download b.aac */
+			//else if( access("/tmp/b.aac",F_OK)!=0 && strcmp(segURL, segLastURL) > 0) {
+			else if( access("/tmp/b.aac",F_OK)!=0 && strcmp(segName, segLastName) > 0) {
 				/* Download AAC */
 				curl_nwrite=0; mbcnt=0;
-				EGI_PLOG(LOGLV_INFO, "Downloading b._stream/b.ts from: %s",  segURL);
+				EGI_PLOG(LOGLV_INFO, "Downloading b._aac/b.ts from: %s",  segURL);
 		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION | HTTPS_SKIP_HOSTNAME_VERIFICATION
 										      | HTTPS_ENABLE_REDIRECT , 3, timeout, //3,3
-							 segURL, Is_AAC?"/tmp/b._stream":"/tmp/b.ts", NULL, download_callback) !=0 )
+							 segURL, Is_AAC?"/tmp/b._aac":"/tmp/b.ts", NULL, download_callback) !=0 )
 				{
-                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download b._stream/b.ts from '%s'.", segURL);
+                        		EGI_PLOG(LOGLV_ERROR, "Fail to easy_download b._aac/b.ts from '%s'.", segURL);
 
-					remove(Is_AAC?"/tmp/b._stream":"/tmp/b.ts");
-					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/b._stream(or b.ts).");
+					remove(Is_AAC?"/tmp/b._aac":"/tmp/b.ts");
+					EGI_PLOG(LOGLV_INFO, "Finish remove /tmp/b._aac(or b.ts).");
 
 					/* !!! Break NOW, in case next acc url NOT available either, as downloading time goes by!!! */
 					EGI_PLOG(LOGLV_INFO, "Case_2. End parsing m3u8list, and starts a new http request...\n");
@@ -900,33 +1052,33 @@ https://....
 				} else {
 					/* Extract AAC from TS */
 					if(Is_TS)
-					    egi_extract_AV_from_ts("/tmp/b.ts", "/tmp/b._stream", "/tmp/b._h264");
+					    egi_extract_AV_from_ts("/tmp/b.ts", "/tmp/b._aac", "/tmp/b._h264");
 
-					/* Rename to a.stream */
-					rename("/tmp/b._stream","/tmp/b.stream");
+					/* Rename to a.aac */
+					rename("/tmp/b._aac","/tmp/b.aac");
 
                                         /* Rename to b.h264 ---by test_helixaac */
                                         //if(access("/tmp/b.h264",F_OK)!=0 )
                                         //        rename("/tmp/b._h264", "/tmp/b.h264");
 
 					/* Update segLastURL */
-					EGI_PLOG(LOGLV_INFO, "Ok, b.stream updated! curl_nwrite=%d", curl_nwrite);
+					EGI_PLOG(LOGLV_INFO, "Ok, b.aac updated! curl_nwrite=%d", curl_nwrite);
 					strncpy( segLastName, segName, sizeof(segLastName)-1 );
 				}
 			}
 			/* 3.!! In some cases, time stamp is NOT consistent with former URL list, strcmp() will fail!???  */
-			else if( access("/tmp/a.stream",F_OK)!=0  && access("/tmp/b.stream",F_OK)!=0
+			else if( access("/tmp/a.aac",F_OK)!=0  && access("/tmp/b.aac",F_OK)!=0
 				 && strcmp(segName, segLastName) > 0 ) {
 				/* Download AAC */
 				curl_nwrite=0; mbcnt=0;
-				EGI_PLOG(LOGLV_ERROR, "Case 3: a.stream & b.stream both missing! downloading a._stream/a.ts from: %s",  segURL);
+				EGI_PLOG(LOGLV_ERROR, "Case 3: a.aac & b.aac both missing! downloading a._aac/a.ts from: %s",  segURL);
 		                if( https_easy_download( HTTPS_SKIP_PEER_VERIFICATION | HTTPS_SKIP_HOSTNAME_VERIFICATION
 										      | HTTPS_ENABLE_REDIRECT, 3,timeout, //3,3
-							 segURL, Is_AAC?"/tmp/a._stream":"/tmp/a.ts", NULL, download_callback) !=0 )
+							 segURL, Is_AAC?"/tmp/a._aac":"/tmp/a.ts", NULL, download_callback) !=0 )
 				{
-                        		EGI_PLOG(LOGLV_ERROR, "Case 3: Fail to easy_download a._stream/a.ts from '%s'.", segURL);
-					remove(Is_AAC?"/tmp/a._stream":"/tmp/a.ts");
-					EGI_PLOG(LOGLV_INFO, "Case 3: Finsh remove /tmp/a._stream(or a.ts).");
+                        		EGI_PLOG(LOGLV_ERROR, "Case 3: Fail to easy_download a._aac/a.ts from '%s'.", segURL);
+					remove(Is_AAC?"/tmp/a._aac":"/tmp/a.ts");
+					EGI_PLOG(LOGLV_INFO, "Case 3: Finsh remove /tmp/a._aac(or a.ts).");
 
 					/* !!! Break NOW, in case next acc url NOT available either, as downloading time goes by!!! */
 					EGI_PLOG(LOGLV_INFO, "Case_3. End parsing m3u8list, and starts a new http request...\n");
@@ -935,23 +1087,23 @@ https://....
 				} else {
 					/* Extract AAC from TS */
 					if(Is_TS)
-					    egi_extract_AV_from_ts("/tmp/a.ts", "/tmp/a._stream", NULL);
+					    egi_extract_AV_from_ts("/tmp/a.ts", "/tmp/a._aac", NULL);
 
-					/* Rename to a.stream */
-					rename("/tmp/a._stream","/tmp/a.stream");
+					/* Rename to a.aac */
+					rename("/tmp/a._aac","/tmp/a.aac");
 
 					/* Rename to a.h264,  ---by test_helixaac  */
                                         //if(access("/tmp/a.h264",F_OK)!=0 )
 					//	rename("/tmp/a._h264","/tmp/a.h264");
 
 					/* Update segLastURL */
-					EGI_PLOG(LOGLV_INFO, "Ok, a.stream updated! curl_nwrite=%d", curl_nwrite);
+					EGI_PLOG(LOGLV_INFO, "Ok, a.aac updated! curl_nwrite=%d", curl_nwrite);
 					strncpy( segLastName, segName, sizeof(segLastName)-1 );
 				}
 			}
 			/* 4. Both OK */
-			else if(access("/tmp/a.stream",F_OK)==0 && access("/tmp/b.stream",F_OK)==0)
-				EGI_PLOG(LOGLV_CRITICAL, "a.stream and b.stream both available!\n");
+			else if(access("/tmp/a.aac",F_OK)==0 && access("/tmp/b.aac",F_OK)==0)
+				EGI_PLOG(LOGLV_CRITICAL, "a.aac and b.aac both available!\n");
 			/* 5. Sequence reset?  */
 			//else if( strcmp(segURL, segLastURL) <= 0 ) {
 			else if( strcmp(segName, segLastName) <= 0 ) {
