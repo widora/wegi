@@ -5,6 +5,10 @@ published by the Free Software Foundation.
 
 Test EGI_3D Class and Functions.
 
+Journal:
+2022-08-06:
+	1. Test Class E3D_Radial,E3D_Plane and relevant functions.
+
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------*/
@@ -37,7 +41,70 @@ int main(void)
 {
 	cout << "Hello, this is C++!\n" << endl;
 
-#if 0 ///////////////  E3D_Vector ////////////////////////////////
+#if 1 ///////////////  E3D_Radial / E3D_Plane  ///////////////////////////
+	E3D_Vector  vp0(5,6,7);
+	E3D_Vector  vd(3,4,5);
+
+   //E3D_Radial -------------------------
+	E3D_Radial  Rd1(vp0,vd);
+	printf("Rd1---\n");
+	Rd1.vp0.print(NULL);
+	Rd1.vd.print(NULL);
+
+	E3D_Radial  Rd2(1.1,1.2,1.3, 2.1,2.2,2.3);
+	printf("Rd2---\n");
+	Rd2.vp0.print(NULL);
+	Rd2.vd.print(NULL);
+
+   //E3D_Plane -------------------------
+	E3D_Vector v1(0,0,0), v2(2,4,6), v3(5,4,9);
+	E3D_Plane Plane1(v1,v2,v3);
+	printf("\nPlane1---\n");
+	Plane1.vn.print(NULL);
+	printf("fd=%f.3\n",Plane1.fd);
+	float c=Plane1.vn*(v1-v2);
+	printf("c=Plane1.vn*(v1-v2)=%f\n",c);
+	float d=Plane1.vn*(v2-v3);
+	printf("d=Plane1.vn*(v2-v3)=%f\n",d);
+	float e=Plane1.vn*(v1-v3);
+	printf("e=Plane1.vn*(v1-v3)=%f\n",e);
+
+   //E3D_RadialVerticalRadial(const E3D_Radial &rad1, const E3D_Radial &rad2)
+        E3D_Radial Rd3(v1, Plane1.vn);
+	printf("Rd1 and Plane1 is %s parallel.\n", true==E3D_RadialParallelRadial(Rd1, Rd3) ? "just" : "NOT");
+
+   //E3D_RadialParallelPlane(const E3D_Radial &rad, const E3D_Plane &plane)
+	printf("Rd1 and Plane1 is %s parallel.\n", true==E3D_RadialParallelPlane(Rd1,Plane1) ? "just" : "NOT");
+
+   //E3D_Vector E3D_RadialIntsectPlane(const E3D_Radial &rad, const E3D_Plane &plane)
+	bool forward;
+
+     #if 0
+	E3D_Radial Rd4(0,0,0, 1,1,1);
+	E3D_Vector  pv1(10,0,0),pv2(0,10,10),pv3(0,0,10);
+	E3D_Plane plane4(pv1,pv2,pv3);
+
+	E3D_Vector Vinsct=E3D_RadialIntsectPlane(Rd4, plane4, forward);
+	printf("Intersection point at %s: \n", forward?"forward":"backward");
+	Vinsct.print();
+     #endif
+
+     #if 1
+	E3D_Radial Rd5(0,0,0, 10,30,0);
+	E3D_Vector pv1(0,40,0),pv2(40,0,0),pv3(40,0,10);
+	E3D_Plane plane5(pv1,pv2,pv3);
+
+	E3D_Vector Vinsct=E3D_RadialIntsectPlane(Rd5, plane5, forward);
+	printf("Intersection point at %s: \n", forward?"forward":"backward");
+	Vinsct.print();
+     #endif
+
+
+
+	exit(0);
+#endif
+
+#if 0 ///////////////  E3D_Vector  //////////////////////////////
 	E3D_Vector *pv = new E3D_Vector(5,5,5);
 	pv->print("pv");
 	delete pv;
@@ -100,7 +167,7 @@ int main(void)
 	v3.print("v3=corssProduct(v1,v2)=");
 #endif
 
-#if 1 ///////////////  E3D_RTMatrix ////////////////////////////////
+#if 0 ///////////////  E3D_RTMatrix ////////////////////////////////
 	int k;
         E3D_Vector axisX(1,0,0);
         E3D_Vector axisY(0,1,0);

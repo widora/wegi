@@ -57,15 +57,39 @@ EGILIB=dynamic
 ###             ----- A template for making test_cpp app -----
 ###     Usage example: make test TEST_NAME=test_resizeimg EGILIB=static
 ###
-test_cpp:   $(TEST_NAME).cpp
+
+E3D_OBJS = e3d_vector.o
+E3D_OBJS += e3d_trimesh.o
+
+test_cpp:  $(TEST_NAME).cpp $(E3D_OBJS)
 ifeq ($(EGILIB),static)
-	$(CPP) $(TEST_NAME).cpp -o $(TEST_NAME) $(CPPFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
+	$(CPP)  $(TEST_NAME).cpp -o $(TEST_NAME) $(E3D_OBJS) $(CPPFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
 -Wl,-Bstatic -legi -lhelixaac -Wl,-Bdynamic
 else
-	$(CPP) -o $(TEST_NAME) $(TEST_NAME).c $(CPPFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
+	$(CPP) $(E3D_OBJS) -o $(TEST_NAME) $(CPPFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
 endif
 
 ###                     ------ template end -----
+
+
+###  E3D_Vector  ###
+e3d_vector.o:	e3d_vector.h e3d_vector.cpp
+ifeq ($(EGILIB),static)
+	$(CPP) -c -o e3d_vector.o  e3d_vector.cpp $(CPPFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
+-Wl,-Bstatic -legi -lhelixaac -Wl,-Bdynamic
+else
+	$(CPP) -c -o e3d_vector.o  e3d_vector.cpp $(CPPFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
+endif
+
+###  E3D_Trimesh  ###
+e3d_trimesh.o:	e3d_trimesh.h e3d_trimesh.cpp
+ifeq ($(EGILIB),static)
+	$(CPP) -c -o e3d_trimesh.o e3d_trimesh.cpp $(CPPFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
+-Wl,-Bstatic -legi -lhelixaac -Wl,-Bdynamic
+else
+	$(CPP) -o e3d_trimesh.o  e3d_trimesh.cpp $(CPPFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
+endif
+
 
 all:	$(APPS)
 
@@ -75,5 +99,5 @@ all:	$(APPS)
 #	$(CPP)  $(CFLAGS) $(LDFLAGS) $(LIBS)  $@.c -o $@
 
 clean:
-	rm -rf *.o $(APPS) $(OBJ_IOT)
+	rm -rf  *.o
 

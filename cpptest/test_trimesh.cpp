@@ -88,6 +88,25 @@ plane.obj -c -s 1.0 -z -600 -X 190 -Y 197 -a 175 -P -w -B -t  // ON Head and tai
 plane.obj -c -s 1.0 -z -600 -A 2 -X 200 -a 175 -P -B -t  // See up/down sides of Wings and Hstabilizer
 plane.obj -c -s .8 -A 2 -X 90 -a 175 -P -t //To and bottom view
 
+audi.obj -c -s 15 -a 10 -X 175 -P
+//TEST: audi.obj -l -c -s 16  -X 190 -P -t
+dwarf.obj -c -s 100 -Z 90
+wm.obj  -c -s 800 -X 200 -t -P
+F458.obj -c -s 100 -t -X 90 -A 2 -a 10
+fish.obj -c -s 300 -X 170 -P -t
+eye.obj -c -s 100 -X -180 a 5 -t
+strong.obj -c -s 18 -X 180 -y 40
+./test_trimesh 3Dhead.obj -c -s 80 -X -160 -a 10 -G -t  // Shadow TEST
+
+Shadow TEST:
+3Dhead.obj -c -s 90 -X -160 -G -M HeadShadow.mot
+fish.obj -c -s 220 -x 30 -X -150 -W -P -a -2.5 -t -M fishShadow.mot
+thinker.obj -c -s 2 -P -W -x 100 -X -160 -t
+tower.obj -c -s 3 -W -X -120 -x 200 -P -G -t
+boxman.obj -c -s 10 -W -X -150 -x 100 -P -G -t -a 10
+
+
+
 	----- Test FLOAT_EPSILON -----
 Render mesh ... angle=0
 renderMesh(): triList[0] vProduct=7.660444e-01 >=0
@@ -170,6 +189,9 @@ XXX 5. For Perspective View, wiremesh may NOT shown properly.
        The Foucus is behind Viewplane(View_COORD_Z==0).
 8. Try to show the mesh at first using a small scale factor, which will greatly
    improve rending speed.
+9. For GOURAUD_SHADING, each vertex shall have its own normal value, otherwise it
+   turns out to be FLAT_SHADING actually.
+
 
 TODO:
 1. NOW it uses integer type zbuff[]. ---> Should be float/double type.
@@ -223,6 +245,9 @@ Journal:
 	Test BOXMAN Head/Arm action.
 2022-01-07:
 	Add input option loopRender_on.
+2022-08-08:
+	Option for mesh shadow displaying.
+
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -254,18 +279,20 @@ const UFT8_PCHAR ustr=(UFT8_PCHAR)"Hello_World! 世界你好!\n12345 子丑寅�
 
 void print_help(const char *name)
 {
-	printf("Usage: %s obj_file [-hrbBDGNRSPVLwbtclf:s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
+	printf("Usage: %s obj_file [-hrbBDGmNRSPVLWwbtclf:s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
 	printf("-h     Help\n");
 	printf("-r     Reverse trianlge normals\n");
 	printf("-B     Display back faces with default color, OR texture for back faces also.\n");
 	printf("-D     Show mesh detail statistics and other info.\n");
 	printf("-G     Show grid.\n");
+	printf("-m     Force texture mapping.\n");
 	printf("-N     Show coordinate navigating sphere/frame.\n");
 	printf("-R     Reverse vertex Z direction.\n");
 	printf("-S     Save serial FB images and loop playing.\n"); /* OBSOLETE */
 	printf("-P     Perspective ON\n");
 	printf("-V     Auto compute all vtxNormals if no provided in data, for gouraud shading.\n");
 	printf("-L     Adjust lighting direction.\n");
+	printf("-W     Shadow on grid plane.\n");
 	printf("-w     Wireframe ON\n");
 	printf("-b     AABB ON\n");
 	printf("-c    Move local COORD origin to center of mesh, 0-VtxCenter 1-AABB Center.\n");
@@ -351,6 +378,8 @@ int main(int argc, char **argv)
 	bool		adjustLight_on=false;	/* Adjust lighting direction */
 	bool		showGrid_on=false;	/* Show grid */
 	bool		loopRender_on=false;    /* loop rendering */
+	bool		force_textureMap=false; /* Force texturemaping, if ONLY one(or more) face group has texture file. */
+	bool		shadow_on=false;	/* Shadown on grid plane */
 
 	/* Projectionn matrix */
 	float		dview;		/* Distance from the Focus(usually originZ) to the Screen/ViewPlane */
@@ -358,13 +387,20 @@ int main(int argc, char **argv)
 	float		dstep;
 	E3D_ProjMatrix projMatrix={ .type=E3D_ISOMETRIC_VIEW, .dv=500, .dnear=500, .dfar=10000000, .winW=320, .winH=240};
 
+	/* Plane for shadow */
+	E3D_Plane shadowPlane(0.0,1.0,0.0, 0.0); /* On y=0.0 plane */
+
+	E3D_Vector shadowPts[3];
+	shadowPts[0].x=0.0; shadowPts[0].y=0.0; shadowPts[0].z=0.0;
+	shadowPts[1].x=1.0; shadowPts[1].y=0.0; shadowPts[1].z=0.0;
+	shadowPts[2].x=0.0; shadowPts[2].y=0.0; shadowPts[2].z=1.0;
+
 	/* For plane AABB Ty */
 	float Ty;
 
-
         /* Parse input option */
 	int opt;
-        while( (opt=getopt(argc,argv,"hrbBDGNRSPVLwbtclf:s:x:y:z:A:M:X:Y:Z:T:a:p:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hrbBDGmNRSPVLWwbtclf:s:x:y:z:A:M:X:Y:Z:T:a:p:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
 				print_help(argv[0]);
@@ -380,6 +416,9 @@ int main(int argc, char **argv)
 				break;
 			case 'G':
 				showGrid_on=true;
+				break;
+			case 'm':
+				force_textureMap=true;
 				break;
 			case 'N':
 				coordNavigate_on=true;
@@ -401,6 +440,9 @@ int main(int argc, char **argv)
 				break;
 			case 'w':
 				wireframe_on=true;
+				break;
+			case 'W':
+				shadow_on=true;
 				break;
 			case 'b':
 				AABB_on=true;
@@ -534,10 +576,25 @@ if( adjustLight_on ) {  /* For Portrait.. */
 	vLight.normalize();
 	gv_vLight=vLight;
 }
-else {		/* For Landscape */
-	E3D_Vector vLight(1, 1, 1); //2); //4);
-	vLight.normalize();
-	gv_vLight=vLight;
+else {	/* For Landscape */
+	if(shadow_on) {
+	   //E3D_Vector vLight(-1, 0.5, 1);
+	   gv_vLight.assign(-1, 0.5, 1);  //(-0.5, 1, 1);
+	   gv_vLight.normalize();
+	   gv_auxLight.assign(1,1,1);
+	   gv_auxLight.normalize();
+	}
+	else {
+	   gv_vLight.assign(1, 1, 1);
+	   gv_vLight.normalize();
+	   gv_auxLight.assign(-1, -1, 1);
+	   gv_auxLight.normalize();
+	}
+
+	//E3D_Vector vLight(-0.5, 1, 1);
+	//E3D_Vector vLight(1, 1, 1);
+	//vLight.normalize();
+	//gv_vLight=vLight;
 }
 
 	/* 1. Read obj file to meshModel */
@@ -703,7 +760,7 @@ else {		/* For Landscape */
 	E3D_TriMesh *workMesh=new E3D_TriMesh(meshModel.vtxCount(), meshModel.triCount());
 
 	/* 9. Check if it has input texture with option -T path. (NOT as defined in .mtl file.) */
-	if( (textureFile && meshModel.textureImg) || (meshModel.mtlList.size()>0 && meshModel.mtlList[0].img_kd) ) {
+	if( force_textureMap || (textureFile && meshModel.textureImg) || (meshModel.mtlList.size()>0 && meshModel.mtlList[0].img_kd) ) {
 		refimg=meshModel.textureImg; /* Just ref, to get imgbuf size later. */
 		workMesh->shadeType=E3D_TEXTURE_MAPPING;
 	}
@@ -818,6 +875,7 @@ else {		/* For Landscape */
 	//AdjustMat.setRotation(axisX, (-140.0+rotX)/180*MATH_PI);  /* AntiCloswise. -140 for Screen XYZ flip.  */
 	//VRTmat=VRTmat*AdjustMat;
 
+
 	/* W2.2: Set translation ONLY.  Note: View from -Z ---> +Z */
 	VRTmat.setTranslation(offx, offy, offz +dview*2); /* take Focus to obj center=2*dview */
 
@@ -825,6 +883,36 @@ else {		/* For Landscape */
 	cout << "Transform workMesh...\n";
 	//workMesh->transformMesh(RTYmat*RTXmat, ScaleMat); /* Here, scale ==1 */
 	workMesh->transformMesh(VRTmat, ScaleMat); /* Here, scale ==1 */
+
+	/* W3a. Update shadow Plane */
+	if(shadow_on) {
+		E3D_RTMatrix gmat;
+		gmat.setTranslation(0, 1.25*Ty, 0); /* 1.25*Ty to move shadowPlane downward */
+
+	#if 1
+		/* Reset shadowPts */
+		shadowPts[0].x=0.0; shadowPts[0].y=0.0; shadowPts[0].z=0.0;
+		shadowPts[1].x=1.0; shadowPts[1].y=0.0; shadowPts[1].z=0.0;
+		shadowPts[2].x=0.0; shadowPts[2].y=0.0; shadowPts[2].z=1.0;
+
+		/* Transform shadowPlane */
+		E3D_transform_vectors(shadowPts, 3, gmat*VRTmat);
+
+		/* Update shadowPlane */
+		E3D_Plane plane(shadowPts[0], shadowPts[1], shadowPts[2]);
+		shadowPlane=plane;
+		printf("1 shadowPlane: fd=%f\n",shadowPlane.fd); shadowPlane.vn.print(NULL);
+	#endif
+
+		/* Reset shadowPlane On y=0.0 plane */
+		shadowPlane.vn = E3D_Vector(0.0, 1.0, 0.0);
+		shadowPlane.fd = 0.0;
+
+		/* Transform shadowPlane */
+		shadowPlane.transform(gmat*VRTmat);
+		printf("2 shadowPlane: fd=%f\n",shadowPlane.fd); shadowPlane.vn.print(NULL);
+
+	}
 
 	/* W4. Update Projectoin Matrix */
 	dvv += dstep;
@@ -874,13 +962,20 @@ else {		/* For Landscape */
 	else
 		workMesh->shadeType=E3D_FLAT_SHADING;
 #endif
-
-        cout << "Render mesh ... angle="<< angle <<endl;
+	/* Render mesh */
+        cout << "Render mesh ... angle=" << angle <<endl;
         workMesh->renderMesh(&gv_fb_dev, projMatrix);
+
+	/* Render shadow */
+	if(shadow_on) {
+		cout << "Create shadow ..." << endl;
+		workMesh->shadowMesh(&gv_fb_dev, projMatrix, shadowPlane);
+	}
 #endif
 
 #if 0	/* W7. Render as wire frames, on current FB image (before FB is cleared). */
-	if(wireframe_on && workMesh->shadeType!=E3D_TEXTURE_MAPPING) {
+	//if(wireframe_on && workMesh->shadeType!=E3D_TEXTURE_MAPPING)
+	{
 		fbset_color2(&gv_fb_dev, wireColor); //WEGI_COLOR_DARKGRAY);
 		cout << "Draw meshwire ...\n";
 		workMesh->drawMeshWire(&gv_fb_dev, projMatrix);
@@ -916,6 +1011,7 @@ else {		/* For Landscape */
 		//float Ty=workMesh->aabbox.vmax.y;  /* !!! XXX It Changes! */
 		printf("gmat.setTranslation Ty=%f, dSize=%d\n", Ty, dSize);
 		gmat.setTranslation(0, Ty, 0);
+
 		/* Too big value of sx,sy to get out of the View_Frustum */
 	        E3D_draw_grid(&gv_fb_dev, 3.0*dSize, 3.0*dSize, dSize/10, gmat*VRTmat, projMatrix); /* fbdev sx,sy, us, VRTmat, projMatrix */
 	}
@@ -958,7 +1054,7 @@ else {		/* For Landscape */
                                         fontColor2, -1, 255,            /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
 
-        #if 1  /* Display shade type and faceColor */
+        /* Display shade type and faceColor */
 	/* Shade type and face color */
 	switch(workMesh->shadeType) {
 		case E3D_FLAT_SHADING:
@@ -978,6 +1074,9 @@ else {		/* For Landscape */
 		 strShadeType
 		);
 
+	printf("--- %s ---\n", strtmp);
+
+	#if 0
        	FTsymbol_uft8strings_writeFB( &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
                                        16, 16,                     	/* fw,fh */
                                        (UFT8_PCHAR)strtmp, 		/* pstr */
@@ -1048,6 +1147,9 @@ else {		/* For Landscape */
 	}
 #endif
 
+	/* Hold on... */
+	sleep(1);
+
 	/* To keep precision: Suppose it starts with angle==0!  */
 	if( (int)angle >=360 || (int)angle <= -360) {
 		if((int)angle>=360) {
@@ -1064,7 +1166,7 @@ else {		/* For Landscape */
 
 //		projMatrix.type=!projMatrix.type; /* Switch projection type */
 
-#if 1		/* Switch shadeType: Loop FLAT --> WIRE --> TEXTURE  */
+#if 0		/* Switch shadeType: Loop FLAT --> WIRE --> TEXTURE  */
 		if(workMesh->shadeType==E3D_FLAT_SHADING) {
 //			workMesh->shadeType=E3D_GOURAUD_SHADING;
 			workMesh->shadeType=E3D_TEXTURE_MAPPING;
@@ -1072,10 +1174,10 @@ else {		/* For Landscape */
 		else if(workMesh->shadeType==E3D_GOURAUD_SHADING) {
 			//workMesh->shadeType=E3D_TEXTURE_MAPPING;
 //			workMesh->shadeType=E3D_WIRE_FRAMING;
-#if 0 /* TEST: ---------- */
+  #if 0 /* TEST: ---------- */
 			if( saveMotion_on )
 				exit(0);
-#endif
+  #endif
 		}
 		else if(workMesh->shadeType==E3D_WIRE_FRAMING) {
 			if(workMesh->textureImg || workMesh->mtlList.size()>0 )
