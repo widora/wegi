@@ -97,14 +97,27 @@ fish.obj -c -s 300 -X 170 -P -t
 eye.obj -c -s 100 -X -180 a 5 -t
 strong.obj -c -s 18 -X 180 -y 40
 ./test_trimesh 3Dhead.obj -c -s 80 -X -160 -a 10 -G -t  // Shadow TEST
+oldship2.obj -c -s 200000 -X 200 -y -150 -P -t -M oldship.mot
+statue.obj -c -s 10 -P -X 90 -t -A 2
 
-Shadow TEST:
+
+	----- Shadow TEST -----
+teapot.obj -c -r -s 2.5 -X 200 -t -W -P -M teapotShadow.mot
 3Dhead.obj -c -s 90 -X -160 -G -M HeadShadow.mot
 fish.obj -c -s 220 -x 30 -X -150 -W -P -a -2.5 -t -M fishShadow.mot
 thinker.obj -c -s 2 -P -W -x 100 -X -160 -t
 tower.obj -c -s 3 -W -X -120 -x 200 -P -G -t
 boxman.obj -c -s 10 -W -X -150 -x 100 -P -G -t -a 10
+thinker.obj -c -s 2 -P -W -X -165 -z 200 -t -a -5 -G -M thinkerShadow.mot  // Rotate lighting
+widora.obj -c -s 7 -A 2 -X -70 -P -W -t -M widora.mot
+widoraX.obj -c -s 8 -X -160 -P -W -G -M widoraX.mot
 
+	---- Ray Trace ----
+rta20.obj -c -s 2 -X 25 -P -a 10
+thinker.obj -c -s 2 -P -X -160 -t -a -4 -M thinkerRay.mot
+
+	---- Ray backtracing shadow ----
+thinker.obj -c -s 2 -P -X -160 -t -M  rayshadow.mot
 
 
 	----- Test FLOAT_EPSILON -----
@@ -182,6 +195,8 @@ XXX 5. For Perspective View, wiremesh may NOT shown properly.
        so to adjust/map Global origin to center of View window in drawMesh/AABB/.. functons.
        TODO: perspective Z value for zbuff. ???
    6.6 ----- TEST: Distance from the focus to view plane to be 500 generally. TODO
+   6.7 Here we transform the workMesh instead of the camera, so vLight SHOULD align with the camera COORD,
+       or shadowPlane will backface to vLights.
 
 7.   			--- OPTION_2: ViewPoit_Movement ---
 
@@ -247,7 +262,10 @@ Journal:
 	Add input option loopRender_on.
 2022-08-08:
 	Option for mesh shadow displaying.
-
+2022-08-10:
+	gv_vLight rotating.
+2022-08-25/26:
+	1. Test rayHitFace().
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -305,7 +323,7 @@ void print_help(const char *name)
 	printf("-A:    0,1,2 Rotation axis, default FB_COORD_Y, 0_X, 1_Y, 2_Z \n");
 	printf("-M:    Save frames to a motion file.\n");
 	printf("-X:    X delta angle for display\n");
-	printf("-Y:    Y delta angle display\n");
+	printf("-Y:    Y delta angle for display\n");
 	printf("-Z:    Z delta angle for display\n");
 	printf("-T:    Texture image file(jpg,png).\n");
 	printf("-f:    Texture resize factor.\n");
@@ -390,13 +408,18 @@ int main(int argc, char **argv)
 	/* Plane for shadow */
 	E3D_Plane shadowPlane(0.0,1.0,0.0, 0.0); /* On y=0.0 plane */
 
+#if 0
 	E3D_Vector shadowPts[3];
 	shadowPts[0].x=0.0; shadowPts[0].y=0.0; shadowPts[0].z=0.0;
 	shadowPts[1].x=1.0; shadowPts[1].y=0.0; shadowPts[1].z=0.0;
 	shadowPts[2].x=0.0; shadowPts[2].y=0.0; shadowPts[2].z=1.0;
+#endif
 
-	/* For plane AABB Ty */
-	float Ty;
+	/* Ray for test */
+	E3D_Ray Ray;
+
+	/* For plane AABB Tx/Ty/Tz */
+	float Tx=0.0, Ty=0.0, Tz=0.0;
 
         /* Parse input option */
 	int opt;
@@ -578,16 +601,20 @@ if( adjustLight_on ) {  /* For Portrait.. */
 }
 else {	/* For Landscape */
 	if(shadow_on) {
-	   //E3D_Vector vLight(-1, 0.5, 1);
-	   gv_vLight.assign(-1, 0.5, 1);  //(-0.5, 1, 1);
+	/* NOPE! will be reassigned, see W3a. ..... */
+	   gv_vLight.assign(-1, 0.5, 1);
+	   //gv_vLight.assign(-1, 1, 0);
 	   gv_vLight.normalize();
 	   gv_auxLight.assign(1,1,1);
 	   gv_auxLight.normalize();
 	}
 	else {
-	   gv_vLight.assign(1, 1, 1);
+	   gv_vLight.assign(1, 1.5, 0);
+	   //gv_vLight.assign(0,0,1);
 	   gv_vLight.normalize();
-	   gv_auxLight.assign(-1, -1, 1);
+	   //gv_auxLight.assign(-1, -1, 1);
+	   //gv_auxLight.assign(-1,-1,0);
+	   gv_auxLight.assign(0,0,1);
 	   gv_auxLight.normalize();
 	}
 
@@ -664,6 +691,7 @@ else {	/* For Landscape */
 	E3D_RTMatrix ScaleMat;
 	E3D_RTMatrix AdjustMat;  		/* For adjust */
 	float angle=0.0;
+	float vltangle=0.0; 			/* gv_vLight adjusting angle */
 
 	/* ------ 8.TEST: Save FB images to a motion file.  ------------------------- */
 	if(saveMotion_on) {
@@ -745,8 +773,10 @@ else {	/* For Landscape */
 	cout << "dview=" <<dview<<endl;
 	sleep(1);
 
-/* TEST: -------- Get Ty */
-	Ty=-meshModel.aabbox.vmax.y;
+/* TEST: -------- Get Ty for grid plane translation */
+	Tx=-meshModel.aabbox.vmax.x -5;
+	Ty=-meshModel.aabbox.vmax.y -5;
+	Tz=-meshModel.aabbox.vmax.z -5;
 
 	/* 7. Init. E3D Vector and Matrixes for meshModel position. */
 	RXmat.identity(); 	/* !!! setTranslation(0,0,0); */
@@ -767,6 +797,7 @@ else {	/* For Landscape */
 	else {
 		/* Note: if the mesh has NO nv data(all 0), then result of GOURAUD_SHADING will be BLACK */
 		workMesh->shadeType=E3D_GOURAUD_SHADING;
+//		workMesh->shadeType=E3D_FLAT_SHADING;
 	}
 
 
@@ -875,7 +906,6 @@ else {	/* For Landscape */
 	//AdjustMat.setRotation(axisX, (-140.0+rotX)/180*MATH_PI);  /* AntiCloswise. -140 for Screen XYZ flip.  */
 	//VRTmat=VRTmat*AdjustMat;
 
-
 	/* W2.2: Set translation ONLY.  Note: View from -Z ---> +Z */
 	VRTmat.setTranslation(offx, offy, offz +dview*2); /* take Focus to obj center=2*dview */
 
@@ -886,33 +916,116 @@ else {	/* For Landscape */
 
 	/* W3a. Update shadow Plane */
 	if(shadow_on) {
+
+#if 0 /* TEST: Rotate lighting, set option '-a -5' to stop rotating workmesh ----------- */
 		E3D_RTMatrix gmat;
-		gmat.setTranslation(0, 1.25*Ty, 0); /* 1.25*Ty to move shadowPlane downward */
+		E3D_RTMatrix rmat,tmat;
 
-	#if 1
-		/* Reset shadowPts */
-		shadowPts[0].x=0.0; shadowPts[0].y=0.0; shadowPts[0].z=0.0;
-		shadowPts[1].x=1.0; shadowPts[1].y=0.0; shadowPts[1].z=0.0;
-		shadowPts[2].x=0.0; shadowPts[2].y=0.0; shadowPts[2].z=1.0;
+		/* W3a.1.  gmat for Origin offset to shadowPlane */
+		if(rotAxis==1) /* Y */
+			gmat.setTranslation(0, 1.0*Ty, 0);
+		else if(rotAxis==2) /* Z */
+			gmat.setTranslation(0, 0, 1.0*Tz);
+		else /* X */
+			gmat.setTranslation(1.0*Tx, 0, 0);
 
-		/* Transform shadowPlane */
-		E3D_transform_vectors(shadowPts, 3, gmat*VRTmat);
+		/* W3a.2. Update RYmat for gv_vLgith */
+		vltangle -=3.0;
+		printf("angle=%f,vltangle=%f\n",angle, vltangle);
+		if( !loopRender_on && abs(vltangle)>360-5.0 )
+			exit(0);
 
-		/* Update shadowPlane */
-		E3D_Plane plane(shadowPts[0], shadowPts[1], shadowPts[2]);
-		shadowPlane=plane;
-		printf("1 shadowPlane: fd=%f\n",shadowPlane.fd); shadowPlane.vn.print(NULL);
-	#endif
+		/* W3a.3. Set rmat as axisY rotation */
+		if(rotAxis==1) /* Y */
+			rmat.setRotation(axisY, 1.0*vltangle/180*MATH_PI);
+		else if(rotAxis==2) /* Z */
+			rmat.setRotation(axisZ, 1.0*vltangle/180*MATH_PI);
+		else /* X */
+			rmat.setRotation(axisX, 1.0*vltangle/180*MATH_PI);
 
-		/* Reset shadowPlane On y=0.0 plane */
-		shadowPlane.vn = E3D_Vector(0.0, 1.0, 0.0);
+/* NOTE: Here we transform the workMesh instead of the camera, so vLight SHOULD align with the camera COORD,
+ *	 or shadowPlane will backface to vLights
+ */
+
+		/* W3a.4. Transform main lighting direction:: Rotating around COOR_Y */
+		if(rotAxis==1) /* Y */
+			gv_vLight.assign(4, -1, 0); //(3,-1,0)
+		else if(rotAxis==2) /* X */
+			gv_vLight.assign(-4, -1, 0);
+
+		tmat=VRTmat;
+		tmat.setTranslation(0,0,0);  /* tmat for normal transformation */
+		gv_vLight.transform(rmat*tmat);
+		gv_vLight.normalize();
+
+		/* W3a.5. Rest gv_auxLight */
+		gv_auxLight.assign(-1,-1,-1);
+		gv_auxLight.normalize();
+		gv_auxLight.transform(rmat*tmat);
+ 		gv_auxLight.normalize();
+
+		/* W3a.6. Reset shadowPlan */
+		if(rotAxis==1) /* Y */
+			shadowPlane.vn = E3D_Vector(0.0, 1.0, 0.0);
+		else if(rotAxis==2) /* Z --- CAUTION: Consider original position --*/
+			shadowPlane.vn = E3D_Vector(0.0, 0.0, 1.0);
+		else /* X */
+			shadowPlane.vn = E3D_Vector(1.0, 0.0, 0.0);
 		shadowPlane.fd = 0.0;
 
-		/* Transform shadowPlane */
+		/* W3a.7. Transform shadowPlane */
 		shadowPlane.transform(gmat*VRTmat);
 		printf("2 shadowPlane: fd=%f\n",shadowPlane.fd); shadowPlane.vn.print(NULL);
 
-	}
+#else /* DO NOT move lighting */
+
+		/* gmat for Origin offset to shadowPlane */
+		E3D_RTMatrix gmat;
+
+/* NOTE: Here we transform the workMesh instead of the camera, so vLight SHOULD align with the camera COORD,
+ *	 or shadowPlane will backface to vLights
+ */
+                /* Set lighting */
+                if(rotAxis==1) { /* Y */
+	                gv_vLight.assign(-1,1,1); //fish
+			//gv_vLight.assign(1, 1, 2);
+			//gv_vLight.assign(1,-1, 6);
+	                gv_vLight.normalize();
+		}
+                else if(rotAxis==2) { /* X */
+                        //gv_vLight.assign(6, 1, 3);  //widora.obj -c -s 7 -A 2 -X -70 -P -W -t -M xxx.mot
+			gv_vLight.assign(1,-1, 5); //widora.obj -c -s 8 -A 2 -X -70 -y -30 -P -W -t -M xxx.mot
+	                gv_vLight.normalize();
+			gv_auxLight.assign(-0.2,0,1);
+			gv_auxLight.normalize();
+		}
+		//else
+
+		/* gmat for Origin offset to shadowPlane */
+		if(rotAxis==1) /* Y */
+			gmat.setTranslation(0, 1.0*Ty, 0);
+		else if(rotAxis==2) /* Z --- Consider original position ---  */
+			gmat.setTranslation(0, 0, -1.0*Tz); /* -1.0*Tz >0! */
+		else /* X */
+			gmat.setTranslation(1.0*Tx, 0, 0);
+
+		/* Reset shadowPlan */
+		if(rotAxis==1) /* Y */
+			shadowPlane.vn = E3D_Vector(0.0, 1.0, 0.0);
+		else if(rotAxis==2) /* Z --- Consider original position --- */
+			shadowPlane.vn = E3D_Vector(0.0, 0.0, -1.0);
+		else /* X */
+			shadowPlane.vn = E3D_Vector(1.0, 0.0, 0.0);
+		shadowPlane.fd = 0.0;  /* aX+bY+cZ=0.0 */
+
+		/* Transform shadowPlane */
+		printf("2 shadowPlane before transform ------>plane.vn"); shadowPlane.vn.print(NULL);
+		shadowPlane.transform(gmat*VRTmat);
+		shadowPlane.vn.normalize();
+		printf("2 shadowPlane: fd=%f, ------>plane.vn",shadowPlane.fd); shadowPlane.vn.print(NULL);
+#endif
+
+   } /* END shadow_on */
 
 	/* W4. Update Projectoin Matrix */
 	dvv += dstep;
@@ -966,11 +1079,16 @@ else {	/* For Landscape */
         cout << "Render mesh ... angle=" << angle <<endl;
         workMesh->renderMesh(&gv_fb_dev, projMatrix);
 
-	/* Render shadow */
+	/* W6a. Render shadow */
 	if(shadow_on) {
 		cout << "Create shadow ..." << endl;
 		workMesh->shadowMesh(&gv_fb_dev, projMatrix, shadowPlane);
 	}
+
+	/* W6b. Draw normal lines */
+	//workMesh->faceNormalLen=20;
+	//workMesh->drawNormal(&gv_fb_dev, projMatrix);
+
 #endif
 
 #if 0	/* W7. Render as wire frames, on current FB image (before FB is cleared). */
@@ -991,6 +1109,116 @@ else {	/* For Landscape */
 		meshModel.drawAABB(&gv_fb_dev, VRTmat, projMatrix);
 	}
 
+
+#if 0 /* TEST:  Ray to mesh surface,  rta20.obj -c -s 2 -X 25 -P -a 10 ------------ */
+	int gindex, tindex;
+	E3D_RTMatrix RTMatNone;
+	E3D_Vector rayStart; /* Ray source */
+	E3D_Vector Vinsct;    /* Intersection point */
+	E3D_Vector reflectVd; /* Reflecting vector */
+	E3D_Vector fnormal;   /* Surface/trimesh normal */
+
+	float dd=meshModel.AABBdSize(); // *scale;
+	//E3D_Vector rayStart(-dd,-dd,-dd);
+	//E3D_Vector rayDirect(dd,dd,dd);
+
+	//workMesh->updateAABB();
+	E3D_Vector aabbCenter=workMesh->aabbCenter();
+	aabbCenter.print("aabbCenter");
+
+	E3D_Vector vtxsCenter=workMesh->vtxsCenter();
+	vtxsCenter.print("vtxsCenter");
+	vtxsCenter.y -=100;
+
+	/* !!! --- CAUTION --- !!! Points out of frustum will cause projection error! wrong shape and position etc. */
+	//E3D_Vector rayStart(-0.5*dd, -0.5*dd,  projMatrix.dv+0.2*dd);
+	//E3D_Vector rayStart(-0.3*dd, -0.3*dd,  projMatrix.dv+0.2*dd);
+
+	//rayStart=E3D_Vector(-0.3*dd, -0.3*dd,  projMatrix.dv+0.2*dd);
+
+	float rayLen=dview-100;
+	float Vang=70.0/180.0*MATH_PI;
+	//float Hang=-30.0/180.0*MATH_PI;
+	float Hang=-10.0/180.0*MATH_PI;
+
+	/* Creat a rayStart: distributed on arc of a sphere */
+	rayStart.x=rayLen*fabs(sin(Vang))*sin(Hang);
+	rayStart.y=-rayLen*cos(Vang);
+	rayStart.z=vtxsCenter.z-rayLen*fabs(sin(Vang))*cos(Hang);
+	rayStart.print("rayStart");
+
+	/* rayDirection */
+	//E3D_Vector rayDirect(vtxsCenter.x+dd, vtxsCenter.y+dd, vtxsCenter.z+dd);
+	E3D_Vector rayDirect=vtxsCenter-rayStart;
+
+	/* Create the Ray */
+	E3D_Ray Ray = E3D_Ray(rayStart, rayDirect);
+	//Ray.vd.normalize();
+	Ray.vp0.print("Ray_source");
+	Ray.vd.print("Ray_direction");
+
+	/* Ray hit mesh surface */
+	int hitcnt=0;
+	EGI_16BIT_COLOR raycolor;
+	while(1) {
+	   switch(hitcnt) {
+	   	case 0: raycolor=WEGI_COLOR_RED; break;
+		case 1: raycolor=WEGI_COLOR_GREEN; break;
+		case 2: raycolor=WEGI_COLOR_BLUE; break;
+		default: raycolor=WEGI_COLOR_GRAY; break;
+	   }
+
+	   if( workMesh->rayHitFace(Ray, gindex, tindex, Vinsct, fnormal) ) {
+		printf("Ray hit mesh at triList[%d] of triGroupList[%d]: ", tindex, gindex);
+		Vinsct.print(NULL);
+
+//		E3D_Ray revRay=Ray; revRay.vd=-revRay.vd;
+		printf("Incident angle: %fdeg \n", E3D_vector_angleAB(-Ray.vd, fnormal)*180/MATH_PI);
+
+	        /* Notice: Viewing from z- --> z+ */
+        	gv_fb_dev.flipZ=true;
+
+		/* Draw incoming Ray for THIS hit. */
+		fbset_color2(&gv_fb_dev,  raycolor);
+		gv_fb_dev.zbuff_IgnoreEqual=false;
+		E3D_draw_line(&gv_fb_dev, Ray.vp0, Vinsct, RTMatNone, projMatrix);
+		gv_fb_dev.zbuff_IgnoreEqual=true;
+
+		/* Reflecting vector, same mod as Ray.vd */
+		reflectVd=E3D_vector_reflect(Ray.vd, fnormal);
+		reflectVd.print("reflectVd");
+
+
+        	gv_fb_dev.flipZ=false;
+
+		/* Update the Ray for next hitFace check */
+		Ray.vp0 = Vinsct;
+		Ray.vd = reflectVd;
+
+		/* Next intersection */
+		hitcnt ++;
+	   }
+	   else {
+
+		/* Draw the last Ray beam */
+        	gv_fb_dev.flipZ=true;
+		fbset_color2(&gv_fb_dev,  raycolor);
+		gv_fb_dev.zbuff_IgnoreEqual=false;
+		E3D_draw_line(&gv_fb_dev, Ray.vp0, Ray.vp0+Ray.vd, RTMatNone, projMatrix);
+		gv_fb_dev.zbuff_IgnoreEqual=true;
+        	gv_fb_dev.flipZ=false;
+
+		break;
+	   }
+
+	} /* END while(1) */
+
+	if(hitcnt==0)
+		printf(DBG_BLUE"Ray NOT intersection with the workMesh\n"DBG_RESET);
+	else
+		printf(DBG_YELLOW"Total hit count: %d\n"DBG_RESET, hitcnt);
+#endif
+
 	/* W9. Draw the Coordinate Navigating_Sphere/Frame (coordNavSphere/coordNavFrame) */
 	if(coordNavigate_on) {
 	   E3D_draw_coordNavSphere(&gv_fb_dev, 0.4*workMesh->AABBdSize(), VRTmat, projMatrix);
@@ -1007,10 +1235,26 @@ else {	/* For Landscape */
 		int dSize=(int)workMesh->AABBdSize();
 		fbset_color2(&gv_fb_dev, gridColor);
 		gmat.identity();
-		gmat.setRotation(axisX, 90.0/180*MATH_PI); /* As original XZ plane grid of the mesh object. */
-		//float Ty=workMesh->aabbox.vmax.y;  /* !!! XXX It Changes! */
-		printf("gmat.setTranslation Ty=%f, dSize=%d\n", Ty, dSize);
-		gmat.setTranslation(0, Ty, 0);
+
+		if(rotAxis==1) { /* Y */
+			/* As original XZ plane grid of the mesh object. */
+			gmat.setRotation(axisX, 90.0/180*MATH_PI);
+			//float Ty=workMesh->aabbox.vmax.y;  /* !!! XXX It Changes! */
+			printf("gmat.setTranslation Ty=%f, dSize=%d\n", Ty, dSize);
+			gmat.setTranslation(0, Ty, 0);
+		}
+		else if(rotAxis==2) {/* Z */
+			/* As original XY plane grid of the mesh object. */
+			//gmat.setRotation(axisX, 0.0/180*MATH_PI);
+			printf("gmat.setTranslation -Tz=%f, dSize=%d\n", -Tz, dSize);
+			gmat.setTranslation(0, 0, -Tz);
+		}
+		else {  /* X */
+			/* As original YZ plane grid of the mesh object. */
+			gmat.setRotation(axisY, 90.0/180*MATH_PI); /* As original YZ plane grid of the mesh object. */
+			printf("gmat.setTranslation Tx=%f, dSize=%d\n", Tx, dSize);
+			gmat.setTranslation(Tx, 0, 0);
+		}
 
 		/* Too big value of sx,sy to get out of the View_Frustum */
 	        E3D_draw_grid(&gv_fb_dev, 3.0*dSize, 3.0*dSize, dSize/10, gmat*VRTmat, projMatrix); /* fbdev sx,sy, us, VRTmat, projMatrix */

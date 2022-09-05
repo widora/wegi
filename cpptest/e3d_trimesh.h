@@ -315,10 +315,14 @@ int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
 
 /* NON_Class Functions:  E3D_ProjMatrix */
 int projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix);
+int reverse_projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix);
 
+/* Class Friend Functions: Intersection */
+//bool E3D_rayHitTriMesh(const E3D_Ray &rad, const E3D_TriMesh &trimesh, E3D_Vector &vp);
 
 /* NON_Class Functions:  E3D_Draw Function */
 void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb);
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, const E3D_ProjMatrix &projMatrix);
 void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
 void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
 
@@ -337,6 +341,7 @@ enum E3D_SHADE_TYPE {
 	E3D_WIRE_FRAMING	=2,
 	E3D_TEXTURE_MAPPING	=3,
 };
+extern const char* E3D_ShadeTypeName[];
 
 
 /* Global light vector, as UNIT vecotr! OR it will affect face luma in renderMesh()  */
@@ -569,7 +574,7 @@ public:
 						 *
 						 * 1. Init as identity().
 						 * 1A. In cloneMesh(): the omat MUST copy each time in order to reset/reinit it.
-						 * 1B. In transformMesh(): omat.pmat[9-11](pivotal) MUST be transformed same as other vertices.
+						 * 1B. In transformMesh(): omat.pmat[9-11](pivot) MUST be transformed same as other vertices.
 						 * 2. If the superior/parent node transforms, all its subordinate nodes
 						 *    MUST transform also. While the subordinate node's transformation will NOT
 						 *    affect its superior node.
@@ -733,9 +738,15 @@ public:
 	/* TODO: to be oboselet, to apply TriMesh.objmat instead ? */
 	void renderMesh(FBDEV *fbdev, const E3D_RTMatrix &VRTmatrix, const E3D_RTMatrix &ScaleMatrix) const;
 
+	/* Function: draw normal line */
+	void drawNormal(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const;
+
 	/* Function: compute shadow on a plane */
 	void shadowMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix, const E3D_Plane &plane) const;
 
+	/* Function: Ray hit face of the trimesh */
+	bool rayHitFace(const E3D_Ray &rad, int &gindx, int &tindx, E3D_Vector &vphit, E3D_Vector &fn) const;
+	bool rayBlocked(const E3D_Ray &ray) const;
 
 private:
 	/* All members inited at E3D_TriMesh() */
@@ -757,6 +768,9 @@ public:
 	E3D_RTMatrix    objmat;		/* Orientation/Position of the TriMesh object relative to Global/System COORD.
 					 * 1. Init as identity() in initVars().
 					 * 2. moveAabbCenterToOrigin() will reset objmat.pmat[9-11] all as 0.0!
+					 * ??? Necessary ???  NOW an *.obj file contains only 1 object with N triGroups.
+					 *  OK ,that indicates the object's position under global COORD, in case there are
+					 *   more than 1 objects loaded in then scene.
 					 */
 
 	E3D_Material	defMaterial;	/* Default material:

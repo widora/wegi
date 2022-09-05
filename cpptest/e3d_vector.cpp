@@ -52,14 +52,21 @@ Journal:
 2021-10-26:
 	1. Add E3D_combExtriRotation()
 2022-08-06:
-	1. Add E3D_Radial, E3D_Plane,
-	2. Add E3D_RadialVerticalRadial(), E3D_RadialParallelRadial(), E3D_RadialParallelPlane()
-	   E3D_RadialIntsectPlane()
+	1. Add E3D_Ray, E3D_Plane,
+	2. Add E3D_RayVerticalRay(), E3D_RayParallelRay(), E3D_RayParallelPlane()
+	   E3D_RayIntsectPlane()
 2022-08-08:
 	1. Add E3D_Vector::transform()
 	2. Add E3D_Plane::transform()
 2022-08-09:
 	1. Create e3d_vector.cpp from e3d_vector.h
+2022-08-22:
+	1. Add E3D_computeBarycentricCoord()
+2022-08-25:
+	1. Add E3D_vector_reflect()
+2022-08-28:
+	1. Add E3D_Vector::module()
+	2. Add E3D_vector_angleAB()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -106,6 +113,11 @@ void E3D_Vector::zero(void)
 
 /*---------------------
     Vector normalize
+
+Return:
+0	Ok
+<0	Fails
+
 ---------------------*/
 int E3D_Vector::normalize(void)
 {
@@ -133,6 +145,14 @@ void E3D_Vector::assign(float nx, float ny, float nz)
    	x=nx;
 	y=ny;
         z=nz;
+}
+
+/*-----------------
+   Vector module
+-----------------*/
+float E3D_Vector::module(void) const
+{
+	return sqrt(x*x + y*y + z*z);
 }
 
 /*---------------------
@@ -305,9 +325,15 @@ void E3D_Vector::print(const char *name=NULL)
 };
 
 
-/*------------------------
-   Transform the vector
-------------------------*/
+/*------------------------------------------------
+Transform the vector
+
+	!!! --- CAUTION --- !!!
+E3D_Vector as a 3D point coordiantes: -- OK.
+E3D_Vector as a vector(normal etc.): translations
+of input RTMatrix SHOULD be zeros.
+
+------------------------------------------------*/
 void E3D_Vector::transform(const E3D_RTMatrix &RTMatrix)
 {
         float xx;
@@ -349,6 +375,20 @@ E3D_Vector E3D_vector_crossProduct(const E3D_Vector &va, const E3D_Vector &vb)
 	);
 }
 
+/* Return angle formed by va and vb, in radians.
+ * if va OR vb  is ZERO vector, than NaN will return.
+ */
+float E3D_vector_angleAB(const E3D_Vector &va, const E3D_Vector &vb)
+{
+	float fv=va*vb/(va.module()*vb.module());
+	if(fv>=1.0f)
+		return 0.0f;
+	else if(fv<=-1.0f)
+		return -MATH_PI;
+	else
+		return acosf( va*vb/(va.module()*vb.module()) );
+}
+
 /* Overload operator '*' with a scalar at left. */
 E3D_Vector operator *(float k, const E3D_Vector &v)
 {
@@ -368,6 +408,84 @@ float E3D_vector_distance(const E3D_Vector &va, const E3D_Vector &vb)
 }
 
 
+/*--------------------------------------------------
+Compute reflect vector.
+Suppose that reflection ray and incident ray are
+symmetrical with fn.
+
+@vi:  Vector of incoming/incident ray.
+@fn:  Surface normal.
+      NOT necessary to be a unit vector.
+
+Return:
+	Reflect vector.
+---------------------------------------------------*/
+E3D_Vector E3D_vector_reflect(const E3D_Vector &vi, const E3D_Vector &fn)
+{
+	/* Vr = Vi - 2n(Vi*n)/(n*n) */
+	return vi-(2*fn)*(vi*fn)/(fn*fn);
+}
+
+
+
+/*** NON_Class Functions ---------------------------------------------
+ Compute barycentric coordinates of point pt to triangle vt[3]
+
+ 		!!! --- CAUTION --- !!!
+ The Caller MUST ensure the point is on the same plane as the triangle,
+ OR result values are meaningless.
+
+Note:
+1. The point is out of the triangle there's any nagtive value in bc[3].
+2. If the point is one of vertex, the bc[3] should be (1,0,0) OR (0,1,0)
+   OR (0,0,1).
+3. If the point in on the sides, then bc[3] should be (x,x,0) OR (x,0,x)
+   OR (0,x,x).
+
+
+ * @vt[3]:  triangle vertices.
+ * @pt:     A point on the vt[3] plane!
+ * @bc:	    To pass out barycentric coordinates.
+
+Return:
+ True: 	OK, solvable.
+ False: Unsolvable, the triangle may degenerate into a line or a point.
+---------------------------------------------------------------------*/
+bool E3D_computeBarycentricCoord(const E3D_Vector vt[3], const E3D_Vector &pt, float bc[3])
+{
+	/* Outer side vectors */
+	E3D_Vector e0=vt[1]-vt[0];  //v01
+	E3D_Vector e1=vt[2]-vt[1]; //v12
+	E3D_Vector e2=vt[0]-vt[2]; //v20
+
+	/* Normal vector (not necesary to be normalized) */
+	E3D_Vector nv=E3D_vector_crossProduct(e0, e1);
+	float demon=nv*nv;
+	if(demon==0.0f) {
+		egi_dpstd(DBG_RED"%s: denom == 0.0f!\n"DBG_RESET, __func__);
+		return false;
+	}
+
+	/* Inner side vectors */
+	E3D_Vector d0=pt-vt[0];
+	E3D_Vector d1=pt-vt[1];
+	E3D_Vector d2=pt-vt[2];
+
+	/* Areas */
+	//demon/2
+	float t0=E3D_vector_crossProduct(e0, d1)*nv; // /2;
+	float t1=E3D_vector_crossProduct(e1, d2)*nv; // /2;
+	float t2=E3D_vector_crossProduct(e2, d0)*nv; // /2;
+
+	/* Barycentric coordinates */
+	bc[0]=t0/demon;
+	bc[1]=t1/demon;
+	bc[2]=t2/demon;
+
+	return true;
+}
+
+
 
 	/*---------------------------------
 	    Class E3D_Plane :: Functions
@@ -378,7 +496,7 @@ float E3D_vector_distance(const E3D_Vector &va, const E3D_Vector &vb)
 ---------------*/
 E3D_Plane::E3D_Plane()
 {
-	vn.x=0.0; vn.y=0.0; vn.z=1.0;
+	vn.x=0.0; vn.y=0.0; vn.z=1.0; // default (0,0,1)
         fd=0.0;
 }
 
@@ -391,6 +509,7 @@ E3D_Plane::E3D_Plane(float a, float b, float c, float d)
         fd=d;
 }
 
+/*  vp1, vp2, vp3 --> Plane.vn  use Right_Hand Rule */
 E3D_Plane::E3D_Plane(const E3D_Vector &vp1, const E3D_Vector &vp2, const E3D_Vector &vp3)
 {
         vn=E3D_vector_crossProduct(vp1-vp2, vp2-vp3);
@@ -414,16 +533,18 @@ void E3D_Plane::transform(const E3D_RTMatrix &RTmatrix)
 	bool forward;
 
 	/*  Get the intersection point with a adial from origin(0,0,0), direction vn.  */
-	E3D_Radial  radial(0.0,0.0,0.0, vn);
+	E3D_Ray  ray(0.0,0.0,0.0, vn);
 
 	/* It SURELY intersects with the plane at Vp. */
-	Vp=E3D_RadialIntsectPlane(radial, *this, forward);
+	E3D_RayIntersectPlane(ray, *this, Vp, forward); /* =true */
 
 	/* Transform Vp (on/with the plane) to new position. */
 	Vp.transform(RTmatrix);
 
 	/* Update(Transfomr) plane.nv */
-	vn.transform(RTmatrix);
+	E3D_RTMatrix  vnmat=RTmatrix;
+	vnmat.zeroTranslation();
+	vn.transform(vnmat);
 
 	/* Update plane.fd */
 	fd=Vp*vn;
@@ -432,27 +553,27 @@ void E3D_Plane::transform(const E3D_RTMatrix &RTmatrix)
 
 
 		/*---------------------------------
-		    Class E3D_Radial :: Functions
+		    Class E3D_Ray :: Functions
 		----------------------------------*/
 
 /*---------------
    Constructor
 ---------------*/
-E3D_Radial::E3D_Radial()
+E3D_Ray::E3D_Ray()
 {
 	vd.x=1.0;  vd.y=0.0;  vd.z=0.0;
 }
 
-E3D_Radial::E3D_Radial(const E3D_Vector &Vp, const E3D_Vector &Vd) : vp0(Vp), vd(Vd)
-{ }
+E3D_Ray::E3D_Ray(const E3D_Vector &Vp, const E3D_Vector &Vd) // : vp0(Vp), vd(Vd)
+{ vp0=Vp; vd=Vd; }
 
-E3D_Radial::E3D_Radial(float px, float py, float pz, const E3D_Vector &Vd)
+E3D_Ray::E3D_Ray(float px, float py, float pz, const E3D_Vector &Vd)
 {
 	vp0.x=px;  vp0.y=py;  vp0.z=pz;
         vd=Vd;
 }
 
-E3D_Radial::E3D_Radial(float px, float py, float pz, float dx, float dy, float dz)
+E3D_Ray::E3D_Ray(float px, float py, float pz, float dx, float dy, float dz)
 {
         vp0.x=px;  vp0.y=py;  vp0.z=pz;
         vd.x=dx;   vd.y=dy;   vd.z=dz;
@@ -461,9 +582,9 @@ E3D_Radial::E3D_Radial(float px, float py, float pz, float dx, float dy, float d
 /*--------------
    Destructor
 --------------*/
-E3D_Radial::~E3D_Radial()
+E3D_Ray::~E3D_Ray()
 {
-	//printf("E3D_Radial destructed!\n");
+	//printf("E3D_Ray destructed!\n");
 }
 
 
@@ -471,29 +592,10 @@ E3D_Radial::~E3D_Radial()
 
 
 /*------------------------------------
-Return TURE if the radial is parallel
-with the plane.
+Return TURE if the Ray is vertical
+to the plane.
 ------------------------------------*/
-bool E3D_RadialVerticalRadial(const E3D_Radial &rad1, const E3D_Radial &rad2)
-{
-	E3D_Vector v1=rad1.vd;
-	v1.normalize();
-	E3D_Vector v2=rad2.vd;
-	v2.normalize();
-
-	float vProduct=v1*v2;
-
-	if( fabs(vProduct)<VPRODUCT_EPSILON )
-		return true;
-	else
-		return false;
-}
-
-/*------------------------------------
-Return TURE if the radial is parallel
-with the plane.
-------------------------------------*/
-bool E3D_RadialParallelRadial(const E3D_Radial &rad1, const E3D_Radial &rad2)
+bool E3D_RayVerticalRay(const E3D_Ray &rad1, const E3D_Ray &rad2)
 {
 	E3D_Vector v1=rad1.vd;
 	v1.normalize();
@@ -502,7 +604,26 @@ bool E3D_RadialParallelRadial(const E3D_Radial &rad1, const E3D_Radial &rad2)
 
 	float vProduct=v1*v2;
 
-	if( fabs(1.0-vProduct)<VPRODUCT_EPSILON )
+	if( fabs(vProduct)<VPRODUCT_NEARZERO )
+		return true;
+	else
+		return false;
+}
+
+/*------------------------------------
+Return TURE if the Ray is parallel
+with the plane.
+------------------------------------*/
+bool E3D_RayParallelRay(const E3D_Ray &rad1, const E3D_Ray &rad2)
+{
+	E3D_Vector v1=rad1.vd;
+	v1.normalize();
+	E3D_Vector v2=rad2.vd;
+	v2.normalize();
+
+	float vProduct=v1*v2;
+
+	if( fabs(1.0-vProduct)<VPRODUCT_NEARZERO )
 		return true;
 	else
 		return false;
@@ -510,10 +631,10 @@ bool E3D_RadialParallelRadial(const E3D_Radial &rad1, const E3D_Radial &rad2)
 
 
 /*------------------------------------
-Return TURE if the radial is parallel
+Return TURE if the Ray is parallel
 with the plane.
 ------------------------------------*/
-bool E3D_RadialParallelPlane(const E3D_Radial &rad, const E3D_Plane &plane)
+bool E3D_RayParallelPlane(const E3D_Ray &rad, const E3D_Plane &plane)
 {
 	E3D_Vector v1=rad.vd;
 	v1.normalize();
@@ -522,7 +643,7 @@ bool E3D_RadialParallelPlane(const E3D_Radial &rad, const E3D_Plane &plane)
 
 	float vProduct=v1*v2;
 
-	if( fabs(vProduct)<VPRODUCT_EPSILON )
+	if( fabs(vProduct)<VPRODUCT_NEARZERO )
 		return true;
 	else
 		return false;
@@ -530,34 +651,56 @@ bool E3D_RadialParallelPlane(const E3D_Radial &rad, const E3D_Plane &plane)
 
 
 /*-----------------------------------------------------
-To get the intersecting point of radial and plane
+To get the intersecting point of Ray and plane
 
 Note:
 Here rad.vn and rad.vd NOT necessary to be unit vector.
 
 	!!! ---- CAUTION ---- !!!
-The caller MUST check result
+The caller MUST check result.
 isnan(v.x||v.y||v.z) OR isinf(v.x||v.y||v.z) implys
 they are parallel objects.
 
-@rad:   	Ref. to an E3D_Radial
+@rad:   	Ref. to an E3D_Ray
 @plane: 	Ref. to an E3D_Plane
+@vp:		Intersection point.
 @forward:	True: Intersection point is at forward,
 		otherwise backward.
+
+Return:
+	True: 	Ok has intersection point vp.
+	False:  No intersection.
 ------------------------------------------------------*/
-E3D_Vector E3D_RadialIntsectPlane(const E3D_Radial &rad, const E3D_Plane &plane, bool &forward)
+bool E3D_RayIntersectPlane(const E3D_Ray &rad, const E3D_Plane &plane, E3D_Vector &vp, bool &forward)
 {
-	E3D_Vector vp;
+	//E3D_Vector vp;
 
-	float t; /* Distance for vp0 to the intersectoin point */
+	float t; /* Distance from vp0 to the intersection point */
+	float fp;
 
-	t=(plane.fd-rad.vp0*plane.vn)/(rad.vd*plane.vn);
-	forward = t>-VPRODUCT_EPSILON ? true:false;
+	//t=(plane.fd-rad.vp0*plane.vn)/(rad.vd*plane.vn);
 
+	fp=rad.vd*plane.vn;
+
+	/* If is parrallel */
+	if( fabs(fp) < VPRODUCT_NEARZERO )
+		return false;
+
+	/* Distance */
+	t=(plane.fd-rad.vp0*plane.vn)/fp;
+
+	/* + or - */
+	forward = (t>0.0f ? true:false);
+
+	/* Intersection point */
 	vp=rad.vp0+t*rad.vd;
 
-	return vp;
+	return true;
 }
+
+
+
+
 
 
 		/*-----------------------------------------------

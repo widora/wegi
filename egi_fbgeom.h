@@ -106,6 +106,9 @@ void 	draw_filled_triangle_outline(FBDEV *dev, EGI_POINT *points);
 //                              EGI_16BIT_COLOR color0, EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2 );
 void 	draw_filled_triangle2( FBDEV *fb_dev,int x0, int y0, int x1, int y1, int x2, int y2,
                                float z0, float z1, float z2 );
+int 	pixelate_filled_triangle2( int x0, int y0, int x1, int y1, int x2, int y2,
+                               float z0, float z1, float z2,
+                               float **pXYZ, size_t *capacity,  size_t *np);
 void 	draw_filled_triangle3( FBDEV *fb_dev, int x0, int y0, int x1, int y1, int x2, int y2,
                                EGI_16BIT_COLOR color0, EGI_16BIT_COLOR color1, EGI_16BIT_COLOR color2 );
 void 	draw_filled_triangle4( FBDEV *fb_dev,int x0, int y0, int x1, int y1, int x2, int y2,

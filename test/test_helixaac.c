@@ -189,15 +189,15 @@ RADIO_LOOP:
 		fin_path2="/tmp/a.ts";    /* If *.ts segment */
 
                 /* Rename a._h264 to a.h264, as sync to h264_decode */
-                if(access("/tmp/a._h264",F_OK)==0 )
-                	rename("/tmp/a._h264", "/tmp/a.h264");
+                if(access("/tmp/a._h264",F_OK)==0 && access("/tmp/a.h264",F_OK)!=0) /* HK2022-08-31 */
+                	rename("/tmp/a._h264", "/tmp/a.h264"); //rename() will atuo. replace if already exists!!!
 	}
 	else if(access("/tmp/b.aac",R_OK)==0) {
 		fin_path="/tmp/b.aac";
 		fin_path2="/tmp/b.ts";
 
                 /* Rename b._h264 to b.h264, as sync to h264_decode */
-                if(access("/tmp/b._h264",F_OK)==0 )
+                if(access("/tmp/b._h264",F_OK)==0  && access("/tmp/b.h264",F_OK)!=0) /* HK2022-08-31 */
                 	rename("/tmp/b._h264", "/tmp/b.h264");
 	}
 	else {

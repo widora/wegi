@@ -41,6 +41,7 @@ TODO:
 Journal:
 2022-07-29: Create the file.
 2022-07-31: usleep(duspf) for each frame.
+2022-08-31: Monitoring test.
 
 Midas Zhou
 ------------------------------------------------------------------*/
@@ -106,6 +107,51 @@ int main(int argc, char **argv)
     EGI_IMGBUF *imgbuf=NULL;
     int  maxdf=20; /* Max IRD frames to display */
     float  ds=0.0;    /* Delay is second, default 0s */
+
+/* --------- Monitoring test ----------------- */
+    #include <egi_utils.h>
+    #include <sys/wait.h>
+    char strbuff[256];
+    pid_t fpid;
+    int status;
+    int retpid;
+
+    fpid=fork();
+    if(fpid<0) {
+	printf("Fail to fork!\n");
+	exit(1);
+    }
+    else if(fpid>0) {
+	printf("Start monitoring child process...\n");
+	egi_append_file("/tmp/test.log", "Startlog...\n", strlen("Startlog...\n"));
+
+	while(1) {
+		retpid=waitpid(fpid, &status, 0);
+                /* Exit normally */
+                if(WIFEXITED(status)){
+			system("killall radio_aacdecode"); //it rename a._h264 to a.h264, so to keep a.h264
+			sprintf(strbuff,"Child %d Exit normally!\n", retpid);
+			egi_append_file("/tmp/test.log", strbuff, strlen(strbuff));
+			exit(1);
+                }
+                /* Terminated by signal, in case APP already terminated. */
+                else if( WIFSIGNALED(status) ) {
+			system("killall radio_aacdecode"); //it rename a._h264 to a.h264, so to keep a.h264
+			sprintf(strbuff,"Child %d is terminated by signal!\n", retpid);
+			egi_append_file("/tmp/test.log", strbuff, strlen(strbuff));
+			exit(1);
+                }
+		else {
+			sprintf(strbuff,"Child %d Status=%d\n", retpid, status);
+			egi_append_file("/tmp/test.log", strbuff, strlen(strbuff));
+			//exit(1);
+		}
+	}
+
+    }
+    //else : Child process
+
+/* ------ END TEST ------ */
 
 
     /* 1. Input option */

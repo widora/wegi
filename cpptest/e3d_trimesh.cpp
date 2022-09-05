@@ -267,6 +267,18 @@ Journal:
 	1. Add E3D_TriMesh::shadowMesh()
 2022-08-09:
         1. Create e3d_trimesh.cpp from e3d_trimesh.h
+2022-08-23:
+	1. Add reverse_projectPoints().
+2022-08-24:
+	1. Add E3D_TriMesh::rayHitFace()
+2022-08-29:
+	1. Add E3D_TriMesh::drawNormal()
+2022-08-31:
+	1. E3D_TriMesh::renderMesh(): backward_ray_tracing shadow.
+2022-09-01:
+	1. Add E3D_TriMesh::rayBlocked()
+2022-09-05:
+	1. Add void E3D_draw_line(fbdev, &va, &vb, &projMatrix)
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -297,6 +309,14 @@ using namespace std;
 E3D_Vector gv_vLight(0.0, 0.0, 1.0);	/*  factor=1.0 when rendering mesh */
 E3D_Vector gv_auxLight(1.0, 0.0, 0.0);   /* factor=0.5 when rendering mesh */
 
+/* Mesh Rendering/Shading type */
+const char* E3D_ShadeTypeName[]=
+{
+	"E3D_FLAT_SHADING",
+	"E3D_GOURAUD_SHADING",
+	"E3D_WIRE_FRAMING",
+	"E3D_TEXTURE_MAPPING"
+};
 
 
 	/*------------------------------------
@@ -867,18 +887,20 @@ void E3D_TriMesh::updateVtxsCenter()
 
 /*------------------------------------
   Move VtxsCenter to current origin.
+
+ CROSS CHECK ---> E3D_TriMesh::moveAabbCenterToOrigin()
+
 ------------------------------------*/
 void E3D_TriMesh::moveVtxsCenterToOrigin()
 {
-
-	/* Update all vertex XYZ */
+	/* 1. Update all vertex XYZ */
         for(int i=0; i<vcnt; i++) {
         	vtxList[i].pt.x -=vtxscenter.x;
                 vtxList[i].pt.y -=vtxscenter.y;
                 vtxList[i].pt.z -=vtxscenter.z;
         }
 
-        /* Update TriGroup omat.pmat[9-11], as pivotal of the TriGroup. */
+        /* 2. Update TriGroup omat.pmat[9-11], as pivotal of the TriGroup. */
         for(unsigned int k=0; k<triGroupList.size(); k++) {
         	triGroupList[k].omat.pmat[9] -= vtxscenter.x;
                 triGroupList[k].omat.pmat[10] -= vtxscenter.y;
@@ -887,7 +909,7 @@ void E3D_TriMesh::moveVtxsCenterToOrigin()
                 triGroupList[k].pivot -= vtxscenter;
         }
 
-        /* Update AABB */
+        /* 3. Update AABB */
         aabbox.vmax.x-=vtxscenter.x;
         aabbox.vmax.y-=vtxscenter.y;
         aabbox.vmax.z-=vtxscenter.z;
@@ -895,7 +917,7 @@ void E3D_TriMesh::moveVtxsCenterToOrigin()
         aabbox.vmin.y-=vtxscenter.y;
         aabbox.vmin.z-=vtxscenter.z;
 
-        /* Reset vtxscenter */
+        /* 4. Reset vtxscenter */
         vtxscenter.x =0.0;
         vtxscenter.y =0.0;
         vtxscenter.z =0.0;
@@ -906,13 +928,13 @@ void E3D_TriMesh::moveVtxsCenterToOrigin()
 -------------------------*/
 void E3D_TriMesh::updateAABB(void)
 {
-	/* Reset first */
+	/* 1. Reset first */
         aabbox.vmin.zero();
         aabbox.vmax.zero();
 
         if( vcnt<1 ) return;
 
-        /* To hold all vertices */
+        /* 2. To hold all vertices */
         aabbox.vmin=vtxList[0].pt; /* Init with vtxList[0].pt */
         aabbox.vmax=vtxList[0].pt;
         for( int i=1; i<vcnt; i++ )
@@ -920,7 +942,8 @@ void E3D_TriMesh::updateAABB(void)
 }
 
 /*--------------------------------------
-   Move VtxsCenter to current origin.
+   Move AABB Center to current origin.
+   CROSS CHECK ---> E3D_TriMesh::moveVtxsCenterToOrigin()
 --------------------------------------*/
 void E3D_TriMesh::moveAabbCenterToOrigin()
 {
@@ -928,13 +951,14 @@ void E3D_TriMesh::moveAabbCenterToOrigin()
         float yc=0.5*(aabbox.vmax.y+aabbox.vmin.y);
         float zc=0.5*(aabbox.vmax.z+aabbox.vmin.z);
 
+	/* 1. Update all vertex XYZ */
         for(int i=0; i<vcnt; i++) {
         	vtxList[i].pt.x -=xc;
                 vtxList[i].pt.y -=yc;
                 vtxList[i].pt.z -=zc;
         }
 
-        /* Move AABB */
+        /* 2. Move AABB */
         aabbox.vmax.x-=xc;
         aabbox.vmax.y-=yc;
         aabbox.vmax.z-=zc;
@@ -943,12 +967,12 @@ void E3D_TriMesh::moveAabbCenterToOrigin()
         aabbox.vmin.y-=yc;
         aabbox.vmin.z-=zc;
 
-        /* Set objmat.pmat[9-11] as origin */
+        /* 3. Set objmat.pmat[9-11] as origin */
         objmat.pmat[9]=0.0;
         objmat.pmat[10]=0.0;
         objmat.pmat[11]=0.0;
 
-        /* Move TriGroup omat */
+        /* 4. Move TriGroup omat and pivot */
         for(unsigned int k=0; k<triGroupList.size(); k++) {
         	triGroupList[k].omat.pmat[9]  -=xc;
                 triGroupList[k].omat.pmat[10] -=yc;
@@ -959,7 +983,7 @@ void E3D_TriMesh::moveAabbCenterToOrigin()
                 triGroupList[k].pivot.z -=zc;
         }
 
-        /* Move vtxscenter */
+        /* 5. Move vtxscenter */
         vtxscenter.x -=xc;
         vtxscenter.y -=yc;
         vtxscenter.z -=zc;
@@ -1061,7 +1085,7 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh & tmesh)
 	int nv=tmesh.vCapacity;
 	int nt=tmesh.tCapacity;
 
-	/* Init vtxList[] */
+	/* 1. Init vtxList[] */
 	vCapacity=0;  /* 0 before alloc */
 	try {
 		vtxList= new Vertex[nv]; //();	/* Call constructor to setDefault. TODO: NOT necessary! also call constructor. */
@@ -1073,7 +1097,7 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh & tmesh)
 	vcnt=tmesh.vcnt; /* !!! */
 	vCapacity=nv;
 
-	/* Init triList[] */
+	/* 2. Init triList[] */
 	tCapacity=0;  /* 0 before alloc */
 	try {
 		triList= new Triangle[nt]; //();
@@ -1085,7 +1109,7 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh & tmesh)
 	tcnt=tmesh.tcnt; /* !!! */
 	tCapacity=nt;
 
-	/* Copy vtxList */
+	/* 3. Copy vtxList */
 	for(int i=0; i<vcnt; i++) {
 		/* Vector as point */
 		vtxList[i].pt = tmesh.vtxList[i].pt;
@@ -1101,7 +1125,7 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh & tmesh)
 		vtxList[i].mark = tmesh.vtxList[i].mark;
 	}
 
-	/* Copy triList */
+	/* 4. Copy triList */
 	for(int i=0; i<tcnt; i++) {
 		/* Vertx vtx[3] */
 		triList[i].vtx[0]=tmesh.triList[i].vtx[0];
@@ -1118,7 +1142,6 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh & tmesh)
 	}
 
 	/* TODO: Set texturerImg, triGroupList, mtlList... */
-
 }
 
 
@@ -1147,6 +1170,7 @@ Note:
    be created and push into triGroupList<>.
 5. If no .mtl file provided, then the default material
    of E3D_TriMesh.defMaterial to be used.
+6. Tag 'o'(as object) in *.obj is NOT supported here!
 
 			--- OBJ File Format ---
 v		vertex:  xyz
@@ -2458,9 +2482,14 @@ Note:
 3. If vpts[].z < projMatrix.dv, it means the point is behind
    the projection plane and it should be picked out.
 
-@Tri:		Input triangle.
+TODO:
+1. This is a simple projection mathod for testing.
+   It does NOT consider depth(z) mapping. so z values will be
+   incorrect.
+
+@vpts:		Input vertices/points.
 @np:		Number of points.
-@projMatrix:	The projectio matrix.
+@projMatrix:	The projection matrix.
 
 Return:
 	0	OK
@@ -2507,11 +2536,17 @@ int projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix)
 			egi_dpstd("fabs(vpts[].z) < VPRODUCT_EPSILON!\n");
 			ret +=2;
 		}
-         	vpts[k].x = roundf( vpts[k].x/vpts[k].z*projMatrix.dv  /* Xv=Xs/Zs*d */
-                                    +projMatrix.winW/2 );              /* Adjust viewplane origin to window X center */
+         	//vpts[k].x = roundf( vpts[k].x/vpts[k].z*projMatrix.dv  /* Xv=Xs/Zs*dv */
+                //                    +projMatrix.winW/2 );              /* Adjust viewplane origin to window X center */
+         	vpts[k].x = vpts[k].x/vpts[k].z*projMatrix.dv  /* Xv=Xs/Zs*dv */
+                            +projMatrix.winW/2.0;              /* Adjust viewplane origin to window X center */
 
-         	vpts[k].y = roundf( vpts[k].y/vpts[k].z*projMatrix.dv  /* Yv=Ys/Zs*d */
-                                    +projMatrix.winH/2 );              /* Adjust viewplane origin to window Y center */
+         	//vpts[k].y = roundf( vpts[k].y/vpts[k].z*projMatrix.dv  /* Yv=Ys/Zs*dv */
+                //                    +projMatrix.winH/2 );              /* Adjust viewplane origin to window Y center */
+         	vpts[k].y = vpts[k].y/vpts[k].z*projMatrix.dv  /* Yv=Ys/Zs*dv */
+                            +projMatrix.winH/2.0;              /* Adjust viewplane origin to window Y center */
+
+
 		//Keep vpts[k].z
 
 	   }
@@ -2519,6 +2554,390 @@ int projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix)
 	}
 
 	return ret;
+}
+
+/*-----------------------------------------------------
+This is reverse operation of projectPoints().
+vpts[] will be mapped/modified from screen coordinates
+to 3D space coordinate.
+
+Note:
+1. Values of all vpts[] will be updated/projected!
+2. The projection plane_XY is at Z=projMatrix.dv>0,
+   while the Focus point is the Origin(Z=0).
+3. vpts[].z NOT changed!
+
+TODO:
+It does NOT consider depth(z) mapping. so z values will be
+incorrect.
+
+@vpts:		Input vertices/points.
+@np:		Number of points.
+@projMatrix:	The projection matrix.
+
+Return:
+	0	OK
+	<0	Fails
+-----------------------------------------------------*/
+int reverse_projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix)
+{
+	/* 0. Check input */
+	if(np<1)
+	   return -1;
+
+	/* 1. Isometric projection */
+	if( projMatrix.type==E3D_ISOMETRIC_VIEW ) {
+		/* Just adjust viewplane origin to GLOBAL coord. */
+		for(int k=0; k<np; k++) {
+			vpts[k].x = vpts[k].x-projMatrix.winW/2;
+			vpts[k].y = vpts[k].y-projMatrix.winH/2;
+		}
+	}
+
+        /* 2. Perspective view */
+	else if( projMatrix.type==E3D_PERSPECTIVE_VIEW ) {
+           for(int k=0; k<np; k++) {
+                /* -projMatrix.winW/2: Adjust viewplane origin to GLOBAL origin */
+		vpts[k].x = (vpts[k].x - projMatrix.winW/2.0)/projMatrix.dv*vpts[k].z; /* Xs=Xv/dv*Zs,  suppose vpts[].z NOT changed. */
+		vpts[k].y = (vpts[k].y - projMatrix.winH/2.0)/projMatrix.dv*vpts[k].z; /* Ys=Yv/dv*Zs,  suppose vpts[].z NOT changed. */
+	   }
+	}
+
+	return 0;
+}
+
+
+/*-----------------------------------------------------------------------
+Check if the Ray hit the trimesh on point vp.
+
+Note:
+1. Hidden groups will be ignored.
+2. Triangles backFacing to Ray will be ignored,
+   unless trimesh.backFaceOn==TRUE.
+3. There may be more than one triangle mesh hit/intersect
+   with the incoming/incident ray, return the one with the nearest
+   hit point.
+4. !!! --- CAUTION ---- !!!
+   The caller MUST check distance between ray.vp0 and vphit to
+   see if ray.vp0 is on the plane!
+
+@rad:      The Ray
+//@trimesh:  The TriMesh
+@gindx     (To pass out) Index of the hit TriGroup, as triGroupList[gindx]
+@tindx:	   (To pass out) Index of the hit triangle, as triList[tindx]
+@vphit:	   (To pass out) Hit/intersection point.
+@fn:	   (To pass out) Reflecting surface normal.
+
+Return:
+	True:  The Ray intersect with the trimesh.
+	Fals:  No intersection.
+------------------------------------------------------------------------*/
+bool E3D_TriMesh::rayHitFace(const E3D_Ray &ray, int &gindx, int &tindx, E3D_Vector &vphit, E3D_Vector &fn) const
+{
+	unsigned int i,n;
+//	int vtidx[3];  				/* vtx index of a triangel */
+	E3D_Vector  vpts[3];			/* Projected 3D points */
+//	EGI_POINT   pts[3];			/* Projected 2D points */
+	E3D_Vector  trinormal;  		/* Face normal of a triangle, after transformation */
+	E3D_Vector  vView(0.0f, 0.0f, 1.0f); 	/* View direction */
+	float	    vProduct;   		/* dot product */
+	bool	    backfacing=false;		/* Triangle is backfacing the Ray */
+
+	E3D_RTMatrix  tgRTMat;  /* TriGroup RTMatrix, for Pxyz(under TriGroupCoord)*TriGroup--->object */
+	E3D_Vector    tgOxyz;   /* TriGroup origin/pivot XYZ */
+	E3D_RTMatrix  nvRotMat; /* RTmatrix(rotation component only) for face normal rotation, to be zeroTranslation() */
+
+	E3D_Plane plane;  /* Plane of a triangle mesh. */
+	E3D_Vector vp;    /* tmp. hit point  */
+        float t;   /* Distance from vp0 to the intersection point */
+        float fp;
+	float bc[3]; /* Barycenter coordinates value: XYZ */
+
+	float distMIN=-1.0;  /* Init as <0; the minimum hit distance: from ray.vp0 to hit point vp. */
+	float dist;
+	float fbc[3]; /* corresponding to the final pvhit */
+
+	/* Traverse */
+	for(n=0; n<triGroupList.size(); n++) {
+
+		/* 1. Check visibility */
+		if(triGroupList[n].hidden) {
+			egi_dpstd("triGroupList[%d]: '%s' is set as hidden!\n", n, triGroupList[n].name.c_str());
+			continue;
+		}
+
+//		egi_dpstd("Check triGroupList[%d]: '%s'\n", n, triGroupList[n].name.c_str());
+
+		/* 2. Extract TriGroup rotation matrix and rotation pivot */
+		/* 2.1 To combine RTmatrix: Pxyz(under TriGroup Coord)*TrGroup-->object*object--->Global */
+		tgRTMat=triGroupList[n].omat*objmat;
+
+		/* 2.2 Face normal RotMat */
+		nvRotMat = tgRTMat;
+		nvRotMat.zeroTranslation();
+
+		/* 2.3 Get TriGroup pivot, under object COORD */
+		tgOxyz=triGroupList[n].pivot;
+
+		/* 3. Traverse all triangles in the triGroupList[n] */
+		for(i=triGroupList[n].stidx; i<triGroupList[n].etidx; i++) {
+			/* 3.0 Cal. trinormal */
+			trinormal=triList[i].normal*nvRotMat;
+
+			/* 3.1 Pick out triangles backfacing the Ray */
+			vProduct=ray.vd*trinormal;
+			if( vProduct >=0.0f ) { /* >=0.0f */
+				backfacing=true;
+//				egi_dpstd(DBG_RED"--- backfacing! ---\n"DBG_RESET);
+
+				if(!backFaceOn)
+					continue;
+			}
+			else {
+				backfacing=false;
+			}
+
+			/* 3.2 Copy triangle vertices */
+			vpts[0] = vtxList[ triList[i].vtx[0].index ].pt;
+			vpts[1] = vtxList[ triList[i].vtx[1].index ].pt;
+			vpts[2] = vtxList[ triList[i].vtx[2].index ].pt;
+
+			/* 3.3 TriGroup transform */
+			/* 3.3.1 vpts under TriGroup COORD/pivot */
+			vpts[0] -= tgOxyz;
+			vpts[1] -= tgOxyz;
+			vpts[2] -= tgOxyz;
+			/* 3.3.2 Transform vpts[]: TriGroup---->Object; object--->Global */
+			E3D_transform_vectors(vpts,3,tgRTMat);
+
+			/* 3.4 Compute intersection point */
+			/* 3.4.1 Define the Plane */
+			plane.vn=trinormal; //triList[i].normal*nvRotMat;
+			//plane.fd=vpts[0]*plane.vn; /* ax+by+cz=fd */
+			plane.fd=(vpts[0]+vpts[1]+vpts[2])/3.0*plane.vn;
+
+			/* 3.4.2 vd*vn product */
+			fp=ray.vd*plane.vn;
+
+		        /* Check if parrallel. NOT Necessary,alread picked out. see 3.1 */
+        		//if( fabs(fp) < VPRODUCT_NEARZERO )
+                	//	return false;
+
+		        /* 3.4.3 Distance factor, to intersection point */
+        		//t=(plane.fd-ray.vp0*plane.vn)/(ray.vd*plane.vn);
+        		t=(plane.fd-ray.vp0*plane.vn)/fp;
+
+#if 0 /* TEST: !!! ----------- the vp0 of ray just maybe belong to the the plane also! */
+			/* NOTE: It depends on precision setting, Let caller to check it! */
+			if( fabsf(t) < VPRODUCT_EPSILON)
+				egi_dpstd(DBG_RED"--- t<EPSILON---\n"DBG_RESET);
+#endif
+
+        		/* OK, t>0!  see 3.1 */
+        		//forward = (t>0.0f ? true:false);
+			if(t<0.0f) { /*  backward */
+
+//				egi_dpstd(DBG_RED"--- back trace ---\n"DBG_RESET);
+				continue;
+			}
+
+        		/* 3.4.4 Get intersection point */
+        		vp=ray.vp0+t*ray.vd;
+
+			/* 3.5 Compute Barycenter to check if vp is on/in the triangle */
+			if( E3D_computeBarycentricCoord(vpts, vp, bc) ) {
+				if( bc[0]<0.0f || bc[1]<0.0f || bc[2]<0.0f ) {
+					// Out of the triangle
+//					printf("Hit point out of triangle, i=%d, fp=%f,t=%f, bc[]: %f,%f,%f\n",
+//							i, fp,t, bc[0],bc[1],bc[2]);
+				}
+				/* OK, hit point is on/in the triangle */
+				else {
+
+
+/* TEST: -------- Unreasonable bc values */
+					if( bc[0]>1.0f || bc[1]>1.0f || bc[2]>1.0f )
+						egi_dpstd(DBG_RED"WARNING! bc[] > 1.0!\n"DBG_RESET);
+
+//					printf(DBG_YELLOW"Hit on the triangle, i=%d, fp=%f,t=%f, hit at point (%f,%f,%f) \n"DBG_RESET,
+//													i, fp,t, vp.x, vp.y, vp.z);
+//					printf(DBG_YELLOW"bc[]: %f,%f,%f\n"DBG_RESET, bc[0],bc[1],bc[2]);
+
+					/* Distance from ray.vp0 to hit point */
+					dist=E3D_vector_distance(ray.vp0, vp);
+
+					/* Check if it's the nearest collision point */
+					if( distMIN<0.0f || distMIN > dist )  {  /* distMIN <0 AS init */
+						/* Update distMIN */
+						distMIN=dist;
+
+						/* Update param to pass out */
+						gindx=n;
+						tindx=i;
+						fn=plane.vn;
+						vphit=vp;
+						fbc[0]=bc[0]; fbc[1]=bc[1]; fbc[2]=bc[2];
+					}
+					else  {
+						egi_dpstd(DBG_MAGENTA"dist >distMIN, ignored!\n"DBG_RESET);
+					}
+				}
+			}
+			else {
+				egi_dpstd(DBG_RED"BarycentricCoord unsolvable!\n"DBG_RESET);
+			}
+
+		} /* END for(i) */
+	} /* END for(n) */
+
+	/* Check distMIN to see if collision happens. =0.0 Just on the plane */
+	if( !(distMIN<0.0f) ) {
+//		egi_dpstd(DBG_YELLOW"hitpoint bc[]: %f,%f,%f\n"DBG_RESET, fbc[0],fbc[1],fbc[2]);
+		return true;
+	}
+	else
+	        return false;
+}
+
+/*--------------------------------------------------------------------
+Check if the Ray is blocked be the TriMesh, it's same as rayHitFace()
+except that it returns when the ray hits any triangle, included backfaced.
+
+Note:
+1. Hidden groups will be ignored.
+2. Triangles backFacing also counts!!!
+3. There may be more than one triangle mesh hit/intersect, BUT it
+   returns immediately after hitting the first one.
+
+@rad:      The Ray
+
+Return:
+	True:  The Ray is blocked by the trimesh.
+	Fals:  Not blocked.
+--------------------------------------------------------------*/
+bool E3D_TriMesh::rayBlocked(const E3D_Ray &ray) const
+{
+	unsigned int i,n;
+//	int vtidx[3];  				/* vtx index of a triangel */
+	E3D_Vector  vpts[3];			/* Projected 3D points */
+//	EGI_POINT   pts[3];			/* Projected 2D points */
+	E3D_Vector  trinormal;  		/* Face normal of a triangle, after transformation */
+	E3D_Vector  vView(0.0f, 0.0f, 1.0f); 	/* View direction */
+	float	    vProduct;   		/* dot product */
+	bool	    backfacing=false;		/* Triangle is backfacing the Ray */
+
+	E3D_RTMatrix  tgRTMat;  /* TriGroup RTMatrix, for Pxyz(under TriGroupCoord)*TriGroup--->object */
+	E3D_Vector    tgOxyz;   /* TriGroup origin/pivot XYZ */
+	E3D_RTMatrix  nvRotMat; /* RTmatrix(rotation component only) for face normal rotation, to be zeroTranslation() */
+
+	E3D_Plane plane;  /* Plane of a triangle mesh. */
+	E3D_Vector vp;    /* tmp. hit point  */
+        float t;   /* Distance from vp0 to the intersection point */
+        float fp;
+	float bc[3]; /* Barycenter coordinates value: XYZ */
+
+	/* Traverse */
+	for(n=0; n<triGroupList.size(); n++) {
+
+		/* 1. Check visibility */
+		if(triGroupList[n].hidden) {
+			egi_dpstd("triGroupList[%d]: '%s' is set as hidden!\n", n, triGroupList[n].name.c_str());
+			continue;
+		}
+
+//		egi_dpstd("Check triGroupList[%d]: '%s'\n", n, triGroupList[n].name.c_str());
+
+		/* 2. Extract TriGroup rotation matrix and rotation pivot */
+		/* 2.1 To combine RTmatrix: Pxyz(under TriGroup Coord)*TrGroup-->object*object--->Global */
+		tgRTMat=triGroupList[n].omat*objmat;
+
+		/* 2.2 Face normal RotMat */
+		nvRotMat = tgRTMat;
+		nvRotMat.zeroTranslation();
+
+		/* 2.3 Get TriGroup pivot, under object COORD */
+		tgOxyz=triGroupList[n].pivot;
+
+		/* 3. Traverse all triangles in the triGroupList[n] */
+		for(i=triGroupList[n].stidx; i<triGroupList[n].etidx; i++) {
+			/* 3.0 Cal. trinormal */
+			trinormal=triList[i].normal*nvRotMat;
+
+			/* 3.1 DO NOT Pick out triangles backfacing the Ray */
+
+			/* 3.2 Copy triangle vertices */
+			vpts[0] = vtxList[ triList[i].vtx[0].index ].pt;
+			vpts[1] = vtxList[ triList[i].vtx[1].index ].pt;
+			vpts[2] = vtxList[ triList[i].vtx[2].index ].pt;
+
+			/* 3.3 TriGroup transform */
+			/* 3.3.1 vpts under TriGroup COORD/pivot */
+			vpts[0] -= tgOxyz;
+			vpts[1] -= tgOxyz;
+			vpts[2] -= tgOxyz;
+			/* 3.3.2 Transform vpts[]: TriGroup---->Object; object--->Global */
+			E3D_transform_vectors(vpts,3,tgRTMat);
+
+			/* 3.4 Compute intersection point */
+			/* 3.4.1 Define the Plane */
+			plane.vn=trinormal; //triList[i].normal*nvRotMat;
+			//plane.fd=vpts[0]*plane.vn; /* ax+by+cz=fd */
+			plane.fd=(vpts[0]+vpts[1]+vpts[2])/3.0*plane.vn;
+
+			/* 3.4.2 vd*vn product */
+			fp=ray.vd*plane.vn;
+
+		        /* Check if parrallel. NOT Necessary,alread picked out. see 3.1 */
+        		//if( fabs(fp) < VPRODUCT_NEARZERO )
+                	//	return false;
+
+		        /* 3.4.3 Distance factor, to intersection point */
+        		//t=(plane.fd-ray.vp0*plane.vn)/(ray.vd*plane.vn);
+        		t=(plane.fd-ray.vp0*plane.vn)/fp;
+
+/* TEST: !!! ----------- the vp0 of ray just maybe belong to the the plane also! */
+			if( fabsf(t) < VPRODUCT_EPSILON)
+				egi_dpstd(DBG_RED"--- t<EPSILON---\n"DBG_RESET);
+
+        		//forward = (t>0.0f ? true:false);
+			if(t<0.0f) { /*  backward */
+//				egi_dpstd(DBG_RED"--- back trace ---\n"DBG_RESET);
+				continue;
+			}
+
+        		/* 3.4.4 Get intersection point */
+        		vp=ray.vp0+t*ray.vd;
+
+			/* 3.5 Compute Barycenter to check if vp is on/in the triangle */
+			if( E3D_computeBarycentricCoord(vpts, vp, bc) ) {
+				if( bc[0]<0.0f || bc[1]<0.0f || bc[2]<0.0f ) {
+					// Out of the triangle
+//					printf("Hit point out of triangle, i=%d, fp=%f,t=%f, bc[]: %f,%f,%f\n",
+//							i, fp,t, bc[0],bc[1],bc[2]);
+				}
+				/* OK, hit point is on/in the triangle */
+				else {
+
+/* TEST: -------- Unreasonable bc values */
+					if( bc[0]>1.0f || bc[1]>1.0f || bc[2]>1.0f )
+						egi_dpstd(DBG_RED"WARNING! bc[] > 1.0!\n"DBG_RESET);
+
+//					printf(DBG_YELLOW"Hit on the triangle, i=%d, fp=%f,t=%f, hit at point (%f,%f,%f) \n"DBG_RESET,
+//													i, fp,t, vp.x, vp.y, vp.z);
+//					printf(DBG_YELLOW"bc[]: %f,%f,%f\n"DBG_RESET, bc[0],bc[1],bc[2]);
+
+						return true;
+
+				}
+			}
+			else {
+				egi_dpstd(DBG_RED"BarycentricCoord unsolvable!\n"DBG_RESET);
+			}
+
+		} /* END for(i) */
+	} /* END for(n) */
+
+        return false;
 }
 
 
@@ -2786,7 +3205,7 @@ XXX 2. Case TEXTURE_MAPPING:  Apply pixz for each pixel, (NOW use same pixz valu
  */
 void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
 {
-	int j,k;
+	int k,j;
 	unsigned int i,n;
 	int vtidx[3];  				/* vtx index of a triangel */
 	E3D_Vector  vpts[3];			/* Projected 3D points */
@@ -2800,10 +3219,11 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	E3D_Vector upLight(0,1,0);
 	upLight.normalize();
 	int deltLuma;
+	bool BackFacingLight=false;		/* A trimesh is fackfacing to the gv_vLight */
 
 	bool	    IsBackface=false;		/* Viewing the back side of a Trimesh. */
 //	EGI_16BIT_COLOR	 bkFaceColor=WEGI_COLOR_RED; //DARKRED;  /* Default backface color, if applys. */
-	E3D_POINT cpt;	    			/* Gravity center of triangle */
+//	E3D_POINT cpt;	    			/* Gravity center of triangle */
 
 	/* render color */
 	EGI_16BIT_COLOR color; /* NOW: Diffuse color.  TODO others: ka,ks */
@@ -2816,12 +3236,38 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	/* RTMatrixes for the Object and TriGroup */
 	E3D_RTMatrix	tgRTMat; //tgRotMat; /* TriGroup RTmatrix, for Pxyz(at TriGroup Coord) * TriGroup--->object */
 	E3D_Vector	tgOxyz;		   /* TriGroup origin/pivot XYZ */
-	E3D_RTMatrix	ltRotMat;	   /* RTmatrix(rotation component only) for light product, to be zeroTranslation() */
+	E3D_RTMatrix	nvRotMat;	   /* RTmatrix(rotation component only) for light product, to be zeroTranslation() */
+
+	/* For backward_ray_tracing shadow */
+	float *pXYZ=NULL;
+	size_t capacity=1024*3; /* capacity for pXYZ*/
+	size_t np;
+	E3D_Vector  vpt;
+	E3D_Ray	    vray;
+	int gindx; int tindx;
+	E3D_Vector vphit;     /* hit point on trimesh */
+	E3D_Vector fn;	      /* reflect normal */
+	float dist;
+
 
 //	objmat.print("objmat");
 
+	/* Shading type */
+	const char *strShadeSub=NULL;
+	if(shadeType==E3D_GOURAUD_SHADING) {
+	        if(vtxList[ triList[i].vtx[0].index ].normal.isZero()==false) {
+		}
+		else if(triList[i].vtx[0].vn.isZero()==false) {
+		}
+		else {
+			strShadeSub="--->FLAT_SHADING";
+			//Apply FLAT_SHADING
+		}
+	}
+	egi_dpstd(DBG_GREEN"Do %s%s\n"DBG_RESET,E3D_ShadeTypeName[shadeType], strShadeSub);
+
 	/* -------TEST: Project to Z plane, Draw X,Y only */
-	for(n=0; n<triGroupList.size(); n++) {  /* Tranverse all Trigroups */
+	for(n=0; n<triGroupList.size(); n++) {  /* Traverse all Trigroups */
 
 	    /* 0. Check visibility */
 	    if( triGroupList[n].hidden ) {
@@ -2853,14 +3299,14 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	    }
 
 
-	    /* 2. Extract TriGroup rotation matrix and rotation origin */
+	    /* 2. Extract TriGroup rotation matrix and rotation pivot */
 
 	    /* 2.1 To combine RTmatrix:  Pxyz(at TriGroup Coord) * TriGroup--->object * object--->Global */
 	    tgRTMat = triGroupList[n].omat*objmat;
 
 	    /* 2.2 Light RotMat */
-	    ltRotMat = tgRTMat;
- 	    ltRotMat.zeroTranslation(); /* !!! */
+	    nvRotMat = tgRTMat;
+ 	    nvRotMat.zeroTranslation(); /* !!! */
 
 	    /* 2.3 TriGroup (original) pivot, under object COORD. */
 	    tgOxyz = triGroupList[n].pivot;
@@ -2875,7 +3321,8 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		 *    B. OR use other color for the back face. For texture mapping, just same as front side.
 		 *    C. tgRTMat to be counted in.
 		 */
-		vProduct=vView*(triList[i].normal*ltRotMat); // *(-1.0f); // -vView as *(-1.0f);
+		trinormal=triList[i].normal*nvRotMat;
+		vProduct=vView*trinormal; //(triList[i].normal*nvRotMat); // *(-1.0f); // -vView as *(-1.0f);
 		/* Note: Because of float precision limit, vProduct==0.0f is NOT possible. */
 		if ( vProduct > -VPRODUCT_EPSILON ) {  /* >=0.0f */
 			IsBackface=true;
@@ -2922,7 +3369,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		if( projectPoints(vpts, 3, projMatrix) !=0 )
 			continue;
 
-#if 0	/* -------------- TEST: Check range, ONLY simple way.
+#if 1	/* -------------- TEST: Check range, ONLY simple way.
 		 * Ignore the triangle if all 3 vpts are out of range.
 		 * TODO: by projectPoints()
 		 */
@@ -2952,6 +3399,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		fbdev->pixz=roundf((vpts[0].z+vpts[1].z+vpts[2].z)/3.0);
 		/* !!!! Views from -z ----> +z */
 		fbdev->pixz = -fbdev->pixz;
+		/* Above is NO USE for draw_filled_triangleX() with Z0/Z1/Z2 */
 
 		/* TODO: For draw_filled_triangleX(..., float z0, z1,z2), suppose that Z values are not affected by projection! */
 
@@ -2959,7 +3407,8 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		switch( shadeType ) {
 		   case E3D_FLAT_SHADING:
 			/* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo. */
-			vProduct=gv_vLight*(triList[i].normal*ltRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
+			vProduct=gv_vLight*trinormal; //(triList[i].normal*nvRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
+			/* TODO: gv_auxLight NOT applied yet */
 			//if( vProduct >= 0.0f )
 			if(IsBackface) {
 				vProduct=-vProduct;
@@ -2968,10 +3417,16 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			else
 				color=mcolor;
 
-			if( vProduct > -VPRODUCT_EPSILON )
+			/* If Backfacing to gv_vLight */
+			if( vProduct > -VPRODUCT_NEARZERO ) {
 				vProduct=0.0f;
-			else /* Flip to get vProduct absolute value for luma */
+				BackFacingLight=true;
+			}
+			else { /* Flip to get vProduct absolute value for luma */
 				vProduct=-vProduct;
+				BackFacingLight=false;
+			}
+
 			/* Adjust luma for pixcolor as per vProduct. */
 			fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
 			//fbdev->lumadelt=(vProduct-1.0f)*240.0) +50; /* MUST reset later */
@@ -2980,15 +3435,15 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			#if 0 /* Fill the TriFace */
 			draw_filled_triangle(fbdev, pts);
 			#else /* pixZ applys */
-			draw_filled_triangle2(fbdev,pts[0].x, pts[0].y,
-						    pts[1].x, pts[1].y,
-						    pts[2].x, pts[2].y,
+			draw_filled_triangle2(fbdev, pts[0].x, pts[0].y,
+						     pts[1].x, pts[1].y,
+						     pts[2].x, pts[2].y,
 						    /* Views from -z ----> +z  */
 						    -vpts[0].z, -vpts[1].z, -vpts[2].z );
 			#endif
 
-			break;
 
+			break;
 		   case E3D_GOURAUD_SHADING:
 			/* 1. Display back face also */
 //			if( IsBackface ) {
@@ -3004,6 +3459,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 				if(vtxList[ triList[i].vtx[0].index ].normal.isZero()==false) {
 				   egi_dpstd("Case_A\n");
 				   for(k=0; k<3; k++) {
+				     #if 0 /* No gv_auxLight */
 			      		vProduct=gv_vLight*(vtxList[ triList[i].vtx[k].index ].normal);
 			   		//if( vProduct >= 0.0f )
 					if(IsBackface) {
@@ -3013,10 +3469,49 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 					else
 						color=mcolor;
 
-			   		if( vProduct > -VPRODUCT_EPSILON )
+					/* If Backfacing to gv_vLight */
+			   		if( vProduct > -VPRODUCT_NEARZERO ) {
 						vProduct=0.0f;
-			   		else /* Flip to get vProduct absolute value for luma */
+						BackFacingLight=true;
+					}
+			   		else { /* Flip to get vProduct absolute value for luma */
 						vProduct=-vProduct;
+						BackFacingLight=false;
+					}
+
+				     #else /* With gv_auxLight */
+					E3D_Vector tnv=vtxList[ triList[i].vtx[k].index ].normal*nvRotMat;
+					float vpd1=gv_vLight*tnv;
+					float vpd2=0.5*gv_auxLight*tnv;
+
+					/* Backfacing to the main gv_vLight */
+					if(vpd1 > -VPRODUCT_NEARZERO)
+					    BackFacingLight=true;
+					else
+					    BackFacingLight=false;
+
+					/* Backface to the viewer */
+					if(IsBackface) {
+						//vProduct=-vProduct;
+						vProduct=(vpd1>vpd2?vpd1:vpd2); /* no flip */
+						color=bkFaceColor;
+					}
+					else {
+						vProduct=( vpd1 < vpd2 ? vpd1 : vpd2); /* +- flips */
+						color=mcolor;
+					}
+
+					/* If Backfacing to gv_vLight */
+			   		if( vProduct > -VPRODUCT_NEARZERO ) {
+						vProduct=0.0f;
+						//XXXBackFacingLight=true;
+					}
+			   		else { /* Flip to get vProduct absolute value for luma */
+						vProduct=-vProduct;
+						//XXXBackFacingLight=false;
+					}
+				     #endif
+
 			   		/* Adjust luma for color as per vProduct. */
 					#if 0
 					int  deltLuma=(int)roundf((vProduct-1.0f)*240.0);
@@ -3031,9 +3526,16 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			   	else if(triList[i].vtx[0].vn.isZero()==false) {
 				   //egi_dpstd("Case_B\n");
 				   for(k=0; k<3; k++) {
+					float vpd1=gv_vLight*((triList[i].vtx[k].vn)*nvRotMat);
+					float vpd2=0.5*gv_auxLight*((triList[i].vtx[k].vn)*nvRotMat);
 
-					float vpd1=gv_vLight*(triList[i].vtx[k].vn);
-					float vpd2=0.5*gv_auxLight*(triList[i].vtx[k].vn);
+					/* Backfacing to the main gv_vLight */
+					if(vpd1 > -VPRODUCT_NEARZERO)
+					    BackFacingLight=true;
+					else
+					    BackFacingLight=false;
+
+					/* Backface to the viewer */
 					if(IsBackface) {
 						//vProduct=-vProduct;
 						vProduct=(vpd1>vpd2?vpd1:vpd2); /* no flip */
@@ -3044,10 +3546,15 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 						color=mcolor;
 					}
 
-			   		if( vProduct > -VPRODUCT_EPSILON )
+					/* If Backfacing to gv_vLight */
+			   		if( vProduct > -VPRODUCT_NEARZERO ) {
 						vProduct=0.0f;
-			   		else /* Flip to get vProduct absolute value for luma */
+						//XXXBackFacingLight=true;
+					}
+			   		else { /* Flip to get vProduct absolute value for luma */
 						vProduct=-vProduct;
+						//XXXBackFacingLight=false;
+					}
 
 			   		/* Adjust luma for color as per vProduct. */
 					#if 1
@@ -3061,23 +3568,41 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			   		//vtxColor[k]=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
 				   }
 				}
-				/* Case_C: AS FLAT_SHADING, Use face normal triList[].normal. */
+				/* Case_C: AS E3D_FLAT_SHADING, Use face normal triList[].normal. */
 				else {
 				   egi_dpstd("Case_C\n");
 				   //for(k=0; k<3; k++) {
-			      		vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
-			   		//if( vProduct >= 0.0f )
+			      		//vProduct=gv_vLight*((triList[i].normal)*nvRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
+			      		float vpd1=gv_vLight*(triList[i].normal*nvRotMat);
+					float vpd2=0.5*gv_auxLight*(triList[i].normal*nvRotMat);
+
+					/* Backfacing to the main gv_vLight */
+					if(vpd1 > -VPRODUCT_NEARZERO)
+					    BackFacingLight=true;
+					else
+					    BackFacingLight=false;
+
+					/* Backface to the viewer */
 					if(IsBackface) {
-						vProduct=-vProduct;
+						//vProduct=-vProduct;
+						vProduct=(vpd1>vpd2?vpd1:vpd2); /* no flip */
 						color=bkFaceColor;
 					}
-					else
+					else {
+						vProduct=( vpd1 < vpd2 ? vpd1 : vpd2); /* +- flips */
 						color=mcolor;
+					}
 
-			   		if( vProduct > -VPRODUCT_EPSILON )
+					/* Backfacing to all Lights */
+			   		if( vProduct > -VPRODUCT_NEARZERO ) {
 						vProduct=0.0f;
-			   		else /* Flip to get vProduct absolute value for luma */
+						//XXXBackFacingLight=true;
+					}
+			   		else { /* Flip to get vProduct absolute value for luma */
 						vProduct=-vProduct;
+						//XXXBackFacingLight=false;
+					}
+
 			   		/* Adjust luma for color as per vProduct. */
 					#if 0
 					int  deltLuma=(int)roundf((vProduct-1.0f)*240.0);
@@ -3116,7 +3641,8 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 
 		   case E3D_WIRE_FRAMING:
 			/*  Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo.  */
-			vProduct=gv_vLight*(triList[i].normal);  // *(-1.0f); // -vLight as *(-1.0f);
+			vProduct=gv_vLight*((triList[i].normal)*nvRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
+			/* TODO: gv_auxLight NOT applied yet. */
 			//if( vProduct >= 0.0f )
 			if(IsBackface) {
 				break;
@@ -3126,10 +3652,15 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			else
 				color=wireFrameColor;
 
-			if( vProduct > -VPRODUCT_EPSILON )
+			/* If Backfacing to gv_vLight */
+			if( vProduct > -VPRODUCT_NEARZERO ) {
 				vProduct=0.0f;
-			else /* Flip to get vProduct absolute value for luma */
+				BackFacingLight=true;
+			}
+			else { /* Flip to get vProduct absolute value for luma */
 				vProduct=-vProduct;
+				BackFacingLight=false;
+			}
 
 			/* Adjust luma for pixcolor as per vProduct. */
 			fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +50 );
@@ -3147,15 +3678,21 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 
 		   case E3D_TEXTURE_MAPPING:
 			/* Note: If backFaceOn, then backface texutre is also SAME as frontface texture. */
-			/* IF: No texture, apply flat_shading then */
+			/* IF: No texture, apply E3D_FLAT_SHADING then */
 			if( imgKd==NULL ) {  // textureImg==NULL ) { textureImg assigned to defMaterial.img_kd
 			   /* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo. */
-			   vProduct=gv_vLight*(triList[i].normal*ltRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
-			   //if( vProduct >= 0.0f )
-			   if( vProduct > -VPRODUCT_EPSILON )
+			   vProduct=gv_vLight*(triList[i].normal*nvRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
+			   /* TODO: gv_auxLight NOT applied yet */
+
+			   /* If Backfacing to gv_vLight */
+			   if( vProduct > -VPRODUCT_NEARZERO ) {  /* >0.0f */
 				vProduct=0.0f;
-			   else /* Flip to get vProduct absolute value for luma */
+				BackFacingLight=true;
+			   }
+			   else { /* Flip to get vProduct absolute value for luma */
 				vProduct=-vProduct;
+				BackFacingLight=false;
+			   }
 
 			   /* Adjust luma for pixcolor as per vProduct. */
 			   color=mcolor;
@@ -3176,13 +3713,18 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			else {
 			   /* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo.  */
 		       #if 0  /* NO auxiliary light */
-			   vProduct=gv_vLight*(triList[i].normal*ltRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
-			   if( vProduct > -VPRODUCT_EPSILON )
+			   vProduct=gv_vLight*(triList[i].normal*nvRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
+			   /* If Backfacing to gv_vLight */
+			   if( vProduct > -VPRODUCT_NEARZERO ) {
 				vProduct=0.0f;
-			   else /* Flip to get vProduct absolute value for luma */
+				BackFacingLight=true;
+			   }
+			   else { /* Flip to get vProduct absolute value for luma */
 				vProduct=-vProduct;
+				BackFacingLight=false;
+			   }
 		       #else /* Use auxiliary light */
-			   E3D_Vector tn=triList[i].normal*ltRotMat;
+			   E3D_Vector tn=triList[i].normal*nvRotMat;
 			   float vpd1=gv_vLight*tn;
 			   float vpd2=0.6*gv_auxLight*tn;
 			   float vpd3=0.4*upLight*tn;
@@ -3196,10 +3738,15 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 				vProduct=mat_min3f(vpd1,vpd2,vpd3);
 			   }
 
-			   if( vProduct > -VPRODUCT_EPSILON )
+			   /* If Backfacing to gv_vLight */
+			   if( vProduct > -VPRODUCT_NEARZERO ) {
 				vProduct=0.0f;
-			   else /* Flip to get vProduct absolute value for luma */
+				BackFacingLight=true;
+			   }
+			   else { /* Flip to get vProduct absolute value for luma */
 				vProduct=-vProduct;
+				BackFacingLight=false;
+			  }
 		       #endif
 
 			   /* Adjust side luma according to vProudct. TODO: This is for DEMO only. */
@@ -3240,9 +3787,9 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
         	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,  /* 1.0-x: Adjust uv ORIGIN */
                 	                triList[i].vtx[1].u, 1.0-triList[i].vtx[1].v,
                         	        triList[i].vtx[2].u, 1.0-triList[i].vtx[2].v,
-                                	roundf(pts[0].x), roundf(pts[0].y),
-	                                roundf(pts[1].x), roundf(pts[1].y),
-        	                        roundf(pts[2].x), roundf(pts[2].y)
+                                	pts[0].x, pts[0].y,
+	                                pts[1].x, pts[1].y,
+        	                        pts[2].x, pts[2].y
                 	        );
 				#else /* with z0,z1,z2 */
 		        	egi_imgbuf_mapTriWriteFB3(imgKd, fbdev,
@@ -3250,9 +3797,9 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
         	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,  /* 1.0-x: Adjust uv ORIGIN */
                 	                triList[i].vtx[1].u, 1.0-triList[i].vtx[1].v,
                         	        triList[i].vtx[2].u, 1.0-triList[i].vtx[2].v,
-                                	roundf(pts[0].x), roundf(pts[0].y),
-	                                roundf(pts[1].x), roundf(pts[1].y),
-        	                        roundf(pts[2].x), roundf(pts[2].y),
+                                	pts[0].x, pts[0].y,
+	                                pts[1].x, pts[1].y,
+        	                        pts[2].x, pts[2].y,
 				        /* Views from -z ----> +z  */
 				        -vpts[0].z, -vpts[1].z, -vpts[2].z
                 	        );
@@ -3268,11 +3815,112 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			break;
 
 		} /* End switch */
+
+/* TEST: ----------- To create shadow by backward ray tracing
+ * Note:
+ *  1. Any trimesh backfacing to the gv_vLight is ignored, since they are alreay darksome.
+ *  2. For Persepective View: It does NOT consider depth(z) mapping, so z values will be incorrect,
+ *     which makes shadow deviate from the right position!
+       For ISO view, it's much better.
+ *  3. As pixelate_filled_triangle2() use integer (not float type) for XY, it brings errors,
+ *     and reverse_projectPoints() will again scale up those errors for corresponding global XYZ coordinates. ??? XXX
+ */
+if( true && BackFacingLight==false
+    && ( shadeType==E3D_FLAT_SHADING || shadeType==E3D_GOURAUD_SHADING || shadeType==E3D_TEXTURE_MAPPING ) )
+{
+		bool tested=false;
+
+		/* Malloc pXYZ. !!! CAUTION:  DONT forget to free !!! */
+		if(pXYZ==NULL) {
+			pXYZ=(float *)malloc(capacity*sizeof(float));
+			if(pXYZ==NULL) continue;
+		}
+
+		/* Pixelate a PROJECTED triangle mesh */
+		pixelate_filled_triangle2( pts[0].x, pts[0].y,
+					   pts[1].x, pts[1].y,
+					   pts[2].x, pts[2].y,
+                                        /* Views from -z ----> +z  */
+                                        -vpts[0].z, -vpts[1].z, -vpts[2].z,
+					   &pXYZ, &capacity, &np
+					 );
+		egi_dpstd("pixelate np=%d\n", np);
+
+		/* Set shadow color */
+		//fbdev->pixcolor=WEGI_COLOR_GRAY; //RED;
+//		fbdev->zbuff_IgnoreEqual=false;
+
+		/* Backward tracing each pixel to gv_vLight */
+		for(j=0; j<(int)np; j++) {
+
+			/* A pixel point on screen COORD */
+			vpt.x=pXYZ[3*j];  vpt.y=pXYZ[3*j+1]; vpt.z=-pXYZ[3*j+2]; /* remind that pXYZ.z already changed to be -z */
+
+			/* Reverse_project vpt from screen to object: TODO: some error here caused by integer type pixz */
+	                if( reverse_projectPoints(&vpt, 1, projMatrix) !=0 ) {
+				egi_dpstd("Fail to reverse_projectPoints!\n");
+                        	continue;
+			}
+
+			/* Update Back tracing ray */
+			vray.vp0 = vpt;
+			vray.vd  = -gv_vLight;
+
+			/* If hit any trimesh, draw a shadow dot on screen. */
+			if( this->rayHitFace(vray, gindx, tindx, vphit, fn) ) {
+				/* Check if hit its own plane */
+				/* Note: HK2022-09-03
+				 * Since reverse_projectPoints() will scale up computation error, etc. roundf() a float to an integer.
+				 * 1 pixel distance in screen coord may be much bigger in global coord.
+				 */
+				float dist0=E3D_vector_distance(vphit, vray.vp0);
+				dist = dist0/( fabsf(vphit.z)/projMatrix.dv );
+				if(dist<0.5) {
+					egi_dpstd(DBG_YELLOW"dist0=%f, projected hit dist<0.5!\n"DBG_RESET, dist0);
+				}
+				else {
+					fbdev->pixcolor=WEGI_COLOR_GRAY;
+					fbdev->pixz=roundf(-vpt.z); /* look from -z ----> +z */
+					draw_dot(fbdev, pXYZ[3*j], pXYZ[3*j+1]); /* pXYZ on screen COORD */
+
+					//gv_vLight.print("vLight");
+				   	//egi_dpstd("vLight_to_ray angle: %fDeg\n", E3D_vector_angleAB(vray.vp0-vphit, gv_vLight)*180/MATH_PI);
+
+			/* TEST:------- show rays */
+					if(!tested) {
+				   	   egi_dpstd("vray.vd_trinormal angle: %fDeg\n", E3D_vector_angleAB(vray.vd, trinormal)*180/MATH_PI);
+
+					   vphit.print("vphit");
+					   fbdev->pixcolor=WEGI_COLOR_RED;
+					   fbdev->flipZ=true;
+					   E3D_draw_line(fbdev, vray.vp0, vphit, projMatrix);
+					   fbdev->flipZ=false;
+					   tested=true;
+					}
+				}
+			}
+			//if( this->rayBlocked(vray) ) {
+			else {
+				//egi_dpstd("NOT intersect!\n");
+				//fbdev->pixcolor=WEGI_COLOR_BLACK;
+				//fbdev->pixz=-roundf(vpt.z); /* look from -z ----> +z */
+				//draw_dot(fbdev, pXYZ[3*j], pXYZ[3*j+1]);
+			}
+		}
+
+		/* Reset zbuff_IgnoreEqual */
+//		fbdev->zbuff_IgnoreEqual=true;
+
+}
+/* END: ---------- back_tracing shadow */
+
+
 	   } /* End for(i) */
+
 	} /* End for(n) */
 
         #if 0	/* Draw face normal line. */
-	if( faceNormalLen>0 )
+	if( faceNormalLen>0 ) {
 		for(i=0; i<tcnt; i++) {
 			//float nlen=20.0f;   /* Normal line length */
 			cpt.x=(vpts[0].x+vpts[1].x+vpts[2].x)/3.0f;
@@ -3282,11 +3930,93 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			draw_line(fbdev, cpt.x, cpt.y,
 					 cpt.x+faceNormalLen*(triList[i].normal.x),
 					 cpt.y+faceNormalLen*(triList[i].normal.y) );
+		}
 	}
 	#endif
 
 	/* Restore pixcolor */
 	fbset_color2(&gv_fb_dev, color);
+
+	/* Free */
+	free(pXYZ);
+}
+
+
+/*-------------------------------------------------------------------
+To draw face normal for each trimesh.
+
+@fbdev:		Pointer to FBDEV
+@projMatrix	Projection Matrix
+--------------------------------------------------------------------*/
+void E3D_TriMesh::drawNormal(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
+{
+	unsigned int i,n;
+	E3D_Vector  vpts[3];	/* 3D points */
+	E3D_Vector  trinormal;  /* Face normal of a triangle, after transformation */
+
+	E3D_RTMatrix  tgRTMat;  /* TriGroup RTMatrix, for Pxyz(under TriGroupCoord)*TriGroup--->object */
+	E3D_Vector    tgOxyz;   /* TriGroup origin/pivot XYZ */
+	E3D_RTMatrix  nvRotMat; /* RTmatrix(rotation component only) for face normal rotation, to be zeroTranslation() */
+
+	E3D_Vector  npts[2];    /* Normal line end points */
+
+	/* Traverse */
+	for(n=0; n<triGroupList.size(); n++) {
+
+		/* 1. Check visibility */
+		if(triGroupList[n].hidden) {
+			egi_dpstd("triGroupList[%d]: '%s' is set as hidden!\n", n, triGroupList[n].name.c_str());
+			continue;
+		}
+
+//		egi_dpstd("Check triGroupList[%d]: '%s'\n", n, triGroupList[n].name.c_str());
+
+		/* 2. Extract TriGroup rotation matrix and rotation pivot */
+		/* 2.1 To combine RTmatrix: Pxyz(under TriGroup Coord)*TrGroup-->object*object--->Global */
+		tgRTMat=triGroupList[n].omat*objmat;
+
+		/* 2.2 Face normal RotMat */
+		nvRotMat = tgRTMat;
+		nvRotMat.zeroTranslation();
+
+		/* 2.3 Get TriGroup pivot, under object COORD */
+		tgOxyz=triGroupList[n].pivot;
+
+		/* 3. Traverse all triangles in the triGroupList[n] */
+		for(i=triGroupList[n].stidx; i<triGroupList[n].etidx; i++) {
+			/* 3.0 Cal. trinormal */
+			trinormal=triList[i].normal*nvRotMat;
+
+			/* 3.1 Copy triangle vertices */
+			vpts[0] = vtxList[ triList[i].vtx[0].index ].pt;
+			vpts[1] = vtxList[ triList[i].vtx[1].index ].pt;
+			vpts[2] = vtxList[ triList[i].vtx[2].index ].pt;
+
+			/* 3.2 TriGroup transform */
+			/* 3.2.1 vpts under TriGroup COORD/pivot */
+			vpts[0] -= tgOxyz;
+			vpts[1] -= tgOxyz;
+			vpts[2] -= tgOxyz;
+			/* 3.2.2 Transform vpts[]: TriGroup---->Object; object--->Global */
+			E3D_transform_vectors(vpts,3,tgRTMat);
+
+			/* 3.3 Get normal line ends */
+			npts[0]=(vpts[0]+vpts[1]+vpts[2])/3.0f;
+			npts[1]=npts[0]+faceNormalLen*trinormal;
+
+			/* 3.4 Project to screen/view plane */
+                	if( projectPoints(npts, 2, projMatrix) !=0 )
+                        	continue;
+
+			/* 3.5 Draw normal line */
+			fbset_color2(fbdev, WEGI_COLOR_GREEN);
+			gv_fb_dev.flipZ=true;
+			E3D_draw_line(fbdev, npts[0], npts[1]);
+			gv_fb_dev.flipZ=false;
+
+		} /* END for(i) */
+
+	} /* END for(n) */
 }
 
 
@@ -3300,7 +4030,7 @@ the shadow.
 --------------------------------------------------------------------------*/
 void E3D_TriMesh::shadowMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix, const E3D_Plane &plane) const
 {
-	int j,k;
+	int k; //j
 	unsigned int i,n;
 	int vtidx[3];  				/* vtx index of a triangel */
 	E3D_Vector  vpts[3];			/* Projected 3D points */
@@ -3309,11 +4039,11 @@ void E3D_TriMesh::shadowMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix, con
 	E3D_Vector  vView(0.0f, 0.0f, 1.0f); 	/* View direction */
 	float	    vProduct;   		/* dot product */
 //	int deltLuma;
-	bool	    forward;			/* intersection point position relative to radial vp0 */
+	bool	    forward;			/* intersection point position relative to Ray vp0 */
 
 
 //	bool	    IsBackface=false;		/* Viewing the back side of a Trimesh. */
-	E3D_POINT cpt;	    			/* Gravity center of triangle */
+//	E3D_POINT cpt;	    			/* Gravity center of triangle */
 
 	/* render color */
 	EGI_16BIT_COLOR color=COLOR_DimGray; /* Shadow color */
@@ -3321,32 +4051,39 @@ void E3D_TriMesh::shadowMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix, con
 	/* RTMatrixes for the Object and TriGroup */
 	E3D_RTMatrix	tgRTMat; //tgRotMat; /* TriGroup RTmatrix, for Pxyz(at TriGroup Coord) * TriGroup--->object */
 	E3D_Vector	tgOxyz;		   /* TriGroup origin/pivot XYZ */
-	E3D_RTMatrix	ltRotMat;	   /* RTmatrix(rotation component only) for light product, to be zeroTranslation() */
+	E3D_RTMatrix	nvRotMat;	   /* RTmatrix(rotation component only) for face normal rotation, to be zeroTranslation() */
 
 //	objmat.print("objmat");
 
-#if 0	/* Check plane facing */
+#if 1	/* Check view direction to plane normal */
 	vProduct = vView*plane.vn;
-	if ( vProduct < VPRODUCT_EPSILON ) {
-		egi_dpstd("Plane backface to vView!\n");
+	if ( vProduct > VPRODUCT_EPSILON ) {
+		egi_dpstd(DBG_RED"Plane backface to vView!\n"DBG_RESET);
 		return;
 	}
+
+	/* Check lighting direction to plane normal */
+	vProduct = plane.vn*gv_vLight;
+	if( vProduct > VPRODUCT_EPSILON ) {
+                egi_dpstd(DBG_RED"Plane backface to gv_vLight!\n"DBG_RESET);
+                return;
+        }
 #endif
 
 	/* Set shadow color */
 	fbdev->pixcolor=color;
 
 	/* Compute and draw shadow triangles of triGroupList onto the plane, under gv_vLight. */
-	for(n=0; n<triGroupList.size(); n++) {  /* Tranverse all Trigroups */
+	for(n=0; n<triGroupList.size(); n++) {  /* Traverse all Trigroups */
 
-	    /* F1. Extract TriGroup rotation matrix and rotation origin */
+	    /* F1. Extract TriGroup rotation matrix and rotation pivot */
 
 	    /* F1.1 To combine RTmatrix:  Pxyz(at TriGroup Coord) * TriGroup--->object * object--->Global */
 	    tgRTMat = triGroupList[n].omat*objmat;
 
 	    /* F1.2 Light RotMat */
-	    ltRotMat = tgRTMat;
- 	    ltRotMat.zeroTranslation(); /* !!! */
+	    nvRotMat = tgRTMat;
+ 	    nvRotMat.zeroTranslation(); /* !!! */
 
 	    /* F1.3 TriGroup (original) pivot, under object COORD. */
 	    tgOxyz = triGroupList[n].pivot;
@@ -3381,24 +4118,30 @@ void E3D_TriMesh::shadowMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix, con
 #endif
 
 		/* F2.3 To calculate intersection points as gv_vLight projecting vpts[] to the plane */
-		bool allforward=true;
+//		bool allforward=true;
 		for(k=0; k<3; k++) {
-			/* F2.3.1 Create radial light */
-			E3D_Radial  Radial(vpts[k], gv_vLight);
+			/* F2.3.1 Create Ray light */
+			E3D_Ray  Ray(vpts[k], gv_vLight);
 
-			/* F2.3.2 Get intersection of Radial to the plane */
-			E3D_Vector Vinsct=E3D_RadialIntsectPlane(Radial, plane, forward);
+			/* F2.3.2 Get intersection of Ray to the plane */
+			E3D_Vector Vinsct;
+			E3D_RayIntersectPlane(Ray, plane, Vinsct, forward);
 			/* Check intersection position */
-			if(!forward) {
-				allforward=false;
-				break;
-			}
+			//if(!forward) {
+			//	allforward=false;
+			//	break;
+			//}
+
 			vpts[k] = Vinsct;
 		}
-		if(allforward==false)
-			continue;
 
-		/* F2.4 Project to screen/view plane */
+		/* NOPE! Here only consider parallel lighting, from infinite distance.  */
+		//if(allforward==false) {
+		//	egi_dpstd("allforward==false!\n");
+		//	continue;
+		//}
+
+		/* F2.4 Project trimesh to screen/view plane */
 		if( projectPoints(vpts, 3, projMatrix) !=0 )
 			continue;
 
@@ -3892,10 +4635,25 @@ Draw a 3D line between va and vb. zbuff applied.
 @fbdev:	  Pointer to FBDEV.
 @va,vb:	  Two E3D_Vectors as two points.
 -----------------------------------------------*/
-inline void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb)
+//inline cause error: undefined reference to `E3D_draw_line(fbdev*, E3D_Vector const&, E3D_Vector const&)'
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb)  /* NO projection conversion, No flipZ */
 {
 	draw3D_line( fbdev, roundf(va.x), roundf(va.y), roundf(va.z),
 		            roundf(vb.x), roundf(vb.y), roundf(vb.z) );
+}
+
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, const E3D_ProjMatrix &projMatrix)
+{
+	E3D_Vector vpts[2];
+	vpts[0]=va;
+	vpts[1]=vb;
+
+	/* Project vpts */
+	if( projectPoints(vpts, 2, projMatrix) !=0)
+		return;
+
+	draw3D_line( fbdev, roundf(vpts[0].x), roundf(vpts[0].y), roundf(vpts[0].z),
+		            roundf(vpts[1].x), roundf(vpts[1].y), roundf(vpts[1].z) );
 }
 
 void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix)
@@ -3925,7 +4683,8 @@ void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, con
 
 	/* Project vpts */
 	if( projectPoints(vpts, 2, projMatrix) !=0) {
-//		return;
+		egi_dpstd(DBG_RED"projectPoints() error!\n"DBG_RESET);
+		return;
 	}
 
 	/* Draw 3D line */

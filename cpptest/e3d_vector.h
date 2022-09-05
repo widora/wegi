@@ -58,15 +58,17 @@ Journal:
 2021-10-26:
 	1. Add E3D_combExtriRotation()
 2022-08-06:
-	1. Add E3D_Radial, E3D_Plane,
-	2. Add E3D_RadialVerticalRadial(), E3D_RadialParallelRadial(), E3D_RadialParallelPlane()
-	   E3D_RadialIntsectPlane()
+	1. Add E3D_Ray, E3D_Plane,
+	2. Add E3D_RayVerticalRay(), E3D_RayParallelRay(), E3D_RayParallelPlane()
+	   E3D_RayIntsectPlane()
 2022-08-08:
 	1. Add E3D_Vector::transform()
 	2. Add E3D_Plane::transform()
 
 2022-08-09:
         1. Split e3d_vector.cpp from e3d_vector.h
+2022-08-25:
+	1. Remane 'Radial' to 'Ray'
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -85,6 +87,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 using namespace std;
 
 #define VPRODUCT_EPSILON        (1.0e-6)  /* -6, Unit vector vProduct=vct1*vtc2 */
+#define VPRODUCT_NEARZERO	(1.0e-35)  /* Check parallel/vertical */
 
 typedef struct
 {
@@ -96,21 +99,29 @@ typedef struct
 /* Classes */
 class E3D_Vector;
 class E3D_RTMatrix;
-class E3D_Radial;
+class E3D_Ray;
 class E3D_Plane;
 struct E3D_ProjectFrustum;
 
 /* NON_Class Functions: E3D_Vector */
-float E3D_vector_magnitude(const E3D_Vector &v);
+float E3D_vector_magnitude(const E3D_Vector &v); // OBSOLETE, see E3D_Vector::module()
 E3D_Vector E3D_vector_crossProduct(const E3D_Vector &va, const E3D_Vector &vb);
+float E3D_vector_angleAB(const E3D_Vector &va, const E3D_Vector &vb);
 E3D_Vector operator *(float k, const E3D_Vector &v);
 float E3D_vector_distance(const E3D_Vector &va, const E3D_Vector &vb);
+E3D_Vector E3D_vector_reflect(const E3D_Vector &vi, const E3D_Vector &fn);
 
-/* NON_Class Functions: E3D_Radial, E3D_Plane */
-bool E3D_RadialVerticalRadial(const E3D_Radial &rad1, const E3D_Radial &rad2);
-bool E3D_RadialParallelRadial(const E3D_Radial &rad1, const E3D_Radial &rad2);
-bool E3D_RadialParallelPlane(const E3D_Radial &rad, const E3D_Plane &plane);
-E3D_Vector E3D_RadialIntsectPlane(const E3D_Radial &rad, const E3D_Plane &plane, bool &forward);
+
+/* NON_Class Functions: Compute barycentric coordinates of point pt to triangle vt[3] */
+bool E3D_computeBarycentricCoord(const E3D_Vector vt[3],const E3D_Vector &pt, float bc[3]);
+
+/* NON_Class Functions: E3D_Ray, E3D_Plane */
+bool E3D_RayVerticalRay(const E3D_Ray &rad1, const E3D_Ray &rad2);
+bool E3D_RayParallelRay(const E3D_Ray &rad1, const E3D_Ray &rad2);
+bool E3D_RayParallelPlane(const E3D_Ray &rad, const E3D_Plane &plane);
+//E3D_Vector E3D_RayIntersectPlane(const E3D_Ray &rad, const E3D_Plane &plane, bool &forward);
+bool E3D_RayIntersectPlane(const E3D_Ray &rad, const E3D_Plane &plane, E3D_Vector &vp, bool &forward);
+
 
 /* NON_Class Functions: E3D_RTMatrix */
 E3D_RTMatrix operator* (const E3D_RTMatrix &ma, const E3D_RTMatrix &mb);
@@ -153,6 +164,9 @@ public:
 
 	/* Vector assign */
 	void assign(float nx, float ny, float nz);
+
+	/* Module */
+	float module(void) const;
 
 	/* Overload operator '=' */
 	E3D_Vector & operator =(const E3D_Vector &v);
@@ -214,22 +228,22 @@ public:
 
 
 /*-----------------------------
-	Class: E3D_Radial
-E3D Radial
+	Class: E3D_Ray
+E3D Ray
 -----------------------------*/
-class E3D_Radial {
+class E3D_Ray {
 public:
 	E3D_Vector vp0; /* Startpoit, default (0,0,0) */
 	E3D_Vector vd;  /* Direction, default (1,0,0), NOT necessary to be an unit vector. */
 
 	/* Constructor */
-	E3D_Radial();
-	E3D_Radial(const E3D_Vector &Vp, const E3D_Vector &Vd);
-	E3D_Radial(float px, float py, float pz, const E3D_Vector &Vd);
-	E3D_Radial(float px, float py, float pz, float dx, float dy, float dz);
+	E3D_Ray();
+	E3D_Ray(const E3D_Vector &Vp, const E3D_Vector &Vd);
+	E3D_Ray(float px, float py, float pz, const E3D_Vector &Vd);
+	E3D_Ray(float px, float py, float pz, float dx, float dy, float dz);
 
 	/* Destructor */
-	~E3D_Radial();
+	~E3D_Ray();
 };
 
 

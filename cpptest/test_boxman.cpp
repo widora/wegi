@@ -14,6 +14,10 @@ boxman.obj -c -s 16 -Y -195 -Z 90 -X 20 -a -5 -P -L -M /mmc/boxman_hand.mot   !!
 
 boxdog.obj -s 12 -y 150 -X 190 -Y -60 -P -L -G
 
+		--------- With Shadow --------
+boxman.obj -c -s 12 -X 200 -x -130 -Y 25 -P -a -5 -W -L
+boxman.obj -c -s 14 -Y 155 -y 50 -Z 90 -X -20 -a -5 -W -P -L //portrait mode
+boxdog.obj -c -s 12 -X 190 -x -50 -Y -60 -y -20 -P -W
 
 6.   			--- OPTION_1: WorkMesh_Movement ---
 
@@ -30,6 +34,7 @@ boxdog.obj -s 12 -y 150 -X 190 -Y -60 -P -L -G
 
 Journal:
 2021-10-15: Create the file.
+2022-08-12: Option for mesh shadow rendering
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -55,7 +60,7 @@ using namespace std;
 
 void print_help(const char *name)
 {
-	printf("Usage: %s obj_file [-hrbBDGNRSPVLwbtcf::s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
+	printf("Usage: %s obj_file [-hrbBDGNRSPVLwWbtcf::s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
 	printf("-h     Help\n");
 	printf("-r     Reverse trianlge normals\n");
 	printf("-B     Display back faces with default color, OR texture for back faces also.\n");
@@ -68,6 +73,7 @@ void print_help(const char *name)
 	printf("-V     Auto compute all vtxNormals if no provided in data, for gouraud shading.\n");
 	printf("-L     Adjust lighting direction.\n");
 	printf("-w     Wireframe ON\n");
+        printf("-W     Shadow on grid plane.\n");
 	printf("-b     AABB ON\n");
 	printf("-c    Move local COORD origin to center of mesh, 0-VtxCenter 1-AABB Center.\n");
 	printf("-t:    Show rendering process.\n");
@@ -149,12 +155,19 @@ int main(int argc, char **argv)
 	bool		calVtxNormals_on=false; /* To compute all vtxNormals if not provided in data, for gouraud shading. */
 	bool		adjustLight_on=false;	/* Adjust lighting direction */
 	bool		showGrid_on=false;	/* Show grid */
+        bool            shadow_on=false;        /* Shadown on grid plane */
 
 	/* Projectionn matrix */
 	float		dview;		/* Distance from the Focus(usually originZ) to the Screen/ViewPlane */
 	float		dvv;		/* varying of dview */
 	float		dstep;
 	E3D_ProjMatrix projMatrix={ .type=E3D_ISOMETRIC_VIEW, .dv=500, .dnear=500, .dfar=10000000, .winW=320, .winH=240};
+
+        /* Plane for shadow */
+        E3D_Plane shadowPlane(0.0,1.0,0.0, 0.0); /* On y=0.0 plane */
+
+        /* For plane AABB Ty */
+        float Ty;
 
 	/* Boxman */
 	int headAng=0, pitchAng=0;
@@ -163,7 +176,7 @@ int main(int argc, char **argv)
 
         /* Parse input option */
 	int opt;
-        while( (opt=getopt(argc,argv,"hrbBDGNRSPVLwbtcf:s:x:y:z:A:M:X:Y:Z:T:a:p:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hrbBDGNRSPVLwWbtcf:s:x:y:z:A:M:X:Y:Z:T:a:p:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
 				print_help(argv[0]);
@@ -201,6 +214,9 @@ int main(int argc, char **argv)
 			case 'w':
 				wireframe_on=true;
 				break;
+                        case 'W':
+                                shadow_on=true;
+                                break;
 			case 'b':
 				AABB_on=true;
 				break;
@@ -297,8 +313,11 @@ int main(int argc, char **argv)
 	/* 0. Set global light vector */
 	float vang=45.0; /*  R=1.414, angle for vector(x,y) of vLight  */
 	float dvang=5; //2.5;  /* Delta angle for vangle */
+
+	 /* NOPE! gv_vLight/gv_auxLight to be transformed with RTMatrix later ..... */
 if( adjustLight_on ) {  /* For Portrait.. */
-	E3D_Vector vLight(1, -1, 1); //2); //4);
+	//E3D_Vector vLight(1, -1, 1);
+	E3D_Vector vLight(-4,1,1); //(1, -2, 5);
 	vLight.normalize();
 	gv_vLight=vLight;
 }
@@ -433,6 +452,9 @@ else {		/* For Landscape */
 	cout << "dview=" <<dview<<endl;
 	sleep(1);
 
+	/* Get Ty for Grid plane translation. */
+        Ty=-meshModel.aabbox.vmax.y;
+
 	/* 7. Init. E3D Vector and Matrixes for meshModel position. */
 	RXmat.identity(); 	/* !!! setTranslation(0,0,0); */
 	RYmat.identity();
@@ -444,7 +466,7 @@ else {		/* For Landscape */
 	/* 8. Prepare WorkMesh (Under global Coord) */
 	E3D_TriMesh *workMesh=new E3D_TriMesh(meshModel.vtxCount(), meshModel.triCount());
 
-#if 0	/* 9. Check if it has input texture with option -T path. (NOT as defined in .mtl file.) */
+#if 1	/* 9. Check if it has input texture with option -T path. (NOT as defined in .mtl file.) */
 	if( (textureFile && meshModel.textureImg) || (meshModel.mtlList.size()>0 && meshModel.mtlList[0].img_kd) ) {
 		refimg=meshModel.textureImg; /* Just ref, to get imgbuf size later. */
 		workMesh->shadeType=E3D_TEXTURE_MAPPING;
@@ -456,6 +478,7 @@ else {		/* For Landscape */
 #else
 		workMesh->shadeType=E3D_FLAT_SHADING;
 #endif
+
 
 			/* (((-----  Loop move and render workMesh  -----))) */
   while(1) {
@@ -534,7 +557,8 @@ else {		/* For Landscape */
 	VRTmat.setTranslation(offx, offy, offz +dview*2); /* take Focus to obj center=2*dview */
 
 #if 1  /* TEST: -------- Boxman: Head(the last TriGroup) rotation ---- */
-	workMesh->objmat = VRTmat;
+//	workMesh->objmat = VRTmat;
+
     	E3D_RTMatrix tm_VRTmat=VRTmat; /* = Identity()*VRTmat OR VRTmat*Identidy() */
     	tm_VRTmat.zeroTranslation();  /* !!!! <---- */
 	float rotAng[3]={0.0};
@@ -619,6 +643,36 @@ else {		/* For Landscape */
 	//workMesh->transformMesh(RTYmat*RTXmat, ScaleMat); /* Here, scale ==1 */
 	workMesh->transformMesh(VRTmat, ScaleMat); /* Here, scale ==1 */
 
+        /* W3a. Update shadow Plane */
+        if(shadow_on) {
+                /* gmat for Origin offset to shadowPlane */
+                E3D_RTMatrix gmat,tmat;
+                gmat.setTranslation(0, 1.0*Ty, 0); /* 1.25*Ty to move shadowPlane downward */
+
+                /* Transform main lighting direction:: Rotating around COOR_Y */
+		if(adjustLight_on) //portrait mode
+        	        gv_vLight.assign(1, -1, 1);
+		else {
+	                //gv_vLight.assign(1,0.1,2);
+        	        gv_vLight.assign(0.5, 0.1, 1);
+		}
+		gv_vLight.normalize();
+
+                /* W3a.5. Rest gv_auxLight */
+                gv_auxLight.assign(0,0,1);
+                gv_auxLight.normalize();
+                gv_auxLight.transform(tmat);
+                gv_auxLight.normalize();
+
+                /* Reset shadowPlane On y=0.0 plane */
+                shadowPlane.vn = E3D_Vector(0.0, 1.0, 0.0);
+                shadowPlane.fd = 0.0;
+
+                /* Transform shadowPlane */
+                shadowPlane.transform(gmat*VRTmat);
+                printf("2 shadowPlane: fd=%f\n",shadowPlane.fd); shadowPlane.vn.print(NULL);
+	}
+
 	/* W4. Update Projectoin Matrix */
 	dvv += dstep;
 	projMatrix.dv = dvv;
@@ -647,6 +701,13 @@ else {		/* For Landscape */
 
         cout << "Render mesh ... angle="<< angle <<endl;
         workMesh->renderMesh(&gv_fb_dev, projMatrix);
+
+        /* W6a. Render shadow */
+        if(shadow_on) {
+                cout << "Create shadow ..." << endl;
+                workMesh->shadowMesh(&gv_fb_dev, projMatrix, shadowPlane);
+        }
+
 #endif
 
 	/* W7. Render as wire frames, on current FB image (before FB is cleared). */
@@ -668,7 +729,7 @@ else {		/* For Landscape */
 	/* W9. Draw the Coordinate Navigating_Sphere/Frame (coordNavSphere/coordNavFrame) */
 	if(coordNavigate_on) {
 	   E3D_draw_coordNavSphere(&gv_fb_dev, 0.4*workMesh->AABBdSize(), VRTmat, projMatrix);
-	   E3D_draw_coordNavFrame(&gv_fb_dev, 0.5*workMesh->AABBdSize(), VRTmat, projMatrix);
+	   E3D_draw_coordNavFrame(&gv_fb_dev, false, 0.5*workMesh->AABBdSize(), VRTmat, projMatrix);
 	}
 
 #if 0 /* XXX not correct!  TEST: ---------------- boxman: HEAD omat  coordFrame */
@@ -682,7 +743,12 @@ else {		/* For Landscape */
 		fbset_color2(&gv_fb_dev, gridColor);
 		gmat.identity();
 		gmat.setRotation(axisX, 90.0/180*MATH_PI); /* As original XZ plane grid of the mesh object. */
-	        E3D_draw_grid(&gv_fb_dev, 1.5*dSize, 1.5*dSize, dSize/10, gmat*VRTmat, projMatrix); /* fbdev sx,sy, us, VRTmat, projMatrix */
+
+                printf("gmat.setTranslation Ty=%f, dSize=%d\n", Ty, dSize);
+                gmat.setTranslation(0, Ty, 0);
+
+	        //E3D_draw_grid(&gv_fb_dev, 1.5*dSize, 1.5*dSize, dSize/10, gmat*VRTmat, projMatrix); /* fbdev sx,sy, us, VRTmat, projMatrix */
+	        E3D_draw_grid(&gv_fb_dev, 2.0*dSize, 2.0*dSize, dSize/10, gmat*VRTmat, projMatrix); /* fbdev sx,sy, us, VRTmat, projMatrix */
 	}
 
 	/* W10. Write note & statistics */

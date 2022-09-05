@@ -60,6 +60,8 @@ Note:
 		!!!--- CAUTION ---!!!
 		The Caller MUST ensure enough sapce.
 @outsize:	Pointer to output data size
+		If returned outsize is negative or ridiculous, it means
+		the original data error, OR encryption method unsupported.
 @ukey:  	The key
 @uiv:   	The init vector
 @encode:	0 as AES_DECRYPT
@@ -718,6 +720,8 @@ Note:
 		!!!--- CAUTION ---!!!
 		The Caller MUST ensure enough sapce.
 @outsize:	Pointer to output data size
+                If returned outsize is negative or ridiculous, it means
+                the original data error, OR encryption method unsupported.
 @ukey:  	The 128bits key,
 @uiv:   	The 128bits init vector
 @encode:	0 as to decrypt

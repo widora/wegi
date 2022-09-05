@@ -41,6 +41,62 @@ int main(void)
 {
 	cout << "Hello, this is C++!\n" << endl;
 
+#if 0 //////////////////  reverse_projectPoints( ) ///////////////////////////
+	int ret;
+	E3D_ProjMatrix projMatrix={ .type=E3D_PERSPECTIVE_VIEW, .dv=500, .dnear=500, .dfar=10000000, .winW=320, .winH=240};
+	E3D_Vector pt(100.0, 100.0, 1000.0);
+
+	printf("Global coord: %f,%f,%f\n",pt.x,pt.y,pt.z);
+	ret=projectPoints(&pt, 1, projMatrix);
+	printf("projectPoints ret=%d\n",ret);//ret==1, pt out of frustum
+	printf("Project to Screen coord: %f,%f,%f\n",pt.x,pt.y,pt.z);
+	reverse_projectPoints(&pt,1, projMatrix);
+	printf("Reverse to Global coord: %f,%f,%f\n",pt.x,pt.y,pt.z);
+
+	exit(0);
+#endif
+
+#if 0 ///////////////  E3D_computeBarycentricCoord  ///////////////////////////
+	//bool E3D_computeBarycentricCoord(const E3D_Vector vt[3], const E3D_Vector &pt, float bc[3])
+	float bc[3]={0};
+
+	E3D_Vector vt[3];
+	vt[0].x=6; vt[0].y=12; vt[0].z=0;
+	vt[1].x=6; vt[1].y=3; vt[1].z=0;
+	vt[2].x=3; vt[2].y=9; vt[2].z=0;
+
+	E3D_Vector pt(5,8,0);
+	E3D_computeBarycentricCoord(vt, pt, bc);
+	printf("Barycenter: %f,%f,%f \n", bc[0],bc[1],bc[2]);
+
+/* ON the vertices */
+	E3D_Vector pt2(6,12,0);
+	E3D_computeBarycentricCoord(vt, pt2, bc);
+	printf("Barycenter: %f,%f,%f \n", bc[0],bc[1],bc[2]);
+
+	E3D_Vector pt3(6,3,0);
+	E3D_computeBarycentricCoord(vt, pt3, bc);
+	printf("Barycenter: %f,%f,%f \n", bc[0],bc[1],bc[2]);
+
+	E3D_Vector pt4(3,9,0);
+	E3D_computeBarycentricCoord(vt, pt4, bc);
+	printf("Barycenter: %f,%f,%f \n", bc[0],bc[1],bc[2]);
+
+/* On sieds */
+	E3D_Vector pt5(6,5,0);
+	E3D_computeBarycentricCoord(vt, pt5, bc);
+	printf("Barycenter: %f,%f,%f \n", bc[0],bc[1],bc[2]);
+
+	E3D_Vector pt6(4.5,6,0);
+	E3D_computeBarycentricCoord(vt, pt6, bc);
+	printf("Barycenter: %f,%f,%f \n", bc[0],bc[1],bc[2]);
+
+	E3D_Vector pt7(4.5,10.5,0);
+	E3D_computeBarycentricCoord(vt, pt7, bc);
+	printf("Barycenter: %f,%f,%f \n", bc[0],bc[1],bc[2]);
+
+#endif
+
 #if 1 ///////////////  E3D_Radial / E3D_Plane  ///////////////////////////
 	E3D_Vector  vp0(5,6,7);
 	E3D_Vector  vd(3,4,5);
@@ -79,26 +135,36 @@ int main(void)
    //E3D_Vector E3D_RadialIntsectPlane(const E3D_Radial &rad, const E3D_Plane &plane)
 	bool forward;
 
-     #if 0
+	E3D_Vector Vinsct;
+
+     #if 1
 	E3D_Radial Rd4(0,0,0, 1,1,1);
-	E3D_Vector  pv1(10,0,0),pv2(0,10,10),pv3(0,0,10);
+	E3D_Vector pv1(10,0,0),pv2(0,10,0),pv3(0,0,10);
 	E3D_Plane plane4(pv1,pv2,pv3);
 
-	E3D_Vector Vinsct=E3D_RadialIntsectPlane(Rd4, plane4, forward);
-	printf("Intersection point at %s: \n", forward?"forward":"backward");
-	Vinsct.print();
+	if(E3D_RadialIntersectPlane(Rd4, plane4, Vinsct, forward)) {
+		printf("Rd4/plane4 intersection point at %s: \n", forward?"forward":"backward");
+		Vinsct.print(NULL);
+	}
+	else
+		printf("Rd4 is parallel to plane4!\n");
+
      #endif
 
      #if 1
-	E3D_Radial Rd5(0,0,0, 10,30,0);
-	E3D_Vector pv1(0,40,0),pv2(40,0,0),pv3(40,0,10);
-	E3D_Plane plane5(pv1,pv2,pv3);
+	//E3D_Radial Rd5(0,0,0, 10,30,0);
+	E3D_Radial Rd5(0,0,0, 0,0,10);
+	E3D_Vector pva(0,40,0),pvb(40,0,0),pvc(40,0,10);
+	E3D_Plane plane5(pva,pvb,pvc);
 
-	E3D_Vector Vinsct=E3D_RadialIntsectPlane(Rd5, plane5, forward);
-	printf("Intersection point at %s: \n", forward?"forward":"backward");
-	Vinsct.print();
+	if(E3D_RadialIntersectPlane(Rd5, plane5, Vinsct, forward)) {
+		printf("Rd5/plane5 intersection point at %s: \n", forward?"forward":"backward");
+		Vinsct.print(NULL);
+	}
+	else
+		printf("Rd5 is parallel to plane5!\n");
+
      #endif
-
 
 
 	exit(0);
