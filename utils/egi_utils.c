@@ -46,6 +46,8 @@ Journal
 	   audio type AAC.
 2022-07-28:
 	1. Add egi_append_file()
+2022-09-20:
+	1. Add egi_create_array2D(), egi_free_array2D()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -132,6 +134,62 @@ inline void egi_free_charList(char ***p, int n)
 		*p=NULL;
 	}
 }
+
+
+/*---------------------------------------
+Create a 2D array.
+@items: Number of items in the array
+@subitmes: Number of subitmes in an item.
+@datasize: datasize for each entry.
+---------------------------------------*/
+void** egi_create_array2D(int items, int subitems, int datasize)
+{
+	void **p=NULL;
+	int i,j;
+
+	if(items<1 || subitems<1 || datasize <1)
+		return NULL;
+
+egi_dpstd("p=calloc()...\n");
+	//p=calloc(items, sizeof(void *));
+	p=calloc(items, sizeof(void *));
+	if(p==NULL)
+		return NULL;
+
+egi_dpstd("p[i]=calloc()...\n");
+	for(i=0; i<items; i++) {
+		p[i]=calloc(subitems, datasize);
+		if(p[i]==NULL) {
+			for(j=0; j<i; j++)
+				free(p[j]);
+			free(p);
+			return NULL;
+		}
+	}
+
+	return p;
+}
+
+
+/*---------------------------------------
+Free a 2D array.
+@p: Pointer to PPointer.
+@n: Size of the array
+----------------------------------------*/
+void egi_free_array2D(void ***p, int n)
+{
+	int i;
+	if( p!=NULL && *p!=NULL ) {
+		/* Free array items */
+		for(i=0; i<n; i++) {
+			free((*p)[i]);
+		}
+		/* Free array pointers */
+		free(*p);
+		*p=NULL;
+	}
+}
+
 
 /*------------------------------------
 Check the Endianness of the host.

@@ -9,6 +9,7 @@ Test E3D TriMesh
 ISOmetric TEST:
 teapot.obj -r -s 1.75 -X -5
 teapot.obj -r -s 1.3 -X 15 -w -b
+
 fish.obj -s 45
 deer.obj -s .2 -X -30 -x 20 -y -10
 deer.obj -s .15 -c -b -X -15 -y 20
@@ -31,6 +32,7 @@ cats.obj -z 500 -c -X -40 -y 20 -a 11 -b
 
 cube.obj -c -s 1.75 -X 160 -P -T cubetexture3.png -a 5 -D
 teapot.obj -c -s 1.5 -X 195 -r		!!! --- Gouraud test --- !!!
+teapot.obj -r -s 3.25 -X -160 -a 25 -P  // Lighting Computation Demo
 jaguar.obj -c -s 5 -X -170 -T texture_jaguar.png -P -a 10
 head_man04.obj -c -s 18 -X 180 -P -y 30       !!! --- Gouraud test --- !!!
 dog.obj -c -s 400 -X -175 -T texdog.png -a 5 -P -b
@@ -72,13 +74,14 @@ ctrees.obj -c -s 0.04 -X 185 -a 10 -P
 	-c -s 0.03 -y -30 -Z 90 -X -10 -P   --- Portrait ---
 
 deer.obj -s 1 -y -100 -z 3500 -c -b -X -20
-myPack.obj -s 1.5 -z 1000 -X -30 -y 100 -b
+sportsmen.obj -c -s 2.0 -X -170 -y 0 -P -t -a 25
 myPack.obj -s 1.5 -c -z 750 -X -30 -b -y -25  	!!! --- Check frustum clipping --- !!!
 bird.obj -s 80 -z 800 -b -w -X -20    		!!! --- Check frustum clipping --- !!!
 bird.obj -c -s 80 -b -X -25  Auto_z
 sail.obj -z 40 -c -X -60 -R -b -y 2   !!! --- Mesh between Foucs and View_plane --- !!!
 sail.obj -c -s 25 -X 165 -z -250 -a 25 -P -D
 lion.obj -s 0.025 -c -X -30
+lion.obj -c -s 0.06 -P -X -170 -t -a -3
 jet.obj -c -s 1.5 -X 160
 plane.obj -c -s .3 -X 200
 plane.obj -c -s 1 -Y 90 -X 185 -P
@@ -112,13 +115,24 @@ thinker.obj -c -s 2 -P -W -X -165 -z 200 -t -a -5 -G -M thinkerShadow.mot  // Ro
 widora.obj -c -s 7 -A 2 -X -70 -P -W -t -M widora.mot
 widoraX.obj -c -s 8 -X -160 -P -W -G -M widoraX.mot
 
-	---- Ray Trace ----
+	---- Signle Ray Trace Demo ----
 rta20.obj -c -s 2 -X 25 -P -a 10
 thinker.obj -c -s 2 -P -X -160 -t -a -4 -M thinkerRay.mot
 
 	---- Ray backtracing shadow ----
 thinker.obj -c -s 2 -P -X -160 -t -M  rayshadow.mot
 
+volumes.obj -c -s 30 -A 2 -X 110 -y -30 -P -a 5 -C -t   ( Perspective view )
+volumes.obj -c -s 15 -A 2 -X 110 -C -t     ( ISO view)
+volumes.obj -c -s 35 -A 2 -X 110 -y -30 -P -a -3 -t -C -M building.mot
+
+volumes2.obj -c -s 15 -A 2 -X 120 -y -30 -t -M volumes2.mot ( ISO view)
+volumes3.obj -c -s 20 -P -A 2 -Z 0 -X 120 -y -50 -a 30 -t  (Perspective )
+volumes3.obj -c -s 10 -A 2 -Z 0 -X 110 -y -20 -a 30 -t  (ISO View)
+
+	---- Focal length stepping/varing OR zooming ----
+volumes.obj -c -s 60 -A 2 -X 95 -Z -30 -y -200 -m -P -F (-C) -t -a -3 -l -M zoomSD.mot
+volumes.obj -c -s 60 -A 2 -X 95 -Z -90 -y -250 -m -P -F (-C) -t -a -3 -l -M zoomSD.mot (with boxman)
 
 	----- Test FLOAT_EPSILON -----
 Render mesh ... angle=0
@@ -266,6 +280,8 @@ Journal:
 	gv_vLight rotating.
 2022-08-25/26:
 	1. Test rayHitFace().
+2022-09-14:
+	1. TEST: Add boxman into volumes.obj
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -284,11 +300,13 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 
 #include "e3d_vector.h"
 #include "e3d_trimesh.h"
-
+#include "e3d_volumes.h"
 using namespace std;
+
 
 #define MOTION_FILE  "/mmc/mesh.motion"
 
+#define TEST_MOREOBJ	   0
 #define TEST_MTXT_TEXTURE  0
 #define TEST_VLIGHTING	   0
 
@@ -297,11 +315,12 @@ const UFT8_PCHAR ustr=(UFT8_PCHAR)"Hello_World! 世界你好!\n12345 子丑寅�
 
 void print_help(const char *name)
 {
-	printf("Usage: %s obj_file [-hrbBDGmNRSPVLWwbtclf:s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
+	printf("Usage: %s obj_file [-hrbBDGmNRSPVLWCwbtclFf:s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
 	printf("-h     Help\n");
 	printf("-r     Reverse trianlge normals\n");
 	printf("-B     Display back faces with default color, OR texture for back faces also.\n");
 	printf("-D     Show mesh detail statistics and other info.\n");
+	printf("-F     To adjust focal length step by step.\n");
 	printf("-G     Show grid.\n");
 	printf("-m     Force texture mapping.\n");
 	printf("-N     Show coordinate navigating sphere/frame.\n");
@@ -311,6 +330,8 @@ void print_help(const char *name)
 	printf("-V     Auto compute all vtxNormals if no provided in data, for gouraud shading.\n");
 	printf("-L     Adjust lighting direction.\n");
 	printf("-W     Shadow on grid plane.\n");
+
+	printf("-C     Test backward ray tracing to create self_shadowing.\n");
 	printf("-w     Wireframe ON\n");
 	printf("-b     AABB ON\n");
 	printf("-c    Move local COORD origin to center of mesh, 0-VtxCenter 1-AABB Center.\n");
@@ -342,13 +363,15 @@ int main(int argc, char **argv)
         int             vertexCount=0;
         int             triangleCount=0;
 
+	E3D_TriMesh *TriMeshList[2]={NULL,NULL};
+
 	/* 24bit color ref
 	 0xD0BC4B--Golden
 	 0xB8DCF0--Milk white
 	 0xF0CCA8--Bronze
 	*/
 
-	EGI_16BIT_COLOR	  bkgColor=WEGI_COLOR_GRAY3;//GREEN; //GRAY5; // DARKPURPLE
+	EGI_16BIT_COLOR	  bkgScreenColor=WEGI_COLOR_GRAYB;//GRAY3;//GREEN; //GRAY5; // DARKPURPLE
 	EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(0xF0CCA8);//WEGI_COLOR_PINK;
 	EGI_16BIT_COLOR	  wireColor=WEGI_COLOR_BLACK; //DARKGRAY;
 	EGI_16BIT_COLOR	  aabbColor=WEGI_COLOR_LTBLUE;
@@ -398,14 +421,18 @@ int main(int argc, char **argv)
 	bool		loopRender_on=false;    /* loop rendering */
 	bool		force_textureMap=false; /* Force texturemaping, if ONLY one(or more) face group has texture file. */
 	bool		shadow_on=false;	/* Shadown on grid plane */
+	bool            rayTrace_on=false;  	/* Test backward ray tracing to vLight, ONLY to create self_shadowing. */
+	bool		focalenVarying_on=false;  /* To adjust focal length projMatrix.dv step by step, and demo the effect. */
 
 	/* Projectionn matrix */
-	float		dview;		/* Distance from the Focus(usually originZ) to the Screen/ViewPlane */
-	float		dvv;		/* varying of dview */
+	float		dobj;   /* Object MAX size */
+	float		dview;	/* OBSOLETE, to use dobj instead  XXX Distance from the Focus(usually originZ) to the Screen/ViewPlane */
+	float		dvv;	/* varying of projMatrix.dv */
 	float		dstep;
+	/* Note: ALWAYS take dnear==dv, and they are to be adjusted later. see 6. */
 	E3D_ProjMatrix projMatrix={ .type=E3D_ISOMETRIC_VIEW, .dv=500, .dnear=500, .dfar=10000000, .winW=320, .winH=240};
 
-	/* Plane for shadow */
+	/* Plane for shadow projection. */
 	E3D_Plane shadowPlane(0.0,1.0,0.0, 0.0); /* On y=0.0 plane */
 
 #if 0
@@ -423,7 +450,7 @@ int main(int argc, char **argv)
 
         /* Parse input option */
 	int opt;
-        while( (opt=getopt(argc,argv,"hrbBDGmNRSPVLWwbtclf:s:x:y:z:A:M:X:Y:Z:T:a:p:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hrbBDGmNRSPVLWCwbtclFf:s:x:y:z:A:M:X:Y:Z:T:a:p:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
 				print_help(argv[0]);
@@ -436,6 +463,9 @@ int main(int argc, char **argv)
 				break;
 			case 'D':
 				showInfo_on=true;
+				break;
+			case 'F':
+				focalenVarying_on=true;
 				break;
 			case 'G':
 				showGrid_on=true;
@@ -466,6 +496,9 @@ int main(int argc, char **argv)
 				break;
 			case 'W':
 				shadow_on=true;
+				break;
+			case 'C':
+				rayTrace_on=true;
 				break;
 			case 'b':
 				AABB_on=true;
@@ -595,9 +628,10 @@ int main(int argc, char **argv)
 	float vang=45.0; /*  R=1.414, angle for vector(x,y) of vLight  */
 	float dvang=5; //2.5;  /* Delta angle for vangle */
 if( adjustLight_on ) {  /* For Portrait.. */
-	E3D_Vector vLight(1, -1, 1); //2); //4);
-	vLight.normalize();
-	gv_vLight=vLight;
+	gv_vLight.assign(1, -1, 1); //2); //4);
+	gv_vLight.normalize();
+        gv_auxLight.assign(0,0,0.5);
+	//gv_auxLight.normalize();
 }
 else {	/* For Landscape */
 	if(shadow_on) {
@@ -605,12 +639,12 @@ else {	/* For Landscape */
 	   gv_vLight.assign(-1, 0.5, 1);
 	   //gv_vLight.assign(-1, 1, 0);
 	   gv_vLight.normalize();
-	   gv_auxLight.assign(1,1,1);
-	   gv_auxLight.normalize();
+	   gv_auxLight.assign(0,0,1); //(1,1,1);
+	   //gv_auxLight.normalize();
 	}
 	else {
-	   gv_vLight.assign(1, 1.5, 0);
-	   //gv_vLight.assign(0,0,1);
+	   // gv_vLight.assign(-1, 1.5, 0); // (1, 1.5, 0);
+	   gv_vLight.assign(1,1,1);
 	   gv_vLight.normalize();
 	   //gv_auxLight.assign(-1, -1, 1);
 	   //gv_auxLight.assign(-1,-1,0);
@@ -624,9 +658,23 @@ else {	/* For Landscape */
 	//gv_vLight=vLight;
 }
 
+
+#if 0
 	/* 1. Read obj file to meshModel */
 	cout<< "Read obj file '"<< fobj <<"' into E3D_TriMesh... \n";
 	E3D_TriMesh	meshModel(fobj);
+
+#else /* TEST: Primitive volumes */
+	cout<<"Create primitive volumes...\n";
+//	E3D_RtaSphere   meshModel(4, 100); /* xxx -c -s 2.0 -X 30 -P */
+	E3D_Cuboid   meshModel(100,200,300); /* xxx -c -s 1.25 -X 30 -P -a 10 */
+
+#endif
+
+#if TEST_MOREOBJ
+	E3D_TriMesh	boxman("/tmp/boxman.obj");
+	E3D_TriMesh	sportsmen("/tmp/sportsmen.obj");
+#endif
 	if(meshModel.vtxCount()==0)
 		exit(-1);
   	/* Read textureFile into meshModel. */
@@ -744,7 +792,7 @@ else {	/* For Landscape */
 
   #if 1   /* 4. Draw mesh wireframe. */
 	cout<< "Draw wireframe..."<<endl;
-        fb_clear_workBuff(&gv_fb_dev, bkgColor); //DARKPURPLE);
+        fb_clear_workBuff(&gv_fb_dev, bkgScreenColor); //DARKPURPLE);
   gv_fb_dev.zbuff_on=false;
 	fbset_color2(&gv_fb_dev, WEGI_COLOR_PINK);
 	meshModel.drawMeshWire(&gv_fb_dev, projMatrix);
@@ -766,11 +814,18 @@ else {	/* For Landscape */
 	//meshModel.printAABB("Scaled meshModel");
 
 	/* 6. Calculate dview, as distance from the Focus to the Screen */
-	dview=meshModel.AABBdSize();  /* Taken dview == objSize */
-	dvv=dview; //dview/5;	       /* To change dvv by dstep later... */
-	dstep=0; //dview/40;
-	projMatrix.dv=dview;
-	cout << "dview=" <<dview<<endl;
+	dobj=meshModel.AABBdSize();
+	dview=dobj;
+	if(focalenVarying_on) {
+		dvv=2.75*dobj;       /* To change dvv by dstep later, and assign to projMatrix.dv */
+		dstep=-0.05; //Percentage //dview/40;
+	}
+	else {
+		dvv=1.0*dobj;
+		dstep=0.0f;
+	}
+	projMatrix.dv=dvv; projMatrix.dnear=dvv;  /* ALWAYS takes dv==dnear */
+	cout << "dobj=" <<dobj<<endl;
 	sleep(1);
 
 /* TEST: -------- Get Ty for grid plane translation */
@@ -835,6 +890,11 @@ else {	/* For Landscape */
 
 			/* (((-----  Loop move and render workMesh  -----))) */
   while(1) {
+	/* W0. Update Projectoin Matrix */
+
+	projMatrix.dv = dvv; /* Update/Adjust dvv at last. */
+	projMatrix.dnear = dvv; /* ALWAYS taken dv==dnear */
+	printf(DBG_BLUE"[[[  dvv=%f, dv=%d, dnear=%d, dobj=%f  ]]]\n"DBG_RESET, dvv, projMatrix.dv, projMatrix.dnear, dobj);
 
 	/* W1. Clone meshModel to workMesh, with: vertices/triangles/normals/vtxcenter/AABB/textureImg/
 	 *     /defMateril/mtlList[]/triGroupList[].....
@@ -858,12 +918,17 @@ else {	/* For Landscape */
                         workMesh->mtlList[i].print();
 #endif
 
-
         /* Turn backFace on */
 	if(backFace_on) {
  		workMesh->backFaceOn=true;
 		workMesh->bkFaceColor=WEGI_COLOR_RED;
 	}
+
+	/* Turn on testRayTracing */
+	if(rayTrace_on) {
+		workMesh->testRayTracing=true;
+	}
+
 
 //	workMesh->shadeType=E3D_GOURAUD_SHADING;
 
@@ -907,12 +972,60 @@ else {	/* For Landscape */
 	//VRTmat=VRTmat*AdjustMat;
 
 	/* W2.2: Set translation ONLY.  Note: View from -Z ---> +Z */
-	VRTmat.setTranslation(offx, offy, offz +dview*2); /* take Focus to obj center=2*dview */
+	VRTmat.setTranslation(offx, offy, offz +(dvv+dobj)); /* take Focus to obj center */
 
 	/* W3. Transform workMesh */
 	cout << "Transform workMesh...\n";
 	//workMesh->transformMesh(RTYmat*RTXmat, ScaleMat); /* Here, scale ==1 */
 	workMesh->transformMesh(VRTmat, ScaleMat); /* Here, scale ==1 */
+
+#if TEST_MOREOBJ	//////////////////  Add more objs into the scene /////////////////
+	float bxang[3];
+   #if 1 /* TEST: For add boxman into voluems.obj */
+	boxman.shadeType=E3D_FLAT_SHADING; //E3D_TEXTURE_MAPPING;
+	ScaleMat.identity();
+	ScaleMat.setScaleXYZ(scale/30, scale/30, scale/30);  //workMesh scale=30, it=5;
+	boxman.objmat.identity();
+	//boxman.objmat.setRotation(axisX, MATH_PI*90/180); /* Object coord */
+	bxang[0]=-MATH_PI*90/180; bxang[1]=MATH_PI*90/180;
+	E3D_combExtriRotation("YX", bxang, boxman.objmat);
+	boxman.objmat.addTranslation(5.0*scale, -4.0*scale, -6*scale); //24*scale);  //workMesh scale=30, dy=
+	boxman.objmat=ScaleMat*boxman.objmat*VRTmat;  /* Sequence! */
+	ScaleMat.identity();
+   #endif
+
+   #if 1 /* TEST: For add sportsmen into voluems.obj */
+	sportsmen.shadeType=E3D_FLAT_SHADING; //E3D_TEXTURE_MAPPING;
+	ScaleMat.identity();
+	ScaleMat.setScaleXYZ(scale/100, scale/100, scale/100);  //workMesh scale=30, it=5;
+	sportsmen.objmat.identity();
+	bxang[0]=MATH_PI*90/180; bxang[1]=0.0; //MATH_PI*90/180;
+	E3D_combExtriRotation("X", bxang, sportsmen.objmat);
+	sportsmen.objmat.addTranslation(-0.0*scale, 8.0*scale, -6.0*scale); //24*scale);  //workMesh scale=30, dy=
+	sportsmen.objmat=ScaleMat*sportsmen.objmat*VRTmat;  /* Sequence! */
+	ScaleMat.identity();
+  #endif
+
+#endif
+
+
+/* --------- TEST: AFTER transformMesh, we must adjust triGroupList[].omat accordingly.
+	TODO: To apply above in transformMesh, AND to store VRTmat in TriMesh
+*/
+if(1) {
+	int n;
+	E3D_RTMatrix omat;
+	E3D_RTMatrix TVRTmat=VRTmat;
+	TVRTmat.transpose(); /* Inverse */
+	for(n=0; n < workMesh->triGroupList.size(); n++) {  /* Traverse all Trigroups */
+		omat = TVRTmat*workMesh->triGroupList[n].omat*VRTmat;
+		/* MUST ignore translation */
+		for(unsigned int k=0; k<9; k++)
+			workMesh->triGroupList[n].omat.pmat[k]=omat.pmat[k];
+	}
+}
+/* --- END TEST --- */
+
 
 	/* W3a. Update shadow Plane */
 	if(shadow_on) {
@@ -1027,9 +1140,6 @@ else {	/* For Landscape */
 
    } /* END shadow_on */
 
-	/* W4. Update Projectoin Matrix */
-	dvv += dstep;
-	projMatrix.dv = dvv;
 
 	/* W5. Set directFB to display drawing of each pixel. */
 /* ---------->>> Set as NON_driectFB */
@@ -1038,7 +1148,7 @@ else {	/* For Landscape */
 	}
 
 	/* Clear FB work_buffer */
-        fb_clear_workBuff(&gv_fb_dev, bkgColor);
+        fb_clear_workBuff(&gv_fb_dev, bkgScreenColor);
 	fb_init_zbuff(&gv_fb_dev, INT_MIN);
 	gv_fb_dev.zbuff_on=true;
 
@@ -1050,14 +1160,9 @@ else {	/* For Landscape */
 
 #if 1	/* TEST: W7. Render as wire frames, on current FB image (before FB is cleared). */
 	if(wireframe_on) { // && workMesh->shadeType!=E3D_TEXTURE_MAPPING) {
-		cout << "Draw meshwire ...\n";
-		#if 0
+		cout << "Set as E3D_WIRE_FRAMING ...\n";
 		fbset_color2(&gv_fb_dev, wireColor); //WEGI_COLOR_DARKGRAY);
-		workMesh->drawMeshWire(&gv_fb_dev, projMatrix);
-		#else
 		workMesh->shadeType=E3D_WIRE_FRAMING;
-	        workMesh->renderMesh(&gv_fb_dev, projMatrix);
-		#endif
 	}
 #endif
 
@@ -1077,8 +1182,13 @@ else {	/* For Landscape */
 #endif
 	/* Render mesh */
         cout << "Render mesh ... angle=" << angle <<endl;
-        workMesh->renderMesh(&gv_fb_dev, projMatrix);
+workMesh->shadeType=E3D_FLAT_SHADING;
+       	workMesh->renderMesh(&gv_fb_dev, projMatrix);
 
+#if TEST_MOREOBJ  ///////// More objs ///////////
+	boxman.renderMesh(&gv_fb_dev,projMatrix);
+	sportsmen.renderMesh(&gv_fb_dev, projMatrix);
+#endif
 	/* W6a. Render shadow */
 	if(shadow_on) {
 		cout << "Create shadow ..." << endl;
@@ -1094,9 +1204,11 @@ else {	/* For Landscape */
 #if 0	/* W7. Render as wire frames, on current FB image (before FB is cleared). */
 	//if(wireframe_on && workMesh->shadeType!=E3D_TEXTURE_MAPPING)
 	{
+		//gv_fb_dev.zbuff_on=false;
 		fbset_color2(&gv_fb_dev, wireColor); //WEGI_COLOR_DARKGRAY);
 		cout << "Draw meshwire ...\n";
 		workMesh->drawMeshWire(&gv_fb_dev, projMatrix);
+		//gv_fb_dev.zbuff_on=true;
 	}
 #endif
 
@@ -1110,7 +1222,7 @@ else {	/* For Landscape */
 	}
 
 
-#if 0 /* TEST:  Ray to mesh surface,  rta20.obj -c -s 2 -X 25 -P -a 10 ------------ */
+#if 0 /* TEST:  Single Ray Trace Demo, ray hit and bounce.  rta20.obj -c -s 2 -X 25 -P -a 10 ------------ */
 	int gindex, tindex;
 	E3D_RTMatrix RTMatNone;
 	E3D_Vector rayStart; /* Ray source */
@@ -1271,8 +1383,8 @@ else {	/* For Landscape */
 	   sprintf(strtmp,"Vertex: %d\nTriangle: %d\n%s\ndvv=%d%%",
 			vertexCount, triangleCount,
 			projMatrix.type?(UFT8_PCHAR)"Perspective":(UFT8_PCHAR)"Isometric",
-			(int)roundf(dvv*100.0f/dview) );
-			//dvv*100.0f/dview); /* !!! (int) or fail to d% */
+			(int)roundf(dvv*100.0f/dobj) );
+			//dvv*100.0f/dobj); /* !!! (int) or fail to d% */
            FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.regular, /* FBdev, fontface */
                                         16, 16,                           /* fw,fh */
                                         (UFT8_PCHAR)strtmp, 		  /* pstr */
@@ -1461,9 +1573,14 @@ else {	/* For Landscape */
 #endif
 
 	/* W14. Update dvv: Distance from the Focus to the Screen/ViewPlane */
-	dvv += dstep;
-	if( dvv > 1.9*dview || dvv < 0.1*dview )
-		dstep=-dstep;
+	if(focalenVarying_on) {
+		dvv += dvv*dstep; /* Keep percentage increment */
+		//if( dvv > 1.9*dobj || dvv < 0.1*dobj )
+		if( dvv < 0.1*dobj )
+			dstep=-dstep;
+		else if( dvv > 2.75*dobj)
+			exit(0);
+	}
 
 	/* W15. Adjust global light vector */
 #if TEST_VLIGHTING

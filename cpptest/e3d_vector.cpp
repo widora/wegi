@@ -67,6 +67,8 @@ Journal:
 2022-08-28:
 	1. Add E3D_Vector::module()
 	2. Add E3D_vector_angleAB()
+2022-09-11:
+	1. Add E3D_Vector::addTranslation( float dx, float dy, float dz )
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -312,7 +314,15 @@ void  E3D_Vector::vectorRGB(EGI_16BIT_COLOR color)
 ------------------------------------------*/
 EGI_16BIT_COLOR  E3D_Vector::color16Bits() const
 {
-	return COLOR_RGB_TO16BITS( (int)roundf(x*255), (int)roundf(y*255), (int)roundf(z*255) );
+	int R,G,B;
+	R=roundf(x*255);
+	if(R>255)R=255;
+	G=roundf(y*255);
+	if(G>255)G=255;
+	B=roundf(z*255);
+	if(B>255)B=255;
+
+	return COLOR_RGB_TO16BITS(R,G,B);
 }
 
 /*----------------
@@ -414,6 +424,7 @@ Suppose that reflection ray and incident ray are
 symmetrical with fn.
 
 @vi:  Vector of incoming/incident ray.
+      NOT necessary to be a unit vector.
 @fn:  Surface normal.
       NOT necessary to be a unit vector.
 
@@ -425,7 +436,6 @@ E3D_Vector E3D_vector_reflect(const E3D_Vector &vi, const E3D_Vector &fn)
 	/* Vr = Vi - 2n(Vi*n)/(n*n) */
 	return vi-(2*fn)*(vi*fn)/(fn*fn);
 }
-
 
 
 /*** NON_Class Functions ---------------------------------------------
@@ -917,9 +927,17 @@ void E3D_RTMatrix::setScaleXYZ( float sx, float sy, float sz)
 /*--------------------------------------------
    Set part of Translation TxTyTz in pmat[]
 --------------------------------------------*/
-void E3D_RTMatrix::setTranslation( float dx, float dy, float dz )
+void E3D_RTMatrix::setTranslation( float x, float y, float z )
 {
-	pmat[9]=dx;    pmat[10]=dy;   pmat[11]=dz;    /* tx/ty/tz */
+	pmat[9]=x;    pmat[10]=y;   pmat[11]=z;    /* tx/ty/tz */
+}
+
+/*--------------------------------------------
+   Add part of Translation TxTyTz in pmat[]
+--------------------------------------------*/
+void E3D_RTMatrix::addTranslation( float dx, float dy, float dz )
+{
+	pmat[9]+=dx;    pmat[10]+=dy;   pmat[11]+=dz;    /* tx/ty/tz */
 }
 
 
@@ -1231,9 +1249,9 @@ void E3D_combIntriRotation(char axisTok, float ang, E3D_RTMatrix & RTmat)
 	}
 }
 
-/*-------------------------------------------------------
-To combine intrinsic rotation with original RTmat, then
-update RTMat to make objects under Global Coord.
+/*-----------------------------------------------------------
+To combine intrinsic rotation with original RTmat, then update
+RTMat to make objects under Global Coord.
 
 Translation of RTmat keeps UNCHANGED!
 
@@ -1250,7 +1268,7 @@ Note:
 		current local Coord.
 @RTMatrix:	Original RTMatrix, to be combined with
 		other RTmatrix.
----------------------------------------------------------*/
+------------------------------------------------------------*/
 void E3D_combIntriRotation(char axisTok, float ang,  E3D_RTMatrix CoordMat, E3D_RTMatrix & RTmat)
 {
 	/* imat:  translation is ignored! */
@@ -1326,11 +1344,14 @@ Global COORD! ( axisToks and ang[] is under LOCAL COORD!)
 Translation of input RTmat keeps UNCHANGED!
 
 Note:
-1.  For vertices which will apply the result RTmat:
+1.  One purpose of this function is to adjust triGroupList[].omat
+    AFTER whole trimesh is transformed with CoordMat, so it
+    can be applied E3D_TriMesh::renderMesh().
+2.  For vertices which will apply the result RTmat:
     1.1 All vertex coordinates MUST be under GLOBAL Coord!
-2.  Intrinsic rotation are taken under LOCAL COORD, which can be restored by TcoordMat.
-3.  Even if input axisToks==NULL, CoordMat will apply to RTmat also.
-4.  Motice that axisToks are applied/mutiplied with Pxyz in reverse order!
+3.  Intrinsic rotation are taken under LOCAL COORD, which can be restored by TcoordMat.
+4.  Even if input axisToks==NULL, CoordMat will apply to RTmat also.
+5.  Notice that axisToks are applied/mutiplied with Pxyz in reverse order!
 
 	--- Translation is Ignored! ----
 
@@ -1342,7 +1363,7 @@ Note:
 		    Notice that 'reversed' matrix multiplation applys.
 		2. The function reverse axisToks[] to RxyzToks[].
 
-@ang[3]: 	Rotation angles cooresponding to axisToks.
+@ang[3]: 	In radian, Rotation angles corresponding to axisToks.
 @CoordMat:	Current object RTMatrix, OR object COORD RTMatrix under Global COORD.
 		Suppose initial Object COORD aligns with the Global coord.
 		This CoordMat transforms the object( and its COORD) to current position.
@@ -1460,6 +1481,7 @@ void E3D_combGlobalIntriRotation(const char *axisToks, float ang[3],  E3D_RTMatr
 
 /*----------------------------------------------------------------------------------
 Parse axisToks and left-mutilply imats to RTmat.
+For intrinsic rotation, each ref COORD is rotating also.
 
 @axisToks: 	Intrinsic rotation sequence Tokens(rotating axis), including:
 		'X'('x') 'Y'('y') 'Z'('z')
@@ -1469,7 +1491,7 @@ Parse axisToks and left-mutilply imats to RTmat.
 		    Notice that 'reversed' matrix multiplation applys.
 		2. The function reverse axisToks[] to RxyzToks[].
 
-@ang[3]: 	Rotation angles cooresponding to axisToks.
+@ang[3]: 	In radians, Rotation angles cooresponding to axisToks.
 @RTmat:		Original RTMatrix. to be combined with.
 -----------------------------------------------------------------------------------*/
 void E3D_combIntriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix & RTmat)
@@ -1578,13 +1600,14 @@ void E3D_combIntriTranslation(float tx, float ty, float tz,  E3D_RTMatrix & RTma
 
 /*----------------------------------------------------------------------------------
 Parse axisToks and right-mutilply imats to RTmat.
+For extrinsic rotation, each ref. COORD is the same.
 
 @axisToks: 	Extrinsic rotation sequence Tokens(rotating axis), including:
 		'X'('x') 'Y'('y') 'Z'('z')
 		Example: "ZYX", "XYZ", "XYX",.. with rotation sequence as 'Z->Y->X','X->Y-Z','X->Y->X',...
 		1. "ZYX" extrinsic rotation sequence: RotZ -> RotY -> RotX, matrix multiplation: Mz*My*Mx
 
-@ang[3]: 	Rotation angles cooresponding to axisToks.
+@ang[3]: 	In radians, Rotation angles cooresponding to axisToks.
 @RTmat:		Original RTMatrix. to be combined with.
 -----------------------------------------------------------------------------------*/
 void E3D_combExtriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix & RTmat)

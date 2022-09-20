@@ -60,6 +60,7 @@ EGILIB=dynamic
 
 E3D_OBJS = e3d_vector.o
 E3D_OBJS += e3d_trimesh.o
+E3D_OBJS += e3d_volumes.o
 
 test_cpp:  $(TEST_NAME).cpp $(E3D_OBJS)
 ifeq ($(EGILIB),static)
@@ -89,6 +90,16 @@ ifeq ($(EGILIB),static)
 else
 	$(CPP) -o e3d_trimesh.o  e3d_trimesh.cpp $(CPPFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
 endif
+
+###  E3D_Volumes  ###
+e3d_volumes.o:	e3d_volumes.h e3d_volumes.cpp
+ifeq ($(EGILIB),static)
+	$(CPP) -c -o e3d_volumes.o e3d_volumes.cpp $(CPPFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
+-Wl,-Bstatic -legi -lhelixaac -Wl,-Bdynamic
+else
+	$(CPP) -o e3d_volumes.o  e3d_volumes.cpp $(CPPFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
+endif
+
 
 
 all:	$(APPS)

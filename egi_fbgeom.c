@@ -3599,6 +3599,10 @@ void draw_filled_triangle2( FBDEV *fb_dev, float x0, float y0, float x1, float y
 
 /*----------------------------------------------------------------------
 Same as draw_filled_triangle4(),  Z values applys, BUT without colors!
+
+TODO:
+1. There may be a leaked/unfilled pixel between two adjacent triangles.
+   caused by roundf(xx.50000) OR a/b/r???
 ----------------------------------------------------------------------*/
 void draw_filled_triangle2( FBDEV *fb_dev,int x0, int y0, int x1, int y1, int x2, int y2,
 			    float z0, float z1, float z2 )
@@ -3917,8 +3921,8 @@ void draw_filled_triangle2( FBDEV *fb_dev,int x0, int y0, int x1, int y1, int x2
 	}
 
 	ymu=klr*(i-1)+points[nl].y; //ymu=yu; yu MAYBE replaced by yd!
-	//for( i=0; i<points[nr].x-points[nm].x; i++)
-	for( i=0; i< points[nr].x-points[nm].x+1; i++)
+	//for( i=0; i<points[nr].x-points[nm].x+1; i++)
+	for( i=1; i< points[nr].x-points[nm].x+1; i++)  /* HK2022-09-06 */
 	{
 		yu=roundf(klr*i+ymu);
 		yd=roundf(kmr*i+points[nm].y);
@@ -3972,6 +3976,11 @@ To break down a filled triangles into pixels.
 @capacity:	     Capacity of pXYZ to store integers.  autogrow
 @np:		     Total pixels in the triangle. Init as 0!
 		     if( np> capacity )
+
+TODO:
+1. There may be a leaked/unfilled pixel between two adjacent triangles.
+   caused by roundf(xx.50000) OR a/b/r???
+
 
 Return:
 	0	OK
@@ -4400,8 +4409,8 @@ int pixelate_filled_triangle2( int x0, int y0, int x1, int y1, int x2, int y2,
 	}
 
 	ymu=klr*(i-1)+points[nl].y; //ymu=yu; yu MAYBE replaced by yd!
-	//for( i=0; i<points[nr].x-points[nm].x; i++)
-	for( i=0; i< points[nr].x-points[nm].x+1; i++)
+	//for( i=0; i< points[nr].x-points[nm].x+1; i++)
+	for( i=1; i< points[nr].x-points[nm].x+1; i++) /* HK2022-09-06 */
 	{
 		yu=roundf(klr*i+ymu);
 		yd=roundf(kmr*i+points[nm].y);
@@ -4484,9 +4493,12 @@ Note:
   3. If the triangle degenrates into a line, then color of the midpoint
      will be ineffective.
 
-TODO: Check midpoint pixZ value, position(front/back), make it effective or not.
+TODO: 1. Check midpoint pixZ value, position(front/back), make it effective or not.
       If midpoint is effecive, then draw two segments( as two sides of a triangle
       is visible). In this case,  z0/z1/z2 should be provided also!
+
+2. There may be a leaked/unfilled pixel between two adjacent triangles.
+   caused by roundf(xx.50000) OR a/b/r???
 
 @dev,		Pointer to FBDEV.
 @x0-2,y0-2:	Coordinates of 3 points defining a triangle, INT Type.

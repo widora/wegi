@@ -18,6 +18,10 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include <stdint.h>
 #include <sys/mman.h>
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
 #define EGI_URL_MAX  1024 /* Max length for a URL address, 2048 is common for web browsers. */
 #define EGI_PATH_MAX 256 /* Max length for a file path, 4096 for PATH_MAX in <limit.h>  */
 #define EGI_NAME_MAX 128 /* Max length for a file name, 255 for NAME_MAX in <limit.h>, exclude '\0' */
@@ -82,8 +86,10 @@ EGI_ID3V2TAG *egi_id3v2tag_readfile(const char *fpath);
 bool 	egi_host_littleEndian(void);
 void 	egi_byteswap(int n, char *data);
 void 	egi_free_char(char **p);
-char** egi_create_charList(int items, int size);
+char**  egi_create_charList(int items, int size);
 void 	egi_free_charList(char ***p, int n);
+void** egi_create_array2D(int items, int subitems, int datasize);
+void    egi_free_array2D(void ***p, int n);
 int 	egi_mem_grow(void **ptr, size_t old_size, size_t more_size);
 unsigned long egi_get_fileSize(const char *fpath);
 int 	egi_search_str_in_file(const char *fpath, size_t off, const char *pstr);
@@ -134,5 +140,9 @@ int 	egi_bitstatus_checksum(void *data, size_t size);
 /* MISC */
 int egi_getset_backlightPwmDuty(int pwmnum, int *pget, int *pset, int adjust);
 int egi_extract_AV_from_ts(const char *fts, const char *faac, const char *fvd);
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

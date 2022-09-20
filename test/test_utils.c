@@ -27,8 +27,19 @@ int main(int argc, char **argv)
 
 	EGI_TXTGROUP *txtgroup=NULL;
 
+#if 1	//////////////  TEST: egi_create_array2D()  /////////////////
+	int **tt;
+	i=0;
+while(1) {
+	printf(" %d \n", ++i);
+	tt=(int **)egi_create_array2D(1000, 16, sizeof(int));
+	egi_free_array2D((void ***)&tt,1000);
 
-#if 1	//////////////  TEST: egi_getset_backlightPwmDuty()  /////////////////
+	usleep(100);
+}
+#endif
+
+#if 0	//////////////  TEST: egi_getset_backlightPwmDuty()  /////////////////
 	if(argc<2)
 		printf("Usage: %s  backlight(in percentage)\n", argv[0]);
 	int duty=atoi(argv[1]);

@@ -7,19 +7,22 @@ Test EGI_3D Class and Functions.
 
 Journal:
 2022-08-06:
-	1. Test Class E3D_Radial,E3D_Plane and relevant functions.
+	1. Test Class E3D_Ray,E3D_Plane and relevant functions.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------*/
 #include <iostream>
 #include <stdio.h>
-#include "e3d_vector.h"
-#include "e3d_trimesh.h"
+
 #include "egi_math.h"
 #include "egi_debug.h"
 #include "egi_fbdev.h"
 #include "egi_color.h"
+
+#include "e3d_vector.h"
+#include "e3d_trimesh.h"
+#include "e3d_volumes.h"
 
 using namespace std;
 
@@ -41,17 +44,57 @@ int main(void)
 {
 	cout << "Hello, this is C++!\n" << endl;
 
+#if 1 //////////////////  E3D_RtaSphere ///////////////////////////
+
+while(1) {
+//	E3D_RtaSphere sphereA() Error! parsed as function declaration!
+	E3D_RtaSphere sphereA;
+	E3D_RtaSphere sphereB(1.0); //(1,2.0);
+	E3D_RtaSphere sphereC(1,2.0);
+
+	sleep(1);
+}
+	exit(0);
+#endif
+
+
+#if 0 //////////////////  E3D_Scene ///////////////////////////
+	int k=0;
+
+while (0){
+	printf(DBG_MAGENTA" ----- Test TriMesh: %d ----\n"DBG_RESET, ++k);
+	//E3D_TriMesh trimesh("teapot.obj");
+	E3D_TriMesh trimesh("lion.obj");
+	sleep(1);
+}
+
+while (1){
+	printf(DBG_MAGENTA" ----- Test Scene: %d ----\n"DBG_RESET, ++k);
+	E3D_Scene sceneA;
+
+	sceneA.importObj("teapot.obj");
+	sceneA.importObj("lion.obj");
+	sceneA.importObj("volumes.obj");
+	sceneA.importObj("nonexist.obj");
+
+	printf("Scene TriMeshList.size = %d\n", sceneA.TriMeshList.size());
+	sleep(1);
+}
+
+	exit(0);
+#endif
+
 #if 0 //////////////////  reverse_projectPoints( ) ///////////////////////////
 	int ret;
 	E3D_ProjMatrix projMatrix={ .type=E3D_PERSPECTIVE_VIEW, .dv=500, .dnear=500, .dfar=10000000, .winW=320, .winH=240};
 	E3D_Vector pt(100.0, 100.0, 1000.0);
 
-	printf("Global coord: %f,%f,%f\n",pt.x,pt.y,pt.z);
+	printf("View(camera) coord: %f,%f,%f\n",pt.x,pt.y,pt.z);
 	ret=projectPoints(&pt, 1, projMatrix);
 	printf("projectPoints ret=%d\n",ret);//ret==1, pt out of frustum
 	printf("Project to Screen coord: %f,%f,%f\n",pt.x,pt.y,pt.z);
 	reverse_projectPoints(&pt,1, projMatrix);
-	printf("Reverse to Global coord: %f,%f,%f\n",pt.x,pt.y,pt.z);
+	printf("Reverse to View(camera) coord: %f,%f,%f\n",pt.x,pt.y,pt.z);
 
 	exit(0);
 #endif
@@ -97,17 +140,17 @@ int main(void)
 
 #endif
 
-#if 1 ///////////////  E3D_Radial / E3D_Plane  ///////////////////////////
+#if 1 ///////////////  E3D_Ray / E3D_Plane  ///////////////////////////
 	E3D_Vector  vp0(5,6,7);
 	E3D_Vector  vd(3,4,5);
 
-   //E3D_Radial -------------------------
-	E3D_Radial  Rd1(vp0,vd);
+   //E3D_Ray -------------------------
+	E3D_Ray  Rd1(vp0,vd);
 	printf("Rd1---\n");
 	Rd1.vp0.print(NULL);
 	Rd1.vd.print(NULL);
 
-	E3D_Radial  Rd2(1.1,1.2,1.3, 2.1,2.2,2.3);
+	E3D_Ray  Rd2(1.1,1.2,1.3, 2.1,2.2,2.3);
 	printf("Rd2---\n");
 	Rd2.vp0.print(NULL);
 	Rd2.vd.print(NULL);
@@ -125,24 +168,24 @@ int main(void)
 	float e=Plane1.vn*(v1-v3);
 	printf("e=Plane1.vn*(v1-v3)=%f\n",e);
 
-   //E3D_RadialVerticalRadial(const E3D_Radial &rad1, const E3D_Radial &rad2)
-        E3D_Radial Rd3(v1, Plane1.vn);
-	printf("Rd1 and Plane1 is %s parallel.\n", true==E3D_RadialParallelRadial(Rd1, Rd3) ? "just" : "NOT");
+   //E3D_RayVerticalRadial(const E3D_Ray &rad1, const E3D_Ray &rad2)
+        E3D_Ray Rd3(v1, Plane1.vn);
+	printf("Rd1 and Plane1 is %s parallel.\n", true==E3D_RayParallelRay(Rd1, Rd3) ? "just" : "NOT");
 
-   //E3D_RadialParallelPlane(const E3D_Radial &rad, const E3D_Plane &plane)
-	printf("Rd1 and Plane1 is %s parallel.\n", true==E3D_RadialParallelPlane(Rd1,Plane1) ? "just" : "NOT");
+   //E3D_RayParallelPlane(const E3D_Ray &rad, const E3D_Plane &plane)
+	printf("Rd1 and Plane1 is %s parallel.\n", true==E3D_RayParallelPlane(Rd1,Plane1) ? "just" : "NOT");
 
-   //E3D_Vector E3D_RadialIntsectPlane(const E3D_Radial &rad, const E3D_Plane &plane)
+   //E3D_Vector E3D_RayIntsectPlane(const E3D_Ray &rad, const E3D_Plane &plane)
 	bool forward;
 
 	E3D_Vector Vinsct;
 
      #if 1
-	E3D_Radial Rd4(0,0,0, 1,1,1);
+	E3D_Ray Rd4(0,0,0, 1,1,1);
 	E3D_Vector pv1(10,0,0),pv2(0,10,0),pv3(0,0,10);
 	E3D_Plane plane4(pv1,pv2,pv3);
 
-	if(E3D_RadialIntersectPlane(Rd4, plane4, Vinsct, forward)) {
+	if(E3D_RayIntersectPlane(Rd4, plane4, Vinsct, forward)) {
 		printf("Rd4/plane4 intersection point at %s: \n", forward?"forward":"backward");
 		Vinsct.print(NULL);
 	}
@@ -152,12 +195,12 @@ int main(void)
      #endif
 
      #if 1
-	//E3D_Radial Rd5(0,0,0, 10,30,0);
-	E3D_Radial Rd5(0,0,0, 0,0,10);
+	//E3D_Ray Rd5(0,0,0, 10,30,0);
+	E3D_Ray Rd5(0,0,0, 0,0,10);
 	E3D_Vector pva(0,40,0),pvb(40,0,0),pvc(40,0,10);
 	E3D_Plane plane5(pva,pvb,pvc);
 
-	if(E3D_RadialIntersectPlane(Rd5, plane5, Vinsct, forward)) {
+	if(E3D_RayIntersectPlane(Rd5, plane5, Vinsct, forward)) {
 		printf("Rd5/plane5 intersection point at %s: \n", forward?"forward":"backward");
 		Vinsct.print(NULL);
 	}

@@ -333,6 +333,9 @@ void E3D_draw_coordNavSphere(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, 
 void E3D_draw_coordNavFrame(FBDEV *fbdev, int size, bool minZ, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
 void E3D_draw_coordNavIcon2D(FBDEV *fbdev, int size, const E3D_RTMatrix &RTmatrix, int x0, int y0);
 
+/* Compute lightings to get the color as we finally see. */
+EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, float dl);
+
 
 /* Mesh Rendering/Shading type */
 enum E3D_SHADE_TYPE {
@@ -347,6 +350,7 @@ extern const char* E3D_ShadeTypeName[];
 /* Global light vector, as UNIT vecotr! OR it will affect face luma in renderMesh()  */
 extern E3D_Vector gv_vLight;    //(0.0, 0.0, 1.0);   /*  factor=1.0 when rendering mesh */
 extern E3D_Vector gv_auxLight;  //(1.0, 0.0, 0.0);   /* factor=0.5 when rendering mesh */
+extern E3D_Vector gv_ambLight;  /* Global ambient lighting */
 
 /* Global View TransformMatrix */
 
@@ -395,6 +399,9 @@ public:
 	//EGI_16BIT_COLOR dcolor;
 	E3D_Vector ks;  /* TODO specular color [0 1] ---> (RGB) [0 255] */
 	//EGI_16BIT_COLOR scolor;
+
+	E3D_Vector Ss; /* Light source specular color */
+	E3D_Vector Sd; /* Lighting source diffuse color */
 
 	/* Illumination model:
  	   0		Color on and Ambient off
@@ -478,8 +485,14 @@ Refrence:
 
 -------------------------------------------------------*/
 class E3D_TriMesh {
+
+/* Friend Classes */
+	friend class E3D_Cuboid;
+	friend class E3D_RtaSphere;
+
 public:
-	/* :: Class Vertex */
+
+	/* :: Class Vertex  !!! NO pointer member allowed !!! */
 	class Vertex {
 	public:
 		/* Constructor */
@@ -505,9 +518,10 @@ public:
 
 		/* Functions */
 		void setDefaults();	/* Set default/initial values */
+		void assign(float x, float y, float z);
 	};
 
-	/* :: Class Triangle */
+	/* :: Class Triangle  !!! NO pointer member allowed !!! */
 	class Triangle {
 	public:
 		/* Constructor */
@@ -539,6 +553,7 @@ public:
 							 * Then return 0,1 or 2 as of index of Triangel.vtx[].
 							 * Else return -1.
 							 */
+		void assignVtxIndx(int v1, int v2, int v3); /* assign vtx[0-2].index */
 	};
 
 	/* :: Class Material --- See Class E3D_Material */
@@ -546,6 +561,7 @@ public:
 	/* :: Class TriGroup, NOT for editting!!!  */
 	/* Note:
 	 *	1. All TriGroups are under the same object/global COORD!
+	 *	2. For vector application: !!!--- Caution for Pointer Memebers if any ---!!!
 	 */
 	class TriGroup {
 	public:
@@ -562,12 +578,15 @@ public:
 						 * It also under Object COORD!
 						 * Initially omat.pmat[9-11] == pivot.
 						 */
+		//E3D_RTMatrix  pivot;          /* Pivot as matrix, as transform from local COORD to object COORD */
 		/* OK.  translation of omat is same as oxyz */
 		E3D_RTMatrix	omat;		/* omat.pmat[0-8] is the Orientation/attitude of the TriGroup Origin (local Coord) relative
 						 * to its INITIAL position which USUALLY be the same as (align with) its superior node's COORD,
-						 * and EXCEPT its tx,ty,tz value, it's center/origin/pivotal of the TriGroup.
+						 * and EXCEPT its tx,ty,tz value. XXX it's center/origin/pivotal of the TriGroup. XXX
 						 * omat.pmat[9-11](tx,ty,tz) are under the SAME COORD as all other vertices in vtxList[]!
-						 * Before rotate_transform the TriGroup, (tx,ty,tz) should be set as rotation center.
+						 * they are translation of object origin to group(local) origin, and those values are same
+						 * as pivot coordinates.
+						 * XXX Before rotate_transform the TriGroup, (tx,ty,tz) should be set as rotation center.XXX
 						 *
 						 * The purpose is to fulfill hierarchical TRMatrix passing_down:
 						 * 		Parent_Coord * Parent_omat *This_omat[relative_txtytz] = This_Coord.  <--
@@ -584,11 +603,15 @@ public:
 						 *			 omat.pmat[0,1,2]: m11, m12, m13
 						 *                       omat.pmat[3,4,5]: m21, m22, m23
 						 *			 omat.pmat[6,7,8]: m31, m32, m33
+						 *    r (X/Y/Z)23.3 (X/Y/Z)45.0 (X/Y/Z)120.  ---> Rotation
 						 * 4. In .mot file: 'k' lines: (keyframe )
-						 *    k  tf  rx ry rz  tx ty tz
+						 *     k  tf  rx ry rz  tx ty tz
 						 *     tf:   Time value, in float.  [0 100]
-						 *     rx ry rz: Rotation RX,RY,RZ in degree.
+						 *     XXX rx ry rz: Rotation RX,RY,RZ in degree.
 						 *     tx ty tz: translation
+						 * 5. Usually omat keeps unchanged before ::transformMesh(VRTmat, ScaleMat). after that
+						 *    omat MUST be adjusted as per VRTmat, in order to apply it in ::renderMesh().
+						 *    omat.pmat[9-11](tx,ty,tz) SHOULD keep unchanged after adjustment.
 						 */
 
 		string		name;		/* Name of the sub_object group (of triangles) */
@@ -596,6 +619,8 @@ public:
 		int		mtlID;		/* Material ID, as of mtlList[x]
 						 * If <0, invalid!
 						 */
+		bool		ignoreTexture;  /* Ignore texture, use defined material color */
+		bool		backFaceOn;	/* defautl as False,  ( this || E3D_TriMesh::backFaceOn )  */
 
 		/* XXX Imgbuf loaded from material texture map files. */
 		//EGI_IMGBUF *img_kd;  // NOW only diffuse.  ka, ks ...
@@ -604,7 +629,7 @@ public:
 		unsigned int	tcnt;  		/* Total trianlges in the group */
 		unsigned int	stidx;  	/* Start/Begin index of triList[] */
 		unsigned int	etidx;  	/* End index of triList[], NOT incuded!!!
-				 		 * !!! eidx=sidex+sidx !!!
+				 		 * !!! CAUTION !!!  eidx=sidex+tcnt !!!
 						 */
 	};
 
@@ -745,7 +770,9 @@ public:
 	void shadowMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix, const E3D_Plane &plane) const;
 
 	/* Function: Ray hit face of the trimesh */
-	bool rayHitFace(const E3D_Ray &rad, int &gindx, int &tindx, E3D_Vector &vphit, E3D_Vector &fn) const;
+	bool rayHitFace(const E3D_Ray &ray, int rgindx, int rtindx,
+                        E3D_Vector &vphit, int &gindx, int &tindx, E3D_Vector &fn) const;
+
 	bool rayBlocked(const E3D_Ray &ray) const;
 
 private:
@@ -755,16 +782,24 @@ private:
 	#define		TRIMESH_GROW_SIZE	64	/* Growsize for vtxList and triList --NOT applied!*/
 	int		vCapacity;	/* MemSpace capacity for vtxList[] */
 	int		vcnt;		/* Vertex counter */
-	Vertex  	*vtxList;	/* Vertex array */
-
+	Vertex  	*vtxList;	/* Vertex array
+					 * 		!!! ---- CAUTION ---- !!!
+					 * Must initialize to NULL!
+					 * Allocate by 'new Vertice[cnt]',  in  E3D_TriMesh()
+					 * Free by 'delete [] vtxList', in ~E3D_TriMesh()
+					 */
 	int		tCapacity;	/* MemSpace capacity for triList[] */
-	int		tcnt;		/* Triangle counter  */
-	Triangle	*triList;	/* Triangle array */
-
+	int		tcnt;		/* Triangle counter */
+	Triangle	*triList;	/* Triangle array
+					 * 		!!! ---- CAUTION ---- !!!
+					 * Must initialize to NULL!
+					 * Allocate by 'new Triangle[cnt]',  in  E3D_TriMesh()
+					 * Free by 'delete [] triList', in ~E3D_TriMesh()
+					 */
 public:
 	AABB		aabbox;		/* Axially aligned bounding box */
 	//int mcnt;
-
+//TODO	E3D_RTMatrix    VRTMat;		/* Combined Rotation/Translation Matrix. */
 	E3D_RTMatrix    objmat;		/* Orientation/Position of the TriMesh object relative to Global/System COORD.
 					 * 1. Init as identity() in initVars().
 					 * 2. moveAabbCenterToOrigin() will reset objmat.pmat[9-11] all as 0.0!
@@ -795,6 +830,7 @@ public:
 	bool		backFaceOn;	/* If true, display back facing triangles.
 					 * If false, ignore it.
 					 * Default as false.
+					 * Note:  ( this || E3D_TriMesh::TriGroup::backFaceOn ) HK2022-09-15
 					 */
 	EGI_16BIT_COLOR   bkFaceColor;  /* Faceback face color for flat/gouraud/wire shading.
 					 * Default as 0(BLACK).
@@ -804,7 +840,33 @@ public:
 					 */
 
 	int		faceNormalLen;   /* face normal length, if >0, renderMesh() will show the normal line. */
+	bool		testRayTracing;	 /* Test backward ray tracing to vLight, to create self_shadowing. HK2022-09-08 */
 };
 
+
+/*-------------------------------------------------------
+        Class: E3D_Scene
+
+-------------------------------------------------------*/
+class E3D_Scene {
+public:
+	/* Constructor */
+	E3D_Scene();
+
+	/* Destructor. destroy all E3D_TriMesh in TriMeshList[] */
+	~E3D_Scene();
+
+	/* Import .obj into TriMeshList */
+	void importObj(const char *fobj);
+
+	vector<E3D_TriMesh*>  TriMeshList;  /* List of TriMesh */
+	//vector<E3D_RTMatrix>  ObjMatList;   /* Corresponding to each TriMesh::objmat */
+
+	/* TODO: */
+	//List of vLights
+
+private:
+
+};
 
 #endif

@@ -333,11 +333,15 @@ public:
 	/* Set part of Translation TxTyTz in pmat[] */
 	void setTranslation( const E3D_Vector &tv );
 
+
 	/* Set part of Translation TxTyTz in pmat[] */
 	void setScaleXYZ( float sx, float sy, float sz);
 
 	/* Set part of Translation TxTyTz in pmat[] */
-	void setTranslation( float dx, float dy, float dz );
+	void setTranslation( float x, float y, float z );
+
+	/* Add up translation */
+	void addTranslation( float dx, float dy, float dz );
 
 	/* Set part of RotationMatrix in pmat[] */
 	void setRotation( const E3D_Vector &axis, float angle);
@@ -373,11 +377,13 @@ struct E3D_ProjectFrustum {
 				 *  Others: ...
 				 */
 
-	/* Distance from the Foucs to viewPlane/projetingPlane */
+	/* Distance from the Foucs(view origin) to projetingPlane */
 	int	dv;
 
 	/* Define the shape of the Viewing Frustum */
-	int	dnear;		/* Distancd from the Foucs to the Near_clip_plane */
+	int	dnear;		/* Distancd from the Foucs to the Near_clip_plane
+				 * NOW: ALWAYS take dnear=dv.
+				 */
 	int	dfar;		/* Distancd from the Foucs to the Far_clip_plane */
 	//TODO: other parameters to define the shape of the frustum */
 

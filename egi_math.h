@@ -118,8 +118,8 @@ int		mat_max(int a, int b);
 int		mat_min(int a, int b);
 int		mat_max3(int a, int b, int c);
 int		mat_min3(int a, int b, int c);
-float		mat_maxf(float a, float b);
-float		mat_minf(float a, float b);
+float		mat_maxf(float a, float b); //fmaxf()
+float		mat_minf(float a, float b); //fminf()
 float		mat_max3f(float a, float b, float c);
 float		mat_min3f(float a, float b, float c);
 
