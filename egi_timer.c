@@ -245,26 +245,32 @@ void tm_get_strtime(char *tmbuf)
 
 /*---------------------------------------------
  Get local time string in form of:
- 		H:M:S.ms 	(in 24hours)
+	Year-Month-Day_H:M:S.ms appenstr (in 24hours)
  The caller must ensure enough space for tmbuf.
 ---------------------------------------------*/
 void tm_get_strtime2(char *tmbuf, const char *appen)
 {
 	time_t tm_t; /* time in seconds */
-	struct tm *tm_s; /* time in struct */
+	//struct tm *tm_s; /* time in struct */
+	struct tm tm_s;
 	struct timeb tp;
 
 	time(&tm_t);
-	tm_s=localtime(&tm_t);
-
+	//tm_s=localtime(&tm_t);
+	if(localtime_r(&tm_t, &tm_s)==NULL) {
+		tmbuf[0]=0;
+		return;
+	}
 	ftime(&tp);
 
 	/*  tm_s->tm_year start from 1900
 	    tm_s->tm_mon start from 0
 	*/
-	sprintf(tmbuf,"%d-%d-%d_%02d:%02d:%02d.%d%s",
-			tm_s->tm_year+1900,tm_s->tm_mon+1,tm_s->tm_mday,
-				tm_s->tm_hour,tm_s->tm_min,tm_s->tm_sec, tp.millitm, appen);
+	sprintf(tmbuf,"%d-%d-%d_%02d:%02d:%02d.%d %s",
+			tm_s.tm_year+1900,tm_s.tm_mon+1,tm_s.tm_mday,
+				tm_s.tm_hour,tm_s.tm_min,tm_s.tm_sec, tp.millitm, appen);
+			//tm_s->tm_year+1900,tm_s->tm_mon+1,tm_s->tm_mday,
+				//tm_s->tm_hour,tm_s->tm_min,tm_s->tm_sec, tp.millitm, appen);
 }
 
 

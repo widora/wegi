@@ -8,6 +8,8 @@ Test EGI_3D Class and Functions.
 Journal:
 2022-08-06:
 	1. Test Class E3D_Ray,E3D_Plane and relevant functions.
+2022-09-28:
+	1. Test apPointsToNDC() / pointOutFrustumCode().
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -44,7 +46,38 @@ int main(void)
 {
 	cout << "Hello, this is C++!\n" << endl;
 
-#if 1 //////////////////  E3D_RtaSphere ///////////////////////////
+#if 1 ////////////////   mapPointsToNDC() / pointOutFrustumCode()  ////////////////
+	E3D_ProjMatrix projMatrix;
+
+	/* Init projMatrix  (projmatrix , int type, int winW, int winH, int dnear, int dfar, int dv) */
+	E3D_InitProjMatrix(projMatrix, E3D_PERSPECTIVE_VIEW, 320, 240, 500, 10000000, 500);
+
+	/* Test points  */
+	E3D_Vector pt0(160 -0.1, 120 -1, 500 +1);  /* in frustum */
+	E3D_Vector pt1(160.0*(10000000.0/500) -1, 120.0*(10000000.0/500) -1, 10000000 -1);  /* in frustum */
+	E3D_Vector pt2(-160.0*(10000000.0/500) +1, -120.0*(10000000.0/500) +1, 10000000 -1);  /* in frustum */
+
+	E3D_Vector pt3(-160 -0.01, -120, 500);  /* out frustum */
+	E3D_Vector pt4(160.0*(10000000.0/500), 120.0*(100000000.0/500), 10000000 -1);  /* out frustum */
+	E3D_Vector pt5(-160.0*(10000000.0/500) -1, -120.0*(10000000.0/500) -1, 10000000);  /* out frustum */
+
+	E3D_Vector vpts[6];
+	vpts[0]=pt0; vpts[1]=pt1; vpts[2]=pt2; vpts[3]=pt3; vpts[4]=pt4; vpts[5]=pt5;
+
+	/* Map to NDC coordinates */
+	mapPointsToNDC(vpts, 6, projMatrix);
+
+	/* Check, NOW vpts holds NDC coordinates value. */
+	int code;
+	for(int k=0; k<6; k++) {
+		if( (code=pointOutFrustumCode(vpts[k])) )
+			printf("vpts[%d] is out of frustum! code=0x%02X\n", k,code);
+		else
+			printf("vpts[%d] is within frustum! code=0x%02X\n", k,code);
+	}
+#endif
+
+#if 0 //////////////////  E3D_RtaSphere ///////////////////////////
 
 while(1) {
 //	E3D_RtaSphere sphereA() Error! parsed as function declaration!
@@ -56,7 +89,6 @@ while(1) {
 }
 	exit(0);
 #endif
-
 
 #if 0 //////////////////  E3D_Scene ///////////////////////////
 	int k=0;
@@ -73,12 +105,23 @@ while (1){
 	E3D_Scene sceneA;
 
 	sceneA.importObj("teapot.obj");
-	sceneA.importObj("lion.obj");
+	sceneA.importObj("fish.obj"); //"lion.obj");
 	sceneA.importObj("volumes.obj");
 	sceneA.importObj("nonexist.obj");
+	sceneA.importObj("boxman.obj");
+	sceneA.importObj("thinker.obj");
+	sceneA.importObj("nonexist.obj");
 
-	printf("Scene TriMeshList.size = %d\n", sceneA.TriMeshList.size());
-	sleep(1);
+	printf("Scene TriMeshList.size = %d\n", sceneA.triMeshList.size());
+	for(unsigned int k=0; k<sceneA.triMeshList.size(); k++)
+		printf("fpathList[%d]: %s\n",k, sceneA.fpathList[k].c_str());
+	printf("Total meshInstanceList.size = %d\n", sceneA.meshInstanceList.size());
+
+	/* Create an MeshInstance */
+	E3D_MeshInstance meshInstanceA(*sceneA.meshInstanceList[0]);
+	E3D_MeshInstance meshInstanceB(*sceneA.meshInstanceList[1]);
+
+	usleep(250000);
 }
 
 	exit(0);
@@ -140,7 +183,7 @@ while (1){
 
 #endif
 
-#if 1 ///////////////  E3D_Ray / E3D_Plane  ///////////////////////////
+#if 0 ///////////////  E3D_Ray / E3D_Plane  ///////////////////////////
 	E3D_Vector  vp0(5,6,7);
 	E3D_Vector  vd(3,4,5);
 

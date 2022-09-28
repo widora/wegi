@@ -2975,6 +2975,7 @@ TODO:
    PID = 0x0101 default as audio stream??
 4. If PES_video_length==0, it indicates that all palyload is PES data???
    and PES_audio_length SHOULD NOT be ommitted.???
+5. ADTS data ERROR check.
 
 Journal:
 2022-06-30: Create the file.

@@ -32,6 +32,9 @@ Journal:
 2022-07-29:
 	1. 7.6 Case: ERR_AAC_INVALID_ADTS_HEADER, passing ADTS_Header(7Bs)
 	   before try to sync again.
+2022-09-26:
+	1. Check frameLength with bytesLeft, to avoid segmentation fault.
+	TODO: This maybe ADTS data error, check in egi_extract_AV_from_ts().
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -61,6 +64,7 @@ int main(int argc, char **argv)
 	int trysyn_len=256;
 
 	int bytesLeft;
+	int frameLength;
 	size_t checksize;
 	int nchanl=2;
 	unsigned char *pin=NULL;	/* Pointer to input aac data */
@@ -302,6 +306,7 @@ RADIO_LOOP:
 					else {
 						pin +=npass;
 						bytesLeft -= npass;
+
 						/* AACFlushCodec(aacDec); Not necessary */
 						printf("<----\n");
 					}
@@ -414,15 +419,22 @@ RADIO_LOOP:
 		}
 #endif  //////////////////////  END TEST  ////////////////////////////////
 
+		/* 7.2 Check frameLength  HK2022-09-26 */
+		frameLength= ( (pin[3]&0b11)<<11 ) + (pin[4]<<3) + (pin[5]>>5);
+		if(frameLength>bytesLeft) {
+			printf(DBG_RED"ERROR! frameLength(%d) > bytesLeft(%d)!\n"DBG_RESET, frameLength, bytesLeft);
+			goto END_SESSION;
+		}
 
 		/* 7.3  int AACDecode(HAACDecoder hAACDecoder, unsigned char **inbuf, int *bytesLeft, short *outbuf) */
 //		AACDecInfo *aacDecInfo = (AACDecInfo *)aacDec;
 //		printf("AAC format: %d\n", aacDecInfo->format); /* 0=Unknown, 1=AAC_FF_ADTS, 2=AAC_FF_ADIF, 3=AAC_FF_RAW */
 
-//		printf("AACDecode bytesLeft=%d.\n", bytesLeft);
+		printf("AACDecode bytesLeft=%d.\n", bytesLeft);
 		err=AACDecode(aacDec, &pin, &bytesLeft, pout);
-//		printf("err=%d, bytesLeft=%d.\n", err, bytesLeft);
+		printf("err=%d, bytesLeft=%d.\n", err, bytesLeft);
 		feedCnt++;
+
 		/* 7.4 Case: ERR_AAC_NONE */
 		if(err==ERR_AAC_NONE) {
 			//EGI_PLOG(LOGLV_INFO, "AACDecode: %lld bytes of aac data decoded.\n", fmap_aac->fsize-bytesLeft );

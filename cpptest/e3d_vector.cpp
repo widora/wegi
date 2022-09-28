@@ -69,6 +69,7 @@ Journal:
 	2. Add E3D_vector_angleAB()
 2022-09-11:
 	1. Add E3D_Vector::addTranslation( float dx, float dy, float dz )
+	2. Add E3D_InitProjMatrix();
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -1677,7 +1678,34 @@ void E3D_combExtriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix & R
 }
 
 
+/////////////////////////   Projection Matrix   /////////////////////////
 
+/*---------------------------------------------------------
+Initialize an E3D_ProjMatrix struct with given parameters.
 
+----------------------------------------------------------*/
+void E3D_InitProjMatrix(E3D_ProjMatrix &projMatrix, int type, int winW, int winH, int dnear, int dfar, int dv)
+{
+	/* Init with input parameters */
+	projMatrix.type  =type;
+	projMatrix.winW  =winW;
+	projMatrix.winH  =winH;
+	projMatrix.dnear =dnear;
+	projMatrix.dfar  =dfar;
+	projMatrix.dv    =dv;
+
+	/* Init as symmetrical screen, for r,l,t,b */
+	projMatrix.r  =-winW/2.0;
+	projMatrix.l  =winW/2.0;
+	projMatrix.t  =winH/2.0;
+	projMatrix.b  =-winH/2.0;
+
+	/* Clipping Matrix items, for symmetrical screen */
+	projMatrix.A =projMatrix.dnear/projMatrix.r;
+        projMatrix.B =projMatrix.dnear/projMatrix.t;
+        projMatrix.C =(projMatrix.dfar+projMatrix.dnear)/(projMatrix.dfar-projMatrix.dnear);
+        projMatrix.D =-2.0*projMatrix.dfar*projMatrix.dnear/(projMatrix.dfar-projMatrix.dnear);
+
+}
 
 

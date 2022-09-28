@@ -69,6 +69,9 @@ Journal:
         1. Split e3d_vector.cpp from e3d_vector.h
 2022-08-25:
 	1. Remane 'Radial' to 'Ray'
+2022-09-28:
+        1. struct E3D_ProjectFrustum(): E3D Clippling Matrix parameters.
+
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -274,9 +277,14 @@ public:
 
 /*-----------------------------------------------
        		Class: E3D_RTMatrix
-3D Transform Matrix (4x3)  (Rotation+Translation)
+3D Transform Matrix (4x3)
+Rotation+Translation: Orthogonal Matrix
+
 Note:
-1. For inertial Coord, just zeroTranslation().
+1. If it comprises ONLY Rotation+Translation,
+   then it's an Orthogonal Matrix.
+2. For inertial Coord, just zeroTranslation().
+
 -----------------------------------------------*/
 class E3D_RTMatrix {
 public:
@@ -391,14 +399,53 @@ struct E3D_ProjectFrustum {
 	int	winW;
 	int 	winH;
 
-	/* TODO: a projection matrix under Normalized Device Coordinates:
+	/* XXX TODO: a projection matrix under Normalized Device Coordinates:
 	 *  	 The viewing frustum space is mapped to a 2x2x2 cube, with origin
 	 *       at the center of the cube. Any mapped point out of the cube will be clipped then.
 	 */
+
+	/*** E3D Clippling Matrix
+             Reference: http://www.songho.ca/opengl/gl_projectionmatrix.html
+
+ 	      [
+		2n/(r-l)     0         (r+l)/(r-l)    0
+		   0       2n/(t-b)    (b+t)/(b-t)    0
+		   0         0         (f+n)/(f-n)    -2fn/(f-n)
+		   0         0              1         0
+								  ]
+	      For a symmetricl screen plane, where r=-l and b=-t.
+ 	      [
+		  n/r       0         0             0
+		   0       n/t        0             0
+		   0         0   (f+n)/(f-n)    -2fn/(f-n)
+		   0         0        1             0
+							    ]
+
+		  A=n/r; B=n/t; C=(f+n)/(f-n); D=-2fn/(f-n);
+
+	      Note:
+		1. r,l,t,b:  right, left, top, bottom limit value on XY plane, which are all signed.
+		                      !!! --- CAUTION --- !!!
+		   Here right/left top/bottom are at the view point from -z ---> +z as E3D View direction.
+		2. f,n:      far,near limit value in Z direction, which are unsigned.
+		3. with Wc=Ze
+	     TODO:
+		1. If all r,l,t,b,f, are fixed, then we can compute above matrix and save it.
+		   OR to compute result of matrix items as A,B,C,D,... see in mapPointsToNDC().
+
+	 */
+	  float r,l; /* right/left limit value
+		      * For symmetrical screen plane: r=-winW/2, l=winW/2
+		      */
+	  float t,b; /* top/bottom limit value
+		      * For symmetrical screen plane: t=winH/2, b=-winH2
+		      */
+
+	  float A,B,C,D;  /* Clippling Matrix items, for symmetrical screen plane */
+	  // f=dfar, n=dnear
 };
 
-
-
+void E3D_InitProjMatrix(E3D_ProjMatrix &projMatrix, int type, int winW, int winH, int dnear, int dfar, int dv);
 
 #endif
 

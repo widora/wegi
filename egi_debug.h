@@ -98,6 +98,10 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
   #define DBG_MAGENTA    "\e[38;5;201m"
   #define DBG_CYAN       "\e[38;5;37;48;5;0m"
   #define DBG_GRAY       "\e[38;5;249;48;5;0m"     /* forecolor 249, backcolor 0 */
+  #define DBG_AQUA	 "\e[38;5;14;48;5;0m"
+  #define DBG_FUCHSIA    "\e[38;5;13;48;5;0m"
+  #define DBG_ORANGE     "\e[38;5;214;48;5;0m"
+  #define DBG_PURPLE     "\e[38;5;93;48;5;0m"
 #endif
 #define DBG_RESET	"\e[0m"		/* Reset color to default */
 

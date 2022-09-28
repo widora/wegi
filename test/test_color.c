@@ -96,7 +96,7 @@ int main(void)
 {
 	int i,j,k;
 	int value[3]={0}; /* control param for brightness adjustment */
-	int step[3]={18,12,18};  /* increase/decrease step for value */
+	//int step[3]={18,12,18};  /* increase/decrease step for value */
 	int delt[3]={18,12,18};
 
 	EGI_16BIT_COLOR color[3],subcolor[3];
@@ -112,9 +112,7 @@ int main(void)
                 return -1;
 
 
-
-
-#if 1	/* ------- TEST: EGI COLOR Definition ------ */
+#if 0	/* ------- TEST: EGI COLOR Definition ------ */
 
 EGI_16BIT_COLOR  colors[4*3*12]= {  /* 4x3 for one screen page */
 /* 8*17 + 7 = 143  */
@@ -199,11 +197,6 @@ while(1) {
 
 exit(0);
 #endif
-
-
-
-
-
 
 
 #if 0	/* ------- TEST: EGI COLOR BANDMAP ------ */
@@ -365,31 +358,38 @@ exit(0);
 #endif 	/* >>>>>>>>>>>>>>>>>>>>>>>>>>> end testing draw_wlines >>>>>>>>>>>>>>>>>*/
 
 
-#if 0	/* -------------- TEST: Luma adjust ------------ */
+#if 1	/* -------------- TEST: Luma adjust ------------ */
+	int step[3]={5,5,5}; //18,12,18};  /* increase/decrease step for value */
+
 	for(i=0;i<3;i++) {
 		color[i]= egi_color_random(color_deep);
 	}
-	color[0]=WEGI_COLOR_RED;
-	color[1]=WEGI_COLOR_GREEN;
-	color[2]=WEGI_COLOR_BLUE;
+	subcolor[0]=color[0]=WEGI_COLOR_RED;
+	subcolor[1]=color[1]=WEGI_COLOR_GREEN;
+	subcolor[2]=color[2]=WEGI_COLOR_BLUE;
+
 
 while(1)
 {
         for(i=0;i<3;i++)
 	{
-		subcolor[i]=egi_colorLuma_adjust(color[i],value[i]);
+		printf("-------Before: subcolor[%d]:  Y=%d step[%d]=%d, value[%d]=%d-------\n",
+						i,egi_color_getY(subcolor[i]),i,step[i], i, value[i]);
+		subcolor[i]=egi_colorLuma_adjust(color[i], value[i]);
+		printf("-------Aft: subcolor[%d]:  Y=%d step[%d]=%d, value[%d]=%d-------\n",
+						i,egi_color_getY(subcolor[i]),i,step[i], i, value[i]);
+
 		//printf("---k=%d,  subcolor: 0x%02X  ||||  color: 0x%02X ---\n",k,subcolor,color);
 		fbset_color(subcolor[i]);
 		draw_filled_rect(&gv_fb_dev, 15+(60+15)*i, 150, (15+60)*(i+1), 150+60);
+		fb_render(&gv_fb_dev);
 
-		value[i] += step[i]; /* Y Max.255, k to be little enough */
-		if(subcolor[i]==0xFFFF || egi_color_getY(subcolor[i])>=210 )
+		if(subcolor[i]==0xFFFF || egi_color_getY(subcolor[i])>=255) //210 )
 			step[i]= -delt[i];
-		if(subcolor[i]==0x0000 || egi_color_getY(subcolor[i])<=10 ) //255
+		if(subcolor[i]==0x0000 || egi_color_getY(subcolor[i])<=0) //10 ) //255
 			step[i]= delt[i];
 
-		printf("------- subcolor[%d]:  Y=%d step[%d]=%d-------\n",
-						i,egi_color_getY(subcolor[i]),i,step[i]);
+		value[i] += step[i]; /* Y Max.255, k to be little enough */
 	}
 	//tm_delayms(50);
 	usleep(55000);

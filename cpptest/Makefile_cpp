@@ -62,7 +62,10 @@ E3D_OBJS = e3d_vector.o
 E3D_OBJS += e3d_trimesh.o
 E3D_OBJS += e3d_volumes.o
 
-test_cpp:  $(TEST_NAME).cpp $(E3D_OBJS)
+### TODO depending file list
+DEP_FILES = e3d_trimesh.h e3d_trimesh.cpp e3d_vector.h e3d_vector.cpp e3d_volumes.h e3d_volumes.cpp
+
+test_cpp:  $(TEST_NAME).cpp $(E3D_OBJS) $(DEP_FILES)
 ifeq ($(EGILIB),static)
 	$(CPP)  $(TEST_NAME).cpp -o $(TEST_NAME) $(E3D_OBJS) $(CPPFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
 -Wl,-Bstatic -legi -lhelixaac -Wl,-Bdynamic

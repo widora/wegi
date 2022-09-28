@@ -282,6 +282,8 @@ Journal:
 	1. Test rayHitFace().
 2022-09-14:
 	1. TEST: Add boxman into volumes.obj
+2022-09-26:
+	1. TEST: renderInstance()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -306,7 +308,10 @@ using namespace std;
 
 #define MOTION_FILE  "/mmc/mesh.motion"
 
-#define TEST_MOREOBJ	   0
+#define TEST_SCENE	   1  /* ONLY when TEST_MESHINSTANCE==0 and TEST_MULTIOBJ==1 */
+#define TEST_MESHINSTANCE  0
+
+#define TEST_MULTIOBJ	   1  /* ONLY if !TEST_SCENE */
 #define TEST_MTXT_TEXTURE  0
 #define TEST_VLIGHTING	   0
 
@@ -447,6 +452,14 @@ int main(int argc, char **argv)
 
 	/* For plane AABB Tx/Ty/Tz */
 	float Tx=0.0, Ty=0.0, Tz=0.0;
+
+#if TEST_MESHINSTANCE
+	E3D_MeshInstance *meshInstances[64*64];
+#endif
+
+#if TEST_SCENE
+	E3D_Scene myScene;
+#endif
 
         /* Parse input option */
 	int opt;
@@ -648,7 +661,7 @@ else {	/* For Landscape */
 	   gv_vLight.normalize();
 	   //gv_auxLight.assign(-1, -1, 1);
 	   //gv_auxLight.assign(-1,-1,0);
-	   gv_auxLight.assign(0,0,1);
+	   gv_auxLight.assign(0,0,0); //(-1,0,0.5); //(0,0,1);
 	   gv_auxLight.normalize();
 	}
 
@@ -659,7 +672,7 @@ else {	/* For Landscape */
 }
 
 
-#if 0
+#if 1
 	/* 1. Read obj file to meshModel */
 	cout<< "Read obj file '"<< fobj <<"' into E3D_TriMesh... \n";
 	E3D_TriMesh	meshModel(fobj);
@@ -671,10 +684,13 @@ else {	/* For Landscape */
 
 #endif
 
-#if TEST_MOREOBJ
+#if TEST_MULTIOBJ
 	E3D_TriMesh	boxman("/tmp/boxman.obj");
 	E3D_TriMesh	sportsmen("/tmp/sportsmen.obj");
 #endif
+
+
+
 	if(meshModel.vtxCount()==0)
 		exit(-1);
   	/* Read textureFile into meshModel. */
@@ -974,12 +990,33 @@ else {	/* For Landscape */
 	/* W2.2: Set translation ONLY.  Note: View from -Z ---> +Z */
 	VRTmat.setTranslation(offx, offy, offz +(dvv+dobj)); /* take Focus to obj center */
 
+#if TEST_MESHINSTANCE  /////////////  Mesh Instance: Terracotta warrior (before transform_workMesh and omat_adjust)  /////////////
+	E3D_RTMatrix rtmat;
+	int instColumns=5;
+	int instRows=5;
+	int instTotal=instColumns*instRows; /* Must < 64*64 as sizeof meshInstances[] */
+
+	/* Create MeshInstance array: Just change objmat. */
+	for(int k=0; k<instTotal; k++) {
+		printf("Create meshInstance[%d]...instTotal=%d\n", k,instTotal);
+		meshInstances[k]=new E3D_MeshInstance(*workMesh);
+		rtmat.setTranslation(0.4*dobj*(k%instColumns-2), 0.45*dobj*(k/instRows),  0);
+		meshInstances[k]->objmat = rtmat*meshInstances[k]->objmat*VRTmat;
+	}
+#endif
+
+#if !TEST_MESHINSTANCE /* CAUTION, if workMesh as refTriMesh of meshInstance[], then its data should NOT be changed! */
 	/* W3. Transform workMesh */
 	cout << "Transform workMesh...\n";
 	//workMesh->transformMesh(RTYmat*RTXmat, ScaleMat); /* Here, scale ==1 */
 	workMesh->transformMesh(VRTmat, ScaleMat); /* Here, scale ==1 */
 
-#if TEST_MOREOBJ	//////////////////  Add more objs into the scene /////////////////
+
+
+#endif
+
+
+#if TEST_MULTIOBJ    //////////////////  Add more objs into the scene (before omat_adjust)  /////////////////
 	float bxang[3];
    #if 1 /* TEST: For add boxman into voluems.obj */
 	boxman.shadeType=E3D_FLAT_SHADING; //E3D_TEXTURE_MAPPING;
@@ -1001,7 +1038,7 @@ else {	/* For Landscape */
 	sportsmen.objmat.identity();
 	bxang[0]=MATH_PI*90/180; bxang[1]=0.0; //MATH_PI*90/180;
 	E3D_combExtriRotation("X", bxang, sportsmen.objmat);
-	sportsmen.objmat.addTranslation(-0.0*scale, 8.0*scale, -6.0*scale); //24*scale);  //workMesh scale=30, dy=
+	sportsmen.objmat.addTranslation(-2.0*scale, 10*scale, -6.0*scale); //(0.0, 8.0 -6.0)
 	sportsmen.objmat=ScaleMat*sportsmen.objmat*VRTmat;  /* Sequence! */
 	ScaleMat.identity();
   #endif
@@ -1009,7 +1046,7 @@ else {	/* For Landscape */
 #endif
 
 
-/* --------- TEST: AFTER transformMesh, we must adjust triGroupList[].omat accordingly.
+/* --------- TEST omat_adjust: AFTER transformMesh, we must adjust triGroupList[].omat accordingly.
 	TODO: To apply above in transformMesh, AND to store VRTmat in TriMesh
 */
 if(1) {
@@ -1017,7 +1054,7 @@ if(1) {
 	E3D_RTMatrix omat;
 	E3D_RTMatrix TVRTmat=VRTmat;
 	TVRTmat.transpose(); /* Inverse */
-	for(n=0; n < workMesh->triGroupList.size(); n++) {  /* Traverse all Trigroups */
+	for(n=0; n < (int)workMesh->triGroupList.size(); n++) {  /* Traverse all Trigroups */
 		omat = TVRTmat*workMesh->triGroupList[n].omat*VRTmat;
 		/* MUST ignore translation */
 		for(unsigned int k=0; k<9; k++)
@@ -1167,10 +1204,10 @@ if(1) {
 #endif
 
 #if 1   /* W6. Render the workMesh first */
-	if(workMesh->mtlList.size()>0)
-		faceColor=workMesh->mtlList[0].kd.color16Bits();
+//	if(workMesh->mtlList.size()>0)
+//		faceColor=workMesh->mtlList[0].kd.color16Bits();
 
-	fbset_color2(&gv_fb_dev, faceColor);
+//	fbset_color2(&gv_fb_dev, faceColor);
 
         /* OR  updateAllTriNormals() here */
 
@@ -1180,15 +1217,54 @@ if(1) {
 	else
 		workMesh->shadeType=E3D_FLAT_SHADING;
 #endif
-	/* Render mesh */
-        cout << "Render mesh ... angle=" << angle <<endl;
-workMesh->shadeType=E3D_FLAT_SHADING;
-       	workMesh->renderMesh(&gv_fb_dev, projMatrix);
 
-#if TEST_MOREOBJ  ///////// More objs ///////////
-	boxman.renderMesh(&gv_fb_dev,projMatrix);
-	sportsmen.renderMesh(&gv_fb_dev, projMatrix);
+        cout << "Render mesh ... angle=" << angle <<endl;
+#if 1	/* Render workMesh */
+//workMesh->shadeType=E3D_FLAT_SHADING;
+       	workMesh->renderMesh(&gv_fb_dev, projMatrix);
+	printf("workMesh->renderMesh OK!\n");
 #endif
+
+#if TEST_MESHINSTANCE  ///////////  Render Mesh Instance: Terracotta warrior   /////////
+for(int k=0; k<instTotal; k++) {
+	/* Render Mesh Instance */
+	egi_dpstd(DBG_ORANGE"Render mesh instance[%d] ... angle=%.2f\n"DBG_RESET, k, angle);
+	meshInstances[k]->renderInstance(&gv_fb_dev, projMatrix);
+
+	/* Release and free */
+        delete meshInstances[k];
+}
+#endif
+
+#if TEST_MULTIOBJ  ///////////  More objs  ///////////
+	printf("Render boxman...\n");
+boxman.shadeType=E3D_TEXTURE_MAPPING;
+	boxman.updateAllTriNormals(); /* For FLAT_SHADING */
+	#if !TEST_SCENE
+	boxman.renderMesh(&gv_fb_dev,projMatrix);
+	#endif
+	printf("Render sprotsmen...\n");
+	gv_auxLight.assign(-1,1,1);
+	gv_auxLight.normalize();
+sportsmen.shadeType=E3D_FLAT_SHADING;
+	sportsmen.updateAllTriNormals(); /* For FLAT_SHADING */
+        #if !TEST_SCENE
+	sportsmen.renderMesh(&gv_fb_dev, projMatrix);
+	#endif
+	gv_auxLight.assign(0,0,0);
+#endif
+#if TEST_SCENE  /////////////  Test E3D scene  ///////////
+/* Note: ReftriMesh for instances are NOT listed in E3D_Scene::triMeshList /meshInstanceList here!!!
+         it'is for test ONLY!
+*/
+	myScene.addMeshInstance(boxman);
+	myScene.addMeshInstance(sportsmen);
+	//myScene.addMeshInstance(workMesh);
+	printf(DBG_ORANGE"Render E3D_Scene ...\n"DBG_RESET);
+	myScene.renderScene(&gv_fb_dev, projMatrix);
+	myScene.clearMeshInstanceList(); /* Clear list, for next round */
+#endif
+
 	/* W6a. Render shadow */
 	if(shadow_on) {
 		cout << "Create shadow ..." << endl;
@@ -1453,6 +1529,7 @@ workMesh->shadeType=E3D_FLAT_SHADING;
    	///////////////////////////////  Post_Render  ////////////////////////////////
 
 	/* W13. Update angle */
+	printf("Update angle...\n");
 	angle += (5.0+da); // *MATH_PI/180;
 	frameCount ++;
 
@@ -1508,6 +1585,7 @@ workMesh->shadeType=E3D_FLAT_SHADING;
 
 	/* To keep precision: Suppose it starts with angle==0!  */
 	if( (int)angle >=360 || (int)angle <= -360) {
+		printf("Reset angle...\n");
 		if((int)angle>=360) {
 			angle -=360;
 			if(!loopRender_on)
@@ -1574,6 +1652,7 @@ workMesh->shadeType=E3D_FLAT_SHADING;
 
 	/* W14. Update dvv: Distance from the Focus to the Screen/ViewPlane */
 	if(focalenVarying_on) {
+		printf("Stepping dvv...\n");
 		dvv += dvv*dstep; /* Keep percentage increment */
 		//if( dvv > 1.9*dobj || dvv < 0.1*dobj )
 		if( dvv < 0.1*dobj )
@@ -1636,7 +1715,7 @@ workMesh->shadeType=E3D_FLAT_SHADING;
    	/* 2. Draw wireframe positioned under FB coord, as original obj file if NOT  */
         /* 2.2 Now compute all triangle normals, before draw wireframe(with normal line maybe) */
 	cout<< "Update all triNormals..."<<endl;
-        meshModel.updateAllTriNormals();
+        meshModel.updateAllTriNormals(); /* For FLAT_SHADING */
 	if(reverseNormal)
 		meshModel.reverseAllTriNormals();
 

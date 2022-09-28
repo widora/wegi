@@ -31,7 +31,6 @@ public:
 	float dz;	/* Length at Z direction */
 };
 
-
 /*------------------------------------------
         Class E3D_RtaShpere
     (Derived+Friend Class of E3D_TriMesh)

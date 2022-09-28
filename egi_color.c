@@ -439,6 +439,7 @@ EGI_16BIT_COLOR egi_colorLuma_adjust(EGI_16BIT_COLOR color, int k)
 	//printf("R=%d, G=%d, B=%d  |||  Y=%d, U=%d, V=%d \n",R,G,B,Y,U,V);
 	/* adjust Y, k>0 or k<0 */
 	Y += k; /* (k<<12); */
+#if 0  /* HK2022-09-22 */
 	if(Y<0) {
 		Y=0;
 //		printf("------ Y=%d <0 -------\n",Y);
@@ -447,7 +448,7 @@ EGI_16BIT_COLOR egi_colorLuma_adjust(EGI_16BIT_COLOR color, int k)
 	}
 	else if(Y>255)
 		Y=255;
-
+#endif
 	/* convert YUV back to RBG */
 	R=(Y*4096 + 5765*V -737935)>>12;
 	//printf("R'=0x%03x\n",R);

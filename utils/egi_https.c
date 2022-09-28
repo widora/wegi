@@ -2310,5 +2310,6 @@ CURL_END:
 	curl_slist_free_all(header);
 	curl_global_cleanup();
 
+	EGI_PLOG(LOGLV_CRITICAL,"%s: Curl clean OK!\n",__func__);
 	return ret;
 }

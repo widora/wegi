@@ -46,7 +46,7 @@ int main(int argc, char **argv)
         fb_position_rotate(&fb_dev,0);
 
 
-#if 0   /*  --------------  TEST:  egi_save_FBpng()  ------------- */
+#if 1   /*  --------------  TEST:  egi_save_FBpng()  ------------- */
         /* get time stamp */
         time_t t=time(NULL);
         struct tm *tm=localtime(&t);
@@ -67,7 +67,7 @@ int main(int argc, char **argv)
 #endif
 
 
-#if 1
+#if 0
    /*  --------------  TEST:  egi_save_FBbmp()  ------------- */
         /* get time stamp */
         time_t t=time(NULL);
@@ -88,7 +88,7 @@ int main(int argc, char **argv)
 #endif	/* -------- END TEST  ------- */
 
 
-#if 1   /*  --------------  TEST:  egi_raompic_inwin()  ------------- */
+#if 0   /*  --------------  TEST:  egi_raompic_inwin()  ------------- */
 	if( argc < 2 ) {
 		printf("Usage: %s file\n", argv[0]);
 		exit(-1);

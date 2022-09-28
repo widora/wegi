@@ -314,8 +314,10 @@ int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
 				       int & vtxNormalCount, int & textureVtxCount, int & faceCount);
 
 /* NON_Class Functions:  E3D_ProjMatrix */
-int projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix);
+int projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix);  /* Project points in camera space onto screen */
 int reverse_projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix);
+int mapPointsToNDC(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix); /* map points in camera space to NDC */
+int pointOutFrustumCode(const E3D_Vector &pt); //(float x, float y, float z);
 
 /* Class Friend Functions: Intersection */
 //bool E3D_rayHitTriMesh(const E3D_Ray &rad, const E3D_TriMesh &trimesh, E3D_Vector &vp);
@@ -375,11 +377,13 @@ public:
 		      /* !!!--- Caution for Pointer Memebers ---!!! */
 
 /* Note:
+			!!! --- CAUTION --- !!!
  * 1. For vector application: to assign any pointer member AFTER finishing allocating all vector
- *    intems, such as to avoid releasing those pointers unexpectedly when free and remalloc mem
+ *    items, such as to avoid releasing those pointers unexpectedly when free and remalloc mem
  *    DURING resizing/growing_up the vector capacity.
  *    Example: It triggers to egi_imgbuf_free(img_kd..) when reallocating vecotr mem spaces.
- *
+ * 1A. As operator '=' is NOT overloaded, all pointers will be directly copied though its referred
+ *    mem will NOT! so the underlying mem will be released twice by destructor, and cause segmentation fault.
  * 2. push_back() of a vector WOULD LIKELY to trigger unexpected pointer_free/release.
  *    to avoid above situation, one could DestVector.resize() first to allocate all mem space,
  *    then assign item one by one: DestVector[i]=SrcVector[i].
@@ -491,7 +495,6 @@ class E3D_TriMesh {
 	friend class E3D_RtaSphere;
 
 public:
-
 	/* :: Class Vertex  !!! NO pointer member allowed !!! */
 	class Vertex {
 	public:
@@ -576,7 +579,7 @@ public:
 
 		E3D_Vector	pivot;		/* Pivot/(rotation center) of the TriGroup relative to its superior/parent.
 						 * It also under Object COORD!
-						 * Initially omat.pmat[9-11] == pivot.
+						 * Initially omat.pmat[9-11] == pivot !!! as transform from Object Origin to trigroup local Origin
 						 */
 		//E3D_RTMatrix  pivot;          /* Pivot as matrix, as transform from local COORD to object COORD */
 		/* OK.  translation of omat is same as oxyz */
@@ -609,9 +612,10 @@ public:
 						 *     tf:   Time value, in float.  [0 100]
 						 *     XXX rx ry rz: Rotation RX,RY,RZ in degree.
 						 *     tx ty tz: translation
-						 * 5. Usually omat keeps unchanged before ::transformMesh(VRTmat, ScaleMat). after that
-						 *    omat MUST be adjusted as per VRTmat, in order to apply it in ::renderMesh().
-						 *    omat.pmat[9-11](tx,ty,tz) SHOULD keep unchanged after adjustment.
+						 * 5. Usually omat keeps unchanged before transformMesh(VRTmat, ScaleMat). After transformMesh(),
+						 *    omat MUST be adjusted as per inversed VRTmat since all vertices positions changed.
+						 *    and omat.pmat[9-11](tx,ty,tz) SHOULD keep unchanged after adjustment.
+						 *    ( Use camera transformaton instead of mesh transformation can avoid above adjustment.)
 						 */
 
 		string		name;		/* Name of the sub_object group (of triangles) */
@@ -796,7 +800,10 @@ private:
 					 * Allocate by 'new Triangle[cnt]',  in  E3D_TriMesh()
 					 * Free by 'delete [] triList', in ~E3D_TriMesh()
 					 */
+
 public:
+	int		instanceCount;	/* Instance counter */
+
 	AABB		aabbox;		/* Axially aligned bounding box */
 	//int mcnt;
 //TODO	E3D_RTMatrix    VRTMat;		/* Combined Rotation/Translation Matrix. */
@@ -804,8 +811,16 @@ public:
 					 * 1. Init as identity() in initVars().
 					 * 2. moveAabbCenterToOrigin() will reset objmat.pmat[9-11] all as 0.0!
 					 * ??? Necessary ???  NOW an *.obj file contains only 1 object with N triGroups.
-					 *  OK ,that indicates the object's position under global COORD, in case there are
-					 *   more than 1 objects loaded in then scene.
+					 * XXX OK ,that indicates the object's position under global COORD, in case there are
+					 *    more than 1 objects loaded in then scene.
+					 * 3. NOT necessary in an obj file! it will be stored as VRTMat in an E3D_Scene file,
+					 *    so when the E3D_Scene opens, it first load the obj file, then load the objmat to
+					 *    locate the TriMesh to the scene.
+					 * 4.                   !!! --- CAUTION ---- !!!
+					 *    E3D_TRIMESH.objmat normally SHOULD keep as an identity, and E3D_MeshInstance.objmat
+					 *    prevails in renderMeshInstance() by replacing it with this E3D_TRIMESH.objmat, and then
+					 *    calling E3D_TRIMESH::renderMesh().
+					 *    TODO: NOT good to replace/restore E3D_TRIMESH.objmat in E3D_MeshInstacne::renderMeshInstance().
 					 */
 
 	E3D_Material	defMaterial;	/* Default material:
@@ -844,27 +859,66 @@ public:
 };
 
 
-/*-------------------------------------------------------
-        Class: E3D_Scene
+/*----------------------------------------------
+        Class: E3D_MeshInstance
+Instance of E3D_TriMesh.
+----------------------------------------------*/
+class E3D_MeshInstance {
+public:
+	/* Constructor */
+	E3D_MeshInstance(E3D_TriMesh &refTriMesh);
+	E3D_MeshInstance(E3D_MeshInstance &refInstance);
 
--------------------------------------------------------*/
+	/* Destructor */
+	~E3D_MeshInstance();
+
+	/* Render MeshInstance */
+	void renderInstance(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const;
+
+	/* Reference E3D_TriMesh */
+	E3D_TriMesh & refTriMesh;
+
+	/* objmat matrix for the instance mesh. refTriMesh.objmat to be ignored then! */
+	E3D_RTMatrix objmat;
+
+	/* TriGroup omats. refTriMesh::triGroupList[].omat to be ignored then! */
+	vector<E3D_RTMatrix> omats;
+};
+
+
+/*-------------------------------------------
+              Class: E3D_Scene
+
+-------------------------------------------*/
 class E3D_Scene {
 public:
 	/* Constructor */
 	E3D_Scene();
-
 	/* Destructor. destroy all E3D_TriMesh in TriMeshList[] */
 	~E3D_Scene();
 
 	/* Import .obj into TriMeshList */
 	void importObj(const char *fobj);
+	/* Add instance */
+        void addMeshInstance(E3D_TriMesh &refTriMesh);
+        void addMeshInstance(E3D_MeshInstance &refInstance);
+	/* Clear instance list */
+	void clearMeshInstanceList();
+	/* Render Scene */
+	void renderScene(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const;
 
-	vector<E3D_TriMesh*>  TriMeshList;  /* List of TriMesh */
-	//vector<E3D_RTMatrix>  ObjMatList;   /* Corresponding to each TriMesh::objmat */
 
+	vector<string>  fpathList;	    /* List of fpath to the obj file */
+	vector<E3D_TriMesh*>  triMeshList;  /* List of TriMesh  <--- Pointer --->  */
+	//vector<E3D_RTMatrix>  ObjMatList;   /* Corresponding to each TriMesh::objmat  NOPE! */
+
+	/* Instances List */
+	vector<E3D_MeshInstance*> meshInstanceList; /* List of mesh instances
+						     * Note:
+						     * 1. Each time a fobj is imported, a MeshInstance is added in the list.
+						     */
 	/* TODO: */
 	//List of vLights
-
 private:
 
 };

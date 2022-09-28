@@ -107,6 +107,9 @@ XXX 4. Option to display/hide back faces of meshes.
 
 6.  E3D_TriMesh.projectPoints(): NOW clip whole Tri if any vtx is out of frustum.
 
+7.  For imported TriMesh, its default face normal values(triList[].normal) are all zeros, and result of FLAT_SHADING wil be all BLACK,
+    updateAllTriNormals() to generate face normals.
+
 x. AutoGrow vtxList[] and triList[].
 
 
@@ -307,7 +310,20 @@ Journal:
 2022-09-19:
 	1. Add E3D_TriMesh::Vertex::assign()
 	2. Add E3D_TriMesh::Triangle::assignVtxIndx()
-
+2022-09-21:
+	1. E3D_TriMesh::renderMesh(): Check cases and assign actShadeType before rendering triGroup.
+2022-09-24:
+	1. Add Casll E3D_MeshInstance, and constructor + destructor.
+	2. Add E3D_Scene::meshInstanceList
+2022-09-26:
+	1. Add E3D_MeshInstance::renderInstance()
+2022-09-27:
+	1. Add E3D_Scene::renderScene()
+	2. Add E3D_Scene:addMeshInstance()
+	3. clearMeshInstanceList()
+2022-09-28:
+	1. Add mapPointsToNDC().
+	2. Add pointOutFrustumCode().
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -363,8 +379,8 @@ void E3D_Material::setDefaults()
 	illum=0;
 	d=1.0;
 	//Tr=0.0;
-	//kd.vectorRGB(COLOR_24TO16BITS(0xF0CCA8)); //WEGI_COLOR_PINK); /* Default kd */
-	kd.vectorRGB(COLOR_24TO16BITS(0xE0DCA8));
+	kd.vectorRGB(COLOR_24TO16BITS(0xF0CCA8)); //WEGI_COLOR_PINK); /* Default kd */
+//	kd.vectorRGB(COLOR_24TO16BITS(0xE0DCA8));
 	ka.assign(0.8,0.8,0.8); //ka.vectorRGB(WEGI_COLOR_GRAY2); /* Default ka */
 	ks.assign(0.6,0.6,0.6); //vectorRGB(WEGI_COLOR_GRAY); /* Default ks */
 
@@ -377,6 +393,7 @@ void E3D_Material::setDefaults()
 
 	img_kd=NULL;
 }
+
 
 /*----------------------------
 Print out main vars/paramters
@@ -1546,7 +1563,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
                             pt=strtok(NULL, " ");
                         }
 
-			/* Noticed that omat.[9-11] is pivot.xyz, restore it. */
+			/* Noticed that omat.[9-11] is pivot.xyz, need to restore it. */
 			triGroupList.back().omat.pmat[9]=triGroupList.back().pivot.x;
 			triGroupList.back().omat.pmat[10]=triGroupList.back().pivot.y;
 			triGroupList.back().omat.pmat[11]=triGroupList.back().pivot.z;
@@ -2002,7 +2019,7 @@ Initialize calss variable members.
 void E3D_TriMesh:: initVars()
 {
 /* Init private members: see in E3D_TriMesh() constructors... */
-	vtxList=NULL;  /* Must init. to NULL, in case E3D_TriMesh() fails! HK2022-09-15 */
+	vtxList=NULL;  /* Must init. to NULL, OR segmenation fault in case E3D_TriMesh() fails! HK2022-09-15 */
 	triList=NULL;
 
 /* Init public members */
@@ -2849,6 +2866,90 @@ int reverse_projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & proj
 }
 
 
+/*-----------------------------------------------------
+Map points XYZ to the Normalized Device Coordinates(NDC)
+, and results XYZ are within [-1 1].
+
+Note:
+1. Values of all vpts[] will be updated/projected!
+2. The projection plane_XY is at Z=projMatrix.dv>0,
+   while the Focus point is the Origin(Z=0).
+
+@vpts:		Input vertices/points in Screen COORD.
+@np:		Number of points.
+@projMatrix:	The projection matrix.
+
+Return:
+	0	OK
+	<0	Fails
+-------------------------------------------------------*/
+int mapPointsToNDC(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix)
+{
+	/* 0. Check input */
+	if(np<1)
+	   return -1;
+
+/**  For a symmetricl screen plane, where r=-l and b=-t.
+     The clipping matrix is:
+              [
+                  n/r(=A)       0         0             0
+                   0       n/t(=B)        0             0
+                   0         0   (f+n)/(f-n)(=C)    -2fn/(f-n)(=D)
+                   0         0        1             0
+                                                            ]
+     Then:
+	taken Wc==Ze.
+	[Xc,Yc,Zc,Wc] = CMatrix*([Xe,Ye,Ze,We=1]^T)
+*/
+
+	float xc,yc,zc;	/* clipping coordinates */
+
+	for(int k=0; k<np; k++) {
+		/* Clipping points */
+		xc=vpts[k].x*projMatrix.A;
+		yc=vpts[k].y*projMatrix.B;
+		zc=vpts[k].z*projMatrix.C+projMatrix.D;	/* we=1.0 */
+		//Wc=Ze
+
+		/* NDC points, taken Wc=Ze, then XYZn = XYZc/Ze */
+		vpts[k].x=xc/vpts[k].z;
+		vpts[k].y=yc/vpts[k].z;
+		vpts[k].z=zc/vpts[k].z;  /* !!! At last ze -> zn, vpts[].z updated to be Zn! */
+	}
+
+	return 0;
+}
+
+
+/*----------------------------------------------------
+Return code number for clipping a vertex.
+
+Note:
+1.For E3D, NDC x/y/z is limited within [-1 1].
+
+@pt:	Point under NDC coordinate.
+
+Return:
+       if(code>0), then the point is out of the frustum!
+------------------------------------------------------*/
+int pointOutFrustumCode(const E3D_Vector &pt)
+{
+	int code=0;
+
+	/* Check faces of the frustum */
+	if(pt.x<-1.0) code |= 0x01;
+	else if(pt.x>1.0)  code |= 0x02;
+
+	if(pt.y<-1.0) code |= 0x04;
+	else if(pt.y>1.0)  code |= 0x08;
+
+	if(pt.z<-1.0) code |= 0x10;
+	else if(pt.z>1.0)  code |= 0x20;
+
+	return code;
+}
+
+
 /*-----------------------------------------------------------------------
 Check if the Ray hit the trimesh.
 
@@ -3572,28 +3673,26 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	E3D_Vector  vView(0.0f, 0.0f, 1.0f); 	/* ISO View direction, adusted later if perspective view see 3.R0a. */
 	float	    vProduct;   		/* dot product */
 	EGI_16BIT_COLOR	 vtxColor[3];		/* Triangle 3 vtx color */
-        //Global E3D_Vector gv_auxLight(-1.0,-1.0,1.0); 	/* Auxiliary light */
-	//gv_auxLight.normalize();
 	E3D_Vector upLight(0,1,0);
 	upLight.normalize();
-	int deltLuma;
-	bool BackFacingLight=false;		/* A trimesh is fackfacing to the gv_vLight */
+	float vpd1,vpd2,vpd3;			/* vProdcut for lights */
 
-	bool	    IsBackface=false;		/* Viewing the back side of a Trimesh. */
-//	EGI_16BIT_COLOR	 bkFaceColor=WEGI_COLOR_RED; //DARKRED;  /* Default backface color, if applys. */
-//	E3D_POINT cpt;	    			/* Gravity center of triangle */
+	int deltLuma;
+	bool BackFacingLight=false;	/* A trimesh is fackfacing to the gv_vLight */
+	bool HasVertexNormal=false;	/* If the mesh has vertex normal values. */
+	bool IsBackface=false;		/* Viewing the back side of a Trimesh. */
 
 	/* render color */
 	EGI_16BIT_COLOR color; /* NOW: Diffuse color.  TODO others: ka,ks */
 	/* Material color */
 	EGI_16BIT_COLOR mcolor;
-	//EGI_8BIT_CCODE codeY=egi_color_getY(color);
 	/* Defualt texture map */
 	EGI_IMGBUF *imgKd=NULL; /* NOW: Diffuse map.  TODO others: imgKa, imgKs */
 
 	/* triGroup Material */
 	E3D_Material tgmtl;
 
+	enum E3D_SHADE_TYPE  actShadeType;  /* Final shadeType in rendering a group, NOT shadeType in E3D_TriMesh.shadeType */
 
 	/* RTMatrixes for the Object and TriGroup */
 	E3D_RTMatrix	tgRTMat; //tgRotMat; /* TriGroup RTmatrix, for Pxyz(at TriGroup Coord) * TriGroup--->object */
@@ -3605,31 +3704,41 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	size_t capacity=1024*3; /* capacity for pXYZ*/
 	size_t np;
 	E3D_Vector  vpt;
+	E3D_Vector  tn;
 	E3D_Ray	    vray;
 	int gindx; int tindx;
 	E3D_Vector vphit;     /* hit point on trimesh */
 	E3D_Vector fn;	      /* reflect normal */
 	float dist;
 
-
+	/* Note: For MeshInstance, use MeshInstance::objmat! */
 //	objmat.print("objmat");
 
 	/* drawMeshWire() is diffierent from here in case E3D_WIRE_FRAMING */
 	// drawMeshWire(fbdev, projMatrix); return;
 
-	/* Shading type */
+	/* Actual shading type */
+	actShadeType=shadeType;
+
 	const char *strShadeSub=NULL;
 	if(shadeType==E3D_GOURAUD_SHADING) {
 	        if(vtxList[ triList[i].vtx[0].index ].normal.isZero()==false) {
+			//Each vertex has different normal value for different triangle it belongs.
+			HasVertexNormal=true;
 		}
-		else if(triList[i].vtx[0].vn.isZero()==false) {
+		else if(triList[i].vtx[0].vn.isZero()==false) {  /* In case vertices are NOT merged yet */
+			//Each vertex of a triangle has normal values.
+			HasVertexNormal=true;
 		}
 		else {
+			HasVertexNormal=false;
+			actShadeType=E3D_FLAT_SHADING;
+
 			strShadeSub="--->FLAT_SHADING";
 			//Apply FLAT_SHADING
+			egi_dpstd(DBG_GREEN"Do %s%s\n"DBG_RESET,E3D_ShadeTypeName[shadeType], strShadeSub);
 		}
 	}
-	egi_dpstd(DBG_GREEN"Do %s%s\n"DBG_RESET,E3D_ShadeTypeName[shadeType], strShadeSub);
 
 	/* -------TEST: Project to Z plane, Draw X,Y only */
 	for(n=0; n<triGroupList.size(); n++) {  /* Traverse all Trigroups */
@@ -3648,24 +3757,39 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		printf("with defMaterial, ...\n");
 		mcolor=defMaterial.kd.color16Bits(); /* Diffuse color */
 	    	imgKd = defMaterial.img_kd;
-		tgmtl=defMaterial;
+
+		tgmtl=defMaterial;  /* TODO operator '=' is NOT overloaded, see P3.  */
 	    }
 	    /* 1.2 triGroupList[n].mtlID>=0 && mtlList[].img_kd==NULL */
 	    else if( mtlList[ triGroupList[n].mtlID ].img_kd ==NULL ) { /* MidasHK_2022_01_07 */
-		printf("triGroupList[n].mtlID =%d, img_kd==NULL! use Kd color. \n", triGroupList[n].mtlID);
+		printf("triGroupList[n].mtlID =%d, img_kd==NULL! use Kd color or tgmtl. \n", triGroupList[n].mtlID);
 		mcolor=mtlList[ triGroupList[n].mtlID ].kd.color16Bits();
 		imgKd = defMaterial.img_kd;
 		//imgKd = textureImg; /* In case USER scale_update meshModel.textureImg! instead of defMaterial.img_kd!! */
-		tgmtl = mtlList[ triGroupList[n].mtlID ];
+
+		tgmtl = mtlList[ triGroupList[n].mtlID ]; /* TODO: operator '=' is NOT overloaded, see P3.  */
 	    }
 	    /* 1.3 triGroupList[n].mtlID>=0 && mtlList[].img_kd!=NULL */
 	    else {
 		printf("with material mtlList[%d] ...\n", triGroupList[n].mtlID);
 		mcolor=mtlList[ triGroupList[n].mtlID ].kd.color16Bits();
 		imgKd=mtlList[ triGroupList[n].mtlID ].img_kd;
-		tgmtl = mtlList[ triGroupList[n].mtlID ];
+
+		tgmtl = mtlList[ triGroupList[n].mtlID ];  /* TODO: operator '=' is NOT overloaded, see P3.  */
 	    }
 
+	    /* 1A. Reset actShadeType for TEXTURE_MAPPING */
+	    if( shadeType==E3D_TEXTURE_MAPPING ) {
+		if( imgKd==NULL || triGroupList[n].ignoreTexture ) {
+			if(HasVertexNormal)
+				actShadeType=E3D_GOURAUD_SHADING;
+			else
+				actShadeType=E3D_FLAT_SHADING;
+		}
+		else if(imgKd!=NULL)
+			actShadeType=E3D_TEXTURE_MAPPING;
+	    }
+	    egi_dpstd("Reset actShadeType to %s\n", E3D_ShadeTypeName[actShadeType]);
 
 	    /* 2. Extract TriGroup rotation matrix and rotation pivot */
 
@@ -3731,7 +3855,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			else if(triGroupList[n].backFaceOn)
 				egi_dpstd(DBG_GREEN"triGroupList[%d].backFaceOn!\n"DBG_RESET, n);
 
-			/* Flip vProduct and trinormal */
+			/* To flip vProduct and trinormal */
 		}
 		else {
 			IsBackface=false;
@@ -3798,10 +3922,11 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		/* TODO: For draw_filled_triangleX(..., float z0, z1,z2), suppose that Z values are not affected by projection! */
 
 		/* 8.R5. Draw triangles with specified shading type. */
-		switch( shadeType ) {
+		switch( actShadeType ) {
 		   case E3D_FLAT_SHADING:
-#if 0  ////////////////////////////////
-    #if 0
+
+#if 0  ///////////////////////// Demo lighting
+    #if 0  ////////////// NO gv_auxLight
 			/* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo. */
 			vProduct=gv_vLight*trinormal; //(triList[i].normal*nvRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
 
@@ -3823,10 +3948,10 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 				vProduct=-vProduct;
 				BackFacingLight=false;
 			}
-   #elif 0
+   #elif 1  ////////// gv_auxLight ON
 			{
-			      		float vpd1=gv_vLight*trinormal;
-					float vpd2=0.5*gv_auxLight*trinormal;
+			      		vpd1=gv_vLight*trinormal;
+					vpd2=0.5*gv_auxLight*trinormal;
 
 					/* normal flips for backface */
 					if(IsBackface) {
@@ -3861,11 +3986,12 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			//fbdev->lumadelt=(vProduct-1.0f)*240.0) +50; /* MUST reset later */
 			//egi_dpstd("vProduct: %e, LumaY: %d\n", vProduct, (unsigned int)egi_color_getY(fbdev->pixcolor));
 
-#endif //////////////////////////////////
-
+#else //////////////////// Lighting Computation: Ca Cd Cs
 
 			/* Compute lighting to get color */
-			fbdev->pixcolor=E3D_seeColor(tgmtl, trinormal, 0); /* material, normal, view, dl */
+			fbdev->pixcolor=E3D_seeColor(tgmtl, trinormal, 0); /* material, normal, dl */
+
+#endif /////////////////////////////////
 
 			#if 0 /* Fill the TriFace */
 			draw_filled_triangle(fbdev, pts);
@@ -3916,8 +4042,8 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 
 				     #else /* With gv_auxLight */
 					E3D_Vector tnv=vtxList[ triList[i].vtx[k].index ].normal*nvRotMat;
-					float vpd1=gv_vLight*tnv;
-					float vpd2=0.5*gv_auxLight*tnv;
+					vpd1=gv_vLight*tnv;
+					vpd2=0.5*gv_auxLight*tnv;
 
 					/* Backfacing to the main gv_vLight */
 					if(vpd1 > -VPRODUCT_NEARZERO)
@@ -3961,8 +4087,8 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			   	else if(triList[i].vtx[0].vn.isZero()==false) {
 				   //egi_dpstd("Case_B\n");
 				   for(k=0; k<3; k++) {
-					float vpd1=gv_vLight*((triList[i].vtx[k].vn)*nvRotMat);
-					float vpd2=0.5*gv_auxLight*((triList[i].vtx[k].vn)*nvRotMat);
+					vpd1=gv_vLight*((triList[i].vtx[k].vn)*nvRotMat);
+					vpd2=0.5*gv_auxLight*((triList[i].vtx[k].vn)*nvRotMat);
 
 					/* Backfacing to the main gv_vLight */
 					if(vpd1 > -VPRODUCT_NEARZERO)
@@ -4007,8 +4133,8 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 				else {
 				   egi_dpstd("Case_C\n");
 			      		//vProduct=gv_vLight*((triList[i].normal)*nvRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
-			      		float vpd1=gv_vLight*(triList[i].normal*nvRotMat);
-					float vpd2=0.5*gv_auxLight*(triList[i].normal*nvRotMat);
+			      		vpd1=gv_vLight*(triList[i].normal*nvRotMat);
+					vpd2=0.5*gv_auxLight*(triList[i].normal*nvRotMat);
 
 					/* normal flips for backface */
 					if(IsBackface) {
@@ -4112,7 +4238,9 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			#endif
 			break;
 		   case E3D_TEXTURE_MAPPING:
+
 			/* Note: If backFaceOn, then backface texutre is also SAME as frontface texture. */
+#if 0 ///////////////  This case is picked out and it goes to case E3D_FLAT_SHADING, see 1A.  ////////////////////
 			/* IF: No texture, apply E3D_FLAT_SHADING then */
 			if( imgKd==NULL || triGroupList[n].ignoreTexture ) {  // textureImg==NULL ) { textureImg assigned to defMaterial.img_kd
 			   /* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo. */
@@ -4147,8 +4275,11 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 
 			}
 			/* ELSE: Apply texture map */
-			else {
+			else
+#endif  //////////////////////////////////////////////////////////
+		 /*  Keep/Need this braced block, to define local variables of vpd1,vpd2,vpd3  */
 			   /* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo.  */
+
 		       #if 0  /* NO auxiliary light */
 			   vProduct=gv_vLight*(triList[i].normal*nvRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
 			   /* If Backfacing to gv_vLight */
@@ -4161,17 +4292,18 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 				BackFacingLight=false;
 			   }
 		       #else /* Use auxiliary light */
-			   E3D_Vector tn=triList[i].normal*nvRotMat;
+			   tn=triList[i].normal*nvRotMat;
+
 
 			   /* Normal flips for backface */
 		   	   if(IsBackface) tn=-tn;
 
-			   float vpd1=gv_vLight*tn;
-			   float vpd2=0.6*gv_auxLight*tn;
-			   float vpd3=0.25*upLight*tn;
+			   vpd1=gv_vLight*tn;
+			   vpd2=0.6*gv_auxLight*tn;
+			   vpd3=0.25*upLight*tn;
 
 			   /* Get main vProduct */
-			   vProduct=mat_min3f(vpd1,vpd2,vpd3);
+			   vProduct=mat_min3f(vpd1, vpd2, vpd3);
 
 			   /* If Backfacing to gv_vLight */
 			   if( vProduct > -VPRODUCT_NEARZERO ) {
@@ -4227,6 +4359,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
         	                        pts[2].x, pts[2].y
                 	        );
 				#else /* with z0,z1,z2 */
+				egi_dpstd("mapTriWriteFB3...\n");
 		        	egi_imgbuf_mapTriWriteFB3(imgKd, fbdev,
 					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2, z0,z1,z2 */
         	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,  /* 1.0-x: Adjust uv ORIGIN */
@@ -4240,13 +4373,13 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
                 	        );
 				#endif
 			  #endif
-			}
 
 			/* Reset lumadelt */
 			fbdev->lumadelt=0;
 			break;
 
 		   default:
+			egi_dpstd("actShadeType: %d\n", actShadeType);
 			break;
 
 		} /* End switch */
@@ -4301,6 +4434,7 @@ if( testRayTracing==true &&  BackFacingLight==false
 			/* Pick out pixels out of screen */
 			if(vpt.x>fbdev->pos_xres || vpt.x<0.0 || vpt.y>fbdev->pos_yres || vpt.y<0.0 )
 				continue;
+
 
 			/* Reverse_project vpt from screen to object: TODO: some error here caused by integer type pixz */
 	                if( reverse_projectPoints(&vpt, 1, projMatrix) !=0 ) {
@@ -4390,11 +4524,14 @@ if( testRayTracing==true &&  BackFacingLight==false
 	}
 	#endif
 
-	/* Restore pixcolor */
+	/* P1. Restore pixcolor */
 	fbset_color2(&gv_fb_dev, color);
 
-	/* Free */
+	/* P2. Free */
 	free(pXYZ);
+
+	/* P3. TODO:  reset tgmtl.img_kd to NULL, NOT the Ownership */
+	tgmtl.img_kd=NULL;
 }
 
 
@@ -5096,25 +5233,112 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh &smesh, float r)
 }
 
 
-        /*------------------------------------
-            Class E3D_Scene :: Functions
-        -------------------------------------*/
+		 /*----------------------------------------------
+       		        Class E3D_MeshInstance :: Functions
+			      Instance of E3D_TriMesh.
+		 ----------------------------------------------*/
 
 /*-------------------------
-The constructor.
+      The constructor.
+--------------------------*/
+E3D_MeshInstance::E3D_MeshInstance(E3D_TriMesh &triMesh) :refTriMesh(triMesh)
+{
+	/* Init instance objmat */
+	objmat=refTriMesh.objmat;
+
+	/* Init instance omats */
+	for(unsigned int k=0; k<refTriMesh.triGroupList.size(); k++)
+		omats.push_back(refTriMesh.triGroupList[k].omat);
+
+	/* Increase counter */
+	refTriMesh.instanceCount += 1;
+
+	egi_dpstd("A MeshInstance is added!\n");
+}
+
+E3D_MeshInstance::E3D_MeshInstance(E3D_MeshInstance &refInstance) :refTriMesh(refInstance.refTriMesh)
+{
+	/* Get refTriMesh */
+	//refTriMesh=refInstance.refTriMesh; A reference member MUST be initialized in the initializer list.
+
+	/* Init instance objmat */
+	objmat=refInstance.objmat;
+
+	/* Init instance omats */
+	for(unsigned int k=0; k<refInstance.omats.size(); k++)
+		omats.push_back(refInstance.omats[k]);
+
+	/* Increase counter */
+	refInstance.refTriMesh.instanceCount += 1;
+
+	egi_dpstd("A MeshInstance is added!\n");
+}
+
+/*-------------------------
+      The destructor.
+--------------------------*/
+E3D_MeshInstance:: ~E3D_MeshInstance()
+{
+	/* Decrease counter */
+	refTriMesh.instanceCount -= 1;
+}
+
+
+/*--------------------------------------------------------------------------
+Render MeshInstance.
+
+Note:
+1. MeshInstance.objmat prevails in renderInstance() by replacing it
+   with this E3D_TRIMESH.objmat, and then calling E3D_TRIMESH::renderMesh().
+
+TODO:
+1. It's BAD to replace and restore refTriMesh.objmat.
+   and this function SHOULD be a whole and complete rendering function instead
+   of calling renderMesh().
+2. E3D_MeshInstance.omats NOT applied yet.
+
+@fbdev:	       Pointer to FBDEV
+@projMatrix:   Projection Matrix.
+---------------------------------------------------------------------------*/
+void E3D_MeshInstance::renderInstance(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
+{
+	/* Replace refTriMesh.objmat with  */
+	E3D_RTMatrix tmpMat=refTriMesh.objmat;
+	refTriMesh.objmat=this->objmat;
+
+	/* TODO: E3D_MeshInstance.omats NOT applied yet. */
+
+	/* Call renderTriMesh.*/
+	refTriMesh.renderMesh(fbdev, projMatrix);
+
+	/* Restore refTriMesh.obj */
+	refTriMesh.objmat=tmpMat;
+}
+
+
+        	/*------------------------------------
+            	    Class E3D_Scene :: Functions
+        	-------------------------------------*/
+
+/*-------------------------
+      The constructor.
 --------------------------*/
 E3D_Scene::E3D_Scene()
 {
 }
 
 /*-------------------------
-The destructor.
+      The destructor.
 --------------------------*/
 E3D_Scene::~E3D_Scene()
 {
 	/* delete mechanism will ensure ~E3D_TriMesh() be called for each item.  */
-	for(unsigned int i=0; i<TriMeshList.size(); i++)
-	    delete TriMeshList[i];
+	for(unsigned int i=0; i<triMeshList.size(); i++) {
+	    delete triMeshList[i];
+	    //NOT necessary for ::fpathList[]
+
+	    delete meshInstanceList[i];
+	}
 }
 
 /*----------------------------------------------
@@ -5128,9 +5352,75 @@ void E3D_Scene::importObj(const char *fobj)
 	E3D_TriMesh *trimesh = new E3D_TriMesh(fobj);
 
 	/* fobj file may be corrupted. */
-	if( trimesh->vtxCount() >0)
-		TriMeshList.push_back(trimesh);
+	if( trimesh->vtxCount() >0) {
+		/* Push to triMeshList */
+		triMeshList.push_back(trimesh);
+		/* Push to fpathList */
+		fpathList.push_back(fobj);
 
+		/* Create an instance and push to meshInstanceList */
+		E3D_MeshInstance *meshInstance = new E3D_MeshInstance(*trimesh);
+		meshInstanceList.push_back(meshInstance);
+	}
+	else {
+		egi_dpstd(DBG_RED"Fail to import obj file '%s'!\n"DBG_RESET, fobj);
+		delete trimesh;
+	}
+}
+
+/*-------------------------------------------------------------
+Add mesh instance to the list.
+
+    	     !!! --- CAUTION --- !!!
+
+The refTriMesh OR refInstance MUST all in E3D_Scene::triMeshList
+/meshInstanceList!
+---------------------------------------------------------------*/
+void E3D_Scene::addMeshInstance(E3D_TriMesh &refTriMesh)
+{
+	E3D_MeshInstance *meshInstance = new E3D_MeshInstance(refTriMesh); /* refTriMesh counter increased */
+	meshInstanceList.push_back(meshInstance);
+
+}
+void E3D_Scene::addMeshInstance(E3D_MeshInstance &refInstance)
+{
+	E3D_MeshInstance *meshInstance = new E3D_MeshInstance(refInstance); /* refInstance counter increase */
+	meshInstanceList.push_back(meshInstance);
+}
+
+/*--------------------------------------
+Clear meshInstanceList[]
+--------------------------------------*/
+void E3D_Scene::clearMeshInstanceList()
+{
+	/* Clear list item. */
+	for(unsigned int k=0; k<meshInstanceList.size(); k++) {
+			/* Decreased instance counter */
+			meshInstanceList.back()->refTriMesh.instanceCount -=1;
+			/* Free mem */
+			delete meshInstanceList.back();
+	}
+
+	/* Clear list */
+	meshInstanceList.clear();
+}
+
+
+/*----------------------------------------------
+Render each mesh in the scene, and apply lights
+/settings.
+----------------------------------------------*/
+void E3D_Scene::renderScene(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
+{
+	/* Lights/setting preparation */
+
+	/* Render each instance in the list */
+	for(unsigned int k=0; k< meshInstanceList.size(); k++) {
+		/* Clip Instance, and exclude instances which are out of the frustrum. */
+
+		/* Render instance */
+		meshInstanceList[k]->renderInstance(fbdev, projMatrix);
+	}
 }
 
 
@@ -5531,12 +5821,15 @@ void E3D_draw_coordNavIcon2D(FBDEV *fbdev, int size, const E3D_RTMatrix &RTmatri
 /*-----------------------------------------------------------------
 Compute lightings to get the color as we finally see.
 
+Note:
+1. All vectors in lighting model are unit vectors.
+
 TODO:
 E3D_Lighting
 
 @mtl:		Surface material.
 @normal:	Surface normal. (Unit Vector)
-@view:		View direction, from object to eye! (Unit Vector)
+//@view:		View direction, from object to eye! (Unit Vector)
 @dl:		Distance from lighting source to the pixel.
 
 Return:
@@ -5558,41 +5851,65 @@ EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, 
 	/* Attenuation factor for light intensity */
 	float atten=0.75;  /* TODO */
 
-	/* Component 1: Phong specular reflection  Cs=max(v*r,0)^mgls*Ss(x)Ms */
-	E3D_Vector Cs;
+	/* Lighting models: Phong Reflection Model */
 	float mgls=5.0; /* glossiness, smaller for wider and brighter */
+	E3D_Vector Cs,Cd,Ca;	/* Components */
+	E3D_Vector Cres; 	/* Compound */
+	E3D_Vector rf; /* Light Refection vector, mirror of toLight along normal. */
+
+	/* Final RGB */
+	//uint8_t R=0,G=0,B=0;
+	int R=0,G=0,B=0;
+
+   for(int i=0; i<2; i++) {
+	/* Vector to Light */
+	if(i==0)
+	     toLight=-gv_vLight;
+	else
+	     toLight=-0.75*gv_auxLight;
+
+	/* Init as zeros */
+	Cs.zero(); Cd.zero(); Ca.zero();
+
+//     if(i==0) { /* Once only */
+	/* Component 1: Phong specular reflection  Cs=max(v*r,0)^mgls*Ss(x)Ms */
 	/* Light Refection vector, mirror of toLight along normal. */
-	E3D_Vector rf=2*(normal*toLight)*normal-toLight;
+	rf=2*(normal*toLight)*normal-toLight;
 	Cs=powf(fmaxf(toView*rf, 0.0), mgls)*Ss;
 	Cs.x=Cs.x*mtl.ks.x;
 	Cs.y=Cs.y*mtl.ks.y;
 	Cs.z=Cs.z*mtl.ks.z;
-
+//     }
 	/* Component 2: Diffuse reflection  Cd=(n*l)*Sd(x)Md */
-	E3D_Vector Cd;
 	Cd=fmaxf(normal*toLight,0.0)*Sd;  /* Light direction here is from obj to light source! */
 	Cd.x=Cd.x*mtl.kd.x;
 	Cd.y=Cd.y*mtl.kd.y;
 	Cd.z=Cd.z*mtl.kd.z;
 //	Cd.print("Cd");
 
+     if(i==0) {  /* Once only */
 	/* Component 3: Ambient reflection Ca=gamb(x)Ma */
-	E3D_Vector Ca;
 	Ca.x=gv_ambLight.x*mtl.ka.x;
 	Ca.y=gv_ambLight.y*mtl.ka.y;
 	Ca.z=gv_ambLight.z*mtl.ka.z;
 //	Ca.print("Ca");
+     }
 
 	/* Result */
-	//E3D_Vector Cres=atten*Cs;
-	//E3D_Vector Cres=atten*Cd;
-	//E3D_Vector Cres=Ca;
-	E3D_Vector Cres=atten*(Cs+Cd)+Ca;
+	//Cres=atten*Cs;
+	//Cres=atten*Cd;
+	//Cres=Ca;
+	Cres=atten*(Cs+Cd)+Ca;
 
-	int R=roundf(Cres.x*255); if(R>255)R=255; else if(R<0)R=0;
-	int G=roundf(Cres.y*255); if(G>255)G=255; else if(G<0)G=0;
-	int B=roundf(Cres.z*255); if(B>255)B=255; else if(B<0)B=0;
-//	egi_dpstd("seecolor: R%dG%dB%d\n", R,G,B);
+	//uint8_t  R=roundf(Cres.x*255); G=roundf(Cres.y*255); B=roundf(Cres.z*255);
+	R+=roundf(Cres.x*255); if(R>255)R=255; else if(R<0)R=0;
+	G+=roundf(Cres.y*255); if(G>255)G=255; else if(G<0)G=0;
+	B+=roundf(Cres.z*255); if(B>255)B=255; else if(B<0)B=0;
+	//egi_dpstd("seecolor: RGB 0x%02X%02X%02X\n", R,G,B);
+
+   } /* END for()*/
 
 	return COLOR_RGB_TO16BITS(R,G,B);
 }
+
+

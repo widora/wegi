@@ -53,6 +53,8 @@ TODO:
    playing two segments, for it's too long time for downloading a segment?
 3. If too big timeout value, then ignore following items and skip to NEXT m3u8 list.
 4. TODO: mem leakage.
+5. egi_append_file() cause segmentation fault if it's Read-only file system.?
+6. tm_get_strtime2() cause curl error and segmentation fault?
 
 Journal:
 2021-09-29:
@@ -84,6 +86,7 @@ Journal:
 2022-07-28:
 	1. Check start of a new round of program.
 	2. Get sublist from Master List.
+2022-09-23: Add option 'l' for loop playing VOD.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -132,6 +135,9 @@ int tss;		/* Start playing from index number tss of the list. (skipping tss segm
 
 #define TMP_KEY_FPATH  "/tmp/ts_aesKey.dat"
 
+/* Loop playing VOD */
+bool loopVOD=false;
+
 /* #EXT-X-PLAYLIST-TYPE:VOD */
 bool isVOD;	 /* NOTE: sometimes VOD tags is missing, so use isEndList instead. */
 /* #EXT-X-ENDLIST */
@@ -158,6 +164,7 @@ void print_help(const char* cmd)
 {
         printf("Usage: %s [-hn:m:s:] file\n", cmd);
         printf("        -h   This Help \n");
+	printf("	-l   Loop playing VOD\n");
         printf("        -n:  Threads to download a file, Default 1. Ineffective if -m option is set.\n");
         printf("        -m:  To download m files simultaneously, one thread for one file. min=2.\n");
         printf("        -s:  Skip first N segments in the list.\n");
@@ -174,12 +181,15 @@ int main(int argc, char **argv)
 	char buff[CURL_RETDATA_BUFF_SIZE];
 	int opt;
 	char *argURL;
-        while( (opt=getopt(argc,argv,"hn:m:s:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hln:m:s:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
 				print_help( argv[0]);
                                 exit(0);
                                 break;
+			case 'l':
+				loopVOD=true;
+				break;
                         case 'n':
                                 nthreads=atoi(optarg);
 				if(nthreads<1)
@@ -234,7 +244,9 @@ int main(int argc, char **argv)
 	printf("protocolName: %s\n hostName: %s\n dirULR: %s\n", protocolName,hostName,dirURL);
 #endif
 
-
+         char tmbuf[128];
+         tm_get_strtime2(tmbuf, " <---- Start Playing... --->\n");
+         egi_append_file("/mmc/test_http.log", tmbuf, strlen(tmbuf));
 
 while(1) {
 	/* Reset buff */
@@ -268,8 +280,12 @@ while(1) {
 
 	/* Check ENDLIST, Sometimes VOD tag is missing.  */
 	if(isEndList) {
-		system("echo  ----Endlist--- >>/mmc/test_http.log");
-		break;
+		char tmbuf[128];
+		tm_get_strtime2(tmbuf, " <----End list---> ");
+		egi_append_file("/mmc/test_http.log", tmbuf, strlen(tmbuf));
+		//system("echo  ----Endlist--- >>/mmc/test_http.log");
+
+		if(!loopVOD) break;
 	}
 
 	/* Sleep of TARGETDURATION --- If too small, it will fetch the same segment? */
@@ -424,10 +440,17 @@ void parse_m3u8list(char *strm3u)
 
 	/* 3. Get startIndx of mlist->msURI[], to succeed the last played segment. */
 	if(mlist->seqnum==0) {
-
+		       printf("mlist->seqnum==0\n");
 #if 1 /* TEST: ------------------ */
+		#if 1
+		        EGI_PLOG(LOGLV_CRITICAL,"<---- New Round ---->");
 			const char *strnote="<----- New round ----->\n";
 			egi_append_file("/mmc/test_http.log", (void*)strnote, strlen(strnote));
+		#else  /* TODO: Segfault */
+			char tmbuf[128];
+			tm_get_strtime2(tmbuf, " <---- New round --->\n");
+			egi_append_file("/mmc/test_http.log", tmbuf, strlen(tmbuf));
+		#endif
 			egi_append_file("/mmc/test_http.log", strm3u, strlen(strm3u));
 			egi_append_file("/mmc/test_http.log", "\n", 1);
 #endif
@@ -607,10 +630,13 @@ CHECK_BUFF_FILES:	/* 4.2.4 Check and download buffer files */
 
 					if(Is_TS)  {
 					    /* Decrypt file, mURL_Download already decrypted. */
-					    if(mlist->keyURI[0]!=NULL && !Enable_mURL_Download)
+					    if(mlist->keyURI[0]!=NULL && !Enable_mURL_Download) {
+						  printf("Start decrypt a.ts...\n");
 						  decrypt_file("/tmp/a.ts", TMP_KEY_FPATH, mlist->strIV[k]);
+					    }
 
 					    /* Extract AAC from TS */
+					    printf("Start extract AV from ts...\n");
 					    egi_extract_AV_from_ts("/tmp/a.ts", "/tmp/a._aac", "/tmp/a._h264");
 					}
 
