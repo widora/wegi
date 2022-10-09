@@ -82,6 +82,8 @@ Journal
 	1. Add egi_URI2URL().
 2022-07-28:
 	1. m3u_parse_simple_HLS(): make a copy of input string, and keep input string intact.
+2022-09-29:
+	1. Add cstr_get_pathFileName()
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -351,6 +353,41 @@ Return:
 int cstr_compare_dictOrder(const char *str1, const char *str2, size_t len)
 {
 	return 0;
+}
+
+/*----------------------------------------------
+Pointer to the last item from the path, and assume
+it's the file name!
+
+@path: A path string including a file name at last.
+
+Return:
+	NULL
+	Pointer to the file name.
+----------------------------------------------*/
+char *cstr_get_pathFileName(const char *path)
+{
+	int k;
+	size_t len;
+
+	if(path==NULL)
+		return NULL;
+
+	/* Get length */
+	len=strlen(path);
+
+	/* If no file name at last */
+	if(path[len-1]=='/')
+		return NULL;
+
+	/* Search last '/' in the path */
+	for(k=len-1; k>=0; k--) {
+		if(path[k]=='/')
+			return (char *)path+k+1;
+	}
+
+	/* Only file name in the path */
+	return  (char *)path;
 }
 
 

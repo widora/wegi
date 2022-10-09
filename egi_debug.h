@@ -102,6 +102,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
   #define DBG_FUCHSIA    "\e[38;5;13;48;5;0m"
   #define DBG_ORANGE     "\e[38;5;214;48;5;0m"
   #define DBG_PURPLE     "\e[38;5;93;48;5;0m"
+  #define DBG_ORCHID	 "\e[38;5;170;48;5;0m"
 #endif
 #define DBG_RESET	"\e[0m"		/* Reset color to default */
 

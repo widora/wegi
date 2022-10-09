@@ -22,7 +22,7 @@ Journal:
 2021-08-11:
 	1. Add E3D_Vector operator * (const E3D_Vector &va, const E3D_RTMatrix  &ma)
 2021-08-18:
-	1. Add struct E3D_ProjectFrustum, as E3D_ProjMatrix.
+	1. Add struct E3D_ProjectFrustum, as E3DS_ProjMatrix.
 
 2021-08-19:
 	1. Add E3D_draw_circle(),  +E3D_draw_line().
@@ -70,6 +70,8 @@ Journal:
 2022-09-11:
 	1. Add E3D_Vector::addTranslation( float dx, float dy, float dz )
 	2. Add E3D_InitProjMatrix();
+2022-10-02:
+	1. Add E3D_RecomputeProjMatrix()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -1681,10 +1683,10 @@ void E3D_combExtriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix & R
 /////////////////////////   Projection Matrix   /////////////////////////
 
 /*---------------------------------------------------------
-Initialize an E3D_ProjMatrix struct with given parameters.
+Initialize an E3DS_ProjMatrix struct with given parameters.
 
 ----------------------------------------------------------*/
-void E3D_InitProjMatrix(E3D_ProjMatrix &projMatrix, int type, int winW, int winH, int dnear, int dfar, int dv)
+void E3D_InitProjMatrix(E3DS_ProjMatrix &projMatrix, int type, int winW, int winH, int dnear, int dfar, int dv)
 {
 	/* Init with input parameters */
 	projMatrix.type  =type;
@@ -1694,18 +1696,29 @@ void E3D_InitProjMatrix(E3D_ProjMatrix &projMatrix, int type, int winW, int winH
 	projMatrix.dfar  =dfar;
 	projMatrix.dv    =dv;
 
-	/* Init as symmetrical screen, for r,l,t,b */
+	/* Init as symmetrical screen for view frustum, for r,l,t,b */
 	projMatrix.r  =-winW/2.0;
 	projMatrix.l  =winW/2.0;
 	projMatrix.t  =winH/2.0;
 	projMatrix.b  =-winH/2.0;
 
-	/* Clipping Matrix items, for symmetrical screen */
-	projMatrix.A =projMatrix.dnear/projMatrix.r;
-        projMatrix.B =projMatrix.dnear/projMatrix.t;
-        projMatrix.C =(projMatrix.dfar+projMatrix.dnear)/(projMatrix.dfar-projMatrix.dnear);
-        projMatrix.D =-2.0*projMatrix.dfar*projMatrix.dnear/(projMatrix.dfar-projMatrix.dnear);
+	/* Clipping Matrix items for PERSPECTIVE view frustum , for symmetrical screen */
+	projMatrix.A =1.0*projMatrix.dnear/projMatrix.r;
+        projMatrix.B =1.0*projMatrix.dnear/projMatrix.t;
+        projMatrix.C =((float)projMatrix.dfar+projMatrix.dnear)/((float)projMatrix.dfar-projMatrix.dnear);
+        projMatrix.D =-2.0*projMatrix.dfar*projMatrix.dnear/((float)projMatrix.dfar-projMatrix.dnear);
 
 }
 
-
+/*---------------------------------------------------
+Recompute Clipping matrix items A,B,C,D... if any
+paramter(such as dv) changes.
+--------------------------------------------------*/
+void E3D_RecomputeProjMatrix(E3DS_ProjMatrix &projMatrix)
+{
+        /* Clipping Matrix items for PERSPECTIVE view frustum , for symmetrical screen */
+        projMatrix.A =1.0*projMatrix.dnear/projMatrix.r;
+        projMatrix.B =1.0*projMatrix.dnear/projMatrix.t;
+        projMatrix.C =((float)projMatrix.dfar+projMatrix.dnear)/((float)projMatrix.dfar-projMatrix.dnear);
+        projMatrix.D =-2.0*projMatrix.dfar*projMatrix.dnear/((float)projMatrix.dfar-projMatrix.dnear);
+}

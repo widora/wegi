@@ -308,10 +308,11 @@ using namespace std;
 
 #define MOTION_FILE  "/mmc/mesh.motion"
 
-#define TEST_SCENE	   1  /* ONLY when TEST_MESHINSTANCE==0 and TEST_MULTIOBJ==1 */
+//Option '-i': Test view_frustum near plane clipping
+#define TEST_SCENE	   0  /* TEST E3D_Scene rendering, ONLY when TEST_MESHINSTANCE==0 and TEST_MULTIOBJ==1 */
 #define TEST_MESHINSTANCE  0
 
-#define TEST_MULTIOBJ	   1  /* ONLY if !TEST_SCENE */
+#define TEST_MULTIOBJ	   0  /* ONLY if !TEST_SCENE. Load/render boxman and sportsman  */
 #define TEST_MTXT_TEXTURE  0
 #define TEST_VLIGHTING	   0
 
@@ -320,8 +321,9 @@ const UFT8_PCHAR ustr=(UFT8_PCHAR)"Hello_World! 世界你好!\n12345 子丑寅�
 
 void print_help(const char *name)
 {
-	printf("Usage: %s obj_file [-hrbBDGmNRSPVLWCwbtclFf:s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
+	printf("Usage: %s obj_file [-hirbBDGmNRSPVLWCwbtclFf:s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
 	printf("-h     Help\n");
+	printf("-i     Test view_frustum near plane clipping\n");
 	printf("-r     Reverse trianlge normals\n");
 	printf("-B     Display back faces with default color, OR texture for back faces also.\n");
 	printf("-D     Show mesh detail statistics and other info.\n");
@@ -353,7 +355,7 @@ void print_help(const char *name)
 	printf("-Z:    Z delta angle for display\n");
 	printf("-T:    Texture image file(jpg,png).\n");
 	printf("-f:    Texture resize factor.\n");
-	printf("-a:    delt angle for each move/rotation. angle += (5.0+da) \n");
+	printf("-a:    delt angle for each move/rotation. angle += (5.0+da) \n If with '-i', then it is clipping step with percentage of dobj");
 	printf("-p:    Pause mseconds\n");
         exit(0);
 }
@@ -367,6 +369,7 @@ int main(int argc, char **argv)
 	int i;
         int             vertexCount=0;
         int             triangleCount=0;
+	int		RenderTriCnt;	 /* Actual triangles rendered */
 
 	E3D_TriMesh *TriMeshList[2]={NULL,NULL};
 
@@ -383,6 +386,7 @@ int main(int argc, char **argv)
 	EGI_16BIT_COLOR	  fontColor=WEGI_COLOR_GREEN;
 	EGI_16BIT_COLOR	  fontColor2=WEGI_COLOR_PINK;//GREEN;
 	EGI_16BIT_COLOR	  gridColor=WEGI_COLOR_PURPLE;
+	EGI_16BIT_COLOR	  backFaceColor=WEGI_COLOR_RED;
 
 	char 		*textureFile=NULL;	/* Fpath */
 
@@ -428,6 +432,7 @@ int main(int argc, char **argv)
 	bool		shadow_on=false;	/* Shadown on grid plane */
 	bool            rayTrace_on=false;  	/* Test backward ray tracing to vLight, ONLY to create self_shadowing. */
 	bool		focalenVarying_on=false;  /* To adjust focal length projMatrix.dv step by step, and demo the effect. */
+	bool		test_clipping=false;	/* Test clipping with near plane of the view frustum */
 
 	/* Projectionn matrix */
 	float		dobj;   /* Object MAX size */
@@ -435,7 +440,8 @@ int main(int argc, char **argv)
 	float		dvv;	/* varying of projMatrix.dv */
 	float		dstep;
 	/* Note: ALWAYS take dnear==dv, and they are to be adjusted later. see 6. */
-	E3D_ProjMatrix projMatrix={ .type=E3D_ISOMETRIC_VIEW, .dv=500, .dnear=500, .dfar=10000000, .winW=320, .winH=240};
+	E3DS_ProjMatrix projMatrix; //{ .type=E3D_ISOMETRIC_VIEW, .dv=500, .dnear=500, .dfar=10000000, .winW=320, .winH=240};
+	E3D_InitProjMatrix(projMatrix, E3D_ISOMETRIC_VIEW, 320, 240, 500, 10000000, 500); /* matrix, type, winW,winH,dnear,dfar,dv */
 
 	/* Plane for shadow projection. */
 	E3D_Plane shadowPlane(0.0,1.0,0.0, 0.0); /* On y=0.0 plane */
@@ -463,10 +469,13 @@ int main(int argc, char **argv)
 
         /* Parse input option */
 	int opt;
-        while( (opt=getopt(argc,argv,"hrbBDGmNRSPVLWCwbtclFf:s:x:y:z:A:M:X:Y:Z:T:a:p:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hirbBDGmNRSPVLWCwbtclFf:s:x:y:z:A:M:X:Y:Z:T:a:p:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
 				print_help(argv[0]);
+				break;
+			case 'i':
+				test_clipping=true;
 				break;
                         case 'r':
                                 reverseNormal=true;
@@ -661,8 +670,8 @@ else {	/* For Landscape */
 	   gv_vLight.normalize();
 	   //gv_auxLight.assign(-1, -1, 1);
 	   //gv_auxLight.assign(-1,-1,0);
-	   gv_auxLight.assign(0,0,0); //(-1,0,0.5); //(0,0,1);
-	   gv_auxLight.normalize();
+	   gv_auxLight.assign(0,0,0.25); //(-1,0,0.5); //(0,0,1);
+	   //gv_auxLight.normalize();
 	}
 
 	//E3D_Vector vLight(-0.5, 1, 1);
@@ -672,15 +681,15 @@ else {	/* For Landscape */
 }
 
 
-#if 1
-	/* 1. Read obj file to meshModel */
+	/////////////////   Read/Create meshModel   ////////////////
+#if 1 /* 1. Read obj file to meshModel */
 	cout<< "Read obj file '"<< fobj <<"' into E3D_TriMesh... \n";
 	E3D_TriMesh	meshModel(fobj);
 
 #else /* TEST: Primitive volumes */
 	cout<<"Create primitive volumes...\n";
-//	E3D_RtaSphere   meshModel(4, 100); /* xxx -c -s 2.0 -X 30 -P */
-	E3D_Cuboid   meshModel(100,200,300); /* xxx -c -s 1.25 -X 30 -P -a 10 */
+	E3D_RtaSphere   meshModel(2, 100); /* xxx -c -s 2.0 -X 30 -P */
+//	E3D_Cuboid   meshModel(100,200,300); /* xxx -c -s 1.25 -X 30 -P -a 10 */
 
 #endif
 
@@ -688,8 +697,6 @@ else {	/* For Landscape */
 	E3D_TriMesh	boxman("/tmp/boxman.obj");
 	E3D_TriMesh	sportsmen("/tmp/sportsmen.obj");
 #endif
-
-
 
 	if(meshModel.vtxCount()==0)
 		exit(-1);
@@ -837,12 +844,15 @@ else {	/* For Landscape */
 		dstep=-0.05; //Percentage //dview/40;
 	}
 	else {
-		dvv=1.0*dobj;
-		dstep=0.0f;
+	    if(test_clipping)
+	        offz -= 0.5*dobj; /* Start clipping at very near position. */
+	    dvv=1.0*dobj;
+	    dstep=0.0f;
 	}
 	projMatrix.dv=dvv; projMatrix.dnear=dvv;  /* ALWAYS takes dv==dnear */
 	cout << "dobj=" <<dobj<<endl;
 	sleep(1);
+
 
 /* TEST: -------- Get Ty for grid plane translation */
 	Tx=-meshModel.aabbox.vmax.x -5;
@@ -908,7 +918,7 @@ else {	/* For Landscape */
   while(1) {
 	/* W0. Update Projectoin Matrix */
 
-	projMatrix.dv = dvv; /* Update/Adjust dvv at last. */
+	projMatrix.dv = dvv; /* Update/Adjust dvv at W14. if(focalenVarying_on) */
 	projMatrix.dnear = dvv; /* ALWAYS taken dv==dnear */
 	printf(DBG_BLUE"[[[  dvv=%f, dv=%d, dnear=%d, dobj=%f  ]]]\n"DBG_RESET, dvv, projMatrix.dv, projMatrix.dnear, dobj);
 
@@ -937,7 +947,7 @@ else {	/* For Landscape */
         /* Turn backFace on */
 	if(backFace_on) {
  		workMesh->backFaceOn=true;
-		workMesh->bkFaceColor=WEGI_COLOR_RED;
+		workMesh->bkFaceColor=backFaceColor;
 	}
 
 	/* Turn on testRayTracing */
@@ -990,7 +1000,8 @@ else {	/* For Landscape */
 	/* W2.2: Set translation ONLY.  Note: View from -Z ---> +Z */
 	VRTmat.setTranslation(offx, offy, offz +(dvv+dobj)); /* take Focus to obj center */
 
-#if TEST_MESHINSTANCE  /////////////  Mesh Instance: Terracotta warrior (before transform_workMesh and omat_adjust)  /////////////
+#if TEST_MESHINSTANCE  /////////////  Mesh Instances (before transform_workMesh and omat_adjust)  /////////////
+        //////// Terracotta warrior /////////
 	E3D_RTMatrix rtmat;
 	int instColumns=5;
 	int instRows=5;
@@ -1003,6 +1014,7 @@ else {	/* For Landscape */
 		rtmat.setTranslation(0.4*dobj*(k%instColumns-2), 0.45*dobj*(k/instRows),  0);
 		meshInstances[k]->objmat = rtmat*meshInstances[k]->objmat*VRTmat;
 	}
+
 #endif
 
 #if !TEST_MESHINSTANCE /* CAUTION, if workMesh as refTriMesh of meshInstance[], then its data should NOT be changed! */
@@ -1010,11 +1022,7 @@ else {	/* For Landscape */
 	cout << "Transform workMesh...\n";
 	//workMesh->transformMesh(RTYmat*RTXmat, ScaleMat); /* Here, scale ==1 */
 	workMesh->transformMesh(VRTmat, ScaleMat); /* Here, scale ==1 */
-
-
-
 #endif
-
 
 #if TEST_MULTIOBJ    //////////////////  Add more objs into the scene (before omat_adjust)  /////////////////
 	float bxang[3];
@@ -1221,11 +1229,11 @@ if(1) {
         cout << "Render mesh ... angle=" << angle <<endl;
 #if 1	/* Render workMesh */
 //workMesh->shadeType=E3D_FLAT_SHADING;
-       	workMesh->renderMesh(&gv_fb_dev, projMatrix);
+       	RenderTriCnt=workMesh->renderMesh(&gv_fb_dev, projMatrix);
 	printf("workMesh->renderMesh OK!\n");
 #endif
 
-#if TEST_MESHINSTANCE  ///////////  Render Mesh Instance: Terracotta warrior   /////////
+	#if TEST_MESHINSTANCE  ///////////  Render Mesh Instance: Terracotta warrior   /////////
 for(int k=0; k<instTotal; k++) {
 	/* Render Mesh Instance */
 	egi_dpstd(DBG_ORANGE"Render mesh instance[%d] ... angle=%.2f\n"DBG_RESET, k, angle);
@@ -1253,16 +1261,45 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 	#endif
 	gv_auxLight.assign(0,0,0);
 #endif
+
 #if TEST_SCENE  /////////////  Test E3D scene  ///////////
 /* Note: ReftriMesh for instances are NOT listed in E3D_Scene::triMeshList /meshInstanceList here!!!
          it'is for test ONLY!
 */
+
+    #if 0  /////////////  boxman + sprtsmen ////////////
 	myScene.addMeshInstance(boxman);
 	myScene.addMeshInstance(sportsmen);
 	//myScene.addMeshInstance(workMesh);
+
+    #else /////////////  BALLS, NOTE: set meshModel to be rta20   ////////////
+	E3D_RTMatrix rtmat;
+	int instColumns=9;//29;
+	int instRows=5;//15;
+	int instTotal=instColumns*instRows; /* Must < 64*64 as sizeof meshInstances[] */
+	char strtmp[128];
+	string strname;
+	/* Create MeshInstance array: Just change objmat. */
+	for(int j=0; j<2; j++) {
+	   for(int k=0; k<instTotal; k++) {
+		printf("Create meshInstance[%d]...instTotal=%d\n", k,instTotal);
+		sprintf(strtmp, "ball_%02d", j*instTotal+k);
+		strname=strtmp; //string strname(strtmp); ALSO OK!
+		myScene.addMeshInstance(meshModel,strname); /* workMesh transformed!!! */
+		rtmat.setTranslation(1.0*dobj*(k%instColumns-instColumns/2), (j==0?1.0:-1.0)*dobj*(k/instColumns)+((j==0?0.5:-0.5)*dobj), 0);
+		myScene.meshInstanceList.back()->objmat = rtmat*myScene.meshInstanceList.back()->objmat*VRTmat;
+	   }
+	}
+    #endif
+
 	printf(DBG_ORANGE"Render E3D_Scene ...\n"DBG_RESET);
+
+	/* Before renderSecne, re_compute clippling matrix items in projMatrix, in case dv changed etc. */
+	E3D_RecomputeProjMatrix(projMatrix);
 	myScene.renderScene(&gv_fb_dev, projMatrix);
-	myScene.clearMeshInstanceList(); /* Clear list, for next round */
+
+	myScene.clearMeshInstanceList(); /* Clear list, for next round.  triMeshList keeps! */
+
 #endif
 
 	/* W6a. Render shadow */
@@ -1528,9 +1565,44 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 
    	///////////////////////////////  Post_Render  ////////////////////////////////
 
+/* ---TEST Record Screen: Save screen as a frame of a motion file. ------------------------- */
+	if(saveMotion_on) {
+		if( egi_imgmotion_saveFrame(fmotion, fbimg)!=0 ) {
+			exit(-1);
+		}
+	}
+
 	/* W13. Update angle */
-	printf("Update angle...\n");
-	angle += (5.0+da); // *MATH_PI/180;
+	if(!test_clipping) {
+		printf("Update angle...\n");
+	     	angle += (5.0+da); // *MATH_PI/180;
+	}
+	else { // test_clipping. Keep dvv=dobj
+		printf("VRTmat.translation.tz= %f\n", VRTmat.pmat[11]);
+		printf("Update offz=%fdobj...\n", offz/dobj);
+		offz += da/100.0*dobj;   /* Init: offz=0 and DelZ=offz+2*dobj, see VRTmat.setTranslation(offx, offy, offz +(dvv+dobj)) */
+		if( offz+2*dobj < 0.5*dobj || RenderTriCnt==0 ) {
+			da=fabsf(da);
+		}
+		//else if( offz+2*dobj > 1.5*dobj) {
+		//	da=-fabsf(da);
+		//}
+
+		/* End clipping when moving back */
+		E3D_MeshInstance workInst(*workMesh);
+		workInst.objmat=VRTmat;  /* !!!, note workMesh DOES NOT hold it. */
+		if( da>0.0f ) {
+		   if( workInst.aabbInViewFrustum(projMatrix) ) {
+			printf(DBG_YELLOW"workInst is completely in the ViewFrustum!\n"DBG_RESET);
+		 	exit(0);
+		   }
+		   else {
+			printf(DBG_YELLOW"workInst is partially out of the ViewFrustum!\n"DBG_RESET);
+ 		  }
+		}
+	}
+
+	/* W13. Increase frameCount */
 	frameCount ++;
 
 #if 0 /* TEST: ----- gsit.obj change mtl, NOTE. mtlList[] will NOT recopy to workMesh.  */
@@ -1541,13 +1613,6 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 	workMesh->mtlList[3].kd.vectorRGB( egi_color_random(color_medium) );
      }
 #endif
-
-/* ---TEST Record Screen: Save screen as a frame of a motion file. ------------------------- */
-	if(saveMotion_on) {
-		if( egi_imgmotion_saveFrame(fmotion, fbimg)!=0 ) {
-			exit(-1);
-		}
-	}
 
 
 #if 0	/* XXX If saveFB and serial playing. XXX */
@@ -1660,6 +1725,7 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 		else if( dvv > 2.75*dobj)
 			exit(0);
 	}
+
 
 	/* W15. Adjust global light vector */
 #if TEST_VLIGHTING

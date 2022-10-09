@@ -42,7 +42,7 @@ Note:
 2. Matrix as an input paramter in functions:
    E3D_RTMatrix:    Transform(Rotation+Translation) matrix, to transform
 		    objects to expected position.
-   E3D_ProjMatrix:  Projection Matrix, to project/map objects in a defined
+   E3DS_ProjMatrix:  Projection Matrix, to project/map objects in a defined
 		    frustum space to the Screen.
 
 3. Since view direction set as ViewCoord(Camera) -Z ---> +Z, it needs to set FBDEV.flipZ=true
@@ -172,7 +172,7 @@ Journal:
 	1. Function projectPoints() NOT an E3D_TriMesh member.
 	2. Add E3D_draw_line() E3D_draw_circle() form e3d_vector.h
 	3. Add E3D_draw_coordNavSphere()
-	4. Add E3D_draw_line(FBDEV *, const E3D_Vector &, const E3D_RTMatrix &, const E3D_ProjMatrix &)
+	4. Add E3D_draw_line(FBDEV *, const E3D_Vector &, const E3D_RTMatrix &, const E3DS_ProjMatrix &)
 2021-08-21:
 	1. readObjFileInfo(): Some obj txt may have '\r' at line end.
 2021-08-22:
@@ -297,7 +297,7 @@ Journal:
 2022-09-11:
 	1. E3D_TriMesh(const char *fobj): add case 'r', case 't'.
 2022-09-13:
-	1. Apply triGroupList[] in E3D_TriMesh::drawMeshWire(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix).
+	1. Apply triGroupList[] in E3D_TriMesh::drawMeshWire(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix).
 	2. Add E3D_TriMesh::TriGroup:: bool ignoreTexture
 2022-09-15:
 	1. Add E3D_TriMesh::TriGroup::backFaceOn, and (E3D_TriMesh::backFaceOn || E3D_TriMesh::TriGroup::backFaceOn) takes effects.
@@ -324,9 +324,21 @@ Journal:
 2022-09-28:
 	1. Add mapPointsToNDC().
 	2. Add pointOutFrustumCode().
+2022-09-29:
+	1. Add E3D_MeshInstance::aabbOutViewFrustum()
+2022-10-03:
+	1. Add struct E3D_RenderVertex.
+	2. Add E3D_ZNearClipTriangle()
+	3. E3D_ProjMatrix ----->  E3DS_ProjMatrix, 'S' stands for 'struct',as distinct from 'class'.
+2022-10-05:
+	1. E3D_TriMesh::renderMesh():  return RenderTriCnt as total number of triangles that are finally rendered.
+2022-10-08:
+	1. Add Class E3D_Light.
+	2. Add  E3D_MeshInstance::aabbInViewFrustum()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
+知之者不如好之者好之者不如乐之者
 -----------------------------------------------------------------*/
 #include <stdio.h>
 #include <unistd.h>
@@ -365,6 +377,49 @@ const char* E3D_ShadeTypeName[]=
 	"E3D_WIRE_FRAMING",
 	"E3D_TEXTURE_MAPPING"
 };
+
+
+	/*------------------------------------
+	    Class E3D_Light :: Functions
+	-------------------------------------*/
+/*---------------------------
+Set default for memebers.
+----------------------------*/
+void E3D_Light::setDefaults()
+{
+        /* Position and orientation */
+	pt.assign(0.0f, 0.0f, 0.0f);
+
+	/* Light type */
+	type = E3D_DIRECT_LIGHT;
+
+	/* Light Direction */
+	direct.assign(0.0f, 0.0f, 1.0f);
+
+        /* Source light specular color */
+	Ss.assign(0.75f, 0.75f, 0.75f);
+        /* Source light diffuse color */
+	Sd.assign(0.8f, 0.8f, 0.8f);
+
+        /* Attenuation factor for light intensity */
+        atten=0.75f;
+}
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_Light::E3D_Light()
+{
+	setDefaults();
+}
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_Light::~E3D_Light()
+{
+
+}
 
 
 	/*------------------------------------
@@ -2725,7 +2780,7 @@ Note:
 2. The projection plane_XY is at Z=projMatrix.dv>0,
    while the Focus point is the Origin(Z=0).
 3. If vpts[].z < projMatrix.dv, it means the point is behind
-   the projection plane and it should be picked out.
+   the projection plane(the near plane) and it should be picked out.
 
 TODO:
 XXX 1. This is a simple projection mathod for testing.
@@ -2743,7 +2798,7 @@ Return:
 		OR too small fabs(vpts[k].z)!
 	<0	Fails
 ---------------------------------------------------------------*/
-int projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix)
+int projectPoints(E3D_Vector vpts[], int np, const E3DS_ProjMatrix & projMatrix)
 {
 	int ret=0;
 
@@ -2829,7 +2884,7 @@ Return:
 	0	OK
 	<0	Fails
 -----------------------------------------------------*/
-int reverse_projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix)
+int reverse_projectPoints(E3D_Vector vpts[], int np, const E3DS_ProjMatrix & projMatrix)
 {
 	/* 0. Check input */
 	if(np<1)
@@ -2883,7 +2938,7 @@ Return:
 	0	OK
 	<0	Fails
 -------------------------------------------------------*/
-int mapPointsToNDC(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix)
+int mapPointsToNDC(E3D_Vector vpts[], int np, const E3DS_ProjMatrix & projMatrix)
 {
 	/* 0. Check input */
 	if(np<1)
@@ -2905,13 +2960,13 @@ int mapPointsToNDC(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix)
 	float xc,yc,zc;	/* clipping coordinates */
 
 	for(int k=0; k<np; k++) {
-		/* Clipping points */
+		/* Map to get clipping Coordinates */
 		xc=vpts[k].x*projMatrix.A;
 		yc=vpts[k].y*projMatrix.B;
 		zc=vpts[k].z*projMatrix.C+projMatrix.D;	/* we=1.0 */
 		//Wc=Ze
 
-		/* NDC points, taken Wc=Ze, then XYZn = XYZc/Ze */
+		/* NDC coordinates, taken Wc=Ze, then XYZn = XYZc/Ze */
 		vpts[k].x=xc/vpts[k].z;
 		vpts[k].y=yc/vpts[k].z;
 		vpts[k].z=zc/vpts[k].z;  /* !!! At last ze -> zn, vpts[].z updated to be Zn! */
@@ -2934,7 +2989,7 @@ Return:
 ------------------------------------------------------*/
 int pointOutFrustumCode(const E3D_Vector &pt)
 {
-	int code=0;
+	int code=0; /* preset as within the frustum */
 
 	/* Check faces of the frustum */
 	if(pt.x<-1.0) code |= 0x01;
@@ -3314,7 +3369,7 @@ projMatrix:	Projection Matrix
 
 View direction: TriMesh Global_Coord. Z axis.
 -----------------------------------------------------*/
-void E3D_TriMesh::drawMeshWire(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
+void E3D_TriMesh::drawMeshWire(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) const
 {
 	unsigned int i,n;
 	int vtidx[3];	    /* vtx index of a triangle */
@@ -3566,7 +3621,7 @@ Note:
 		to expected view position.
 		OR: --- View_Coord relative to Global_Coord ---.
 ---------------------------------------------------------------------*/
-void E3D_TriMesh::drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const E3D_ProjMatrix projMatrix) const
+void E3D_TriMesh::drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const E3DS_ProjMatrix projMatrix) const
 {
 	E3D_Vector vctMin;
 	E3D_Vector vctMax;
@@ -3588,8 +3643,12 @@ void E3D_TriMesh::drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const E3
 	vpts[7]=vpts[4]; vpts[7].y +=ysize;
 
 	/* 2. Transform vpt[] */
+      #if 0
 	for( int k=0; k<8; k++)
 		vpts[k]= vpts[k]*VRTMatrix;
+      #else
+        E3D_transform_vectors(vpts, 8, VRTMatrix);
+      #endif
 
 	/* 3. Project to viewPlan COORD. */
         projectPoints(vpts, 8, projMatrix); /* Do NOT check clipping */
@@ -3659,12 +3718,15 @@ XXX 2. Case TEXTURE_MAPPING:  Apply pixz for each pixel, (NOW use same pixz valu
 
 ///////////////   Apply triGroupList[] and Material color/map     ///////////////////
 
-/* TODO:
+/* XXXTODO:
    1. NOW tgRTMat is applied ONLY for case E3D_TEXTURE_MAPPING and E3D_FLAT_MAPPING.
  */
-void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
+int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) const
 {
-	int k,j;
+	/* Count total triangles rendered actually */
+	int RenderTriCnt=0;
+
+	int k; //j;
 	unsigned int i,n;
 	int vtidx[3];  				/* vtx index of a triangel */
 	E3D_Vector  vpts[3];			/* Projected 3D points */
@@ -3676,6 +3738,9 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	E3D_Vector upLight(0,1,0);
 	upLight.normalize();
 	float vpd1,vpd2,vpd3;			/* vProdcut for lights */
+
+	E3DS_RenderVertex rvtx[4];		/* 4 for MAX. Znear-clipping results */
+	int  rnp;				/* number of vertices after Znear-clipping */
 
 	int deltLuma;
 	bool BackFacingLight=false;	/* A trimesh is fackfacing to the gv_vLight */
@@ -3796,7 +3861,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 	    /* 2.1 To combine RTmatrix:  Pxyz(at TriGroup Coord) * TriGroup--->object * object--->Global */
 	    tgRTMat = triGroupList[n].omat*objmat;
 
-	    /* 2.2 Light RotMat */
+	    /* 2.2 nvRotMat for lighting computatoin */
 	    nvRotMat = tgRTMat;
  	    nvRotMat.zeroTranslation(); /* !!! */
 
@@ -3834,7 +3899,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		 *    A. If you turn off back_facing triangles, it will be transparent there.
 		 *    B. OR use other color for the back face. For texture mapping, just same as front side.
 		 *    C. tgRTMat to be counted in.
-	 	 *    D. A face that is innvisible is ISO view, MAY BE visible in persepective view!
+	 	 *    D. A face that is innvisible in ISO view, it MAY BE visible in persepective view!
 		 *	 Consider frustrum projection.
 		 */
 		trinormal=triList[i].normal*nvRotMat;
@@ -3856,6 +3921,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 				egi_dpstd(DBG_GREEN"triGroupList[%d].backFaceOn!\n"DBG_RESET, n);
 
 			/* To flip vProduct and trinormal */
+			trinormal=-trinormal;
 		}
 		else {
 			IsBackface=false;
@@ -3863,25 +3929,40 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 			//egi_dpstd("triList[%d] vProduct=%f \n",i, vProduct);
 		}
 
-#if 0		/* XXX Move to 3.R0a XXX 3.R2. Copy triangle vertices, and project to viewPlan COORD. */
-		vtidx[0]=triList[i].vtx[0].index;
-		vtidx[1]=triList[i].vtx[1].index;
-		vtidx[2]=triList[i].vtx[2].index;
+		/* Note: In E3D_Scene::renderScene(), instances completely out of the view frustum will be picked out. */
 
-		vpts[0]=vtxList[vtidx[0]].pt;
-		vpts[1]=vtxList[vtidx[1]].pt;
-		vpts[2]=vtxList[vtidx[2]].pt;
-#endif
+		/* 4. Clipping with near plane of the view_frustum HK2022-10-04
+		 * Note: If triangle completely IN the frustum, then keep rvtx[] unchanged.
+		 *	 If triangle completely OUT of the frustum near plane, then return rnp==0!
+		 */
+		rnp=3; /* Input 3 vertices */
+		rvtx[0].pt=vpts[0]; rvtx[1].pt=vpts[1]; rvtx[2].pt=vpts[2];
+		if(actShadeType==E3D_FLAT_SHADING)
+			E3D_ZNearClipTriangle(projMatrix.dnear, rvtx, rnp, 0);
+		/* TODO more cases: for VTXNORMAL_ON|VTXCOLOR_ON|VTXUV_ON */
 
-#if 0	//XXX move to 3.R01. HK2022-09-12	/* 4.R2B. TriGroup local Rotation computation. */
-		/* vpts under TriGroup COORD/Pivot */
-		vpts[0] -= tgOxyz;
-		vpts[1] -= tgOxyz;
-		vpts[2] -= tgOxyz;
+//		egi_dpstd(DBG_YELLOW"After clipping rnp=%d\n"DBG_RESET, rnp);
 
-		/* Transform vpts[]: TriGroup--->object; object--->Global */
-		E3D_transform_vectors(vpts, 3, tgRTMat);
-#endif
+		/* Assign bkFaceColor to tgmtl.kd */
+		if(IsBackface)
+			tgmtl.kd.vectorRGB(bkFaceColor);
+		else
+			tgmtl.kd=defMaterial.kd;
+
+	/* 4.A To render clipped triangles, one triangle split be ONE or TWO after clipping. */
+        for(int j=rnp; j>=3; j--) {
+		/* Assign vpts[3] */
+	        if(j==3) { /* 0,1,2 */
+		   vpts[0]=rvtx[0].pt;
+		   vpts[1]=rvtx[1].pt;
+		   vpts[2]=rvtx[2].pt;
+		}
+		else {  /* 2,3,0 */
+		   vpts[0]=rvtx[2].pt;
+		   vpts[1]=rvtx[3].pt;
+		   vpts[2]=rvtx[0].pt;
+		   /* TODO: VTXNORMAL/VTXCOLOR/VTXUV */
+		}
 
 		/* 5.R2C. Project to screen/view plane */
 		if( projectPoints(vpts, 3, projMatrix) !=0 )
@@ -3925,73 +4006,8 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		switch( actShadeType ) {
 		   case E3D_FLAT_SHADING:
 
-#if 0  ///////////////////////// Demo lighting
-    #if 0  ////////////// NO gv_auxLight
-			/* Calculate light reflect strength for the TriFace:  TODO: not correct, this is ONLY demo. */
-			vProduct=gv_vLight*trinormal; //(triList[i].normal*nvRotMat);  // *(-1.0f); // -vLight as *(-1.0f);
-
-			/* TODO: gv_auxLight NOT applied yet */
-			//if( vProduct >= 0.0f )
-			if(IsBackface) {
-				vProduct=-vProduct;
-				color=bkFaceColor;
-			}
-			else
-				color=mcolor;
-
-			/* If Backfacing to gv_vLight */
-			if( vProduct > -VPRODUCT_NEARZERO ) {
-				vProduct=0.0f;
-				BackFacingLight=true;
-			}
-			else { /* Flip to get vProduct absolute value for luma */
-				vProduct=-vProduct;
-				BackFacingLight=false;
-			}
-   #elif 1  ////////// gv_auxLight ON
-			{
-			      		vpd1=gv_vLight*trinormal;
-					vpd2=0.5*gv_auxLight*trinormal;
-
-					/* normal flips for backface */
-					if(IsBackface) {
-						vpd1=-vpd1;
-						vpd2=-vpd2;
-					}
-
-					/* Backfacing to the main gv_vLight */
-					if(vpd1 > -VPRODUCT_NEARZERO)
-					    BackFacingLight=true;
-					else
-					    BackFacingLight=false;
-
-					/* Get main vProduct */
-					vProduct=( vpd1 < vpd2 ? vpd1 : vpd2); /* +- flips */
-					color=mcolor;
-
-					/* Backfacing to all Lights */
-			   		if( vProduct > -VPRODUCT_NEARZERO ) {
-						vProduct=0.0f;
-						//XXXBackFacingLight=true;
-					}
-			   		else { /* Flip to get vProduct absolute value for luma */
-						vProduct=-vProduct;
-						//XXXBackFacingLight=false;
-					}
-			}
-  #endif
-
-			/* Adjust luma for pixcolor as per vProduct. */
-			fbdev->pixcolor=egi_colorLuma_adjust(color, (int)roundf((vProduct-1.0f)*240.0) +120 );
-			//fbdev->lumadelt=(vProduct-1.0f)*240.0) +50; /* MUST reset later */
-			//egi_dpstd("vProduct: %e, LumaY: %d\n", vProduct, (unsigned int)egi_color_getY(fbdev->pixcolor));
-
-#else //////////////////// Lighting Computation: Ca Cd Cs
-
 			/* Compute lighting to get color */
 			fbdev->pixcolor=E3D_seeColor(tgmtl, trinormal, 0); /* material, normal, dl */
-
-#endif /////////////////////////////////
 
 			#if 0 /* Fill the TriFace */
 			draw_filled_triangle(fbdev, pts);
@@ -4000,9 +4016,8 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 						     pts[1].x, pts[1].y,
 						     pts[2].x, pts[2].y,
 						    /* Views from -z ----> +z  */
-						    -vpts[0].z, -vpts[1].z, -vpts[2].z );
+						    -vpts[0].z, -vpts[1].z, -vpts[2].z );  /* Pseudo-depth */
 			#endif
-
 
 			break;
 		   case E3D_GOURAUD_SHADING:
@@ -4294,7 +4309,6 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
 		       #else /* Use auxiliary light */
 			   tn=triList[i].normal*nvRotMat;
 
-
 			   /* Normal flips for backface */
 		   	   if(IsBackface) tn=-tn;
 
@@ -4359,7 +4373,7 @@ void E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) con
         	                        pts[2].x, pts[2].y
                 	        );
 				#else /* with z0,z1,z2 */
-				egi_dpstd("mapTriWriteFB3...\n");
+				//egi_dpstd("mapTriWriteFB3...\n");
 		        	egi_imgbuf_mapTriWriteFB3(imgKd, fbdev,
 					/* u0,v0,u1,v1,u2,v2,  x0,y0, x1,y1, x2,y2, z0,z1,z2 */
         	                        triList[i].vtx[0].u, 1.0-triList[i].vtx[0].v,  /* 1.0-x: Adjust uv ORIGIN */
@@ -4505,9 +4519,14 @@ if( testRayTracing==true &&  BackFacingLight==false
 }
 #endif /* END: ---------- back_tracing shadow */
 
-	   } /* End for(i) */
+		/* Count total triangles rendered actually */
+		RenderTriCnt++;
 
-	} /* End for(n) */
+	} /* END for(j) 4.A Rendering clipped triangles */
+
+	   } /* End for(i) traverse trigroup::triangles */
+
+	} /* End for(n)  traverse trigroups */
 
         #if 0	/* XXX Draw face normal line. --- See E3D_TriMesh::drawNormal() */
 	if( faceNormalLen>0 ) {
@@ -4532,6 +4551,11 @@ if( testRayTracing==true &&  BackFacingLight==false
 
 	/* P3. TODO:  reset tgmtl.img_kd to NULL, NOT the Ownership */
 	tgmtl.img_kd=NULL;
+
+	/* Return totally triangles rendered actually */
+	egi_dpstd(DBG_YELLOW"RenderTriCnt=%d\n"DBG_RESET, RenderTriCnt);
+
+	return RenderTriCnt;
 }
 
 
@@ -4541,7 +4565,7 @@ To draw face normal for each trimesh.
 @fbdev:		Pointer to FBDEV
 @projMatrix	Projection Matrix
 --------------------------------------------------------------------*/
-void E3D_TriMesh::drawNormal(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
+void E3D_TriMesh::drawNormal(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) const
 {
 	unsigned int i,n;
 	E3D_Vector  vpts[3];	/* 3D points */
@@ -4621,7 +4645,7 @@ the shadow.
 @projMatrix	Projection Matrix
 @plane:		The plane where shadow is created.
 --------------------------------------------------------------------------*/
-void E3D_TriMesh::shadowMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix, const E3D_Plane &plane) const
+void E3D_TriMesh::shadowMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix, const E3D_Plane &plane) const
 {
 	int k; //j
 	unsigned int i,n;
@@ -5241,8 +5265,12 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh &smesh, float r)
 /*-------------------------
       The constructor.
 --------------------------*/
-E3D_MeshInstance::E3D_MeshInstance(E3D_TriMesh &triMesh) :refTriMesh(triMesh)
+E3D_MeshInstance::E3D_MeshInstance(E3D_TriMesh &triMesh, string pname)
+:name(pname), refTriMesh(triMesh)   /* Init order! */
 {
+	/* Assign name */
+	//name=pname;
+
 	/* Init instance objmat */
 	objmat=refTriMesh.objmat;
 
@@ -5253,11 +5281,18 @@ E3D_MeshInstance::E3D_MeshInstance(E3D_TriMesh &triMesh) :refTriMesh(triMesh)
 	/* Increase counter */
 	refTriMesh.instanceCount += 1;
 
+
+	/* A default name, user can re-assign later */
+
 	egi_dpstd("A MeshInstance is added!\n");
 }
 
-E3D_MeshInstance::E3D_MeshInstance(E3D_MeshInstance &refInstance) :refTriMesh(refInstance.refTriMesh)
+E3D_MeshInstance::E3D_MeshInstance(E3D_MeshInstance &refInstance, string pname)
+:name(pname), refTriMesh(refInstance.refTriMesh)
 {
+	/* Assign name */
+	//name=pname;
+
 	/* Get refTriMesh */
 	//refTriMesh=refInstance.refTriMesh; A reference member MUST be initialized in the initializer list.
 
@@ -5273,6 +5308,174 @@ E3D_MeshInstance::E3D_MeshInstance(E3D_MeshInstance &refInstance) :refTriMesh(re
 
 	egi_dpstd("A MeshInstance is added!\n");
 }
+
+/*-----------------------------------------------------------------
+Check whether AABB of the MeshInstance is out of the view frustum.
+
+	      !!! --- CAUTION ---- !!!
+It's assumed that AABB of the 'refTriMesh' are aligned
+/parallel with XYZ axises.
+
+TODO:
+1. The MeshInstance is confirmed to be out of the frustum
+   ONLY IF each vertex of its AABB is out of the SAME
+   face of the frustum, However that is NOT necessary.
+   Consider the case: a MeshInstance is near the corner of
+   the frustum and is completely out of the frustum, vertices
+   of its AABB may be NOT out of the SAME face of the furstum.
+
+Return:
+	True	Completely out of the view frustum.
+	False   Ten to one it's in the view frustum.  see TODO_1.
+-------------------------------------------------------------------*/
+bool E3D_MeshInstance::aabbOutViewFrustum(const E3DS_ProjMatrix &projMatrix)
+{
+	E3D_Vector vpts[8];
+	int code, precode;
+	bool ret=true;
+
+	/* Get 8 points of the AABB */
+        float xsize=refTriMesh.aabbox.xSize();
+        float ysize=refTriMesh.aabbox.ySize();
+        float zsize=refTriMesh.aabbox.zSize();
+
+        /* Get all vertices of the AABB: __ONLY_IF__ sides of AABB
+	 * are all algined with XYZ axises.
+	 */
+        vpts[0]=refTriMesh.aabbox.vmin;
+        vpts[1]=vpts[0]; vpts[1].x +=xsize;
+        vpts[2]=vpts[1]; vpts[2].y +=ysize;
+        vpts[3]=vpts[0]; vpts[3].y +=ysize;
+        vpts[4]=vpts[0]; vpts[4].z +=zsize;
+        vpts[5]=vpts[4]; vpts[5].x +=xsize;
+        vpts[6]=vpts[5]; vpts[6].y +=ysize;
+        vpts[7]=vpts[4]; vpts[7].y +=ysize;
+
+	/* Transform as per MeshInstance.objmat, vpts updated. */
+	E3D_transform_vectors(vpts, 8, objmat);
+
+#if 0 /* TEST: ----- If OutOfViewFrustum --------- */
+	E3D_Vector  pts[8];
+	for(int k=0; k<8; k++) pts[k]=vpts[k];
+#endif
+
+	/* Map points to NDC coordinates, vpts updated. */
+	mapPointsToNDC(vpts, 8, projMatrix);
+
+	/* Check each vertex, see if they are beside and out of the SAME face of the frustum */
+	precode=pointOutFrustumCode(vpts[0]);
+	if(precode==0) /* Within the frustum */
+		ret=false;
+	else { /* Check if all beside the same side/face of the frustum */
+	   for(int k=1; k<8; k++) {
+		code=pointOutFrustumCode(vpts[k]);
+		if(precode!=code) {
+			ret=false;  /* Init ret=ture */
+			break;
+		}
+	   }
+	}
+
+	/* TODO: Further.... to check whether AABB intersects with frustum face planes.  */
+
+#if 0 /* TEST: -------  If OutOfViewFrustum: Print pts coordinates and draw AABB ------- */
+     if(ret==true) {
+	printf(" --- AABB OutViewFrustum ---\n");
+	char strtmp[32];
+	for(int k=0; k<8; k++) {
+		sprintf(strtmp, "pts[%d]: ",k);
+		pts[k].print(strtmp);
+	}
+
+        /* Project to viewPlan COORD. */
+        projectPoints(pts, 8, projMatrix); /* Do NOT check clipping */
+
+
+	FBDEV *fbdev=&gv_fb_dev;
+
+        /* Notice: Viewing from z- --> z+ */
+        fbdev->flipZ=true;
+
+        /* E3D_draw lines 0-1, 1-2, 2-3, 3-0 */
+        E3D_draw_line(fbdev, pts[0], pts[1]);
+        E3D_draw_line(fbdev, pts[1], pts[2]);
+        E3D_draw_line(fbdev, pts[2], pts[3]);
+        E3D_draw_line(fbdev, pts[3], pts[0]);
+        /* Draw lines 4-5, 5-6, 6-7, 7-4 */
+        E3D_draw_line(fbdev, pts[4], pts[5]);
+        E3D_draw_line(fbdev, pts[5], pts[6]);
+        E3D_draw_line(fbdev, pts[6], pts[7]);
+        E3D_draw_line(fbdev, pts[7], pts[4]);
+        /* Draw lines 0-4, 1-5, 2-6, 3-7 */
+        E3D_draw_line(fbdev, pts[0], pts[4]);
+        E3D_draw_line(fbdev, pts[1], pts[5]);
+        E3D_draw_line(fbdev, pts[2], pts[6]);
+        E3D_draw_line(fbdev, pts[3], pts[7]);
+
+        /* Reset flipZ */
+        fbdev->flipZ=false;
+
+     }
+#endif
+
+	return ret;
+}
+
+
+/*-----------------------------------------------------------------------
+Check whether AABB of the MeshInstance is completely within the view frustum.
+
+	      !!! --- CAUTION ---- !!!
+It's assumed that AABB of the 'refTriMesh' are aligned
+/parallel with XYZ axises.
+
+Return:
+	True	AABB completely within the view frustum.
+	False
+------------------------------------------------------------------------*/
+bool E3D_MeshInstance::aabbInViewFrustum(const E3DS_ProjMatrix &projMatrix)
+{
+	E3D_Vector vpts[8];
+	int code, precode;
+	bool ret=true;
+
+	/* Get 8 points of the AABB */
+        float xsize=refTriMesh.aabbox.xSize();
+        float ysize=refTriMesh.aabbox.ySize();
+        float zsize=refTriMesh.aabbox.zSize();
+
+        /* Get all vertices of the AABB: __ONLY_IF__ sides of AABB
+	 * are all algined with XYZ axises.
+	 */
+        vpts[0]=refTriMesh.aabbox.vmin;
+        vpts[1]=vpts[0]; vpts[1].x +=xsize;
+        vpts[2]=vpts[1]; vpts[2].y +=ysize;
+        vpts[3]=vpts[0]; vpts[3].y +=ysize;
+        vpts[4]=vpts[0]; vpts[4].z +=zsize;
+        vpts[5]=vpts[4]; vpts[5].x +=xsize;
+        vpts[6]=vpts[5]; vpts[6].y +=ysize;
+        vpts[7]=vpts[4]; vpts[7].y +=ysize;
+
+	/* Transform as per MeshInstance.objmat, vpts updated. */
+	E3D_transform_vectors(vpts, 8, objmat);
+
+	/* Map points to NDC coordinates, vpts updated. */
+	mapPointsToNDC(vpts, 8, projMatrix);
+
+	/* Check each vertex, see if they are beside and out of the SAME face of the frustum */
+	ret=true;
+	/* Check if all beside vpts are within the frustum */
+	for(int k=0; k<8; k++) {
+		code=pointOutFrustumCode(vpts[k]);
+		if(code) {
+			ret=false;  /* Init ret=ture */
+			break;
+		}
+	}
+
+	return ret;
+}
+
 
 /*-------------------------
       The destructor.
@@ -5300,7 +5503,7 @@ TODO:
 @fbdev:	       Pointer to FBDEV
 @projMatrix:   Projection Matrix.
 ---------------------------------------------------------------------------*/
-void E3D_MeshInstance::renderInstance(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
+void E3D_MeshInstance::renderInstance(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) const
 {
 	/* Replace refTriMesh.objmat with  */
 	E3D_RTMatrix tmpMat=refTriMesh.objmat;
@@ -5310,6 +5513,10 @@ void E3D_MeshInstance::renderInstance(FBDEV *fbdev, const E3D_ProjMatrix &projMa
 
 	/* Call renderTriMesh.*/
 	refTriMesh.renderMesh(fbdev, projMatrix);
+
+#if 0 /* TEST: ------ */
+	refTriMesh.drawAABB(fbdev, objmat, projMatrix);
+#endif
 
 	/* Restore refTriMesh.obj */
 	refTriMesh.objmat=tmpMat;
@@ -5359,7 +5566,7 @@ void E3D_Scene::importObj(const char *fobj)
 		fpathList.push_back(fobj);
 
 		/* Create an instance and push to meshInstanceList */
-		E3D_MeshInstance *meshInstance = new E3D_MeshInstance(*trimesh);
+		E3D_MeshInstance *meshInstance = new E3D_MeshInstance(*trimesh, cstr_get_pathFileName(fobj));
 		meshInstanceList.push_back(meshInstance);
 	}
 	else {
@@ -5376,15 +5583,15 @@ Add mesh instance to the list.
 The refTriMesh OR refInstance MUST all in E3D_Scene::triMeshList
 /meshInstanceList!
 ---------------------------------------------------------------*/
-void E3D_Scene::addMeshInstance(E3D_TriMesh &refTriMesh)
+void E3D_Scene::addMeshInstance(E3D_TriMesh &refTriMesh, string pname)
 {
-	E3D_MeshInstance *meshInstance = new E3D_MeshInstance(refTriMesh); /* refTriMesh counter increased */
+	E3D_MeshInstance *meshInstance = new E3D_MeshInstance(refTriMesh, pname); /* refTriMesh counter increased */
 	meshInstanceList.push_back(meshInstance);
 
 }
-void E3D_Scene::addMeshInstance(E3D_MeshInstance &refInstance)
+void E3D_Scene::addMeshInstance(E3D_MeshInstance &refInstance, string pname)
 {
-	E3D_MeshInstance *meshInstance = new E3D_MeshInstance(refInstance); /* refInstance counter increase */
+	E3D_MeshInstance *meshInstance = new E3D_MeshInstance(refInstance, pname); /* refInstance counter increase */
 	meshInstanceList.push_back(meshInstance);
 }
 
@@ -5396,9 +5603,10 @@ void E3D_Scene::clearMeshInstanceList()
 	/* Clear list item. */
 	for(unsigned int k=0; k<meshInstanceList.size(); k++) {
 			/* Decreased instance counter */
-			meshInstanceList.back()->refTriMesh.instanceCount -=1;
-			/* Free mem */
-			delete meshInstanceList.back();
+			//meshInstanceList[k]->refTriMesh.instanceCount -=1;	/* NOPE! To decrease in ~E3D_MeshInstance() */
+
+			/* Destroy E3D_MeshInstance */
+			delete meshInstanceList[k];
 	}
 
 	/* Clear list */
@@ -5406,21 +5614,52 @@ void E3D_Scene::clearMeshInstanceList()
 }
 
 
-/*----------------------------------------------
-Render each mesh in the scene, and apply lights
-/settings.
-----------------------------------------------*/
-void E3D_Scene::renderScene(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const
+/*-------------------------------------------------------------------
+Render each mesh in the scene, and apply lights/settings.
+
+Note:
+		!!!--- CAUTION ---!!!
+1. Before renderSecen, the caller SHOULD recompute clipping matrix
+   items A,B,C,D...etc, in case any projMatrix parameter(such as dv)
+   changed.
+
+-------------------------------------------------------------------*/
+void E3D_Scene::renderScene(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) const
 {
-	/* Lights/setting preparation */
+	int outcnt=0; /* Count instances out of the view frustum */
 
-	/* Render each instance in the list */
+	/* 1. Lights/setting preparation */
+
+	/* 2. Recompute clipping matrix items A,B,C,D.. if any projMatrix parameter(such as dv) changes */
+	//XXX E3D_RecomputeProjMatrix(projMatrix); XXX NOT here!
+
+	/* 3. Render each instance in the list */
 	for(unsigned int k=0; k< meshInstanceList.size(); k++) {
-		/* Clip Instance, and exclude instances which are out of the frustrum. */
+		/* Clip Instance, and exclude instances which are out of view frustrum. */
+		if( meshInstanceList[k]->aabbOutViewFrustum(projMatrix) ) {
+			outcnt ++;
+			egi_dpstd(DBG_ORCHID"Instance '%s' is out of view frustum!\n"DBG_RESET, meshInstanceList[k]->name.c_str());
 
-		/* Render instance */
-		meshInstanceList[k]->renderInstance(fbdev, projMatrix);
+		   #if 0  /* TEST: -------- Assign COLOR_HotPink to any instanceout out of frustum and render it */
+			E3D_Vector saveKd;
+			/* Save kd */
+			saveKd=meshInstanceList[k]->refTriMesh.defMaterial.kd;
+			/* Change kd as mark */
+			meshInstanceList[k]->refTriMesh.defMaterial.kd.vectorRGB(COLOR_HotPink);
+			/* Render instance */
+			meshInstanceList[k]->renderInstance(fbdev, projMatrix);
+			/* Restore kd */
+			meshInstanceList[k]->refTriMesh.defMaterial.kd=saveKd;
+		   #endif
+		}
+		else
+		{
+			/* Render instances within the view frustum */
+			meshInstanceList[k]->renderInstance(fbdev, projMatrix);
+		}
 	}
+
+	egi_dpstd(DBG_BLUE"Total %d instances are out of view frustum!\n"DBG_RESET, outcnt);
 }
 
 
@@ -5438,7 +5677,7 @@ void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb)  /*
 		            roundf(vb.x), roundf(vb.y), roundf(vb.z) );
 }
 
-void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, const E3D_ProjMatrix &projMatrix)
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, const E3DS_ProjMatrix &projMatrix)
 {
 	E3D_Vector vpts[2];
 	vpts[0]=va;
@@ -5452,7 +5691,7 @@ void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, con
 		            roundf(vpts[1].x), roundf(vpts[1].y), roundf(vpts[1].z) );
 }
 
-void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix)
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_RTMatrix &RTmatrix, const E3DS_ProjMatrix &projMatrix)
 {
 	E3D_Vector vpts[2];
 
@@ -5470,7 +5709,7 @@ void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_RTMatrix &RTmat
 		            roundf(vpts[1].x), roundf(vpts[1].y), roundf(vpts[1].z) );
 }
 
-void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix)
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, const E3D_RTMatrix &RTmatrix, const E3DS_ProjMatrix &projMatrix)
 {
 	E3D_Vector vpts[2];
 
@@ -5499,7 +5738,7 @@ A grid on XY plane then transform as per RTmatrix.
 @RTmatrix:	Transform matrix.
 @projMatrix:	ProjMatrix
 ----------------------------------------------------*/
-void E3D_draw_grid(FBDEV *fbdev, int sx, int sy, int us, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix)
+void E3D_draw_grid(FBDEV *fbdev, int sx, int sy, int us, const E3D_RTMatrix &RTmatrix, const E3DS_ProjMatrix &projMatrix)
 {
 	int err;
 	E3D_Vector vpts[2]; /* Init all 0 */
@@ -5582,7 +5821,7 @@ Draw a circle at XY plane then transform it by RTmatrix.
 @r:	  	Radius.
 @RTmatrix: 	Transform matrix.
 -------------------------------------------------------*/
-void E3D_draw_circle(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix)
+void E3D_draw_circle(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3DS_ProjMatrix &projMatrix)
 {
 	if(r<=0) return;
 
@@ -5633,7 +5872,7 @@ same way as for XZ,YZ plane circles.
 @r:	  	Radius.
 @RTmatrix: 	Transform matrix.
 ----------------------------------------------------------------*/
-void E3D_draw_coordNavSphere(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix)
+void E3D_draw_coordNavSphere(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3DS_ProjMatrix &projMatrix)
 {
 	if(r<=0)
 		return;
@@ -5681,7 +5920,7 @@ Draw the Coordinate_Navigating_Frame.
 @RTmatrix: 	Transform matrix.
 ----------------------------------------------------------------*/
 #include "egi_FTsymbol.h"
-void E3D_draw_coordNavFrame(FBDEV *fbdev, int size, bool minZ, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix)
+void E3D_draw_coordNavFrame(FBDEV *fbdev, int size, bool minZ, const E3D_RTMatrix &RTmatrix, const E3DS_ProjMatrix &projMatrix)
 {
 	if( size<=0 )
 		return;
@@ -5803,7 +6042,7 @@ void E3D_draw_coordNavIcon2D(FBDEV *fbdev, int size, const E3D_RTMatrix &RTmatri
 	pmatrix.setTranslation(x0-fbdev->pos_xres/2, y0-fbdev->pos_yres/2, 0);
 
 	/* ISOmetric projMatrix */
-	E3D_ProjMatrix projMatrix;
+	E3DS_ProjMatrix projMatrix;
 	projMatrix.type=0;
 	projMatrix.dv = INT_MIN;        /* Try to ingore z value */
 	projMatrix.winW=fbdev->pos_xres;
@@ -5844,8 +6083,10 @@ EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, 
 	/* Source light specular color */
         E3D_Vector Ss(0.75, 0.75, 0.75);
 
-        E3D_Vector Sd(0.8, 0.8, 0.8); /* Source light diffuse color */
-	/* TEST: Les Sd=mtl.kd TODO */
+	/* Source light diffuse color */
+        E3D_Vector Sd(0.8, 0.8, 0.8);
+
+	/* TEST: Let Sd=mtl.kd TODO */
 	Sd=mtl.kd;
 
 	/* Attenuation factor for light intensity */
@@ -5853,6 +6094,7 @@ EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, 
 
 	/* Lighting models: Phong Reflection Model */
 	float mgls=5.0; /* glossiness, smaller for wider and brighter */
+
 	E3D_Vector Cs,Cd,Ca;	/* Components */
 	E3D_Vector Cres; 	/* Compound */
 	E3D_Vector rf; /* Light Refection vector, mirror of toLight along normal. */
@@ -5862,7 +6104,7 @@ EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, 
 	int R=0,G=0,B=0;
 
    for(int i=0; i<2; i++) {
-	/* Vector to Light */
+	/* Vector to Lights */
 	if(i==0)
 	     toLight=-gv_vLight;
 	else
@@ -5912,4 +6154,159 @@ EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, 
 	return COLOR_RGB_TO16BITS(R,G,B);
 }
 
+/*---------------------------------------------------------------
+Clip a trianlge with near plane of the view frustum and update
+RenderVertice to form a new shape, any vertices with z<zc will
+be clipped.
 
+Note:
+1. The caller MUST ensure enough space of rvts[] to store
+   results of clipping.
+   For clipping a triangle, it will get MAX. 2 new triangles.
+
+@zc:	To define clipping plane Z=zc. Usually as the near plane.
+	and vertices z<zc will be clipped!
+@rtvs:	Input: Render_vertices with position/uv/normal/color info etc.
+	Output: RenderVertices after clipping.
+	rvts[] SHOULD be stored in right/left hand seqence to
+	form a certain shape.
+
+@np:	Input:  Number/Size of rvts[].
+	Output: Number/Size of rvts[].
+	NOW: Input 2 or 3, Output  2,3 or 4.
+
+@options: Any combination of VTXNORMAL_ON, VTXCOLOR_ON and VTXUV_ON.
+
+TODO:
+XXX 1. For clipping a polygon and input more than 3 RenderVerteice.
+2. If ONE or TWO vertices are JUST ON the zc plane, and others are outside,
+   then the clipped ploygon will be a degenerated shape, as a point or a line.
+
+Return:
+	>0  Number of edges clipped.
+	=0  Complete IN or OUT, check np value.
+	<0  Fails
+----------------------------------------------------------------*/
+int E3D_ZNearClipTriangle(float zc, struct E3D_RenderVertex rvts[], int &np, int options)
+{
+	bool  zOut[3];	/* If z<zc, and need to clip */
+	int   epos;	/* edge position */
+	struct E3D_RenderVertex nrvts[4]; /* MAX. 4 vertices for 2 triangles */
+	int  vcnt;	/* count nrvts */
+	int  icnt,ocnt; /* IN/OUT vertex count */
+	int  ke;	/* stands for k+1 */
+	float zratio;	/* (zc-rvts[k].pt.z)/(rvts[ke].pt.z-rvts[k].pt.z) */
+	int  ret=0;
+
+	/* Check np. --- MIN.3 --- */
+	if(np<2) return -1;
+
+	/* Check zOut[] */
+	icnt=0; ocnt=0;
+	for(int k=0; k<np; k++) {
+		if(rvts[k].pt.z < zc) {
+			zOut[k]=true;
+			ocnt++;
+		}
+		else {
+			zOut[k]=false;
+			icnt++;
+		}
+	}
+
+	/* Completely OUT near plane of the view frustum */
+	if(ocnt==np) {
+		np=0;
+		return 0;
+	}
+	/* Completely IN near plane of the view frustum */
+	else if(icnt==np) {
+		//Keep all vertices
+		return 0;
+	}
+
+	/* Check and clip each edge of the triangle */
+	vcnt=0;
+	for(int k=0; k< (np>2?np:1); k++) {  /* When np==2, it's a line, NOT closed ploygon, so it loops ONCE ONLY! */
+		/* K as vertex indices for Edges: 0-1, 1-2, 2-0 */
+		epos=0;
+		if(zOut[k]) epos |= 0x1;   /* Edge start vertex position, in(0)/out(1) frustum */
+		ke=(k+1)%np;
+		if(zOut[ke]) epos |= 0x2;  /* Edge end vertex position, in(0)/out(2) frustum */
+
+		/* Zratio for clipped XY */
+		zratio = (zc-rvts[k].pt.z)/(rvts[ke].pt.z-rvts[k].pt.z);
+
+		/* Switch cases */
+		switch(epos) {
+		   case 0:	/* in_in,  save start vertex */
+			nrvts[vcnt]=rvts[k];
+			vcnt++;
+			break;
+		   case 1:	/* out_in, save clip (If a line: + save end) */
+
+			/* Clip the edge, save clipped point */
+			nrvts[vcnt].pt.x = rvts[k].pt.x+(rvts[ke].pt.x-rvts[k].pt.x)*zratio;
+			nrvts[vcnt].pt.y = rvts[k].pt.y+(rvts[ke].pt.y-rvts[k].pt.y)*zratio;
+			nrvts[vcnt].pt.z = zc;
+			/* Interpolate normal,color,uv */
+			if(options & VTXNORMAL_ON)
+				nrvts[vcnt].normal = rvts[k].normal+(rvts[ke].normal-rvts[k].normal)*zratio;
+			if(options & VTXCOLOR_ON)
+				nrvts[vcnt].color = rvts[k].color+(rvts[ke].color-rvts[k].color)*zratio;
+			if(options & VTXUV_ON) {
+				nrvts[vcnt].u = rvts[k].u+(rvts[ke].u-rvts[k].u)*zratio;
+				nrvts[vcnt].v = rvts[k].v+(rvts[ke].v-rvts[k].v)*zratio;
+			}
+			/* Count nrvts */
+			vcnt++;
+
+			/* If it's a line, NOT closed ploygon, save the end vertex. */
+			if(np==2) {
+				nrvts[vcnt]=rvts[1];
+
+				/* Count vcnt */
+				vcnt++;
+			}
+
+			/* Count ret */
+			ret++;
+			break;
+		   case 2:	/* in_out, save start + save clip (OK for a line) */
+			/* Save start */
+			nrvts[vcnt]=rvts[k];
+			/* Count nrvts */
+			vcnt++;
+
+			/* Clip the edge, save clipped point  */
+			nrvts[vcnt].pt.x = rvts[k].pt.x+(rvts[ke].pt.x-rvts[k].pt.x)*zratio;
+                        nrvts[vcnt].pt.y = rvts[k].pt.y+(rvts[ke].pt.y-rvts[k].pt.y)*zratio;
+                        nrvts[vcnt].pt.z = zc;
+                        /* Interpolate normal,color,uv */
+			if(options & VTXNORMAL_ON)
+	                        nrvts[vcnt].normal = rvts[k].normal+(rvts[ke].normal-rvts[k].normal)*zratio;
+			if(options & VTXCOLOR_ON)
+	                        nrvts[vcnt].color = rvts[k].color+(rvts[ke].color-rvts[k].color)*zratio;
+			if(options & VTXUV_ON) {
+	                        nrvts[vcnt].u = rvts[k].u+(rvts[ke].u-rvts[k].u)*zratio;
+        	                nrvts[vcnt].v = rvts[k].v+(rvts[ke].v-rvts[k].v)*zratio;
+			}
+                        /* Count nrvts */
+                        vcnt++;
+
+			/* Count ret */
+			ret++;
+			break;
+		   case 3:	/* out_out, save nothing */
+			break;
+		}
+
+	}
+
+	/* Pass out new rvts[] */
+	np=vcnt;
+	for(int k=0; k<np; k++)
+		rvts[k]=nrvts[k];
+
+	return ret;
+}

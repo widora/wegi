@@ -28,7 +28,7 @@ Journal:
 2021-08-11:
 	1. Add E3D_Vector operator * (const E3D_Vector &va, const E3D_RTMatrix  &ma)
 2021-08-18:
-	1. Add struct E3D_ProjectFrustum, as E3D_ProjMatrix.
+	1. Add struct E3D_ProjectFrustum, as E3DS_ProjMatrix.
 
 2021-08-19:
 	1. Add E3D_draw_circle(),  +E3D_draw_line().
@@ -359,25 +359,46 @@ public:
 };
 
 
-/*--------------------------------------------------
+/*------------------------------------------------------
 DONT fully understand projection matrix under NDC,
 so use this struct first!  :)))))))
 
 Projection frustum ---> Projectoin matrix
 
+	     !!!--- CAUTION ----!!!
+
+1. Be carefule with mixing type calculation. (float and integer here).
+2. For float type: 6 digits accuracy, for double type: 15 digits accuracy!
+   see TODO_4 also.
+3. Clipping matrix item A,B,C,D must be updated/recomputed
+   whenever any parameter of the view frustum changes.	   <--------
+
 TODO:
 1. other parameters to define the shape of the frustum.
-2. Replace struct E3D_ProjMatrix with a class Matrix
+XXX 2. Replace struct E3DS_ProjMatrix with a class Matrix
    under Normalized Device Coordinates(NDC).
    Ref. OpenGL Projection Matrix.
+3. To be included/replaced by E3D_Camera!
+4. In calculating NDC, it has hight precision at near plane,
+   BUT very little precision at far plane. It means
+   small change of Zeye will NOT change Zndc at all!
+   that MAY result in failing to pick out meshes far
+   away and out side of the view frustum.
 
+   Examples:  ( Float type with 6 digits accuracy )
+        vpts[7].assign(0,0, 10000000(dfar)+100); ---- Out of view frustum
+            pointOutFrustumCode() result ERROR: within frustum! code=0x00, Vector NDC vtp:(-0.000000, 0.000000, 1.000000)
+        vpts[7].assign(0,0, 10000000+4000); ---- Out of view frustum
+	    pointOutFrustumCode() result OK:  code=0x20, Vector NDC vpt:(-0.000000, 0.000000, 1.000000)
+        vpts[7].assign(0,0, 10000000+60000); ---- Out of view frustum
+	    ointOutFrustumCode() result OK: code=0x20, Vector NDC vpt:(-0.000000, 0.000000, 1.000001) <----- See last digit
 
--------------------------------------------------*/
+--------------------------------------------------------*/
 enum {
 	E3D_ISOMETRIC_VIEW	=0,
 	E3D_PERSPECTIVE_VIEW    =1,
 };
-typedef struct E3D_ProjectFrustum  E3D_ProjMatrix;
+typedef struct E3D_ProjectFrustum  E3DS_ProjMatrix;
 struct E3D_ProjectFrustum {
 	/* Projectoin type, for quick response. */
 	int type;		/*  0:	Isometric projectoin(default).
@@ -385,26 +406,38 @@ struct E3D_ProjectFrustum {
 				 *  Others: ...
 				 */
 
-	/* Distance from the Foucs(view origin) to projetingPlane */
+	/* Distance from the Foucs(eye origin) to projetionPlane */
 	int	dv;
 
 	/* Define the shape of the Viewing Frustum */
-	int	dnear;		/* Distancd from the Foucs to the Near_clip_plane
+	int	dnear;		/* Distancd from the Foucs point to the Near_clip_plane
 				 * NOW: ALWAYS take dnear=dv.
 				 */
 	int	dfar;		/* Distancd from the Foucs to the Far_clip_plane */
-	//TODO: other parameters to define the shape of the frustum */
+	//XXXTODO: other parameters to define the shape of the frustum */
 
 	/* Define the displaying window */
 	int	winW;
 	int 	winH;
 
-	/* XXX TODO: a projection matrix under Normalized Device Coordinates:
+	/* For view frustum */
+	float r,l; /* right/left limit value
+		      * For symmetrical screen plane: r=-winW/2, l=winW/2
+		      */
+	float t,b; /* top/bottom limit value
+		      * For symmetrical screen plane: t=winH/2, b=-winH2
+		      */
+
+/*** TODO: E3D Clippling Matrix for Type   ------ E3D_ISOMETRIC_VIEW ------ */
+
+
+	/* XXXTODO: a projection matrix under Normalized Device Coordinates:
 	 *  	 The viewing frustum space is mapped to a 2x2x2 cube, with origin
 	 *       at the center of the cube. Any mapped point out of the cube will be clipped then.
 	 */
 
-	/*** E3D Clippling Matrix
+/*** E3D Clippling Matrix for Type    ------ E3D_PERSPECTIVE_VIEW ------
+
              Reference: http://www.songho.ca/opengl/gl_projectionmatrix.html
 
  	      [
@@ -421,7 +454,7 @@ struct E3D_ProjectFrustum {
 		   0         0        1             0
 							    ]
 
-		  A=n/r; B=n/t; C=(f+n)/(f-n); D=-2fn/(f-n);
+A,B,C,D:   A=n/r; B=n/t; C=(f+n)/(f-n); D=-2fn/(f-n);
 
 	      Note:
 		1. r,l,t,b:  right, left, top, bottom limit value on XY plane, which are all signed.
@@ -429,23 +462,19 @@ struct E3D_ProjectFrustum {
 		   Here right/left top/bottom are at the view point from -z ---> +z as E3D View direction.
 		2. f,n:      far,near limit value in Z direction, which are unsigned.
 		3. with Wc=Ze
-	     TODO:
-		1. If all r,l,t,b,f, are fixed, then we can compute above matrix and save it.
+	     XXXTODO:
+		4. If all r,l,t,b,f, are fixed, then we can compute above matrix and save it.
 		   OR to compute result of matrix items as A,B,C,D,... see in mapPointsToNDC().
 
 	 */
-	  float r,l; /* right/left limit value
-		      * For symmetrical screen plane: r=-winW/2, l=winW/2
-		      */
-	  float t,b; /* top/bottom limit value
-		      * For symmetrical screen plane: t=winH/2, b=-winH2
-		      */
 
-	  float A,B,C,D;  /* Clippling Matrix items, for symmetrical screen plane */
+	  double A,B,C,D;  /* Clippling Matrix items, for symmetrical screen plane */
 	  // f=dfar, n=dnear
+
 };
 
-void E3D_InitProjMatrix(E3D_ProjMatrix &projMatrix, int type, int winW, int winH, int dnear, int dfar, int dv);
+void E3D_InitProjMatrix(E3DS_ProjMatrix &projMatrix, int type, int winW, int winH, int dnear, int dfar, int dv);
+void E3D_RecomputeProjMatrix(E3DS_ProjMatrix &projMatrix); /* Recompute clipping matrix items: A,B,C,D... */
 
 #endif
 

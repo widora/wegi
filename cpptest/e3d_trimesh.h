@@ -42,7 +42,7 @@ Note:
 2. Matrix as an input paramter in functions:
    E3D_RTMatrix:    Transform(Rotation+Translation) matrix, to transform
 		    objects to expected position.
-   E3D_ProjMatrix:  Projection Matrix, to project/map objects in a defined
+   E3DS_ProjMatrix:  Projection Matrix, to project/map objects in a defined
 		    frustum space to the Screen.
 
 3. Since view direction set as ViewCoord(Camera) -Z ---> +Z, it needs to set FBDEV.flipZ=true
@@ -161,7 +161,7 @@ Journal:
 	1. Function projectPoints() NOT an E3D_TriMesh member.
 	2. Add E3D_draw_line() E3D_draw_circle() form e3d_vector.h
 	3. Add E3D_draw_coordNavSphere()
-	4. Add E3D_draw_line(FBDEV *, const E3D_Vector &, const E3D_RTMatrix &, const E3D_ProjMatrix &)
+	4. Add E3D_draw_line(FBDEV *, const E3D_Vector &, const E3D_RTMatrix &, const E3DS_ProjMatrix &)
 2021-08-21:
 	1. readObjFileInfo(): Some obj txt may have '\r' at line end.
 2021-08-22:
@@ -267,6 +267,10 @@ Journal:
 	1. Add E3D_TriMesh::shadowMesh()
 2022-08-09:
         1. Split e3d_trimesh.cpp from e3d_trimesh.h
+2022-10-03:
+        1. 'E3D_ProjMatrix' ---Rename to--->  'E3DS_ProjMatrix': 'S' stands for 'struct', as distinct from 'class'.
+2022-10-08:
+	1. Add class E3D_Light.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -313,31 +317,33 @@ int readMtlFile(const char *fmtl, vector<E3D_Material> & mtlList);
 int readObjFileInfo(const char* fpath, int & vertexCount, int & triangleCount,
 				       int & vtxNormalCount, int & textureVtxCount, int & faceCount);
 
-/* NON_Class Functions:  E3D_ProjMatrix */
-int projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix);  /* Project points in camera space onto screen */
-int reverse_projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix);
-int mapPointsToNDC(E3D_Vector vpts[], int np, const E3D_ProjMatrix & projMatrix); /* map points in camera space to NDC */
-int pointOutFrustumCode(const E3D_Vector &pt); //(float x, float y, float z);
+/* NON_Class Functions:  E3DS_ProjMatrix */
+int projectPoints(E3D_Vector vpts[], int np, const E3DS_ProjMatrix & projMatrix);  /* Project points in camera space onto screen */
+int reverse_projectPoints(E3D_Vector vpts[], int np, const E3DS_ProjMatrix & projMatrix);
+int mapPointsToNDC(E3D_Vector vpts[], int np, const E3DS_ProjMatrix & projMatrix); /* map points in camera space to NDC */
+int pointOutFrustumCode(const E3D_Vector &pt); /* pt under NDC */
 
 /* Class Friend Functions: Intersection */
 //bool E3D_rayHitTriMesh(const E3D_Ray &rad, const E3D_TriMesh &trimesh, E3D_Vector &vp);
 
 /* NON_Class Functions:  E3D_Draw Function */
 void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb);
-void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, const E3D_ProjMatrix &projMatrix);
-void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
-void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, const E3DS_ProjMatrix &projMatrix);
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_RTMatrix &RTmatrix, const E3DS_ProjMatrix &projMatrix);
+void E3D_draw_line(FBDEV *fbdev, const E3D_Vector &va, const E3D_Vector &vb, const E3D_RTMatrix &RTmatrix, const E3DS_ProjMatrix &projMatrix);
 
-void E3D_draw_grid(FBDEV *fbdev, int sx, int sy, int us, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
-void E3D_draw_circle(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
+void E3D_draw_grid(FBDEV *fbdev, int sx, int sy, int us, const E3D_RTMatrix &RTmatrix, const E3DS_ProjMatrix &projMatrix);
+void E3D_draw_circle(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3DS_ProjMatrix &projMatrix);
 
-void E3D_draw_coordNavSphere(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
-void E3D_draw_coordNavFrame(FBDEV *fbdev, int size, bool minZ, const E3D_RTMatrix &RTmatrix, const E3D_ProjMatrix &projMatrix);
+void E3D_draw_coordNavSphere(FBDEV *fbdev, int r, const E3D_RTMatrix &RTmatrix, const E3DS_ProjMatrix &projMatrix);
+void E3D_draw_coordNavFrame(FBDEV *fbdev, int size, bool minZ, const E3D_RTMatrix &RTmatrix, const E3DS_ProjMatrix &projMatrix);
 void E3D_draw_coordNavIcon2D(FBDEV *fbdev, int size, const E3D_RTMatrix &RTmatrix, int x0, int y0);
 
 /* Compute lightings to get the color as we finally see. */
 EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, float dl);
 
+/*  Clip triangle wit near plane of the view_frustum. */
+int E3D_ZNearClipTriangle(float zc, struct E3D_RenderVertex rvts[], int &np, int options);
 
 /* Mesh Rendering/Shading type */
 enum E3D_SHADE_TYPE {
@@ -355,6 +361,70 @@ extern E3D_Vector gv_auxLight;  //(1.0, 0.0, 0.0);   /* factor=0.5 when renderin
 extern E3D_Vector gv_ambLight;  /* Global ambient lighting */
 
 /* Global View TransformMatrix */
+
+
+/*-------------------------------
+     Struct E3D_RenderVertex
+--------------------------------*/
+enum {
+	/* Valid vertex items in E3D_RenderVertex */
+	VTXNORMAL_ON 	=(1<<0),
+	VTXCOLOR_ON	=(1<<1),
+	VTXUV_ON	=(1<<2),
+};
+
+typedef struct E3D_RenderVertex	 E3DS_RenderVertex;
+struct E3D_RenderVertex {
+	E3D_Vector	pt;	/* Vertex position */
+	E3D_Vector	normal;	/* Vertex normal, if applys */
+	E3D_Vector	color;	/* RGB each [0 1] */
+	float 		u,v;	/* Texture map coordinate */
+};
+
+
+/*-------------------------------
+	Class E3D_Material
+--------------------------------*/
+enum{
+	E3D_DIRECT_LIGHT  =0, /* Directional light */
+	E3D_POINT_LIGHT	  =1,
+	E3D_SPOT_LIGHT	  =2,
+};
+class E3D_Light {
+public:
+	/* Constructor */
+	E3D_Light();
+	/* Deconstructor */
+	~E3D_Light();
+
+	/* Init,Setdefault */
+	void setDefaults();
+
+
+	/* Light type */
+	int type; /* Light type
+		   * 0: Directional light (Default)
+		   * 1: Point light
+		   * 2: Spotlight
+		   */
+
+	/* Position and orientation */
+	E3D_Vector pt;	/* Light bulb center position. default(0,0,0)
+			 * NOT for directional light.
+			 */
+
+	/* Light Direction */
+	E3D_Vector direct;  /* For directional light only, default(0,0,1), -z-->+z */
+
+        /* Source light specular color */
+        E3D_Vector Ss;  /* Default as (0.75, 0.75, 0.75) */
+        /* Source light diffuse color */
+        E3D_Vector Sd;  /* Defaults as (0.8, 0.8, 0.8) */
+
+        /* Attenuation factor for light intensity */
+        float atten;    /* Default as 0.75 */
+};
+
 
 /*-------------------------------
 	Class E3D_Material
@@ -477,8 +547,6 @@ public:
 public:
 	vector<PivotFrame> kframes;
 };
-
-
 
 /*-------------------------------------------------------
         Class: E3D_TriMesh
@@ -747,7 +815,7 @@ public:
 	void cloneMesh(const E3D_TriMesh &tmesh); /* !!! Some data are NOT cloned and replaced! */
 
 	/* Function: Project according to Projection matrix */
-	// int  projectPoints(E3D_Vector vpts[], int np, const E3D_ProjMatrix &projMatrix) const;
+	// int  projectPoints(E3D_Vector vpts[], int np, const E3DS_ProjMatrix &projMatrix) const;
 
 	/* Function: Read texture image into textureImg */
 	void readTextureImage(const char *fpath, int nw);
@@ -756,22 +824,22 @@ public:
 	int getMaterialID(const char *name) const;
 
 	/* Function: Draw wires/faces */
-	void drawMeshWire(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const ;
+	void drawMeshWire(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) const ;
 	void drawMeshWire(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix) const;
 
 	/* Function: Draw AABB as wire. */
-	void drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const E3D_ProjMatrix projMatrix) const ;
+	void drawAABB(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix, const E3DS_ProjMatrix projMatrix) const ;
 
 	/* Function: Render all triangles */
-	void renderMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const ;
+	int renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) const ;
 	/* TODO: to be oboselet, to apply TriMesh.objmat instead ? */
 	void renderMesh(FBDEV *fbdev, const E3D_RTMatrix &VRTmatrix, const E3D_RTMatrix &ScaleMatrix) const;
 
 	/* Function: draw normal line */
-	void drawNormal(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const;
+	void drawNormal(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) const;
 
 	/* Function: compute shadow on a plane */
-	void shadowMesh(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix, const E3D_Plane &plane) const;
+	void shadowMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix, const E3D_Plane &plane) const;
 
 	/* Function: Ray hit face of the trimesh */
 	bool rayHitFace(const E3D_Ray &ray, int rgindx, int rtindx,
@@ -849,6 +917,7 @@ public:
 					 */
 	EGI_16BIT_COLOR   bkFaceColor;  /* Faceback face color for flat/gouraud/wire shading.
 					 * Default as 0(BLACK).
+					 * --- OBOSELE: Use defMaterial ---
 					 */
 	EGI_16BIT_COLOR	wireFrameColor; /* Color for wire frame
 					 * Default as 0(BLACK).
@@ -866,29 +935,36 @@ Instance of E3D_TriMesh.
 class E3D_MeshInstance {
 public:
 	/* Constructor */
-	E3D_MeshInstance(E3D_TriMesh &refTriMesh);
-	E3D_MeshInstance(E3D_MeshInstance &refInstance);
+	E3D_MeshInstance(E3D_TriMesh &refTriMesh, string pname=" ");
+	E3D_MeshInstance(E3D_MeshInstance &refInstance, string pname=" ");
 
 	/* Destructor */
 	~E3D_MeshInstance();
 
-	/* Render MeshInstance */
-	void renderInstance(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const;
+	/* Check if instance is completely out of the view frustum */
+	bool aabbOutViewFrustum(const E3DS_ProjMatrix &projMatrix);  /* Rename 'isOut...' to 'aabbOut...'  HK2022-10-08 */
+	bool aabbInViewFrustum(const E3DS_ProjMatrix &projMatrix);
 
-	/* Reference E3D_TriMesh */
+	/* Render MeshInstance */
+	void renderInstance(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) const;
+
+	/* Name HK2022-09-29 */
+	string name;
+
+	/* Reference E3D_TriMesh. refTriMesh->instanceCount will be modified! */
 	E3D_TriMesh & refTriMesh;
 
 	/* objmat matrix for the instance mesh. refTriMesh.objmat to be ignored then! */
 	E3D_RTMatrix objmat;
 
-	/* TriGroup omats. refTriMesh::triGroupList[].omat to be ignored then! */
+	/* TriGroup omats. refTriMesh::triGroupList[].omat to be ignored then! TODO. */
 	vector<E3D_RTMatrix> omats;
 };
 
 
 /*-------------------------------------------
               Class: E3D_Scene
-
+Settings for an E3D scene.
 -------------------------------------------*/
 class E3D_Scene {
 public:
@@ -900,17 +976,21 @@ public:
 	/* Import .obj into TriMeshList */
 	void importObj(const char *fobj);
 	/* Add instance */
-        void addMeshInstance(E3D_TriMesh &refTriMesh);
-        void addMeshInstance(E3D_MeshInstance &refInstance);
-	/* Clear instance list */
+        void addMeshInstance(E3D_TriMesh &refTriMesh, string pname=" ");
+        void addMeshInstance(E3D_MeshInstance &refInstance, string pname=" ");
+	/* Clear instance list. ONLY clear meshInstanceList! */
 	void clearMeshInstanceList();
+
 	/* Render Scene */
-	void renderScene(FBDEV *fbdev, const E3D_ProjMatrix &projMatrix) const;
+	void renderScene(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) const;
 
 
 	vector<string>  fpathList;	    /* List of fpath to the obj file */
 	vector<E3D_TriMesh*>  triMeshList;  /* List of TriMesh  <--- Pointer --->  */
 	//vector<E3D_RTMatrix>  ObjMatList;   /* Corresponding to each TriMesh::objmat  NOPE! */
+					      /* Suppose that triMeshList->objmat ALWAYS is an identity matrix,
+					       * as triMeshList are FOR REFERENCE!
+					       */
 
 	/* Instances List */
 	vector<E3D_MeshInstance*> meshInstanceList; /* List of mesh instances

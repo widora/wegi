@@ -33,6 +33,9 @@ using namespace std;
 --------------------*/
 E3D_Cuboid::E3D_Cuboid(float dx, float dy, float dz): E3D_TriMesh()
 {
+	/* Init vars */
+//	initVars();
+
 	/* 1. Clear vtxList[] and triList[], E3D_TriMesh() may allocate them.  */
 	if(vCapacity>0) {
 		delete [] vtxList;
@@ -106,6 +109,7 @@ E3D_Cuboid::E3D_Cuboid(float dx, float dy, float dz): E3D_TriMesh()
 	triGroupList[0].tcnt=tcnt; /* 12 triangles */
 	triGroupList[0].stidx=0;
 	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
+	triGroupList[0].name="default";
 }
 
 
@@ -130,6 +134,9 @@ E3D_Cuboid::~E3D_Cuboid()
 E3D_RtaSphere::E3D_RtaSphere(int ng, float rad):E3D_TriMesh()
 {
 	egi_dpstd("Call E3D_RtaShpere(%d, %f)\n", ng,rad);
+
+	/* Init vars, necessary; */
+//	initVars();
 
 	/* Assign param */
 	if(ng<0)ng=0;
@@ -281,6 +288,7 @@ f 10 12 11
 	triGroupList[0].tcnt=20; /* 20 triangles */
 	triGroupList[0].stidx=0;
 	triGroupList[0].etidx=0+20; /* Caution!!! etidx is NOT the end index! */
+	triGroupList[0].name="default";
      }
      /* Else: to refine the mesh by recursively subdividing all triangles, 1 to 4. */
      else {
@@ -378,7 +386,7 @@ f 10 12 11
 #endif //////////////////////////
 		/* Check if a vertex alread exists between --- vA/vB --- */
 		for(int m=0; m<6; m++) {
-egi_dpstd("m=%d\n", m);
+//egi_dpstd("m=%d\n", m);
 		     if(vtxLinkList[indxA][m]==indxB)
 			  NAidx=vtxLinkList[indxA][m+6];
 		}
@@ -514,6 +522,7 @@ egi_dpstd("m=%d\n", m);
 	triGroupList[0].tcnt=tcnt; /* 20 triangles */
 	triGroupList[0].stidx=0;
 	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
+	triGroupList[0].name="default";
 
 	/* Free old data */
 	delete [] _vtxList;

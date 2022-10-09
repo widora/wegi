@@ -123,6 +123,7 @@ int 	cstr_txtgroup_push(EGI_TXTGROUP *txtgroup, const char *txt);
 void    cstr_print_byteInBits(char ch, const char *end);
 char*	cstr_replace_string(char **src, int left, const char *obj, const char *sub);
 
+char*   cstr_get_pathFileName(const char *path);
 bool    cstr_is_absoluteURL();
 int 	cstr_parse_URL(const char *URL, char **protocol, char **hostname, unsigned int *port,
 		        char **filename, char **path, char **dir, char **dirURL);
