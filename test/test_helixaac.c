@@ -35,9 +35,12 @@ Journal:
 2022-09-26:
 	1. Check frameLength with bytesLeft, to avoid segmentation fault.
 	TODO: This maybe ADTS data error, check in egi_extract_AV_from_ts().
+2022-10-13:
+	1. Add FTSYMBOL_TITLE
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
+知之者不如好之者好之者不如乐之者
 -------------------------------------------------------------------*/
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,6 +56,10 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include <egi_debug.h>
 
 #include <egi_surface.h>
+
+
+#define FTSYMBOL_TITLE 1   /* Title displaying with FTsymbol */
+
 
 int main(int argc, char **argv)
 {
@@ -123,10 +130,29 @@ int main(int argc, char **argv)
 #endif
 
 	/* Log silent */
-//	egi_log_silent(true);
+	egi_log_silent(true);
 
   	/* Set termI/O 设置终端为直接读取单个字符方式 */
   	egi_set_termios();
+
+#if 1 /* TEST ------------- */
+  /* Load freetype fonts */
+  printf("FTsymbol_load_sysfonts()...\n");
+  if(FTsymbol_load_sysfonts() !=0) {
+        printf("Fail to load FT sysfonts, quit.\n");
+        return -1;
+  }
+
+  /* Initilize sys FBDEV */
+  printf("init_fbdev()...\n");
+  if(init_fbdev(&gv_fb_dev))
+        return -1;
+
+  /* Set sys FB mode */
+  fb_set_directFB(&gv_fb_dev,true);
+  fb_position_rotate(&gv_fb_dev,0);
+#endif
+
 
   	/* Prepare vol 启动系统声音调整设备 */
   	egi_getset_pcm_volume(NULL,NULL,NULL);
@@ -430,9 +456,9 @@ RADIO_LOOP:
 //		AACDecInfo *aacDecInfo = (AACDecInfo *)aacDec;
 //		printf("AAC format: %d\n", aacDecInfo->format); /* 0=Unknown, 1=AAC_FF_ADTS, 2=AAC_FF_ADIF, 3=AAC_FF_RAW */
 
-		printf("AACDecode bytesLeft=%d.\n", bytesLeft);
+//		printf("AACDecode bytesLeft=%d.\n", bytesLeft);
 		err=AACDecode(aacDec, &pin, &bytesLeft, pout);
-		printf("err=%d, bytesLeft=%d.\n", err, bytesLeft);
+//		printf("err=%d, bytesLeft=%d.\n", err, bytesLeft);
 		feedCnt++;
 
 		/* 7.4 Case: ERR_AAC_NONE */
@@ -453,7 +479,13 @@ RADIO_LOOP:
 			/* Sep parameters for pcm_hanle, Assume format as SND_PCM_FORMAT_S16_LE, */
 			if(!pcmdev_ready || nchanl != aacFrameInfo.nChans || samplerate!=aacFrameInfo.sampRateOut )
 			{
+
+#if !FTSYMBOL_TITLE /* Print title */
 				printf("\n   %s\n", title);
+#else /* Spare line for FTsymbols */
+   				printf("\n\n");
+#endif
+
    			        printf(" ----------------------------\n");
                 		printf("       AAC Radio Player\n");
 				//printf("     Helic AAC FP Decoder\n");
@@ -479,6 +511,15 @@ RADIO_LOOP:
 				        AAC_FF_ADIF = 2,
 				        AAC_FF_RAW =  3
 				 */
+#if FTSYMBOL_TITLE  /*  FTsymbol TITLE */
+        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular,     /* FBdev, fontface */
+                                        18, 18,(const UFT8_PCHAR)title,   /* fw,fh, pstr */
+                                        320, 1, 0,      		      /* pixpl, lines, fgap */
+                                        12, 0,               		      /* x0,y0, */
+                                        //WEGI_COLOR_YELLOW, -1, 255,    /* fontcolor, transcolor,opaque */
+					egi_color_random(color_light), -1, 255,
+                                        NULL, NULL, NULL, NULL);      /*  int *cnt, int *lnleft, int* penx, int* peny */
+#endif
 
 #if 1		/* TEST: ------------ MSG QUEUE ------------------*/
 		if(msgid>=0) {

@@ -13,6 +13,10 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include <stdint.h>
 #include <sys/time.h>
 
+#ifdef __cplusplus
+ extern "C" {
+#endif
+
 typedef struct float_Matrix EGI_MATRIX;
 
 struct float_Matrix
@@ -66,5 +70,9 @@ struct float_Matrix* Matrix_SolveEquations( const struct float_Matrix *matAB, st
 /* Special Matrix Equation Algrithom */
 EGI_MATRIX* 	Matrix_GuassSolve( const struct float_Matrix *matAB );
 EGI_MATRIX*	Matrix_ThomasSolve( const EGI_MATRIX *abcd, const EGI_MATRIX *matAD);
+
+#ifdef __cplusplus
+ }
+#endif
 
 #endif

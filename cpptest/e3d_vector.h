@@ -279,6 +279,7 @@ public:
        		Class: E3D_RTMatrix
 3D Transform Matrix (4x3)
 Rotation+Translation: Orthogonal Matrix
+Scale is NOT orthogonal operation!
 
 Note:
 1. If it comprises ONLY Rotation+Translation,
@@ -300,6 +301,11 @@ public:
 	 * Translation:
 		   pmat[9,10,11]: tx,ty,tz
 	 * If zeroTranslation, then it's under Inertial Coord.
+
+		              !!!--- CAVEATS ---!!!
+	   1.  pamt[] has two components: RotationMat and TranslationMat
+	   2.  *E3D_RTMatrix = *(RotationMat*TranslationMat),  !!! NOT *(TranslationMat*RotationMat) !!!
+
 	 */
 
 	/* Constructor */
@@ -329,6 +335,9 @@ public:
 	/* Transpose: for an orthogonal matrix, its inverse is equal to its transpose! */
 	void transpose();
 
+	/* Inverse the matrix. Rotation/Scale component + Translation component */
+	void inverse();
+
 	/* Check wheather the matrix is identity */
 	bool isIdentity();
 
@@ -340,7 +349,6 @@ public:
 
 	/* Set part of Translation TxTyTz in pmat[] */
 	void setTranslation( const E3D_Vector &tv );
-
 
 	/* Set part of Translation TxTyTz in pmat[] */
 	void setScaleXYZ( float sx, float sy, float sz);
@@ -366,7 +374,8 @@ so use this struct first!  :)))))))
 Projection frustum ---> Projectoin matrix
 
 	     !!!--- CAUTION ----!!!
-
+0. projectPoints() and reverse_projectPoints() use other
+   mapping algorithm, they DO NOT need aabbccddABCD.
 1. Be carefule with mixing type calculation. (float and integer here).
 2. For float type: 6 digits accuracy, for double type: 15 digits accuracy!
    see TODO_4 also.
@@ -379,11 +388,14 @@ XXX 2. Replace struct E3DS_ProjMatrix with a class Matrix
    under Normalized Device Coordinates(NDC).
    Ref. OpenGL Projection Matrix.
 3. To be included/replaced by E3D_Camera!
-4. In calculating NDC, it has hight precision at near plane,
+4. In calculating PERSPECTIVE view_frustum NDC:
+   It has high precision at near plane,
    BUT very little precision at far plane. It means
    small change of Zeye will NOT change Zndc at all!
    that MAY result in failing to pick out meshes far
    away and out side of the view frustum.
+   ( For ISOMETRIC view_frustum NDC mapping, since
+    Ze is irrelevant to Xn and Yn, so no such problem exists. )
 
    Examples:  ( Float type with 6 digits accuracy )
         vpts[7].assign(0,0, 10000000(dfar)+100); ---- Out of view frustum
@@ -428,7 +440,26 @@ struct E3D_ProjectFrustum {
 		      * For symmetrical screen plane: t=winH/2, b=-winH2
 		      */
 
-/*** TODO: E3D Clippling Matrix for Type   ------ E3D_ISOMETRIC_VIEW ------ */
+/*** E3D Clippling Matrix for Type   ------ E3D_ISOMETRIC_VIEW ------   HK2022-10-09
+             Reference: http://www.songho.ca/opengl/gl_projectionmatrix.html
+
+ 	      [
+		2/(l-r)     0         0      (r+l))/(r-l)
+		   0       2/(t-b)    0      (b+t)/(b-t)
+		   0         0     2/(f-n)   (n+f)/(n-f)
+		   0         0        0           1
+							   ]
+	      For a symmetricl screen plane, where r=-l and b=-t.
+ 	      [
+		  -1/r       0        0             0
+		   0       1/t        0             0
+		   0         0      2/(f-n)    (n+f)/(n-f)
+		   0         0        0             1
+							    ]
+aa,bb,cc,dd:   aa=-1/r; bb=1/t; cc=2/(f-n); dd=(n+f)/(n-f);
+
+*/
+	  double aa,bb,cc,dd;  /* Clippling Matrix items, for symmetrical screen plane */
 
 
 	/* XXXTODO: a projection matrix under Normalized Device Coordinates:

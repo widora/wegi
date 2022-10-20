@@ -6369,8 +6369,9 @@ TODO:  Byte order compatibility for saving a file.
 //@motion:	Pointer to an EGI_IMGMOTION
 
 Return:
+	>0	File exists.
 	0	Ok
-	<0	Fails, OR file exists.
+	<0	Fails.
 ------------------------------------------------------------*/
 int egi_imgmotion_saveHeader(const char *fpath, int width, int height, int delayms, int compress)
 {
@@ -6391,7 +6392,7 @@ int egi_imgmotion_saveHeader(const char *fpath, int width, int height, int delay
 	/* Check if file exists */
         if( access(fpath, F_OK) ==0 ) {
 		egi_dpstd("Motion file '%s' already exist!\n", fpath);
-		return -2;
+		return 2;   /* HK2022-10-19 */
 	}
 
         /* Open/create file */

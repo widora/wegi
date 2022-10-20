@@ -12,9 +12,12 @@ Journal:
 	1. Test apPointsToNDC() / pointOutFrustumCode().
 2022-10-03:
 	1. Test E3D_ZNearClipTriangle()
+2022-10-17:
+	1. Test E3D_RTMatrix::inverse()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
+知之者不如好之者好之者不如乐之者
 ------------------------------------------------------------------*/
 #include <iostream>
 #include <stdio.h>
@@ -48,7 +51,79 @@ int main(void)
 {
 	cout << "Hello, this is C++!\n" << endl;
 
-#if 1 ////////////////  E3D_ZNearClipTriangle()  ////////////////
+#if 1 ////////////////  E3D_RTMatrix::inverse()  ////////////////
+        E3D_Vector axisX(1,0,0);
+        E3D_Vector axisY(0,1,0);
+        E3D_Vector axisZ(0,0,1);
+
+        E3D_RTMatrix RTMat;
+	E3D_RTMatrix invRTMat;
+	E3D_RTMatrix testMat;
+
+        E3D_RTMatrix RXmat, RYmat, RZmat, SCmat, TXYZmat;
+        RXmat.setRotation(axisX, 20.0/180*MATH_PI);
+        RYmat.setRotation(axisY, 60.0/180*MATH_PI);
+        RZmat.setRotation(axisZ, 80.0/180*MATH_PI);
+	SCmat.setScaleXYZ(0.01,1,100);  /* Scale is NOT orthogonal operation */
+
+
+  #if 1 ////////////////////////////////////
+
+	TXYZmat.setTranslation(10,20,30);
+	RTMat=RXmat*TXYZmat;
+	RTMat.print("RTMat=RXmat*TXYZmat");
+/***
+<<< RTMatrix 'RTMat=RXmat*TXYZmat' >>>
+Rotation_Matrix[3x3]:
+1.000000  0.000000  0.000000
+0.000000  0.939693  0.342020
+0.000000  -0.342020  0.939693
+TxTyTz:
+10.000000 20.000000 30.000000
+*/
+
+	RTMat=TXYZmat*RXmat;
+	RTMat.print("RTMat=TXYZmat*RXmat");
+/***
+   <<< RTMatrix 'RTMat=TXYZmat*RXmat' >>>
+Rotation_Matrix[3x3]:
+1.000000  0.000000  0.000000
+0.000000  0.939693  0.342020
+0.000000  -0.342020  0.939693
+TxTyTz:
+10.000000 8.533248 35.031181
+*/
+	invRTMat=RTMat;
+	invRTMat.inverse();
+	invRTMat.print("invRTMat");
+/**
+   <<< RTMatrix 'invRTMat' >>>
+Rotation_Matrix[3x3]:
+1.000000  -0.000000  0.000000
+-0.000000  0.939693  -0.342020
+0.000000  0.342020  0.939693
+TxTyTz:
+-10.000001 -20.000002 -30.000000
+*/
+   #endif //////////////////////////////////
+
+   #if 0 ////////////////////////////////////
+	RTMat=RXmat*RYmat*RZmat*SCmat;
+	RTMat.setTranslation(10, 20, 30);
+	RTMat.print("RTMat");
+
+	invRTMat=RTMat;
+	invRTMat.inverse();
+	invRTMat.print("invRTMat");
+
+	testMat=RTMat*invRTMat;
+	testMat.print("testMat");
+  #endif ////////////////////////////////////////
+
+exit(0);
+#endif
+
+#if 0 ////////////////  E3D_ZNearClipTriangle()  ////////////////
 	E3DS_RenderVertex  rvts[4]; /* MAX. possible results~ */
 	int np=3;
 	int ret;
@@ -67,21 +142,56 @@ int main(void)
 exit(0);
 #endif
 
-#if 0 ////////////////   mapPointsToNDC() / pointOutFrustumCode()  ////////////////
+#if 0 ////////////////   mapPointsToNDC() / pointOutFrustumCode() --- E3D_ISOMETRIC_VIEW --- ////////////////
+	E3DS_ProjMatrix projMatrix;
+
+	/* Init projMatrix  (projmatrix , int type, int winW, int winH, int dnear, int dfar, int dv) */
+	E3D_InitProjMatrix(projMatrix, E3D_ISOMETRIC_VIEW, 320, 240, 500, 10000000, 500);
+
+	E3D_Vector vpts[8], savevpts[8];
+
+	/* Points within the view frustum */
+	vpts[0].assign(160 -0.1, 120 -1, 500 +1);
+	vpts[1].assign(160 -0.1, 120.0 -0.1, 10000000 -1);
+	vpts[2].assign(-160 +0.1, -120.0 +0.1, 10000000 -1);
+	vpts[3].assign(0,0, 500 +0.1);
+
+	/* Points out of the view frustum */
+	vpts[4].assign(-160 -0.01, -120, 500);
+	vpts[5].assign(160.0 +1, 120.0, 10000000 -1);
+	vpts[6].assign(-160.0 -1, -120.0, 10000000);
+
+	/* Note: For float type: 6 digits accuracy, for double type: 15 digits accuracy! */
+	vpts[7].assign(0,0, 10000000+1); /* For ISOMETRIC, OK */
+
+	for(int i; i<8; i++)
+		savevpts[i]=vpts[i];
+
+	/* Map to NDC coordinates ---- CAUTION: vpts[] modified! ---- */
+	mapPointsToNDC(vpts, 8, projMatrix);
+
+	/* Check, NOW vpts holds NDC coordinates value. */
+	int code;
+	for(int k=0; k<8; k++) {
+		if( (code=pointOutFrustumCode(vpts[k])) ) {
+			printf("vpts[%d] is out of ISOMETRIC frustum! code=0x%02X, ", k,code);
+			vpts[k].print("NDC vpt");
+			printf("\n\n");
+		}
+		else {
+			printf("vpts[%d] is within ISOMETRIC frustum! code=0x%02X, ", k,code);
+			vpts[k].print("NDC vpt");
+			printf("\n\n");
+		}
+	}
+#endif
+
+
+#if 0 ////////////////   mapPointsToNDC() / pointOutFrustumCode() --- E3D_PERSPECTIVE_VIEW --- ////////////////
 	E3DS_ProjMatrix projMatrix;
 
 	/* Init projMatrix  (projmatrix , int type, int winW, int winH, int dnear, int dfar, int dv) */
 	E3D_InitProjMatrix(projMatrix, E3D_PERSPECTIVE_VIEW, 320, 240, 500, 10000000, 500);
-
-#if 0	/* Test points  */
-	E3D_Vector pt0(160 -0.1, 120 -1, 500 +1);  /* in frustum */
-	E3D_Vector pt1(160.0*(10000000.0/500) -1, 120.0*(10000000.0/500) -1, 10000000 -1);  /* in frustum */
-	E3D_Vector pt2(-160.0*(10000000.0/500) +1, -120.0*(10000000.0/500) +1, 10000000 -1);  /* in frustum */
-
-	E3D_Vector pt3(-160 -0.01, -120, 500);  /* out frustum */
-	E3D_Vector pt4(160.0*(10000000.0/500), 120.0*(100000000.0/500), 10000000 -1);  /* out frustum */
-	E3D_Vector pt5(-160.0*(10000000.0/500) -1, -120.0*(10000000.0/500) -1, 10000000);  /* out frustum */
-#endif
 
 	E3D_Vector vpts[8], savevpts[8];
 //	vpts[0]=pt0; vpts[1]=pt1; vpts[2]=pt2; vpts[3]=pt3; vpts[4]=pt4; vpts[5]=pt5;
@@ -112,12 +222,12 @@ exit(0);
 	int code;
 	for(int k=0; k<8; k++) {
 		if( (code=pointOutFrustumCode(vpts[k])) ) {
-			printf("vpts[%d] is out of frustum! code=0x%02X, ", k,code);
+			printf("vpts[%d] is out of PERSPECTIVE frustum! code=0x%02X, ", k,code);
 			vpts[k].print("NDC vpt");
 			printf("\n\n");
 		}
 		else {
-			printf("vpts[%d] is within frustum! code=0x%02X, ", k,code);
+			printf("vpts[%d] is within PERSPECTIVE frustum! code=0x%02X, ", k,code);
 			vpts[k].print("NDC vpt");
 			printf("\n\n");
 		}

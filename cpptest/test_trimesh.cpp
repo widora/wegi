@@ -284,6 +284,8 @@ Journal:
 	1. TEST: Add boxman into volumes.obj
 2022-09-26:
 	1. TEST: renderInstance()
+2022-10-19:
+	1. Add option -n appendMotion_on
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -321,15 +323,16 @@ const UFT8_PCHAR ustr=(UFT8_PCHAR)"Hello_World! 世界你好!\n12345 子丑寅�
 
 void print_help(const char *name)
 {
-	printf("Usage: %s obj_file [-hirbBDGmNRSPVLWCwbtclFf:s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
+	printf("Usage: %s obj_file [-hirbBDGmnNRSPVLWCwbtclFf:s:x:y:z:A:M:X:Y:Z:T:a:p:]\n", name);
 	printf("-h     Help\n");
-	printf("-i     Test view_frustum near plane clipping\n");
+	printf("-i     Test view_frustum near plane clipping. then '-a' is moving step(+away/-near)in percentage of dobj \n");
 	printf("-r     Reverse trianlge normals\n");
 	printf("-B     Display back faces with default color, OR texture for back faces also.\n");
 	printf("-D     Show mesh detail statistics and other info.\n");
 	printf("-F     To adjust focal length step by step.\n");
 	printf("-G     Show grid.\n");
 	printf("-m     Force texture mapping.\n");
+	printf("-n     If motion file exists, just append it. Default will exit.\n");
 	printf("-N     Show coordinate navigating sphere/frame.\n");
 	printf("-R     Reverse vertex Z direction.\n");
 	printf("-S     Save serial FB images and loop playing.\n"); /* OBSOLETE */
@@ -379,7 +382,7 @@ int main(int argc, char **argv)
 	 0xF0CCA8--Bronze
 	*/
 
-	EGI_16BIT_COLOR	  bkgScreenColor=WEGI_COLOR_GRAYB;//GRAY3;//GREEN; //GRAY5; // DARKPURPLE
+	EGI_16BIT_COLOR	  bkgScreenColor=WEGI_COLOR_GRAY; //GRAYB;//GRAY3;//GREEN; //GRAY5; // DARKPURPLE
 	EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(0xF0CCA8);//WEGI_COLOR_PINK;
 	EGI_16BIT_COLOR	  wireColor=WEGI_COLOR_BLACK; //DARKGRAY;
 	EGI_16BIT_COLOR	  aabbColor=WEGI_COLOR_LTBLUE;
@@ -423,6 +426,7 @@ int main(int argc, char **argv)
 	bool		showInfo_on=false;	/* Show mesh detail statistics and other info. */
 	bool		serialPlay_on=false;	/* Save serial FB image and then loop play */
 	bool		saveMotion_on=false;	/* Save screen as a frame of a motion file */
+	bool		appendMotion_on=false;  /* If same motion file exits, then exit/continue */
 	bool		backFace_on=false;	/* Display back faces */
 	bool		calVtxNormals_on=false; /* To compute all vtxNormals if not provided in data, for gouraud shading. */
 	bool		adjustLight_on=false;	/* Adjust lighting direction */
@@ -469,7 +473,7 @@ int main(int argc, char **argv)
 
         /* Parse input option */
 	int opt;
-        while( (opt=getopt(argc,argv,"hirbBDGmNRSPVLWCwbtclFf:s:x:y:z:A:M:X:Y:Z:T:a:p:"))!=-1 ) {
+        while( (opt=getopt(argc,argv,"hirbBDGmnNRSPVLWCwbtclFf:s:x:y:z:A:M:X:Y:Z:T:a:p:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
 				print_help(argv[0]);
@@ -494,6 +498,9 @@ int main(int argc, char **argv)
 				break;
 			case 'm':
 				force_textureMap=true;
+				break;
+			case 'n':
+				appendMotion_on=true;
 				break;
 			case 'N':
 				coordNavigate_on=true;
@@ -668,10 +675,12 @@ else {	/* For Landscape */
 	   // gv_vLight.assign(-1, 1.5, 0); // (1, 1.5, 0);
 	   gv_vLight.assign(1,1,1);
 	   gv_vLight.normalize();
-	   //gv_auxLight.assign(-1, -1, 1);
-	   //gv_auxLight.assign(-1,-1,0);
-	   gv_auxLight.assign(0,0,0.25); //(-1,0,0.5); //(0,0,1);
-	   //gv_auxLight.normalize();
+	   gv_auxLight.assign(-1, -1, 1);
+	   //gv_auxLight.assign(-1,-1, 0);
+	   //gv_auxLight.assign(0,0,0.25);
+	   //gv_auxLight.assign(0,0, 0.75);
+	   gv_auxLight.normalize();
+	   gv_auxLight *=0.75;
 	}
 
 	//E3D_Vector vLight(-0.5, 1, 1);
@@ -768,7 +777,9 @@ else {	/* For Landscape */
 	if(saveMotion_on) {
 		if(fmotion==NULL)
 			fmotion=MOTION_FILE;
-		if( egi_imgmotion_saveHeader(fmotion, xres, yres, 50, 1) !=0 )  /* (fpath, width, height, delayms, compress) */
+		int ret;
+		ret=egi_imgmotion_saveHeader(fmotion, xres, yres, 50, 1); /* (fpath, width, height, delayms, compress) */
+		if( ret<0 || (ret>0 && !appendMotion_on) )
 			exit(EXIT_FAILURE);
 	}
 
@@ -805,7 +816,7 @@ else {	/* For Landscape */
 
         /* 3. Compute all triangle normals, before draw wireframe(maybe with normal lines) */
 	cout<< "Update all triNormals..."<<endl;
-        meshModel.updateAllTriNormals();
+        meshModel.updateAllTriNormals(); /* Notice face normal NOT defined in fobj */
 
 	/* 3.1 Compute vertex noramls if necessary, for gouraud shading. */
 	if( calVtxNormals_on && meshModel.vtxNormalIsZero() ) {
@@ -1010,9 +1021,10 @@ else {	/* For Landscape */
 	/* Create MeshInstance array: Just change objmat. */
 	for(int k=0; k<instTotal; k++) {
 		printf("Create meshInstance[%d]...instTotal=%d\n", k,instTotal);
-		meshInstances[k]=new E3D_MeshInstance(*workMesh);
+		meshInstances[k]=new E3D_MeshInstance(meshModel); //workMesh
 		rtmat.setTranslation(0.4*dobj*(k%instColumns-2), 0.45*dobj*(k/instRows),  0);
-		meshInstances[k]->objmat = rtmat*meshInstances[k]->objmat*VRTmat;
+		//meshInstances[k]->objmat = rtmat*meshInstances[k]->objmat*VRTmat;
+		meshInstances[k]->objmat = rtmat*VRTmat;
 	}
 
 #endif
@@ -1233,11 +1245,26 @@ if(1) {
 	printf("workMesh->renderMesh OK!\n");
 #endif
 
-	#if TEST_MESHINSTANCE  ///////////  Render Mesh Instance: Terracotta warrior   /////////
+#if TEST_MESHINSTANCE  ////////////  Render Mesh Instance: Test Terracotta warrior and Balls   ////////////
+// ./test_trimesh xxxx -c -s .5 -t -X 180 -a 40 -A 2 -b  // Test ISOMETRIC NDC mapping
+// ./test_trimesh xxxx -c -s .8 -t -X 180 -P -a 40 -A 2 -b  // Test PERSPECTIVE NDC mapping
 for(int k=0; k<instTotal; k++) {
 	/* Render Mesh Instance */
 	egi_dpstd(DBG_ORANGE"Render mesh instance[%d] ... angle=%.2f\n"DBG_RESET, k, angle);
-	meshInstances[k]->renderInstance(&gv_fb_dev, projMatrix);
+
+        /* Before renderSecne, re_compute clippling matrix items in projMatrix, in case dv changed etc. */
+        E3D_RecomputeProjMatrix(projMatrix);
+
+	/* Compleltely within the viewFrustum */
+	if( meshInstances[k]->aabbInViewFrustum(projMatrix) )
+                printf(DBG_GREEN"meshInstanceList[%d].AABB is completely within the view frustum!\n"DBG_RESET, k);
+
+	/* Completely out of the viewFrustum */
+        if( meshInstances[k]->aabbOutViewFrustum(projMatrix) )
+                printf(DBG_RED"meshInstanceList[%d].AABB is completely out of view frustum!\n"DBG_RESET, k);
+	/* At least partially in the viewFrustum */
+	else
+		meshInstances[k]->renderInstance(&gv_fb_dev, projMatrix);
 
 	/* Release and free */
         delete meshInstances[k];
@@ -1577,6 +1604,8 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 		printf("Update angle...\n");
 	     	angle += (5.0+da); // *MATH_PI/180;
 	}
+
+/* -----TEST: ViewFrustum near plane clipping --------------- */
 	else { // test_clipping. Keep dvv=dobj
 		printf("VRTmat.translation.tz= %f\n", VRTmat.pmat[11]);
 		printf("Update offz=%fdobj...\n", offz/dobj);
@@ -1589,8 +1618,8 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 		//}
 
 		/* End clipping when moving back */
-		E3D_MeshInstance workInst(*workMesh);
-		workInst.objmat=VRTmat;  /* !!!, note workMesh DOES NOT hold it. */
+		E3D_MeshInstance workInst(meshModel); /* meshModel, AABB aligns with XYZ */
+		meshModel.objmat=VRTmat;  /* !!!, note workMesh DOES NOT hold it. */
 		if( da>0.0f ) {
 		   if( workInst.aabbInViewFrustum(projMatrix) ) {
 			printf(DBG_YELLOW"workInst is completely in the ViewFrustum!\n"DBG_RESET);

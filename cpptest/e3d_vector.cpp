@@ -72,6 +72,10 @@ Journal:
 	2. Add E3D_InitProjMatrix();
 2022-10-02:
 	1. Add E3D_RecomputeProjMatrix()
+2022-10-09:
+	1. E3D_InitProjMatrix(), E3D_RecomputeProjMatrix(): Consider projMatrix.aa,bb,cc,dd. for ISOMETRIC_VIEW.
+2022-10-17:
+	1. E3D_RTMatrix::inverse()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -83,7 +87,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "egi_fbdev.h"
 #include "egi_fbgeom.h"
 #include "egi_math.h"
-
+#include "egi_matrix.h"
 #include "e3d_vector.h"
 
 //using namespace std;
@@ -824,15 +828,90 @@ void E3D_RTMatrix::zeroRotation()
 /*------------------------------------------
    Transpose: for an orthogonal matrix,
    its inverse is equal to its transpose!
+
+	!!!--- CAUTION ---!!!
+1. Scale is NOT orthogonal operation.
+2. Translation part NOT applys!
 ------------------------------------------*/
 void E3D_RTMatrix::transpose()
 {
 	E3D_RTMatrix copyMat=*this;
 
+	/* Rotation part */
         for( int i=0; i<3; i++)
         	for( int j=0; j<3; j++)
                 	pmat[i*3+j]=copyMat.pmat[i+j*3];
+
+	/* KEEP translatoin part */
 }
+
+/*-----------------------------------
+Inverse the RTMatrix.
+-----------------------------------*/
+void E3D_RTMatrix::inverse()
+{
+#if 0 ////////////////  3X3 XXX WRONG! XXX ////////////////////
+	/* Inverse Rotation/Scale(NON_translation) component */
+	float _mat9[3*3];
+	for(int i=0; i<9; i++)
+		_mat9[i]=this->pmat[i];
+   	struct float_Matrix mat9;
+	mat9.nr=3; mat9.nc=3; mat9.pmat=_mat9;
+
+	float _invmat9[3*3];
+   	struct float_Matrix invmat9;
+   	invmat9.nr=3; invmat9.nc=3; invmat9.pmat=_invmat9;
+
+	Matrix_Inverse(&mat9, &invmat9);
+
+	for(int i=0; i<9; i++)
+		this->pmat[i]=invmat9.pmat[i];
+
+	/* Inverse translation component --- XXX WRONG! XXX ---*/
+	this->pmat[9] = -this->pmat[9];
+	this->pmat[10] = -this->pmat[10];
+	this->pmat[11] = -this->pmat[11];
+
+#else //////////////// 4X4 ////////////////////
+
+	/* Inverse Rotation/Scale(NON_translation) component */
+	float _mat16[4*4];
+
+	/* Put 3x3 into 4x4 matrix */
+	for(int i=0; i<3; i++)
+	   for(int j=0; j<3; j++)
+		_mat16[i*4+j]=this->pmat[i*3+j];
+
+	/* Put tranlation XYZ into 4xe matrix */
+	_mat16[12]=this->pmat[9];
+	_mat16[13]=this->pmat[10];
+	_mat16[14]=this->pmat[11];
+
+	/* Fill other area */
+	_mat16[3]=0.0; _mat16[7]=0.0; _mat16[11]=0.0;
+	_mat16[15]=1.0;
+
+   	struct float_Matrix mat16;
+	mat16.nr=4; mat16.nc=4; mat16.pmat=_mat16;
+
+	float _invmat16[4*4];
+   	struct float_Matrix invmat16;
+   	invmat16.nr=4; invmat16.nc=4; invmat16.pmat=_invmat16;
+
+	Matrix_Inverse(&mat16, &invmat16);
+
+	/* Extract 3x3 from 4x4 matrix */
+	for(int i=0; i<3; i++)
+	   for(int j=0; j<3; j++)
+		this->pmat[i*3+j]=invmat16.pmat[i*4+j];
+
+	/* Extract translation XYZ from 4x4 matrix */
+	this->pmat[9]=invmat16.pmat[12];
+	this->pmat[10]=invmat16.pmat[13];
+	this->pmat[11]=invmat16.pmat[14];
+#endif
+}
+
 
 /*-----------------------------------------
    Check wheather the matrix is identity
@@ -1702,12 +1781,19 @@ void E3D_InitProjMatrix(E3DS_ProjMatrix &projMatrix, int type, int winW, int win
 	projMatrix.t  =winH/2.0;
 	projMatrix.b  =-winH/2.0;
 
+	/* Clipping Matrix items for ISOMETRIC view frustum , for symmetrical screen */
+//aa,bb,cc,dd:   aa=-1/r; bb=1/t; cc=2/(f-n); dd=(n+f)/(n-f);  HK2022-10-09
+	projMatrix.aa =-1.0/projMatrix.r;
+        projMatrix.bb =1.0/projMatrix.t;
+        projMatrix.cc =2.0/((float)projMatrix.dfar-projMatrix.dnear);
+        projMatrix.dd =1.0*((float)projMatrix.dnear+projMatrix.dfar)/((float)projMatrix.dnear-projMatrix.dfar);
+
 	/* Clipping Matrix items for PERSPECTIVE view frustum , for symmetrical screen */
+//A,B,C,D:   A=n/r; B=n/t; C=(f+n)/(f-n); D=-2fn/(f-n);
 	projMatrix.A =1.0*projMatrix.dnear/projMatrix.r;
         projMatrix.B =1.0*projMatrix.dnear/projMatrix.t;
         projMatrix.C =((float)projMatrix.dfar+projMatrix.dnear)/((float)projMatrix.dfar-projMatrix.dnear);
         projMatrix.D =-2.0*projMatrix.dfar*projMatrix.dnear/((float)projMatrix.dfar-projMatrix.dnear);
-
 }
 
 /*---------------------------------------------------
@@ -1716,9 +1802,19 @@ paramter(such as dv) changes.
 --------------------------------------------------*/
 void E3D_RecomputeProjMatrix(E3DS_ProjMatrix &projMatrix)
 {
+	/* Clipping Matrix items for ISOMETRIC view frustum , for symmetrical screen */
+//aa,bb,cc,dd:   aa=-1/r; bb=1/t; cc=2/(f-n); dd=(n+f)/(n-f);  HK2022-10-09
+	projMatrix.aa =-1.0/projMatrix.r;
+        projMatrix.bb =1.0/projMatrix.t;
+        projMatrix.cc =2.0/((float)projMatrix.dfar-projMatrix.dnear);
+        projMatrix.dd =1.0*((float)projMatrix.dnear+projMatrix.dfar)/((float)projMatrix.dnear-projMatrix.dfar);
+
+
         /* Clipping Matrix items for PERSPECTIVE view frustum , for symmetrical screen */
+//A,B,C,D:   A=n/r; B=n/t; C=(f+n)/(f-n); D=-2fn/(f-n);
         projMatrix.A =1.0*projMatrix.dnear/projMatrix.r;
         projMatrix.B =1.0*projMatrix.dnear/projMatrix.t;
         projMatrix.C =((float)projMatrix.dfar+projMatrix.dnear)/((float)projMatrix.dfar-projMatrix.dnear);
         projMatrix.D =-2.0*projMatrix.dfar*projMatrix.dnear/((float)projMatrix.dfar-projMatrix.dnear);
+
 }
