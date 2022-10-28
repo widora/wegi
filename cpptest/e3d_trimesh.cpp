@@ -26,7 +26,7 @@ TriGroup:  A triangle group in an TriMesh object.
 
 Note:
 0. E3D viewpoint for RTMatrix and transformation computation:
-		 P'xyz = Pxyz*RTMatrix.
+		 P'xyz = Pxyz*RTMatrix. ( Pxyz is row vector here.  NOT column vector! )
 		 P'xyz = Pxyz*Ma*Mb*Mc = Pxyz*(Ma*Mb*Mc)
    and notice the sequence of Ma*Mb*Mc as affect to Pxyz.
 
@@ -346,6 +346,11 @@ Journal:
 	1. E3D_TriMesh::renderMesh():  TEST_Y_CLIPPING.
 2022-10-18:
 	1. E3D_shadeTriangle(): Apply pixel normal.
+2022-10-24:
+	1. readMtlFile(): Add Ss,Sd,ke
+2022-10-25:
+	1. Add E3D_TriMesh::moreVtxListCapacity()
+	2. Add E3D_TriMesh::moreTriListCapacity()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -444,11 +449,17 @@ void E3D_Material::setDefaults()
 {
 	illum=0;
 	d=1.0;
+	Ns=0.0;
 	//Tr=0.0;
 	kd.vectorRGB(COLOR_24TO16BITS(0xF0CCA8)); //WEGI_COLOR_PINK); /* Default kd */
 //	kd.vectorRGB(COLOR_24TO16BITS(0xE0DCA8));
-	ka.assign(0.8,0.8,0.8); //ka.vectorRGB(WEGI_COLOR_GRAY2); /* Default ka */
-	ks.assign(0.6,0.6,0.6); //vectorRGB(WEGI_COLOR_GRAY); /* Default ks */
+	ka.assign(0.8f, 0.8f, 0.8f); //ka.vectorRGB(WEGI_COLOR_GRAY2); /* Default ka */
+	ks.assign(0.0f, 0.0f, 0.0f); //vectorRGB(WEGI_COLOR_GRAY); /* Default ks */
+	ke.assign(0.0f, 0.0f, 0.0f);
+
+	/* Light source specular and diffuse color */
+	Ss.assign(1.0f, 1.0f, 1.0f);
+	Sd.assign(1.0f, 1.0f, 1.0f);
 
 	if(!name.empty())
 		name.clear();
@@ -673,6 +684,7 @@ illum  [0 10]   Illumination model
 Kd		Diffuse color, rgb, each [0-1.0]
 Ka		Ambient color, rgb, each [0-1.0]
 Ks		Specular color,rgb, each [0-1.0]
+Ke		Self_emission color, rgb, reach [0-1.0]
 KdRGB		Diffuse color, RGB each [0-255]
 KaRGB		Ambient color, RGB each [0-255]
 KsRGB		Specular color, RGB each [0-255]
@@ -680,6 +692,8 @@ Tf		Transmission filter
 Ni		Optical density
 Ns		Specular exponent
 d		Dissolve factor
+Ss		Light source specular color [0 1], Default 0.8
+Sd		Light source diffuse color [0 1], Default 0.8
 //Tr		Transparency
 map_Kd		Diffuse map
 map_Ka		Ambient map
@@ -814,6 +828,10 @@ int readMtlFile(const char *fmtl, vector<E3D_Material> & mtlList)
 			material.map_ks=cstr_trim_space(saveptr);
 			egi_dpstd("material.map_ks: %s\n", material.map_ks.c_str());
 		}
+		/* Ke */
+		else if( strcmp(pt,"Ke")==0 ) {
+			sscanf(saveptr, "%f %f %f", &material.ke.x, &material.ke.y, &material.ke.z); /* rgb[0 1] */
+		}
 		/* Ns */
 		else if( strcmp(pt,"Ns")==0 ) {
                         sscanf(saveptr, "%f", &material.Ns); /* Ns, normally range [0-1000] */
@@ -825,6 +843,14 @@ int readMtlFile(const char *fmtl, vector<E3D_Material> & mtlList)
 		/* d */
 		else if( strcmp(pt,"d")==0 ) {
 			sscanf(saveptr, "%f", &material.d); /* d [0 1] */
+		}
+		/* Ss */
+		else if( strcmp(pt,"Ss")==0 ) {
+			sscanf(saveptr, "%f %f %f", &material.Ss.x, &material.Ss.y, &material.Ss.z); /* rgb[0 1] */
+		}
+		/* Sd */
+		else if( strcmp(pt,"Sd")==0 ) {
+			sscanf(saveptr, "%f %f %f", &material.Sd.x, &material.Sd.y, &material.Sd.z); /* rgb[0 1] */
 		}
 		#if 0 /* Tr */
 		else if( strcmp(pt,"Tr")==0 ) {
@@ -1391,6 +1417,7 @@ v		vertex:  xyz
 vt		vertex texture coordinate: uv[w]
 vn		vertex normal: xyz
 f x/x/x         face: vtxIndex/uvIndex/normalIndex, index starts from 1, NOT 0! (uvIndex and normalIndex MAYBE omitted)
+		f v1[/vt1][/vn1] v2[/vt2][/vn2] v3[/vt3][/vn3] ...
 o		object name
 s		smoothing group: on, off
 g		su_object group
@@ -2103,6 +2130,76 @@ void E3D_TriMesh:: initVars()
 	wireFrameColor=WEGI_COLOR_BLACK;
 	faceNormalLen=0;
 	testRayTracing=false;
+}
+
+/*---------------------
+Increase vCapacity
+
+Return:
+	0	OK
+	<0      Fails
+----------------------*/
+int E3D_TriMesh::moreVtxListCapacity(size_t more)
+{
+        Vertex *vtxNewList=NULL;
+
+        /* Allocate vtxNewList[] */
+        try {
+                vtxNewList= new Vertex[vCapacity+more];  /* vertices */
+        }
+        catch ( std::bad_alloc ) {
+                egi_dpstd("Fail to allocate Vertex[]!\n");
+                return -1;
+        }
+        vCapacity += more;
+
+        /* Copy content from old arrays */
+        for(int k=0; k<vcnt; k++)
+                vtxNewList[k]=vtxList[k];
+
+        /* Delete old arrays */
+	if(vtxList!=NULL)
+	        delete [] vtxList;
+
+	/* Assign to vtxList */
+	vtxList=vtxNewList;
+
+	return 0;
+}
+
+/*--------------------
+Increase tCapacity
+
+Return:
+	0	OK
+	<0      Fails
+--------------------*/
+int E3D_TriMesh::moreTriListCapacity(size_t more)
+{
+        Triangle *triNewList=NULL;
+
+        /* Allocate triNewList[]  */
+        try {
+                triNewList=new Triangle[tCapacity+more]; /* triangles */
+        }
+        catch ( std::bad_alloc ) {
+                egi_dpstd("Fail to allocate Triangle[]!\n");
+                return -1;
+        }
+        tCapacity += more;
+
+        /* Copy content from old arrays */
+        for(int k=0; k<tcnt; k++)
+                triNewList[k]=triList[k];
+
+        /* Delete old arrays */
+	if(triList!=NULL)
+	        delete [] triList;
+
+	/* Assign to triList */
+	triList=triNewList;
+
+	return 0;
 }
 
 /*---------------------
@@ -4007,6 +4104,8 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		}
 
 		/* Note: In E3D_Scene::renderScene(), instances completely out of the view frustum will be picked out. */
+
+		/* TODO: To rule out triangles totally out of view_frustum */
 
 		/* G2.3.6 Clipping with near plane of the view_frustum, apply rvtx[] instead of vpts[].   HK2022-10-04
 		 * Note: If triangle completely IN the frustum, then keep rvtx[] unchanged.
@@ -6276,14 +6375,11 @@ EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, 
 	E3D_Vector toLight=-gv_vLight;
 
 	/* Source light specular color */
-        E3D_Vector Ss(0.75, 0.75, 0.75);
-
+        //E3D_Vector Ss(0.75, 0.75, 0.75);
+//	E3D_Vector Ss=mtl.Ss; /* Default 0.8 0.8 0.8 */
 	/* Source light diffuse color */
-        E3D_Vector Sd(0.8, 0.8, 0.8);
-
-#if 0	/* TEST: Let Sd=mtl.kd TODO */
-	Sd=mtl.kd;
-#endif
+        //E3D_Vector Sd(0.8, 0.8, 0.8);
+//	E3D_Vector Sd=mtl.Sd; /* Default 0.8 0.8 0.8 */
 
 	/* Attenuation factor for light intensity */
 	float atten=1.0;  /* TODO */
@@ -6291,7 +6387,7 @@ EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, 
 	/* glossiness, smaller for wider and brighter. Default 0.0 */
 	float mgls=mtl.Ns; /* mtl->Ns as the specular exponent */
 
-	E3D_Vector Cs,Cd,Ca;	/* Components */
+	E3D_Vector Cs,Cd,Ca,Ce;	/* Components */
 	E3D_Vector Cres; 	/* Compound */
 	E3D_Vector rf; /* Light Refection vector, mirror of toLight along normal. */
 
@@ -6309,17 +6405,18 @@ EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, 
 	/* Init as zeros */
 	Cs.zero(); Cd.zero(); Ca.zero();
 
-     if(i==0) { /* Once only */
+ //    if(i==0)
+     { /* Once only */
 	/* Component 1: Phong specular reflection  Cs=max(v*r,0)^mgls*Ss(x)Ms */
 	/* Light Refection vector, mirror of toLight along normal. */
 	rf=2*(normal*toLight)*normal-toLight;
-	Cs=powf(fmaxf(toView*rf, 0.0), mgls)*Ss;
+	Cs=powf(fmaxf(toView*rf, 0.0), mgls)*mtl.Ss;
 	Cs.x=Cs.x*mtl.ks.x;
 	Cs.y=Cs.y*mtl.ks.y;
 	Cs.z=Cs.z*mtl.ks.z;
      }
 	/* Component 2: Diffuse reflection  Cd=(n*l)*Sd(x)Md */
-	Cd=fmaxf(normal*toLight,0.0)*Sd;  /* Light direction here is from obj to light source! */
+	Cd=fmaxf(normal*toLight,0.0)*mtl.Sd;  /* Light direction here is from obj to light source! */
 	Cd.x=Cd.x*mtl.kd.x;
 	Cd.y=Cd.y*mtl.kd.y;
 	Cd.z=Cd.z*mtl.kd.z;
@@ -6327,17 +6424,17 @@ EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, 
 
      if(i==0) {  /* Once only */
 	/* Component 3: Ambient reflection Ca=gamb(x)Ma */
-	Ca.x=gv_ambLight.x*mtl.ka.x;
+	Ca.x=gv_ambLight.x*mtl.ka.x; /* Note: gv_ambLight is NOT directoin vector! */
 	Ca.y=gv_ambLight.y*mtl.ka.y;
 	Ca.z=gv_ambLight.z*mtl.ka.z;
 //	Ca.print("Ca");
+
+	/* Component 4: Self-emission Ce=Me HK2022-10-24 */
+	Ce = mtl.ke;
      }
 
 	/* Result */
-	//Cres=atten*Cs;
-	//Cres=atten*Cd;
-	//Cres=Ca;
-	Cres=atten*(Cs+Cd)+Ca;
+	Cres=atten*(Cs+Cd)+Ca+Ce; /* HK2022-10-24 */
 
 	//uint8_t  R=roundf(Cres.x*255); G=roundf(Cres.y*255); B=roundf(Cres.z*255);
 	R+=roundf(Cres.x*255); if(R>255)R=255; else if(R<0)R=0;

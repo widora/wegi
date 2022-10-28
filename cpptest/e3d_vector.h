@@ -315,7 +315,7 @@ public:
 	~E3D_RTMatrix();
 
 	/* Print */
-	void print(const char *name) const;
+	void print(const char *name=NULL) const;
 
 	/* Matrix identity: Zero Translation and Zero Rotation */
 	void identity();
@@ -360,7 +360,13 @@ public:
 	void addTranslation( float dx, float dy, float dz );
 
 	/* Set part of RotationMatrix in pmat[] */
+//	void setRotation( const, );
 	void setRotation( const E3D_Vector &axis, float angle);
+	void setRotation( const E3D_Vector &vfrom, const E3D_Vector &vto );
+	void setScaleRotation( const E3D_Vector &vfrom, const E3D_Vector &vto );
+	void setTransformMatrix( const E3D_Vector &Vas, const E3D_Vector &Vae, const E3D_Vector &Vbs, const E3D_Vector &Vbe);
+	void combExtriRotation(const char *axisToks, float ang[3]);
+	void combIntriRotation(const char *axisToks, float ang[3]);
 
 	/* Set this matrix as a projection Matrix */
 	void setupProject(const E3D_Vector &n);

@@ -359,7 +359,7 @@ void print_help(const char *name)
 	printf("-T:    Texture image file(jpg,png).\n");
 	printf("-f:    Texture resize factor.\n");
 	printf("-a:    delt angle for each move/rotation. angle += (5.0+da) \n If with '-i', then it is clipping step with percentage of dobj");
-	printf("-p:    Pause mseconds\n");
+	printf("-p:    Pause mseconds, -p 0 no pause.\n");
         exit(0);
 }
 
@@ -675,12 +675,12 @@ else {	/* For Landscape */
 	   // gv_vLight.assign(-1, 1.5, 0); // (1, 1.5, 0);
 	   gv_vLight.assign(1,1,1);
 	   gv_vLight.normalize();
-	   gv_auxLight.assign(-1, -1, 1);
-	   //gv_auxLight.assign(-1,-1, 0);
+	   //gv_auxLight.assign(-1, -1, 1);
+	   gv_auxLight.assign(-1,-1, 0);
 	   //gv_auxLight.assign(0,0,0.25);
 	   //gv_auxLight.assign(0,0, 0.75);
 	   gv_auxLight.normalize();
-	   gv_auxLight *=0.75;
+	   gv_auxLight *=0.5;
 	}
 
 	//E3D_Vector vLight(-0.5, 1, 1);
@@ -691,14 +691,22 @@ else {	/* For Landscape */
 
 
 	/////////////////   Read/Create meshModel   ////////////////
-#if 1 /* 1. Read obj file to meshModel */
+#if 0 /* 1. Read obj file to meshModel */
 	cout<< "Read obj file '"<< fobj <<"' into E3D_TriMesh... \n";
 	E3D_TriMesh	meshModel(fobj);
 
 #else /* TEST: Primitive volumes */
 	cout<<"Create primitive volumes...\n";
-	E3D_RtaSphere   meshModel(2, 100); /* xxx -c -s 2.0 -X 30 -P */
+//	E3D_RtaSphere   meshModel(2, 100); /* xxx -c -s 2.0 -X 30 -P */
 //	E3D_Cuboid   meshModel(100,200,300); /* xxx -c -s 1.25 -X 30 -P -a 10 */
+//	E3D_Tetrahedron  meshModel(50,250); /* xxx -c -s 1 -X 150 -A 2 -P */
+//	E3D_Pyramid  meshModel(50,350); /* xxx -c -s 1 -X 150 -A 2 -P -p 0 */
+//	E3D_ABone  meshModel(50,350); /* xxx -c -s 1.5 -Y -90 -A 2 -P -a -2 -p 0 -l */
+//	E3D_TestCompound  meshModel(50); /* xxx -c -s 1.5 -Y -90 -A 2 -P -a 10 -p 0 -l ;;;;  -c -s .7 -Y -90 -A 2 -a 10 -p 0 -P -l */
+					  // xxx -s .7 -X 90 -A 2 -y 200 -a 5 -p 0 -P -l
+	E3D_TestSkeleton meshModel(50);
+
+	cout<<"primitive created!\n";
 
 #endif
 
@@ -707,8 +715,10 @@ else {	/* For Landscape */
 	E3D_TriMesh	sportsmen("/tmp/sportsmen.obj");
 #endif
 
-	if(meshModel.vtxCount()==0)
+	if(meshModel.vtxCount()==0) {
+		printf("vtxCount() is Zero!\n");
 		exit(-1);
+	}
   	/* Read textureFile into meshModel. */
 	if( textureFile ) {
 		meshModel.readTextureImage(textureFile, -1); //xres);
@@ -941,8 +951,17 @@ else {	/* For Landscape */
 	 *	2. mtlList[] and triGroupList[] to be cloned ONLY WHEN they are emtpy! this is to avoid free/release
    	 *	   pointer members. see in E3D_TriMesh::cloneMesh().
 	 */
+#if 0 /* Test: E3D_Skeleton  ----------------- */
+	E3D_TestSkeleton AmeshModel(50);
+	AmeshModel.scaleMesh(scale);
+        AmeshModel.updateAllTriNormals();
+
+	cout <<"Clone meshModel data into workMesh, NOT all data is cloned and replaced! ... \n";
+	workMesh->cloneMesh(AmeshModel);
+#else
 	cout <<"Clone meshModel data into workMesh, NOT all data is cloned and replaced! ... \n";
 	workMesh->cloneMesh(meshModel);
+#endif
 	egi_dpstd("workMesh: %d Triangles, %d TriGroups, %d Materials, %s, defMateril.img_kd is '%s'.\n",
 				workMesh->triCount(), workMesh->triGroupList.size(),
 				workMesh->mtlList.size(),
@@ -1587,8 +1606,8 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 
 	/* W12. Render to FBDEV */
 	fb_render(&gv_fb_dev);
-	usleep(50000);
-	if(psec) tm_delayms(psec); //usleep(psec*1000);
+	if(psec>-1) tm_delayms(psec); //usleep(psec*1000);
+	else sleep(1);
 
    	///////////////////////////////  Post_Render  ////////////////////////////////
 
@@ -1675,7 +1694,7 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 #endif
 
 	/* Hold on... */
-	sleep(1);
+	//sleep(1);
 
 	/* To keep precision: Suppose it starts with angle==0!  */
 	if( (int)angle >=360 || (int)angle <= -360) {
@@ -1930,9 +1949,9 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 
 	/* 11. Render to FBDEV */
 	fb_render(&gv_fb_dev);
-	usleep(75000);
-	//tm_delayms(50);
+
 	if(psec) sleep(psec);
+	else usleep(75000);
 
 	/* 12. Update rotation angle */
 	angle +=(5+da)*MATH_PI/180;

@@ -61,9 +61,10 @@ EGILIB=dynamic
 E3D_OBJS = e3d_vector.o
 E3D_OBJS += e3d_trimesh.o
 E3D_OBJS += e3d_volumes.o
+E3D_OBJS += e3d_animate.o
 
 ### TODO depending file list
-DEP_FILES = e3d_trimesh.h e3d_trimesh.cpp e3d_vector.h e3d_vector.cpp e3d_volumes.h e3d_volumes.cpp
+DEP_FILES = e3d_trimesh.h e3d_trimesh.cpp e3d_vector.h e3d_vector.cpp e3d_volumes.h e3d_volumes.cpp  e3d_animate.h e3d_animate.cpp
 
 test_cpp:  $(TEST_NAME).cpp $(E3D_OBJS) $(DEP_FILES)
 ifeq ($(EGILIB),static)
@@ -103,6 +104,14 @@ else
 	$(CPP) -o e3d_volumes.o  e3d_volumes.cpp $(CPPFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
 endif
 
+###  E3D_Animate  ###
+e3d_animate.o:	e3d_animate.h e3d_animate.cpp
+ifeq ($(EGILIB),static)
+	$(CPP) -c -o e3d_animate.o e3d_animate.cpp $(CPPFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
+-Wl,-Bstatic -legi -lhelixaac -Wl,-Bdynamic
+else
+	$(CPP) -o e3d_animate.o  e3d_animate.cpp $(CPPFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
+endif
 
 
 all:	$(APPS)

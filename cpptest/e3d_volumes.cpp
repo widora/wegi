@@ -12,13 +12,22 @@ Journal:
 	  its originally linked vertices and newly added vertices
 	  between them.
 	2. Add Class E3D_Cuboid and the constructor.
+2022-10-24:
+	1. Add Class E3D_Tetrahedron and its constructor.
+	2. Add Class E3D_Pyramid and its constructor.
+2022-10-25:
+	1. Add Class E3D_ABone and its constructor.
+	2. Add Class E3D_TestCompound and its constructor.
+2022-10-27:
+	1. Add E3D_TestSkeleton and its constructor.
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
 ------------------------------------------------------------------*/
-#include "e3d_volumes.h"
 #include "egi_debug.h"
 #include "egi_utils.h"
+
+#include "e3d_volumes.h"
 
 using namespace std;
 
@@ -38,17 +47,17 @@ E3D_Cuboid::E3D_Cuboid(float dx, float dy, float dz): E3D_TriMesh()
 
 	/* 1. Clear vtxList[] and triList[], E3D_TriMesh() may allocate them.  */
 	if(vCapacity>0) {
-		delete [] vtxList;
+		delete [] vtxList; vtxList=NULL;
 		vCapacity=0;
 		vcnt=0;
 	}
 	if(tCapacity>0) {
-		delete [] triList;
+		delete [] triList; triList=NULL;
 		tCapacity=0;
 		tcnt=0;
 	}
 
-	/* 2. Init triList[] for a cuboid */
+	/* 2. Init vtxList[] for a cuboid */
 	try {
 		vtxList= new Vertex[8];  /* 8 vertices */
 	}
@@ -60,7 +69,7 @@ E3D_Cuboid::E3D_Cuboid(float dx, float dy, float dz): E3D_TriMesh()
 
 	/* 3. Init triList[] for a cuboid */
 	try {
-		triList= new Triangle[12]; /* 12 triagnles */
+		triList= new Triangle[12]; /* 12 triangles */
 	}
 	catch ( std::bad_alloc ) {
 		egi_dpstd("Fail to allocate Triangle[]!\n");
@@ -121,6 +130,279 @@ E3D_Cuboid::~E3D_Cuboid()
 	egi_dpstd("E3D_Cuboid destroyed!\n");
 }
 
+		/*------------------------------------------
+        		    Class E3D_Tetrahedron
+		A triangluar pyramid, with apex right above
+		the base's centre.
+		------------------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_Tetrahedron::E3D_Tetrahedron(float s, float h): E3D_TriMesh(), side(s), height(h)
+{
+	/* Init vars */
+
+	/* 1. Clear vtxList[] and triList[], E3D_TriMesh() may allocate them.  */
+	if(vCapacity>0) {
+		delete [] vtxList; vtxList=NULL;
+		vCapacity=0;
+		vcnt=0;
+	}
+	if(tCapacity>0) {
+		delete [] triList; triList=NULL;
+		tCapacity=0;
+		tcnt=0;
+	}
+
+	/* 2. Init vtxList[] */
+	try {
+		vtxList= new Vertex[4];  /* 4 vertices */
+	}
+	catch ( std::bad_alloc ) {
+		egi_dpstd("Fail to allocate Vertex[]!\n");
+		return;
+	}
+	vCapacity=4;
+
+	/* 3. Init triList[] */
+	try {
+		triList= new Triangle[4]; /* 4 triangles */
+	}
+	catch ( std::bad_alloc ) {
+		egi_dpstd("Fail to allocate Triangle[]!\n");
+		return;
+	}
+	tCapacity=4;
+
+	/* 4. Create vertices for a cuboid */
+	float a=0.5*s; /* 0.5s */
+	float b=0.5*s*tanf(MATH_PI*30/180); /* 0.5s*tg30 */
+	float c=0.5*s/cosf(MATH_PI*30/180); /* 0.5s/cos30 */
+	vtxList[0].assign(-a, -b, 0.0);
+	vtxList[1].assign(a, -b, 0.0);
+	vtxList[2].assign(0.0, c, 0.0);
+	vtxList[3].assign(0.0, 0.0, h);
+
+	/* 5. All vertices counted in */
+	vcnt=4;
+
+	/* 6. Create triangles */
+/* Bottom base: f 0 2 1;
+   Sides:    f 1 3 0;  f 2 3 1; f 0 3 2
+*/
+	triList[0].assignVtxIndx(0,2,1);
+	triList[1].assignVtxIndx(1,3,0);
+	triList[2].assignVtxIndx(2,3,1);
+	triList[3].assignVtxIndx(0,3,2);
+
+	/* 7. All triangles counted in */
+	tcnt=4;
+
+	/* 8. Assign the ONLY triGroup */
+	triGroupList.resize(1);
+	triGroupList[0].tcnt=tcnt; /* 4 triangles */
+	triGroupList[0].stidx=0;
+	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
+	triGroupList[0].name="default";
+}
+
+
+/*--------------------------------
+	The destructor
+--------------------------------*/
+E3D_Tetrahedron::~E3D_Tetrahedron()
+{
+	egi_dpstd("E3D_Tetrahedron destroyed!\n");
+}
+
+
+		/*----------------------------------------------
+        		        Class E3D_Pyramid
+		Pyramid has a square base, with apex right above
+                the base's centre.
+		----------------------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_Pyramid::E3D_Pyramid(float s, float h): E3D_TriMesh(), side(s), height(h)
+{
+	/* Init vars */
+
+	/* 1. Clear vtxList[] and triList[], E3D_TriMesh() may allocate them.  */
+	if(vCapacity>0) {
+		delete [] vtxList; vtxList=NULL;
+		vCapacity=0;
+		vcnt=0;
+	}
+	if(tCapacity>0) {
+		delete [] triList; triList=NULL;
+		tCapacity=0;
+		tcnt=0;
+	}
+
+	/* 2. Init vtxList[] */
+	try {
+		vtxList= new Vertex[5];  /* 5 vertices */
+	}
+	catch ( std::bad_alloc ) {
+		egi_dpstd("Fail to allocate Vertex[]!\n");
+		return;
+	}
+	vCapacity=5;
+
+	/* 3. Init triList[] */
+	try {
+		triList= new Triangle[6]; /* 6 triangles */
+	}
+	catch ( std::bad_alloc ) {
+		egi_dpstd("Fail to allocate Triangle[]!\n");
+		return;
+	}
+	tCapacity=6;
+
+	/* 4. Create vertices for a cuboid */
+	float a=0.5*s; /* 0.5s */
+	vtxList[0].assign(-a, -a, 0.0);
+	vtxList[1].assign(a, -a, 0.0);
+	vtxList[2].assign(a, a, 0.0);
+	vtxList[3].assign(-a, a, 0.0);
+	vtxList[4].assign(0.0, 0.0, h);
+
+	/* 5. All vertices counted in */
+	vcnt=5;
+
+	/* 6. Create triangles */
+/* Bottom base: f 0 2 1; f 0 3 2;
+   Sides:    f 0 1 4;  f 2 4 1; f 3 4 2; f 0 4 3;
+*/
+	triList[0].assignVtxIndx(0,2,1);
+	triList[1].assignVtxIndx(0,3,2);
+	triList[2].assignVtxIndx(0,1,4);
+	triList[3].assignVtxIndx(2,4,1);
+	triList[4].assignVtxIndx(3,4,2);
+	triList[5].assignVtxIndx(0,4,3);
+
+	/* 7. All triangles counted in */
+	tcnt=6;
+
+	/* 8. Assign the ONLY triGroup */
+	triGroupList.resize(1);
+	triGroupList[0].tcnt=tcnt; /* 6 triangles */
+	triGroupList[0].stidx=0;
+	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
+	triGroupList[0].name="default";
+}
+
+/*--------------------------------
+	The destructor
+--------------------------------*/
+E3D_Pyramid::~E3D_Pyramid()
+{
+	egi_dpstd("E3D_Pyramid destroyed!\n");
+}
+
+
+		/*------------------------------------------
+        		    Class E3D_ABone
+		  Shpere derived from Regular Twenty Aspect
+		------------------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_ABone::E3D_ABone(float s, float l): E3D_TriMesh(), side(s), len(l)
+{
+//	E3D_RtaSphere  joint(1, s/2);
+
+	/* Init vars */
+
+	/* 1. Clear vtxList[] and triList[], E3D_TriMesh() may allocate them.  */
+	if(vCapacity>0) {
+		delete [] vtxList; vtxList=NULL;
+		vCapacity=0;
+		vcnt=0;
+	}
+	if(tCapacity>0) {
+		delete [] triList; vtxList=NULL;
+		tCapacity=0;
+		tcnt=0;
+	}
+
+	/* 2. Expand capacity for bone bar */
+	if( this->moreVtxListCapacity(6)<0 ) /* bone bar 6 vterices */
+		return;
+	if( this->moreTriListCapacity(8)<0 ) /* bone bar 8 triangles */
+		return;
+
+	/* 4. Create vertices for bone bar */
+	float a=0.5*s; /* 0.5s */
+	float b=0.1*l;
+	/* Base */
+	vtxList[0].assign(-a, -a, b);
+	vtxList[1].assign(a, -a, b);
+	vtxList[2].assign(a, a, b);
+	vtxList[3].assign(-a, a, b);
+	/* Upper apex */
+	vtxList[4].assign(0.0, 0.0, l);
+	/* Down apex */
+	vtxList[5].assign(0.0, 0.0, 0.0);
+
+	/* 5. All vertices counted in */
+	vcnt=6;
+
+	/* 6. Create triangles */
+/* Upper Sides:    f 0 1 4; f 2 4 1; f 3 4 2; f 0 4 3;
+   Lower sides:	   f 5 1 0; f 5 2 1; f 5 3 2; f 5 0 3;
+*/
+	triList[0].assignVtxIndx(0,1,4);
+	triList[1].assignVtxIndx(2,4,1);
+	triList[2].assignVtxIndx(3,4,2);
+	triList[3].assignVtxIndx(0,4,3);
+
+	triList[4].assignVtxIndx(5,1,0);
+	triList[5].assignVtxIndx(5,2,1);
+	triList[6].assignVtxIndx(5,3,2);
+	triList[7].assignVtxIndx(5,0,3);
+
+	/* 7. All triangles counted in */
+	tcnt=8;
+
+#if 0	/* 8. Add joint part */
+	for(int j=0; j<joint.vcnt; j++)
+		vtxList[vcnt+j]=joint.vtxList[j];
+        for(int j=0; j<joint.tcnt; j++) {
+                triList[tcnt+j]=joint.triList[j];
+
+                triList[tcnt+j].vtx[0].index += vcnt;
+                triList[tcnt+j].vtx[1].index += vcnt;
+                triList[tcnt+j].vtx[2].index += vcnt;
+        }
+
+	/* 9. Update vcnt,tcnt */
+	vcnt += joint.vcnt;
+	tcnt += joint.tcnt;
+#endif
+
+	/* 8. Assign the ONLY triGroup */
+	triGroupList.resize(1);
+	triGroupList[0].tcnt=tcnt; /* 12 triangles */
+	triGroupList[0].stidx=0;
+	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
+	triGroupList[0].name="default";
+
+}
+
+
+/*--------------------------------
+	The destructor
+--------------------------------*/
+E3D_ABone::~E3D_ABone()
+{
+	egi_dpstd("E3D_ABone destroyed!\n");
+}
+
 
 
 		/*------------------------------------------
@@ -147,7 +429,7 @@ E3D_RtaSphere::E3D_RtaSphere(int ng, float rad):E3D_TriMesh()
 	int indxA,indxB,indxC;
 	float  rtW=r*2.0/sqrt(2*sqrt(5.0)+10.0); /* W of a golen_ration rectangle, with r as its diagonal line lenght.  */
 	float  rtL=r*(sqrt(5.0)+1.0)/sqrt(2*sqrt(5.0)+10.0); /* L */
-	rtL += 0.5*r; //Grow original vertices
+//	rtL += 0.5*r; //Grow original vertices
 	int i,j,k;
 	int oldvcnt; /* vcnt before subdividing */
 	int oldtcnt;
@@ -170,12 +452,12 @@ E3D_RtaSphere::E3D_RtaSphere(int ng, float rad):E3D_TriMesh()
 
 	/* Clear vtxList[] and triList[], E3D_TriMesh() may allocate them.  */
 	if(vCapacity>0) {
-		delete [] vtxList;
+		delete [] vtxList; vtxList=NULL;
 		vCapacity=0;
 		vcnt=0;
 	}
 	if(tCapacity>0) {
-		delete [] triList;
+		delete [] triList; triList=NULL;
 		tCapacity=0;
 		tcnt=0;
 	}
@@ -192,7 +474,7 @@ E3D_RtaSphere::E3D_RtaSphere(int ng, float rad):E3D_TriMesh()
 
 	/* Init triList[] for RTA20 */
 	try {
-		triList= new Triangle[20]; /* 20 triagnles */
+		triList= new Triangle[20]; /* 20 triangles */
 	}
 	catch ( std::bad_alloc ) {
 		egi_dpstd("Fail to allocate Triangle[]!\n");
@@ -532,12 +814,12 @@ f 10 12 11
 	egi_dpstd("free array2D...\n");
 	egi_free_array2D((void ***)&vtxLinkList, oldvcnt);
 
-	egi_dpstd("Subdivide mesh into vcnt=%d, tcnt=%d, tCapacity=%d, vCapacity=%d\n", vcnt, tcnt, vCapacity, tCapacity);
+	egi_dpstd("OK to subdivide mesh into vcnt=%d, tcnt=%d, tCapacity=%d, vCapacity=%d\n", vcnt, tcnt, vCapacity, tCapacity);
 
      } /* else */
 
   }/* for(k) */
-
+  egi_dpstd("E3D_RtaShpere constructor finish!\n");
 }
 
 /*--------------------------------
@@ -545,9 +827,296 @@ f 10 12 11
 --------------------------------*/
 E3D_RtaSphere::~E3D_RtaSphere()
 {
-
 	egi_dpstd("E3D_RtaShpere destroyed!\n");
+}
 
+
+
+/* ================================================================================ */
+
+		/*------------------------------------------
+        		    Class E3D_TestCompound
+    		    (Derived+Friend Class of E3D_TriMesh)
+		------------------------------------------*/
+
+/*--------------------
+   The constructor
+
+TODO: Spin off most codes into E3D_TestCompound::createCompound().
+--------------------*/
+E3D_TestCompound::E3D_TestCompound(float s) :E3D_TriMesh(), side(s)
+{
+	/* SAME NAME as the BASE member! this makes access to the BASE members MUST BE explicit, e.g. E3D_TriMesh::vcnt. */
+	//int vcnt, cnt;
+
+	int morevcnt, moretcnt;
+
+	E3D_ABone  abone(s,7*s);
+
+	/* Init vars */
+
+	/* 0. Count total vcnt/tcnt */
+	morevcnt=abone.vcnt;
+	moretcnt=abone.tcnt;
+
+	/* 1. Clear vtxList[] and triList[], E3D_TriMesh() may allocate them.  */
+	if(vCapacity>0) {
+		delete [] vtxList; vtxList=NULL;
+		vCapacity=0;
+		vcnt=0;
+	}
+	if(tCapacity>0) {
+		delete [] triList; triList=NULL;
+		tCapacity=0;
+		tcnt=0;
+	}
+
+	/* 2. Init vtxList[] */
+	try {
+		vtxList= new Vertex[morevcnt];  /* vertices */
+	}
+	catch ( std::bad_alloc ) {
+		egi_dpstd("Fail to allocate Vertex[]!\n");
+		return;
+	}
+	vCapacity=morevcnt;
+
+	/* 3. Init triList[] */
+	try {
+		triList= new Triangle[moretcnt]; /* triangles */
+	}
+	catch ( std::bad_alloc ) {
+		egi_dpstd("Fail to allocate Triangle[]!\n");
+		return;
+	}
+	tCapacity=moretcnt;
+
+	/* 4. Copy vertices */
+	for(int i=0; i< abone.vcnt; i++)
+		vtxList[i]=abone.vtxList[i];
+
+	/* 5. Copy Triangle */
+	for(int i=0; i< abone.tcnt; i++)
+		triList[i]=abone.triList[i];
+
+	/* 6. Assign vcnt/tcnt */
+	vcnt=morevcnt;
+	tcnt=moretcnt;
+
+///////////////// Add 1 /////////////////
+	/* A1. Expand capacity of vtxList[] and triList[] */
+	if( this->moreVtxListCapacity(morevcnt)<0 )
+		return;
+	if( this->moreTriListCapacity(moretcnt)<0 )
+		return;
+
+	/* A2. Transform matrix */
+	float len=abone.len;
+	E3D_RTMatrix Rmat;
+
+	E3D_Vector Vas(0,0,0);
+	E3D_Vector Vae(0,0,len);
+
+	E3D_Vector Vbs=Vae;
+	E3D_Vector Vbe(1.5*len, 0, 1.4*len);
+
+	E3D_Vector Va=Vae-Vas;
+	E3D_Vector Vb=Vbe-Vbs;
+	//Rmat.setScaleRotation(Va, Vb);
+	Rmat.setTransformMatrix(Vas,Vae,Vbs,Vbe);
+	Rmat.print("Rmat");
+
+	/* A3. Transform abone */
+	abone.transformVertices(Rmat);
+
+	/* A4. Copy vertices */
+	for(int i=0; i< abone.vcnt; i++)
+		vtxList[vcnt+i]=abone.vtxList[i];
+
+	/* A5. Copy Triangles */
+	for(int i=0; i< abone.tcnt; i++) {
+		triList[tcnt+i]=abone.triList[i];
+
+		triList[tcnt+i].vtx[0].index += vcnt;
+		triList[tcnt+i].vtx[1].index += vcnt;
+		triList[tcnt+i].vtx[2].index += vcnt;
+	}
+
+	/* A6. Increase vcnt,tcnt aft 10. */
+	vcnt += abone.vcnt;
+	tcnt += abone.tcnt;
+
+
+///////////////// Add 2 /////////////////
+	/*  B1. Expand capacity of vtxList[] and triList[] */
+	if( this->moreVtxListCapacity(morevcnt)<0 )
+		return;
+	if( this->moreTriListCapacity(moretcnt)<0 )
+		return;
+
+	/* B2. Transform matrix */
+	E3D_Vector Vcs=Vbe;  //(1.5*len, 0, 1.4*len); len changed!
+	//len=bone.len;
+	E3D_Vector Vce(1.0*len, 0, 0.5*len);
+
+
+	Rmat.setTransformMatrix(Vbs,Vbe,Vcs,Vce);
+	Rmat.print("Rmat");
+
+	/* B3. Transform abone <-------------- */
+	abone.transformVertices(Rmat);
+
+	/* B4. Copy vertices from abone */
+	for(int i=0; i< abone.vcnt; i++)
+		vtxList[vcnt+i]=abone.vtxList[i];
+
+	/* B5. Copy Triangles from abone */
+	for(int i=0; i< abone.tcnt; i++) {
+		triList[tcnt+i]=abone.triList[i];
+
+		triList[tcnt+i].vtx[0].index += vcnt;
+		triList[tcnt+i].vtx[1].index += vcnt;
+		triList[tcnt+i].vtx[2].index += vcnt;
+	}
+
+	/* B6. Increase vcnt,tcnt aft 10. */
+	vcnt += abone.vcnt;
+	tcnt += abone.tcnt;
+/////////////////////////////////////////////////
+
+	/* 16. Assign the ONLY triGroup */
+	triGroupList.resize(1);
+	triGroupList[0].tcnt=tcnt;
+	triGroupList[0].stidx=0;
+	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
+	triGroupList[0].name="TestCompound";
+
+}
+
+
+
+/*--------------------------------
+	The destructor
+--------------------------------*/
+E3D_TestCompound::~E3D_TestCompound()
+{
+	egi_dpstd("E3D_TestCompound destroyed!\n");
+}
+
+
+
+		/*------------------------------------------
+        		    Class E3D_TestSkeleton
+    		    (Derived+Friend Class of E3D_TriMesh)
+		------------------------------------------*/
+
+/*--------------------
+   The constructor
+
+TODO: Spin off most codes into E3D_TestSkeleton::createSkeleton().
+--------------------*/
+E3D_TestSkeleton::E3D_TestSkeleton(float s) :E3D_TriMesh(), side(s)
+{
+	/* SAME NAME as the BASE member! this makes access to the BASE members MUST BE explicit, e.g. E3D_TriMesh::vcnt. */
+	//int vcnt, cnt;
+
+	int morevcnt, moretcnt;
+
+	E3D_BMatrixTree  bmtree;
+	E3DS_BMTreeNode* node;
+
+	/* 1. Clear vtxList[] and triList[], E3D_TriMesh() may allocate them.  */
+	if(vCapacity>0) {
+		delete [] vtxList; vtxList=NULL;
+		vCapacity=0;
+		vcnt=0;
+	}
+	if(tCapacity>0) {
+		delete [] triList; triList=NULL;
+		tCapacity=0;
+		tcnt=0;
+	}
+
+
+	/* 2. Create BoneTree --- a line tree */
+	float ang[3]={0.0,0.0,0.0};
+	float blen=7*s;
+	/* 2.1 1st node */
+	node=bmtree.addChildNode(bmtree.root, blen); /* node, boneLen */
+	/* 2.2 2nd node */
+	node=bmtree.addChildNode(node, blen);
+	ang[0]=MATH_PI*60/180;
+	node->pmat.combIntriRotation("Y",ang);
+	node->pmat.setTranslation(0,0,blen); /* <--- parent's blen */
+
+	/* 2.3 3rd node */
+	node=bmtree.addChildNode(node, 0.6*blen);
+	ang[0]=MATH_PI*90/180;
+	node->pmat.combIntriRotation("Y",ang);
+	node->pmat.setTranslation(0,0, blen); /* <---- parent's blen */
+
+	/* 2.3 4th node */
+	node=bmtree.addChildNode(node, 0.5*blen);
+	ang[0]=MATH_PI*120/180;
+	node->pmat.combIntriRotation("Y",ang);
+	node->pmat.setTranslation(0,0, 0.6*blen); /* <---- parent's blen */
+
+	/* 3. update NodePtrList to update Gmat list */
+	bmtree.updateNodePtrList();
+
+	/* Create bone mesh as per bmtree. */
+	for(size_t k=1; k<bmtree.nodePtrList.size(); k++) {
+
+		/* A1. Create nodebone */
+		printf(DBG_YELLOW"Create nodebone[%d]...\n"DBG_RESET, k);
+		E3D_ABone  nodebone(s, bmtree.nodePtrList[k]->blen); /* Origin orientation aligned with Global Oxyz */
+		printf(DBG_YELLOW"nondebone[%d] created.\n"DBG_RESET, k);
+
+		/* A2. Expand capacity of vtxList[] and triList[] to hold mesh of one abone */
+		morevcnt=nodebone.vcnt;
+		moretcnt=nodebone.tcnt;
+		if( this->moreVtxListCapacity(morevcnt)<0 )
+			return;
+		if( this->moreTriListCapacity(moretcnt)<0 )
+			return;
+
+		/* A3. Transform abone mesh as per 'gmat' */
+		nodebone.transformVertices(bmtree.nodePtrList[k]->gmat);
+
+		/* A4. Copy vertices */
+		for(int i=0; i< nodebone.vcnt; i++)
+			vtxList[vcnt+i]=nodebone.vtxList[i];
+
+		/* A5. Copy Triangles */
+		for(int i=0; i< nodebone.tcnt; i++) {
+			triList[tcnt+i]=nodebone.triList[i];
+
+			triList[tcnt+i].vtx[0].index += vcnt;
+			triList[tcnt+i].vtx[1].index += vcnt;
+			triList[tcnt+i].vtx[2].index += vcnt;
+		}
+
+		/* A6. Increase vcnt,tcnt aft 10. */
+		vcnt += nodebone.vcnt;
+		tcnt += nodebone.tcnt;
+	}
+
+	/* 16. Assign the ONLY triGroup */
+	triGroupList.resize(1);
+	triGroupList[0].tcnt=tcnt;
+	triGroupList[0].stidx=0;
+	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
+	triGroupList[0].name="TestSkeleton";
+
+}
+
+
+/*--------------------------------
+	The destructor
+--------------------------------*/
+E3D_TestSkeleton::~E3D_TestSkeleton()
+{
+	egi_dpstd("E3D_TestSkeleton destroyed!\n");
 }
 
 

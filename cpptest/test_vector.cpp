@@ -30,6 +30,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "e3d_vector.h"
 #include "e3d_trimesh.h"
 #include "e3d_volumes.h"
+#include "e3d_animate.h"
 
 using namespace std;
 
@@ -50,8 +51,97 @@ bool checkRTMat(E3D_RTMatrix & RTMat)
 int main(void)
 {
 	cout << "Hello, this is C++!\n" << endl;
+	E3D_Pyramid apyramid(50,50);
+	E3D_RtaSphere aball(2,100);
+//	E3D_ABone abone(50,200);
+}
 
-#if 1 ////////////////  E3D_RTMatrix::inverse()  ////////////////
+#if 0 /////////////////////
+int main(void)
+{
+	cout << "Hello, this is C++!\n" << endl;
+
+
+#if 1 ////////////////  E3D_E3DS_BMTreeNode  ////////////////
+//  for(int k=0; k<5; k++) {
+//  	E3D_TestSkeleton AmeshModel(50);
+//  }
+
+	E3D_ABone abone(50,200);
+  	E3D_TestSkeleton AmeshModel(50);
+
+//  	E3D_TestSkeleton BmeshModel(50);
+ //	E3D_TestSkeleton CmeshModel(50);
+
+  exit(0);
+#endif
+
+#if 0 ////////////////  E3D_E3DS_BMTreeNode  ////////////////
+while(1) {
+	E3D_BMatrixTree  bmtree;
+	E3DS_BMTreeNode *pnode;
+
+	/* Add 10 child node under root */
+	for(int k=0; k<10; k++)
+		bmtree.addChildNode(bmtree.root, 1.0*(k+1));
+
+	/* Add subtree under root->firtChild */
+	pnode=bmtree.root->firstChild;
+	for(int k=0; k<5; k++) {
+		/* sub.sub.sub..tree */
+		pnode=bmtree.addChildNode(pnode, 1.0/(k+1));
+	}
+
+	/* set root->amat */
+//	bmtree.root->amat.setTranslation(5.0, 5.1, 5.2);
+	float ang[3]={0.5*MATH_PI, 0.5*MATH_PI, 0.5*MATH_PI};
+
+	//E3D_combExtriRotation("X", &ang, bmtree.root->amat);
+	bmtree.root->amat.combExtriRotation("X", ang);
+	ang[0]=-0.5*MATH_PI;
+	bmtree.root->amat.combIntriRotation("XY", ang);
+
+	/* updateNodePtrList and Node.gmat */
+	bmtree.updateNodePtrList(); /* update bmtree.NodePtrList and all NODE.gmat */
+	printf("bmtree has %d nodes(self_Included) totally.\n", bmtree.nodePtrList.size());
+
+	vector<E3DS_BMTreeNode*> listL1=bmtree.getTreeNodePtrList(bmtree.root->firstChild);
+	printf("bmtree.root->firstChild has %d nodes(self_Included) totally.\n", listL1.size());
+	for(size_t i=0; i<listL1.size(); i++)
+		listL1[i]->gmat.print();
+
+	usleep(10000);
+}
+#endif
+
+#if 0 ////////////////  E3D_E3DS_BMTreeNode  ////////////////
+	E3DS_BMTreeNode *root;
+	E3DS_BMTreeNode *pnode;
+
+ while(1) {
+	/* Create root node */
+	root=BMT_createRootNode();
+
+	/* Add 10 child node under root */
+	for(int k=0; k<10; k++)
+		BMT_addChildNode(root);
+
+	/* Add subtree under root->firtChild */
+	pnode=root->firstChild;
+	for(int k=0; k<5; k++) {
+		/* sub.sub.sub..tree */
+		pnode=BMT_addChildNode(pnode);
+	}
+
+	BMT_deleteNode(root);
+
+	usleep(10000);
+}
+
+exit(0);
+#endif
+
+#if 0 ////////////////  E3D_RTMatrix::inverse()  ////////////////
         E3D_Vector axisX(1,0,0);
         E3D_Vector axisY(0,1,0);
         E3D_Vector axisZ(0,0,1);
@@ -520,3 +610,5 @@ for(k=0; k<100000; k++) {
 #endif
 	return 0;
 }
+
+#endif //////////

@@ -293,8 +293,6 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "egi_image.h"
 #include "egi_cstring.h"
 
-#include "e3d_vector.h"
-
 using namespace std;
 
 #define TEST_PERSPECTIVE  	1
@@ -463,9 +461,9 @@ public:
  * 2. push_back() of a vector WOULD LIKELY to trigger unexpected pointer_free/release.
  *    to avoid above situation, one could DestVector.resize() first to allocate all mem space,
  *    then assign item one by one: DestVector[i]=SrcVector[i].
- *
  * 3. TODO: If one map_kd(/ks/kd) file is referred/used by more than ONE material, it will be
  *    loaded into img_kd(/ks/ka) for each material respectively!  Seems redundant....
+ * 4. Normally, Ns is set as 0.0, and Ks is Zero, If ks is NOT Zero, then Ns should >0.0f, otherwise it may appear too bright!
  */
 
 public:
@@ -473,15 +471,16 @@ public:
 	string name;	  /* Material name */
 
 	/* Colors: To keep same as obj file */
-	E3D_Vector ka;  /* TODO ambient color [0 1] ---> (RGB) [0 255] */
+	E3D_Vector ka;  /* ambient color [0 1] ---> (RGB) [0 255] */
 	//EGI_16BIT_COLOR acolor;
 	E3D_Vector kd;  /* Diffuse color [0 1] ---> (RGB) [0 255], default (0.8,0.8,0.8) */
 	//EGI_16BIT_COLOR dcolor;
-	E3D_Vector ks;  /* TODO specular color [0 1] ---> (RGB) [0 255], default (0.6,0.6,0.6) */
+	E3D_Vector ks;  /* specular color [0 1] ---> (RGB) [0 255], default (0,0,0) */
 	//EGI_16BIT_COLOR scolor;
+	E3D_Vector ke;  /* Self-emission color, default (0.0,0.0,0.0) */
 
-	E3D_Vector Ss; /* Light source specular color */
-	E3D_Vector Sd; /* Lighting source diffuse color */
+	E3D_Vector Ss; /* Light source specular color, default (1.0,1.0,1.0) */
+	E3D_Vector Sd; /* Lighting source diffuse color, Default (1.0,1.0,1.0) */
 
 	/* Illumination model:
  	   0		Color on and Ambient off
@@ -505,11 +504,15 @@ public:
 	float	     Ns;   /* Specifies the specular exponent, defautl 0.0. usually ranges 0-1000 */
 	/* --- NOT applied in setDefault and readMtlFile() --- */
 	//E3D_Vector Tf;   /* The transmission filte (rgb)[0 1] */
-	//float      Ni;   /* Transmission filter */
-
+	//float      Ni;   /* optical_density(index of refraction), [0.001 10] */
+			   /* IF Ni=1.0, then the light will NOT bend when pass through the surface.
+			    * For glass, it's abt. 1.5.
+	 		    */
 
 	/* Transparency, use one of d/Tr */
-	float       d;    /* The dissolve factor, as Non-transparency of the material, default 1.0, totally untransparent. */
+	float       d;    /* The dissolve factor, as Non-transparency of the material, default 1.0, totally untransparent.
+			   * d -halo factor,  dissolve = 1.0 - (N*v)(1.0-factor)
+			   */
 	//float       Tr;   /* as for Transparency of the material, default 0.0,  */
 
 	/* Textrue/Maps */
@@ -567,7 +570,12 @@ class E3D_TriMesh {
 
 /* Friend Classes */
 	friend class E3D_Cuboid;
+	friend class E3D_Tetrahedron;
+	friend class E3D_Pyramid;
 	friend class E3D_RtaSphere;
+	friend class E3D_ABone;
+	friend class E3D_TestCompound;
+	friend class E3D_TestSkeleton;
 
 public:
 	/* :: Class Vertex  !!! NO pointer member allowed !!! */
@@ -755,6 +763,10 @@ public:
 
 	/* Init member/parameters/variabls. */
 	void initVars();
+
+	/* Function: Increase Capacity HK2022-10-25 */
+	int moreVtxListCapacity(size_t more);
+	int moreTriListCapacity(size_t more);
 
 	/* Functions: Print for debug */
 	void printAllVertices(const char *name);

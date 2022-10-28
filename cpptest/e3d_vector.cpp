@@ -76,6 +76,14 @@ Journal:
 	1. E3D_InitProjMatrix(), E3D_RecomputeProjMatrix(): Consider projMatrix.aa,bb,cc,dd. for ISOMETRIC_VIEW.
 2022-10-17:
 	1. E3D_RTMatrix::inverse()
+2022-10-25:
+	1. E3D_RTMatrix::setRotation( const E3D_Vector &vfrom, const E3D_Vector &vto )
+	2. E3D_RTMatrix::setScaleRotation( const E3D_Vector &vfrom, const E3D_Vector &vto )
+2022-10-26:
+	1. E3D_RTMatrix::setTransformMatrix( )
+2022-10-27:
+	1. E3D_RTMatrix::combExtriRotation()
+	2. E3D_RTMatrix::combIntriRotation()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -745,7 +753,7 @@ E3D_RTMatrix::~E3D_RTMatrix()
 /*---------
    Print
 ---------*/
-void E3D_RTMatrix::print(const char *name=NULL) const
+void E3D_RTMatrix::print(const char *name) const
 {
 	int i,j;
         printf("   <<< RTMatrix '%s' >>>\nRotation_Matrix[3x3]: \n",name);
@@ -771,7 +779,7 @@ void E3D_RTMatrix::identity()
         pmat[3]=0;    pmat[4]=1.0f; pmat[5]=0;     /* m22 =1 */
         pmat[6]=0;    pmat[7]=0;    pmat[8]=1.0f;  /* m33 =1 */
 
-        pmat[9]=0;    pmat[10]=0;   pmat[11]=0;    /* tz=1 */
+        pmat[9]=0;    pmat[10]=0;   pmat[11]=0;    /* txyz=0 */
 }
 
 /*----------------------------------------------
@@ -1035,13 +1043,13 @@ void E3D_RTMatrix::setRotation( const E3D_Vector &axis, float angle)
 	float vsin, vcos;
         float a,ax,ay,az;
 
-        if(fabs(axis*axis-1.0f)>0.01f) {
+        if(fabsf(axis*axis-1.0f)>0.01f) {
         	egi_dpstd("Input axis is NOT normalized!\n");
                 return;
         }
 
-        vsin=sin(angle);
-        vcos=cos(angle);
+        vsin=sinf(angle);
+        vcos=cosf(angle);
 
         a=1.0f-vcos;
         ax=a*axis.x;
@@ -1060,9 +1068,356 @@ void E3D_RTMatrix::setRotation( const E3D_Vector &axis, float angle)
         pmat[7]=az*axis.y-axis.x*vsin;  //m32
         pmat[8]=az*axis.z+vcos;         //m33
 
+        /* Keep pmat[9-11] */
+}
+
+
+/*----------------------------------------------
+   Set part of RotationMatrix in pmat[]
+   Rotation orientation is from vfrom to vto.
+
+   @vfrom: Guide vector before rotation.
+   @vto:   Guide vector after rotation.
+   Note: Translation keeps!
+----------------------------------------------*/
+void E3D_RTMatrix::setRotation( const E3D_Vector &vfrom, const E3D_Vector &vto )
+{
+	E3D_Vector axis;
+	float angle;
+	float vsin, vcos;
+        float a,ax,ay,az;
+
+	/* Get axis vector */
+	axis=E3D_vector_crossProduct(vfrom, vto);
+	axis.normalize();
+
+	/* Get rotation angle */
+	angle=acosf(vfrom*vto/(vfrom.module()*vto.module()));
+
+	/* set rotation matrix for pmax[] */
+        vsin=sinf(angle);
+        vcos=cosf(angle);
+
+        a=1.0f-vcos;
+        ax=a*axis.x;
+        ay=a*axis.y;
+        az=a*axis.z;
+
+        pmat[0]=ax*axis.x+vcos;         //m11
+        pmat[1]=ax*axis.y+axis.z*vsin;  //m12
+        pmat[2]=ax*axis.z-axis.y*vsin;  //m13
+
+        pmat[3]=ay*axis.x-axis.z*vsin;  //m21
+        pmat[4]=ay*axis.y+vcos;         //m22
+        pmat[5]=ay*axis.z+axis.x*vsin;  //m23
+
+        pmat[6]=az*axis.x+axis.y*vsin;  //m31
+        pmat[7]=az*axis.y-axis.x*vsin;  //m32
+        pmat[8]=az*axis.z+vcos;         //m33
 
         /* Keep pmat[9-11] */
 }
+
+/*----------------------------------------------
+   Set Rotation/Scale in pmat[]:
+   Rotation orientation is from vfrom to vto.
+   Scale=vto.module/vfrom.module.
+
+   @vfrom: Guide vector before rotation.
+   @vto:   Guide vector after rotation.
+   Note: Translation keeps!
+----------------------------------------------*/
+void E3D_RTMatrix::setScaleRotation( const E3D_Vector &vfrom, const E3D_Vector &vto )
+{
+	E3D_Vector axis;
+	float angle;
+	float vsin, vcos;
+        float a,ax,ay,az;
+
+	E3D_RTMatrix smat;
+	float scale=vto.module()/vfrom.module();
+	smat.setScaleXYZ(scale,scale,scale);
+
+	/* Get axis vector */
+	axis=E3D_vector_crossProduct(vfrom, vto);
+	axis.normalize();
+
+	/* Get rotation angle */
+	angle=acosf(vfrom*vto/(vfrom.module()*vto.module()));
+
+	/* set rotation matrix for pmax[] */
+        vsin=sinf(angle);
+        vcos=cosf(angle);
+
+        a=1.0f-vcos;
+        ax=a*axis.x;
+        ay=a*axis.y;
+        az=a*axis.z;
+
+        pmat[0]=ax*axis.x+vcos;         //m11
+        pmat[1]=ax*axis.y+axis.z*vsin;  //m12
+        pmat[2]=ax*axis.z-axis.y*vsin;  //m13
+
+        pmat[3]=ay*axis.x-axis.z*vsin;  //m21
+        pmat[4]=ay*axis.y+vcos;         //m22
+        pmat[5]=ay*axis.z+axis.x*vsin;  //m23
+
+        pmat[6]=az*axis.x+axis.y*vsin;  //m31
+        pmat[7]=az*axis.y-axis.x*vsin;  //m32
+        pmat[8]=az*axis.z+vcos;         //m33
+
+        /* Keep pmat[9-11] */
+
+
+	/* Compound */
+	*this = smat*(*this);
+}
+
+/*----------------------------------------------
+	    !!! --- CAUTION --- !!!
+This RTMatrix will BE set as identity at first,
+
+   then move Vas to Oxyz as center of scale and rotation,
+   then set RTMatrix for transforming Va to Vb.
+   Sequence: ScaleMat*RotMat*TransMat;
+   Scale center point: Vas
+   At last, move Vas back to original position.
+
+   @Vas,Vae: Guide vector before transforming.
+   @Vbs,Vbe: Guide vector after transforming.
+----------------------------------------------*/
+void E3D_RTMatrix::setTransformMatrix( const E3D_Vector &Vas, const E3D_Vector &Vae, const E3D_Vector &Vbs, const E3D_Vector &Vbe)
+{
+	E3D_Vector axis;
+	float angle;
+	float vsin, vcos;
+        float a,ax,ay,az;
+
+	/* This RTMatrix will be set as identity first */
+	this->identity();
+
+	E3D_Vector vfrom=Vae-Vas;
+	E3D_Vector vto=Vbe-Vbs;
+	E3D_Vector vtrans=Vbs-Vas;
+
+	/* move Vas to Oxyz as center of scale and rotation, then move back later */
+	E3D_RTMatrix Cmat, CBmat;
+	Cmat.setTranslation(-Vas); //RTMatrix to translate Vas to Oxyz origin
+	CBmat.setTranslation(Vas); //RTMatrix to retrive Vas back to original position
+
+	/* Set scale */
+	E3D_RTMatrix Smat;
+	float scale=vto.module()/vfrom.module();
+	Smat.setScaleXYZ(scale,scale,scale);
+
+	/* Set scale + translation */
+	E3D_RTMatrix Tmat;
+	Tmat.setTranslation(vtrans);
+
+	/* Get axis vector */
+	axis=E3D_vector_crossProduct(vfrom, vto);
+	axis.normalize();
+
+	/* Get rotation angle */
+	angle=acosf(vfrom*vto/(vfrom.module()*vto.module()));
+
+	/* set rotation matrix for pmax[] */
+        vsin=sinf(angle);
+        vcos=cosf(angle);
+
+        a=1.0f-vcos;
+        ax=a*axis.x;
+        ay=a*axis.y;
+        az=a*axis.z;
+
+        pmat[0]=ax*axis.x+vcos;         //m11
+        pmat[1]=ax*axis.y+axis.z*vsin;  //m12
+        pmat[2]=ax*axis.z-axis.y*vsin;  //m13
+
+        pmat[3]=ay*axis.x-axis.z*vsin;  //m21
+        pmat[4]=ay*axis.y+vcos;         //m22
+        pmat[5]=ay*axis.z+axis.x*vsin;  //m23
+
+        pmat[6]=az*axis.x+axis.y*vsin;  //m31
+        pmat[7]=az*axis.y-axis.x*vsin;  //m32
+        pmat[8]=az*axis.z+vcos;         //m33
+
+        /* Keep pmat[9-11] */
+
+	/* Compound */
+	/* move Vas to Oxyz center for scale and rotation, then move back. */
+	*this = Cmat*Smat*(*this)*CBmat*Tmat;
+}
+
+/*----------------------------------------------------------------------------------
+Parse axisToks and right-mutilply imats to RTmat.
+For extrinsic rotation, each ref. COORD is the same.
+
+@axisToks: 	Extrinsic rotation sequence Tokens(rotating axis), including:
+		'X'('x') 'Y'('y') 'Z'('z')
+		Example: "ZYX", "XYZ", "XYX",.. with rotation sequence as 'Z->Y->X','X->Y-Z','X->Y->X',...
+		1. "ZYX" extrinsic rotation sequence: RotZ -> RotY -> RotX, matrix multiplation: Mz*My*Mx
+
+@ang[3]: 	In radians, Rotation angles cooresponding to axisToks.
+-----------------------------------------------------------------------------------*/
+void E3D_RTMatrix::combExtriRotation(const char *axisToks, float ang[3])
+{
+	if(axisToks==NULL)
+		return;
+
+	/* Get reversed sequence of rotation */
+	int toks=strlen(axisToks);
+
+	/* imat:  translation is ignored! */
+	E3D_RTMatrix imat;
+
+	/* cmat as combined:  translation is ignored! */
+//	E3D_RTMatrix cmat;
+
+	bool case_OK;
+	unsigned int np=0;
+//	int rnp;  /* np as backward */
+
+	while( axisToks[np] ) {
+
+		/* 1. Max. 3 tokens */
+		if(np>3) break;
+
+		/* 2. Assmue case_Ok, OR to reset it at case_default */
+		case_OK=true;
+
+		/* 3. Compute imat as per rotation axis and angle */
+		switch( axisToks[np] ) {
+			case 'x': case 'X':
+			   /*  Rx: [1 0 0;  0 cos(a) sin(a); 0 -sin(a) cos(a)] */
+			   imat.pmat[0]=1.0;  imat.pmat[1]=0.0;           imat.pmat[2]=0.0;
+			   imat.pmat[3]=0.0;  imat.pmat[4]=cos(ang[np]);  imat.pmat[5]=sin(ang[np]);
+			   imat.pmat[6]=0.0;  imat.pmat[7]=-sin(ang[np]); imat.pmat[8]=cos(ang[np]);
+
+			   break;
+			case 'y': case 'Y':
+			   /*  Ry: [cos(a) 0 -sin(a); 0 1 0; sin(a) 0 cos(a)] */
+			   imat.pmat[0]=cos(ang[np]); imat.pmat[1]=0.0; imat.pmat[2]=-sin(ang[np]);
+			   imat.pmat[3]=0.0;          imat.pmat[4]=1.0; imat.pmat[5]=0.0;
+			   imat.pmat[6]=sin(ang[np]); imat.pmat[7]=0.0; imat.pmat[8]=cos(ang[np]);
+
+			   break;
+			case 'z': case 'Z':
+			   /*  Rz: [cos(ang) sin(ang) 0; -sin(ang) cos(ang) 0; 0 0 1] */
+			   imat.pmat[0]=cos(ang[np]);  imat.pmat[1]=sin(ang[np]); imat.pmat[2]=0.0;
+			   imat.pmat[3]=-sin(ang[np]); imat.pmat[4]=cos(ang[np]); imat.pmat[5]=0.0;
+			   imat.pmat[6]=0.0;           imat.pmat[7]=0.0;          imat.pmat[8]=1.0;
+
+				break;
+			default:
+			   case_OK=false;
+			   egi_dpstd("Unrecognizable aix token '%c', NOT in 'xXyYzZ'!\n", axisToks[np]);
+			   break;
+		}
+
+		/* 4. Multiply imats  */
+		if( case_OK ) {
+			/* Only combine Rotation */
+			*this = (*this)*imat;
+		}
+
+		/* np increment */
+		np++;
+	}
+}
+
+/*----------------------------------------------------------------------------------
+Parse axisToks and left-mutilply imats to RTmat.
+For intrinsic rotation, each ref COORD is rotating also.
+
+@axisToks: 	Intrinsic rotation sequence Tokens(rotating axis), including:
+		'X'('x') 'Y'('y') 'Z'('z')
+		Example: "ZYX", "XYZ", "XYX",.. with rotation sequence as 'Z->Y->X','X->Y-Z','X->Y->X',...
+
+		1. "ZYX" intrinsic rotation sequence: RotZ -> RotY -> RotX, matrix multiplation: Mx*My*Mz
+		    Notice that 'reversed' matrix multiplation applys.
+		2. The function reverse axisToks[] to RxyzToks[].
+
+@ang[3]: 	In radians, Rotation angles cooresponding to axisToks.
+-----------------------------------------------------------------------------------*/
+void E3D_RTMatrix::combIntriRotation(const char *axisToks, float ang[3])
+{
+	if(axisToks==NULL)
+		return;
+
+	/* Get reversed sequence of rotation */
+	int toks=strlen(axisToks);
+
+	/* imat:  translation is ignored! */
+	E3D_RTMatrix imat;
+	E3D_RTMatrix cmat;
+
+	/* cmat as combined:  translation is ignored! */
+//	E3D_RTMatrix cmat;
+
+	bool case_OK;
+	unsigned int np=0;
+	int rnp;  /* np as backward */
+
+	/* Keep axis sequence and revert angle sequene, then the result of extriRotation is same as original intriRoration */
+
+	while( (rnp=toks-1 -np)>=0 && axisToks[toks-1 -np] ) {
+
+		/* Revers index of axisToks[] */
+		rnp=toks-1 -np;
+
+		/* 1. Max. 3 tokens */
+		if(np>3) break;
+
+		/* 2. Assmue case_Ok, OR to reset it at case_default */
+		case_OK=true;
+
+		/* 3. Compute imat as per rotation axis and angle */
+		switch( axisToks[rnp] ) {
+			case 'x': case 'X':
+			   /*  Rx: [1 0 0;  0 cos(a) sin(a); 0 -sin(a) cos(a)] */
+			   imat.pmat[0]=1.0;  imat.pmat[1]=0.0;            imat.pmat[2]=0.0;
+			   imat.pmat[3]=0.0;  imat.pmat[4]=cos(ang[rnp]);  imat.pmat[5]=sin(ang[rnp]);
+			   imat.pmat[6]=0.0;  imat.pmat[7]=-sin(ang[rnp]); imat.pmat[8]=cos(ang[rnp]);
+
+			   break;
+			case 'y': case 'Y':
+			   /*  Ry: [cos(a) 0 -sin(a); 0 1 0; sin(a) 0 cos(a)] */
+			   imat.pmat[0]=cos(ang[rnp]); imat.pmat[1]=0.0; imat.pmat[2]=-sin(ang[rnp]);
+			   imat.pmat[3]=0.0;           imat.pmat[4]=1.0; imat.pmat[5]=0.0;
+			   imat.pmat[6]=sin(ang[rnp]); imat.pmat[7]=0.0; imat.pmat[8]=cos(ang[rnp]);
+
+			   break;
+			case 'z': case 'Z':
+			   /*  Rz: [cos(ang) sin(ang) 0; -sin(ang) cos(ang) 0; 0 0 1] */
+			   imat.pmat[0]=cos(ang[rnp]);  imat.pmat[1]=sin(ang[rnp]); imat.pmat[2]=0.0;
+			   imat.pmat[3]=-sin(ang[rnp]); imat.pmat[4]=cos(ang[rnp]); imat.pmat[5]=0.0;
+			   imat.pmat[6]=0.0;            imat.pmat[7]=0.0;      imat.pmat[8]=1.0;
+
+				break;
+			default:
+			   case_OK=false;
+			   egi_dpstd("Unrecognizable aix token '%c', NOT in 'xXyYzZ'!\n", axisToks[rnp]);
+			   break;
+		}
+
+		/* 4. Multiply imats  */
+		if( case_OK ) {
+			/* Only combine Rotation */
+//			*this= (*this)*imat;  /* Hi, Dude! :))))))) */
+			cmat = imat*cmat; /* Noticed that axis sequence reverted!, revert here again. put last mat at first,
+				 	     .... Result: same effect as revert angles. */
+		}
+
+		/* np increment */
+		np++;
+	}
+
+	/* OK */
+	*this=(*this)*cmat;
+}
+
+
 
 /*---------------------------------------------------
    Set this matrix as a projection Matrix.
