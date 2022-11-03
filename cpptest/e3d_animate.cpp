@@ -14,6 +14,15 @@ Journal:
 	1. Add E3D_BMatrixTree::addChildNode(), E3D_BMatrixTree::deleteNode().
 	2. Add E3D_BMatrixTree::updateNodePtrList()
 	3. Create e3d_animate.cpp, as spin off from e3d_aniamte.h.
+2022-10-30:
+	1. Add E3D_BMatrixTree::createCraneBMTree()
+2022-11-01:
+	1. Rename BMT_deleteNode() to BMT_deleteTreeNodes().
+	2. Add void BMT_updateTreeGmats()
+	3. Add E3D_BMatrixTree::updateTreeGmats()
+	4. Add E3D_BMatrixTree::createHandBMTree()
+	5. Add E3D_BMatrixTree::resetNodeAmats()
+	6. Add 4E3D_BMatrixTree::resetNodeOrients()
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -61,6 +70,10 @@ E3DS_BMTreeNode *BMT_createRootNode(void)
 /*------------------------------------------
 Add a child to the node, as the last sibling
 of node's Children.
+
+@node:      Pointer to an E3DS_BMTreeNode,
+	    under which an childe node will be added.
+@boneLen:   Length of the bone.
 
 Return:
 	Ponter to the childNode:  OK
@@ -115,15 +128,19 @@ E3DS_BMTreeNode *BMT_addChildNode(E3DS_BMTreeNode* node, float boneLen)
 
 /*------------------------------------------
 Delete the node and all its children.
+(as a subTree)
 
 	---- CAUTION ----
   This is a recursive function!
+
+@node: A pointer to E3DS_BMTreeNode, all its
+       children and itself are to be deleted.
 
 Return:
 	!NULL	OK
 	NULL	Fails
 ------------------------------------------*/
-void BMT_deleteNode(E3DS_BMTreeNode *node)
+void BMT_deleteTreeNodes(E3DS_BMTreeNode *node)
 {
 	E3DS_BMTreeNode *delChild, *nextChild;
 
@@ -136,7 +153,7 @@ void BMT_deleteNode(E3DS_BMTreeNode *node)
 		nextChild=delChild->nextSibling;
 
 		/* Delete delChild */
-		BMT_deleteNode(delChild);
+		BMT_deleteTreeNodes(delChild);
 
 		/* nextChild as delChild */
 		delChild=nextChild;
@@ -169,6 +186,45 @@ void BMT_deleteNode(E3DS_BMTreeNode *node)
 }
 
 
+/*-----------------------------------------------------
+Update all gmat (globalizing matrix) of the node and its
+child nodes. (as a subTree).
+
+	---- CAUTION ----
+  This is a recursive function!
+
+@node: A pointer to E3DS_BMTreeNode
+       gmat of itself and its children are to be updated.
+
+Return:
+	!NULL	OK
+	NULL	Fails
+-----------------------------------------------------*/
+void BMT_updateTreeGmats(E3DS_BMTreeNode *node)
+{
+	E3DS_BMTreeNode *doChild, *nextChild;
+
+	if(node==NULL) return;
+
+	/* 1. First, refresh gmat of this node */
+	if(node->parent)
+        	node->gmat=node->amat*node->pmat*(node->parent->gmat);
+        else /* for the root node */
+                node->gmat=node->amat*node->pmat;
+
+	/* 2. Then, update gmat for its children nodes */
+	doChild=node->firstChild;
+	while(doChild) {
+		/* 2.1 Get nextChild */
+		nextChild=doChild->nextSibling;
+
+		/* 2.2 Update gmat for the doChild */
+		BMT_updateTreeGmats(doChild);
+
+		/* 2.3 nextChild as doChild */
+		doChild=nextChild;
+	}
+}
 
 
 		/*---------------------------------
@@ -186,7 +242,7 @@ E3D_BMatrixTree::E3D_BMatrixTree()
 /* Destructor */
 E3D_BMatrixTree::~E3D_BMatrixTree()
 {
-	BMT_deleteNode(root);
+	BMT_deleteTreeNodes(root);
 }
 
 
@@ -204,8 +260,191 @@ Add a child to the node.
 --------------------------*/
 void E3D_BMatrixTree::deleteNode(E3DS_BMTreeNode*node)
 {
-	BMT_deleteNode(node);
+	BMT_deleteTreeNodes(node);
 }
+
+
+/*---------- TEST ------------------
+Create a BoneMatrixTree for a crane.
+-----------------------------------*/
+void E3D_BMatrixTree::createCraneBMTree()
+{
+        E3DS_BMTreeNode* node;
+
+        /* 2. Create BoneTree --- a line tree */
+        float ang[3]={0.0,0.0,0.0};
+	float s=50;
+        float blen=7*s;
+
+	/* 0. Root node */
+
+        /* 1. 1st node */
+        node=addChildNode(root, blen); /* node, boneLen */
+
+        /* 2. 2nd node */
+        node=addChildNode(node, blen);
+        ang[0]=MATH_PI*60/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* 3. 3rd node */
+        node=addChildNode(node, 0.6*blen);
+        ang[0]=MATH_PI*90/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+        /* 4. 4th node */
+        node=addChildNode(node, 0.5*blen);
+        ang[0]=MATH_PI*120/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+        /* 5. update NodePtrList to update Gmat list */
+        updateNodePtrList();
+}
+
+/*---------- TEST ------------------
+Create a BoneMatrixTree for a hand something.
+Bone direction Z
+-----------------------------------*/
+void E3D_BMatrixTree::createHandBMTree()
+{
+        E3DS_BMTreeNode *basenode; /* Base joined bone */
+	E3DS_BMTreeNode *node;
+
+        /* 2. Create BoneTree --- a line tree */
+        float ang[3]={0.0,0.0,0.0};
+	float s=50; /* side size */
+        float blen=8*s;
+
+	/* 0. Root node */
+
+        /* Joint bone */
+        basenode=addChildNode(root, 0.5*blen); /* node, boneLen */
+
+/* Middle finger */
+        /* M1. */
+        node=addChildNode(basenode, blen);
+        ang[0]=MATH_PI*5/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* M2. */
+        node=addChildNode(node, 0.5*blen);
+        ang[0]=MATH_PI*0/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+        /* M3. */
+        node=addChildNode(node, 0.3*blen);
+        ang[0]=MATH_PI*-10/180;
+        node->pmat.combIntriRotation("X",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+        /* M4. */
+        node=addChildNode(node, 0.2*blen);
+        ang[0]=MATH_PI*0/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+/* The Index finger */
+        /* I1. */
+        node=addChildNode(basenode, blen);
+        ang[0]=MATH_PI*20/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* I2. */
+        node=addChildNode(node, 0.5*blen);
+        ang[0]=MATH_PI*0/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+        /* I3. */
+        node=addChildNode(node, 0.3*blen);
+        ang[0]=MATH_PI*-10/180;
+        node->pmat.combIntriRotation("X",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+        /* I4. */
+        node=addChildNode(node, 0.2*blen);
+        ang[0]=MATH_PI*0/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+/* The Ring finger */
+        /* R1. */
+        node=addChildNode(basenode, 0.9*blen);
+        ang[0]=MATH_PI*-10/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* R2. */
+        node=addChildNode(node, 0.5*blen);
+        ang[0]=MATH_PI*0/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+        /* R3. */
+        node=addChildNode(node, 0.3*blen);
+        ang[0]=MATH_PI*-10/180;
+        node->pmat.combIntriRotation("X",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+        /* R4. */
+        node=addChildNode(node, 0.2*blen);
+        ang[0]=MATH_PI*0/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+/* The Thumb finger */
+        /* T1. */
+        node=addChildNode(basenode, 0.7*blen);
+        ang[0]=MATH_PI*70/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* T2. */
+        node=addChildNode(node, 0.3*blen);
+        ang[0]=MATH_PI*0/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+        /* T3. */
+        node=addChildNode(node, 0.2*blen);
+        ang[0]=MATH_PI*0/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+/* The Little finger */
+        /* L1. */
+        node=addChildNode(basenode, 0.8*blen);
+        ang[0]=MATH_PI*-20/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* L2. */
+        node=addChildNode(node, 0.45*blen);
+        ang[0]=MATH_PI*0/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+        /* L3. */
+        node=addChildNode(node, 0.2*blen);
+        ang[0]=MATH_PI*-10/180;
+        node->pmat.combIntriRotation("X",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+        /* L4. */
+        node=addChildNode(node, 0.2*blen);
+        ang[0]=MATH_PI*0/180;
+        node->pmat.combIntriRotation("Y",ang);
+        node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+
+        /* 5. update NodePtrList to update Gmat list */
+        updateNodePtrList();
+}
+
 
 /*-------------------------------------------------------
 Get/List all node pointers of a (sub)tree in LevelOrder.
@@ -248,7 +487,7 @@ vector<E3DS_BMTreeNode*> E3D_BMatrixTree::getTreeNodePtrList(const E3DS_BMTreeNo
 }
 
 /*------------------------------------------
-Update nodePtrList + nodeGmatList
+Update nodePtrList(LevelOrder) + nodeGmatList
 -------------------------------------------*/
 void E3D_BMatrixTree::updateNodePtrList()
 {
@@ -293,3 +532,34 @@ void E3D_BMatrixTree::updateNodePtrList()
 }
 
 
+/*------------------------------------------
+Update all gmats.
+All refere to BMT_updateTreeGmats(node).
+
+Note: If ONLY update gamts of a subtree,
+then call BMT_updateTreeGmats(node).
+-------------------------------------------*/
+void E3D_BMatrixTree::updateTreeGmats()
+{
+	BMT_updateTreeGmats(root);
+}
+
+
+/*------------------------------------------
+Reset all node amats to identity RTMatrix.
+-------------------------------------------*/
+void E3D_BMatrixTree::resetNodeAmats()
+{
+	for(size_t k=0; k<nodePtrList.size(); k++)
+		nodePtrList[k]->amat.identity();
+}
+
+/*------------------------------------------
+Reset all amats as identity and update gmats
+accordinly.
+-------------------------------------------*/
+void E3D_BMatrixTree::resetNodeOrients()
+{
+	resetNodeAmats();
+	updateTreeGmats();
+}

@@ -309,12 +309,13 @@ E3D_Pyramid::~E3D_Pyramid()
 		  Shpere derived from Regular Twenty Aspect
 		------------------------------------------*/
 
-/*--------------------
-   The constructor
---------------------*/
+/*--------------------------------
+          The constructor
+
+Note: Normally take s=(1/6~1/7)*l
+--------------------------------*/
 E3D_ABone::E3D_ABone(float s, float l): E3D_TriMesh(), side(s), len(l)
 {
-//	E3D_RtaSphere  joint(1, s/2);
 
 	/* Init vars */
 
@@ -325,16 +326,26 @@ E3D_ABone::E3D_ABone(float s, float l): E3D_TriMesh(), side(s), len(l)
 		vcnt=0;
 	}
 	if(tCapacity>0) {
-		delete [] triList; vtxList=NULL;
+		delete [] triList; triList=NULL; /* Hi,You~! :>> */
 		tCapacity=0;
 		tcnt=0;
 	}
 
+
 	/* 2. Expand capacity for bone bar */
+#define ABONE_WITHJOINT  1
+#if ABONE_WITHJOINT  /////////// With Joint /////////////////////
+	E3D_RtaSphere  joint(0, s/2);
+	if( this->moreVtxListCapacity(joint.vcnt+6)<0 ) /* bone bar 6 vterices */
+		return;
+	if( this->moreTriListCapacity(joint.tcnt+8)<0 ) /* bone bar 8 triangles */
+		return;
+#else //////// NO joint /////////////////////
 	if( this->moreVtxListCapacity(6)<0 ) /* bone bar 6 vterices */
 		return;
 	if( this->moreTriListCapacity(8)<0 ) /* bone bar 8 triangles */
 		return;
+#endif
 
 	/* 4. Create vertices for bone bar */
 	float a=0.5*s; /* 0.5s */
@@ -369,7 +380,8 @@ E3D_ABone::E3D_ABone(float s, float l): E3D_TriMesh(), side(s), len(l)
 	/* 7. All triangles counted in */
 	tcnt=8;
 
-#if 0	/* 8. Add joint part */
+#if ABONE_WITHJOINT
+	/* 8. Add joint part */
 	for(int j=0; j<joint.vcnt; j++)
 		vtxList[vcnt+j]=joint.vtxList[j];
         for(int j=0; j<joint.tcnt; j++) {
@@ -384,6 +396,7 @@ E3D_ABone::E3D_ABone(float s, float l): E3D_TriMesh(), side(s), len(l)
 	vcnt += joint.vcnt;
 	tcnt += joint.tcnt;
 #endif
+
 
 	/* 8. Assign the ONLY triGroup */
 	triGroupList.resize(1);
@@ -1010,20 +1023,18 @@ E3D_TestCompound::~E3D_TestCompound()
     		    (Derived+Friend Class of E3D_TriMesh)
 		------------------------------------------*/
 
-/*--------------------
-   The constructor
-
-TODO: Spin off most codes into E3D_TestSkeleton::createSkeleton().
---------------------*/
-E3D_TestSkeleton::E3D_TestSkeleton(float s) :E3D_TriMesh(), side(s)
+/*---------------------------------
+        The constructor
+s: Side size of abone
+---------------------------------*/
+E3D_TestSkeleton::E3D_TestSkeleton(E3D_BMatrixTree &bmtree) :E3D_TriMesh()
 {
 	/* SAME NAME as the BASE member! this makes access to the BASE members MUST BE explicit, e.g. E3D_TriMesh::vcnt. */
 	//int vcnt, cnt;
 
 	int morevcnt, moretcnt;
 
-	E3D_BMatrixTree  bmtree;
-	E3DS_BMTreeNode* node;
+	//float s=50; /* side size of abone XXX taken as 1/6~1/7 of blen */
 
 	/* 1. Clear vtxList[] and triList[], E3D_TriMesh() may allocate them.  */
 	if(vCapacity>0) {
@@ -1037,39 +1048,12 @@ E3D_TestSkeleton::E3D_TestSkeleton(float s) :E3D_TriMesh(), side(s)
 		tcnt=0;
 	}
 
-
-	/* 2. Create BoneTree --- a line tree */
-	float ang[3]={0.0,0.0,0.0};
-	float blen=7*s;
-	/* 2.1 1st node */
-	node=bmtree.addChildNode(bmtree.root, blen); /* node, boneLen */
-	/* 2.2 2nd node */
-	node=bmtree.addChildNode(node, blen);
-	ang[0]=MATH_PI*60/180;
-	node->pmat.combIntriRotation("Y",ang);
-	node->pmat.setTranslation(0,0,blen); /* <--- parent's blen */
-
-	/* 2.3 3rd node */
-	node=bmtree.addChildNode(node, 0.6*blen);
-	ang[0]=MATH_PI*90/180;
-	node->pmat.combIntriRotation("Y",ang);
-	node->pmat.setTranslation(0,0, blen); /* <---- parent's blen */
-
-	/* 2.3 4th node */
-	node=bmtree.addChildNode(node, 0.5*blen);
-	ang[0]=MATH_PI*120/180;
-	node->pmat.combIntriRotation("Y",ang);
-	node->pmat.setTranslation(0,0, 0.6*blen); /* <---- parent's blen */
-
-	/* 3. update NodePtrList to update Gmat list */
-	bmtree.updateNodePtrList();
-
 	/* Create bone mesh as per bmtree. */
 	for(size_t k=1; k<bmtree.nodePtrList.size(); k++) {
 
-		/* A1. Create nodebone */
+		/* A1. Create nodebone mesh, under Global COORD */
 		printf(DBG_YELLOW"Create nodebone[%d]...\n"DBG_RESET, k);
-		E3D_ABone  nodebone(s, bmtree.nodePtrList[k]->blen); /* Origin orientation aligned with Global Oxyz */
+		E3D_ABone  nodebone(bmtree.nodePtrList[k]->blen/6, bmtree.nodePtrList[k]->blen); /* Origin orientation aligned with Global Oxyz */
 		printf(DBG_YELLOW"nondebone[%d] created.\n"DBG_RESET, k);
 
 		/* A2. Expand capacity of vtxList[] and triList[] to hold mesh of one abone */
@@ -1080,7 +1064,7 @@ E3D_TestSkeleton::E3D_TestSkeleton(float s) :E3D_TriMesh(), side(s)
 		if( this->moreTriListCapacity(moretcnt)<0 )
 			return;
 
-		/* A3. Transform abone mesh as per 'gmat' */
+		/* A3. Transform nodebone mesh as per 'gmat' */
 		nodebone.transformVertices(bmtree.nodePtrList[k]->gmat);
 
 		/* A4. Copy vertices */

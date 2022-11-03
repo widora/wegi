@@ -3,9 +3,9 @@ This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
-
-
 EGI 3D Vector Class
+EGI 3D Quaternion Class
+EGI 3D Quatrix Class
 EGI 3D RotationTranslation Matrix Class
 EGI 3D Projection Matrix (Struct)
 
@@ -74,6 +74,7 @@ Journal:
 
 
 Midas Zhou
+知之者不如好之者好之者不如乐之者
 midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------*/
 #ifndef __E3D_VECTOR_H__
@@ -142,6 +143,11 @@ void E3D_combExtriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix & R
 E3D_Vector operator* (const E3D_Vector &va, const E3D_RTMatrix  &ma);
 void  E3D_transform_vectors( E3D_Vector *vts, unsigned int vcnt, const E3D_RTMatrix &RTMatrix);
 
+/*-----------------------------
+	Class: E3D_Point
+3D Point.
+-----------------------------*/
+#define E3D_Point E3D_Vector
 
 /*-----------------------------
 	Class: E3D_Vector
@@ -360,7 +366,7 @@ public:
 	void addTranslation( float dx, float dy, float dz );
 
 	/* Set part of RotationMatrix in pmat[] */
-//	void setRotation( const, );
+	void setRotation(char chaxis, float angle);
 	void setRotation( const E3D_Vector &axis, float angle);
 	void setRotation( const E3D_Vector &vfrom, const E3D_Vector &vto );
 	void setScaleRotation( const E3D_Vector &vfrom, const E3D_Vector &vto );
@@ -372,6 +378,81 @@ public:
 	void setupProject(const E3D_Vector &n);
 };
 
+
+/*-----------------------------------------------
+       		Class: E3D_Quaternion
+
+Note:
+1. Here all quaterioins are unit quaternion!
+   [w (x,y,z)] --> cos(ang/2), sin(ang/2)Nx, sin(ang/2)Ny, sin(ang/2)Nz
+2. Quaternion applys for Rotation component ONLY
+-----------------------------------------------*/
+class E3D_Quaternion {
+public:
+	float w;	/* cos(ang/2) */
+	float x,y,z;    /* sin(ang/2)Nx, sin(ang/2)Ny, sin(ang/2)Nz */
+
+	/* Constructor */
+	E3D_Quaternion();
+
+	/* Destructor */
+	//~E3D_Quaternion();
+
+	/* Functions */
+	void identity();
+        void print(const char *name=NULL) const;
+
+	/* Function: get rotation angle(radian) */
+	float getRotationAngle() const;
+	E3D_Vector getRotationAxis() const;
+
+	/* Functions: Set rotation */
+	void setRotation(char chAxis, float angle);
+
+	/* Functions: convert to/from RTMatrix */
+	void toMatrix(E3D_RTMatrix &mat) const;
+	void fromMatrix(const E3D_RTMatrix &mat);
+
+	/* Functions: interpolation */
+	void slerp(const E3D_Quaternion &q0, const E3D_Quaternion &q1, float rt); /* Spherical Linear Interpolation */
+};
+
+/*-----------------------------------------------
+       		Class: E3D_Quatrix
+Quaternion+Translation(Tx,Ty,Tx)
+-----------------------------------------------*/
+class E3D_Quatrix {
+public:
+	E3D_Quaternion  qt;
+	float 		tx, ty, tz;
+
+
+	/* Constructor */
+	E3D_Quatrix();
+
+	/* Destructor */
+	//~E3D_Quatrix();
+
+	/* Functions */
+	void identity();
+        void print(const char *name=NULL) const;
+
+	/* Function: get rotation angle(radian) */
+	float getRotationAngle() const;
+	E3D_Vector getRotationAxis() const;
+
+	/* Functions: Set rotation */
+	void setRotation(char chAxis, float angle);
+	/* Function: Set translation */
+	void setTranslation(float dx, float dy, float dz);
+
+	/* Functions */
+	void toMatrix(E3D_RTMatrix &mat) const;
+	void fromMatrix(const E3D_RTMatrix &mat);
+
+	/* Functions: interpolation */
+	void interp(const E3D_Quatrix &qt0, const E3D_Quatrix &qt1, float rt);
+};
 
 /*------------------------------------------------------
 DONT fully understand projection matrix under NDC,
@@ -512,6 +593,8 @@ A,B,C,D:   A=n/r; B=n/t; C=(f+n)/(f-n); D=-2fn/(f-n);
 
 void E3D_InitProjMatrix(E3DS_ProjMatrix &projMatrix, int type, int winW, int winH, int dnear, int dfar, int dv);
 void E3D_RecomputeProjMatrix(E3DS_ProjMatrix &projMatrix); /* Recompute clipping matrix items: A,B,C,D... */
+
+
 
 #endif
 

@@ -80,6 +80,8 @@ Jurnal:
 	1. Add  https_easy_mThreadDownload()
 2022-07-21:
 	1. Add https_easy_mURLDownload()
+2022-10-28:
+	1.easy_callback_writeToFile(): Let it return wittren bytes, evenif !=size*nmemb.
 
 TODO:
 XXX 1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
@@ -614,6 +616,7 @@ CURL_CLEANUP:
 
 /*-----------------------------------------------
  A default callback for https_easy_download().
+TODO: If space left is NOT enough.
 ------------------------------------------------*/
 static size_t easy_callback_writeToFile(void *ptr, size_t size, size_t nmemb, void *stream)
 {
@@ -637,9 +640,10 @@ static size_t easy_callback_writeToFile(void *ptr, size_t size, size_t nmemb, vo
 	}
    }
 
+   if(written!=chunksize) printf("%s: written!=chunksize, Err'%s'\n", __func__, strerror(errno));
+   return written;  /* HK2022-10-28 */
 
-   //return written;
-   return chunksize; /* if(retsize != size*nmemeb) curl will fails!? */
+//   return chunksize; /* if(retsize != size*nmemeb) curl will fails!? */
 }
 
 /*----------------------------------------------------------------------------
@@ -2126,6 +2130,7 @@ int https_easy_mURLDownload( unsigned int n, const char **urls, const char *file
 	if(n<1 || urls==NULL || file_save==NULL)
 		return -1;
 
+
 	/* 2. Open file to save */
 	fp=fopen(file_save, "wb");
 	if(fp==NULL) {
@@ -2140,6 +2145,13 @@ int https_easy_mURLDownload( unsigned int n, const char **urls, const char *file
 		fclose(fp);
 		return -3;
 	}
+
+	/* 3a. Global init curl.. BEFORE https_easy_getFileSize() */
+	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...",__func__);
+        if( curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK ) {
+                EGI_PLOG(LOGLV_ERROR, "%s: curl_global_init() fails!",__func__);
+		ret=-3; goto CURL_END;
+        }
 
 	/* 4. Create filenames[] */
 	filenames=egi_create_charList(n, EGI_PATH_MAX+EGI_NAME_MAX);
@@ -2172,15 +2184,18 @@ int https_easy_mURLDownload( unsigned int n, const char **urls, const char *file
 		}
 	}
 
-	/* 8. Global init curl.. BEFORE https_easy_getFileSize() */
+#if 0	/* <--- Move to 3a.HK2022-10-28  XXX 8. Global init curl.. BEFORE https_easy_getFileSize() */
 	EGI_PLOG(LOGLV_INFO, "%s: start curl_global_init and easy init...",__func__);
         if( curl_global_init(CURL_GLOBAL_DEFAULT)!=CURLE_OK ) {
                 EGI_PLOG(LOGLV_ERROR, "%s: curl_global_init() fails!",__func__);
+		/* MISSING  --->>  Colse and remove fils[] HK2022-10-28 */
 		free(fils);
+
 		if(fclose(fp)!=0)
 			EGI_PLOG(LOGLV_ERROR,"%s: Fail to fclose '%s', Err'%s'", __func__, file_save, strerror(errno));
 		return -6;
         }
+#endif
 
 	/* 9. Common header */
 	header=curl_slist_append(header,"User-Agent: CURL(Linux; Egi)");
@@ -2283,8 +2298,9 @@ CURL_END:
 		EGI_PLOG(LOGLV_ERROR,"%s: Fail to fclose '%s', Err'%s'", __func__, file_save, strerror(errno));
 
 	/* P5. Close(and Remove) temp. fils */
-	for(i=0; i<n; i++) {
-	    if(fils[i]) {
+	if(fils) {  /* HK2022-10-28 */
+	  for(i=0; i<n; i++) {
+	     if(fils[i]) {
 		int fd=fileno(fils[i]);
 		fflush(fils[i]); fsync(fd);
 
@@ -2296,11 +2312,12 @@ CURL_END:
 	                if(remove(filenames[i])!=0)
         	                EGI_PLOG(LOGLV_ERROR,"%s: Fail to remove '%s'.",__func__, filenames[i]);
 		}
-	    }
-	}
+	     }
+	  }/* End for(i) */
 
-	/* P6. Free fils */
-	if(fils) free(fils);
+	  /* P6. Free fils */
+	  free(fils);
+       }
 
 	/* P7. Free filenames */
 	if(filenames) egi_free_charList(&filenames, n);

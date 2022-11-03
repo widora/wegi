@@ -14,6 +14,11 @@ Journal:
 	1. Test E3D_ZNearClipTriangle()
 2022-10-17:
 	1. Test E3D_RTMatrix::inverse()
+2022-11-02:
+	1. Test E3D_Quaternion functions
+2022-11-03:
+	1. Test E3D_Quatrix functions
+
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -48,21 +53,126 @@ bool checkRTMat(E3D_RTMatrix & RTMat)
 	}
 }
 
+#if 0
 int main(void)
 {
 	cout << "Hello, this is C++!\n" << endl;
 	E3D_Pyramid apyramid(50,50);
 	E3D_RtaSphere aball(2,100);
-//	E3D_ABone abone(50,200);
+	E3D_ABone abone(50,200);
 }
+#endif
 
-#if 0 /////////////////////
+#if 1  /////////////////////
 int main(void)
 {
 	cout << "Hello, this is C++!\n" << endl;
 
+#if 1 ////////////////  E3D_Quatrix  ////////////////
 
-#if 1 ////////////////  E3D_E3DS_BMTreeNode  ////////////////
+	E3D_Quatrix qt;
+	E3D_Quatrix qt0,qt1;
+	E3D_RTMatrix mat;
+	float ang;
+	E3D_Vector axis;
+
+	qt.setTranslation(10,20,30);
+
+	printf("\n ------ Quatrix to Matrix ----\n\n");
+	qt.setRotation('x', MATH_PI/2);
+	qt.print();
+	qt.toMatrix(mat);
+	mat.print("X90");
+	qt.setRotation('Y', MATH_PI/2);
+	qt.print();
+	qt.toMatrix(mat);
+	mat.print("Y90");
+	qt.setRotation('Z', MATH_PI/2);
+	qt.print();
+	qt.toMatrix(mat);
+	mat.print("Z90");
+
+	printf("\n ------Matrix to Quatrix ----\n\n");
+	mat.setRotation('x', MATH_PI/2);
+	mat.print("X90");
+	qt.fromMatrix(mat);
+	qt.print();
+	mat.setRotation('y', MATH_PI/2);
+	mat.print("Y90");
+	qt.fromMatrix(mat);
+	qt.print();
+	mat.setRotation('z', MATH_PI/2);
+	mat.print("Y90");
+	qt.fromMatrix(mat);
+	qt.print();
+
+	printf("\n ----- Quatrix Inperpolation ----\n\n");
+	qt0.setRotation('x', MATH_PI*0/180);
+	qt1.setRotation('x', MATH_PI*90/180);
+	qt.interp(qt0,qt1, 0.333333);
+
+/* CAUTION: 0-180 interpolation axis can be '-X'! */
+	ang=qt.getRotationAngle();
+	printf("qt Rotation angle: %fDeg\n", ang/MATH_PI*180);
+	axis=qt.getRotationAxis();
+	axis.print("qt axis");
+
+  exit(0);
+#endif
+
+
+#if 0 ////////////////  E3D_Quaternion  ////////////////
+
+	E3D_Quaternion quat;
+	E3D_Quaternion quat0,quat1;
+	E3D_RTMatrix mat;
+	float ang;
+	E3D_Vector axis;
+
+	printf("\n ------ Quatermion to Matrix ----\n\n");
+	quat.setRotation('x', MATH_PI/2);
+	quat.print();
+	quat.toMatrix(mat);
+	mat.print("X90");
+	quat.setRotation('Y', MATH_PI/2);
+	quat.print();
+	quat.toMatrix(mat);
+	mat.print("Y90");
+	quat.setRotation('Z', MATH_PI/2);
+	quat.print();
+	quat.toMatrix(mat);
+	mat.print("Z90");
+
+	printf("\n ------Matrix to Quatermion ----\n\n");
+	mat.setRotation('x', MATH_PI/2);
+	mat.print("X90");
+	quat.fromMatrix(mat);
+	quat.print();
+	mat.setRotation('y', MATH_PI/2);
+	mat.print("Y90");
+	quat.fromMatrix(mat);
+	quat.print();
+	mat.setRotation('z', MATH_PI/2);
+	mat.print("Y90");
+	quat.fromMatrix(mat);
+	quat.print();
+
+	printf("\n ----- Spherical Linear Inperpolation ----\n\n");
+	quat0.setRotation('x', MATH_PI*0/180);
+	quat1.setRotation('x', MATH_PI*180/180);
+	quat.slerp(quat0,quat1, 0.25);
+
+/* CAUTION: 0-180 interpolation axis can be '-X'! */
+	ang=quat.getRotationAngle();
+	printf("Rotation angle: %fDeg\n", ang/MATH_PI*180);
+	axis=quat.getRotationAxis();
+	axis.print("axis");
+
+
+  exit(0);
+#endif
+
+#if 0 ////////////////  E3D_ABone/TestSkeleton  ////////////////
 //  for(int k=0; k<5; k++) {
 //  	E3D_TestSkeleton AmeshModel(50);
 //  }
@@ -76,7 +186,7 @@ int main(void)
   exit(0);
 #endif
 
-#if 0 ////////////////  E3D_E3DS_BMTreeNode  ////////////////
+#if 0 ////////////////  E3DS_BMTreeNode  ////////////////
 while(1) {
 	E3D_BMatrixTree  bmtree;
 	E3DS_BMTreeNode *pnode;
@@ -114,7 +224,7 @@ while(1) {
 }
 #endif
 
-#if 0 ////////////////  E3D_E3DS_BMTreeNode  ////////////////
+#if 0 ////////////////  E3DS_BMTreeNode  ////////////////
 	E3DS_BMTreeNode *root;
 	E3DS_BMTreeNode *pnode;
 
@@ -124,16 +234,22 @@ while(1) {
 
 	/* Add 10 child node under root */
 	for(int k=0; k<10; k++)
-		BMT_addChildNode(root);
+		BMT_addChildNode(root, 1.0);
 
 	/* Add subtree under root->firtChild */
 	pnode=root->firstChild;
 	for(int k=0; k<5; k++) {
 		/* sub.sub.sub..tree */
-		pnode=BMT_addChildNode(pnode);
+		pnode=BMT_addChildNode(pnode,1.0);
 	}
 
-	BMT_deleteNode(root);
+	/* Update all gmats */
+	printf("Update tree gmats...\n");
+	BMT_updateTreeGmats(root);
+
+	/* Delete tree */
+	printf("Delete tree...\n");
+	BMT_deleteTreeNodes(root);
 
 	usleep(10000);
 }

@@ -6034,7 +6034,11 @@ void E3D_draw_grid(FBDEV *fbdev, int sx, int sy, int us, const E3D_RTMatrix &RTm
 	int err;
 	E3D_Vector vpts[2]; /* Init all 0 */
 
-	egi_dpstd("sx=%zu, sy=%zu, us=%zu\n", sx, sy, us);
+	/* Check input, us!=0 HK2022-11-01 */
+	if(sx<1 || sy<1 || us<1) {
+		egi_dpstd(DBG_RED"Data error: sx=%zu, sy=%zu, us=%zu\n"DBG_RESET, sx, sy, us);
+		return;
+	}
 
 	/* Backup color */
 //	EGI_16BIT_COLOR oldcolor=fbdev->pixcolor;
@@ -6334,7 +6338,7 @@ void E3D_draw_coordNavIcon2D(FBDEV *fbdev, int size, const E3D_RTMatrix &RTmatri
 
 	/* ISOmetric projMatrix */
 	E3DS_ProjMatrix projMatrix;
-	projMatrix.type=0;
+	projMatrix.type=E3D_ISOMETRIC_VIEW;
 	projMatrix.dv = INT_MIN;        /* Try to ingore z value */
 	projMatrix.winW=fbdev->pos_xres;
 	projMatrix.winH=fbdev->pos_yres;

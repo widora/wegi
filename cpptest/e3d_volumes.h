@@ -80,7 +80,7 @@ class E3D_ABone: public E3D_TriMesh
 {
 public:
 	/* Constructor */
-	E3D_ABone(float s=10, float l=100);
+	E3D_ABone(float s=10, float l=60); /* Normally take s=(1/6~1/7)*l */
 
 	/* Destructor */
 	~E3D_ABone();
@@ -142,7 +142,8 @@ class E3D_TestSkeleton: public E3D_TriMesh
 {
 public:
 	/* Constructor */
-	E3D_TestSkeleton(float s=10);
+	//E3D_TestSkeleton(float s=10);
+	E3D_TestSkeleton(E3D_BMatrixTree &bmtree);
 
 	/* Destructor */
 	~E3D_TestSkeleton();

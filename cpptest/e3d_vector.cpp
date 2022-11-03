@@ -84,8 +84,20 @@ Journal:
 2022-10-27:
 	1. E3D_RTMatrix::combExtriRotation()
 	2. E3D_RTMatrix::combIntriRotation()
+2022-11-02:
+	1. Add Class E3D_Quaternion
+	2. Add E3D_Quaternion functions:
+	   identity(), print(), getRotationAngle(), getRotationAxis(), setRotation(), toMatrix(), fromMatrix(), slerp()
+	3. Add E3D_RTMatrix::setRotation(char chaxis, float angle)
+2022-11-03:
+	1. Add Class E3D_Quatrix and functions:
+	   identity(), print(), getRotationAngle(), getRotationAxis(), setTranslation(), setRotation(), toMatrix(), fromMatrix(), interp()
+
+TODO:
+1. acos(x)/asin(x) will return NaN if x is little bit out of [-1.0 1.0] ???
 
 Midas Zhou
+知之者不如好之者好之者不如乐之者
 midaszhou@yahoo.com(Not in use since 2022_03_01)
 -------------------------------------------------------*/
 #include <stdio.h>
@@ -1034,6 +1046,42 @@ void E3D_RTMatrix::addTranslation( float dx, float dy, float dz )
 /*----------------------------------------------
    Set part of RotationMatrix in pmat[]
 
+   @chaxis:  'x','y' or'z' as rotation axis
+   @angle: Rotation angle, in radian
+
+   Note: Translation keeps!
+----------------------------------------------*/
+void E3D_RTMatrix::setRotation(char chaxis, float angle)
+{
+	float vsin, vcos;
+
+        vsin=sinf(angle);
+        vcos=cosf(angle);
+
+   	switch(chaxis) {
+	   case 'x': case 'X':
+		pmat[0]=1.0f;  pmat[1]=0.0f;  pmat[2]=0.0f;
+		pmat[3]=0.0f;  pmat[4]=vcos;  pmat[5]=vsin;
+		pmat[6]=0.0f;  pmat[7]=-vsin;  pmat[8]=vcos;
+		break;
+	   case 'y': case 'Y':
+		pmat[0]=vcos;  pmat[1]=0.0f;  pmat[2]=-vsin;
+		pmat[3]=0.0f;  pmat[4]=1.0f;  pmat[5]=0.0f;
+		pmat[6]=vsin;  pmat[7]=0.0f;  pmat[8]=vcos;
+		break;
+	   case 'z': case 'Z':
+		pmat[0]=vcos;  pmat[1]=vsin;  pmat[2]=0.0f;
+		pmat[3]=-vsin;  pmat[4]=vcos;  pmat[5]=0.0f;
+		pmat[6]=0.0f;  pmat[7]=0.0f;  pmat[8]=1.0f;
+		break;
+	}
+
+        /* Keep pmat[9-11] */
+}
+
+/*----------------------------------------------
+   Set part of RotationMatrix in pmat[]
+
    @axis:  Rotation axis, MUST be normalized!
    @angle: Rotation angle, in radian
    Note: Translation keeps!
@@ -1070,6 +1118,9 @@ void E3D_RTMatrix::setRotation( const E3D_Vector &axis, float angle)
 
         /* Keep pmat[9-11] */
 }
+
+
+
 
 
 /*----------------------------------------------
@@ -1255,6 +1306,7 @@ For extrinsic rotation, each ref. COORD is the same.
 
 @axisToks: 	Extrinsic rotation sequence Tokens(rotating axis), including:
 		'X'('x') 'Y'('y') 'Z'('z')
+		First char: 'L': Left-multiply,  'R': Right-multiply(Default).  HK2022-10-31
 		Example: "ZYX", "XYZ", "XYX",.. with rotation sequence as 'Z->Y->X','X->Y-Z','X->Y->X',...
 		1. "ZYX" extrinsic rotation sequence: RotZ -> RotY -> RotX, matrix multiplation: Mz*My*Mx
 
@@ -1275,8 +1327,13 @@ void E3D_RTMatrix::combExtriRotation(const char *axisToks, float ang[3])
 //	E3D_RTMatrix cmat;
 
 	bool case_OK;
+	bool Right_Multiply=true; /* Default as left-multiply to *this */
 	unsigned int np=0;
 //	int rnp;  /* np as backward */
+
+	/* Check multiply sequence */
+	if(axisToks[0]=='L')
+		Right_Multiply=false;
 
 	while( axisToks[np] ) {
 
@@ -1318,7 +1375,10 @@ void E3D_RTMatrix::combExtriRotation(const char *axisToks, float ang[3])
 		/* 4. Multiply imats  */
 		if( case_OK ) {
 			/* Only combine Rotation */
-			*this = (*this)*imat;
+			if(Right_Multiply)
+				*this = (*this)*imat;
+			else
+				*this = imat*(*this);
 		}
 
 		/* np increment */
@@ -1332,6 +1392,7 @@ For intrinsic rotation, each ref COORD is rotating also.
 
 @axisToks: 	Intrinsic rotation sequence Tokens(rotating axis), including:
 		'X'('x') 'Y'('y') 'Z'('z')
+		First char: 'L': Left-multiply(Default),  'R': Right-multiply.  HK2022-10-31
 		Example: "ZYX", "XYZ", "XYX",.. with rotation sequence as 'Z->Y->X','X->Y-Z','X->Y->X',...
 
 		1. "ZYX" intrinsic rotation sequence: RotZ -> RotY -> RotX, matrix multiplation: Mx*My*Mz
@@ -1356,8 +1417,13 @@ void E3D_RTMatrix::combIntriRotation(const char *axisToks, float ang[3])
 //	E3D_RTMatrix cmat;
 
 	bool case_OK;
+	bool Left_Multiply=true; /* Default as left-multiply to *this */
 	unsigned int np=0;
 	int rnp;  /* np as backward */
+
+	/* Check multiply sequence */
+	if(axisToks[0]=='R')
+		Left_Multiply=false;
 
 	/* Keep axis sequence and revert angle sequene, then the result of extriRotation is same as original intriRoration */
 
@@ -1414,7 +1480,10 @@ void E3D_RTMatrix::combIntriRotation(const char *axisToks, float ang[3])
 	}
 
 	/* OK */
-	*this=(*this)*cmat;
+	if(Left_Multiply)
+		 *this=cmat*(*this);
+	else
+		*this=(*this)*cmat;
 }
 
 
@@ -2112,6 +2181,350 @@ void E3D_combExtriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix & R
 		np++;
 	}
 }
+
+
+	/*-----------------------------------------------
+		Class E3D_Quaternion :: Functions
+	-----------------------------------------------*/
+
+
+/*---------------------------
+       Constructor
+---------------------------*/
+E3D_Quaternion::E3D_Quaternion()
+{
+	w=1.0f;
+	x=y=z=0.0f;
+}
+
+
+/*---------------------------
+       Set as identity
+---------------------------*/
+void E3D_Quaternion::identity()
+{
+	w=1.0f;
+	x=y=z=0.0f;
+}
+
+/*---------------------------
+       Print
+---------------------------*/
+void E3D_Quaternion::print(const char *name) const
+{
+        printf("Quaternion %s: [%f (%f, %f, %f)]\n", name?name:"", w,x,y,z);
+}
+
+/*--------------------------
+Get rotation angle in radian.
+---------------------------*/
+float E3D_Quaternion::getRotationAngle() const
+{
+	return 2.0f*acos(w);
+}
+
+/*--------------------------
+Get rotation axis.
+---------------------------*/
+E3D_Vector E3D_Quaternion::getRotationAxis() const
+{
+	E3D_Vector axis(x,y,z);
+	axis.normalize();
+
+	return axis;
+}
+
+/*-------------------------------------
+Set quaternion for rotation.
+@chAxis: 'X','Y' or 'Z'  rotation axis.
+@angle:  Angle in radian.
+--------------------------------------*/
+void E3D_Quaternion::setRotation(char chAxis, float angle)
+{
+   /* Half angle */
+   angle *=0.5;
+
+   /* w component */
+   w=cos(angle);
+
+   switch(chAxis) {
+	case 'x': case 'X':
+		x=sin(angle); /* <--- X */
+		y=z=0.0f;
+		break;
+	case 'y': case 'Y':
+		y=sin(angle);  /* <--- Y */
+		x=z=0.0f;
+		break;
+	case 'z': case 'Z':
+		z=sin(angle); /* <---- Z */
+		x=y=0.0f;
+   }
+}
+
+
+/*-------------------------------------
+Convert quaternion to RTMatrix rotation
+part ONLY, translation part of mat
+keeps unchanged.
+--------------------------------------*/
+void E3D_Quaternion::toMatrix(E3D_RTMatrix &mat) const
+{
+	/*** RTMatrix
+         * Rotation Matrix:
+                   pmat[0,1,2]: m11, m12, m13
+                   pmat[3,4,5]: m21, m22, m23
+                   pmat[6,7,8]: m31, m32, m33
+         * Translation:
+                   pmat[9,10,11]: tx,ty,tz
+	*/
+
+	mat.pmat[0]=1.0-2.0*y*y-2.0*z*z;
+	mat.pmat[1]=2.0*x*y+2.0*w*z;
+	mat.pmat[2]=2.0*x*z-2.0*w*y;
+
+	mat.pmat[3]=2.0*x*y-2.0*w*z;
+	mat.pmat[4]=1.0-2.0*x*x-2.0*z*z;
+	mat.pmat[5]=2.0*y*z+2.0*w*x;
+
+	mat.pmat[6]=2.0*x*z+2.0*w*y;
+	mat.pmat[7]=2.0*y*z-2.0*w*x;
+	mat.pmat[8]=1.0-2.0*x*x-2.0*y*y;
+}
+
+
+/*-------------------------------------
+Convert RTMatrix rotation component to
+this quaternion.
+--------------------------------------*/
+void E3D_Quaternion::fromMatrix(const E3D_RTMatrix &mat)
+{
+	/*** RTMatrix
+         * Rotation Matrix:
+                   pmat[0,1,2]: m11, m12, m13
+                   pmat[3,4,5]: m21, m22, m23
+                   pmat[6,7,8]: m31, m32, m33
+         * Translation:
+                   pmat[9,10,11]: tx,ty,tz
+	*/
+	/* Find the biggest among facts[4] */
+	float facts[4];
+	facts[0]=mat.pmat[0]+mat.pmat[4]+mat.pmat[8];  /* factW:  m11+m22+m33 */
+	facts[1]=mat.pmat[0]-mat.pmat[4]+mat.pmat[8];  /* factX:  m11-m22+m22 */
+	facts[2]=-mat.pmat[0]+mat.pmat[4]-mat.pmat[8];  /* factY: -m11+m22-m33 */
+	facts[3]=-mat.pmat[0]-mat.pmat[4]+mat.pmat[8];  /* factZ: -m11-m22+m33 */
+
+	int index=0; /* Index for the biggest one */
+	for(int k=0; k<4; k++) {
+		if(facts[index]<facts[k])
+			index=k;
+	}
+
+	/* Example: divisor=4W(4X,4Y or 4Z), where fact W=sqrt(factW+1)/2 */
+	float fact=sqrt(facts[index]+1.0)*0.5;
+	float invdiv=1.0/(4.0*fact);  /* =1/divisor */
+
+	switch(index) {
+		case 0: /* fact W */
+			w=fact;
+			x=(mat.pmat[5]-mat.pmat[7])*invdiv;   /* (m23-m32)/4w */
+			y=(mat.pmat[6]-mat.pmat[2])*invdiv;   /* (m31-m13)/4w */
+			z=(mat.pmat[1]-mat.pmat[3])*invdiv;   /* (m12-m21)/4w */
+			break;
+		case 1: /* fact X */
+			x=fact;
+			w=(mat.pmat[5]-mat.pmat[7])*invdiv;   /* (m23-m32)/4w */
+			y=(mat.pmat[1]+mat.pmat[3])*invdiv;   /* (m12+m21)/4w */
+			z=(mat.pmat[6]+mat.pmat[2])*invdiv;   /* (m31+m13)/4w */
+			break;
+		case 2: /* fact Y */
+			y=fact;
+			w=(mat.pmat[6]-mat.pmat[2])*invdiv;   /* (m31-m13)/4w */
+			x=(mat.pmat[1]+mat.pmat[3])*invdiv;   /* (m12+m21)/4w */
+			z=(mat.pmat[5]+mat.pmat[7])*invdiv;   /* (m23+m32)/4w */
+			break;
+		case 3: /* fact Z */
+			z=fact;
+			w=(mat.pmat[1]-mat.pmat[3])*invdiv;   /* (m12-m21)/4w */
+			x=(mat.pmat[6]+mat.pmat[2])*invdiv;   /* (m31+m13)/4w */
+			y=(mat.pmat[5]+mat.pmat[7])*invdiv;   /* (m23+m32)/4w */
+			break;
+	}
+}
+
+
+/*---------------------------------------------------
+Spherical Linear Interpolation.
+
+	!!! --- CAUTION --- !!!
+If interpolation between rotation angle [0-180]Deg,
+the result rotation Axis direction can be ambiguous!
+Example:  RotationX [0 180]Deg, slerp at t=0.5,
+	  result angle 90Deg, however axis can be '-X'!
+
+@q0, q1: two quaternions for interpolation.
+@rt:      interpolation ratio parameter, range [0 1.0].
+
+----------------------------------------------------*/
+void E3D_Quaternion::slerp(const E3D_Quaternion &q0, const E3D_Quaternion &q1, float rt)
+{
+	float cosang;
+	float w1,x1,y1,z1;
+	float k0,k1;
+
+	/* Dotproduction to cal. cosang for angle between q0->q1 */
+	cosang=q0.w*q1.w+q0.x*q1.x+q0.y*q1.y+q0.z*q1.z;
+
+	/* Check cosang */
+	if(cosang<0.0f) {
+		w1=-q1.w; x1=-q1.x; y1=-q1.y; z1=-q1.z;
+		cosang=-cosang;
+	}
+	else {
+		w1=q1.w; x1=q1.x; y1=q1.y; z1=q1.z;
+	}
+
+	/* If sinang=0.0! Use normal linear interpolation */
+	if( cosang >0.999f ) {
+		k0=1.0f-rt;
+		k1=rt;
+	}
+	/* Slerp */
+	else {
+		float ang; /* in radian */
+		float sinang;
+		float invsinang; /* 1/sinang */
+
+		sinang=sqrt(1.0f-cosang*cosang);
+		invsinang=1.0f/sinang;
+		ang=atan2f(sinang, cosang);
+
+		k0=sin((1.0-rt)*ang)*invsinang;
+		k1=sin(rt*ang)*invsinang;
+	}
+
+	/* Interpolation */
+	w=q0.w*k0+w1*k1;
+	x=q0.x*k0+x1*k1;
+	y=q0.y*k0+y1*k1;
+	z=q0.z*k0+z1*k1;
+}
+
+
+
+
+	/*-----------------------------------------------
+		Class E3D_Quatrix :: Functions
+	-----------------------------------------------*/
+
+/*---------------------------
+       Constructor
+---------------------------*/
+E3D_Quatrix::E3D_Quatrix()
+{
+	//q.identity();
+	tx=ty=tz=0.0f;
+}
+
+
+/*---------------------------
+       Set as identity
+---------------------------*/
+void E3D_Quatrix::identity()
+{
+	qt.identity();
+	tx=ty=tz=0.0f;
+}
+
+/*---------------------------
+       Print
+---------------------------*/
+void E3D_Quatrix::print(const char *name) const
+{
+        printf("Quatrix %s: q[%f (%f, %f, %f)], t(%f,%f,%f).\n", name?name:"", qt.w,qt.x,qt.y,qt.z, tx,ty,tz);
+}
+
+/*--------------------------
+Get rotation angle in radian.
+---------------------------*/
+float E3D_Quatrix::getRotationAngle() const
+{
+	return 2.0f*acos(qt.w);
+}
+
+/*--------------------------
+Get rotation axis.
+---------------------------*/
+E3D_Vector E3D_Quatrix::getRotationAxis() const
+{
+	E3D_Vector axis(qt.x, qt.y, qt.z);
+	axis.normalize();
+
+	return axis;
+}
+
+/*-------------------------------------
+Set quaternion for rotation.
+@chAxis: 'X','Y' or 'Z'  rotation axis.
+@angle:  Angle in radian.
+--------------------------------------*/
+void E3D_Quatrix::setRotation(char chAxis, float angle)
+{
+	qt.setRotation(chAxis, angle);
+}
+
+/*-------------------------------------
+Set translation component of the quatrix.
+--------------------------------------*/
+void E3D_Quatrix::setTranslation(float dx, float dy, float dz)
+{
+	tx=dx; ty=dy; tz=dz;
+}
+
+
+/*-------------------------------------
+Convert quatrix to RTMatrix.
+--------------------------------------*/
+void E3D_Quatrix::toMatrix(E3D_RTMatrix &mat) const
+{
+	/* Rotation */
+	qt.toMatrix(mat);
+
+	/* Translation */
+	mat.pmat[9]=tx;
+	mat.pmat[10]=ty;
+	mat.pmat[11]=tz;
+}
+
+
+/*-------------------------------------
+Convert RTMatrix to Quatrix
+--------------------------------------*/
+void E3D_Quatrix::fromMatrix(const E3D_RTMatrix &mat)
+{
+	/* Rotation */
+	qt.fromMatrix(mat);
+
+	/* Translation */
+	tx=mat.pmat[9];
+	ty=mat.pmat[10];
+	tz=mat.pmat[11];
+}
+
+/*-------------------------------------
+Interpolate between qt0 and qt2.
+-------------------------------------*/
+void E3D_Quatrix::interp(const E3D_Quatrix &qt0, const E3D_Quatrix &qt1, float rt)
+{
+	/* Slerp qt */
+	qt.slerp(qt0.qt, qt1.qt, rt);
+
+	/* Interp txyz */
+	tx=qt0.tx+(qt1.tx-qt0.tx)*rt;
+	tx=qt0.ty+(qt1.ty-qt0.ty)*rt;
+	tx=qt0.tz+(qt1.tz-qt0.tz)*rt;
+}
+
 
 
 /////////////////////////   Projection Matrix   /////////////////////////
