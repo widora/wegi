@@ -1051,6 +1051,12 @@ E3D_TestSkeleton::E3D_TestSkeleton(E3D_BMatrixTree &bmtree) :E3D_TriMesh()
 	/* Create bone mesh as per bmtree. */
 	for(size_t k=1; k<bmtree.nodePtrList.size(); k++) {
 
+		/* Check bone length, if blen=0.0, mat.setRotation(vz,vy) results in NAN.   HK2022-11-17 */
+		if(bmtree.nodePtrList[k]->blen<VPRODUCT_NEARZERO) {
+			egi_dpstd(DBG_YELLOW"nodePtrList[%d] bone lenght near zero! Not to create bone.\n"DBG_RESET, k);
+			continue;
+		}
+
 		/* A1. Create nodebone mesh, under Global COORD */
 		printf(DBG_YELLOW"Create nodebone[%d]...\n"DBG_RESET, k);
 		E3D_ABone  nodebone(bmtree.nodePtrList[k]->blen/6, bmtree.nodePtrList[k]->blen); /* Origin orientation aligned with Global Oxyz */
@@ -1063,6 +1069,23 @@ E3D_TestSkeleton::E3D_TestSkeleton(E3D_BMatrixTree &bmtree) :E3D_TriMesh()
 			return;
 		if( this->moreTriListCapacity(moretcnt)<0 )
 			return;
+
+#if 1		/* VBH bone length direction is NOT local COORD_X axis */
+		if(bmtree.type==BMTREE_TYPE_VBH) {
+			E3D_RTMatrix mat;
+			E3D_Vector  vz(0.0, 0.0, 1.0);
+			mat.setRotation(vz, bmtree.nodePtrList[k]->bv);
+			nodebone.transformVertices(mat);
+		}
+#else		/* VBH bone length direction is local COORD_Y axis */
+		if(bmtree.type==BMTREE_TYPE_VBH) {
+			E3D_RTMatrix mat;
+			E3D_Vector  vz(0.0, 0.0, 1.0); /* E3D_ABONE bone length direction vector */
+			E3D_Vector  vy(0.0, 1.0, 0.0);
+			mat.setRotation(vz,vy);
+			nodebone.transformVertices(mat);
+		}
+#endif
 
 		/* A3. Transform nodebone mesh as per 'gmat' */
 		nodebone.transformVertices(bmtree.nodePtrList[k]->gmat);

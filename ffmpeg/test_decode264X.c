@@ -151,7 +151,7 @@ int main(int argc, char **argv)
     }
     //else : Child process
 
-/* ------ END TEST ------ */
+/* ------ END Monitoring TEST ------ */
 
 
     /* 1. Input option */
@@ -410,7 +410,11 @@ LOOP_ACCESS:
 	   usleep(dus);
     #endif ////////////////////////////////////////////////////////////////
 
-           if(nfs>=maxdf) goto END_FUNC;
+           if(nfs>=maxdf) {
+		/* Free OLD packet each time  HK2022-10-28 */
+		av_free_packet(&packet);
+		goto END_FUNC;
+	   }
 #endif
 
         }

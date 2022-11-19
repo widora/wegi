@@ -92,6 +92,10 @@ Journal:
 2022-11-03:
 	1. Add Class E3D_Quatrix and functions:
 	   identity(), print(), getRotationAngle(), getRotationAxis(), setTranslation(), setRotation(), toMatrix(), fromMatrix(), interp()
+2022-11-12:
+	1. Add E3D_Quaternion::setIntriRotation(axisToks, angs) and E3D_Quatrix::setIntriRotation(axisToks, angs)
+	2. Add E3D_Quaternion::setExtriRotation(axisToks, angs) and E3D_Quatrix::setExtriRotation(axisToks, angs)
+
 
 TODO:
 1. acos(x)/asin(x) will return NaN if x is little bit out of [-1.0 1.0] ???
@@ -940,7 +944,7 @@ bool E3D_RTMatrix::isIdentity()
 {
 	for(int i=0; i<9; i++) {
         	if(i%4==0) {
-                	if(fabs(pmat[i]-1.0)>1.0e-5)   /* <---- TODO: MORE TEST  */
+                	if(fabs(pmat[i]-1.0)>1.0e-5)   /* <---- TODO: MORE TEST  VPRODUCT_EPSILON=(1.0e-6) */
                         	return false;
                 }
                 else if(fabs(pmat[i])>1.0e-5)
@@ -974,6 +978,9 @@ bool E3D_RTMatrix::isOrthogonal()
    Orthogonalize+Normalize the RTMatrix.
    Reference: Direction Cosine Matrix IMU: Theory (Eqn 19-21)
               by Paul Bizard and  Ecole Centrale
+
+TODO: One call of orthNormalize() MAY NOT be enough!
+
 -------------------------------------------------------------*/
 void  E3D_RTMatrix::orthNormalize()
 {
@@ -989,7 +996,7 @@ void  E3D_RTMatrix::orthNormalize()
         error=pmat[0]*pmat[3]+pmat[1]*pmat[4]+pmat[2]*pmat[5];
 
  /* TEST: -------- */
-        egi_dpstd("Dot_product: axisX*axisY=%f  (should be 0.0!) \n", error);
+        egi_dpstd("Dot_product: axisX*axisY=%e  (should be 0.0!) \n", error);
 
         /* Average error to axisX and axisY */
         new_axisX = axisX-(0.5*error)*axisY;
@@ -1127,6 +1134,8 @@ void E3D_RTMatrix::setRotation( const E3D_Vector &axis, float angle)
    Set part of RotationMatrix in pmat[]
    Rotation orientation is from vfrom to vto.
 
+Note:
+
    @vfrom: Guide vector before rotation.
    @vto:   Guide vector after rotation.
    Note: Translation keeps!
@@ -1142,8 +1151,15 @@ void E3D_RTMatrix::setRotation( const E3D_Vector &vfrom, const E3D_Vector &vto )
 	axis=E3D_vector_crossProduct(vfrom, vto);
 	axis.normalize();
 
+	/* Check vfrom.moduel() and vto.module() HK2022-11-17 */
+	float mvf=vfrom.module();
+	float mvt=vto.module();
+	if(mvf<VPRODUCT_NEARZERO || mvt<VPRODUCT_NEARZERO)
+		return;
+
 	/* Get rotation angle */
-	angle=acosf(vfrom*vto/(vfrom.module()*vto.module()));
+	//angle=acosf(vfrom*vto/(vfrom.module()*vto.module()));
+	angle=acosf(vfrom*vto/(mvf*mvt));
 
 	/* set rotation matrix for pmax[] */
         vsin=sinf(angle);
@@ -1318,7 +1334,7 @@ void E3D_RTMatrix::combExtriRotation(const char *axisToks, float ang[3])
 		return;
 
 	/* Get reversed sequence of rotation */
-	int toks=strlen(axisToks);
+//	int toks=strlen(axisToks);
 
 	/* imat:  translation is ignored! */
 	E3D_RTMatrix imat;
@@ -1328,7 +1344,7 @@ void E3D_RTMatrix::combExtriRotation(const char *axisToks, float ang[3])
 
 	bool case_OK;
 	bool Right_Multiply=true; /* Default as left-multiply to *this */
-	unsigned int np=0;
+	unsigned int np=0;  /* tokens parsed */
 //	int rnp;  /* np as backward */
 
 	/* Check multiply sequence */
@@ -1337,8 +1353,8 @@ void E3D_RTMatrix::combExtriRotation(const char *axisToks, float ang[3])
 
 	while( axisToks[np] ) {
 
-		/* 1. Max. 3 tokens */
-		if(np>3) break;
+		/* 1. Max. 1+3 tokens, in order. */
+		if(np>4) break;
 
 		/* 2. Assmue case_Ok, OR to reset it at case_default */
 		case_OK=true;
@@ -1395,7 +1411,7 @@ For intrinsic rotation, each ref COORD is rotating also.
 		First char: 'L': Left-multiply(Default),  'R': Right-multiply.  HK2022-10-31
 		Example: "ZYX", "XYZ", "XYX",.. with rotation sequence as 'Z->Y->X','X->Y-Z','X->Y->X',...
 
-		1. "ZYX" intrinsic rotation sequence: RotZ -> RotY -> RotX, matrix multiplation: Mx*My*Mz
+		1. "ZYX" intrinsic rotation sequence: RotZ(a) -> RotY(b) -> RotX(r), matrix multiplation: Mx*My*Mz
 		    Notice that 'reversed' matrix multiplation applys.
 		2. The function reverse axisToks[] to RxyzToks[].
 
@@ -1418,7 +1434,7 @@ void E3D_RTMatrix::combIntriRotation(const char *axisToks, float ang[3])
 
 	bool case_OK;
 	bool Left_Multiply=true; /* Default as left-multiply to *this */
-	unsigned int np=0;
+	unsigned int np=0; /* tokens parsed */
 	int rnp;  /* np as backward */
 
 	/* Check multiply sequence */
@@ -1432,7 +1448,7 @@ void E3D_RTMatrix::combIntriRotation(const char *axisToks, float ang[3])
 		/* Revers index of axisToks[] */
 		rnp=toks-1 -np;
 
-		/* 1. Max. 3 tokens */
+		/* 1. Max. 3 tokens. Reverse order. */
 		if(np>3) break;
 
 		/* 2. Assmue case_Ok, OR to reset it at case_default */
@@ -1461,7 +1477,7 @@ void E3D_RTMatrix::combIntriRotation(const char *axisToks, float ang[3])
 			   imat.pmat[6]=0.0;            imat.pmat[7]=0.0;      imat.pmat[8]=1.0;
 
 				break;
-			default:
+			default: /* 'L','R' to be ignored */
 			   case_OK=false;
 			   egi_dpstd("Unrecognizable aix token '%c', NOT in 'xXyYzZ'!\n", axisToks[rnp]);
 			   break;
@@ -1471,8 +1487,9 @@ void E3D_RTMatrix::combIntriRotation(const char *axisToks, float ang[3])
 		if( case_OK ) {
 			/* Only combine Rotation */
 //			*this= (*this)*imat;  /* Hi, Dude! :))))))) */
-			cmat = imat*cmat; /* Noticed that axis sequence reverted!, revert here again. put last mat at first,
+			/* Noticed that axis sequence reverted!, revert here again. put last mat at first,
 				 	     .... Result: same effect as revert angles. */
+			cmat = cmat*imat; //cmat = imat*cmat;
 		}
 
 		/* np increment */
@@ -2122,7 +2139,7 @@ void E3D_combExtriRotation(const char *axisToks, float ang[3],  E3D_RTMatrix & R
 		return;
 
 	/* Get reversed sequence of rotation */
-	int toks=strlen(axisToks);
+//	int toks=strlen(axisToks);
 
 	/* imat:  translation is ignored! */
 	E3D_RTMatrix imat;
@@ -2260,6 +2277,46 @@ void E3D_Quaternion::setRotation(char chAxis, float angle)
 		z=sin(angle); /* <---- Z */
 		x=y=0.0f;
    }
+}
+
+/*---------------------------------------------------------------
+Set extrinsic rotation.
+@axisToks:      EXtrinsic rotation sequence Tokens(rotating axis), including:
+                'X'('x') 'Y'('y') 'Z'('z')
+                Example: "ZYX", "XYZ", "XYX",.. with rotation sequence as 'Z->Y->X','X->Y-Z','X->Y->X',...
+
+@ang[3]:        In radians, Rotation angles cooresponding to axisToks
+------------------------------------------------------------------*/
+void E3D_Quaternion::setExtriRotation(const char *axisToks, float ang[3])
+{
+	E3D_RTMatrix mat; /* Init as identity */
+
+	/* extrinsic rotation matrix */
+	mat.combExtriRotation(axisToks, ang);
+
+	/* to THIS quaternion */
+        fromMatrix(mat);
+}
+
+/*---------------------------------------------------------------
+Set intrinsic rotation.
+
+
+
+@axisToks:      Intrinsic rotation sequence Tokens(rotating axis), including:
+                'X'('x') 'Y'('y') 'Z'('z')
+                Example: "ZYX", "XYZ", "XYX",.. with rotation sequence as 'Z->Y->X','X->Y-Z','X->Y->X',...
+@ang[3]:        In radians, Rotation angles cooresponding to axisToks
+------------------------------------------------------------------*/
+void E3D_Quaternion::setIntriRotation(const char *axisToks, float ang[3])
+{
+	E3D_RTMatrix mat; /* Init as identity */
+
+	/* intrinsic rotation matrxi */
+	mat.combIntriRotation(axisToks, ang);
+
+	/* to THIS  quaternion */
+	fromMatrix(mat);
 }
 
 
@@ -2432,7 +2489,7 @@ E3D_Quatrix::E3D_Quatrix()
 ---------------------------*/
 void E3D_Quatrix::identity()
 {
-	qt.identity();
+	q.identity();
 	tx=ty=tz=0.0f;
 }
 
@@ -2441,7 +2498,7 @@ void E3D_Quatrix::identity()
 ---------------------------*/
 void E3D_Quatrix::print(const char *name) const
 {
-        printf("Quatrix %s: q[%f (%f, %f, %f)], t(%f,%f,%f).\n", name?name:"", qt.w,qt.x,qt.y,qt.z, tx,ty,tz);
+        printf("Quatrix %s: q[%f (%f, %f, %f)], t(%f,%f,%f).\n", name?name:"", q.w,q.x,q.y,q.z, tx,ty,tz);
 }
 
 /*--------------------------
@@ -2449,7 +2506,7 @@ Get rotation angle in radian.
 ---------------------------*/
 float E3D_Quatrix::getRotationAngle() const
 {
-	return 2.0f*acos(qt.w);
+	return 2.0f*acos(q.w);
 }
 
 /*--------------------------
@@ -2457,7 +2514,7 @@ Get rotation axis.
 ---------------------------*/
 E3D_Vector E3D_Quatrix::getRotationAxis() const
 {
-	E3D_Vector axis(qt.x, qt.y, qt.z);
+	E3D_Vector axis(q.x, q.y, q.z);
 	axis.normalize();
 
 	return axis;
@@ -2470,7 +2527,35 @@ Set quaternion for rotation.
 --------------------------------------*/
 void E3D_Quatrix::setRotation(char chAxis, float angle)
 {
-	qt.setRotation(chAxis, angle);
+	q.setRotation(chAxis, angle);
+}
+
+/*---------------------------------------------------------------
+Set extrinsic rotation.
+@axisToks:      Extrinsic rotation sequence Tokens(rotating axis), including:
+                'X'('x') 'Y'('y') 'Z'('z')
+                Example: "ZYX", "XYZ", "XYX",.. with rotation sequence as 'Z->Y->X','X->Y-Z','X->Y->X',...
+
+@ang[3]:        In radians, Rotation angles cooresponding to axisToks
+------------------------------------------------------------------*/
+void E3D_Quatrix::setExtriRotation(const char *axisToks, float ang[3])
+{
+	//q.identity();
+	q.setExtriRotation(axisToks, ang);
+}
+
+/*---------------------------------------------------------------
+Set intrinsic rotation.
+@axisToks:      Intrinsic rotation sequence Tokens(rotating axis), including:
+                'X'('x') 'Y'('y') 'Z'('z')
+                Example: "ZYX", "XYZ", "XYX",.. with rotation sequence as 'Z->Y->X','X->Y-Z','X->Y->X',...
+
+@ang[3]:        In radians, Rotation angles cooresponding to axisToks
+------------------------------------------------------------------*/
+void E3D_Quatrix::setIntriRotation(const char *axisToks, float ang[3])
+{
+	//q.identity();
+	q.setIntriRotation(axisToks, ang);
 }
 
 /*-------------------------------------
@@ -2488,7 +2573,7 @@ Convert quatrix to RTMatrix.
 void E3D_Quatrix::toMatrix(E3D_RTMatrix &mat) const
 {
 	/* Rotation */
-	qt.toMatrix(mat);
+	q.toMatrix(mat);
 
 	/* Translation */
 	mat.pmat[9]=tx;
@@ -2503,7 +2588,7 @@ Convert RTMatrix to Quatrix
 void E3D_Quatrix::fromMatrix(const E3D_RTMatrix &mat)
 {
 	/* Rotation */
-	qt.fromMatrix(mat);
+	q.fromMatrix(mat);
 
 	/* Translation */
 	tx=mat.pmat[9];
@@ -2517,12 +2602,12 @@ Interpolate between qt0 and qt2.
 void E3D_Quatrix::interp(const E3D_Quatrix &qt0, const E3D_Quatrix &qt1, float rt)
 {
 	/* Slerp qt */
-	qt.slerp(qt0.qt, qt1.qt, rt);
+	q.slerp(qt0.q, qt1.q, rt);
 
 	/* Interp txyz */
 	tx=qt0.tx+(qt1.tx-qt0.tx)*rt;
-	tx=qt0.ty+(qt1.ty-qt0.ty)*rt;
-	tx=qt0.tz+(qt1.tz-qt0.tz)*rt;
+	ty=qt0.ty+(qt1.ty-qt0.ty)*rt;
+	tz=qt0.tz+(qt1.tz-qt0.tz)*rt;
 }
 
 

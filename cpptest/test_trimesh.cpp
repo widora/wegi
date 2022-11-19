@@ -134,6 +134,11 @@ volumes3.obj -c -s 10 -A 2 -Z 0 -X 110 -y -20 -a 30 -t  (ISO View)
 volumes.obj -c -s 60 -A 2 -X 95 -Z -30 -y -200 -m -P -F (-C) -t -a -3 -l -M zoomSD.mot
 volumes.obj -c -s 60 -A 2 -X 95 -Z -90 -y -250 -m -P -F (-C) -t -a -3 -l -M zoomSD.mot (with boxman)
 
+	---- BVH skeleton motion file ----
+walk.bvh -s 3 -Z 90 -Y -15 -x 250 -y 100 -a -5 -t -P -p 0 -M walk.mot
+LETS_NOTE  turnkick -s 5 -X 180 -Y 90 -y 300 -a -5 -P -p 0 -l
+
+
 	----- Test FLOAT_EPSILON -----
 Render mesh ... angle=0
 renderMesh(): triList[0] vProduct=7.660444e-01 >=0
@@ -286,6 +291,10 @@ Journal:
 	1. TEST: renderInstance()
 2022-10-19:
 	1. Add option -n appendMotion_on
+2022-10-31:
+	1. TEST_BMTREE: TEST BoneMatrixTree
+2022-11-14:
+	1. Test BVH skeleton motion file.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -293,6 +302,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include <iostream>
 #include <stdio.h>
 #include <limits.h>
+#include <termios.h>
 
 #include "egi_math.h"
 #include "egi_debug.h"
@@ -301,6 +311,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "egi_FTsymbol.h"
 #include "egi_timer.h"
 #include "egi_bjp.h"
+#include "egi_input.h"
 
 #include "e3d_vector.h"
 #include "e3d_trimesh.h"
@@ -309,6 +320,8 @@ using namespace std;
 
 
 #define MOTION_FILE  "/mmc/mesh.motion"
+
+#define TEST_BMTREE	1  /* TEST BoneMatrixTree */
 
 //Option '-i': Test view_frustum near plane clipping
 #define TEST_SCENE	   0  /* TEST E3D_Scene rendering, ONLY when TEST_MESHINSTANCE==0 and TEST_MULTIOBJ==1 */
@@ -382,7 +395,11 @@ int main(int argc, char **argv)
 	 0xF0CCA8--Bronze
 	*/
 
+#ifdef LETS_NOTE
+	EGI_16BIT_COLOR	  bkgScreenColor=WEGI_COLOR_BLACK;
+#else
 	EGI_16BIT_COLOR	  bkgScreenColor=WEGI_COLOR_GRAY; //GRAYB;//GRAY3;//GREEN; //GRAY5; // DARKPURPLE
+#endif
 	EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(0xF0CCA8);//WEGI_COLOR_PINK;
 	EGI_16BIT_COLOR	  wireColor=WEGI_COLOR_BLACK; //DARKGRAY;
 	EGI_16BIT_COLOR	  aabbColor=WEGI_COLOR_LTBLUE;
@@ -409,7 +426,7 @@ int main(int argc, char **argv)
 	float		offx=0.0f, offy=0.0f, offz=0.0f;
 	float		rotX=0.0f, rotY=0.0f, rotZ=0.0f;
 	float		da=0.0f;	/* Delta angle for rotation */
-	int		psec=0;		/* Pause second */
+	int		psec=1;		/* Pause second, default */
 	unsigned int	frameCount=0;
 
 	int		rotAxis=1;	/* Under FB_COORD, 0-X, 1-Y, 2-Z */
@@ -582,7 +599,7 @@ int main(int argc, char **argv)
 				break;
 			case 'p':
 				psec=atoi(optarg);
-				if(psec<=0)
+				if(psec<0)
 					psec=0;
 				break;
 		}
@@ -691,20 +708,42 @@ else {	/* For Landscape */
 
 
 	/////////////////   Read/Create meshModel   ////////////////
-#if 0 /* 1. Read obj file to meshModel */
+#if 0 &(!TEST_BMTREE) /* 1. Read obj file to meshModel */
 	cout<< "Read obj file '"<< fobj <<"' into E3D_TriMesh... \n";
 	E3D_TriMesh	meshModel(fobj);
 
 #else /* TEST: Primitive volumes */
 	cout<<"Create primitive volumes...\n";
+
+  #if  TEST_BMTREE
+	float fang=MATH_PI*10/180;
+	float rstep=fang; /* axis rotation step, for key input control  */
+	float animTValue=0.0; /* animating time value.  [0 1.0] */
+	float animTStep=0.01; //25;// 0.05; /* */
+	int  nodeIndex=0; /* BMTree node index */
+	const char* strAxis="XYZ"; /* rotation axis */
+
+	/* Set TERM as immediate read */
+	egi_set_termios();
+
+//	E3D_BMatrixTree  BMTree;
+	E3D_BMatrixTree  BMTree(fobj);
+//	E3D_BMatrixTree  BMTree(fobj, 0);
+
+	//BMTree.createCraneBMTree(); // xxx -s .7 -X 90 -A 2 -y 220 -a 5 -p 0 -P -l
+	//BMTree.createHandBMTree();  // xxx -s .45 -X 90 -A 2 -y 220 -a 5 -p 0 -P -l
+//	BMTree.createBoxmanBMTree(); // xxx -s .7 -X 90 -A 2 -y 220 -a 5 -p 0 -P -l
+
+	E3D_TestSkeleton meshModel(BMTree);
+  #else
 //	E3D_RtaSphere   meshModel(2, 100); /* xxx -c -s 2.0 -X 30 -P */
 //	E3D_Cuboid   meshModel(100,200,300); /* xxx -c -s 1.25 -X 30 -P -a 10 */
 //	E3D_Tetrahedron  meshModel(50,250); /* xxx -c -s 1 -X 150 -A 2 -P */
-//	E3D_Pyramid  meshModel(50,350); /* xxx -c -s 1 -X 150 -A 2 -P -p 0 */
+	E3D_Pyramid  meshModel(50,350); /* xxx -c -s 1 -X 150 -A 2 -P -p 0 */
 //	E3D_ABone  meshModel(50,350); /* xxx -c -s 1.5 -Y -90 -A 2 -P -a -2 -p 0 -l */
 //	E3D_TestCompound  meshModel(50); /* xxx -c -s 1.5 -Y -90 -A 2 -P -a 10 -p 0 -l ;;;;  -c -s .7 -Y -90 -A 2 -a 10 -p 0 -P -l */
-					  // xxx -s .7 -X 90 -A 2 -y 200 -a 5 -p 0 -P -l
-	E3D_TestSkeleton meshModel(50);
+
+  #endif
 
 	cout<<"primitive created!\n";
 
@@ -855,7 +894,7 @@ else {	/* For Landscape */
 		meshModel.moveAabbCenterToOrigin(); /* AABB updated also */
 		#endif
 	}
-	//meshModel.printAABB("Scaled meshModel");
+	meshModel.printAABB("Scaled meshModel");
 
 	/* 6. Calculate dview, as distance from the Focus to the Screen */
 	dobj=meshModel.AABBdSize();
@@ -875,10 +914,15 @@ else {	/* For Landscape */
 	sleep(1);
 
 
-/* TEST: -------- Get Ty for grid plane translation */
+/* TEST: -------- Get Txyz for grid plane translation */
+/* For Oxyz at center */
 	Tx=-meshModel.aabbox.vmax.x -5;
 	Ty=-meshModel.aabbox.vmax.y -5;
 	Tz=-meshModel.aabbox.vmax.z -5;
+if(TEST_BMTREE) {
+	Tz=0; //-meshModel.aabbox.vmax.z -5;
+}
+
 
 	/* 7. Init. E3D Vector and Matrixes for meshModel position. */
 	RXmat.identity(); 	/* !!! setTranslation(0,0,0); */
@@ -951,17 +995,126 @@ else {	/* For Landscape */
 	 *	2. mtlList[] and triGroupList[] to be cloned ONLY WHEN they are emtpy! this is to avoid free/release
    	 *	   pointer members. see in E3D_TriMesh::cloneMesh().
 	 */
-#if 0 /* Test: E3D_Skeleton  ----------------- */
-	E3D_TestSkeleton AmeshModel(50);
-	AmeshModel.scaleMesh(scale);
+
+#if TEST_BMTREE /* Test: E3D_BMTree and E3D_Skeleton. Create AmeshMode and clone to workMesh ----------------- */
+	int ch;
+
+   /* For THIS ROUND */
+	/* Update AmsheModel for THIS ROUND */
+	//BMTree.updateNodePtrList();  /* Update all gmat in BMTree */
+	//BMTree.updateTreeGmats();  /* All call BMT_updateTreeGmats() aft combIntriRotation() */
+
+	/* Reset all nodes orientations */
+	printf("resetTreeOrients...\n");
+	BMTree.resetTreeOrients(); /* reset all amats to identity */
+
+	/* Increase time */
+	animTValue += animTStep;
+	printf(DBG_YELLOW" ----- Time: %f ----\n"DBG_RESET, animTValue);
+
+        if(saveMotion_on)
+		if(animTValue>1.0)exit(0);
+
+	/* Interpolate to get tree nodes orientations, amat will be replaced~ */
+	/* Animate by interpolate all tree acting matrices (amat) */
+	printf("interpTreeOrients...\n");
+	BMTree.interpTreeOrients( animTValue -(int)animTValue); /* t [0.0-1.0] */
+
+#define BOXMANBMTREE_SQUAT 0
+#if BOXMANBMTREE_SQUAT /// For boxmanBMTree squating */
+  /* TEST--------- fix foot */
+
+	float footTx= BMTree.nodePtrList[10]->gmat.pmat[9]; /* Tx */
+	float footTy= BMTree.nodePtrList[10]->gmat.pmat[10]; /* Ty */
+	float footTz= BMTree.nodePtrList[10]->gmat.pmat[11]; /* TZ */
+	printf(DBG_RED"BMTree.nodePtrList[10]->gmat.pmat[11]: %f\n"DBG_RESET, BMTree.nodePtrList[10]->gmat.pmat[11]);
+#endif
+
+
+///////////
+
+	/* Animate by interpolate all tree acting matrices (amat) */
+//	printf("interpTreeOrients...\n");
+//	BMTree.interpTreeOrients( animTValue -(int)animTValue);  /* t [0.0-1.0] */
+
+#if BOXMANBMTREE_SQUAT /// For boxmanBMTree squating
+	/* Adjust root.gmat to counter foot Tz */
+	BMTree.root->amat.pmat[9] -= footTx; /* Tx */
+	BMTree.root->amat.pmat[10] -= footTy; /* Ty */
+	BMTree.root->amat.pmat[11] -= footTz; /* TZ */
+	BMTree.updateTreeGmats();
+
+	BMTree.nodePtrList[2]->amat.print("node2 amat");
+	BMTree.nodePtrList[3]->amat.print("node3 amat");
+#endif
+
+	/* Create skeleton mesh based on BMTree */
+	E3D_TestSkeleton AmeshModel(BMTree);
+	AmeshModel.scaleMesh(scale);	/* Noted that BMTree.blen keeps unchanged! */
         AmeshModel.updateAllTriNormals();
+	AmeshModel.updateAABB();  /* For drawGrid */
+	AmeshModel.defMaterial.kd.vectorRGB(COLOR_Orange); //Crimson); //WEGI_COLOR_PINK);
+
+   /* For NEXT ROUND ... */
+
+	/* User input */
+	//printf(" ----------- USER INPUT -----------\n");
+	ch=0;
+	read(STDIN_FILENO, &ch, 1);
+	if(ch==0) {
+		//usleep(200000);
+		goto END_INPUT;
+	};
+	tcflush(STDIN_FILENO, TCIFLUSH);
+
+	printf(" ----------- USER INPUT ch=0x%X-----------\n",ch);
+
+	/* Select BMTree Node */
+	if(ch>=0x30 && ch<=0x34)
+		nodeIndex=ch-0x30;
+	/* Reset all nodes to its initial orientation  */
+	else if(ch==0x20) //SPACE
+		BMTree.resetTreeOrients();
+	/* Rotation step direction */
+	else if(ch=='+')
+		rstep=fang;
+	else if(ch=='-')
+		rstep=-fang;
+	/* Select Rotation axis */
+	/** Note: If Z is Bone direction, then We'd normally lock X rotation!  it should be achieved by rotating upper lever node. */
+	else if(ch=='x') {
+		BMTree.nodePtrList[nodeIndex]->amat.combIntriRotation("X",&rstep);
+		BMT_updateTreeGmats(BMTree.nodePtrList[nodeIndex]);
+	}
+	else if(ch=='y') {
+		BMTree.nodePtrList[nodeIndex]->amat.combIntriRotation("Y",&rstep);
+		BMT_updateTreeGmats(BMTree.nodePtrList[nodeIndex]);
+	}
+	else if(ch=='z') {
+		BMTree.nodePtrList[nodeIndex]->amat.combIntriRotation("Z",&rstep);
+		BMT_updateTreeGmats(BMTree.nodePtrList[nodeIndex]);
+	}
+
+#if 0	// OK, in BMT_updateTreeGmat() /* Check nodePtrList[].gmat for invalidity (matrix creep) -----!!! NO scale applied !!!----- */
+	for(size_t nk=0; nk<BMTree.nodePtrList.size(); nk++) {
+	        if(!BMTree.nodePtrList[nk]->gmat.isOrthogonal()) {
+        	        printf(DBG_RED">>>>>> orthNormalize nodePtrList[2].amat <<<<<< \n"DBG_RESET);
+                	BMTree.nodePtrList[nk]->gmat.orthNormalize();
+		}
+        }
+#endif
+
+  END_INPUT:
+
 
 	cout <<"Clone meshModel data into workMesh, NOT all data is cloned and replaced! ... \n";
 	workMesh->cloneMesh(AmeshModel);
-#else
+
+#else /* Clone meshModel to workMesh */
 	cout <<"Clone meshModel data into workMesh, NOT all data is cloned and replaced! ... \n";
 	workMesh->cloneMesh(meshModel);
 #endif
+
 	egi_dpstd("workMesh: %d Triangles, %d TriGroups, %d Materials, %s, defMateril.img_kd is '%s'.\n",
 				workMesh->triCount(), workMesh->triGroupList.size(),
 				workMesh->mtlList.size(),
@@ -1257,6 +1410,10 @@ if(1) {
 		workMesh->shadeType=E3D_FLAT_SHADING;
 #endif
 
+
+        /* Before rendering, re_compute clippling matrix items in projMatrix, in case dv changed etc. */
+	E3D_RecomputeProjMatrix(projMatrix);
+
         cout << "Render mesh ... angle=" << angle <<endl;
 #if 1	/* Render workMesh */
 //workMesh->shadeType=E3D_FLAT_SHADING;
@@ -1272,7 +1429,7 @@ for(int k=0; k<instTotal; k++) {
 	egi_dpstd(DBG_ORANGE"Render mesh instance[%d] ... angle=%.2f\n"DBG_RESET, k, angle);
 
         /* Before renderSecne, re_compute clippling matrix items in projMatrix, in case dv changed etc. */
-        E3D_RecomputeProjMatrix(projMatrix);
+//	E3D_RecomputeProjMatrix(projMatrix);
 
 	/* Compleltely within the viewFrustum */
 	if( meshInstances[k]->aabbInViewFrustum(projMatrix) )
@@ -1491,10 +1648,18 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 #endif
 
 	/* W9. Draw the Coordinate Navigating_Sphere/Frame (coordNavSphere/coordNavFrame) */
+	E3D_RecomputeProjMatrix(projMatrix);
 	if(coordNavigate_on) {
 	   E3D_draw_coordNavSphere(&gv_fb_dev, 0.4*workMesh->AABBdSize(), VRTmat, projMatrix);
-	   E3D_draw_coordNavFrame(&gv_fb_dev, false, 0.5*workMesh->AABBdSize(), VRTmat, projMatrix);
+	   E3D_draw_coordNavFrame(&gv_fb_dev, 0.5*workMesh->AABBdSize(), false, VRTmat, projMatrix); //Hahahah...
 	}
+
+#if 0 // TEST_BMTREE /*  Coord_Frame on BMTree ROOT point */
+	E3D_RTMatrix ScaleMat;
+	ScaleMat.setScaleXYZ(scale, scale, scale);  //workMesh scale=30, it=5;
+	E3D_draw_coordNavSphere(&gv_fb_dev, 60, BMTree.nodePtrList[nodeIndex]->gmat*ScaleMat*VRTmat, projMatrix);
+	E3D_draw_coordNavFrame(&gv_fb_dev, 100, false, BMTree.nodePtrList[nodeIndex]->gmat*ScaleMat*VRTmat, projMatrix);
+#endif
 
 #if 0 /* XXX not correct!  TEST: ---------------- boxman: HEAD omat  coordFrame */
 	E3D_draw_coordNavSphere(&gv_fb_dev, 0.2*workMesh->AABBdSize(), workMesh->triGroupList.back().omat, projMatrix);
@@ -1505,7 +1670,7 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 		E3D_RTMatrix gmat;			/* Combined RTMatrix */
 		int dSize=(int)workMesh->AABBdSize();
 		fbset_color2(&gv_fb_dev, gridColor);
-		gmat.identity();
+		//gmat.identity();
 
 		if(rotAxis==1) { /* Y */
 			/* As original XZ plane grid of the mesh object. */
@@ -1528,7 +1693,7 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 		}
 
 		/* Too big value of sx,sy to get out of the View_Frustum */
-	        E3D_draw_grid(&gv_fb_dev, 3.0*dSize, 3.0*dSize, dSize/10, gmat*VRTmat, projMatrix); /* fbdev sx,sy, us, VRTmat, projMatrix */
+	        E3D_draw_grid(&gv_fb_dev, 2.0*dSize, 2.0*dSize, dSize/10, gmat*VRTmat, projMatrix); /* fbdev sx,sy, us, VRTmat, projMatrix */
 	}
 
 	/* W10. Write note & statistics */
@@ -1606,7 +1771,7 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 
 	/* W12. Render to FBDEV */
 	fb_render(&gv_fb_dev);
-	if(psec>-1) tm_delayms(psec); //usleep(psec*1000);
+	if(psec>-1) sleep(psec); //usleep(psec*1000);
 	else sleep(1);
 
    	///////////////////////////////  Post_Render  ////////////////////////////////

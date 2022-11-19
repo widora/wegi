@@ -324,7 +324,7 @@ int main(int argc, char **argv)
     }
     //else : Child process
 
-/* ------ END TEST ------ */
+/* ------ END Monitoring TEST ------ */
 
 
     /* 1. Input option */

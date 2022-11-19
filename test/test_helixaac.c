@@ -513,7 +513,7 @@ RADIO_LOOP:
 				 */
 #if FTSYMBOL_TITLE  /*  FTsymbol TITLE */
         FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.regular,     /* FBdev, fontface */
-                                        18, 18,(const UFT8_PCHAR)title,   /* fw,fh, pstr */
+                                        22, 22,(const UFT8_PCHAR)title,       /* fw,fh, pstr */
                                         320, 1, 0,      		      /* pixpl, lines, fgap */
                                         12, 0,               		      /* x0,y0, */
                                         //WEGI_COLOR_YELLOW, -1, 255,    /* fontcolor, transcolor,opaque */

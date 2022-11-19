@@ -117,9 +117,8 @@ endif
 all:	$(APPS)
 
 ### !!! NOTE: put '-o $@  $@.c' ahead of FLAGS and LIBS !!!!
-%:%.c
-	$(CPP) -o $@  $@.c $(CFLAGS) $(LDFLAGS) $(LIBS) -legi
-#	$(CPP)  $(CFLAGS) $(LDFLAGS) $(LIBS)  $@.c -o $@
+#%:%.c
+#	$(CPP) -o $@  $@.c $(CFLAGS) $(LDFLAGS) $(LIBS) -legi
 
 clean:
 	rm -rf  *.o

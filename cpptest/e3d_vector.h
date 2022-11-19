@@ -366,7 +366,7 @@ public:
 	void addTranslation( float dx, float dy, float dz );
 
 	/* Set part of RotationMatrix in pmat[] */
-	void setRotation(char chaxis, float angle);
+	void setRotation(char chaxis, float angle); /* one axis rotation */
 	void setRotation( const E3D_Vector &axis, float angle);
 	void setRotation( const E3D_Vector &vfrom, const E3D_Vector &vto );
 	void setScaleRotation( const E3D_Vector &vfrom, const E3D_Vector &vto );
@@ -408,6 +408,8 @@ public:
 
 	/* Functions: Set rotation */
 	void setRotation(char chAxis, float angle);
+	void setIntriRotation(const char *axisToks, float ang[3]);
+	void setExtriRotation(const char *axisToks, float ang[3]);
 
 	/* Functions: convert to/from RTMatrix */
 	void toMatrix(E3D_RTMatrix &mat) const;
@@ -423,7 +425,7 @@ Quaternion+Translation(Tx,Ty,Tx)
 -----------------------------------------------*/
 class E3D_Quatrix {
 public:
-	E3D_Quaternion  qt;
+	E3D_Quaternion  q;  //NOT qt, qt for quatrix.  HK2022-11-03
 	float 		tx, ty, tz;
 
 
@@ -443,6 +445,8 @@ public:
 
 	/* Functions: Set rotation */
 	void setRotation(char chAxis, float angle);
+	void setIntriRotation(const char *axisToks, float ang[3]);
+	void setExtriRotation(const char *axisToks, float ang[3]);
 	/* Function: Set translation */
 	void setTranslation(float dx, float dy, float dz);
 

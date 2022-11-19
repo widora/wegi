@@ -68,7 +68,67 @@ int main(void)
 {
 	cout << "Hello, this is C++!\n" << endl;
 
-#if 1 ////////////////  E3D_Quatrix  ////////////////
+#if 1 ////////////////  E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh)  ////////////////
+	E3D_BMatrixTree  bmtree("test.bvh");
+
+
+	
+exit(0);
+#endif
+
+#if 0 ////////////////  E3D_AnimQuatrices  ////////////////
+while(1) {
+	E3D_AnimQuatrices animQts;
+	E3D_Quatrix qt;
+	float t;
+
+	t=0.2f;
+	qt.setRotation('Y', MATH_PI*0.5);
+	qt.setTranslation(0,0,0);
+	animQts.insert(t, qt);
+
+        t=0.5f;
+        qt.setRotation('Y', MATH_PI);
+	qt.setTranslation(30,60,90);
+        animQts.insert(t, qt);
+
+        t=0.123f;
+        qt.setRotation('Y', MATH_PI*0.2);
+        animQts.insert(t, qt);
+
+        t=0.01f;
+	qt.setTranslation(10,10,10);
+        qt.setRotation('Y', MATH_PI*0.3);
+        animQts.insert(t, qt);
+
+        t=0.76f;
+	qt.setTranslation(80,80,80);
+        qt.setRotation('X', MATH_PI*0.7);
+        animQts.insert(t, qt);
+
+	animQts.print("AnimQts");
+
+	/* Interpolate */
+	animQts.interp(0.3, qt);
+	qt.print("qt(t=0.3)");
+	printf("Rotation angle: %fDeg\n", qt.getRotationAngle()*180/MATH_PI);
+	animQts.interp(0.5, qt);
+	qt.print("qt(t=0.5)");
+	animQts.interp(0.0, qt);
+	qt.print("qt(t=0.0)");
+	animQts.interp(1.2, qt);
+	qt.print("qt(t=1.2)");
+
+
+	//animQts.qts[0].print("qts[0]");
+	//animQts.qts[1].print("qts[1]");
+	usleep(100000);
+}
+exit(0);
+#endif
+
+
+#if 0 ////////////////  E3D_Quatrix  ////////////////
 
 	E3D_Quatrix qt;
 	E3D_Quatrix qt0,qt1;

@@ -23,11 +23,189 @@ Journal:
 	4. Add E3D_BMatrixTree::createHandBMTree()
 	5. Add E3D_BMatrixTree::resetNodeAmats()
 	6. Add 4E3D_BMatrixTree::resetNodeOrients()
+2022-11-03:
+	1. Add E3D_AnimQuatrices and functions:
+		printf(), insert(), interp()
+	2. Rename: resetNodeAmats() ---> resetTreeAmats()   (Tree=AllNode)
+	   Rename: resetNodeOrients() ---> resetTreeOrients()
+2022-11-04:
+	1. Add E3D_BMatrixTree::insertNodeAminQt(), interpTreeAmats(t), interpTreeOrients(t)
+2022-11-06:
+	1. Add E3D_BMatrixTree::createBoxmanBMTree()
+2022-11-07:
+	1. E3D_BMatrixTree::createBoxmanBMTree(): Test simple motion.
+2022-11-08:
+        1. E3D_BMatrixTree::createBoxmanBMTree(): Test motion squating.
+2022-11-10:
+	1. Add E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh)
+2022-11-14:
+	1. E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh): Add case that CHANNELS maybe 3 or 6.
+2022-11-15:
+	1. Add E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh, int namco) for Bandai_Namco BVH format.
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
 ------------------------------------------------------------------*/
 #include "e3d_animate.h"
+#include <sstream> //istringstrem
+
+using namespace std;
+
+		/*---------------------------------
+  		       Class E3D_AnimQuatrices
+   		       ( Animating quatrices )
+		---------------------------------*/
+/*----------------------
+	Print
+-----------------------*/
+void E3D_AnimQuatrices::print(const char *name) const
+{
+	if(name)
+		printf("  --- %s ---\n",name);
+
+	for(size_t k=0; k<ts.size(); k++) {
+		printf("Seq%d: t=%f, quat[%f (%f, %f, %f)], txyz(%f,%f,%f).\n",
+			k, ts[k],
+			qts[k].q.w,  qts[k].q.x, qts[k].q.y, qts[k].q.z,
+			qts[k].tx, qts[k].ty, qts[k].tz );
+	}
+}
+
+/*----------------------------------------
+Insert/save quatrix at time point t
+@t:    [0 1] Time point for the quatrix.
+@qt:   The quatrix to be inserted.
+-----------------------------------------*/
+void E3D_AnimQuatrices::insert(float t, const E3D_Quatrix &qt)
+{
+	bool ImBig=false;
+
+#if 0	/* TODO: Limit??? necessary??? */
+	if( t<0.0f || t>1.0 )
+		return;
+#endif
+
+	/* 1. No element in vecotr */
+	if(ts.empty()) {
+		ts.push_back(t);
+		qts.push_back(qt);
+		return;
+	}
+
+	/* 2. Insert between two qts in ascending order of ts */
+	for(size_t k=0; k<ts.size(); k++) {
+		if(ImBig) {
+			/* Insert between two qts, before k */
+			if(t<ts[k]) {
+				ts.insert(ts.begin()+k,t);
+				qts.insert(qts.begin()+k, qt);
+				return; /* ---------> */
+			}
+			else if(t>ts[k])
+				continue;
+			else { /* t==ts[k], replace it! */
+				ts[k]=t;
+				qts[k]=qt;
+				return; /* ---------> */
+			}
+		}
+		else {  /* ImSmall, ---- this should happen ONLY once as we set ImBig=false at beginning */
+			/* Insert before k=0 */
+			if(t<ts[k]) { /* here k==0, as we assume ImBig=false at beginning */
+				ts.insert(ts.begin()+k,t);
+				qts.insert(qts.begin()+k, qt);
+				return;  /* --------> */
+			}
+			else if(t>ts[k]) {
+				ImBig=true;
+				continue;
+			}
+			else { /* t==ts[k], replace it! here k==0 */
+				ts[k]=t;
+				qts[k]=qt;
+				return;  /* --------> */
+			}
+		}
+	}
+
+	/* 3. NOW, it gets to the end. */
+	ts.push_back(t);
+	qts.push_back(qt);
+
+}
+
+
+/*----------------------------------------------
+Interpolate by time point t to get corresponding
+Quatrix.
+
+Note:
+1. If ts.size()==0, return identity.
+2. If t<ts[0], then qt=qts[0].
+   If t>ts[last], then qt=qts[last]
+
+@t:    [0 1] Time point for the quatrix.
+@qt:   Returned quatrix
+-----------------------------------------------*/
+void E3D_AnimQuatrices::interp(float t, E3D_Quatrix &qt) const
+{
+	bool ImBig=false;
+	size_t k;
+	float rt;
+
+#if 0	/* TODO: Limit??? necessary??? */
+	if( t<0.0f || t>1.0 )
+		return;
+#endif
+
+	egi_dpstd("....in...\n");
+
+	/* 1. No element in vecotr, return identity. */
+	if(ts.empty()) {  /* Hello! Haaa ... HK2022-11-04 */
+		egi_dpstd("No element in ts[]/animQts[]!\n");
+		qt.q.identity();
+		return;
+	}
+	egi_dpstd("ts.size()=%d\n", ts.size());
+
+	/* 2. Insert between two qts in ascending order of ts */
+	for(k=0; k<ts.size(); k++) {
+		if(ImBig) {
+			/* Interpolate between two qts, before k */
+			if(t<ts[k]) {
+				rt=(t-ts[k-1])/(ts[k]-ts[k-1]);
+				qt.interp(qts[k-1],qts[k], rt);
+				return; /* ---------> */
+			}
+			else if(t>ts[k])
+				continue;
+			else { /* t==ts[k], replace it! */
+				qt=qts[k];
+				return; /* ---------> */
+			}
+		}
+		else {  /* ImSmall, ---- this should happen ONLY once as we set ImBig=false at beginning */
+			/* Interpolate at before k=0 */
+			if(t<ts[k]) { /* here k==0, as we assume ImBig=false at beginning */
+				qt=qts[k]; /* Same as the first qts[] */
+				return;  /* --------> */
+			}
+			else if(t>ts[k]) {
+				ImBig=true;
+				continue;
+			}
+			else { /* t==ts[k], replace it! here k==0 */
+				qt=qts[k];
+				return;  /* --------> */
+			}
+		}
+	}
+
+	/* 3. NOW, it gets to the end, same as the last qts[]. */
+	qt=qts[k-1];
+
+}
+
 
 		/*---------------------------------
 		       Struct  E3DS_BMTreeNode
@@ -45,11 +223,20 @@ E3DS_BMTreeNode *BMT_createRootNode(void)
 	E3DS_BMTreeNode *root;
 
 	/* Calloc root */
-	root = (E3DS_BMTreeNode*) malloc(sizeof(E3DS_BMTreeNode));
-	if(root==NULL) {
-		egi_dperr(DBG_RED"malloc fails"DBG_RESET);
-		return NULL;
-	}
+//	root = (E3DS_BMTreeNode*)calloc(1,sizeof(E3DS_BMTreeNode));
+//	if(root==NULL) {
+//		egi_dperr(DBG_RED"malloc fails"DBG_RESET);
+//		return NULL;
+//	}
+
+	/* Add new childNode */
+        try {
+		root = new E3DS_BMTreeNode;
+        }
+        catch ( std::bad_alloc ) {
+                egi_dpstd("Fail to allocate root node!\n");
+                return NULL;
+        }
 
 	/* Init bone length */
 	root->blen=0.0f;
@@ -87,11 +274,20 @@ E3DS_BMTreeNode *BMT_addChildNode(E3DS_BMTreeNode* node, float boneLen)
 		return NULL;
 
 	/* Calloc childNode */
-	childNode = (E3DS_BMTreeNode*) malloc(sizeof(E3DS_BMTreeNode));
-	if(childNode==NULL) {
-		egi_dperr(DBG_RED"malloc fails"DBG_RESET);
-		return NULL;
-	}
+//	childNode = (E3DS_BMTreeNode*) calloc(1,sizeof(E3DS_BMTreeNode));
+//	if(childNode==NULL) {
+//		egi_dperr(DBG_RED"malloc fails"DBG_RESET);
+//		return NULL;
+//	}
+
+	/* Add new childNode */
+        try {
+		childNode = new E3DS_BMTreeNode;
+        }
+        catch ( std::bad_alloc ) {
+                egi_dpstd("Fail to allocate a new childNode!\n");
+                return NULL;
+        }
 
 	/* Init bone length */
 	childNode->blen=boneLen;
@@ -182,7 +378,7 @@ void BMT_deleteTreeNodes(E3DS_BMTreeNode *node)
 	}
 
 	/* Delete itself */
-	free(node);
+	delete node;
 }
 
 
@@ -211,6 +407,15 @@ void BMT_updateTreeGmats(E3DS_BMTreeNode *node)
         	node->gmat=node->amat*node->pmat*(node->parent->gmat);
         else /* for the root node */
                 node->gmat=node->amat*node->pmat;
+
+#if 1 /* TEST ---------- HK2022-11-16 */
+	while(!node->gmat.isOrthogonal()) {
+        	//egi_dpstd(DBG_RED">>>>>> orthNormalize gmat... <<<<<< \n"DBG_RESET);
+                node->gmat.orthNormalize();
+		//if(!node->gmat.isOrthogonal())
+		//	egi_dpstd(DBG_RED"___ Fail to orthNormalize ___ \n"DBG_RESET);
+        }
+#endif
 
 	/* 2. Then, update gmat for its children nodes */
 	doChild=node->firstChild;
@@ -246,6 +451,545 @@ E3D_BMatrixTree::~E3D_BMatrixTree()
 }
 
 
+/*------------------------------------------------------
+To create BMatrixTree by reading BVH data
+
+		--- BVH File Format ---
+HIERARCHY
+ROOT Hips
+{
+	OFFSET  0.0 0.0 0.0
+	CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation
+	JOINT LeftUpLeg
+	{
+		OFFSET ...
+		CHANNELS 3 Zrotation Xrotation Yrotation
+		JOINT Leftleg
+		{
+			... ...
+			OFFET ...
+			CHANNELS 3 ...
+			End Site
+			{
+				OFFSET  x x x
+			}
+			... ...
+		}
+		... ...
+	}
+
+	... ...
+}
+MOTION
+Frames: 137
+Frame Time: 0.016667
+(data for each frame ) ....
+
+
+Note:
+1. The BVH file defines a tree of joints('points'), while E3D_BMatrixTree
+   defines a tree of 'bones'!
+   				BVH COORD System
+   RightHand COORD, Relative to a skeleton: Lefthand---COORD_X, Uppward---COORD_Y, Forward--COORD_Z
+
+   				    For MBTREE_TYPE_E3D:
+   Bone direction MUST align with local COORD_Z axis, and local COORDs NOT necessary to parallel with Global COORD.
+				    For MBTREE_TYPE_BVH:
+   Initial local COORDs MUST all parallel with Global COORD, bone direction NOT necessary to align with any axis!
+
+2. 		!!!--- CAUTION ---!!!
+   Assum that each BVH joint(bone) has 3 CHANNELS(sequence: Zrotation Xrotation Yrotation).
+   except the ROOT node, which has 6 CHANNELS.(sequence: Xposition Yposition Zposition Zrotation Xrotation Yrotation).
+3. In case of 'JOINT' and 'End site": add a new bone from parent to THIS joint point.
+4. Assign E3DS_BMTreeNode.bv with OFFSET_xyz first, and convert to unit vector AFTER
+   assign vb.xyz to next bone's pmat[9-11](Txyz);
+5. Bones whose parent is ROOT are fixed with root node! they need NO
+   CHANNEL values.
+6. In VBH text, CHANNEL values are for the child bones linked with THIS joint,
+   as a hinge for the child bones.
+7. If a joint connects with more than 1 child bones, then they share
+   the same CHANNEL value, see above 5.   <-------
+8. At End_site, bnode MUST reset to NULL, to avoid 'push up last bnode before create a new bnode' at other cases.
+------------------------------------------------------------*/
+E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh)
+{
+	vector<E3DS_BMTreeNode*> branch;    /* To trace current branch of the BMTree */
+	vector<E3DS_BMTreeNode*> nodestack; /* All BMTreeNode pointers are pushed in text sequence
+					     * this MUST be the same sequenece of frame data attached.
+					     */
+
+	/* Assum that each joint(bone) has 3 CHANNELS(Zrotation Xrotation Yrotation),
+	 * and the ROOT has 6 CHANNELS.(Xposition Yposition Zposition Zrotation Xrotation Yrotation).
+	 */
+	size_t 			 datacnt=0;    /* data(float type) number for one MOTION frame */
+	vector<int>		 dataindex;    /* data start index for corresponding nodestack[] */
+	vector<int>		 indexbranch;   /* to trace current dataIndex */
+	vector<float>		 datagroup;    /* datagroup for one MOTION frame */
+	int 			 lastindex;    /* Before indexbranch.pop_back, need to save as lastindex for later use. */
+
+	E3DS_BMTreeNode *bnode=NULL;
+	bool IsEndSite=false;
+	bool IsRootNode=false;
+	float blen;
+	int  nodechans=3;  /* (non_ROOT) node channels. Assume 6 OR 3. */
+	float offx=0.0f, offy=0.0f, offz=0.0f;
+
+	int  frames; /* Total frames recorded */
+	int framecnt=0;
+	float tpf;   /* in second, time per frame */
+
+	/* Set BMTREE_TYP_ */
+	type=BMTREE_TYPE_VBH;
+
+	/* Open BVH data file */
+	ifstream  fin(fbvh);
+	string    txtline;
+//	const char *ptr;
+	size_t    tlcnt;
+	size_t    pos;	/* string::size_type */
+
+	/* Open file */
+	if(!fin) {
+		cerr<<"Fail to open "<<fbvh<<endl;
+		return;
+	}
+
+printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
+	/* Parse each line */
+	tlcnt=0;
+	while(getline(fin, txtline)) {
+		//cout<< DBG_YELLOW"txtline: "<<txtline<< "\n\n"DBG_RESET<< endl;
+//		printf(DBG_YELLOW"txtline[%zu]:"DBG_RESET"\n %s\n", tlcnt, txtline.c_str());
+
+		/* Check key_words */
+		if( (pos=txtline.find("ROOT")) !=txtline.npos ) {
+			printf("ROOT, pos=%zu\n",pos);
+			IsRootNode=true;
+
+			/* Create root node */
+			root=BMT_createRootNode();
+
+			/* Push back to tracing branch */
+			branch.push_back(root);
+			nodestack.push_back(root);
+			printf("Trancing branch.size=%zu\n", branch.size());
+
+			/* <======= Data index handling  =========> */
+			dataindex.push_back(0);
+			indexbranch.push_back(dataindex.back());
+			datacnt +=6;
+		}
+		/* Case JOINT: Add a bone from parent to this joint!  and assign its parent(branch.back).pmat[9-11] */
+		else if( (pos=txtline.find("JOINT")) !=txtline.npos ) {
+			printf("JOINT, pos=%zu\n",pos);
+
+			/* Push back last bone to tracing branch */
+			if(bnode!=NULL) { /* Note, bnode reset to NULL aft push_back End_site bone */
+
+				branch.push_back(bnode);
+				nodestack.push_back(bnode);
+				printf("Trancing branch.size=%zu\n", branch.size());
+
+				/* <======= Data index handling  =========> */
+				if(bnode->parent==root) {  /* Fixed with ROOT, need no channels */
+					printf("The node has Root as its parent!\n");
+				}
+
+				/* If share the same CHANNEL values with siblings, see note 7. */
+			 	if(bnode->parent->firstChild !=bnode ) {
+					printf(">>> Share data with siblings: lastindex=%d, indexbranch.size=%zu, indexbranch.back()=%zu\n",
+							lastindex, indexbranch.size(), indexbranch.back() );
+					//dataindex.push_back(indexbranch.back()+nodechans);
+					dataindex.push_back(lastindex); /* HK2022-11-16 */
+					indexbranch.push_back(dataindex.back());
+				}
+				/* Need 6/3 CHANNEL values */
+				else {
+					dataindex.push_back(datacnt);
+					indexbranch.push_back(dataindex.back());
+					if( bnode->parent!=root ) {
+						datacnt +=nodechans;
+						printf(">>> datacnt +=%d \n",nodechans);
+					}
+				}
+
+#if 1 /* Test: ---------- */
+				if(bnode->parent==root)
+				   	printf("DataStartIndex for a root child, No need.\n");
+				else
+					printf("DataStartIndex for above node: %zu.\n", dataindex.back());
+#endif
+				/* <======= END data index handling  =========> */
+
+			} /* End push last bone node */
+
+			/* Add a bone from parent to this joint */
+			bnode=addChildNode(branch.back(), 0.0f); /* BoneLength unkown here, until get OFFSET */
+			if(bnode==NULL) {
+				egi_dpstd(DBG_RED"Fail to addChildNode!\n"DBG_RESET);
+				return;
+/* Retrun  <----------------------------- */
+			}
+
+			/* Local COORD offset from the parent */
+			if(bnode->parent==root) { /* If ROOT's direct child */
+				bnode->pmat.pmat[9]=0.0f;
+				bnode->pmat.pmat[10]=0.0f;
+				bnode->pmat.pmat[11]=0.0f;
+			}
+			else {
+				/* Local COORD as its parent bone Vector */
+				bnode->pmat.pmat[9]=bnode->parent->bv.x;
+				bnode->pmat.pmat[10]=bnode->parent->bv.y;
+				bnode->pmat.pmat[11]=bnode->parent->bv.z;
+/* TEST: -------- */
+			if(branch.size()==3)
+				bnode->parent->bv.print("<<< BV >>>");
+
+				/* NOW: normalize paretn->bv */
+				/* XXX NOT HERE! Each child node need it for pmat[9-11]!!! */
+				// bnode->parent->bv.normalize();
+			}
+		}
+		/* Case OFFSET: set root.offxyz, set bnode.bv and bnode.blen. */
+		else if( (pos=txtline.find("OFFSET")) !=txtline.npos ) {
+			printf("OFFSET, pos=%zu, offset: %s\n",pos, txtline.substr(pos+6).c_str());
+
+			/* Read OFFSET xyz */
+			sscanf(txtline.substr(pos+6).c_str(), "%f %f %f", &offx,&offy,&offz);
+			printf(DBG_GREEN"___offxyz: %f,%f,%f\n"DBG_RESET, offx,offy,offz);
+
+			if(IsRootNode && root!=NULL ) {  /* root SHOULD already created at case 'ROOT' */
+				/* Assign Offset_xyz to pmat.Txyz */
+				root->pmat.pmat[9]=offx;
+				root->pmat.pmat[10]=offy;
+				root->pmat.pmat[11]=offz;
+
+				/* Unmark */
+				IsRootNode=false;
+			}
+			else if(bnode) { /* bnode SHOULD already created at case 'JOINT' */
+				/* bone length */
+				blen=sqrt(offx*offx+offy*offy+offz*offz);
+				bnode->blen=blen;
+
+				/* Note: this OFFSET is for NEXT bone */
+				/* bone direction vector */
+				bnode->bv.assign(offx,offy,offz);
+			}
+
+			if(IsEndSite && bnode!=NULL) {
+				/* Push back the end_site bone to tracing branck */
+				branch.push_back(bnode);
+				nodestack.push_back(bnode);
+				printf("Trancing branch.size=%zu\n", branch.size());
+
+				/* <======= Data index handling  =========> */
+				if(bnode->parent==root) {  /* Fixed with ROOT, need no channels */
+					printf("The node has Root as its parent!\n");
+				}
+
+				/* If share the same CHANNEL values with siblings, see note 7. */
+			 	if(bnode->parent->firstChild !=bnode ) {
+					printf(">>> Share data with siblings: indexbranch.size=%zu, indexbranch.back()=%zu\n",
+							indexbranch.size(), indexbranch.back() );
+					//dataindex.push_back(indexbranch.back()+nodechans);
+					dataindex.push_back(lastindex); /* HK2022-11-16 */
+					indexbranch.push_back(dataindex.back());
+				}
+				/* Need 3 CHANNEL values */
+				else {
+					dataindex.push_back(datacnt);
+					indexbranch.push_back(dataindex.back());
+					if( bnode->parent!=root ) {
+						datacnt +=nodechans;
+						printf(">>> datacnt +=%d \n", nodechans);
+					}
+				}
+#if 1 /* Test: ---------- */
+				if(bnode->parent==root)
+				   	printf("DataStartIndex for a root child, No need.\n");
+				else
+					printf("DataStartIndex for above node: %zu.\n", dataindex.back());
+#endif
+				/* <======= END data index handling  =========> */
+
+
+				/* <<<<<<<<<<< Reset bnode here! >>>>>>>>>> */
+				bnode=NULL;
+
+				/* Unmark */
+				// IsEndSite=false; NOT here, see at case '}' ...
+			}
+
+
+		}
+		/* Case CHANNELS: This for the next bone! if this_bone.parent=root, then it's all fixed.  */
+		else if( (pos=txtline.find("CHANNELS")) !=txtline.npos ) {
+			printf("CHANNELS found, pos=%zu\n",pos);
+			sscanf(txtline.substr(pos+9).c_str(), "%d", &nodechans);
+		}
+		/* Case End_Site: Push last bnode to branch, add the END bone. */
+		else if( (pos=txtline.find("End Site")) !=txtline.npos ) {
+			printf("JOINT found, pos=%zu\n",pos);
+			IsEndSite=true;
+
+			/* Push back last bone to tracing branch */
+			if(bnode!=NULL) { /* Note, bnode reset to NULL aft push_back End_site bone */
+				branch.push_back(bnode);
+				nodestack.push_back(bnode);
+				printf("Trancing branch.size=%zu\n", branch.size());
+
+				/* <======= Data index handling  =========> */
+				if(bnode->parent==root) {  /* Fixed with ROOT, need no channels */
+					printf("The node has Root as its parent!\n");
+				}
+
+				/* If share the same CHANNEL values with siblings, see note 7. */
+			 	if(bnode->parent->firstChild !=bnode ) {
+					printf(">>> Share data with siblings: indexbranch.size=%zu, indexbranch.back()=%zu\n",
+							indexbranch.size(), indexbranch.back() );
+					//dataindex.push_back(indexbranch.back()+nodechans);
+					dataindex.push_back(lastindex);/* HK2022-11-16 */
+					indexbranch.push_back(dataindex.back());
+				}
+				/* Need 3 CHANNEL values */
+				else {
+					dataindex.push_back(datacnt);
+					indexbranch.push_back(dataindex.back());
+					if( bnode->parent!=root ) {
+						datacnt +=nodechans;
+						printf(">>> datacnt +=%d \n",nodechans);
+					}
+				}
+#if 1 /* Test: ---------- */
+				if(bnode->parent==root)
+				   	printf("DataStartIndex for a root child, No need.\n");
+				else
+					printf("DataStartIndex for above node: %zu.\n", dataindex.back());
+#endif
+				/* <======= END data index handling  =========> */
+
+
+			}
+
+			/* Add a bone from parent to this End_Site */
+			bnode=addChildNode(branch.back(), 0.0f); /* BoneLength unkown here, until get OFFSET */
+			if(bnode==NULL) {
+				egi_dpstd(DBG_RED"Fail to addChildNode!\n"DBG_RESET);
+				return;
+/* Retrun  <----------------------------- */
+			}
+
+			/* Local COORD offset from the parent */
+			bnode->pmat.pmat[9]=bnode->parent->bv.x;
+			bnode->pmat.pmat[10]=bnode->parent->bv.y;
+			bnode->pmat.pmat[11]=bnode->parent->bv.z;
+
+
+			/* NOW: normalize paretn->bv */
+			/* XXX NOT HERE! Each child node need it for pmat[9-11]!!! */
+                        //bnode->parent->bv.normalize();
+		}
+		/* Case '}': branch.pop_back() */
+		else if( (pos=txtline.find("}")) !=txtline.npos ) {
+
+			/* Reseet IsEndSite */
+			if(IsEndSite) {
+				IsEndSite=false;
+			}
+
+			/* Pop a node from the branch */
+			branch.pop_back();
+			if(branch.empty()) {
+				printf("...tracing branch is empty NOW! End VBH Tree!?, datacnt=%d .....\n", datacnt);
+			}
+			else {
+				printf("Trancing branch.size=%zu (ROOT is also a bonenode)\n", branch.size());
+				if(branch.back()->parent==NULL)
+					printf("Get to the ROOT.\n");
+			}
+
+			/* <======= Data index handling  =========> */
+			/* Need to save lastindex before pop_back */
+			lastindex=indexbranch.back();
+			/* Pop indexbranch */
+			indexbranch.pop_back();
+		}
+		/* Case 'Frames:' Total frame data attached. */
+		else if( (pos=txtline.find("Frames:")) !=txtline.npos ) {
+			sscanf(txtline.substr(pos+7).c_str(), "%d", &frames);
+			printf("Frames: %d\n", frames);
+		}
+		/* Case 'Frame Time:' Frame time in second. */
+		else if( (pos=txtline.find("Frame Time:")) !=txtline.npos ) {
+			sscanf(txtline.substr(pos+11).c_str(), "%f", &tpf);
+			printf("Time per. frame: %f(s)\n", tpf);
+
+/* <---------------------- break here */
+			break;
+		}
+
+		tlcnt++;
+	}
+
+	/* Update nodePtrList in LevelOrder */
+	updateNodePtrList();
+
+	/* Normalize all 3DS_BMTreeNode::bv */
+	for(size_t k=0; k<nodePtrList.size(); k++) {
+		nodePtrList[k]->bv.normalize();
+	}
+
+
+#if 0 ////////////////////* Change BMTreeNode.pmat to let local COORD_Y as boneLength direction *////////////////////
+	E3D_Vector axisY(0.0,1.0,0.0);
+	for(size_t k=0; k<nodePtrList.size(); k++) {
+		/*  Assign axisY rotation relative to parent axisY: BMTreeNode.pmat.pmat[0-8] */
+		/*  Reset BMTreeNode.pmat.pmat[0-8], Only aixsY for bone length. */
+
+		if(nodePtrList[k]->parent==NULL) {
+			/* Rotation: The ROOT node, Local axis_Y as bone direction. init as align with Global axis_Y. */
+			/* Translation: ok, alreay with assigned value OFFSET_xyz */
+		}
+		else if(nodePtrList[k]->parent==root) {
+			/* Rotation: from parent axisY to this axisY */
+		        nodePtrList[k]->pmat.setRotation(axisY, nodePtrList[k]->bv); /* Bone growing direction axisY */
+			/* Translation: as parent blen=0.0 */
+			nodePtrList[k]->pmat.setTranslation(0.0,0.0,0.0);
+		}
+		else {
+			/* Rotation: from parent axisY to this axisY */
+		        nodePtrList[k]->pmat.setRotation(nodePtrList[k]->parent->bv, nodePtrList[k]->bv);
+			/* Translation: along parent bone length */
+			nodePtrList[k]->pmat.setTranslation(0.0, nodePtrList[k]->parent->blen, 0.0);
+		}
+	}
+#endif //////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+#if 1 /* TEST: ------------- */
+	nodestack[1]->pmat.print("---nodestack[1].pamt---");
+
+	printf("Total %zu bone nodes added!\n", nodePtrList.size());
+	for(size_t k=0; k<nodePtrList.size(); k++) {
+		printf(">>>>> Node[%d]: blen=%f, with dataindex: %d (no need for root's child) <<<<<\n", k, nodePtrList[k]->blen, dataindex[k]);
+		nodePtrList[k]->bv.print(NULL);
+	}
+
+	printf(" ============= nodestack =========== \n");
+	for(size_t k=0; k<nodestack.size(); k++) {
+		nodestack[k]->bv.print(NULL);
+	}
+#endif
+
+
+
+
+#if 1	/* Read all data into animQts[] for each BMTreeNode */
+	char *pt;
+	const char *delims=" 	\n\r\t"; /* space and tab */
+	//const char *axisToks="ZXY";
+
+	E3D_Quatrix qt;
+	float angs[3];
+	int index;
+	float invfms=1.0/(frames-1);
+	float PIpd=MATH_PI/180.0;
+
+	framecnt=0;
+	while(getline(fin, txtline)) {
+//		printf("	=== framecnt:%d/[%d-1] ===\n", framecnt,frames);
+//		printf(DBG_YELLOW"txtline[%zu]:"DBG_RESET"\n %s\n", tlcnt, txtline.c_str());
+
+		/* Read joint transform(RT) data for one frame */
+		pt=strtok((char *)txtline.c_str(), delims);
+		while(pt) {
+			datagroup.push_back(atof(pt));
+			pt=strtok(NULL,delims);
+		}
+//		printf(DBG_YELLOW" ------ datagroup.size=%zu -----\n"DBG_RESET, datagroup.size());
+
+		#if 0 /* Print datagroup */
+		for(size_t k=0; k<datagroup.size(); k++)
+			printf("datagroup[%zu]: %f\n", k, datagroup[k]);
+		#endif
+
+		/* Assign movment data to corresponding BMTreeNode.animQts */
+		for(size_t k=0; k<nodestack.size(); k++) {
+			/* The ROOT node: 6 Channels */
+			if(k==0) {
+				/* Sequence: Xposition Yposition Zposition Zrotation Xrotation Yrotation */
+				qt.identity();
+
+				/* First, set rotation */
+				angs[0]=PIpd*datagroup[3];
+				angs[1]=PIpd*datagroup[4];
+				angs[2]=PIpd*datagroup[5];
+				qt.setIntriRotation("ZXY", angs);
+				//qt.setExtriRotation("ZXY", angs);
+
+				/* Translation After rotation! */
+				qt.setTranslation(datagroup[0],datagroup[1],datagroup[2]);
+
+				/* Insert to animQts */
+				nodestack[k]->animQts.insert(1.0*framecnt*invfms, qt); //(1.0*k*/(frames-1), qt);
+			}
+			/* Direct child of the ROOT */
+			else if(nodestack[k]->parent==root) {
+				/* See as fixed  with the ROOT. NO need to insert an identity qt. */
+				//qt.identity();
+				//nodestack[k]->animQts.insert(1.0*framecnt*invfms, qt);
+			}
+			/* Normal bone nodes: Note, some bone may share the same data in datagroup[] */
+			else {
+				/* Sequence: Zrotation Xrotation Yrotation */
+				qt.identity();
+				index=dataindex[k]; /* start data index for the node */
+//		printf("node[%d]: RotZXY %f,%f,%f\n", k, datagroup[index],datagroup[index+1],datagroup[index+2]);
+
+				/* Case: 6 CHANNELS */
+				if(nodechans==6) {
+		printf("node[%d]: RotZXY %f,%f,%f\n", k, datagroup[index+3],datagroup[index+4],datagroup[index+5]);
+
+					/* Rotation Before translation */
+					angs[0]=PIpd*datagroup[index+3];
+					angs[1]=PIpd*datagroup[index+4];
+					angs[2]=PIpd*datagroup[index+5];
+					qt.setIntriRotation("ZXY", angs);
+
+					/* Translation After rotation! */
+//					qt.setTranslation(datagroup[index],datagroup[index+1],datagroup[index+2]);
+				}
+				/* Case: 3 CHANNELS */
+				else {
+					/* Rotation */
+					angs[0]=PIpd*datagroup[index];
+					angs[1]=PIpd*datagroup[index+1];
+					angs[2]=PIpd*datagroup[index+2];
+					qt.setIntriRotation("ZXY", angs);
+				}
+
+				/* Insert to animQts */
+				nodestack[k]->animQts.insert(1.0*framecnt*invfms, qt); //(1.0*k*/(frames-1), qt);
+			}
+		}
+
+		/* Counter incremental */
+		framecnt++;
+		tlcnt++;
+
+		/* Clear datagroup */
+		datagroup.clear();
+	}
+#endif
+
+	fin.close();
+	egi_dpstd(DBG_GREEN"Totally read %d of %d frames of animation data, each frame takes %f second.\n", framecnt, frames, tpf);
+}
+
+
 /*-------------------------
 Add a child to the node.
 --------------------------*/
@@ -270,11 +1014,14 @@ Create a BoneMatrixTree for a crane.
 void E3D_BMatrixTree::createCraneBMTree()
 {
         E3DS_BMTreeNode* node;
+	E3D_Quatrix qt;
+	E3D_RTMatrix mat;
 
         /* 2. Create BoneTree --- a line tree */
         float ang[3]={0.0,0.0,0.0};
 	float s=50;
         float blen=7*s;
+
 
 	/* 0. Root node */
 
@@ -283,30 +1030,79 @@ void E3D_BMatrixTree::createCraneBMTree()
 
         /* 2. 2nd node */
         node=addChildNode(node, blen);
-        ang[0]=MATH_PI*60/180;
+        ang[0]=MATH_PI*30/180;
         node->pmat.combIntriRotation("Y",ang);
         node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* 2.1 Animating Quatrices(KeyFrames) */
+	qt.setRotation('Y',MATH_PI*0/180);  /* <--- upon pmat */
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('Y',MATH_PI*100/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('Y',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
 
         /* 3. 3rd node */
         node=addChildNode(node, 0.6*blen);
         ang[0]=MATH_PI*90/180;
         node->pmat.combIntriRotation("Y",ang);
         node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
+	/* 3.1 Animating Quatrices(KeyFrames) */
+#if 1
+	qt.setRotation('Y',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+
+	qt.setRotation('Y',MATH_PI*30/180);
+	node->animQts.insert(0.5f, qt);
+
+	qt.setRotation('Y',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+#else
+	qt.identity();
+	qt.setRotation('Y',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+
+	ang[0]=MATH_PI*180/180;
+	ang[1]=MATH_PI*90/180;
+	mat.identity();
+	mat.combIntriRotation("Lzy",ang);/* Rotation Z+Y  */
+	qt.fromMatrix(mat);
+	node->animQts.insert(0.5f, qt);
+
+	ang[0]=MATH_PI*0/180;
+	ang[1]=MATH_PI*0/180;
+	mat.identity();
+	mat.combIntriRotation("Lzy",ang); /* Rotation Z+Y */
+	qt.fromMatrix(mat);
+	node->animQts.insert(1.0f, qt);
+#endif
 
         /* 4. 4th node */
         node=addChildNode(node, 0.5*blen);
-        ang[0]=MATH_PI*120/180;
+        ang[0]=MATH_PI*40/180;
         node->pmat.combIntriRotation("Y",ang);
         node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
 
-        /* 5. update NodePtrList to update Gmat list */
+	/* 4.1 Animating Quatrices */
+	qt.setRotation('Y',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('Y',MATH_PI*95/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('Y',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+        /* Finally: update NodePtrList + update tree Gmats */
         updateNodePtrList();
 }
 
-/*---------- TEST ------------------
+/*---------------- TEST --------------------
 Create a BoneMatrixTree for a hand something.
 Bone direction Z
------------------------------------*/
+
+	!!! --- CAUTION --- !!!
+The initial E3D_BMatrixTree should ONLY
+have ROOT node!
+
+------------------------------------------*/
 void E3D_BMatrixTree::createHandBMTree()
 {
         E3DS_BMTreeNode *basenode; /* Base joined bone */
@@ -441,8 +1237,486 @@ void E3D_BMatrixTree::createHandBMTree()
         node->pmat.combIntriRotation("Y",ang);
         node->pmat.setTranslation(0,0, node->parent->blen); /* <---- parent's blen */
 
-        /* 5. update NodePtrList to update Gmat list */
+        /* Finally: update NodePtrList to update Gmat list */
         updateNodePtrList();
+}
+
+
+#if 0 //////////////////////////////
+/*---------- TEST ------------------
+Create a BoneMatrixTree for a boxman.
+  Motion: Lift left_leg and right_arm
+
+	!!! --- CAUTION --- !!!
+The initial E3D_BMatrixTree should ONLY
+have ROOT node!
+
+-----------------------------------*/
+void E3D_BMatrixTree::createBoxmanBMTree()
+{
+        E3DS_BMTreeNode* node;
+	E3DS_BMTreeNode* crossNode; /* crossNode, joining with neck/spine/shoulderbones */
+	E3D_Quatrix qt;
+	E3D_RTMatrix mat;
+
+        /* 2. Create BoneTree */
+        float ang[3]={0.0,0.0,0.0};
+	float s=50;
+        float blen=7*s;
+
+	/* 0. Root node */
+
+/* Left Leg */
+        /* 1. node[1]: hip bone  */
+        node=addChildNode(root, 0.45*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-120/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,0); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) */
+
+
+        /* 2. node[2]: thighbone  */
+        node=addChildNode(node, 1.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-(180-120 +7)/180;  /* 7Deg turn inside */
+        node->pmat.setRotation('Y',ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*-110/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+        /* 3. node[3]: shank bone  */
+        node=addChildNode(node, 1.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*7/180; /* 7Deg turn outside */
+        node->pmat.setRotation('Y',ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*130/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+
+        /* 4. node[4]: foot bone  */
+        node=addChildNode(node, 0.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-90/180;
+        node->pmat.setRotation('X',ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*-35/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+
+/* Right Leg */
+        /* 5. node[5]: hip bone  */
+        node=addChildNode(root, 0.45*blen); /* node, boneLen */
+          ang[0]=MATH_PI*120/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,0); /* <--- parent's blen */
+
+        /* 6. node[6]: thighbone  */
+        node=addChildNode(node, 1.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*(180-120 +7)/180;  /* 7Deg turn inside */
+        node->pmat.setRotation('Y',ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* 7. node[7]: shank bone  */
+        node=addChildNode(node, 1.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-7/180;	/* 7Deg turn outside */
+        node->pmat.setRotation('Y',ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* 8. node[8]: foot bone  */
+        node=addChildNode(node, 0.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-90/180;
+        node->pmat.setRotation('X',ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+/* Spine to neck */
+        /* 9. node[9]: spine_1  */
+        node=addChildNode(root, 0.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('X', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* 10. node[10]: spine_1A  */
+        node=addChildNode(node, 0.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('X', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) --- turn backward */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*20/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+        /* 11. node[11]: spine_2  */
+        node=addChildNode(node, 0.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('X', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+	crossNode=node;
+
+        /* 12. node[12]: spine_neck  */
+        node=addChildNode(node, 0.25*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('X', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* 13. node[13]: spine_head  */
+        node=addChildNode(node, 0.75*blen); /* node, boneLen */
+        ang[0]=MATH_PI*20/180;
+        node->pmat.setRotation('X', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+
+/* Left shoulder to arm */
+        /* 14. node[14]: left_shoulder bone  */
+        node=addChildNode(crossNode, 0.6*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-100/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* 15. node[15]: left_upperarm bone  */
+        node=addChildNode(node, 1.0*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-(180-100)/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+
+        /* 16. node[16]: left_forearm bone  */
+        node=addChildNode(node, 0.8*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* 17. node[17]: left_hand bone  */
+        node=addChildNode(node, 0.3*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+
+/* Right shoulder to arm */
+        /* 18. node[18]: right_shoulder bone  */
+        node=addChildNode(crossNode, 0.6*blen); /* node, boneLen */
+        ang[0]=MATH_PI*100/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* 19. node[19]: right_upperarm bone  */
+        node=addChildNode(node, 1.0*blen); /* node, boneLen */
+        ang[0]=MATH_PI*(180-100)/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) --- arm level up */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*-110/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+        /* 20. node[20]: right_forearm bone  */
+        node=addChildNode(node, 0.8*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+#if 0	/* Animating Quatrices(KeyFrames) --- contract biceps */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*-150/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+#else /* Animating Quatrices(KeyFrames) --- turn albow out, turn hand to chest  */
+	qt.setRotation('Y',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('Y',MATH_PI*90/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('Y',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+#endif
+
+
+        /* 21. node[21]: right_hand bone  */
+        node=addChildNode(node, 0.3*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* Finally: update NodePtrList to update Gmat list */
+        updateNodePtrList();
+}
+#endif //////////////////////////////////////////////////////////////
+
+
+/*-====--------- TEST ------------------
+Create a BoneMatrixTree for a boxman.
+	Motion: squating
+
+	!!! --- CAUTION --- !!!
+The initial E3D_BMatrixTree should ONLY
+have ROOT node!
+
+===-----------------------------------*/
+void E3D_BMatrixTree::createBoxmanBMTree()
+{
+        E3DS_BMTreeNode* node;
+	E3DS_BMTreeNode* crossNode; /* crossNode, joining with neck/spine/shoulderbones */
+	E3DS_BMTreeNode* foot;
+	E3D_Quatrix qt;
+	E3D_RTMatrix mat;
+
+        float ang[3]={0.0,0.0,0.0};
+	float s=50;
+        float blen=7*s;
+
+	/* 0. Root node */
+#if 0	/* Animating Quatrices(KeyFrames) */
+	root->pmat.identity();
+	qt.setTranslation(0.0, 0.0, 0.0);
+	root->animQts.insert(0.0f, qt);
+	/* The max. downward movement of the hip. */
+	qt.setTranslation(0.0, 0.0, (1.5*sin(MATH_PI*55/180)-1.5*sin(MATH_PI*10/180))*blen -(1.5+1.5)*blen );
+	root->animQts.insert(0.5f, qt);
+	qt.setTranslation(0.0, 0.0, 0.0);
+	root->animQts.insert(1.0f, qt);
+#endif
+
+/* Left Leg */
+        /* 1. node[1]: hip bone  */
+        node=addChildNode(root, 0.45*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-120/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,0); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) */
+	/* none */
+
+        /* 2. node[2]: thighbone  */
+        node=addChildNode(node, 1.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-(180-120 +7)/180;  /* 7Deg turn inside */
+        node->pmat.setRotation('Y',ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) --- squat down */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*-110/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+        /* 3. node[3]: shank bone  */
+        node=addChildNode(node, 1.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*7/180; /* 7Deg turn outside */
+        node->pmat.setRotation('Y',ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) --- squat down */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*135/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+        /* 4. node[4]: foot bone  */
+        node=addChildNode(node, 0.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-90/180;
+        node->pmat.setRotation('X',ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) --- squat down */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*-35/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+
+/* Right Leg */
+        /* 5. node[5]: hip bone  */
+        node=addChildNode(root, 0.45*blen); /* node, boneLen */
+          ang[0]=MATH_PI*120/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,0); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) */
+	/* none */
+
+
+        /* 6. node[6]: thighbone  */
+        node=addChildNode(node, 1.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*(180-120 +7)/180;  /* 7Deg turn inside */
+        node->pmat.setRotation('Y',ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) --- squat down */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*-110/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+
+        /* 7. node[7]: shank bone  */
+        node=addChildNode(node, 1.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-7/180;	/* 7Deg turn outside */
+        node->pmat.setRotation('Y',ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) --- squat down */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*135/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+        /* 8. node[8]: foot bone  */
+        node=addChildNode(node, 0.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-90/180;
+        node->pmat.setRotation('X',ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) --- squat down */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*-35/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+	foot=node;
+
+/* Spine to neck */
+        /* 9. node[9]: spine_1  */
+        node=addChildNode(root, 0.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('X', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) --- squat down */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*-10/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+
+        /* 10. node[10]: spine_1A  */
+        node=addChildNode(node, 0.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('X', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) --- turn forward */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*-30/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+        /* 11. node[11]: spine_2  */
+        node=addChildNode(node, 0.5*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('X', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+	crossNode=node;
+
+        /* 12. node[12]: spine_neck  */
+        node=addChildNode(node, 0.25*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('X', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* 13. node[13]: spine_head  */
+        node=addChildNode(node, 0.75*blen); /* node, boneLen */
+        ang[0]=MATH_PI*20/180;
+        node->pmat.setRotation('X', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+
+/* Left shoulder to arm */
+        /* 14. node[14]: left_shoulder bone  */
+        node=addChildNode(crossNode, 0.6*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-100/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* 15. node[15]: left_upperarm bone  */
+        node=addChildNode(node, 1.0*blen); /* node, boneLen */
+        ang[0]=MATH_PI*-(180-100)/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) --- turn forward */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*-130/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+
+        /* 16. node[16]: left_forearm bone  */
+        node=addChildNode(node, 0.8*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* 17. node[17]: left_hand bone  */
+        node=addChildNode(node, 0.3*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+
+/* Right shoulder to arm */
+        /* 18. node[18]: right_shoulder bone  */
+        node=addChildNode(crossNode, 0.6*blen); /* node, boneLen */
+        ang[0]=MATH_PI*100/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* 19. node[19]: right_upperarm bone  */
+        node=addChildNode(node, 1.0*blen); /* node, boneLen */
+        ang[0]=MATH_PI*(180-100)/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+	/* Animating Quatrices(KeyFrames) --- turn forward */
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(0.0f, qt);
+	qt.setRotation('X',MATH_PI*-130/180);
+	node->animQts.insert(0.5f, qt);
+	qt.setRotation('X',MATH_PI*0/180);
+	node->animQts.insert(1.0f, qt);
+
+        /* 20. node[20]: right_forearm bone  */
+        node=addChildNode(node, 0.8*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* 21. node[21]: right_hand bone  */
+        node=addChildNode(node, 0.3*blen); /* node, boneLen */
+        ang[0]=MATH_PI*0/180;
+        node->pmat.setRotation('Y', ang[0]);
+        node->pmat.setTranslation(0,0,node->parent->blen); /* <--- parent's blen */
+
+        /* Finally: update NodePtrList to update Gmat list */
+        updateNodePtrList();
+
+/* TODO: To fix foot! default fix root */
+
 }
 
 
@@ -496,7 +1770,10 @@ void E3D_BMatrixTree::updateNodePtrList()
 	E3D_RTMatrix gmat;
 
 	/* Impossible */
-	if(root==NULL) return;
+	if(root==NULL) {
+		egi_dpstd("root is NULL!\n");
+		return;
+	}
 
 	/* Clear nodePtrList */
 	nodePtrList.clear();
@@ -548,7 +1825,7 @@ void E3D_BMatrixTree::updateTreeGmats()
 /*------------------------------------------
 Reset all node amats to identity RTMatrix.
 -------------------------------------------*/
-void E3D_BMatrixTree::resetNodeAmats()
+void E3D_BMatrixTree::resetTreeAmats()
 {
 	for(size_t k=0; k<nodePtrList.size(); k++)
 		nodePtrList[k]->amat.identity();
@@ -558,8 +1835,62 @@ void E3D_BMatrixTree::resetNodeAmats()
 Reset all amats as identity and update gmats
 accordinly.
 -------------------------------------------*/
-void E3D_BMatrixTree::resetNodeOrients()
+void E3D_BMatrixTree::resetTreeOrients()
 {
-	resetNodeAmats();
+	resetTreeAmats();
 	updateTreeGmats();
+}
+
+/*------------------------------------------
+Insert t/quatrix to the node->aminQts[].
+-------------------------------------------*/
+void E3D_BMatrixTree::insertNodeAminQt(E3DS_BMTreeNode *node, float t, const E3D_Quatrix &qt)
+{
+	if(node==NULL)
+		return;
+
+	/* Insert to node E3D_AnimQuatrices animQts */
+	node->animQts.insert(t, qt);
+}
+
+/*----------------------------------------------
+Interpolate to update all amats with with given
+time point t[0 1]
+----------------------------------------------*/
+void E3D_BMatrixTree::interpTreeAmats(float t)
+{
+	E3D_Quatrix qt;
+
+	for(size_t k=0; k< nodePtrList.size(); k++) {
+		qt.identity(); /* HK2022-11-08 */
+		egi_dpstd("nodePtrList[%d]->animQts.interp(t, qt)...\n",k);
+		nodePtrList[k]->animQts.interp(t, qt); /* interpolate to get qt */
+		qt.toMatrix(nodePtrList[k]->amat); /* qt to amat */
+	}
+}
+
+
+/*----------------------------------------
+interpNodeAmats()+updateTreeGmats()
+-----------------------------------------*/
+void E3D_BMatrixTree::interpTreeOrients(float t)
+{
+	interpTreeAmats(t);
+	updateTreeGmats();
+}
+
+
+
+/*----------------------------------------
+To create BMatrixTree by reading BVH data
+----------------------------------------*/
+void readBVH(const char *fbvh)
+{
+
+
+
+
+
+
+
 }
