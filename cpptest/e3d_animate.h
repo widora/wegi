@@ -60,12 +60,16 @@ public:
    ( Bone Matrix Tree Node )
 
 A bone(tree) growing direction defined as Z direction
-of the local COORD.
+of the local COORD. --- BUT, NOT Necessary!
+
 
 Note:
 1. In c++ struct is nearly same as class
    Use 'new' NOT 'malloc/alloc' to allocate
    a struct.
+2. A ROOT node bone is ACTUALLY a (ORIGIN) point!
+   and its blen is ALWAYS 0!
+
 ----------------------------------------------------*/
 typedef struct _BoneMatrix_TreeNode E3DS_BMTreeNode;
 struct _BoneMatrix_TreeNode {
@@ -102,7 +106,7 @@ struct _BoneMatrix_TreeNode {
 				      give BoneLength along direction(vector) bv, then it is transfered(offsetXYZ usually) by pmat to its
 				      own position/orientation.
 
-				 * 2. For attached points: transfrom coordinates under this COORD to under its parent's COORD
+				 * 2. For attached points: transform coordinates under this COORD to under its parent's COORD
 				 * 3. For the root: transfrom from the Global/Eye COORD to this root COORD.
 		 					!!! CAVEAT !!!
 				 * 4. NORMALLy, the translation of pmat is along its parent's bone(blen) legnth direction
@@ -122,7 +126,9 @@ struct _BoneMatrix_TreeNode {
 				 *  E3D_BMatrixTree::updateTreeGmats() OR updateNodePtrList()
 				 */
 
-	E3D_AnimQuatrices  animQts; /* Animating Quatrices for KeyFrames, interpolate to assign to amat!  */
+	E3D_AnimQuatrices  animQts; /* Animating Quatrices for KeyFrames, interpolate to assign to amat!
+				     * TBD&TODO: check and normalize quaternion before converting to/from matrix. ???
+				     */
 };
 E3DS_BMTreeNode *BMT_createRootNode(void);
 E3DS_BMTreeNode *BMT_addChildNode(E3DS_BMTreeNode* node, float boneLen);

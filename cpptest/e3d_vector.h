@@ -402,6 +402,16 @@ public:
 	void identity();
         void print(const char *name=NULL) const;
 
+	/* Normalize */
+	void normalize();
+
+	/* Overload operator '*' for Cross_Product  */
+	E3D_Quaternion  operator *(const E3D_Quaternion &q) const;
+	E3D_Quaternion & operator *=(const E3D_Quaternion &q);
+
+	/* Inverse quaternion */
+	void inverse();
+
 	/* Function: get rotation angle(radian) */
 	float getRotationAngle() const;
 	E3D_Vector getRotationAxis() const;

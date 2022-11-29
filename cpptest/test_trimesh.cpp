@@ -295,6 +295,7 @@ Journal:
 	1. TEST_BMTREE: TEST BoneMatrixTree
 2022-11-14:
 	1. Test BVH skeleton motion file.
+2022-11-25: Test shadow for BVH skeleton.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -426,7 +427,7 @@ int main(int argc, char **argv)
 	float		offx=0.0f, offy=0.0f, offz=0.0f;
 	float		rotX=0.0f, rotY=0.0f, rotZ=0.0f;
 	float		da=0.0f;	/* Delta angle for rotation */
-	int		psec=1;		/* Pause second, default */
+	int		pms=1000;		/* Pause msecond, default */
 	unsigned int	frameCount=0;
 
 	int		rotAxis=1;	/* Under FB_COORD, 0-X, 1-Y, 2-Z */
@@ -462,7 +463,9 @@ int main(int argc, char **argv)
 	float		dstep;
 	/* Note: ALWAYS take dnear==dv, and they are to be adjusted later. see 6. */
 	E3DS_ProjMatrix projMatrix; //{ .type=E3D_ISOMETRIC_VIEW, .dv=500, .dnear=500, .dfar=10000000, .winW=320, .winH=240};
-	E3D_InitProjMatrix(projMatrix, E3D_ISOMETRIC_VIEW, 320, 240, 500, 10000000, 500); /* matrix, type, winW,winH,dnear,dfar,dv */
+
+//Later, aft FBDEV init.
+//	E3D_InitProjMatrix(projMatrix, E3D_ISOMETRIC_VIEW, 320, 240, 500, 10000000, 500); /* matrix, type, winW,winH,dnear,dfar,dv */
 
 	/* Plane for shadow projection. */
 	E3D_Plane shadowPlane(0.0,1.0,0.0, 0.0); /* On y=0.0 plane */
@@ -598,9 +601,9 @@ int main(int argc, char **argv)
 				da=strtof(optarg,NULL); //atof(optarg);
 				break;
 			case 'p':
-				psec=atoi(optarg);
-				if(psec<0)
-					psec=0;
+				pms=atoi(optarg);
+				if(pms<0)
+					pms=0;
 				break;
 		}
 	}
@@ -634,6 +637,7 @@ int main(int argc, char **argv)
 	fbimg->width=xres;
 	fbimg->height=yres;
 	fbimg->imgbuf=(EGI_16BIT_COLOR*)gv_fb_dev.map_fb;
+
 
 #if 0	/* XXX Prepare for serial images playing XXX */
 	if( serialPlay_on ) {
@@ -669,6 +673,8 @@ int main(int argc, char **argv)
                 return -2;
         }
 
+	/* P5. Init projection matrix */
+	E3D_InitProjMatrix(projMatrix, E3D_ISOMETRIC_VIEW, xres, yres, 500, 10000000, 500); /* matrix, type, winW,winH,dnear,dfar,dv */
 
 	/* 0. Set global light vector */
 	float vang=45.0; /*  R=1.414, angle for vector(x,y) of vLight  */
@@ -685,7 +691,7 @@ else {	/* For Landscape */
 	   gv_vLight.assign(-1, 0.5, 1);
 	   //gv_vLight.assign(-1, 1, 0);
 	   gv_vLight.normalize();
-	   gv_auxLight.assign(0,0,1); //(1,1,1);
+	   //gv_auxLight.assign(0,0,1); //(1,1,1);
 	   //gv_auxLight.normalize();
 	}
 	else {
@@ -719,7 +725,11 @@ else {	/* For Landscape */
 	float fang=MATH_PI*10/180;
 	float rstep=fang; /* axis rotation step, for key input control  */
 	float animTValue=0.0; /* animating time value.  [0 1.0] */
-	float animTStep=0.01; //25;// 0.05; /* */
+	#ifdef LETS_NOTE
+	float animTStep=0.005;
+	#else
+	float animTStep=0.02;
+	#endif
 	int  nodeIndex=0; /* BMTree node index */
 	const char* strAxis="XYZ"; /* rotation axis */
 
@@ -729,12 +739,18 @@ else {	/* For Landscape */
 //	E3D_BMatrixTree  BMTree;
 	E3D_BMatrixTree  BMTree(fobj);
 //	E3D_BMatrixTree  BMTree(fobj, 0);
-
-	//BMTree.createCraneBMTree(); // xxx -s .7 -X 90 -A 2 -y 220 -a 5 -p 0 -P -l
 	//BMTree.createHandBMTree();  // xxx -s .45 -X 90 -A 2 -y 220 -a 5 -p 0 -P -l
 //	BMTree.createBoxmanBMTree(); // xxx -s .7 -X 90 -A 2 -y 220 -a 5 -p 0 -P -l
 
+        /* Baidan_Namco TEST: DO NOT move --------- */
+        BMTree.interpTreeAmats(0.1);/* t [0.0-1.0] */
+        for(int i=2; i<=4; i++) /* Hips, NOTE same as to  */
+                BMTree.nodePtrList[i]->amat.setTranslation(0,0,0);
+        BMTree.updateTreeGmats();	//BMTree.createCraneBMTree(); // xxx -s .7 -X 90 -A 2 -y 220 -a 5 -p 0 -P -l
+
+	/* Create skeleton trimesh */
 	E3D_TestSkeleton meshModel(BMTree);
+
   #else
 //	E3D_RtaSphere   meshModel(2, 100); /* xxx -c -s 2.0 -X 30 -P */
 //	E3D_Cuboid   meshModel(100,200,300); /* xxx -c -s 1.25 -X 30 -P -a 10 */
@@ -919,8 +935,10 @@ else {	/* For Landscape */
 	Tx=-meshModel.aabbox.vmax.x -5;
 	Ty=-meshModel.aabbox.vmax.y -5;
 	Tz=-meshModel.aabbox.vmax.z -5;
-if(TEST_BMTREE) {
-	Tz=0; //-meshModel.aabbox.vmax.z -5;
+
+if(TEST_BMTREE) { /* Running case */
+//	Tz=0; //-meshModel.aabbox.vmax.z -5; /* RUnning case */
+	Ty =-1.2*meshModel.aabbox.vmax.y -5;
 }
 
 
@@ -1012,13 +1030,21 @@ if(TEST_BMTREE) {
 	animTValue += animTStep;
 	printf(DBG_YELLOW" ----- Time: %f ----\n"DBG_RESET, animTValue);
 
-        if(saveMotion_on)
+        if(saveMotion_on) {
 		if(animTValue>1.0)exit(0);
+	}
 
 	/* Interpolate to get tree nodes orientations, amat will be replaced~ */
 	/* Animate by interpolate all tree acting matrices (amat) */
 	printf("interpTreeOrients...\n");
+	#if 0
 	BMTree.interpTreeOrients( animTValue -(int)animTValue); /* t [0.0-1.0] */
+	#else 	/* Baidan_Namco TEST: DO NOT move --------- */
+	BMTree.interpTreeAmats(animTValue -(int)animTValue);/* t [0.0-1.0] */
+	for(int i=2; i<=4; i++) /* Reset translation for Hips, same as for meshModel */
+		BMTree.nodePtrList[i]->amat.setTranslation(0,0,0);
+	BMTree.updateTreeGmats();
+	#endif
 
 #define BOXMANBMTREE_SQUAT 0
 #if BOXMANBMTREE_SQUAT /// For boxmanBMTree squating */
@@ -1115,7 +1141,7 @@ if(TEST_BMTREE) {
 	workMesh->cloneMesh(meshModel);
 #endif
 
-	egi_dpstd("workMesh: %d Triangles, %d TriGroups, %d Materials, %s, defMateril.img_kd is '%s'.\n",
+	egi_dpstd("workMesh: %d Triangles, %zu TriGroups, %zu Materials, %s, defMateril.img_kd is '%s'.\n",
 				workMesh->triCount(), workMesh->triGroupList.size(),
 				workMesh->mtlList.size(),
 				workMesh->mtlList.size()>0 ? "" : "defMaterial applys.",
@@ -1367,7 +1393,7 @@ if(1) {
 		printf("2 shadowPlane: fd=%f, ------>plane.vn",shadowPlane.fd); shadowPlane.vn.print(NULL);
 #endif
 
-   } /* END shadow_on */
+   	} /* END shadow_on */
 
 
 	/* W5. Set directFB to display drawing of each pixel. */
@@ -1771,7 +1797,7 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 
 	/* W12. Render to FBDEV */
 	fb_render(&gv_fb_dev);
-	if(psec>-1) sleep(psec); //usleep(psec*1000);
+	if(pms>-1) egi_sleep(0,0,pms); //usleep(psec*1000);
 	else sleep(1);
 
    	///////////////////////////////  Post_Render  ////////////////////////////////
@@ -2115,7 +2141,7 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
 	/* 11. Render to FBDEV */
 	fb_render(&gv_fb_dev);
 
-	if(psec) sleep(psec);
+	if(pms>-1) egi_sleep(0,0,pms); //usleep(psec*1000);
 	else usleep(75000);
 
 	/* 12. Update rotation angle */

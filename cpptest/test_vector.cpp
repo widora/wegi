@@ -68,11 +68,9 @@ int main(void)
 {
 	cout << "Hello, this is C++!\n" << endl;
 
-#if 1 ////////////////  E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh)  ////////////////
+#if 0 ////////////////  E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh)  ////////////////
 	E3D_BMatrixTree  bmtree("test.bvh");
 
-
-	
 exit(0);
 #endif
 
@@ -181,7 +179,7 @@ exit(0);
 #endif
 
 
-#if 0 ////////////////  E3D_Quaternion  ////////////////
+#if 1 ////////////////  E3D_Quaternion  ////////////////
 
 	E3D_Quaternion quat;
 	E3D_Quaternion quat0,quat1;
@@ -189,7 +187,7 @@ exit(0);
 	float ang;
 	E3D_Vector axis;
 
-	printf("\n ------ Quatermion to Matrix ----\n\n");
+	printf("\n ------ Quaternion to Matrix ----\n\n");
 	quat.setRotation('x', MATH_PI/2);
 	quat.print();
 	quat.toMatrix(mat);
@@ -222,11 +220,25 @@ exit(0);
 	quat1.setRotation('x', MATH_PI*180/180);
 	quat.slerp(quat0,quat1, 0.25);
 
-/* CAUTION: 0-180 interpolation axis can be '-X'! */
+/* TODO CAUTION: 0-180 interpolation axis can be '-X'! */
 	ang=quat.getRotationAngle();
 	printf("Rotation angle: %fDeg\n", ang/MATH_PI*180);
 	axis=quat.getRotationAxis();
 	axis.print("axis");
+
+
+	printf("\n ----- Quaternion setIntriRoation ----\n\n");
+	float angs[3]={0.5*MATH_PI, 0.25*MATH_PI, 0.1*MATH_PI};
+	mat.identity();
+	mat.combIntriRotation("ZXY", angs);
+	mat.print("ZXY");
+        quat.fromMatrix(mat);
+
+        quat.print();
+	quat.setIntriRotation("zxy", angs);
+	quat.print();
+	quat.toMatrix(mat);
+	mat.print("ZXY");
 
 
   exit(0);

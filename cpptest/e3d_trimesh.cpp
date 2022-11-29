@@ -2058,7 +2058,7 @@ END_FUNC:
 	/* Close file */
 	fin.close();
 
-	egi_dpstd("Finish reading obj file: %d Vertices, %d Triangels. %d TextureVertices. %d TriGroups, %d Materials.\n", /* MidasHK__ */
+	egi_dpstd("Finish reading obj file: %d Vertices, %d Triangels. %d TextureVertices. %zu TriGroups, %zu Materials.\n", /* MidasHK__ */
 		  								vcnt, tcnt, tuvListCnt, triGroupList.size(), mtlList.size());
 
 #if 0	/* TEST: ---------print all textureVtx tuvList[] */
@@ -4023,7 +4023,7 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		}
 
 
-#define TEST_Y_CLIPPING 1
+#define TEST_Y_CLIPPING 0
 
 		/* <<<<<----- TEST: RTMatrix operation functions! ---->>>>>  */
 
@@ -4719,7 +4719,7 @@ if( testRayTracing==true &&  BackFacingLight==false
                                         -vpts[0].z, -vpts[1].z, -vpts[2].z,
 					   &pXYZ, &capacity, &np
 					 );
-		egi_dpstd("pixelate np=%d\n", np);
+		egi_dpstd("pixelate np=%zu\n", np);
 
 		/* Overwrite pixels with equal zbuff */
 		fbdev->zbuff_IgnoreEqual=false;
@@ -6036,7 +6036,7 @@ void E3D_draw_grid(FBDEV *fbdev, int sx, int sy, int us, const E3D_RTMatrix &RTm
 
 	/* Check input, us!=0 HK2022-11-01 */
 	if(sx<1 || sy<1 || us<1) {
-		egi_dpstd(DBG_RED"Data error: sx=%zu, sy=%zu, us=%zu\n"DBG_RESET, sx, sy, us);
+		egi_dpstd(DBG_RED"Data error: sx=%d, sy=%d, us=%d\n"DBG_RESET, sx, sy, us);
 		return;
 	}
 

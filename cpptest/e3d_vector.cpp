@@ -95,7 +95,12 @@ Journal:
 2022-11-12:
 	1. Add E3D_Quaternion::setIntriRotation(axisToks, angs) and E3D_Quatrix::setIntriRotation(axisToks, angs)
 	2. Add E3D_Quaternion::setExtriRotation(axisToks, angs) and E3D_Quatrix::setExtriRotation(axisToks, angs)
-
+2022-11-21:
+	1. Add E3D_Quaternion::operator *, operator *=.
+	2. Add E3D_Quaternion::inverse()
+	3. E3D_Quaternion::setIntriRotation(): All quaternion operations.
+2022-11-21:
+	1. E3D_Quaternion::normalize()
 
 TODO:
 1. acos(x)/asin(x) will return NaN if x is little bit out of [-1.0 1.0] ???
@@ -944,7 +949,8 @@ bool E3D_RTMatrix::isIdentity()
 {
 	for(int i=0; i<9; i++) {
         	if(i%4==0) {
-                	if(fabs(pmat[i]-1.0)>1.0e-5)   /* <---- TODO: MORE TEST  VPRODUCT_EPSILON=(1.0e-6) */
+			/* Note: too small value will cost much more time OR deadlock in adjusting... */
+                	if(fabs(pmat[i]-1.0)>1.0e-5) /* <---- TODO: MORE TEST  VPRODUCT_EPSILON=(1.0e-6) */
                         	return false;
                 }
                 else if(fabs(pmat[i])>1.0e-5)
@@ -1151,15 +1157,14 @@ void E3D_RTMatrix::setRotation( const E3D_Vector &vfrom, const E3D_Vector &vto )
 	axis=E3D_vector_crossProduct(vfrom, vto);
 	axis.normalize();
 
-	/* Check vfrom.moduel() and vto.module() HK2022-11-17 */
-	float mvf=vfrom.module();
-	float mvt=vto.module();
-	if(mvf<VPRODUCT_NEARZERO || mvt<VPRODUCT_NEARZERO)
+	/* Check vfrom.moduel()*vto.module() HK2022-11-17 */
+	float mft=vfrom.module()*vto.module();
+	if(mft<VPRODUCT_NEARZERO || mft<VPRODUCT_NEARZERO)
 		return;
 
 	/* Get rotation angle */
 	//angle=acosf(vfrom*vto/(vfrom.module()*vto.module()));
-	angle=acosf(vfrom*vto/(mvf*mvt));
+	angle=acosf(vfrom*vto/mft);
 
 	/* set rotation matrix for pmax[] */
         vsin=sinf(angle);
@@ -1405,6 +1410,9 @@ void E3D_RTMatrix::combExtriRotation(const char *axisToks, float ang[3])
 /*----------------------------------------------------------------------------------
 Parse axisToks and left-mutilply imats to RTmat.
 For intrinsic rotation, each ref COORD is rotating also.
+
+	    !!! ---- CAUTION ---- !!!
+	Gimbal lock problem for interpolation!
 
 @axisToks: 	Intrinsic rotation sequence Tokens(rotating axis), including:
 		'X'('x') 'Y'('y') 'Z'('z')
@@ -2232,6 +2240,63 @@ void E3D_Quaternion::print(const char *name) const
         printf("Quaternion %s: [%f (%f, %f, %f)]\n", name?name:"", w,x,y,z);
 }
 
+/*------------------------
+	Normalize
+------------------------*/
+void E3D_Quaternion::normalize()
+{
+	float mod=sqrtf(w*w+x*x+y*y+z*z);
+	float invmod; /* 1.0/mod */
+	if(mod<VPRODUCT_NEARZERO) {
+		egi_dpstd(DBG_RED"mod<VPRODUCT_NEARZERO!\n"DBG_RESET);
+		identity();
+	}
+	else {
+		invmod=1.0f/mod;
+		w *= invmod;
+		x *= invmod;
+		y *= invmod;
+		z *= invmod;
+	}
+}
+
+/*----------------------------------
+Overload '*' as for Cross-Product
+----------------------------------*/
+E3D_Quaternion E3D_Quaternion::operator *(const E3D_Quaternion &q) const
+{
+	E3D_Quaternion cp;
+
+	cp.w=w*q.w-x*q.x-y*q.y-z*q.z;
+	cp.x=w*q.x+x*q.w+z*q.y-y*q.z;
+	cp.y=w*q.y+y*q.w+x*q.z-z*q.x;
+	cp.z=w*q.z+z*q.w+y*q.x-x*q.y;
+
+	return cp;
+}
+
+/*----------------------------------
+Overload '*=' as for Cross-Product
+----------------------------------*/
+E3D_Quaternion & E3D_Quaternion::operator *=(const E3D_Quaternion &q)
+{
+	*this = (*this)*q;
+
+	return *this;
+}
+
+/*---------------------------------------
+Inverse quaternion, as to reverse rotation.
+---------------------------------------*/
+void  E3D_Quaternion::inverse()
+{
+	x = -x;
+	y = -y;
+	z = -z;
+}
+
+
+
 /*--------------------------
 Get rotation angle in radian.
 ---------------------------*/
@@ -2279,6 +2344,7 @@ void E3D_Quaternion::setRotation(char chAxis, float angle)
    }
 }
 
+
 /*---------------------------------------------------------------
 Set extrinsic rotation.
 @axisToks:      EXtrinsic rotation sequence Tokens(rotating axis), including:
@@ -2300,8 +2366,7 @@ void E3D_Quaternion::setExtriRotation(const char *axisToks, float ang[3])
 
 /*---------------------------------------------------------------
 Set intrinsic rotation.
-
-
+OK quaternion sequence rotation is natrually intrinsic rotatioin.
 
 @axisToks:      Intrinsic rotation sequence Tokens(rotating axis), including:
                 'X'('x') 'Y'('y') 'Z'('z')
@@ -2310,6 +2375,7 @@ Set intrinsic rotation.
 ------------------------------------------------------------------*/
 void E3D_Quaternion::setIntriRotation(const char *axisToks, float ang[3])
 {
+#if 0   /////////// call E3D_RTMatrix::combIntriRotation()  //////////
 	E3D_RTMatrix mat; /* Init as identity */
 
 	/* intrinsic rotation matrxi */
@@ -2317,6 +2383,44 @@ void E3D_Quaternion::setIntriRotation(const char *axisToks, float ang[3])
 
 	/* to THIS  quaternion */
 	fromMatrix(mat);
+#else   ///////////////////////////////////////////////////////////
+	E3D_Quaternion  q;
+
+	/* Identity */
+	identity();
+
+	/* ---
+         * IntriRotation: p'=(c(ba))p(c(ba))^-1,  q=abc (Quaternion natrual rotation)
+	 * ??? ExtriRotation: p'=(abc)p(abc)^-1,  q=cba
+	 */
+
+	int toks=strlen(axisToks);
+	unsigned int np=0;
+	while( axisToks[np] ) {
+		/* 1. Max. 3 tokens */
+		if(np>2) break;
+
+		/* 2. Compute imat as per rotation axis and angle */
+		switch( axisToks[np] ) {
+			case 'x': case 'X':
+			case 'y': case 'Y':
+			case 'z': case 'Z':
+			   q.setRotation(axisToks[np], ang[np]);
+			   *this = q*(*this);   /* For intriRotation: in corss_multip sequence 'c(ba)'  more: e(d(c(ba))) */
+			   break;
+			default:
+			   egi_dpstd("Unrecognizable aix token '%c', NOT in 'xXyYzZ'!\n", axisToks[np]);
+			   break;
+		}
+
+		/* np increment */
+		np++;
+	}
+
+	/* Normalize it, TODO necessary here? OR elsewhere. */
+	// normalize();
+
+#endif  //////////////////////////////////////////////////////////
 }
 
 

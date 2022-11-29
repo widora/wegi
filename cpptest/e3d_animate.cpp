@@ -41,7 +41,13 @@ Journal:
 2022-11-14:
 	1. E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh): Add case that CHANNELS maybe 3 or 6.
 2022-11-15:
-	1. Add E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh, int namco) for Bandai_Namco BVH format.
+	1.  Add E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh, int namco) for Bandai_Namco BVH format.
+2022-11-21:
+	1. E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh): Test for Baidan_Namco BVH.
+2022-11-23:
+	1. E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh): Get rotAxisToks[] for each bone node.
+2022-11-24:
+	1. E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh): Test for SecondLife(avatar_) BVH.
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -64,7 +70,7 @@ void E3D_AnimQuatrices::print(const char *name) const
 		printf("  --- %s ---\n",name);
 
 	for(size_t k=0; k<ts.size(); k++) {
-		printf("Seq%d: t=%f, quat[%f (%f, %f, %f)], txyz(%f,%f,%f).\n",
+		printf("Seq%zu: t=%f, quat[%f (%f, %f, %f)], txyz(%f,%f,%f).\n",
 			k, ts[k],
 			qts[k].q.w,  qts[k].q.x, qts[k].q.y, qts[k].q.z,
 			qts[k].tx, qts[k].ty, qts[k].tz );
@@ -166,7 +172,7 @@ void E3D_AnimQuatrices::interp(float t, E3D_Quatrix &qt) const
 		qt.q.identity();
 		return;
 	}
-	egi_dpstd("ts.size()=%d\n", ts.size());
+	egi_dpstd("ts.size()=%zu\n", ts.size());
 
 	/* 2. Insert between two qts in ascending order of ts */
 	for(k=0; k<ts.size(); k++) {
@@ -454,9 +460,9 @@ E3D_BMatrixTree::~E3D_BMatrixTree()
 /*------------------------------------------------------
 To create BMatrixTree by reading BVH data
 
-		--- BVH File Format ---
+		=======  Typical BVH File Format  ======
 HIERARCHY
-ROOT Hips
+ROOT Hips (hip)
 {
 	OFFSET  0.0 0.0 0.0
 	CHANNELS 6 Xposition Yposition Zposition Zrotation Xrotation Yrotation
@@ -477,13 +483,45 @@ ROOT Hips
 		}
 		... ...
 	}
-
+	JOINT RightUpLeg
 	... ...
 }
 MOTION
 Frames: 137
 Frame Time: 0.016667
 (data for each frame ) ....
+
+
+
+
+--------- Bone Nodes: Bone_ROOT_Node, Bone_Hip_to_LeftUpLeg, Bone_LeftUpLeg_to_Leftleg, ....
+
+
+		========= Secondlife:: avatar_xxx.bvh  ========
+HIERARCHY
+ROOT hip
+{
+
+	OFFSET	0.00  0.00  0.00
+	CHANNELS 6 Xposition Yposition Zposition Xrotation Zrotation Yrotation
+	JOINT abdomen
+	{
+		OFFSET	0.000000 0.000000 0.000000          <----------  !!! CAUTION !!! -----
+		CHANNELS 3 Xrotation Zrotation Yrotation
+		JOINT chest
+		{
+			OFFSET	0.000000 5.018152 -1.882228
+			CHANNELS 3 Xrotation Zrotation Yrotation
+			JOINT neckDummy
+			{
+		... ...
+}
+
+Refrence BVH files:
+1. https://github.com/BandaiNamcoResearchInc/Bandai-Namco-Research-Motiondataset
+2. https://wiki.secondlife.com/wiki/Internal_Animations
+3. https://pages.cs.wisc.edu/~pingelm/ComputerAnimation/Motions/bvh/
+
 
 
 Note:
@@ -498,8 +536,10 @@ Note:
    Initial local COORDs MUST all parallel with Global COORD, bone direction NOT necessary to align with any axis!
 
 2. 		!!!--- CAUTION ---!!!
-   Assum that each BVH joint(bone) has 3 CHANNELS(sequence: Zrotation Xrotation Yrotation).
-   except the ROOT node, which has 6 CHANNELS.(sequence: Xposition Yposition Zposition Zrotation Xrotation Yrotation).
+   XXX Assum that each BVH joint(bone) has 3 CHANNELS(sequence: Zrotation Xrotation Yrotation).
+   XXX except the ROOT node, which has 6 CHANNELS.(sequence: Xposition Yposition Zposition Zrotation Xrotation Yrotation).
+   OK, Baidan_Namco BVH all have 6 CHANNELS, though XYZposition data is for NO USE for nonroot nodes.
+
 3. In case of 'JOINT' and 'End site": add a new bone from parent to THIS joint point.
 4. Assign E3DS_BMTreeNode.bv with OFFSET_xyz first, and convert to unit vector AFTER
    assign vb.xyz to next bone's pmat[9-11](Txyz);
@@ -518,18 +558,28 @@ E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh)
 					     * this MUST be the same sequenece of frame data attached.
 					     */
 
-	/* Assum that each joint(bone) has 3 CHANNELS(Zrotation Xrotation Yrotation),
-	 * and the ROOT has 6 CHANNELS.(Xposition Yposition Zposition Zrotation Xrotation Yrotation).
+	/* XXX Assum that each joint(bone) has 3 CHANNELS(Zrotation Xrotation Yrotation),
+	 * XXX and the ROOT has 6 CHANNELS.(Xposition Yposition Zposition Zrotation Xrotation Yrotation).
 	 */
 	size_t 			 datacnt=0;    /* data(float type) number for one MOTION frame */
 	vector<int>		 dataindex;    /* data start index for corresponding nodestack[] */
 	vector<int>		 indexbranch;   /* to trace current dataIndex */
-	vector<float>		 datagroup;    /* datagroup for one MOTION frame */
-	int 			 lastindex;    /* Before indexbranch.pop_back, need to save as lastindex for later use. */
+	vector<float>		 datagroup;    /* goup of data for one MOTION frame */
+	int 			 lastindex;    /* Before indexbranch.pop_back, need to save as lastindex for later use.
+						* In case a node has 2 or more branches, when it pop_back to the node,
+						* it uses the lastindex to share same data.
+					        */
 
 	E3DS_BMTreeNode *bnode=NULL;
 	bool IsEndSite=false;
 	bool IsRootNode=false;
+	bool IsRootHips=true;   /* TRUE: Usually hip center is the ROOT,
+				 * FALSE: Assume here as Baidan_Namco BVH.
+				 */
+	char rotAxisToks[4]={'Z','X','Y',0};  /* Rotation axis sequence tokens, 'ZXY' for most case. */
+	bool rotAxisToksOK=false;
+	vector<string> rotAxisTokStack;  /* To save axis sequence tokens for each bone. */
+
 	float blen;
 	int  nodechans=3;  /* (non_ROOT) node channels. Assume 6 OR 3. */
 	float offx=0.0f, offy=0.0f, offz=0.0f;
@@ -561,104 +611,118 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 		//cout<< DBG_YELLOW"txtline: "<<txtline<< "\n\n"DBG_RESET<< endl;
 //		printf(DBG_YELLOW"txtline[%zu]:"DBG_RESET"\n %s\n", tlcnt, txtline.c_str());
 
-		/* Check key_words */
+
+		/* W1. Case key 'ROOT'  */
 		if( (pos=txtline.find("ROOT")) !=txtline.npos ) {
 			printf("ROOT, pos=%zu\n",pos);
 			IsRootNode=true;
 
-			/* Create root node */
+			/* W1.1 Check if ROOT node is NOT hips center */
+			if( (pos=txtline.find("Hip"))==txtline.npos && (pos=txtline.find("hip"))==txtline.npos )
+			IsRootHips=false; /* Root is NOT the hips center.  */
+
+			/* W1.2 Create root node */
 			root=BMT_createRootNode();
 
-			/* Push back to tracing branch */
+			/* W1.3 Push back to tracing branch */
 			branch.push_back(root);
 			nodestack.push_back(root);
 			printf("Trancing branch.size=%zu\n", branch.size());
 
-			/* <======= Data index handling  =========> */
+			/* W1.4 <=======  Data index handling  =========> */
 			dataindex.push_back(0);
 			indexbranch.push_back(dataindex.back());
 			datacnt +=6;
+			lastindex=0;
 		}
-		/* Case JOINT: Add a bone from parent to this joint!  and assign its parent(branch.back).pmat[9-11] */
+		/* W2. Case key 'JOINT': Add a bone from parent to this joint!  and assign its parent(branch.back).pmat[9-11] */
 		else if( (pos=txtline.find("JOINT")) !=txtline.npos ) {
 			printf("JOINT, pos=%zu\n",pos);
 
-			/* Push back last bone to tracing branch */
+			/* W2.1 Push back last bone to tracing branch */
 			if(bnode!=NULL) { /* Note, bnode reset to NULL aft push_back End_site bone */
 
+				/* W2.1.1 Push bnode */
 				branch.push_back(bnode);
 				nodestack.push_back(bnode);
 				printf("Trancing branch.size=%zu\n", branch.size());
 
 				/* <======= Data index handling  =========> */
+				/* W2.1.2 */
 				if(bnode->parent==root) {  /* Fixed with ROOT, need no channels */
 					printf("The node has Root as its parent!\n");
+
+					/* Push rotAxisToks same as the ROOT's */
+					rotAxisTokStack.push_back(rotAxisTokStack[indexbranch.size()-1]);
 				}
 
-				/* If share the same CHANNEL values with siblings, see note 7. */
+				/* W2.1.3 If share the same CHANNEL data with siblings, see note 7. */
 			 	if(bnode->parent->firstChild !=bnode ) {
-					printf(">>> Share data with siblings: lastindex=%d, indexbranch.size=%zu, indexbranch.back()=%zu\n",
+					printf(">>> Share data with siblings: lastindex=%d, indexbranch.size=%zu, indexbranch.back()=%d\n",
 							lastindex, indexbranch.size(), indexbranch.back() );
-					//dataindex.push_back(indexbranch.back()+nodechans);
+
 					dataindex.push_back(lastindex); /* HK2022-11-16 */
 					indexbranch.push_back(dataindex.back());
+
+					/* Push rotAxisToks same as the firstChild */
+					rotAxisTokStack.push_back(rotAxisTokStack[indexbranch.size()-1]);
 				}
-				/* Need 6/3 CHANNEL values */
-				else {
+				/* W2.1.4 Need 6/3 CHANNEL values */
+				else { /* The firstChild, Or ONLY child.*/
 					dataindex.push_back(datacnt);
 					indexbranch.push_back(dataindex.back());
-					if( bnode->parent!=root ) {
+					//printf("indexbranch.push_back(), indexbranch.back()=%d\n", indexbranch.back());
+					if( bnode->parent!=root ) { /* Root's child share data with ROOT node */
 						datacnt +=nodechans;
 						printf(">>> datacnt +=%d \n",nodechans);
 					}
 				}
 
-#if 1 /* Test: ---------- */
+#if 0 /* Test: ---------- */
 				if(bnode->parent==root)
 				   	printf("DataStartIndex for a root child, No need.\n");
 				else
-					printf("DataStartIndex for above node: %zu.\n", dataindex.back());
+					printf("DataStartIndex for above node: %d.\n", dataindex.back());
 #endif
 				/* <======= END data index handling  =========> */
 
 			} /* End push last bone node */
 
-			/* Add a bone from parent to this joint */
-			bnode=addChildNode(branch.back(), 0.0f); /* BoneLength unkown here, until get OFFSET */
+			/* W2.2 Add a bone from its parent to this joint */
+			bnode=addChildNode(branch.back(), 0.0f); /* BoneLength unkown here, until we get next OFFSET */
 			if(bnode==NULL) {
 				egi_dpstd(DBG_RED"Fail to addChildNode!\n"DBG_RESET);
 				return;
 /* Retrun  <----------------------------- */
 			}
 
-			/* Local COORD offset from the parent */
-			if(bnode->parent==root) { /* If ROOT's direct child */
+			/* W2.3 Local COORD offset from the parent */
+			if(bnode->parent==root) { /* If ROOT's direct child, it's fixed with the ROOT. */
 				bnode->pmat.pmat[9]=0.0f;
 				bnode->pmat.pmat[10]=0.0f;
 				bnode->pmat.pmat[11]=0.0f;
+
 			}
 			else {
 				/* Local COORD as its parent bone Vector */
 				bnode->pmat.pmat[9]=bnode->parent->bv.x;
 				bnode->pmat.pmat[10]=bnode->parent->bv.y;
 				bnode->pmat.pmat[11]=bnode->parent->bv.z;
-/* TEST: -------- */
-			if(branch.size()==3)
-				bnode->parent->bv.print("<<< BV >>>");
 
 				/* NOW: normalize paretn->bv */
 				/* XXX NOT HERE! Each child node need it for pmat[9-11]!!! */
 				// bnode->parent->bv.normalize();
 			}
 		}
-		/* Case OFFSET: set root.offxyz, set bnode.bv and bnode.blen. */
+		/* W3. Case key 'OFFSET': set root.offxyz, set bnode.bv and bnode.blen. */
 		else if( (pos=txtline.find("OFFSET")) !=txtline.npos ) {
 			printf("OFFSET, pos=%zu, offset: %s\n",pos, txtline.substr(pos+6).c_str());
 
-			/* Read OFFSET xyz */
+			/* W3.1 Read OFFSET xyz */
 			sscanf(txtline.substr(pos+6).c_str(), "%f %f %f", &offx,&offy,&offz);
 			printf(DBG_GREEN"___offxyz: %f,%f,%f\n"DBG_RESET, offx,offy,offz);
 
+			/* W3.2 Assign root->pmat.pmat[9-11] */
 			if(IsRootNode && root!=NULL ) {  /* root SHOULD already created at case 'ROOT' */
 				/* Assign Offset_xyz to pmat.Txyz */
 				root->pmat.pmat[9]=offx;
@@ -668,36 +732,42 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 				/* Unmark */
 				IsRootNode=false;
 			}
+			/* W3.3 Assign blen and bv */
 			else if(bnode) { /* bnode SHOULD already created at case 'JOINT' */
 				/* bone length */
 				blen=sqrt(offx*offx+offy*offy+offz*offz);
 				bnode->blen=blen;
+
+				/* Check if ROOT is NOT the hips center */
+				if(!IsRootHips && bnode->parent==root)
+					bnode->blen=0.0f; /* DO NOT draw then bone */
 
 				/* Note: this OFFSET is for NEXT bone */
 				/* bone direction vector */
 				bnode->bv.assign(offx,offy,offz);
 			}
 
+			/* W3.4 If the EndSite */
 			if(IsEndSite && bnode!=NULL) {
-				/* Push back the end_site bone to tracing branck */
+				/* W3.4.1 Push back the end_site bone to tracing branck */
 				branch.push_back(bnode);
 				nodestack.push_back(bnode);
 				printf("Trancing branch.size=%zu\n", branch.size());
 
 				/* <======= Data index handling  =========> */
+				/* W3.4.2 */
 				if(bnode->parent==root) {  /* Fixed with ROOT, need no channels */
 					printf("The node has Root as its parent!\n");
 				}
 
-				/* If share the same CHANNEL values with siblings, see note 7. */
+				/* W3.4.3 If share the same CHANNEL values with siblings, see note 7. */
 			 	if(bnode->parent->firstChild !=bnode ) {
-					printf(">>> Share data with siblings: indexbranch.size=%zu, indexbranch.back()=%zu\n",
+					printf(">>> Share data with siblings: indexbranch.size=%zu, indexbranch.back()=%d\n",
 							indexbranch.size(), indexbranch.back() );
-					//dataindex.push_back(indexbranch.back()+nodechans);
 					dataindex.push_back(lastindex); /* HK2022-11-16 */
 					indexbranch.push_back(dataindex.back());
 				}
-				/* Need 3 CHANNEL values */
+				/* W3.4.4 Need 6/3 CHANNEL values */
 				else {
 					dataindex.push_back(datacnt);
 					indexbranch.push_back(dataindex.back());
@@ -706,16 +776,16 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 						printf(">>> datacnt +=%d \n", nodechans);
 					}
 				}
-#if 1 /* Test: ---------- */
+#if 0 /* Test: ---------- */
 				if(bnode->parent==root)
 				   	printf("DataStartIndex for a root child, No need.\n");
 				else
-					printf("DataStartIndex for above node: %zu.\n", dataindex.back());
+					printf("DataStartIndex for above node: %d.\n", dataindex.back());
 #endif
 				/* <======= END data index handling  =========> */
 
 
-				/* <<<<<<<<<<< Reset bnode here! >>>>>>>>>> */
+				/* W3.4.5 <<<<<<<<<<< Reset bnode here! >>>>>>>>>> */
 				bnode=NULL;
 
 				/* Unmark */
@@ -724,36 +794,66 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 
 
 		}
-		/* Case CHANNELS: This for the next bone! if this_bone.parent=root, then it's all fixed.  */
+		/* W4. Case key 'CHANNELS': This for the next bone! if this_bone.parent=root, then it's all fixed.  */
 		else if( (pos=txtline.find("CHANNELS")) !=txtline.npos ) {
 			printf("CHANNELS found, pos=%zu\n",pos);
+
+			/* W4.1 Get nodechans, usually 6 or 3. */
 			sscanf(txtline.substr(pos+9).c_str(), "%d", &nodechans);
+
+			/* W4.2 Get rotation axis sequences */
+			int ps[3];
+			ps[0]=(int)txtline.find("Xrotation");
+			ps[1]=(int)txtline.find("Yrotation");
+			ps[2]=(int)txtline.find("Zrotation");
+
+			if( (size_t)ps[0]!=txtline.npos && (size_t)ps[1]!=txtline.npos && (size_t)ps[2]!=txtline.npos) {
+				/* Sort in ascending order */
+				mat_quick_sort(ps, 0, 2, 3);
+
+				rotAxisToks[0]=txtline[ps[0]];
+				rotAxisToks[1]=txtline[ps[1]];
+				rotAxisToks[2]=txtline[ps[2]];
+				rotAxisToks[3]=0;
+				printf(" --- RotAxisToks: %s ----\n", rotAxisToks);
+				//exit(0);
+			}
+			else {
+				//Keep same as previous in rotAxisToks.
+			}
+
+			/* W4.3 Push to rotAxisTokStack[] */
+			rotAxisTokStack.push_back(rotAxisToks);
 		}
-		/* Case End_Site: Push last bnode to branch, add the END bone. */
+		/* W5. Case key 'End_Site': Push last bnode to branch, add the END bone. */
 		else if( (pos=txtline.find("End Site")) !=txtline.npos ) {
 			printf("JOINT found, pos=%zu\n",pos);
+
+			/* W5.1 Set IsEndSite */
 			IsEndSite=true;
 
-			/* Push back last bone to tracing branch */
+			/* W5.2 Push back last bone to tracing branch */
 			if(bnode!=NULL) { /* Note, bnode reset to NULL aft push_back End_site bone */
+
+				/* W5.2.1 Push bnode */
 				branch.push_back(bnode);
 				nodestack.push_back(bnode);
 				printf("Trancing branch.size=%zu\n", branch.size());
 
 				/* <======= Data index handling  =========> */
+				/* W5.2.2 */
 				if(bnode->parent==root) {  /* Fixed with ROOT, need no channels */
 					printf("The node has Root as its parent!\n");
 				}
 
-				/* If share the same CHANNEL values with siblings, see note 7. */
+				/* W5.2.3 If share the same CHANNEL values with siblings, see note 7. */
 			 	if(bnode->parent->firstChild !=bnode ) {
-					printf(">>> Share data with siblings: indexbranch.size=%zu, indexbranch.back()=%zu\n",
+					printf(">>> Share data with siblings: indexbranch.size=%zu, indexbranch.back()=%d\n",
 							indexbranch.size(), indexbranch.back() );
-					//dataindex.push_back(indexbranch.back()+nodechans);
 					dataindex.push_back(lastindex);/* HK2022-11-16 */
 					indexbranch.push_back(dataindex.back());
 				}
-				/* Need 3 CHANNEL values */
+				/* W5.2.4 Need 6/3 CHANNEL values */
 				else {
 					dataindex.push_back(datacnt);
 					indexbranch.push_back(dataindex.back());
@@ -762,18 +862,17 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 						printf(">>> datacnt +=%d \n",nodechans);
 					}
 				}
-#if 1 /* Test: ---------- */
+#if 0 /* Test: ---------- */
 				if(bnode->parent==root)
 				   	printf("DataStartIndex for a root child, No need.\n");
 				else
-					printf("DataStartIndex for above node: %zu.\n", dataindex.back());
+					printf("DataStartIndex for above node: %d.\n", dataindex.back());
 #endif
 				/* <======= END data index handling  =========> */
 
-
 			}
 
-			/* Add a bone from parent to this End_Site */
+			/* W5.3 Add a bone from parent to this End_Site */
 			bnode=addChildNode(branch.back(), 0.0f); /* BoneLength unkown here, until get OFFSET */
 			if(bnode==NULL) {
 				egi_dpstd(DBG_RED"Fail to addChildNode!\n"DBG_RESET);
@@ -781,17 +880,16 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 /* Retrun  <----------------------------- */
 			}
 
-			/* Local COORD offset from the parent */
+			/* W5.4 Local COORD offset from the parent */
 			bnode->pmat.pmat[9]=bnode->parent->bv.x;
 			bnode->pmat.pmat[10]=bnode->parent->bv.y;
 			bnode->pmat.pmat[11]=bnode->parent->bv.z;
-
 
 			/* NOW: normalize paretn->bv */
 			/* XXX NOT HERE! Each child node need it for pmat[9-11]!!! */
                         //bnode->parent->bv.normalize();
 		}
-		/* Case '}': branch.pop_back() */
+		/* W6. Case key '}': branch.pop_back() */
 		else if( (pos=txtline.find("}")) !=txtline.npos ) {
 
 			/* Reseet IsEndSite */
@@ -802,7 +900,7 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 			/* Pop a node from the branch */
 			branch.pop_back();
 			if(branch.empty()) {
-				printf("...tracing branch is empty NOW! End VBH Tree!?, datacnt=%d .....\n", datacnt);
+				printf("...tracing branch is empty NOW! End VBH Tree!?, datacnt=%zu .....\n", datacnt);
 			}
 			else {
 				printf("Trancing branch.size=%zu (ROOT is also a bonenode)\n", branch.size());
@@ -815,13 +913,14 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 			lastindex=indexbranch.back();
 			/* Pop indexbranch */
 			indexbranch.pop_back();
+			printf("lastindex=%d, indexbranch.pop_back...\n", lastindex);
 		}
-		/* Case 'Frames:' Total frame data attached. */
+		/* W7. Case key 'Frames:' Total frame data attached. */
 		else if( (pos=txtline.find("Frames:")) !=txtline.npos ) {
 			sscanf(txtline.substr(pos+7).c_str(), "%d", &frames);
 			printf("Frames: %d\n", frames);
 		}
-		/* Case 'Frame Time:' Frame time in second. */
+		/* W8. Case key 'Frame Time:' Frame time in second. */
 		else if( (pos=txtline.find("Frame Time:")) !=txtline.npos ) {
 			sscanf(txtline.substr(pos+11).c_str(), "%f", &tpf);
 			printf("Time per. frame: %f(s)\n", tpf);
@@ -867,9 +966,26 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 	}
 #endif //////////////////////////////////////////////////////////////////////////////////////////
 
+#if 1 /* TEST: Check nodestack and corresponding dataindex ------------- */
+	printf(" ============= nodestack =========== \n");
+
+	#if 0
+	for(size_t k=0; k<nodestack.size(); k++) {
+		nodestack[k]->bv.print(NULL);
+	}
+	#endif
+
+	for(size_t k=0; k<nodestack.size(); k++) {
+                printf(">>>>> Node[%d]: corresponding frame dataindex: %d %s <<<<<\n",
+				k, dataindex[k], nodestack[k]->parent==root?"(ROOT's child, Ignore!)":"");
+        }
+
+	sleep(2);
+//	exit(0);
+#endif
 
 
-#if 1 /* TEST: ------------- */
+#if 0 /* TEST: ------------- */
 	nodestack[1]->pmat.print("---nodestack[1].pamt---");
 
 	printf("Total %zu bone nodes added!\n", nodePtrList.size());
@@ -877,20 +993,12 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 		printf(">>>>> Node[%d]: blen=%f, with dataindex: %d (no need for root's child) <<<<<\n", k, nodePtrList[k]->blen, dataindex[k]);
 		nodePtrList[k]->bv.print(NULL);
 	}
-
-	printf(" ============= nodestack =========== \n");
-	for(size_t k=0; k<nodestack.size(); k++) {
-		nodestack[k]->bv.print(NULL);
-	}
 #endif
-
-
 
 
 #if 1	/* Read all data into animQts[] for each BMTreeNode */
 	char *pt;
 	const char *delims=" 	\n\r\t"; /* space and tab */
-	//const char *axisToks="ZXY";
 
 	E3D_Quatrix qt;
 	float angs[3];
@@ -903,7 +1011,7 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 //		printf("	=== framecnt:%d/[%d-1] ===\n", framecnt,frames);
 //		printf(DBG_YELLOW"txtline[%zu]:"DBG_RESET"\n %s\n", tlcnt, txtline.c_str());
 
-		/* Read joint transform(RT) data for one frame */
+		/* R1. Read joint transform(RT) data for one frame */
 		pt=strtok((char *)txtline.c_str(), delims);
 		while(pt) {
 			datagroup.push_back(atof(pt));
@@ -916,10 +1024,13 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 			printf("datagroup[%zu]: %f\n", k, datagroup[k]);
 		#endif
 
-		/* Assign movment data to corresponding BMTreeNode.animQts */
+		/* R2. Assign movment data to corresponding BMTreeNode.animQts */
+		egi_dpstd("nodestack.size=%zu, rotAxisTokStack.size=%zu\n", nodestack.size(), rotAxisTokStack.size());
 		for(size_t k=0; k<nodestack.size(); k++) {
-			/* The ROOT node: 6 Channels */
+			/* R2.1 The ROOT node: 6 Channels */
 			if(k==0) {
+printf("node[0]: Rot_%s, offset:%f,%f,%f\n", rotAxisTokStack[k].c_str(), datagroup[0],datagroup[1],datagroup[2]);
+
 				/* Sequence: Xposition Yposition Zposition Zrotation Xrotation Yrotation */
 				qt.identity();
 
@@ -927,8 +1038,9 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 				angs[0]=PIpd*datagroup[3];
 				angs[1]=PIpd*datagroup[4];
 				angs[2]=PIpd*datagroup[5];
-				qt.setIntriRotation("ZXY", angs);
-				//qt.setExtriRotation("ZXY", angs);
+				//qt.setIntriRotation("ZXY", angs);
+				//qt.setIntriRotation(rotAxisToks, angs);
+				qt.setIntriRotation(rotAxisTokStack[k].c_str(), angs);
 
 				/* Translation After rotation! */
 				qt.setTranslation(datagroup[0],datagroup[1],datagroup[2]);
@@ -936,39 +1048,57 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 				/* Insert to animQts */
 				nodestack[k]->animQts.insert(1.0*framecnt*invfms, qt); //(1.0*k*/(frames-1), qt);
 			}
-			/* Direct child of the ROOT */
+			/* R2.2 Direct child of the ROOT. see as fixed with the ROOT node. */
 			else if(nodestack[k]->parent==root) {
+printf("node[%zu]: Rot_%s \n", k, rotAxisTokStack[k].c_str());
+
 				/* See as fixed  with the ROOT. NO need to insert an identity qt. */
-				//qt.identity();
-				//nodestack[k]->animQts.insert(1.0*framecnt*invfms, qt);
+				qt.identity();
+				nodestack[k]->animQts.insert(1.0*framecnt*invfms, qt);
 			}
-			/* Normal bone nodes: Note, some bone may share the same data in datagroup[] */
+			/* R2.2 Normal bone nodes: Note, some bone may share the same data in datagroup[] */
 			else {
-				/* Sequence: Zrotation Xrotation Yrotation */
+				/* qt and index */
 				qt.identity();
 				index=dataindex[k]; /* start data index for the node */
-//		printf("node[%d]: RotZXY %f,%f,%f\n", k, datagroup[index],datagroup[index+1],datagroup[index+2]);
 
 				/* Case: 6 CHANNELS */
 				if(nodechans==6) {
-		printf("node[%d]: RotZXY %f,%f,%f\n", k, datagroup[index+3],datagroup[index+4],datagroup[index+5]);
+printf("node[%zu]: Rot_%s, TransXYZ:%f,%f,%f RotAngs:%f,%f,%f\n", k, rotAxisTokStack[k].c_str(),
+				datagroup[index],datagroup[index+1],datagroup[index+2],
+				datagroup[index+3],datagroup[index+4],datagroup[index+5]);
 
 					/* Rotation Before translation */
 					angs[0]=PIpd*datagroup[index+3];
 					angs[1]=PIpd*datagroup[index+4];
 					angs[2]=PIpd*datagroup[index+5];
-					qt.setIntriRotation("ZXY", angs);
 
-					/* Translation After rotation! */
-//					qt.setTranslation(datagroup[index],datagroup[index+1],datagroup[index+2]);
+					//qt.setIntriRotation("ZXY", angs);
+					//qt.setIntriRotation(rotAxisToks, angs);
+					qt.setIntriRotation(rotAxisTokStack[k].c_str(), angs);
+
+					/* ---> For Baidan_Namco BVH, assign local origin XYZ movement to hips.  HK2022-11-22 */
+					#if 1
+					if(!IsRootNode && nodestack[k]->parent->parent==root)
+					  	qt.setTranslation(datagroup[index],datagroup[index+1],datagroup[index+2]);
+					#endif
+
+					/* Translation After rotation! NOPE! ...Usually same as OFFSET */
+					// qt.setTranslation(datagroup[index],datagroup[index+1],datagroup[index+2]);
 				}
 				/* Case: 3 CHANNELS */
 				else {
+printf("node[%zu]: Rot_%s, RotAngs:%f,%f,%f\n", k, rotAxisTokStack[k].c_str(),
+				datagroup[index],datagroup[index+1],datagroup[index+2] );
+
 					/* Rotation */
 					angs[0]=PIpd*datagroup[index];
 					angs[1]=PIpd*datagroup[index+1];
 					angs[2]=PIpd*datagroup[index+2];
-					qt.setIntriRotation("ZXY", angs);
+
+					//qt.setIntriRotation("ZXY", angs);
+					//qt.setIntriRotation(rotAxisToks, angs);
+					qt.setIntriRotation(rotAxisTokStack[k].c_str(), angs);
 				}
 
 				/* Insert to animQts */
@@ -987,6 +1117,7 @@ printf(DBG_GREEN" ---- Start parsing ----\n"DBG_RESET);
 
 	fin.close();
 	egi_dpstd(DBG_GREEN"Totally read %d of %d frames of animation data, each frame takes %f second.\n", framecnt, frames, tpf);
+
 }
 
 
@@ -1863,7 +1994,7 @@ void E3D_BMatrixTree::interpTreeAmats(float t)
 
 	for(size_t k=0; k< nodePtrList.size(); k++) {
 		qt.identity(); /* HK2022-11-08 */
-		egi_dpstd("nodePtrList[%d]->animQts.interp(t, qt)...\n",k);
+		egi_dpstd("nodePtrList[%zu]->animQts.interp(t, qt)...\n",k);
 		nodePtrList[k]->animQts.interp(t, qt); /* interpolate to get qt */
 		qt.toMatrix(nodePtrList[k]->amat); /* qt to amat */
 	}
@@ -1881,16 +2012,3 @@ void E3D_BMatrixTree::interpTreeOrients(float t)
 
 
 
-/*----------------------------------------
-To create BMatrixTree by reading BVH data
-----------------------------------------*/
-void readBVH(const char *fbvh)
-{
-
-
-
-
-
-
-
-}
