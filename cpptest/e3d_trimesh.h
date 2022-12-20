@@ -607,6 +607,7 @@ public:
 		/* Functions */
 		void setDefaults();	/* Set default/initial values */
 		void assign(float x, float y, float z);
+		void assignNormal(float x, float y, float z);
 	};
 
 	/* :: Class Triangle  !!! NO pointer member allowed !!! */
@@ -760,6 +761,9 @@ public:
 
 	/* Destructor ~E3D_TriMesh() */
 	~E3D_TriMesh();
+
+	/* Load glTF into trimesh */
+	int loadGLTF(const string & fgl);
 
 	/* Init member/parameters/variabls. */
 	void initVars();

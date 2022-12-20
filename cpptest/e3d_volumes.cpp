@@ -1071,14 +1071,14 @@ E3D_TestSkeleton::E3D_TestSkeleton(E3D_BMatrixTree &bmtree) :E3D_TriMesh()
 			return;
 
 #if 1		/* VBH bone length direction is NOT local COORD_X axis */
-		if(bmtree.type==BMTREE_TYPE_VBH) {
+		if(bmtree.type!=BMTREE_TYPE_E3D) {
 			E3D_RTMatrix mat;
 			E3D_Vector  vz(0.0, 0.0, 1.0);
 			mat.setRotation(vz, bmtree.nodePtrList[k]->bv);
 			nodebone.transformVertices(mat);
 		}
 #else		/* VBH bone length direction is local COORD_Y axis */
-		if(bmtree.type==BMTREE_TYPE_VBH) {
+		if(bmtree.type!=BMTREE_TYPE_E3D) {
 			E3D_RTMatrix mat;
 			E3D_Vector  vz(0.0, 0.0, 1.0); /* E3D_ABONE bone length direction vector */
 			E3D_Vector  vy(0.0, 1.0, 0.0);

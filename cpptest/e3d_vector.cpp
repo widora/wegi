@@ -2407,6 +2407,9 @@ void E3D_Quaternion::setIntriRotation(const char *axisToks, float ang[3])
 			case 'z': case 'Z':
 			   q.setRotation(axisToks[np], ang[np]);
 			   *this = q*(*this);   /* For intriRotation: in corss_multip sequence 'c(ba)'  more: e(d(c(ba))) */
+
+			   /* np increment */
+			   np++;
 			   break;
 			default:
 			   egi_dpstd("Unrecognizable aix token '%c', NOT in 'xXyYzZ'!\n", axisToks[np]);
@@ -2414,7 +2417,7 @@ void E3D_Quaternion::setIntriRotation(const char *axisToks, float ang[3])
 		}
 
 		/* np increment */
-		np++;
+		//np++; NOT HERE, see in case:xyzXYZ HK2022-11-29 */
 	}
 
 	/* Normalize it, TODO necessary here? OR elsewhere. */

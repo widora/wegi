@@ -677,7 +677,7 @@ char *egi_URI2URL(char *refURL, char *strURI)
                  strncat(myURL, hostName, EGI_URL_MAX-1-strlen(myURL));
                  strncat(myURL, strURI, EGI_URL_MAX-1-strlen(myURL));
         }
-        /* Case)4: Given file/resource name  x.jpg, x.ts, ... */
+        /* Case_4: Given file/resource name  x.jpg, x.ts, ... */
         else {
                  strcat(myURL,dirURL);
                  strncat(myURL, strURI, EGI_URL_MAX-1-strlen(myURL));

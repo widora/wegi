@@ -142,8 +142,9 @@ void BMT_updateTreeAmats(E3DS_BMTreeNode *node); /* Update all amat for the node
        Class  E3D_BMatrixTree
 RTMatrix tree for bones.
 ---------------------------------*/
-#define BMTREE_TYPE_E3D	0
-#define BMTREE_TYPE_VBH	1
+#define BMTREE_TYPE_E3D		0	/* Default */
+#define BMTREE_TYPE_VBH		1
+#define BMTREE_TYPE_NAMCO	2
 class E3D_BMatrixTree {
 public:
         /* Constructor */
@@ -194,8 +195,9 @@ public:
 
 public:
 	int			  type;  /* BMTree Type:
-					    BMTREE_TYPE_E3D(default): Bone local COORD_Z always aligns with bone growing direction.
+					    BMTREE_TYPE_E3D(=0 default): Bone local COORD_Z always aligns with bone growing direction.
 					    BMTREE_TYPE_VBH: Bone local COORD_XYZ aligns with golbal COORD_XYZ initially!
+					    BMTREE_TYPE_NAMCO: BadaiNamco format BVH.
 					  */
 
 	E3DS_BMTreeNode		  *root;  	/* MUST NOT be NULL! */

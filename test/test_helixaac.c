@@ -14,7 +14,7 @@ To make a simple m3u8 radio player:
 
 Note:
 1. ONLY support profile of AAC LC(Low Complexity).
-2. Only support 2 channels NOW.
+2. Only support Max.2 channels NOW.
 3. Non_support:
  XXX Profile 'main' or 'SSR' profile, LTP(Long Term Prediction)
  XXX coupling channel elements (CCE)
@@ -22,6 +22,13 @@ Note:
  XXX low-power mode SBR
  XXX downsampled (single-rate) SBR
  XXX parametric stereo
+4. AAC or MP3?
+   1. Nealy same file size with same bitrate.
+   2. MP3 performs a little better in high frequency when bitrate>=192kbps.
+   3. With reducing of bitrate, MP3 drops more rapidly in high frequency.
+   A recommendation:
+	   <=128kbps use AAC
+   	   >=192kbps use MP3
 
 TODO:
 1. To apply FIFO ring buffer.
@@ -37,6 +44,8 @@ Journal:
 	TODO: This maybe ADTS data error, check in egi_extract_AV_from_ts().
 2022-10-13:
 	1. Add FTSYMBOL_TITLE
+2022-11-07:
+	1. Check next synwords to confirm frameLength.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -103,6 +112,8 @@ int main(int argc, char **argv)
 	 * 3. AAC LTP(Long Term Prediction)  --- For HelixAAC, it's reserved!
 	*/
 	const char strprofile[][16]={ "AAC Main", "AAC LC", "AAC SSR", "AAC LTP" };
+
+	const char *strMpegID[2]={"MPEG-4", "MPEG-2"}; /* ID=0:MPEG-4, ID=1:MPEG-2 */
 
 	/* input/output file */
 	char *fin_path=argv[1];
@@ -277,7 +288,7 @@ RADIO_LOOP:
 
 	/* 7. Loop decoding */
 	feedCnt=0;
-	while(bytesLeft>= nchanl*2*NSAMPS_SHORT) {  /* 2*128 Too short cause decoder dump segfault! NSAMPS_SHORT=128 */
+	while(bytesLeft>= nchanl*2*NSAMPS_SHORT) {  /* 2*128 Too short cause decoder dump segfault! NSAMPS_SHORT=128, NSAMPS_LONG=1024 */
 		//printf("bytesLeft=%d\n", bytesLeft);
 
 		/* 7.1 Parse keyinput */
@@ -357,7 +368,7 @@ RADIO_LOOP:
 		}
 		else if( npass>=0 ) { //&& npass==8 ) {
 			//EGI_PLOG(LOGLV_CRITICAL,"Succeed to AACFindSyncWord! npass=%d\n", npass);
-			printf("npass=%d\n", npass);
+			printf("AACFindSyncWord ----> npass=%d\n", npass);
 
 			/* Leading 8Bytes what?
 			 * Example:  84 80 05 2B 63 D1 5D C1
@@ -379,9 +390,9 @@ RADIO_LOOP:
 					seqmark_error=true;
 				}
 			}
-  #endif ///////////////////
 
 			printf("seqmark: 0x%02X\n", seqmark);
+  #endif ///////////////////
 
 			/* Pass private bytes */
 			pin +=npass; //NO change
@@ -390,7 +401,62 @@ RADIO_LOOP:
 			/* NOW: pin pointers to the beginning(syncwords) of an aac frame */
 
 		       /* Fixed header(28bits) + Var Header(28bits) = 7Bytes
-			  Byte[bits]:  0[0:7]  1[8:15]  2[16:23]  3[24:31]  4[32:39]  5[40:47]  6[48:56] */
+			  Byte[bits]:  0[0:7]  1[8:15]  2[16:23]  3[24:31]  4[32:39]  5[40:47]  6[48:55] (CRC: 7[56:63] 8[64:71] )
+			  		--- Fixed Header (28bits) ---
+			  Syncword(12bits): 	0xFFF
+			  ID(1bit): 		0--MPEG-4, 1--MPEG-2
+			  Layer(2bits):		00
+			  ProtectionAbsent(1bit): 0--CRC, 1--NO CRC
+			  Profile(2bits):	MPEG-4: 0--null, 1--AAC Main, 2--AAC LC, 3--AAC SSR, 4--AAC LTP, 5--SBR, 6--AAC Scalable....
+						MPEG-2: 0--AAC Main, 1--AAC LC, 2--AAC SSR, 3--Reserved
+			  Sampling_frequency_index(4bits): ... 0x3-48000, 0x4-44100, 0x5-32000, 0x6-24000, 0x7-22050,0x8-16000 ...
+			  Private_bit(1bit):
+			  Channel_configurations(3bits):
+			  Original/copy(1bit):
+			  Home(1bit):
+			  		--- Variable Header (28bits) ---
+			  Copyright_identification_bit(1bit):
+			  Copyright_identification_start(1bit):
+			  Frame_length(13bits):
+			  Adts_buffer_fullness(11bits):	0x7FF--Variable Bit Rate
+			  Number_of_raw_data_blocks_in_frame(2bits):  0--there's 1 AAC datablock, 1--1+1 datablocks...
+			  HK2022-12		-06
+			*/
+			unsigned int mpegID=0;
+			mpegID=(pin[2]&0b1000)>>3; /* bits[12] */
+			printf("__%s\n",strMpegID[mpegID]);
+
+			unsigned int aacprofile=0;
+			aacprofile=pin[2]>>6;		/* bits[16 : 17] */
+			if(mpegID==0) { /* MPEG-4 */
+				if(aacprofile !=2 )
+					printf(DBG_RED"ERROR! MPEG-4, profile=%u!=2, it's NOT AAC LC!\n"DBG_RESET, aacprofile);
+			}
+			else { /* mpegID==1, MPEG-2 */
+				if(aacprofile !=1 )
+					printf(DBG_RED"ERROR! MPEG-2, profile=%u!=1, it's NOT AAC LC!\n"DBG_RESET, aacprofile);
+			}
+
+			unsigned int protectionAbsent=0;  /* bits[15] */
+			protectionAbsent=pin[1]&0x1;
+			if(!protectionAbsent) {
+				printf(DBG_YELLOW"CRC ON\n"DBG_RESET);
+			}
+
+			unsigned int sampling_frequency_index=0; /* [18 : 21] */
+			sampling_frequency_index=(pin[2]&0b111100)>>2;
+			printf(DBG_YELLOW"sampling_frequency_index=0x%u\n"DBG_RESET,sampling_frequency_index);
+
+			unsigned int adts_buffer_fullness=0;  /* bits[43 : 53] */
+			adts_buffer_fullness=((pin[5]&0b00011111)<<6) + (pin[6]>>2);
+			if(adts_buffer_fullness==0x7FF) {
+				printf(DBG_YELLOW"Variable Bit Rate\n"DBG_RESET);
+			}
+			unsigned int number_rawdata_blocks=0; /* bits[54 : 55] */
+			number_rawdata_blocks=pin[6]&0b11;
+			if(number_rawdata_blocks) {
+				printf(DBG_YELLOW"number_of_raw_data_blocks_in_frame=%u+1! \n"DBG_RESET,number_rawdata_blocks);
+			}
 
 		        /* Get channel_configuration bits[23 : 25] bslbf: (msb)Left bit first
 			   1: 1 channel: front-center，
@@ -445,12 +511,42 @@ RADIO_LOOP:
 		}
 #endif  //////////////////////  END TEST  ////////////////////////////////
 
-		/* 7.2 Check frameLength  HK2022-09-26 */
+
+		/* 7.2 Check frameLength  HK2022-09-26,  Assuming pin[] starts with synchwords. */
 		frameLength= ( (pin[3]&0b11)<<11 ) + (pin[4]<<3) + (pin[5]>>5);
 		if(frameLength>bytesLeft) {
 			printf(DBG_RED"ERROR! frameLength(%d) > bytesLeft(%d)!\n"DBG_RESET, frameLength, bytesLeft);
 			goto END_SESSION;
 		}
+		else if(bytesLeft>frameLength+2) {
+			/* Check next synwords, in case frameLength is wrong. HK2022-12-7 */
+			if( pin[frameLength]!=0xFF || (pin[frameLength+1]&0xF0)!=0xF0 ) {
+				printf(DBG_RED"frameLength ERROR!\n"DBG_RESET);
+				//pin -=frameLength; NOPE! frameLength ERROR!
+
+				/* Search next syncword */
+		                npass=AACFindSyncWord(pin, trysyn_len);
+                		if(npass <0) {  /* TODO ??? ==0 also fails!?? */
+		                        EGI_PLOG(LOGLV_CRITICAL,"PRE_AACFindSyncWord fails, npass=%d, bytesLeft=%d!\n",
+                		                npass, bytesLeft);
+					goto END_SESSION;
+                		}
+		                else if( npass>0 ) {
+		                        printf("AACFindSyncWord ----> npass=%d\n", npass);
+		                        /* Pass to next synchword */
+                		        pin +=npass; //NO change
+                        		bytesLeft -= npass;
+					continue;
+				}
+				else if(npass==0) {  /* HK2022-11-08 */
+		                        printf("AACFindSyncWord ----> npass=0, skip 1 byte to continue.\n");
+					pin +=1;
+					bytesLeft -=1;
+					continue;
+				}
+			}
+		}
+//		printf("frameLenght=%d, bytesLeft=%d\n", frameLength, bytesLeft);
 
 		/* 7.3  int AACDecode(HAACDecoder hAACDecoder, unsigned char **inbuf, int *bytesLeft, short *outbuf) */
 //		AACDecInfo *aacDecInfo = (AACDecInfo *)aacDec;

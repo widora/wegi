@@ -31,6 +31,16 @@ Usage:
 	Emphasis	(2bits)
 
 
+		----- AAC or MP3? -----
+
+   1. Nealy same file size with same bitrate.
+   2. MP3 performs a little better in high frequency when bitrate>=192kbps.
+   3. With reducing of bitrate, MP3 drops more rapidly in high frequency.
+   A recommendation:
+           <=128kbps use AAC
+           >=192kbps use MP3
+
+
 Note:
 1. Adjust http_stream timeout to fit with RingBuffer size. ....120s seems OK
    Set a big timeout value to avoid frequent breakout and clean_up of http_easy_perform,
@@ -243,7 +253,7 @@ void print_help(const char *name)
         printf("Usage: %s [-hms:v] URL\n", name);
         printf("-h     This help.\n");
         printf("-m     Request metadata.\n");
-	printf("-s:    Plughw, or virt sound card as defined is asound.conf, Example 'plughw:1,0'\n");
+	printf("-s:    Plughw, or virt sound card as defined in asound.conf, Example 'plughw:1,0'\n");
 	printf("-v     Verbose debug.\n");
 }
 
@@ -430,7 +440,7 @@ size_t http_download_callback(void *ptr, size_t size, size_t nmemb, void *data)
 {
         size_t written=0;
 	size_t chunk_size=size*nmemb;
-//	egi_dpstd("<<<  Chunk data_size=%zu  >>>\n",chunk_size);
+//	egi_dpstd("<<<  Stream downloaded chun_size=%zu  >>>\n",chunk_size);
 
 	/* Ptr data bufferd here, and after meta processing all metadata
 	   in tmpbuff[] will be cleared! */
@@ -453,7 +463,7 @@ size_t http_download_callback(void *ptr, size_t size, size_t nmemb, void *data)
 		return chunk_size;
 	}
 
-	/* If start of a new round stream session, update dsiplay. */
+	/* If start of a new round stream session, update display. */
 	if(Is_StreamHeader) {
 		refresh_display=true;
 		Is_StreamHeader=false;
@@ -461,7 +471,8 @@ size_t http_download_callback(void *ptr, size_t size, size_t nmemb, void *data)
 
 	/* Copy  ptr data to tmpbuff */
 	if(data_size>sizeof(tmpbuff)) {
-		printf("  ==========  tmpbuff overflow =========\n");
+		printf("\n  ==========  data_size=%zu, tmpbuff(%zu) overflow =========\n", data_size, sizeof(tmpbuff) );
+		exit(1); //HK2022-11-28
 		return 0;
 	}
 	memcpy((void *)tmpbuff, ptr, chunk_size);
@@ -700,9 +711,9 @@ static enum mad_flow input_data(void *data, struct mad_stream *stream)
 	if(lastHeadOff!=MAD_FEEDBUFFER_SIZE) /* Initl lastHeadOff =MAD_FEEDBUFFER_SIZE */
 		memcpy((void*)rawbuffer, (void*)rawbuffer+lastHeadOff, MAD_FEEDBUFFER_SIZE-lastHeadOff);
 	else
-		printf(" -------- lastHeadOff==MAD_FEEDBUFFER_SIZE --------\n"); /* As init  */
+		printf("\n -------- lastHeadOff==MAD_FEEDBUFFER_SIZE --------\n"); /* As init  */
 
-	/* Read data from RingBuffer to fill up the rawbuffer[] */
+	/* Read out data from RingBuffer to fill up the rawbuffer[] */
   	nread=egi_ringbuffer_read(ringbuff, (void*)rawbuffer+(MAD_FEEDBUFFER_SIZE-lastHeadOff), lastHeadOff);
 //	printf("lastHeadOff=%lu, nread=%zu, ringbuff->datasize=%zu (Bs)\n", lastHeadOff, nread,ringbuff->datasize);
 
@@ -724,8 +735,10 @@ static enum mad_flow input_data(void *data, struct mad_stream *stream)
 
 	  return MAD_FLOW_CONTINUE;
   }
-  else
+  else {
+	  printf("\nringbuff->datasize(%zuBs) <= MAD_FEEDBUFFER_SIZE ---- mad flow stops ---\n", ringbuff->datasize);
 	  return MAD_FLOW_STOP;
+  }
 }
 
 /* Transform MAD's high-resolution samples down to 16 bits */
@@ -1094,7 +1107,7 @@ enum mad_flow error(void *data,
   #endif
 
   /* return MAD_FLOW_BREAK here to stop decoding (and propagate an error) */
-  // return MAD_FLOW_CONTINUE;
+  //return MAD_FLOW_CONTINUE;
   return MAD_FLOW_IGNORE;
 }
 

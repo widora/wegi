@@ -18,7 +18,9 @@ Journal:
 	1. Test E3D_Quaternion functions
 2022-11-03:
 	1. Test E3D_Quatrix functions
-
+2022-12-17:
+	1. Test E3D glTF functions:
+	   E3D_glReadJsonKey(), E3D_glExtractJsonObjects(), E3D_glLoadBuffers()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -26,16 +28,20 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 ------------------------------------------------------------------*/
 #include <iostream>
 #include <stdio.h>
+#include <vector>
 
 #include "egi_math.h"
 #include "egi_debug.h"
 #include "egi_fbdev.h"
 #include "egi_color.h"
+#include "egi_utils.h"
 
 #include "e3d_vector.h"
 #include "e3d_trimesh.h"
 #include "e3d_volumes.h"
 #include "e3d_animate.h"
+#include "e3d_glTF.h"
+
 
 using namespace std;
 
@@ -67,6 +73,135 @@ int main(void)
 int main(void)
 {
 	cout << "Hello, this is C++!\n" << endl;
+
+
+#if 1 //////////////// E3D glTF  ////////////////
+E3D_TriMesh trimesh;
+trimesh.loadGLTF("/tmp/doggy.gltf");
+exit(0);
+
+int cnt=0;
+while(1) {
+	string key;
+	string strValue;
+	vector<E3D_glBuffer> glbuffers;
+	vector<E3D_glBufferView> glBufferViews;
+	vector<E3D_glAccessor> glAccessors;
+	vector <E3D_glMesh> glMeshes;
+
+	char *pjson;
+	EGI_FILEMMAP *fmap;
+	fmap=egi_fmap_create("/tmp/doggy.gltf", 0, PROT_READ, MAP_SHARED);
+	if(fmap==NULL) exit(0);
+	else printf("fmap create~!\n");
+
+	pjson=fmap->fp;
+	/* Read Top_Level glTF Jobjects */
+	while( (pjson=E3D_glReadJsonKey(pjson, key, strValue)) ) {
+
+		cout << DBG_GREEN"Key: "<< key << DBG_RESET << endl;
+		cout << DBG_GREEN"Value: "DBG_RESET<< strValue << endl;
+
+		/* Case glTF Jobject: buffers */
+		if(!key.compare("buffers")) {
+			printf("--- buffers ---\n");
+
+		#if 1 /* TEST: E3D_glExtractJsonObjects() ------------ Extract Jobjects to vector Jobjs */
+			vector<string> Jobjs;
+			E3D_glExtractJsonObjects(strValue, Jobjs);
+			egi_dpstd(DBG_GREEN"Totally %zu objects found.\n"DBG_RESET, Jobjs.size());
+			for(size_t k=0; k<Jobjs.size(); k++)
+				printf("Jobjs[%zu]: %s\n", k, Jobjs[k].c_str() );
+		#endif
+
+#if 1
+			/* Load glBuffers as per Json descript */
+			E3D_glLoadBuffers(strValue, glbuffers);
+
+			egi_dpstd(DBG_YELLOW"Totally %zu E3D_glBuffers loaded.\n"DBG_RESET, glbuffers.size());
+			for(size_t k=0; k<glbuffers.size(); k++)
+				printf("glbuffers[%zu]: byteLength=%d, uri='%s'\n", k, glbuffers[k].byteLength, glbuffers[k].uri.c_str() );
+#endif
+
+			//break;
+
+		}
+		/* Case glTF Jobject: bufferViews */
+		else if(!key.compare("bufferViews")) {
+			printf("--- bufferViews ---\n");
+
+			/* Load data to glBufferViews */
+			E3D_glLoadBufferViews(strValue, glBufferViews);
+
+			printf(DBG_YELLOW"Totally %zu E3D_glBufferViews loaded.\n"DBG_RESET, glBufferViews.size());
+			for(size_t k=0; k<glBufferViews.size(); k++) {
+			    printf("glBufferViews[%zu]: name='%s', bufferIndex=%d, byteOffset=%d, byteLength=%d, byteStride=%d, target=%d.\n",
+				k, glBufferViews[k].name.c_str(),
+				glBufferViews[k].bufferIndex, glBufferViews[k].byteOffset, glBufferViews[k].byteLength,
+				glBufferViews[k].byteStride, glBufferViews[k].target);
+			}
+
+			//break;
+		}
+		else if(!key.compare("accessors")) {
+			printf("--- accessors ---\n");
+
+			/* Load data to glAccessors */
+			E3D_glLoadAccessors(strValue, glAccessors);
+
+			printf(DBG_YELLOW"Totally %zu E3D_glAccessors loaded.\n"DBG_RESET, glAccessors.size());
+			for(size_t k=0; k<glAccessors.size(); k++) {
+		    printf("glAccessors[%zu]: name='%s', type='%s', count=%d, bufferViewIndex=%d, byteOffset=%d, componentType=%d, normalized=%s.\n",
+				     k, glAccessors[k].name.c_str(), glAccessors[k].type.c_str(), glAccessors[k].count,
+				     glAccessors[k].bufferViewIndex, glAccessors[k].byteOffset, glAccessors[k].componentType,
+				     glAccessors[k].normalized?"Yes":"No" );
+			}
+
+			//break;
+		}
+		/* Case glTF Jobject: meshes */
+		else if(!key.compare("meshes")) {
+			printf("--- meshes ---\n");
+
+			/* Load data to glMeshes */
+			E3D_glLoadMeshes(strValue, glMeshes);
+
+			printf(DBG_GREEN"Totally %zu E3D_glMeshes loaded.\n"DBG_RESET, glMeshes.size());
+			for(size_t k=0; k<glMeshes.size(); k++) {
+				printf(DBG_MAGENTA"\n    --- mesh_%d ---\n"DBG_RESET, k);
+				printf("name: %s\n",glMeshes[k].name.c_str());
+				for(size_t j=0; j<glMeshes[k].primitives.size(); j++) {
+					int mode =glMeshes[k].primitives[j].mode;
+					printf("mode:%d for '%s' \n",mode, (mode>=0&&mode<8)?glPrimitiveModeName[mode].c_str():"Unknown");
+					printf("indices(AccIndex):%d\n",glMeshes[k].primitives[j].indicesAccIndex);
+					printf("material(Index):%d\n",glMeshes[k].primitives[j].materialIndex);
+
+					/* attributes */
+					printf("Attributes:\n");
+					printf("   POSITION(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.positionAccIndex);
+					printf("   NORMAL(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.normalAccIndex);
+					printf("   TANGENT(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.tangentAccIndex);
+					printf("   TEXCOORD_0(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.texcoord);
+					printf("   COLOR_0(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.color);
+				}
+			}
+
+			break;
+		}
+
+	}
+
+	/* Free */
+	egi_fmap_free(&fmap);
+
+	cnt++;
+	printf("---cnt=%d, free fmap---\n", cnt);
+
+usleep(100000);
+ }//while()
+
+	exit(0);
+#endif
 
 #if 0 ////////////////  E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh)  ////////////////
 	E3D_BMatrixTree  bmtree("test.bvh");
@@ -179,7 +314,7 @@ exit(0);
 #endif
 
 
-#if 1 ////////////////  E3D_Quaternion  ////////////////
+#if 0 ////////////////  E3D_Quaternion  ////////////////
 
 	E3D_Quaternion quat;
 	E3D_Quaternion quat0,quat1;

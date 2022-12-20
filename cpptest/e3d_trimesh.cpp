@@ -351,6 +351,11 @@ Journal:
 2022-10-25:
 	1. Add E3D_TriMesh::moreVtxListCapacity()
 	2. Add E3D_TriMesh::moreTriListCapacity()
+2022-12-19:
+	1. Add E3D_TriMesh::loadGLTF()
+2022-12-20:
+	1. Improve E3D_TriMesh::loadGLTF()
+	2. Add E3D_TriMesh::Vertex::assignNormal()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -363,6 +368,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include <fstream>
 #include <string.h>
 #include <vector>
+
 #include "egi_debug.h"
 #include "e3d_vector.h"
 #include "egi.h"
@@ -370,8 +376,10 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "egi_color.h"
 #include "egi_image.h"
 #include "egi_cstring.h"
+#include "egi_utils.h"
 
 #include "e3d_trimesh.h"
+#include "e3d_glTF.h"
 
 using namespace std;
 
@@ -451,8 +459,8 @@ void E3D_Material::setDefaults()
 	d=1.0;
 	Ns=0.0;
 	//Tr=0.0;
-	kd.vectorRGB(COLOR_24TO16BITS(0xF0CCA8)); //WEGI_COLOR_PINK); /* Default kd */
-//	kd.vectorRGB(COLOR_24TO16BITS(0xE0DCA8));
+	kd.vectorRGB(COLOR_24TO16BITS(0xF0CCA8)); /* Default kd */
+//	kd.vectorRGB(WEGI_COLOR_PINK);
 	ka.assign(0.8f, 0.8f, 0.8f); //ka.vectorRGB(WEGI_COLOR_GRAY2); /* Default ka */
 	ks.assign(0.0f, 0.0f, 0.0f); //vectorRGB(WEGI_COLOR_GRAY); /* Default ks */
 	ke.assign(0.0f, 0.0f, 0.0f);
@@ -926,6 +934,17 @@ void E3D_TriMesh::Vertex::assign(float x, float y, float z)
 {
 	pt.x=x; pt.y=y; pt.z=z;
 }
+
+
+#if 0 ///// NOT NECESSARY! Call vtxList[].normal.assign() :)))) HK_2022_12_20 ////////
+/*-------------------------------------
+   E3D_TriMesh::Vertex::assignNormal()
+-------------------------------------*/
+void E3D_TriMesh::Vertex::assignNormal(float x, float y, float z)
+{
+	normal.x=x; normal.y=y; normal.z=z;
+}
+#endif ///////////////////////////////
 
 /*-----------------------------------------
    Constructor for E3D_TriMesh::Triangle
@@ -2111,6 +2130,435 @@ E3D_TriMesh:: ~E3D_TriMesh()
 
 	egi_dpstd("TriMesh destructed!\n");
 }
+
+/*--------------------------------------------------
+Load glTF into the trimesh.
+
+Note:
+1. Assume one 1 primitive(mode=4) in each glMesh.
+
+@fgl:	Path to a glTF Json file.
+
+TODO:
+1. NOW For LittleEndian ONLY
+
+Return:
+	0	OK
+	<0	Fails
+--------------------------------------------------*/
+int E3D_TriMesh::loadGLTF(const string & fgl)
+{
+	char *pjson;
+	string key;
+	string strValue;
+
+        vector<E3D_glBuffer> glBuffers;
+        vector<E3D_glBufferView> glBufferViews;
+        vector<E3D_glAccessor> glAccessors;
+        vector <E3D_glMesh> glMeshes;
+
+	int triCount=0; /* Count total triangles */
+	int vtxCount=0; /* Count total vertices */
+	int tgCount=0;  /* Count total triGroup */
+
+	/* 1. Mmap glTF Json file */
+	EGI_FILEMMAP *fmap;
+	fmap=egi_fmap_create(fgl.c_str(), 0, PROT_READ, MAP_SHARED);
+	if(fmap==NULL)
+		return -1;
+
+	/* 2. Parse Top_Level glTF Jobject arrays, and load to respective glObjects */
+	pjson=fmap->fp;
+	while( (pjson=E3D_glReadJsonKey(pjson, key, strValue)) ) {
+
+		cout << DBG_GREEN"Key: "<< key << DBG_RESET << endl;
+		cout << DBG_GREEN"Value: "DBG_RESET<< strValue << endl;
+
+		/* Case glTF Jobject: buffers */
+		if(!key.compare("buffers")) {
+			printf("--- buffers ---\n");
+
+			/* Load glBuffers as per Json descript */
+			E3D_glLoadBuffers(strValue, glBuffers);
+
+			egi_dpstd(DBG_GREEN"Totally %zu E3D_glBuffers loaded.\n"DBG_RESET, glBuffers.size());
+			for(size_t k=0; k<glBuffers.size(); k++) {
+				printf("glBuffers[%zu]: byteLength=%d, uri='%s'\n", k, glBuffers[k].byteLength, glBuffers[k].uri.c_str() );
+				/* Check buffer data */
+				if(glBuffers[k].byteLength>0 && glBuffers[k].data==NULL) {
+					egi_dpstd(DBG_GREEN"glBuffers[%d].data==NULL, while byteLength>0!\n"DBG_RESET, k);
+					return -1;
+				}
+			}
+		}
+		/* Case glTF Jobject: bufferViews */
+		else if(!key.compare("bufferViews")) {
+			printf("--- bufferViews ---\n");
+
+			/* Load data to glBufferViews */
+			E3D_glLoadBufferViews(strValue, glBufferViews);
+
+			printf(DBG_YELLOW"Totally %zu E3D_glBufferViews loaded.\n"DBG_RESET, glBufferViews.size());
+			for(size_t k=0; k<glBufferViews.size(); k++) {
+			    printf("glBufferViews[%zu]: name='%s', bufferIndex=%d, byteOffset=%d, byteLength=%d, byteStride=%d, target=%d.\n",
+				k, glBufferViews[k].name.c_str(),
+				glBufferViews[k].bufferIndex, glBufferViews[k].byteOffset, glBufferViews[k].byteLength,
+				glBufferViews[k].byteStride, glBufferViews[k].target);
+			}
+		}
+		/* Case glTF Jobject: accessors */
+		else if(!key.compare("accessors")) {
+			printf("--- accessors ---\n");
+
+			/* Load data to glAccessors */
+			E3D_glLoadAccessors(strValue, glAccessors);
+
+			printf(DBG_YELLOW"Totally %zu E3D_glAccessors loaded.\n"DBG_RESET, glAccessors.size());
+			for(size_t k=0; k<glAccessors.size(); k++) {
+		    printf("glAccessors[%zu]: name='%s', type='%s', count=%d, bufferViewIndex=%d, byteOffset=%d, componentType=%d, normalized=%s.\n",
+				     k, glAccessors[k].name.c_str(), glAccessors[k].type.c_str(), glAccessors[k].count,
+				     glAccessors[k].bufferViewIndex, glAccessors[k].byteOffset, glAccessors[k].componentType,
+				     glAccessors[k].normalized?"Yes":"No" );
+			}
+		}
+		/* Case glTF Jobject: meshes */
+		else if(!key.compare("meshes")) {
+			printf("--- meshes ---\n");
+
+			/* Load data to glMeshes */
+			E3D_glLoadMeshes(strValue, glMeshes);
+
+			printf(DBG_GREEN"Totally %zu E3D_glMeshes loaded.\n"DBG_RESET, glMeshes.size());
+			for(size_t k=0; k<glMeshes.size(); k++) {
+				printf(DBG_MAGENTA"\n    --- mesh_%d ---\n"DBG_RESET, k);
+				printf("name: %s\n",glMeshes[k].name.c_str());
+				for(size_t j=0; j<glMeshes[k].primitives.size(); j++) {
+					int mode =glMeshes[k].primitives[j].mode;
+					printf("mode:%d for '%s' \n",mode, (mode>=0&&mode<8)?glPrimitiveModeName[mode].c_str():"Unknown");
+					printf("indices(AccIndex):%d\n",glMeshes[k].primitives[j].indicesAccIndex);
+					printf("material(Index):%d\n",glMeshes[k].primitives[j].materialIndex);
+
+					/* attributes */
+					printf("Attributes:\n");
+					printf("   POSITION(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.positionAccIndex);
+					printf("   NORMAL(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.normalAccIndex);
+					printf("   TANGENT(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.tangentAccIndex);
+					printf("   TEXCOORD_0(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.texcoord);
+					printf("   COLOR_0(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.color);
+				}
+			}
+		}
+		else
+			egi_dpstd(DBG_YELLOW"Unparsed KEY/VALUE pair:\n  key: %s, value: %s\n"DBG_RESET, key.c_str(), strValue.c_str());
+
+	}
+
+	/* 3. Link buffers.data to bufferViews.data */
+	for( size_t k=0; k<glBufferViews.size(); k++ ) {
+		int index; /* index to glBuffers[] */
+		int offset;
+		int length;
+		int stride;
+
+		/* Check data integrity */
+		index=glBufferViews[k].bufferIndex;
+		if(index<0) {
+			egi_dpstd(DBG_RED"glBufferViews[%d].bufferIndex<0! give up data linking.\n"DBG_RESET, k);
+			//continue;
+			return -1;
+		}
+		/* Check glBuffers[].data */
+		if(glBuffers[index].data==NULL) {
+			egi_dpstd(DBG_RED"glBuffers[%d].data==NULL, give up data lingking.\n"DBG_RESET, k);
+			//continue;
+			return -1;
+		}
+		/* Check offset */
+		offset=glBufferViews[k].byteOffset;
+		if(offset<0) {
+			egi_dpstd(DBG_RED"glBufferViews[%d].byteOffset<0! give up data lingking.\n"DBG_RESET, k);
+			//continue;
+			return -1;
+		}
+		/* Check length */
+		length=glBufferViews[k].byteLength;
+		if(length<0) {
+			egi_dpstd(DBG_RED"glBufferViews[%d].byteLength<0! give up data lingking.\n"DBG_RESET, k);
+			//continue;
+			return -1;
+		}
+		/* Check stride, byteStride is ONLY for vertex attribute data */
+		stride=glBufferViews[k].byteStride;
+		if(stride!=0 && (stride<4 || stride>252) ) {   /* byteStride: Minimum: >= 4, Maximum: <= 252 */
+			egi_dpstd(DBG_RED"glBufferViews[%d].byteStride=%d, without[4, 252], give up data lingking.\n"DBG_RESET, k, stride);
+			//continue;
+			return -1;
+		}
+		/* Check data length. */
+		if(offset+length>glBuffers[index].byteLength) {
+			egi_dpstd(DBG_RED"glBufferViews[%d].byteOffset+byteLength > glBuffers[%d].byteLength, give up data lingking.\n"DBG_RESET,
+					k, index);
+			//continue;
+			return -1;
+		}
+		/* TODO: Consider byteStride */
+	/* bufferView.length >= accessor.byteOffset + EFFECTIVE_BYTE_STRIDE * (accessor.count - 1) + SIZE_OF_COMPONENT * NUMBER_OF_COMPONENTS */
+
+		/* Link glBufferViews.data to glBuffers.data */
+		glBufferViews[k].data = glBuffers[index].data+offset;
+	}
+
+	/* start = accessor.byteOffset + accessor.bufferView.byteOffset */
+
+	/* 4. Link buffersViews.data to accessors.data */
+	for( size_t k=0; k<glAccessors.size(); k++ ) {
+		int index;   /* index to glBufferViews[] */
+		int offset;
+		int length; /* SIZE_OF_COMPONENT * NUMBER_OF_COMPONENTS */
+		int esize;  /* Element size, in bytes */
+		//int componentType; /* 5120-5126, NO 5124 */
+		//bool normalized;
+		int count;   /* Number of elements referenced by the accessor. */
+		//string type;  /* SCALAR, or VEC2-4, or MAT2-4 */
+
+		/* Check data integrity */
+		index=glAccessors[k].bufferViewIndex;
+		if(index<0) {
+			egi_dpstd(DBG_RED"glAccessors[%d].bufferViewIndex<0! give up data linking.\n"DBG_RESET,k);
+			//continue;
+			return -1;
+		}
+		/* Check offset */
+		offset=glAccessors[k].byteOffset;
+		if(offset<0) {
+			egi_dpstd(DBG_RED"glAccessors[%d].byteOffset<0! give up data linking.\n"DBG_RESET, k);
+			//continue;
+			return -1;
+		}
+		/* Check count */
+		count=glAccessors[k].count;
+		if(count<0) {
+			egi_dpstd(DBG_RED"glAccessors[%d].count<0! give up data linking.\n"DBG_RESET, k);
+			//continue;
+			return -1;
+		}
+		/* Check element size */
+		esize=glAccessors[k].elemsize; //glElementSize(glAccessors[k].type, glAccessors[k].componentType);
+		if(esize<0) {
+			egi_dpstd(DBG_RED"glAccessors[%d] element bytes<0! give up data linking.\n"DBG_RESET, k);
+			//continue;
+			return -1;
+		}
+		/* If byteStride is dfined, it MUST be a multiple of the size of the accessor’s component type. */
+		int stride=glBufferViews[index].byteStride; /* stride already checked at 3. */
+		int compsize=glElementSize("SCALAR", glAccessors[k].componentType); /* SCALAR has 1 component */
+		if(stride>0 && compsize>0) {
+			if(stride%compsize) {
+				egi_dpstd(DBG_RED"glAccessors[%d]: stride(%d)%%compsize(%d)!=0, give up data linking.\n"DBG_RESET, k,stride,compsize);
+				return -1;
+			}
+		}
+
+		/* Check length */
+		length=count*esize;
+		if(length<0) {
+			egi_dpstd(DBG_RED"glAccessors[%d] data length<=0! give up data linking.\n"DBG_RESET, k);
+			//continue;
+			return -1;
+		}
+		/* Check data length. */
+		if(glBufferViews[index].byteLength < offset+length) {
+			egi_dpstd(DBG_RED"glAccessors[%d].byteOffset+byteLength > glBufferViews[%d].byteLength, give up data lingking.\n"DBG_RESET,
+					k, index);
+			//continue;
+			return -1;
+		}
+		/* Check data length, consider byteStride */
+		egi_dpstd(DBG_GRAY"glBufferViews[%d].byteStride=%dBs, element_size=%dBs, element_count=%d\n"DBG_RESET,
+				index, glBufferViews[index].byteStride, esize, count);
+	/* bufferView.length >= accessor.byteOffset + EFFECTIVE_BYTE_STRIDE * (accessor.count - 1) + SIZE_OF_COMPONENT * NUMBER_OF_COMPONENTS */
+		if( glBufferViews[index].byteLength < offset+(glBufferViews[index].byteStride-esize)*(count-1)+length ) {
+ 		    egi_dpstd(DBG_RED"glBufferViews[%d].byteLength insufficient for glAccessors[%d]! give up data lingking.\n"DBG_RESET, index, k);
+		    //continue;
+		    return -1;
+		}
+
+		/* Link glAccessors.data to glBufferViews.data */
+		glAccessors[k].data = glBufferViews[index].data+offset;
+	}
+
+	/* 5. Count all trianlges and vertices */
+	for(size_t j=0; j<glMeshes.size(); j++) {
+		int accIndex;
+		for(size_t i=0; i<glMeshes[j].primitives.size(); i++) {
+			if( glMeshes[j].primitives[i].mode==4 ) { /* 4 for triangle */
+				accIndex=glMeshes[j].primitives[i].indicesAccIndex;
+				/* Each consecutive set of three vertices defines a single triangle primitive */
+				triCount += glAccessors[accIndex].count/3;
+
+				accIndex=glMeshes[j].primitives[i].attributes.positionAccIndex;
+				vtxCount += glAccessors[accIndex].count;
+
+				/* triGroup */
+				tgCount +=1;
+			}
+		}
+	}
+	egi_dpstd(DBG_CYAN"triCount=%d, vtxCount=%d, tgCount=%d\n"DBG_RESET, triCount, vtxCount, tgCount);
+
+        /* 6. Clear vtxList[] and triList[], E3D_TriMesh() may allocate them.  */
+        if(vCapacity>0) {
+                delete [] vtxList; vtxList=NULL;
+                vCapacity=0;
+                vcnt=0;
+        }
+        if(tCapacity>0) {
+                delete [] triList; triList=NULL;
+                tCapacity=0;
+                tcnt=0;
+        }
+
+        /* 7. Allocate/init vtxList[] */
+        try {
+                vtxList= new Vertex[vtxCount];
+        }
+        catch ( std::bad_alloc ) {
+                egi_dpstd("Fail to allocate Vertex[]!\n");
+                return -1;
+        }
+        vcnt=vCapacity=vtxCount;
+
+        /* 8. Allocate/init triList[] */
+        try {
+                triList= new Triangle[triCount];
+        }
+        catch ( std::bad_alloc ) {
+                egi_dpstd("Fail to allocate Triangle[]!\n");
+                return -1;
+        }
+        tcnt=tCapacity=triCount;
+
+	/* 9. Resize triGroupList */
+	triGroupList.resize(tgCount);
+
+	/* 10. Reset triCount/vtxCount */
+	triCount=0;
+	vtxCount=0;
+	tgCount=0;
+
+	/* 11. Load vtxList[] and triList[] */
+	/* TODO: NOW Assume 'unsigned int' for indices, and 'float' for POSITION */
+	for(size_t m=0; m<glMeshes.size(); m++) {
+	//for(size_t m=0; m<1; m++) {
+		int  primTriCnt=0;
+	    for(size_t n=0; n<glMeshes[m].primitives.size(); n++) {
+
+		/* TODO: NOW suppose ONLY 1 primitive(mode=4) in glMesh */
+		if(primTriCnt>0) {
+			egi_dpstd(DBG_RED"NOW suppose ONLY 1 primitive(mode=4) in each glMesh~!\n"DBG_RESET);
+			break;
+		}
+
+		int accIndex; /* Index for glAccessors[] */
+		int mode;
+		unsigned int *udat;	/* For triangle vertexIndex.
+					 * When primitives.indices is defined. the accessor MUST have SCALAR element_type and
+					 * an unsigned integer component_type.
+			 		 */
+		float *fdat;	/* 1. For veterx position(XYZ). element_type is VEC3, and component_type is float.
+				 * 2. For veterx normal(xyz). element_type is VEC3, and component_type is float.
+				 */
+		int stidx;  /* Vertex starting index for each primitives[] */
+
+		mode=glMeshes[m].primitives[n].mode;
+		if(mode==4) primTriCnt++;
+
+/* TODO: NOW only TRIANGLES: ----------------- Following for mode==4 (triangles) ONLY */
+
+		/* 11.1 Save triGroupList[] starting index here! */
+		stidx=vtxCount;
+
+		/* 11.2 Read glMesh.primitives.attributes.POSITION into vtxList[] */
+		accIndex=glMeshes[m].primitives[n].attributes.positionAccIndex;
+		if(mode==4 && accIndex>=0 ) {
+			/* 11.2.1 Get pointer to float type */
+			fdat=(float *)glAccessors[accIndex].data;
+
+			/* 11.2.2 Read in vtxList[] */
+			egi_dpstd(DBG_YELLOW"Read vtxList[] from glAccessors[%d], VEC3 count=%d\n"DBG_RESET, accIndex, glAccessors[accIndex].count);
+			for(int j=0; j<glAccessors[accIndex].count; j++) {  /* count is number of ELEMENTs(VEC3) */
+				/* Read XYZ as fully packed. TODO: consider byteStride */
+				vtxList[vtxCount].assign(fdat[3*j], fdat[3*j+1], fdat[3*j+2]);
+				printf("vtxList[%d](XYZ): %f,%f,%f\n", vtxCount, fdat[3*j], fdat[3*j+1], fdat[3*j+2]);
+				vtxCount++;
+			}
+
+		   	/* 11.2.3 Read glMesh.primitives.attributes.NORMAL into vtxList[] */
+		   	int normalAccIndex=glMeshes[m].primitives[n].attributes.normalAccIndex;
+		   	if(normalAccIndex>=0 ) {
+				/* Get pointer to float type */
+				fdat=(float *)glAccessors[normalAccIndex].data;
+
+				/* Read in vtxList[].normal */
+				egi_dpstd(DBG_YELLOW"Read vtxList[].normal from glAccessors[%d], VEC3 count=%d\n"DBG_RESET,
+											normalAccIndex, glAccessors[normalAccIndex].count);
+				/* Check vertex POSITION count and NORMAL count. */
+				if(glAccessors[accIndex].count != glAccessors[normalAccIndex].count ) {
+				   egi_dpstd(DBG_RED"POSITION glAccessors[%d].count!= NORMAL glAccessors[%d].count !\n"DBG_RESET,
+								     accIndex, normalAccIndex);
+				}
+				else {
+				   /* Read in vtxList[].normal */
+				   for(int j=0; j<glAccessors[normalAccIndex].count; j++) {  /* count is number of ELEMENTs(VEC3) */
+					/* Assume they are normalized VEC3 */
+					vtxList[stidx+j].normal.assign(fdat[3*j], fdat[3*j+1], fdat[3*j+2]);
+				   }
+				}
+			}
+		}
+
+		/* 11.3 Read glMesh.primitivies.indices into triList[] */
+		accIndex=glMeshes[m].primitives[n].indicesAccIndex;
+		if( mode==4 && accIndex>=0 ) {
+			/* Get pointer */
+			/* NOTE: when primitives[n].indices is defined. the accessor MUST have SCALAR type and
+			 *  an unsigned integer component type
+			 */
+			udat=(unsigned int *)glAccessors[accIndex].data;
+
+			/* triGroupList[] starting index */
+			//stidx=vtxCount; NOT HERE! see at 11.1
+
+			/* Read in triList[] */
+			egi_dpstd(DBG_YELLOW"Read triList[] from glAccessors[%d], SCALAR count=%d\n"DBG_RESET, accIndex, glAccessors[accIndex].count);
+			for(int j=0; j<glAccessors[accIndex].count/3; j++) { /* 3 vertices for each triangle */
+				/* Read 3 vtx indices as fully packed.  TODO: consider byteStride  */
+				triList[triCount].assignVtxIndx(stidx+udat[3*j], stidx+udat[3*j+1], stidx+udat[3*j+2]);
+				printf("triList[%d](index012): %d,%d,%d\n", triCount, stidx+udat[3*j], stidx+udat[3*j+1], stidx+udat[3*j+2]);
+				triCount++;
+			}
+
+			/* Update TriGroupList */
+		        triGroupList[tgCount].tcnt=glAccessors[accIndex].count/3;
+        		triGroupList[tgCount].stidx=stidx;
+        		triGroupList[tgCount].etidx=stidx+glAccessors[accIndex].count/3; /* Caution!!! etidx is NOT the end index! */
+        		triGroupList[tgCount].name=glMeshes[m].name; /* Assume ONLY 1 trianlge_primitive(mode==4) in primitives[] */
+
+			tgCount +=1;
+		}
+
+	    } /* for(n) */
+
+	} /* for(m) */
+
+	egi_dpstd(DBG_CYAN"Totally read %d triangles, %d vertices, and %d triGroups \n"DBG_RESET, triCount, vtxCount, tgCount);
+
+	/* Free */
+	egi_fmap_free(&fmap);
+
+	return 0;
+}
+
 
 /*--------------------------------
 Initialize calss variable members.

@@ -296,6 +296,7 @@ Journal:
 2022-11-14:
 	1. Test BVH skeleton motion file.
 2022-11-25: Test shadow for BVH skeleton.
+2022-12-05: Test LETS_NOTE VBH motion.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -322,9 +323,10 @@ using namespace std;
 
 #define MOTION_FILE  "/mmc/mesh.motion"
 
-#define TEST_BMTREE	1  /* TEST BoneMatrixTree */
+#define TEST_BMTREE	0  /* TEST BoneMatrixTree */
 
 //Option '-i': Test view_frustum near plane clipping
+#define TEST_GLTF	   1  /* Test TriMesh loaded from glTF */
 #define TEST_SCENE	   0  /* TEST E3D_Scene rendering, ONLY when TEST_MESHINSTANCE==0 and TEST_MULTIOBJ==1 */
 #define TEST_MESHINSTANCE  0
 
@@ -397,11 +399,12 @@ int main(int argc, char **argv)
 	*/
 
 #ifdef LETS_NOTE
-	EGI_16BIT_COLOR	  bkgScreenColor=WEGI_COLOR_BLACK;
+	EGI_16BIT_COLOR	  bkgScreenColor=WEGI_COLOR_GRAY2; //BLACK;
 #else
 	EGI_16BIT_COLOR	  bkgScreenColor=WEGI_COLOR_GRAY; //GRAYB;//GRAY3;//GREEN; //GRAY5; // DARKPURPLE
 #endif
-	EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(0xF0CCA8);//WEGI_COLOR_PINK;
+	//EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(0xF0CCA8);//WEGI_COLOR_PINK;
+	EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(WEGI_COLOR_PINK);
 	EGI_16BIT_COLOR	  wireColor=WEGI_COLOR_BLACK; //DARKGRAY;
 	EGI_16BIT_COLOR	  aabbColor=WEGI_COLOR_LTBLUE;
 	EGI_16BIT_COLOR	  fontColor=WEGI_COLOR_GREEN;
@@ -728,7 +731,7 @@ else {	/* For Landscape */
 	#ifdef LETS_NOTE
 	float animTStep=0.005;
 	#else
-	float animTStep=0.02;
+	float animTStep=0.01;
 	#endif
 	int  nodeIndex=0; /* BMTree node index */
 	const char* strAxis="XYZ"; /* rotation axis */
@@ -755,13 +758,17 @@ else {	/* For Landscape */
 //	E3D_RtaSphere   meshModel(2, 100); /* xxx -c -s 2.0 -X 30 -P */
 //	E3D_Cuboid   meshModel(100,200,300); /* xxx -c -s 1.25 -X 30 -P -a 10 */
 //	E3D_Tetrahedron  meshModel(50,250); /* xxx -c -s 1 -X 150 -A 2 -P */
-	E3D_Pyramid  meshModel(50,350); /* xxx -c -s 1 -X 150 -A 2 -P -p 0 */
+//	E3D_Pyramid  meshModel(50,350); /* xxx -c -s 1 -X 150 -A 2 -P -p 0 */
 //	E3D_ABone  meshModel(50,350); /* xxx -c -s 1.5 -Y -90 -A 2 -P -a -2 -p 0 -l */
 //	E3D_TestCompound  meshModel(50); /* xxx -c -s 1.5 -Y -90 -A 2 -P -a 10 -p 0 -l ;;;;  -c -s .7 -Y -90 -A 2 -a 10 -p 0 -P -l */
 
+	E3D_TriMesh meshModel;
+	meshModel.loadGLTF("/tmp/doggy.gltf");
+	meshModel.defMaterial.kd.vectorRGB(faceColor);
+
   #endif
 
-	cout<<"primitive created!\n";
+	cout<<"meshModel(primitive) created!\n";
 
 #endif
 
@@ -1037,14 +1044,15 @@ if(TEST_BMTREE) { /* Running case */
 	/* Interpolate to get tree nodes orientations, amat will be replaced~ */
 	/* Animate by interpolate all tree acting matrices (amat) */
 	printf("interpTreeOrients...\n");
-	#if 0
-	BMTree.interpTreeOrients( animTValue -(int)animTValue); /* t [0.0-1.0] */
-	#else 	/* Baidan_Namco TEST: DO NOT move --------- */
-	BMTree.interpTreeAmats(animTValue -(int)animTValue);/* t [0.0-1.0] */
-	for(int i=2; i<=4; i++) /* Reset translation for Hips, same as for meshModel */
-		BMTree.nodePtrList[i]->amat.setTranslation(0,0,0);
-	BMTree.updateTreeGmats();
-	#endif
+	if(BMTree.type==BMTREE_TYPE_NAMCO) {
+		BMTree.interpTreeAmats(animTValue -(int)animTValue);/* t [0.0-1.0] */
+		/* Baidan_Namco TEST: DO NOT move --------- */
+		for(int i=2; i<=4; i++) /* Reset translation for Hips, same as for meshModel */
+			BMTree.nodePtrList[i]->amat.setTranslation(0,0,0);
+		BMTree.updateTreeGmats();
+	}
+	else
+		BMTree.interpTreeOrients( animTValue -(int)animTValue); /* t [0.0-1.0] */
 
 #define BOXMANBMTREE_SQUAT 0
 #if BOXMANBMTREE_SQUAT /// For boxmanBMTree squating */
@@ -1759,6 +1767,15 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
                                         xres-125, yres-25,              /* x0,y0, */
                                         fontColor2, -1, 255,            /* fontcolor, transcolor,opaque */
                                         NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
+if(TEST_GLTF) {
+       FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
+                                        20, 20,                         /* fw,fh */
+                                        (UFT8_PCHAR)"glTF", 	/* pstr */
+                                        300, 1, 0,                      /* pixpl, lines, fgap */
+                                        5, 2,           		/* x0,y0, */
+                                        WEGI_COLOR_YELLOW, -1, 255,            /* fontcolor, transcolor,opaque */
+                                        NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
+}
 
         /* Display shade type and faceColor */
 	/* Shade type and face color */
