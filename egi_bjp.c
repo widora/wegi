@@ -54,7 +54,10 @@ Journal:
 	1. Add egi_picinfo_print()
 2022-04-11:
 	1. egi_parse_jpegFile(): parse GPS IFD.
-
+2022-12-26:
+	1. Add egi_imgbuf_readJpgBuffer()
+2022-12-27:
+	1. Add egi_imgbuf_readPngBuffer()
 
 Modified and appended by Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -923,6 +926,9 @@ unsigned char * open_buffer_jpgImg( const unsigned char *inbuff, unsigned long i
 }
 
 
+
+
+
 /*------------------------------------------------------------------
 open a 24bit BMP file and write image data to FB.
 image size limit: 320x240
@@ -1253,7 +1259,7 @@ fpath:		JPG file path
 egi_imgbuf:	EGI_IMGBUF  to hold the image data, in 16bits color
 
 Note:
-	1. only for case components=3.
+	1. only for cases components=1,3 OR 4.
 	2. No alpha data for EGI_IMGBUF.
 
 Return
@@ -1336,7 +1342,7 @@ int egi_imgbuf_loadjpg(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 	}
 
 
-	/* Conver/assign color data to imgbuf */
+	/* Convert/assign color data to imgbuf */
 	dat=imgbuf;
 	for(i=height-1;i>=0;i--) /* row */
 	{
@@ -1370,6 +1376,133 @@ int egi_imgbuf_loadjpg(const char* fpath,  EGI_IMGBUF *egi_imgbuf)
 	close_jpgImg(imgbuf);
 
 	return 0;
+}
+
+
+/*------------------------------------------------------------------
+Read JPG image data in inbuff and load to an EGI_IMGBUF.
+
+@inbuff         Buffer holding a complete JPG image.
+@insize         Size of inbuff.
+
+Note:
+1. only for components=1, 3 OR 4.
+
+Return
+	!NULL	Ok
+	NULL	Fails
+------------------------------------------------------------------*/
+EGI_IMGBUF* egi_imgbuf_readJpgBuffer(const unsigned char *inbuff, unsigned long insize)
+{
+	EGI_IMGBUF *egi_imgbuf=NULL;
+	int width,height;
+	int components;
+	unsigned char *imgbuf;
+	unsigned char *dat;
+	uint16_t color;
+	long int location = 0;
+	//int bytpp=2; /* bytes per pixel, 16bits color only */
+	int i,j;
+
+	if( inbuff==NULL || insize==0 ) {
+		printf("%s: Input inbuff is NULL!\n",__func__);
+		return NULL;
+	}
+
+	/* Open jpg buffer and get parameters */
+	imgbuf=open_buffer_jpgImg(inbuff, insize, &width, &height, &components);
+	if(imgbuf==NULL) {
+		egi_dpstd(DBG_RED"open_jpgImg() fails!\n"DBG_RESET);
+		return NULL;
+	}
+	egi_dpstd("Open JPG data with size W%dxH%d, components=%d \n", width, height, components);
+
+	/* NOW: Only support component number 1,3,4 as GRAY, RGB, RGBA */
+	if(components!=1 && components!=3 && components!=4) {
+		egi_dpstd(DBG_RED"Only supports component number:1,3,4. Sorry.\n"DBG_RESET);
+		close_jpgImg(imgbuf);
+		return NULL;
+	}
+
+	/* Create EGI_IMGBUF */
+	if(components==4)
+		egi_imgbuf=egi_imgbuf_create(height, width, 0, 0);
+	else
+		egi_imgbuf=egi_imgbuf_createWithoutAlpha(height, width, 0);
+	if(egi_imgbuf==NULL) {
+		egi_dpstd(DBG_RED"Fail to create EGI_IMGBUF!\n"DBG_RESET);
+		return NULL;
+	}
+
+	/* Convert/assign color data to imgbuf */
+	dat=imgbuf;
+	for(i=height-1;i>=0;i--) /* row */
+	{
+		for(j=0;j<width;j++)
+		{
+			location= (height-i-1)*width + j;
+
+			/* Gray */
+			if(components==1) {
+				color=COLOR_RGB_TO16BITS(*dat,*dat,*dat);
+				*(uint16_t *)(egi_imgbuf->imgbuf+location )=color;
+			}
+			/* RGB or RGBA */
+			else if(components==3 || components==4) {
+				color=COLOR_RGB_TO16BITS(*dat,*(dat+1),*(dat+2));
+				*(uint16_t *)(egi_imgbuf->imgbuf+location )=color;
+			}
+
+			/* ALPHA */
+			if(components==4) /* ALPHA for RGBA */
+				*(egi_imgbuf->alpha+location)=*(dat+3);
+
+			dat +=components;
+		}
+	}
+
+	/* Free imgbuf */
+	close_jpgImg(imgbuf);
+
+	return egi_imgbuf;
+}
+
+/*------------------------------------------------------------------
+Read PNG image data in inbuff and load to an EGI_IMGBUF.
+
+@inbuff         Buffer holding a complete PNG image.
+@insize         Size of inbuff.
+
+Return
+	!NULL	Ok
+	NULL	Fails
+------------------------------------------------------------------*/
+EGI_IMGBUF* egi_imgbuf_readPngBuffer(const unsigned char *inbuff, unsigned long insize)
+{
+	EGI_IMGBUF *egi_imgbuf=egi_imgbuf_alloc();
+	if(egi_imgbuf==NULL) {
+		egi_dpstd(DBG_RED"egi_imgbuf_alloc fails!\n"DBG_RESET);
+		return NULL;
+	}
+#if 0
+	/* TODO: Directly decode PNG upon inbuff. */
+
+#else
+	/* Save buffer data to an PNG file */
+	char tmbuf[128]={0};
+	strcpy(tmbuf,"/tmp/");
+	tm_get_strtime2(tmbuf+strlen(tmbuf), ".tmpPNG");
+	if(egi_append_file(tmbuf, (void *)inbuff, insize)!=0)
+		return NULL;
+
+	/* Load PNG file into egi_imgbuf */
+	egi_imgbuf_loadpng(tmbuf, egi_imgbuf);
+
+	/* Remove tmp. file */
+	remove(tmbuf);
+#endif
+
+	return egi_imgbuf;
 }
 
 

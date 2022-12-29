@@ -27,7 +27,25 @@ int main(int argc, char **argv)
 
 	EGI_TXTGROUP *txtgroup=NULL;
 
-#if 1	//////////////  TEST: egi_create_array2D()  /////////////////
+#if 1	//////////////  TEST: egi_decode_base64()  /////////////////
+//int egi_decode_base64(int type, const unsigned char *buff, unsigned int size, char *data);
+	const char *pt="This is a test";
+	char buff[256];
+	char data[256]={0};
+	int size;
+
+	printf("raw data size=%d\n", strlen(pt)+1);
+	size=egi_encode_base64(0, (const unsigned char*)pt, strlen(pt)+1, buff);  /* type, data, size, buff */
+	printf("encoded base64 size=%d\n",size);
+
+	size=egi_decode_base64(0, buff, size, data); /* type, buff, size, data */
+	printf("decoded data size=%d\n",size);
+	printf("restored data: %s\n", data);
+
+	exit(0);
+#endif
+
+#if 0	//////////////  TEST: egi_create_array2D()  /////////////////
 	int **tt;
 	i=0;
 while(1) {

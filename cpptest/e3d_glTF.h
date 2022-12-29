@@ -7,6 +7,11 @@ published by the Free Software Foundation.
 Reference:
 glTF 2.0 Specification (The Khronos® 3D Formats Working Group)
 
+Note:
+1. This is for E3D_TriMesh::loadGLTF(). search 'loadGLTF' to do crosscheck.
+2. glTF also defines texture UV origin at leftTop of image, and same
+   COORD_axis directions as E3D's.
+
 Journal:
 2022-12-13: Creates THIS file.
 
@@ -81,6 +86,15 @@ class E3D_glAccessor;
 class E3D_glBuffer;
 class E3D_glBufferView;
 
+class E3D_glImage;
+class E3D_glSampler;
+class E3D_glTexture;
+class E3D_glTextureInfo;
+class E3D_glNormalTextureInfo;
+class E3D_glOcclusionTextureInfo;
+class E3D_glPBRMetallicRoughness;
+class E3D_glMaterial;
+
 
 /* Non Class Functions */
 char* E3D_glReadJsonKey(const char *pstr, string & key, string & strval);
@@ -89,9 +103,16 @@ int E3D_glExtractJsonObjects(const string & Jarray, vector<string> & Jobjs);
 int E3D_glLoadBuffers(const string & Jbuffers, vector<E3D_glBuffer> & glBuffers);
 int E3D_glLoadBufferViews(const string & JBufferViews, vector <E3D_glBufferView> & glBufferViews);
 int E3D_glLoadAccessors(const string & JAccessors, vector <E3D_glAccessor> & glAccessors);
-int E3D_glLoadPrimitiveAttributes(const string & JPAttributes, E3D_glPrimitiveAttribute & glPAttributes);
+int E3D_glLoadPrimitiveAttributes(const string & JPAttributes, E3D_glPrimitiveAttribute & glPAttributes);  //<--- NOT ARRAY!
 int E3D_glLoadPrimitives(const string & JPrimitives, vector <E3D_glPrimitive> & glPrimitives);
 int E3D_glLoadMeshes(const string & JMeshes, vector <E3D_glMesh> & glMeshes);
+
+int E3D_glLoadMaterials(const string & JMaterials, vector <E3D_glMaterial> & glMaterials);
+int E3D_glLoadTextureInfo(const string & JTexInfo, E3D_glTextureInfo & glTexInfo);  //<--- NOT ARRAY!
+int E3D_glLoadPBRMetaRough(const string & JMetaRough, E3D_glPBRMetallicRoughness & glPBRMetaRough);  //<--- NOT ARRAY!
+int E3D_glLoadTextures(const string & JTextures, vector <E3D_glTexture> & glTextures);
+int E3D_glLoadImages(const string & JImages, vector <E3D_glImage> & glImages);
+
 
 /*-------------------------------
         Class E3D_glScene
@@ -116,11 +137,12 @@ Name 	  Accessor	Component      Note
 --------------------------------------------------
 POSITION    VEC3           float       Unitless XYZ vertex positions
 NORMAL      VEC3           float       Normalized XYZ vertex normals
-TANGENT     VEC4 float XYZW vertex tangents,(XYZ is normalized, W is(-1 or +1)
+TANGENT     VEC4 	   float       XYZW vertex tangents,(XYZ is normalized, W is(-1 or +1)
 
-TEXCOORD_n  VEC2 float Textrue coordinates
+TEXCOORD_n  VEC2 	   float        Textrue coordinates
 			   unsigned byte normalized
 		           unsigned short normalized
+
 COLOR_n	    VEC3/VEC4      float	RGB or RGBA vertex color linear multiplier
 			   unsigned byte normalized
 			   unsigned short normalized
@@ -140,6 +162,11 @@ WEIGHTS_n   VEC4           float	See Skinned Mesh Attributes
 
 	/* following are also accessor indices */
 	int texcoord; //_0; //[3];
+				    /* 1. TODO: NOW ONLY TEXCOORD_0 applys, assume it's for TEXTURE COORDINATES.
+				       2. crosscheck at E3D_TriMesh::loadGLTF() at 11.3.4
+				       3.  			!!!--- NOTE ---!!!
+				 	   glTF also defines UV origin at leftTop of the image, SAME as E3D.
+				    */
 	int color; //_0; //[3];
 //	int joints_0; //[3];
 //	int weights_0; //[3];
@@ -159,6 +186,8 @@ public:
 	E3D_glPrimitiveAttribute  attributes;
 	int		 indicesAccIndex;  /* the index of the accessor that contains the vertex indices.
 					    * When defined, the accessor MUST have SCALAR type and an unsigned integer component type.
+										!!! CAUTION !!!
+					       Above mentioned unsigned integer includes: unsigned int, unsigned short, unsigned char
 					    */
 	int		 materialIndex;    /* The index of the material to apply to this primitive when rendering
 					    If <0, use default.
@@ -279,7 +308,7 @@ public:
         ~E3D_glBuffer();
 
 	string	     name; /* Required:No */
-	string 	     uri;  /* */
+	string 	     uri;  /* URI to the resource. OR maybe base64 encoded data ebedded in glTF. */
 	int 	     byteLength;
 
 	EGI_FILEMMAP *fmap;   /* MMAP to an underlying file */
@@ -334,6 +363,247 @@ public:
 	//schema
 };
 
+
+
+
+/*-----------------------------------
+        Class E3D_glImage
+
+-----------------------------------*/
+class E3D_glImage {
+public:
+        /* Constructor */
+        E3D_glImage();
+        /* Destructor */
+        ~E3D_glImage();
+
+	string  name;	  /* Required:No,Jobject name */
+	string 	uri;  	  /* Required:No, MUST NOT be defined when bufferView is defined.
+			     Instead of referencing an external file, this field MAY contain a data:-URI.
+			   */
+
+	string 	mimeType; /* Required:No, MUST be defined when bufferView is defined
+			   * Allowed values: image/jpeg, image/png
+			   * It's empty also when image data is embedded in above uri.
+			   */
+	int	bufferViewIndex; /* Required:No, glTF Json name "bufferView"
+				  * The index of the bufferView contains the image.
+				  * MUST NOT be defined when uri is defined.
+				  */
+	//extensions
+	//extras
+
+	 EGI_IMGBUF *imgbuf;  /* EGI_IMGBUF of the image
+				 		!!!--- CAUTION ---!!!
+				 Ownership transfers in E3D_TriMesh::loadGLTF(): mtlList[].img_kd=glImages[].imgbuf;
+				*/
+};
+
+/*---------------------------------------
+   	Class E3D_glSampler
+
+Texture sampler for filtering and wrapping modes
+---------------------------------------*/
+class E3D_glSampler {
+public:
+        /* Constructor */
+        E3D_glSampler();
+        /* Destructor */
+        //~E3D_glSampler();
+
+	string  name;		/* Required:No */
+	int magFilter;		/* Required:No,  Magnification filter Allowed values: 9728--NEAREST, 9729--LINEAR */
+	int minFilter;		/* Required:No,  Minification filter Allowed values: 9728,9729, 9984-9987 */
+	int wrapS;		/* Required:No,  S(U) wrapping mode, default=10497
+				   Allowed values: 33071 CLAMP_TO_EDGE,33648 MIRRORED_REPEAT,10497 REPEAT
+				 */
+	int wrapT;		/* Required:No,  T(V) wrapping mode, default=10497.
+				   Allowed values: 33071 CLAMP_TO_EDGE,33648 MIRRORED_REPEAT,10497 REPEAT
+				 */
+	//extensions
+	//extras
+};
+
+
+/*---------------------------------------
+   Class E3D_glTexture
+
+---------------------------------------*/
+class E3D_glTexture {
+public:
+        /* Constructor */
+        E3D_glTexture();
+        /* Destructor */
+        //~E3D_glTexture();
+
+	string name;		/* Required:No */
+	int samplerIndex;	/* Required:No, Json name "sampler". The index of the sampler used by this texture
+				  <0 invalid  Init.-1
+				 */
+	int imageIndex;		/* Required:No, Json name "source".  The index of the image used by this texture
+				  <0 invalid  Init.-1
+				 */
+
+	//extensions
+	//extras
+};
+
+/*---------------------------------------
+   Class E3D_glTextureInfo
+
+---------------------------------------*/
+class E3D_glTextureInfo {
+public:
+        /* Constructor */
+        E3D_glTextureInfo();
+        /* Destructor */
+        //~E3D_glTextureInfo();
+
+	int	index;		/* Required:Yes, the index of the texture. <0 as invalid, init-1 */
+	int 	texCoord;	/* Required:No,  The set index of texture's TEXCOORD attribute
+				   used for texture coordinate mapping.
+				   This integer value is used to construct a string in the format TEXCOORD_<set index>
+				   which is a reference to a key in mesh.primitives.attributes
+				   (e.g. a value of 0 corresponds to TEXCOORD_0).
+				   A mesh primitive MUST have the corresponding texture coordinate attributes for
+				   the material to be applicable to it.
+				   default=0;
+				 */
+
+        //extensions
+        //extras
+};
+
+/*---------------------------------------
+   Class E3D_glNormalTextureInfo
+
+---------------------------------------*/
+class E3D_glNormalTextureInfo {
+public:
+        /* Constructor */
+        E3D_glNormalTextureInfo();
+        /* Destructor */
+        //~E3D_glNormalTextureInfo();
+
+	int	index;		/* Required:Yes,  the index of the texture <0 as invalid, init-1 */
+	int 	texCoord;	/* Required:No,  The set index of texture's TEXCOORD attribute
+				   used for texture coordinate mapping.
+				   Default=0;
+				   CrossCheck at E3D_TriMesh::loadGLTF() at 11.3.4.
+				 */
+	float  scale;		/* Required:No, The scalar parameter applied to each normal vector of the
+				   normal texture,
+				   default=1.0;
+				 */
+
+        //extensions
+        //extras
+};
+
+/*---------------------------------------
+   Class E3D_glOcclusionTextureInfo
+
+---------------------------------------*/
+class E3D_glOcclusionTextureInfo {
+public:
+        /* Constructor */
+        E3D_glOcclusionTextureInfo();
+        /* Destructor */
+        //~E3D_glOcclusionTextureInfo();
+
+	int	index;		/* Required:Yes,  the index of the texture.  <0 as invalid. */
+	int 	texCoord;	/* Required:No,  The set index of texture's TEXCOORD attribute
+				   used for texture coordinate mapping.
+				   Default=0;
+				 */
+	float  strength;	/* Required:No, A scalar multiplier controlling the amount
+				   of occlusion applied.
+				   default=1.0;
+				 */
+
+        //extensions
+        //extras
+};
+
+
+/*---------------------------------------
+   Class E3D_glPBRMetallicRoughness
+
+---------------------------------------*/
+class E3D_glPBRMetallicRoughness {
+public:
+        /* Constructor */
+        E3D_glPBRMetallicRoughness();
+        /* Destructor */
+        //~E3D_glPBRMetallicRoughness();
+
+	bool baseColorFactor_defined;		/* Default=false, If undefined, let E3D_Material.kd keep its own default value. */
+	E4D_Vector baseColorFactor;	  	/* Required:No, factors for base color of the material
+						 * This value defines linear multipliers for the sampled texels of the base color texture.
+						 * number[4] default [1.0,1.0,1.0,1.0],  each componet >=0.0 and <=1.0
+						 * RGBA <--------------  E3D_Material.kd
+						 */
+
+	//bool baseColorTexture_defined;		/* Default=false */
+	E3D_glTextureInfo baseColorTexture;	/* Required:No, the base color texture. this maps to E3D_Material.img_kd
+						 *** ---- baseColorTexture.index<0 as undifined!
+						 */
+
+	float metallicFactor;			/* Required:No, default=1.0,  min>=0.0; max<=1.0 */
+	float roughnessFactor;			/* Required:No, default=1.0,  min>=0.0; max<=1.0 */
+
+	E3D_glTextureInfo metallicRoughnessTexture;  /* Required:No */
+
+	//extensions
+	//extras
+};
+
+/*-----------------------------------
+        Class E3D_glMaterial
+
+-----------------------------------*/
+class E3D_glMaterial {
+public:
+        /* Constructor */
+        E3D_glMaterial();
+        /* Destructor */
+        //~E3D_glMaterial();
+
+	string  name;	  	/* Required:No,Jobject name */
+
+	bool	pbrMetallicRoughness_defined;
+	E3D_glPBRMetallicRoughness	pbrMetallicRoughness; 	/* A set paramters to define metallic-roughness material model from
+				 				   Physically Based Rendering(PBR) methodology.)
+				 				   When undefined.  all default values MUST apply
+			       	 				 */
+	//bool	normalTexture_defined;
+	E3D_glNormalTextureInfo   	normalTexture;	 	/* Required:No, The tangent space normal texture
+								 *** normalTexture.index<0 as Undifned!
+								 */
+	//bool occlutionTexture_defined;
+	E3D_glOcclusionTextureInfo 	occlutionTexture; 	/* Required:No, The occlusion texture
+								 *** occlutionTexture.index<0 as Undifned!
+								 */
+	//bool emissiveTexture_defined;
+	E3D_glTextureInfo		emissiveTexture;	/* Required:No, The emissive texture
+								 *** emissiveTexture.index<0 as Undifned!
+								 */
+
+	//bool	emissiveFactor_defined;
+	E3D_Vector emissiveFactor;	/* Required:No,  the factors for the emissive color of the material
+				  	   number [3], default [0.0, 0.0 ,0.0]
+				 	*/
+
+	string alphaMode;	/* Required:No, The alpah rendering mode of the material, default "OPAQUE"
+				   Allowed value: "OPAQUE", "MASK", "BLEND"
+				 */
+	float alphaCutoff;	/* Required:No, The alpha cutoff value of the material, default: 0.5 */
+
+	bool  doubleSided;	/* Required:No, Specifies whether the material is double sided. default: false */
+
+	//extensions
+	//extras
+};
 
 
 #endif

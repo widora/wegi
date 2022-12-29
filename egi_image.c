@@ -569,6 +569,7 @@ EGI_IMGBUF *egi_imgbuf_readfile(const char* fpath)
 	return eimg;
 }
 
+
 /*----------------------------------------------------------------
 Copy a block of image from input EGI_IMGBUF, and create
 a new EGI_IMGBUF to hold the data.

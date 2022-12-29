@@ -67,7 +67,8 @@ Note:
 7. Transformation matrix for all normals(Vertex normals, TriFaceNormals, TriVtxNormals)
    should contain ONLY rotation components, and keep them all as UNIT normals!
    (whose vector norm is 1! )
-
+8. After creating an E3D_TriMesh, call checkTriangleIndices() to check if any
+   triList[].vtx[].index OR triGroupList[].stidx-etidx is out of limit (vcnt).
 
 TODO:
 1. FBDEV.zbuff[] is integer type, two meshes MAY be viewed as overlapped if distance
@@ -356,6 +357,26 @@ Journal:
 2022-12-20:
 	1. Improve E3D_TriMesh::loadGLTF()
 	2. Add E3D_TriMesh::Vertex::assignNormal()
+2022-12-21:
+	1. Add E3D_TriMesh::checkTriangleIndices().
+2022-12-22:
+	1. E3D_TriMesh::TriGroup.tcnt ------> E3D_TriMesh::TriGroup.tricnt
+	   To avoid name conflict with E3D_TriMesh.tcnt
+2022-12-23:
+	1. E3D_TriMesh::loadGLTF():  Load glMaterials.
+2022-12-25:
+	1. E3D_TriMesh::loadGLTF():  Load texture u/v to triList[].vtx[].u/v.
+2022-12-26:
+	1. E3D_TriMesh::E3D_TriMesh(const char *fobj): Convert texture UV v value
+	   to comply with E3D UV COORD. v(e3d)=1.0-v(obj);
+2022-12-27:
+	1. E3D_TriMesh::loadGLTF(): Load buffer(mimeType 'image/jpeg') into glImages[].imgbuf.
+	2. E3D_TriMesh: cancel triList[].vtx[].u/v, use vtxList[].u/v.
+2022-12-28:
+	1. Add E3D_Material::img_ke as emissive texture.
+	1. E3D_TriMesh::loadGLTF(): Assign mtlList[].img_ke.
+2022-12-29:
+	1. E3D_shadeTriangle(): Matrix/Interpolation to get pixel uv.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -377,6 +398,8 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "egi_image.h"
 #include "egi_cstring.h"
 #include "egi_utils.h"
+#include "egi_bjp.h"
+#include "egi_matrix.h"
 
 #include "e3d_trimesh.h"
 #include "e3d_glTF.h"
@@ -476,7 +499,9 @@ void E3D_Material::setDefaults()
 	map_ka.clear();
 	map_ks.clear();
 
+	/* Pointers MUST set as NULL */
 	img_kd=NULL;
+	img_ke=NULL;
 }
 
 
@@ -922,6 +947,7 @@ void E3D_TriMesh::Vertex::setDefaults()
 	/* Necessary ? */
 	u=0.0f;
 	v=0.0f;
+
 	E3D_TriMesh::Vertex::mark=0;
 
 	/* E3D_Vector objs: default init as 0 */
@@ -989,7 +1015,7 @@ void E3D_TriMesh::TriGroup::setDefaults()
         name.clear();
         hidden=false;
         mtlID=-1;
-        tcnt=0; stidx=0; etidx=0;
+        tricnt=0; stidx=0; etidx=0; //HK2022-12-22
 	ignoreTexture=false;
 	backFaceOn=false;
 }
@@ -1002,7 +1028,7 @@ void E3D_TriMesh::TriGroup::print()
 	printf("   <<< TriGroup %s >>>\n",name.c_str());
         omat.print(name.c_str());
         printf("Material ID: %d\n", mtlID);
-        printf("Totally %d trianges in triList[%d - %d].\n", tcnt, stidx, etidx);
+        printf("Totally %d trianges in triList[%d - %d].\n", tricnt, stidx, etidx); //HK2022-12-22
 }
 
 
@@ -1056,6 +1082,68 @@ void E3D_TriMesh::setTriCount(int cnt)
 {
 	if(cnt>=0) tcnt=cnt;
 };
+
+int E3D_TriMesh::checkTriangleIndices() const
+{
+	int ret=0;
+	int k,j;
+	int tgTriCount;
+	int allTriCount=0;
+	int tindx; /* index of triList[] */
+
+	/* 1. Check triList */
+        for( k=0; k<tcnt; k++) {
+                //printf("Check triList[%d] indices %d, %d, %d\n", k, triList[k].vtx[0].index, triList[k].vtx[1].index,triList[k].vtx[2].index);
+                if(triList[k].vtx[0].index<0 || triList[k].vtx[1].index<0 || triList[k].vtx[2].index<0 ) {
+			egi_dpstd(DBG_RED"triList[%d] indices %d, %d, %d error! (<0!) \n"DBG_RESET,
+					k, triList[k].vtx[0].index, triList[k].vtx[1].index, triList[k].vtx[2].index);
+                        ret=-1;
+		}
+                if(triList[k].vtx[0].index>=vcnt || triList[k].vtx[1].index>=vcnt || triList[k].vtx[2].index>=vcnt ) {
+			egi_dpstd(DBG_RED"triList[%d] indices %d, %d, %d error! (>=vcnt(%d)!)\n"DBG_RESET,
+					k, triList[k].vtx[0].index, triList[k].vtx[1].index,triList[k].vtx[2].index, vcnt);
+                        ret=-1;
+		}
+        }
+	printf("Totally %d trianlges in triList[] checked, %s indices found!\n", tcnt, ret<0?"Invalid":"No invalid");
+	if(ret<0) return-1;
+
+	/* 2. Check triGroupList */
+	for( k=0; k<(int)triGroupList.size(); k++) {
+	   tgTriCount = (int)triGroupList[k].etidx-(int)triGroupList[k].stidx;  //SHOULD=triGroupList[].tricnt
+	   if(tgTriCount<0) {
+		egi_dpstd(DBG_RED"triGroupList[%d].etidx-triGroupList[%d].stidx<0!\n"DBG_RESET, k, k);
+		return -1;
+	   }
+	   if( (int)triGroupList[k].stidx>=tcnt ) {  /* stidx/etidx is unsign type */
+		egi_dpstd(DBG_RED"triGroupList[%d].stidx=%d! Out of limit [0 %d]\n"DBG_RESET, k, triGroupList[k].stidx, tcnt);
+		return -1;
+	   }
+	   if( (int)triGroupList[k].etidx>tcnt ) {  //etidx is max+1
+		egi_dpstd(DBG_RED"triGroupList[%d].etidx=%d! Out of limit [0 %d]\n"DBG_RESET,k, triGroupList[k].etidx, tcnt);
+		return -1;
+	   }
+
+	   allTriCount +=tgTriCount;
+	   for(j=0; j<tgTriCount; j++) {
+		tindx=triGroupList[k].stidx+j;
+		if( triList[tindx].vtx[0].index <0 || triList[tindx].vtx[1].index <0 || triList[tindx].vtx[2].index <0 )
+		{
+			egi_dpstd(DBG_RED"Triangle of triGroupList[%d] has triList[%d] with invalid indices: %d,%d,%d (<0!)\n"DBG_RESET,
+				    k, tindx, triList[tindx].vtx[0].index, triList[tindx].vtx[1].index, triList[tindx].vtx[2].index);
+			ret=-1;
+		}
+		if( triList[tindx].vtx[0].index >= vcnt || triList[tindx].vtx[1].index >= vcnt || triList[tindx].vtx[2].index >= vcnt )
+		{
+			printf(DBG_RED"Triangle of triGroupList[%d] has triList[%d] with invalid indices: %d,%d,%d (>=vcnt!)\n"DBG_RESET,
+				    k, tindx, triList[tindx].vtx[0].index, triList[tindx].vtx[1].index, triList[tindx].vtx[2].index);
+			ret=-1;
+		}
+	   }
+	}
+	printf("Totally %d triangles in triGroupList[] checked, %s indices found!\n", allTriCount, ret<0?"Invalid":"No invalid");
+	return ret;
+}
 
 /*--------------------------------
    Count vertices and triangles
@@ -1372,9 +1460,9 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh & tmesh)
 		/* Vector as point */
 		vtxList[i].pt = tmesh.vtxList[i].pt;
 
-		/* Ref Coord. */
-		vtxList[i].u = tmesh.vtxList[i].u;
-		vtxList[i].v = tmesh.vtxList[i].v;
+		/* Ref Coord. Cancelld HK2022-12-27 */
+		//vtxList[i].u = tmesh.vtxList[i].u;
+		//vtxList[i].v = tmesh.vtxList[i].v;
 
 		/* Normal vector */
 		vtxList[i].normal = tmesh.vtxList[i].normal;
@@ -1604,7 +1692,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 			/* g.1 Assign LAST groupEtidx, the last_group.groupEtidx to be assiged at see E2. */
 			if(groupCnt>0) {
 				triGroupList.back().etidx=groupEtidx;
-				triGroupList.back().tcnt = groupEtidx-groupStidx; /* last not included. */
+				triGroupList.back().tricnt = groupEtidx-groupStidx; /* last not included. HK2022-12-22: tricnt for tcnt */
 
 				/* Reset groupStidex for next group. */
 				groupStidx = groupEtidx;
@@ -1759,9 +1847,19 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 					&tuvList[tuvListCnt].x, &tuvList[tuvListCnt].y, &tuvList[tuvListCnt].z);
 
 				/* TODO: U,V <0 means....?? */
-				if(tuvList[tuvListCnt].x<0) tuvList[tuvListCnt].x=1.0+tuvList[tuvListCnt].x;
-				if(tuvList[tuvListCnt].y<0) tuvList[tuvListCnt].y=1.0+tuvList[tuvListCnt].y;
-				if(tuvList[tuvListCnt].z<0) tuvList[tuvListCnt].z=1.0+tuvList[tuvListCnt].z;
+				if(tuvList[tuvListCnt].x<0.0) tuvList[tuvListCnt].x +=1.0; //=1.0+tuvList[tuvListCnt].x;
+				else if(tuvList[tuvListCnt].x>=1.0) tuvList[tuvListCnt].x -=1.0;
+
+				if(tuvList[tuvListCnt].y<0.0) tuvList[tuvListCnt].y +=1.0;  //=1.0+tuvList[tuvListCnt].y;
+				else if(tuvList[tuvListCnt].y>=1.0) tuvList[tuvListCnt].y -=1.0;  //=1.0+tuvList[tuvListCnt].y;
+
+				if(tuvList[tuvListCnt].z<0.0) tuvList[tuvListCnt].z +=1.0; //=+tuvList[tuvListCnt].z;
+				else if(tuvList[tuvListCnt].z>=1.0) tuvList[tuvListCnt].z -=1.0; //=+tuvList[tuvListCnt].z;
+
+				/* OBJ has reversed V Z direction for E3D. HK2022-12-26 */
+				//tuvList[tuvListCnt].x=tuvList[tuvListCnt].x;	  //u
+				tuvList[tuvListCnt].y=1.0-tuvList[tuvListCnt].y;  //v
+				tuvList[tuvListCnt].z=1.0-tuvList[tuvListCnt].z;    //How abt. z?
 
 				tuvListCnt++;
 				break;
@@ -1974,12 +2072,28 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 
 					   /* FB3.1.2.2 Triangle vtx texture coord uv. */
 					   if(textureIndex[0]>-1 && textureIndex[j+1]>-1 && textureIndex[j+2]>-1) {
+
+						//v(y) already converted to under E3D UV COORD. see at case 't'
+
+						#if 1 //////////// Cancel triList[].vtx[].uv /////////////////
 						triList[tcnt].vtx[0].u=tuvList[textureIndex[0]].x;
 						triList[tcnt].vtx[0].v=tuvList[textureIndex[0]].y;
 						triList[tcnt].vtx[1].u=tuvList[textureIndex[j+1]].x;
 						triList[tcnt].vtx[1].v=tuvList[textureIndex[j+1]].y;
 						triList[tcnt].vtx[2].u=tuvList[textureIndex[j+2]].x;
 						triList[tcnt].vtx[2].v=tuvList[textureIndex[j+2]].y;
+						#endif //////////////////////////////////////////
+
+						#if 0 /* NOPE!  XXX Assingn uv to vtxList[].uv HK2022-12-26 */
+						vtxList[vtxIndex[0]].u=tuvList[textureIndex[0]].x;
+						vtxList[vtxIndex[0]].v=tuvList[textureIndex[0]].y;
+						vtxList[vtxIndex[j+1]].u=tuvList[textureIndex[j+1]].x;
+						vtxList[vtxIndex[j+1]].v=tuvList[textureIndex[j+1]].y;
+						vtxList[vtxIndex[j+2]].u=tuvList[textureIndex[j+2]].x;
+						vtxList[vtxIndex[j+2]].v=tuvList[textureIndex[j+2]].y;
+						#endif 
+
+						/* TODO: what for tuvList[].z */
 					   }
 
 					   /* FB3.1.2.3 Triangle vertex normal index. */
@@ -2049,7 +2163,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 	/* E2.  Assign groupEtidx for the last group. just BEFORE E3. */
 	if( groupCnt>0 ) {
 		triGroupList.back().etidx=groupEtidx;
-		triGroupList.back().tcnt = groupEtidx-groupStidx; /* last not included. */
+		triGroupList.back().tricnt = groupEtidx-groupStidx; /* last not included. HK2022-12-22: tricnt replaces tcnt */
 	}
 
 	/* E3.  If no group defined in .obj file , then add a default triGroup to include all triangles. */
@@ -2058,7 +2172,7 @@ E3D_TriMesh::E3D_TriMesh(const char *fobj)
 		triGroup.name = "Default";
 		triGroup.stidx = 0;		/* start index of triList[] */
 		triGroup.etidx = tcnt;
-		triGroup.tcnt = tcnt;
+		triGroup.tricnt = tcnt;  //HK2022-12-22  .tricnt replaces tcnt
 
 		/* If mtList is NOT empty, then use the first mtlID */
 		if(mtlList.size()>0)
@@ -2135,12 +2249,23 @@ E3D_TriMesh:: ~E3D_TriMesh()
 Load glTF into the trimesh.
 
 Note:
-1. Assume one 1 primitive(mode=4) in each glMesh.
+1. XXX It reads ONLY the first triangle primitive(mode=4)
+   of meshes. XXX extract all
+2. All meshes and their primitives are merged into just
+   one E3D_TriMesh.
+3. Each mesh_primitive transfers to one triGroup in E3D_TriMesh,
+   If a mesh has more than one primitve, then their corresponding
+   triGroup name are mesh_name+number.
+   Example: mesh name: "BOX",
+   	mesh's primitie[0] triGroup name: "BOX_0"
+   	mesh's primitie[1] triGroup name: "BOX_1"
+
 
 @fgl:	Path to a glTF Json file.
 
 TODO:
-1. NOW For LittleEndian ONLY
+1. NOW For LittleEndian system ONLY, same as gtTF byte order.
+2. NOW byteStride is NOT considered during data extracting.
 
 Return:
 	0	OK
@@ -2155,11 +2280,19 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
         vector<E3D_glBuffer> glBuffers;
         vector<E3D_glBufferView> glBufferViews;
         vector<E3D_glAccessor> glAccessors;
-        vector <E3D_glMesh> glMeshes;
+        vector<E3D_glMesh> glMeshes;
+	vector<E3D_glMaterial> glMaterials;
+	vector<E3D_glTexture> glTextures;
+	vector<E3D_glImage> glImages;
+	vector<E3D_glSampler> glSamplers;
 
 	int triCount=0; /* Count total triangles */
 	int vtxCount=0; /* Count total vertices */
 	int tgCount=0;  /* Count total triGroup */
+
+	int triCountBk,vtxCountBk,tgCountBk;
+
+////////////////// Load glTF file to glBuffers/glBufferViews/glAccessors/glMeshes /////////////
 
 	/* 1. Mmap glTF Json file */
 	EGI_FILEMMAP *fmap;
@@ -2167,23 +2300,28 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 	if(fmap==NULL)
 		return -1;
 
+
 	/* 2. Parse Top_Level glTF Jobject arrays, and load to respective glObjects */
 	pjson=fmap->fp;
 	while( (pjson=E3D_glReadJsonKey(pjson, key, strValue)) ) {
 
-		cout << DBG_GREEN"Key: "<< key << DBG_RESET << endl;
-		cout << DBG_GREEN"Value: "DBG_RESET<< strValue << endl;
+		//cout << DBG_GREEN"Key: "<< key << DBG_RESET << endl;
+		//cout << DBG_GREEN"Value: "DBG_RESET<< strValue << endl;
 
 		/* Case glTF Jobject: buffers */
 		if(!key.compare("buffers")) {
-			printf("--- buffers ---\n");
+			printf("\n=== buffers ===\n");
 
 			/* Load glBuffers as per Json descript */
-			E3D_glLoadBuffers(strValue, glBuffers);
+			if( E3D_glLoadBuffers(strValue, glBuffers)<0 )
+				return -1;
 
 			egi_dpstd(DBG_GREEN"Totally %zu E3D_glBuffers loaded.\n"DBG_RESET, glBuffers.size());
 			for(size_t k=0; k<glBuffers.size(); k++) {
-				printf("glBuffers[%zu]: byteLength=%d, uri='%s'\n", k, glBuffers[k].byteLength, glBuffers[k].uri.c_str() );
+				char strtmp[128];
+				glBuffers[k].uri.copy(strtmp,64,0);
+				if(glBuffers[k].uri.size()>64) 	strcpy(strtmp+64, "...");
+				printf("glBuffers[%zu]: byteLength=%d, uri='%s'\n", k, glBuffers[k].byteLength, strtmp);
 				/* Check buffer data */
 				if(glBuffers[k].byteLength>0 && glBuffers[k].data==NULL) {
 					egi_dpstd(DBG_GREEN"glBuffers[%d].data==NULL, while byteLength>0!\n"DBG_RESET, k);
@@ -2193,10 +2331,11 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 		}
 		/* Case glTF Jobject: bufferViews */
 		else if(!key.compare("bufferViews")) {
-			printf("--- bufferViews ---\n");
+			printf("\n=== bufferViews ===\n");
 
 			/* Load data to glBufferViews */
-			E3D_glLoadBufferViews(strValue, glBufferViews);
+			if( E3D_glLoadBufferViews(strValue, glBufferViews)<0 )
+				return -1;
 
 			printf(DBG_YELLOW"Totally %zu E3D_glBufferViews loaded.\n"DBG_RESET, glBufferViews.size());
 			for(size_t k=0; k<glBufferViews.size(); k++) {
@@ -2208,10 +2347,11 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 		}
 		/* Case glTF Jobject: accessors */
 		else if(!key.compare("accessors")) {
-			printf("--- accessors ---\n");
+			printf("\n=== accessors ===\n");
 
 			/* Load data to glAccessors */
-			E3D_glLoadAccessors(strValue, glAccessors);
+			if( E3D_glLoadAccessors(strValue, glAccessors)<0 )
+				return -1;
 
 			printf(DBG_YELLOW"Totally %zu E3D_glAccessors loaded.\n"DBG_RESET, glAccessors.size());
 			for(size_t k=0; k<glAccessors.size(); k++) {
@@ -2223,10 +2363,11 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 		}
 		/* Case glTF Jobject: meshes */
 		else if(!key.compare("meshes")) {
-			printf("--- meshes ---\n");
+			printf("\n=== meshes ===\n");
 
 			/* Load data to glMeshes */
-			E3D_glLoadMeshes(strValue, glMeshes);
+			if( E3D_glLoadMeshes(strValue, glMeshes)<0 )
+				return -1;
 
 			printf(DBG_GREEN"Totally %zu E3D_glMeshes loaded.\n"DBG_RESET, glMeshes.size());
 			for(size_t k=0; k<glMeshes.size(); k++) {
@@ -2243,11 +2384,102 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 					printf("   POSITION(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.positionAccIndex);
 					printf("   NORMAL(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.normalAccIndex);
 					printf("   TANGENT(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.tangentAccIndex);
+					// TODO: TEXCOORD_n  COLOR_n
 					printf("   TEXCOORD_0(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.texcoord);
 					printf("   COLOR_0(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.color);
 				}
 			}
 		}
+		/* Case glTF Jobject: materials */
+		else if(!key.compare("materials")) {
+			printf("\n=== materials ===\n");
+
+			/* Load data to glMeshes */
+			if( E3D_glLoadMaterials(strValue, glMaterials)<0 )
+				return -1;
+
+			printf(DBG_GREEN"Totally %zu E3D_glMaterials loaded.\n"DBG_RESET, glMaterials.size());
+
+			for(size_t k=0; k<glMaterials.size(); k++) {
+				printf(DBG_MAGENTA"\n    --- material_%d ---\n"DBG_RESET, k);
+				printf("name: %s\n",glMaterials[k].name.c_str());
+				printf("doubleSided: %s\n", glMaterials[k].doubleSided ? "True" : "False");
+				printf("alphaMode: %s\n", glMaterials[k].alphaMode.c_str());
+				printf("alphaCutoff: %f\n", glMaterials[k].alphaCutoff);
+				printf("emissiveFactor: [%f,%f,%f]\n",
+						glMaterials[k].emissiveFactor.x,
+						glMaterials[k].emissiveFactor.y,
+						glMaterials[k].emissiveFactor.z
+				);
+				printf("pbrMetallicRoughness:\n");
+				printf("    baseColorFactor: [%f,%f,%f,%f]\n",
+						glMaterials[k].pbrMetallicRoughness.baseColorFactor.x,
+						glMaterials[k].pbrMetallicRoughness.baseColorFactor.y,
+						glMaterials[k].pbrMetallicRoughness.baseColorFactor.z,
+						glMaterials[k].pbrMetallicRoughness.baseColorFactor.w
+				);
+				printf("    baseColorTexture:\n");
+				printf("         index:%d,  texCoord:%d\n",
+						glMaterials[k].pbrMetallicRoughness.baseColorTexture.index,
+						glMaterials[k].pbrMetallicRoughness.baseColorTexture.texCoord
+				);
+				printf("    metallicFactor: %f\n",glMaterials[k].pbrMetallicRoughness.metallicFactor);
+				printf("    roughnessFactor: %f\n",glMaterials[k].pbrMetallicRoughness.roughnessFactor);
+				printf("    metallicRoughnessTexture: TODO\n");
+				printf("normalTexture: TODO\n");
+				printf("occlutionTexture: TODO\n");
+				printf("emissiveTexture: TODO\n");
+			}
+
+		}
+		/* Case glTF Jobject: textures */
+		else if(!key.compare("textures")) {
+			printf("\n=== textures ===\n");
+			if( E3D_glLoadTextures(strValue, glTextures)<0 )
+				return -1;
+
+			printf(DBG_GREEN"Totally %zu E3D_glTextures loaded.\n"DBG_RESET, glTextures.size());
+			for(size_t k=0; k<glTextures.size(); k++) {
+				printf("glTextures[%d]: name'%s', sampler(Index)=%d, image(Index)=%d\n",
+						k,glTextures[k].name.c_str(), glTextures[k].samplerIndex, glTextures[k].imageIndex);
+			}
+		}
+		/* Case glTF Jobject: images */
+		else if(!key.compare("images")) {
+			printf("\n=== images ===\n");
+			if( E3D_glLoadImages(strValue, glImages)<0 ) {
+				//return -1;
+				printf(DBG_RED"E3D_glLoadImages() fails!\n"DBG_RESET);
+			}
+
+/* TODO: image maybe embedded in URI  */
+			printf(DBG_GREEN"Totally %zu E3D_glImages loaded.\n"DBG_RESET, glImages.size());
+			for(size_t k=0; k<glImages.size(); k++) {
+				printf(DBG_MAGENTA"\n    --- image_%d---\n"DBG_RESET, k);
+				printf("name: %s\n", glImages[k].name.c_str());
+				printf("uri: %s\n", glImages[k].uri.c_str());
+				printf("mimeType: %s\n", glImages[k].mimeType.c_str());
+				printf("bufferView(Index): %d\n", glImages[k].bufferViewIndex);
+			}
+		}
+#if 0		/* Case glTF Jobject: samplers TODO */
+		else if(!key.compare("samplers")) {
+			printf("\n=== samplers ===\n");
+			if( E3D_glLoadSampler(strValue, glSampler)<0 )
+                                return -1;
+
+                        printf(DBG_GREEN"Totally %zu E3D_glSamplers loaded.\n"DBG_RESET, glSamplers.size());
+                        for(size_t k=0; k<glSamplers.size(); k++) {
+                                printf(DBG_MAGENTA"\n    --- sampler_%d---\n"DBG_RESET, k);
+                                printf("name: %s\n", glSamplers[k].name.c_str());
+				printf("wrapS: %d\n",glSamplers[k].wrapS);
+				printf("wrapT: %d\n",glSamplers[k].wrapT);
+				printf("magFilter: %d\n",glSamplers[k].magFilter);
+				printf("minFilter: %d\n",glSamplers[k].minFilter);
+                        }
+
+		}
+#endif
 		else
 			egi_dpstd(DBG_YELLOW"Unparsed KEY/VALUE pair:\n  key: %s, value: %s\n"DBG_RESET, key.c_str(), strValue.c_str());
 
@@ -2307,6 +2539,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 		/* Link glBufferViews.data to glBuffers.data */
 		glBufferViews[k].data = glBuffers[index].data+offset;
 	}
+
 
 	/* start = accessor.byteOffset + accessor.bufferView.byteOffset */
 
@@ -2373,9 +2606,10 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 			//continue;
 			return -1;
 		}
+
 		/* Check data length, consider byteStride */
-		egi_dpstd(DBG_GRAY"glBufferViews[%d].byteStride=%dBs, element_size=%dBs, element_count=%d\n"DBG_RESET,
-				index, glBufferViews[index].byteStride, esize, count);
+		//egi_dpstd(DBG_GRAY"glBufferViews[%d].byteStride=%dBs, element_size=%dBs, element_count=%d\n"DBG_RESET,
+		//		index, glBufferViews[index].byteStride, esize, count);
 	/* bufferView.length >= accessor.byteOffset + EFFECTIVE_BYTE_STRIDE * (accessor.count - 1) + SIZE_OF_COMPONENT * NUMBER_OF_COMPONENTS */
 		if( glBufferViews[index].byteLength < offset+(glBufferViews[index].byteStride-esize)*(count-1)+length ) {
  		    egi_dpstd(DBG_RED"glBufferViews[%d].byteLength insufficient for glAccessors[%d]! give up data lingking.\n"DBG_RESET, index, k);
@@ -2387,15 +2621,48 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 		glAccessors[k].data = glBufferViews[index].data+offset;
 	}
 
+	/* 4a. Load glImages[].imgbuf from glBufferViews[].data, ONLY when its bufferViewIndex>0 and mimeType='image/jpeg' OR 'image/png' */
+	for( size_t k=0; k<glImages.size(); k++ ) {
+	   int bvindex=glImages[k].bufferViewIndex;
+	   if(glImages[k].imgbuf==NULL	/* In case it's been loaded from an image file URI, see at E3D_glLoadImages() */
+		&& bvindex>0 && bvindex<(int)glBufferViews.size() )
+	   {
+	    	if(!glImages[k].mimeType.compare("image/jpeg")) {
+			glImages[k].imgbuf=egi_imgbuf_readJpgBuffer(glBufferViews[bvindex].data, glBufferViews[bvindex].byteLength);
+		   	if(glImages[k].imgbuf==NULL) {
+				egi_dpstd(DBG_RED"glImages[%d]: Fail to readJpgBuffer to imgbuf!\n"DBG_RESET, k);
+				//return -1;
+		   	}
+	    	}
+            	else if(!glImages[k].mimeType.compare("image/png")) {
+            		//egi_dpstd(DBG_RED"glImages[%d]: mimeType 'image/png' is NOT supported yet.\n"DBG_RESET, k);
+		   	glImages[k].imgbuf=egi_imgbuf_readPngBuffer(glBufferViews[bvindex].data, glBufferViews[bvindex].byteLength);
+		   	if(glImages[k].imgbuf==NULL) {
+				egi_dpstd(DBG_RED"glImages[%d]: Fail to readJpngBuffer to imgbuf!\n"DBG_RESET, k);
+				//return -1;
+		   	}
+            	}
+            	else {
+                	egi_dpstd(DBG_RED"glImages[%d]: mimeType error for '%s'.\n"DBG_RESET, k, glImages[k].mimeType.c_str());
+                	//return -1;
+            	}
+	   }
+	}
+
+//////////////////////// END: load glTF file to glBuffers/glBufferViews/glAccessors/glMeshes... ////////////////////
+//exit(0);
+
 	/* 5. Count all trianlges and vertices */
 	for(size_t j=0; j<glMeshes.size(); j++) {
 		int accIndex;
 		for(size_t i=0; i<glMeshes[j].primitives.size(); i++) {
 			if( glMeshes[j].primitives[i].mode==4 ) { /* 4 for triangle */
+				/* Triangles */
 				accIndex=glMeshes[j].primitives[i].indicesAccIndex;
 				/* Each consecutive set of three vertices defines a single triangle primitive */
 				triCount += glAccessors[accIndex].count/3;
 
+				/* Vertices */
 				accIndex=glMeshes[j].primitives[i].attributes.positionAccIndex;
 				vtxCount += glAccessors[accIndex].count;
 
@@ -2404,7 +2671,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 			}
 		}
 	}
-	egi_dpstd(DBG_CYAN"triCount=%d, vtxCount=%d, tgCount=%d\n"DBG_RESET, triCount, vtxCount, tgCount);
+	egi_dpstd(DBG_CYAN"triCount=%d, vtxCount=%d, tgCount=%d\n\n"DBG_RESET, triCount, vtxCount, tgCount);
 
         /* 6. Clear vtxList[] and triList[], E3D_TriMesh() may allocate them.  */
         if(vCapacity>0) {
@@ -2442,33 +2709,82 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 	triGroupList.resize(tgCount);
 
 	/* 10. Reset triCount/vtxCount */
-	triCount=0;
-	vtxCount=0;
-	tgCount=0;
+	triCountBk=triCount; 	triCount=0;
+	vtxCountBk=vtxCount; 	vtxCount=0;
+	tgCountBk=tgCount;  	tgCount=0;
 
-	/* 11. Load vtxList[] and triList[] */
-	/* TODO: NOW Assume 'unsigned int' for indices, and 'float' for POSITION */
-	for(size_t m=0; m<glMeshes.size(); m++) {
-	//for(size_t m=0; m<1; m++) {
-		int  primTriCnt=0;
-	    for(size_t n=0; n<glMeshes[m].primitives.size(); n++) {
 
-		/* TODO: NOW suppose ONLY 1 primitive(mode=4) in glMesh */
-		if(primTriCnt>0) {
-			egi_dpstd(DBG_RED"NOW suppose ONLY 1 primitive(mode=4) in each glMesh~!\n"DBG_RESET);
-			break;
+	/* 10a. Load Materils. TODO: NOW, all meshes are merged into just ONE(this) E3D_TriMesh.
+	 * Note: one glMaterial maps to one mtlList.
+	 */
+	int baseColorTextureIndex;
+	int emissiveTextureIndex;
+	/* resize mtlList */
+	mtlList.resize(glMaterials.size());
+	/* Assign mtlList[] */
+	for(size_t k=0; k<glMaterials.size(); k++) {
+		mtlList[k].name = glMaterials[k].name;
+
+		/* Assign mtlList[].kd */
+		if(glMaterials[k].pbrMetallicRoughness.baseColorFactor_defined) {
+		   mtlList[k].kd.x= glMaterials[k].pbrMetallicRoughness.baseColorFactor.x;
+		   mtlList[k].kd.y= glMaterials[k].pbrMetallicRoughness.baseColorFactor.y;
+		   mtlList[k].kd.z= glMaterials[k].pbrMetallicRoughness.baseColorFactor.z;
+		}
+		/* ELSE baseColorFactor undefined: keep E3D_Material default kd value. */
+
+		/* Assign mtlList[].img_kd */
+	        baseColorTextureIndex=glMaterials[k].pbrMetallicRoughness.baseColorTexture.index;
+		//if(glMaterials[k].pbrMetallicRoughness.baseColorTexture_defined) {
+		//baseColorTextureIndex >=0 for baseColorTexture_defined
+		if(baseColorTextureIndex>=0 && glTextures[baseColorTextureIndex].imageIndex>=0 ) {
+			/*---- !!! CAUTION !!! Ownership transfers. ---*/
+			mtlList[k].img_kd=glImages[glTextures[baseColorTextureIndex].imageIndex].imgbuf;
+			glImages[glTextures[baseColorTextureIndex].imageIndex].imgbuf=NULL;
+
+		  	/* Assign triGroupList[].vtx.u/v in 11.3.4 */
+		}
+		/* Assign mtlList[].img_ke */
+	        emissiveTextureIndex=glMaterials[k].emissiveTexture.index;
+		//emissvieTextureIndex >=0 for emissiveTexture_defined
+		if(emissiveTextureIndex>=0 && glTextures[emissiveTextureIndex].imageIndex>=0 ) {
+
+			/*---- !!! CAUTION !!! Ownership transfers. ---*/
+			mtlList[k].img_ke=glImages[glTextures[emissiveTextureIndex].imageIndex].imgbuf;
+			glImages[glTextures[emissiveTextureIndex].imageIndex].imgbuf=NULL;
+
+		  	/* TODO: Assign triGroupList[].vtx.u/v in 11.3.4 */
 		}
 
-		int accIndex; /* Index for glAccessors[] */
-		int mode;
-		unsigned int *udat;	/* For triangle vertexIndex.
-					 * When primitives.indices is defined. the accessor MUST have SCALAR element_type and
-					 * an unsigned integer component_type.
-			 		 */
-		float *fdat;	/* 1. For veterx position(XYZ). element_type is VEC3, and component_type is float.
-				 * 2. For veterx normal(xyz). element_type is VEC3, and component_type is float.
-				 */
-		int stidx;  /* Vertex starting index for each primitives[] */
+	}
+
+	/* 11. Load vtxList[], triList[] and triGroupList[] */
+	int accIndex; /* Index for glAccessors[] */
+	int mode;
+	unsigned int vindex[3];  /* vertex index for tirangle */
+	unsigned int uind;	/* To store assmebled index number */
+	unsigned int utmp;
+	unsigned int *udat;
+				/* For triangle vertexIndex.
+				 * When primitives.indices is defined. the accessor MUST have SCALAR element_type and
+				 * an unsigned integer component_type.
+				 *    			!!!--- CAUTION ---!!!
+				 * Above "unsigned ineger" includes: unsigned int, unsigned short, or unsigned char
+		 		 */
+	float *fdat;	/* 1. For veterx position(XYZ). element_type is VEC3, and component_type is float.
+			 * 2. For veterx normal(xyz). element_type is VEC3, and component_type is float.
+			 * 3. For u/v, element_type is VEC2, and component_types: float/unsigned_byte_normalized/unsinged_short_normalized
+			 */
+	int Vsdx;  /* Set as starting index for vtxList[], before reading each primitive */
+	int Tsdx;  /* Set as starting index for triList[], before reading each primitive */
+
+	/* Traverse all meshes and primitives, to load data to vtxList[], triList[], triGroupList[], */
+	for(size_t m=0; m<glMeshes.size(); m++) {
+	    egi_dpstd(DBG_MAGENTA"Read glMeshes[%d]...\n"DBG_RESET, m);
+	    int  primTriCnt=0;
+
+	    for(size_t n=0; n<glMeshes[m].primitives.size(); n++) {
+	    	egi_dpstd(DBG_GREEN"   Read .primitives[%d]...\n"DBG_RESET, n);
 
 		mode=glMeshes[m].primitives[n].mode;
 		if(mode==4) primTriCnt++;
@@ -2476,11 +2792,19 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 /* TODO: NOW only TRIANGLES: ----------------- Following for mode==4 (triangles) ONLY */
 
 		/* 11.1 Save triGroupList[] starting index here! */
-		stidx=vtxCount;
+		Vsdx=vtxCount;
+		Tsdx=triCount;
+		egi_dpstd("Starting vtxIndex=%d\n", vtxCount);
 
 		/* 11.2 Read glMesh.primitives.attributes.POSITION into vtxList[] */
 		accIndex=glMeshes[m].primitives[n].attributes.positionAccIndex;
 		if(mode==4 && accIndex>=0 ) {
+			/* 11.2.0 Check data */
+			if(glAccessors[accIndex].data==NULL) {
+				egi_dpstd(DBG_RED"glAccessors[%d].data is NULL! Abort.\n"DBG_RESET, accIndex);
+				return -1;
+			}
+
 			/* 11.2.1 Get pointer to float type */
 			fdat=(float *)glAccessors[accIndex].data;
 
@@ -2489,7 +2813,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 			for(int j=0; j<glAccessors[accIndex].count; j++) {  /* count is number of ELEMENTs(VEC3) */
 				/* Read XYZ as fully packed. TODO: consider byteStride */
 				vtxList[vtxCount].assign(fdat[3*j], fdat[3*j+1], fdat[3*j+2]);
-				printf("vtxList[%d](XYZ): %f,%f,%f\n", vtxCount, fdat[3*j], fdat[3*j+1], fdat[3*j+2]);
+//				printf("vtxList[%d](XYZ): %f,%f,%f\n", vtxCount, fdat[3*j], fdat[3*j+1], fdat[3*j+2]);
 				vtxCount++;
 			}
 
@@ -2511,7 +2835,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 				   /* Read in vtxList[].normal */
 				   for(int j=0; j<glAccessors[normalAccIndex].count; j++) {  /* count is number of ELEMENTs(VEC3) */
 					/* Assume they are normalized VEC3 */
-					vtxList[stidx+j].normal.assign(fdat[3*j], fdat[3*j+1], fdat[3*j+2]);
+					vtxList[Vsdx+j].normal.assign(fdat[3*j], fdat[3*j+1], fdat[3*j+2]);
 				   }
 				}
 			}
@@ -2520,30 +2844,187 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 		/* 11.3 Read glMesh.primitivies.indices into triList[] */
 		accIndex=glMeshes[m].primitives[n].indicesAccIndex;
 		if( mode==4 && accIndex>=0 ) {
-			/* Get pointer */
-			/* NOTE: when primitives[n].indices is defined. the accessor MUST have SCALAR type and
-			 *  an unsigned integer component type
-			 */
-			udat=(unsigned int *)glAccessors[accIndex].data;
+			/* 11.3.0 Check data */
+			if(glAccessors[accIndex].data==NULL) {
+				egi_dpstd(DBG_RED"glAccessors[%d].data is NULL! Abort.\n"DBG_RESET,accIndex);
+				return -1;
+			}
+
+			/* 11.3.1 Get component size */
+			int compsize=glAccessors[accIndex].elemsize; /* for SCALAR, number_of_components=1 */
 
 			/* triGroupList[] starting index */
-			//stidx=vtxCount; NOT HERE! see at 11.1
+			//Vsdx=vtxCount; NOT HERE! see at 11.1
 
-			/* Read in triList[] */
+			/* 11.3.2 Read in triList[] */
 			egi_dpstd(DBG_YELLOW"Read triList[] from glAccessors[%d], SCALAR count=%d\n"DBG_RESET, accIndex, glAccessors[accIndex].count);
 			for(int j=0; j<glAccessors[accIndex].count/3; j++) { /* 3 vertices for each triangle */
+
+#if 1  //////////////// For any elemsize  /////////////////
 				/* Read 3 vtx indices as fully packed.  TODO: consider byteStride  */
-				triList[triCount].assignVtxIndx(stidx+udat[3*j], stidx+udat[3*j+1], stidx+udat[3*j+2]);
-				printf("triList[%d](index012): %d,%d,%d\n", triCount, stidx+udat[3*j], stidx+udat[3*j+1], stidx+udat[3*j+2]);
+				for(int ii=0; ii<3; ii++) { /* 3 verter index for one triangle */
+					uind=0;
+					for(int jj=0; jj<compsize; jj++) { /* component bytes */
+						/* read byte by byte. littlendia. */
+						utmp=glAccessors[accIndex].data[(3*j+ii)*compsize+jj];
+						uind += utmp<<(jj<<3); //jj*8
+					}
+					vindex[ii]=uind;
+
+				#if 0	/* Check */
+					if( Vsdx+(int)vindex[ii] >= vtxCount ) {
+						egi_dpstd(DBG_RED"Vsdx(%d)+vtxIndex(%d) >= %d(vtxTotal)!\n"DBG_RESET,
+										Vsdx,Vsdx+vindex[ii], vtxCount);
+						return -1;
+					}
+				#endif
+
+				}
+				/* Assign to triList[] */
+				triList[triCount].assignVtxIndx(Vsdx+vindex[0], Vsdx+vindex[1], Vsdx+vindex[2]);
+
+#else ///////////////// For elemisze=4bytes ONLY //////////////
+
+				triList[triCount].assignVtxIndx(Vsdx+udat[3*j], Vsdx+udat[3*j+1], Vsdx+udat[3*j+2]);
+				printf("triList[%d](index012): %d,%d,%d\n", triCount, Vsdx+udat[3*j], Vsdx+udat[3*j+1], Vsdx+udat[3*j+2]);
+#endif
+				/* triCount incremental */
 				triCount++;
 			}
 
-			/* Update TriGroupList */
-		        triGroupList[tgCount].tcnt=glAccessors[accIndex].count/3;
-        		triGroupList[tgCount].stidx=stidx;
-        		triGroupList[tgCount].etidx=stidx+glAccessors[accIndex].count/3; /* Caution!!! etidx is NOT the end index! */
+			/* 11.3.3 Update TriGroupList. One meshes.primitive for one triGroup */
+		        triGroupList[tgCount].tricnt=glAccessors[accIndex].count/3; //HK2022-12-22: tricnt replaces tcnt
+        		triGroupList[tgCount].stidx=Tsdx;
+        		triGroupList[tgCount].etidx=Tsdx+glAccessors[accIndex].count/3; /* Caution!!! etidx is NOT the end index! */
         		triGroupList[tgCount].name=glMeshes[m].name; /* Assume ONLY 1 trianlge_primitive(mode==4) in primitives[] */
+			/* If mesh has more than 1 primitive, the triGroup_name = mesh_name+append_num */
+			if(glMeshes[m].primitives.size()>1) {
+				char buff[32];
+				buff[31]=0;
+				sprintf(buff,"_%d",n);
+				triGroupList[tgCount].name.append(buff);
+			}
 
+			/* 11.3.4 Assign material ID for the triGroup. Also see 10a. glMaterials[]-->THIS.mtlList[] */
+			int materialIndex=glMeshes[m].primitives[n].materialIndex;  //materialIndex = THIS.mtlID
+			if( materialIndex >-1 && materialIndex<(int)glMaterials.size() ) { //same index glMaterials[]-->THIS.mtlList[]
+				egi_dpstd(DBG_YELLOW"Assign triGroupList[].mtlID...\n"DBG_YELLOW);
+				//if( glMeshes[m].primitives[n].materialIndex < (int)glMaterials.size() )
+				triGroupList[tgCount].mtlID=materialIndex; //glMeshes[m].primitives[n].materialIndex;
+
+                    		/* see 10a. for mtList[].img_kd=glImages[].imgbuf */
+				if(mtlList[materialIndex].img_kd==NULL) /* NOW: glImages[].imgbuf is NULL! */
+ 				        egi_dpstd(DBG_RED"mtList[materialIndex=%d].img_kd==NULL! Ignore triList[].vtx[].u/v .\n"DBG_YELLOW,
+							materialIndex);
+
+				/* Assign triList[].vtx.u/v */
+		                else if(  mtlList[materialIndex].img_kd!=NULL &&
+				     //glMaterials[materialIndex].pbrMetallicRoughness.baseColorTexture_defined) {
+				     glMaterials[materialIndex].pbrMetallicRoughness.baseColorTexture.index>=0 ) {
+				        egi_dpstd(DBG_YELLOW"Assign triList[].vtx[].u/v...\n"DBG_YELLOW);
+
+                   			int textureIndex=glMaterials[materialIndex].pbrMetallicRoughness.baseColorTexture.index;
+					/* If texture image exists */
+                   			if(textureIndex>=0 && glTextures[textureIndex].imageIndex>=0 ) {
+                        			/* see 10a. for mtList[].img_kd=glImages[].imgbuf */
+						//if(mtList[materialIndex].img_kd==NULL) /* NOW: glImages[].imgbuf is NULL! */
+
+						/* TODO: Here assume as TEXCOORD_0:
+						   glMaterials[k].pbrMetallicRoughness.baseColorTexture.texCoord =default=0
+						 */
+					    int texcoord=glMeshes[m].primitives[n].attributes.texcoord; //texcoord as Accessors index
+					    if( texcoord >-1 && texcoord < (int)glAccessors.size() ) {
+
+egi_dpstd(DBG_YELLOW"Read texture u/v from glAccessors[texcoord=%d], type: count=%d, elemsize=%d\n"DBG_RESET,
+				texcoord, glAccessors[texcoord].count, glAccessors[texcoord].elemsize);
+
+						/* TODO: byteStripe of glAccessors[].data NOT considered */
+						fdat=(float *)glAccessors[texcoord].data;
+
+						/* Check element type */
+						if(glAccessors[texcoord].type.compare("VEC2")) {
+							egi_dpstd(DBG_RED"glAccessors[texcoord=%d].type:'%s', it's is NOT VEC2!\n"DBG_RESET,
+									texcoord, glAccessors[texcoord].type.c_str());
+
+							/* Clear vtxList/triList */
+							vcnt=0; tcnt=0;  triGroupList.clear();
+
+							return -1;
+						}
+
+			                        /* Get component size. component types: float, unsinged byte normalized, unsinged short normalized. */
+                        			int compsize=glAccessors[texcoord].elemsize/2; /* for VEC2, number_of_components=2 */
+						int compmax=(1<<(compsize<<3))-1; /* component max. value */
+						float invcompmax=1.0/compmax;
+						int fcnt=0; //count vertices in this primitive
+
+			egi_dpstd("Vertice in this primitive: %d\n", vtxCount-Vsdx);
+
+					    	/* Texture coord: VEC2 float Textrue coordinates */
+						/* Get and assign vtxList[].u/v */
+						for(int j=Vsdx; j<vtxCount; j++) {  /* traverse vertice index in this primitive */
+
+						    if(compsize==4) {  //component type: float
+							 vtxList[j].u=fdat[fcnt*2];
+							/* Hahaha... same UV coord direction as EGI E3D :) */
+							 vtxList[j].v=fdat[fcnt*2+1];
+//							printf("vtxList[%d].u/v:%f,%f\n",j,vtxList[j].u,vtxList[j].v);
+						    }
+						    else if(compsize<4) { //component type: unsinged byte normalized, unsinged short normalized
+							/* componet: u */
+							for(int kk=0; kk<compsize; kk++) {
+							   uind=0;
+                                                	   utmp=glAccessors[texcoord].data[(fcnt*2)*compsize+kk];  //1byte incremental
+							   /* little endian */
+                                                	   uind += utmp<<(kk<<3); //kk*8
+							}
+							vtxList[j].u=uind*invcompmax;
+
+							/* component: v */
+							for(int kk=0; kk<compsize; kk++) {
+							   uind=0;
+                                                	   utmp=glAccessors[texcoord].data[(fcnt*2+1)*compsize+kk];
+							   /* little endian */
+                                                	   uind += utmp<<(kk<<3); //kk*8
+							}
+							vtxList[j].v=uind*invcompmax;
+						    }
+
+						    fcnt++; /* count vertices */
+
+						} /* End for(j) */
+
+						/* TODO: NOW E3D_TriMesh::renderMesh() reads UV from triList[].vtx[].u/v */
+						int vtxind;
+						for(int j=Tsdx; j<triCount; j++) {
+						   for(int jj=0; jj<3; jj++) {
+							vtxind=triList[j].vtx[jj].index;
+							if(vtxind<0 || vtxind>=vtxCount)
+								return -1;
+
+							triList[j].vtx[jj].u=vtxList[vtxind].u;
+							triList[j].vtx[jj].v=vtxList[vtxind].v;
+						   }
+						}
+
+
+					    }
+					}
+				}
+			}
+
+
+#if 0 /* TEST: Hide triGroup which has no baseColorFactor defined ------------------- */
+			if(triGroupList[tgCount].mtlID>-1) {
+			    if(!glMaterials[triGroupList[tgCount].mtlID].pbrMetallicRoughness.baseColorFactor_defined)
+                        	triGroupList[tgCount].hidden=true;
+			}
+			/* OR has noe mtlID, USUally not */
+			if(triGroupList[tgCount].mtlID<0)
+				triGroupList[tgCount].hidden=true;
+#endif //---------------------------------------------------------------------------
+
+			/* tgCount incremental at last! */
 			tgCount +=1;
 		}
 
@@ -2551,6 +3032,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 
 	} /* for(m) */
 
+	egi_dpstd(DBG_CYAN"Count %d triangles, %d vertices, and %d triGroups \n"DBG_RESET, triCountBk, vtxCountBk, tgCountBk);
 	egi_dpstd(DBG_CYAN"Totally read %d triangles, %d vertices, and %d triGroups \n"DBG_RESET, triCount, vtxCount, tgCount);
 
 	/* Free */
@@ -2689,6 +3171,8 @@ Print out all texture vertices(UV).
 ----------------------------------*/
 void E3D_TriMesh::printAllTextureVtx(const char *name=NULL)
 {
+	int vtxIndex[3];
+
 	printf("\n   <<< %s Texture Vertices List >>>\n", name);
 	if(tcnt<=0) {
 		printf("No triangle in the TriMesh!\n");
@@ -2702,6 +3186,21 @@ void E3D_TriMesh::printAllTextureVtx(const char *name=NULL)
 			   triList[i].vtx[1].u, triList[i].vtx[1].v,
 			   triList[i].vtx[2].u, triList[i].vtx[2].v  );
 	}
+
+	#if 0 //////////////////////////////////////////////////////
+	for(int i=0; i<tcnt; i++) {
+		vtxIndex[0]= triList[i].vtx[0].index;
+		vtxIndex[1]= triList[i].vtx[1].index;
+		vtxIndex[2]= triList[i].vtx[2].index;
+
+		/* Each triangle has 3 vertex index, each has texture vertices as [u,v] //,w] */
+		printf("[%d]:  [0]{%f, %f}, [1]{%f, %f}, [2]{%f, %f}\n",
+			i, vtxList[vtxIndex[0]].u, vtxList[vtxIndex[0]].v,
+			   vtxList[vtxIndex[1]].u, vtxList[vtxIndex[1]].v,
+			   vtxList[vtxIndex[2]].u, vtxList[vtxIndex[2]].v );
+	}
+	#endif //////////////////////////////////////////////////////////////////
+
 }
 
 /*------------------------
@@ -4312,7 +4811,7 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 	EGI_16BIT_COLOR	 vtxColor[3];		/* Triangle 3 vtx color */
 	E3D_Vector upLight(0,1,0);
 	upLight.normalize();
-	float vpd1,vpd2,vpd3;			/* vProdcut for lights */
+//	float vpd1,vpd2,vpd3;			/* vProdcut for lights */
 
 	E3DS_RenderVertex rvtx[4];		/* 4 for MAX. Znear-clipping results */
 	int  rnp;				/* number of vertices after Znear-clipping */
@@ -4334,6 +4833,7 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 
 	/* Scene, NOT applied yet. */
 	E3D_Scene scene;
+	scene.projMatrix=projMatrix;
 
 	enum E3D_SHADE_TYPE  actShadeType;  /* Final shadeType in rendering a group, NOT shadeType in E3D_TriMesh.shadeType */
 
@@ -4438,6 +4938,7 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 	    /* G2.2 Extract TriGroup transformation matrix 'tgRTmat', and rotation pivot 'tgOxyz'. */
 	    /* G2.2.1 To combine RTmatrix to get tgRTmat:  Pxyz(at TriGroup Coord) * TriGroup--->object * object--->Global */
 	    tgRTMat = triGroupList[n].omat*objmat;
+
 	    /* G2.2.2 nvRotMat for lighting computatoin, without translation component. */
 	    nvRotMat = tgRTMat;
  	    nvRotMat.zeroTranslation(); /* !!! */
@@ -4562,9 +5063,11 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 
 		/* G2.3.6.1 Each triangle with 3 vertices, assign to rvtx[].pt */
 		rnp=3;
-		rvtx[0].pt=vpts[0]; rvtx[1].pt=vpts[1]; rvtx[2].pt=vpts[2];
-		/* Assign rvtx[].normal at G2.3.6.3 */
+		rvtx[0].pt=vpts[0]; rvtx[1].pt=vpts[1]; rvtx[2].pt=vpts[2]; //This will be projected/updated.
+		rvtx[0].spt=vpts[0]; rvtx[1].spt=vpts[1]; rvtx[2].spt=vpts[2]; //This keeps unchanged.
 
+		/* Assign rvtx[].normal at G2.3.6.3 */
+////
 		/* G2.3.6.2 IF(actShadeType==E3D_FLAT_SHADING) */
 		if(actShadeType==E3D_FLAT_SHADING) {
 			/* Clip with the near plane of the viewFrustum */
@@ -4612,9 +5115,16 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 			/* Vertex uv */
 			if(actShadeType==E3D_TEXTURE_MAPPING) {
 			    for(int m=0; m<3; m++) {
-				/* Notice E3D uv origin at leftTop, while .obj at leftBottom */
+
+				/* OK, Apply E3D uv CoordSsystem.  XXX Notice E3D uv origin at leftTop, while .obj at leftBottom */
 				rvtx[m].u=triList[i].vtx[m].u;
-				rvtx[m].v=1.0-triList[i].vtx[m].v;
+				rvtx[m].v=triList[i].vtx[m].v;  /* HK2022-12-26 */
+
+				#if 0 ////////// NOT vtx uv /////////////
+				rvtx[m].u=vtxList[ triList[i].vtx[m].index ].u;
+				rvtx[m].v=vtxList[ triList[i].vtx[m].index ].v;
+				#endif
+
 			    }
 			}
 
@@ -4654,8 +5164,8 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		/* G2.3.7 As backFaceOn && IsBackface, assign bkFaceColor to tgmtl.kd */
 		if(IsBackface)
 			tgmtl.kd.vectorRGB(bkFaceColor);
-		else
-			tgmtl.kd=defMaterial.kd;
+//		else
+//			tgmtl.kd=defMaterial.kd;
 
 		/* G2.3.8 Project rvtx[].pt to screen/view plane */
 		for(int m=0; m<rnp; m++) {
@@ -7080,6 +7590,9 @@ XXX 0. Call E3D_computeBarycentricCoord()?? ---NOPE!
 XXX 3. Pixel normal interpolation. NOW pixel normal == face normal =rvtx[0].normal. ---OK
 4. E3D_seeColor() use default lighting now.
 ----------------------------------------------------------------------*/
+
+#if 0 //////////////////////////// NOT consider Z for uv  //////////////////////////
+
 void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3D_Material &mtl, const E3D_Scene &scene )
 {
 
@@ -7105,7 +7618,7 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 	float z2=-rvtx[2].pt.z; /* Views from -z ----> +z  */
 
 	/* 3. Check input imgbuf */
-	EGI_IMGBUF *imgbuf=NULL;
+	EGI_IMGBUF *imgbuf=NULL;  /* Basecolor */
 	int imgw=0;
 	int imgh=0;
 	float u0=0.0, v0=0.0, u1=0.0, v1=0.0, u2=0.0, v2=0.0;
@@ -7213,6 +7726,7 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 
 				/* Material for each pixel updated */
 				pmtl.kd.vectorRGB(imgbuf->imgbuf[locimg]);
+
 				/* See the pixel color */
 				fbset_color2(fb_dev, E3D_seeColor(pmtl, rvtx[0].normal, 0)); /* (mtl, normal, dl) */
 
@@ -7555,8 +8069,14 @@ return;
 				if( locimg>=0 && locimg < imgh*imgw ) {
 		            		//fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
 
-	    				/* Material for each pixel updated */
+	    				/* Material.kd updated */
     					pmtl.kd.vectorRGB(imgbuf->imgbuf[locimg]);
+
+/* TEST img_ke: -------------- HK2022-12-28 */
+					/* Material.ke updated */
+					if( pmtl.img_ke && egi_imgbuf_uvToPixel(pmtl.img_ke, u, v, &color, NULL)==0 )
+						pmtl.ke.vectorRGB(color);
+
     				    	/* See the pixel color */
     				    	color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
 			    		fbset_color2(fb_dev, color);
@@ -7641,9 +8161,17 @@ return;
 				if(locimg >imgh*imgw-1) locimg=imgh*imgw-1;
 #endif
 				if( locimg>=0 && locimg < imgh*imgw ) {
+
 		            		//fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
-    			    		/* Material for each pixel updated */
+
+    			    		/* Material.kd updated */
     			    		pmtl.kd.vectorRGB(imgbuf->imgbuf[locimg]);
+
+/* TEST img_ke: -------------- HK2022-12-28 */
+					/* Material.ke updated */
+					if( pmtl.img_ke && egi_imgbuf_uvToPixel(pmtl.img_ke, u, v, &color, NULL)==0 )
+						pmtl.ke.vectorRGB(color);
+
 	    				/* See the pixel color */
     					color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
 					fbset_color2(fb_dev, color);
@@ -7662,3 +8190,640 @@ return;
 	} /* End: draw left part */
 
 }
+
+#elif 0  ///////////////////////////// Matrix to solve uv ///////////////////////////////////
+
+void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3D_Material &mtl, const E3D_Scene &scene )
+{
+
+	if(fb_dev==NULL)
+		return;
+
+	/* 1. Material for pixel. kd will be updated for each pixel! */
+	E3D_Material pmtl=mtl;
+	pmtl.img_kd=NULL;	/* DO NOT own/hold img_kd! */
+
+	/* 2. Get vetex coordinates */
+	int x0=roundf(rvtx[0].pt.x);
+	int y0=roundf(rvtx[0].pt.y);
+	float z0=-rvtx[0].pt.z; /* Views from -z ----> +z  */
+
+	int x1=roundf(rvtx[1].pt.x);
+	int y1=roundf(rvtx[1].pt.y);
+	float z1=-rvtx[1].pt.z; /* Views from -z ----> +z  */
+
+	int x2=roundf(rvtx[2].pt.x);
+	int y2=roundf(rvtx[2].pt.y);
+	float z2=-rvtx[2].pt.z; /* Views from -z ----> +z  */
+
+	/* 3. Check input imgbuf */
+	EGI_IMGBUF *imgbuf=NULL;  /* Basecolor */
+	int imgw=0;
+	int imgh=0;
+
+	float u0=0.0, v0=0.0, u1=0.0, v1=0.0, u2=0.0, v2=0.0;
+
+	/* 1. Mapping matrix computation */
+	/* 1.1  matUV,matT,matXYZ  */
+	float uvmat[3*3];  ///{ u0, v0, 0.0f, u1, v1, 0.0f, u2, v2, 0.0f };
+	float xyzmat[3*3]; //{x0, y0, z0, x1, y1, z1, x2, y2, z2};
+	float tmat[3*3];	/* Transform/map matrix */
+	float Ixyzmat[3*3];	/* Inversed xyzmat */
+
+ 	struct float_Matrix matUV;
+ 	matUV.nr=3; matUV.nc=3; matUV.pmat=uvmat;
+
+ 	struct float_Matrix matXYZ;
+ 	matXYZ.nr=3; matXYZ.nc=3; matXYZ.pmat=xyzmat;
+
+ 	struct float_Matrix matT;
+	matT.nr=3; matT.nc=3; matT.pmat=tmat;
+
+ 	struct float_Matrix matIXYZ;
+	matIXYZ.nr=3; matIXYZ.nc=3; matIXYZ.pmat=Ixyzmat;
+
+
+	/* Get imgbuf */
+	imgbuf=mtl.img_kd;
+
+	if( imgbuf==NULL || imgbuf->imgbuf==NULL ) {
+		//egi_dpstd("Input EGI_IMBUG is NULL!\n"); ---OK
+	}
+	else {
+		/* Get image size */
+		imgw=imgbuf->width;
+		imgh=imgbuf->height;
+
+		/* Get uv coordinates for texture mapping. */
+		u0=rvtx[0].u; v0=rvtx[0].v;
+		u1=rvtx[1].u; v1=rvtx[1].v;
+		u2=rvtx[2].u; v2=rvtx[2].v;
+
+#if 1		/* Check input u/v. TODO: Reasoning... */
+		if( u0<0.0 || u0>1.0 ) u0=-floorf(u0)+u0;
+		if( v0<0.0 || v0>1.0 ) v0=-floorf(v0)+v0;
+		if( u1<0.0 || u1>1.0 ) u1=-floorf(u1)+u1;
+		if( v1<0.0 || v1>1.0 ) v1=-floorf(v1)+v1;
+		if( u2<0.0 || u2>1.0 ) u2=-floorf(u2)+u2;
+		if( v2<0.0 || v2>1.0 ) v2=-floorf(v2)+v2;
+#endif
+
+		/* Assign uvmat[3x3] */
+		uvmat[0]=u0; uvmat[1]=v0; uvmat[2]=1.0f;
+		uvmat[3]=u1; uvmat[4]=v1; uvmat[5]=1.0f;
+		uvmat[6]=u2; uvmat[7]=v2; uvmat[8]=1.0f;
+
+		/* Assign xyzmat[3x3] */
+		xyzmat[0]=x0; xyzmat[1]=y0; xyzmat[2]=z0;
+		xyzmat[3]=x1; xyzmat[4]=y1; xyzmat[5]=z1;
+		xyzmat[6]=x2; xyzmat[7]=y2; xyzmat[8]=z2;
+
+		/* Inverse matXYZ*/
+		if( Matrix_Inverse(&matXYZ, &matIXYZ)==NULL ) {
+			egi_dpstd("Fail to inverse matrix_XYZ!\n");
+			return;
+		}
+
+		/* matT = matIXYZ*matUV */
+		Matrix_Multiply(&matIXYZ, &matUV, &matT);
+
+	}
+
+	int x;    /* x of a pixel */
+	EGI_16BIT_COLOR color;	  /* draw_dot() pixel color */
+	E3D_Vector pnormal;	/* As pixel normal */
+
+	/* As for 2D vetex */
+	struct {
+		//int x; int y; //float z;
+		float x; float y; float z;
+	} points[3];
+
+	points[0].x=x0; points[0].y=y0; points[0].z=z0;
+	points[1].x=x1; points[1].y=y1; points[1].z=z1;
+	points[2].x=x2; points[2].y=y2; points[2].z=z2;
+
+	int i, k, kstart, kend;
+	int nl=0,nr=0;  /* left and right point index */
+	int nm; 	/* mid point index */
+
+	float klr,klm,kmr;
+
+	/* use float type */  /* <-------------- */
+	float yu=0;
+	float yd=0;
+	float ymu=0;
+
+	float zu,zd; /* Z value for start-end point */
+
+	/* Imgbuf pixel data offset */
+	long int locimg;
+
+	/* Define matPuv and matPxyz */
+	float ptuv[3]={0,0,1.0f};  /* U,V,1.0 */
+	struct float_Matrix matPuv;
+	matPuv.nr=1; matPuv.nc=3; matPuv.pmat=ptuv;
+
+	float ptxyz[3]={0,0,0};
+	struct float_Matrix matPxyz;
+	matPxyz.nr=1; matPxyz.nc=3; matPxyz.pmat=ptxyz;
+
+
+        /* Cal nl, nr. just after collinear checking! */
+        for(i=1; i<3; i++) {
+                if(points[i].x < points[nl].x) nl=i;
+                if(points[i].x > points[nr].x) nr=i;
+        }
+
+	/* ---- TODO; case 1,2,3 ----- */
+
+	/* ---- Case 4 ---: As a true triangle. */
+
+	/* Get x_mid point index, NOW: nl != nr. */
+	nm=3-nl-nr;
+
+	/* Ruled out (points[nr].x == points[nl].x), as nl==nr.  */
+	//if(nl!=nr)
+	       klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
+	//else
+	//       klr=1000000.0;
+
+	if(points[nm].x != points[nl].x) {
+		klm=1.0*(points[nm].y-points[nl].y)/(points[nm].x-points[nl].x);
+	}
+	else
+		klm=1000000.0;
+
+	if(points[nr].x != points[nm].x) {
+		kmr=1.0*(points[nr].y-points[nm].y)/(points[nr].x-points[nm].x);
+	}
+	else
+		kmr=1000000.0;
+
+	/* Draw left part  */
+	//for( i=0; i< points[nm].x-points[nl].x; i++)
+	for( i=0; i< points[nm].x-points[nl].x+1; i++)
+	{
+		yu=roundf(klr*i+points[nl].y);
+		yd=roundf(klm*i+points[nl].y);
+		//egi_dpstd("nm-nl: yu=%d, yd=%d\n", yu,yd);
+
+                /* Cal. x */
+                x=points[nl].x+i;
+
+		zu=points[nl].z+(points[nr].z-points[nl].z)*i/(points[nr].x-points[nl].x);
+		zd=points[nl].z+(points[nm].z-points[nl].z)*i/(points[nm].x-points[nl].x);
+
+		if(yu>yd) {
+			kstart=roundf(yd);
+			kend=roundf(yu);
+		}
+		else	  {
+			kstart=roundf(yu);
+			kend=roundf(yd);
+		}
+
+		for(k=kstart; k<=kend; k++) {
+
+			ptxyz[0]=i+points[nl].x;   		//X
+			ptxyz[1]=k;				//Y
+			ptxyz[2]=zd+(zu-zd)*(k-yd)/(yu-yd); 	//Z
+
+			/* matPuv =matPxyz*matT */
+			if( Matrix_Multiply(&matPxyz, &matT, &matPuv)==NULL ) {
+				egi_dpstd("Fail to do matPuv =matPxyz*matT!\n");
+				//return;
+			}
+
+			/* Set pixz */
+			fb_dev->pixz = ptxyz[2];
+
+			/* TODO */
+			pnormal=rvtx[0].normal;
+			//pnormal=a*rvtx[0].normal+b*rvtx[1].normal+r*rvtx[2].normal;
+
+			if(imgbuf==NULL) {  /* Use default material kd */
+ 				/* See the pixel color */
+    				color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+				fbset_color2(fb_dev, color);
+                         	draw_dot(fb_dev, x, k);
+			}
+			else { /* imgbuf!=NULL */
+				/* Get mapped pixel and draw_dot */
+        	                /* image data location */
+                	        locimg=(roundf(ptuv[1]*imgh))*imgw+roundf(ptuv[0]*imgw); /* roundf */
+#if 1 /* TEST: ---- */
+				if(locimg >imgh*imgw-1) locimg=imgh*imgw-1;
+#endif
+				if( locimg>=0 && locimg < imgh*imgw ) {
+		            		//fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+
+	    				/* Material.kd updated */
+    					pmtl.kd.vectorRGB(imgbuf->imgbuf[locimg]);
+
+#if 1 /* TEST img_ke: -------------- HK2022-12-28 */
+					/* Material.ke updated */
+					if( pmtl.img_ke && egi_imgbuf_uvToPixel(pmtl.img_ke, ptuv[0], ptuv[1], &color, NULL)==0 )
+						pmtl.ke.vectorRGB(color);
+#endif
+
+    				    	/* See the pixel color */
+    				    	color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+			    		fbset_color2(fb_dev, color);
+			    		/* Set alpha. TODO:  */
+	    		    		if(imgbuf->alpha)
+	  			 		fb_dev->pixalpha=imgbuf->alpha[locimg];
+
+                            		draw_dot(fb_dev, x, k);
+				}
+			}
+
+		} /* End: for(i) */
+	} /* End: draw left part */
+
+	/* Draw right part */
+	ymu=klr*(i-1)+points[nl].y; //ymu=yu; yu MAYBE replaced by yd!
+	for( i=0; i< points[nr].x-points[nm].x+1; i++)
+	{
+		yu=roundf(klr*i+ymu);
+		yd=roundf(kmr*i+points[nm].y);
+		//egi_dpstd("nr-nm: yu=%d, yd=%d\n", yu,yd);
+
+                /* Cal. x */
+                x=points[nm].x+i;
+
+		zu=points[nl].z+(points[nr].z-points[nl].z)*(points[nm].x-points[nl].x+i)/(points[nr].x-points[nl].x);
+		zd=points[nm].z+(points[nr].z-points[nm].z)*i/(points[nr].x-points[nm].x);
+
+		if(yu>yd) { kstart=roundf(yd); kend=roundf(yu); }
+		else	  { kstart=roundf(yu); kend=roundf(yd); }
+
+		for(k=kstart; k<=kend; k++) {
+			/* ptxyz */
+			ptxyz[0]=i+points[nm].x;
+			ptxyz[1]=k;
+			ptxyz[2]=zd+(zu-zd)*(k-yd)/(yu-yd);
+
+			/* Set pixz */
+			fb_dev->pixz = ptxyz[2];
+
+                        /* TODO */
+                        pnormal=rvtx[0].normal;
+                        //pnormal=a*rvtx[0].normal+b*rvtx[1].normal+r*rvtx[2].normal;
+
+			/* matPuv =matPxyz*matT */
+			if( Matrix_Multiply(&matPxyz, &matT, &matPuv)==NULL ) {
+				egi_dpstd("Fail to do matPuv =matPxyz*matT!\n");
+				//return;
+			}
+
+			if(imgbuf==NULL) {  /* Use default material kd */
+ 				/* See the pixel color */
+    				color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+				fbset_color2(fb_dev, color);
+                         	draw_dot(fb_dev, x, k);
+			}
+			else { /* imgbuf!=NULL */
+				/* Get mapped pixel and draw_dot */
+        	                /* image data location */
+                	        locimg=(roundf(ptuv[1]*imgh))*imgw+roundf(ptuv[0]*imgw); /* roundf */
+#if 1 /* TEST: ---- */
+				if(locimg >imgh*imgw-1) locimg=imgh*imgw-1;
+#endif
+				if( locimg>=0 && locimg < imgh*imgw ) {
+
+		            		//fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+
+    			    		/* Material.kd updated */
+    			    		pmtl.kd.vectorRGB(imgbuf->imgbuf[locimg]);
+
+#if 1 /* TEST img_ke: -------------- HK2022-12-28 */
+					/* Material.ke updated */
+					if( pmtl.img_ke && egi_imgbuf_uvToPixel(pmtl.img_ke, ptuv[0], ptuv[1], &color, NULL)==0 )
+						pmtl.ke.vectorRGB(color);
+#endif
+
+	    				/* See the pixel color */
+    					color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+					fbset_color2(fb_dev, color);
+			    		/* Set alpha */
+	    		    		if(imgbuf->alpha)
+	  					fb_dev->pixalpha=imgbuf->alpha[locimg];
+
+                            		draw_dot(fb_dev, x, k);
+				}
+
+			}
+		} /* End: for(i) */
+	} /* End: draw left part */
+
+}
+
+#else  /////////////////////////// Interpolation to get uv ///////////////////////////////////
+
+void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3D_Material &mtl, const E3D_Scene &scene )
+{
+
+	if(fb_dev==NULL)
+		return;
+
+	/* 1. Material for pixel. kd will be updated for each pixel! */
+	E3D_Material pmtl=mtl;
+	pmtl.img_kd=NULL;	/* DO NOT own/hold img_kd! */
+
+	/* 2. Get vetex coordinates */
+	int x0=roundf(rvtx[0].pt.x);
+	int y0=roundf(rvtx[0].pt.y);
+	float z0=-rvtx[0].pt.z; /* Views from -z ----> +z  */
+
+	int x1=roundf(rvtx[1].pt.x);
+	int y1=roundf(rvtx[1].pt.y);
+	float z1=-rvtx[1].pt.z; /* Views from -z ----> +z  */
+
+	int x2=roundf(rvtx[2].pt.x);
+	int y2=roundf(rvtx[2].pt.y);
+	float z2=-rvtx[2].pt.z; /* Views from -z ----> +z  */
+
+	/* 3. Check input imgbuf */
+	EGI_IMGBUF *imgbuf=NULL;  /* Basecolor */
+	int imgw=0;
+	int imgh=0;
+
+	/* pixel uv */
+	float u,v;
+
+	/* Get imgbuf */
+	imgbuf=mtl.img_kd;
+
+	if( imgbuf==NULL || imgbuf->imgbuf==NULL ) {
+		//egi_dpstd("Input EGI_IMBUG is NULL!\n"); ---OK
+	}
+	else {
+		/* Get image size */
+		imgw=imgbuf->width;
+		imgh=imgbuf->height;
+	}
+
+	int x;    /* x of a pixel */
+	EGI_16BIT_COLOR color;	  /* draw_dot() pixel color */
+	E3D_Vector pnormal;	/* As pixel normal */
+
+	/* As for 2D vetex */
+	struct {
+		//int x; int y; //float z;
+		float x; float y; float z;
+	} points[3];
+
+	points[0].x=x0; points[0].y=y0; points[0].z=z0;
+	points[1].x=x1; points[1].y=y1; points[1].z=z1;
+	points[2].x=x2; points[2].y=y2; points[2].z=z2;
+
+	int i, k, kstart, kend;
+	int nl=0,nr=0;  /* left and right point index */
+	int nm; 	/* mid point index */
+
+	float klr,klm,kmr;     /* Line slop */
+	float kulr,kulm,kumr;  /* UV slop */
+	float kvlr,kvlm,kvmr;
+
+	/* use float type */  /* <-------------- */
+	float yu=0;
+	float yd=0;
+	float ymu=0;
+
+	float Uu,Ud, Vu,Vd, Umu,Vmu;
+	E3D_Vector Normu,Normd;
+
+	float zu,zd; /* Z value for start-end point */
+
+	/* Imgbuf pixel data offset */
+	long int locimg;
+
+        /* Cal nl, nr. just after collinear checking! */
+        for(i=1; i<3; i++) {
+                if(points[i].x < points[nl].x) nl=i;
+                if(points[i].x > points[nr].x) nr=i;
+        }
+
+	/* ---- TODO; case 1,2,3 ----- */
+
+	/* ---- Case 4 ---: As a true triangle. */
+
+	/* Get x_mid point index, NOW: nl != nr. */
+	nm=3-nl-nr;
+
+	/* Ruled out (points[nr].x == points[nl].x), as nl==nr.  */
+	//if(nl==nr) return;
+
+	//if(nl!=nr)
+	        klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
+
+		kulr=(rvtx[nr].u-rvtx[nl].u)/(points[nr].x-points[nl].x);
+		kvlr=(rvtx[nr].v-rvtx[nl].v)/(points[nr].x-points[nl].x);
+	//else
+	//       klr=1000000.0;
+
+	if(points[nm].x != points[nl].x) {
+		klm=1.0*(points[nm].y-points[nl].y)/(points[nm].x-points[nl].x);
+		kulm=(rvtx[nm].u-rvtx[nl].u)/(points[nm].x-points[nl].x);
+		kvlm=(rvtx[nm].v-rvtx[nl].v)/(points[nm].x-points[nl].x);
+	}
+	else {
+		klm=1000000.0;
+		kulm=kvlm=1000000.0;
+	}
+
+	if(points[nr].x != points[nm].x) {
+		kmr=1.0*(points[nr].y-points[nm].y)/(points[nr].x-points[nm].x);
+		kumr=(rvtx[nr].u-rvtx[nm].u)/(points[nr].x-points[nm].x);
+		kvmr=(rvtx[nr].v-rvtx[nm].v)/(points[nr].x-points[nm].x);
+	}
+	else {
+		kmr=1000000.0;
+		kumr=kvmr=1000000.0;
+	}
+
+	/* Draw left part  */
+	//for( i=0; i< points[nm].x-points[nl].x; i++)
+	for( i=0; i< points[nm].x-points[nl].x+1; i++)
+	{
+                /* x */
+                x=points[nl].x+i;
+
+		/* yu,yd */
+		yu=roundf(klr*i+points[nl].y);
+		yd=roundf(klm*i+points[nl].y);
+		//egi_dpstd("yu=%f, yd=%f\n", yu,yd);
+
+		/* Uu,Ud, Vu,Vd: Note UVu is on lr line */
+		Uu=kulr*i+rvtx[nl].u;
+		Ud=kulm*i+rvtx[nl].u;
+		Vu=kvlr*i+rvtx[nl].v;
+		Vd=kvlm*i+rvtx[nl].v;
+
+		/* zu,zd */
+		zu=points[nl].z+(points[nr].z-points[nl].z)*i/(points[nr].x-points[nl].x);
+		zd=points[nl].z+(points[nm].z-points[nl].z)*i/(points[nm].x-points[nl].x);
+
+		if(yu>yd) {
+			kstart=roundf(yd);
+			kend=roundf(yu);
+		}
+		else	  {
+			kstart=roundf(yu);
+			kend=roundf(yd);
+		}
+
+		for(k=kstart; k<=kend; k++) {
+
+			/* (x,y)=(x,k) */
+
+			/* */
+
+			/* Interpolate to get UV  */
+			if(yu<yd) { /* k  u-->d */
+				u=Uu+(Ud-Uu)*(k-yu)/(yd-yu);
+				v=Vu+(Vd-Vu)*(k-yu)/(yd-yu);
+			}
+			else {  /* k  d-->u */
+				u=Ud+(Uu-Ud)*(k-yd)/(yu-yd);
+				v=Vd+(Vu-Vd)*(k-yd)/(yu-yd);
+			}
+
+			/* Set pixz */
+			fb_dev->pixz = zd+(zu-zd)*(k-yd)/(yu-yd);
+
+			/* TODO */
+			pnormal=rvtx[0].normal;
+			//pnormal=a*rvtx[0].normal+b*rvtx[1].normal+r*rvtx[2].normal;
+
+			if(imgbuf==NULL) {  /* Use default material kd */
+ 				/* See the pixel color */
+    				color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+				fbset_color2(fb_dev, color);
+                         	draw_dot(fb_dev, x, k);
+			}
+			else { /* imgbuf!=NULL */
+				/* Get mapped pixel and draw_dot */
+        	                /* image data location */
+                	        locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
+#if 1 /* TEST: ---- */
+				if(locimg >imgh*imgw-1) locimg=imgh*imgw-1;
+#endif
+				if( locimg>=0 && locimg < imgh*imgw ) {
+		            		//fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+
+	    				/* Material.kd updated */
+    					pmtl.kd.vectorRGB(imgbuf->imgbuf[locimg]);
+
+#if 1 /* TEST img_ke: -------------- HK2022-12-28 */
+					/* Material.ke updated */
+					if( pmtl.img_ke && egi_imgbuf_uvToPixel(pmtl.img_ke, u, v, &color, NULL)==0 )
+						pmtl.ke.vectorRGB(color);
+#endif
+
+    				    	/* See the pixel color */
+    				    	color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+			    		fbset_color2(fb_dev, color);
+			    		/* Set alpha. TODO:  */
+	    		    		if(imgbuf->alpha)
+	  			 		fb_dev->pixalpha=imgbuf->alpha[locimg];
+
+                            		draw_dot(fb_dev, x, k);
+				}
+			}
+
+		} /* End: for(i) */
+	} /* End: draw left part */
+
+	/* Draw right part, i value frome left part. */
+	ymu=klr*(i-1)+points[nl].y; //ymu=yu; yu MAYBE replaced by yd!
+	Umu=kulr*(i-1)+rvtx[nl].u;
+	Vmu=kvlr*(i-1)+rvtx[nl].v;
+	for( i=0; i< points[nr].x-points[nm].x+1; i++)
+	{
+                /* x */
+                x=points[nm].x+i;
+
+		/* yu,yd */
+		yu=roundf(klr*i+ymu);
+		yd=roundf(kmr*i+points[nm].y);
+		//egi_dpstd("yu=%f, yd=%f\n", yu,yd);
+
+		/* Uu,Ud, Vu,Vd. NOT necessary to be Uu>Ud OR Vu>Vd */
+		/* Note: UVu is on lr line */
+		Uu=kulr*i+Umu;
+		Ud=kumr*i+rvtx[nm].u;
+		Vu=kvlr*i+Vmu;
+		Vd=kvmr*i+rvtx[nm].v;
+
+		/* zu, zd */
+		zu=points[nl].z+(points[nr].z-points[nl].z)*(points[nm].x-points[nl].x+i)/(points[nr].x-points[nl].x);
+		zd=points[nm].z+(points[nr].z-points[nm].z)*i/(points[nr].x-points[nm].x);
+
+		if(yu>yd) { kstart=roundf(yd); kend=roundf(yu); }
+		else	  { kstart=roundf(yu); kend=roundf(yd); }
+
+		for(k=kstart; k<=kend; k++) {
+
+			/* Interpolate to get UV  */
+			if(yu<yd) {
+				u=Uu+(Ud-Uu)*(k-yu)/(yd-yu);
+				v=Vu+(Vd-Vu)*(k-yu)/(yd-yu);
+			}
+			else {
+				u=Ud+(Uu-Ud)*(k-yd)/(yu-yd);
+				v=Vd+(Vu-Vd)*(k-yd)/(yu-yd);
+			}
+
+
+			/* Set pixz */
+			fb_dev->pixz = zd+(zu-zd)*(k-yd)/(yu-yd);
+
+                        /* TODO */
+                        pnormal=rvtx[0].normal;
+                        //pnormal=a*rvtx[0].normal+b*rvtx[1].normal+r*rvtx[2].normal;
+
+			if(imgbuf==NULL) {  /* Use default material kd */
+ 				/* See the pixel color */
+    				color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+				fbset_color2(fb_dev, color);
+                         	draw_dot(fb_dev, x, k);
+			}
+			else { /* imgbuf!=NULL */
+				/* Get mapped pixel and draw_dot */
+        	                /* image data location */
+                	        locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
+#if 1 /* TEST: ---- */
+				if(locimg >imgh*imgw-1) locimg=imgh*imgw-1;
+#endif
+				if( locimg>=0 && locimg < imgh*imgw ) {
+
+		            		//fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+
+    			    		/* Material.kd updated */
+    			    		pmtl.kd.vectorRGB(imgbuf->imgbuf[locimg]);
+
+#if 1 /* TEST img_ke: -------------- HK2022-12-28 */
+					/* Material.ke updated */
+					if( pmtl.img_ke && egi_imgbuf_uvToPixel(pmtl.img_ke, u, v, &color, NULL)==0 )
+						pmtl.ke.vectorRGB(color);
+#endif
+
+	    				/* See the pixel color */
+    					color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+					fbset_color2(fb_dev, color);
+			    		/* Set alpha */
+	    		    		if(imgbuf->alpha)
+	  					fb_dev->pixalpha=imgbuf->alpha[locimg];
+
+                            		draw_dot(fb_dev, x, k);
+				}
+
+			}
+		} /* End: for(i) */
+	} /* End: draw left part */
+
+}
+#endif /////////////////////////////////////////////////////////////////////
+

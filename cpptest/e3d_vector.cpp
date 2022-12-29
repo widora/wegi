@@ -101,6 +101,8 @@ Journal:
 	3. E3D_Quaternion::setIntriRotation(): All quaternion operations.
 2022-11-21:
 	1. E3D_Quaternion::normalize()
+2022-12-23:
+	1. Add Class E4D_Vector,  ::E4D_Vector(), ::assign() ::zero().
 
 TODO:
 1. acos(x)/asin(x) will return NaN if x is little bit out of [-1.0 1.0] ???
@@ -121,6 +123,42 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 
 //using namespace std;
 
+		/*---------------------------------
+	   	   Class E3D_Vector :: Functions
+		---------------------------------*/
+
+/*-------------------------
+   Constructor functions
+-------------------------*/
+E4D_Vector::E4D_Vector() {
+           /* Necessary!!! Yes! */
+           x=0.0; y=0.0; z=0.0; w=0.0;
+}
+E4D_Vector::E4D_Vector(float ix, float iy, float iz, float iw): x(ix), y(iy), z(iz), w(iw) { }
+
+/*------------------------
+   Destructor functions
+-------------------------*/
+E4D_Vector:: ~E4D_Vector() {
+           //printf("E3D_Vector destructed!\n");
+}
+
+/*-------------------------
+   4D Vector operator: zero
+--------------------------*/
+void E4D_Vector::zero(void)
+{ x=0.0f; y=0.0f; z=0.0f; w=0.0f; }
+
+/*-----------------
+   4D Vector assign
+-----------------*/
+void E4D_Vector::assign(float nx, float ny, float nz, float nw)
+{
+   	x=nx;
+	y=ny;
+        z=nz;
+	w=nw;
+}
 
 		/*---------------------------------
 	   	   Class E3D_Vector :: Functions
@@ -147,7 +185,7 @@ E3D_Vector:: ~E3D_Vector() {
    Vector operator: zero
 --------------------------*/
 void E3D_Vector::zero(void)
-{ x=0; y=0; z=0; }
+{ x=0.0f; y=0.0f; z=0.0f; }
 
 /*---------------------
     Vector normalize

@@ -100,7 +100,8 @@ int 	egi_util_mkdir(char *dir, mode_t mode);
 int 	egi_read_fileBlock(FILE *fsrc, char *fdes, int tnulls, size_t bs);
 int 	egi_copy_fileBlock(FILE *fsrc, FILE *fdest, size_t bs);
 int 	egi_copy_file(char const *fsrc_path, char const *fdest_path, bool append);
-int 	egi_append_file(char const *fpath, void* data, size_t size);
+int 	egi_append_file(char const *fpath, void* data, size_t size); //ALSO for creating a file
+
 
 unsigned char** egi_malloc_buff2D(int items, int item_size) __attribute__((__malloc__));
 int 	egi_realloc_buff2D(unsigned char ***buff, int old_items, int new_items, int item_size);
@@ -108,6 +109,8 @@ void 	egi_free_buff2D(unsigned char **buff, int items);
 char** 	egi_alloc_search_files(const char* path, const char* fext,  int *pcount );
 /* Note: call egi_free_buff2D() to free it */
 
+//unsigned char _base64_to_u6(char c); //private
+int egi_decode_base64(int type, const char *buff, unsigned int size, char *data);
 int egi_encode_base64(int type, const unsigned char *data, unsigned int size, char *buff);
 int egi_encode_base64URL(const unsigned char *base64_data, unsigned int data_size, char *buff, unsigned int buff_size, bool notail);
 int egi_encode_uft8URL(const unsigned char *ustr, char *buff, unsigned int buff_size);

@@ -55,6 +55,7 @@ TODO:
 4. TODO: mem leakage.
 5. egi_append_file() cause segmentation fault if it's Read-only file system.?
 6. tm_get_strtime2() cause curl error and segmentation fault?
+7. If m3u8 address is redirected, change argURL accordingly.
 
 Journal:
 2021-09-29:
@@ -87,6 +88,7 @@ Journal:
 	1. Check start of a new round of program.
 	2. Get sublist from Master List.
 2022-09-23: Add option 'l' for loop playing VOD.
+2022-12-25: https_curl_request(): If redirect URL then quto. renew strRequest and try again.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -106,7 +108,8 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 
 #define MTHREAD_EASY_DOWN  1   /* 1 MultiThread Easy Download */
 
-char strRequest[256+64];
+char strRequest[EGI_URL_MAX]; //Will be changed */
+char newURL[EGI_URL_MAX];    //MUST provide if need redirection
 
 /* For mURL_Download */
 bool Enable_mURL_Download=false;   /* To enable downloading multiple files simultaneously
@@ -181,6 +184,7 @@ int main(int argc, char **argv)
 	char buff[CURL_RETDATA_BUFF_SIZE];
 	int opt;
 	char *argURL;
+
         while( (opt=getopt(argc,argv,"hln:m:s:"))!=-1 ) {
                 switch(opt) {
                         case 'h':
@@ -252,10 +256,13 @@ while(1) {
 	/* Reset buff */
 	memset(buff, 0, sizeof(buff));
 
-	/* Https GET request */
+	/* Reset newURL */
+	newURL[0]=0;
+
+	/* Https GET request. Redirect URL at newURL, strRequest will be changed also! */
 	EGI_PLOG(LOGLV_INFO,"Start https curl request...");
         if( https_curl_request( HTTPS_SKIP_PEER_VERIFICATION|HTTPS_SKIP_HOSTNAME_VERIFICATION|HTTPS_ENABLE_REDIRECT, 3,30, /* HK2022-07-03 */
-				strRequest, buff, NULL, curl_callback) !=0 )
+				strRequest, buff, newURL, curl_callback) !=0 )
 	{
 		EGI_PLOG(LOGLV_ERROR, "Fail to call https_curl_request()! try again...");
 		/* Try again */
@@ -265,6 +272,9 @@ while(1) {
 		//exit(EXIT_FAILURE);
 	}
         //printf("        --- Http GET Reply ---\n %s\n",buff);
+	if(newURL[0])
+		printf(DBG_GREEN"Redirected URL: %s\n"DBG_RESET, newURL);
+
 	EGI_PLOG(LOGLV_INFO,"Http curl get: %s\n", buff);
 
 #if 0 /* TEST: --------------- */

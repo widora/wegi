@@ -4,11 +4,50 @@ it under the terms of the GNU General Public License version 2 as
 published by the Free Software Foundation.
 
               --- EGI 3D glTF Classes and Functions ---
+
+This is for E3D_TriMesh::loadGLTF().
+
 Reference:
 1. glTF 2.0 Specification (The Khronos® 3D Formats Working Group)
-2.Relations of top_leve glTF array.
+2. glTF models for test:
+   https://github.com/KhronosGroup/glTF-Sample-Models
+   http://gltf.com, https://www.cgtrader.com
+3. Relations of top_leve glTF array.
 
    Scene ---> node ---> mesh(s) ---> accessor(s) ---> bufferView(s) ---> buffer(s)
+		    	    |
+			    | ---> material(s) ---> texture(s) ---> image(s) ---> bufferViews(s)
+							|
+							|---> sampler(s)
+
+
+	       |---> mesh(s) ....
+	       |
+	       |---> camera(s)
+	       |
+   Scene ---> node(s) --->  skin(s) ---> accesors(s)
+	       |
+	       |---> node(s)
+
+
+
+  	(((  ----- Primitive Texture_mapping Roadmap  ----- )))
+
+glPrimitive ---------> glMaterials ---> glPBRMetallicRoughness ---> glTextrueInfo  ---> glTexture ---> glImage
+   |			      |                                       |
+   |--->glPrimitiveAttribute  |	         			      |---> glPrimitiveAttribute.TEXCOORD_x
+       (TEXCOORD[] list)      |
+	                      |---> glNormalTexture  ----> glNormalTextureInfo(texCoord) ---> glTexture ---> glImage
+	                      |					   |
+	                      |					   |---> glPrimitiveAttribute.TEXCOORD_x
+                              |
+         	              |--->glEmissiveTexture ----> glTextrueInfo  ---> glTexture ---> glImage
+	                      |                              |
+	                      |				     |---> glPrimitiveAttribute.TEXCOORD_x
+	                      |
+	                      |--->glOcclutionTexture  ----> glOcclusionTextureInfo ---> glTexture ---> glImage
+		      				                        |
+                                                                        |--->glPrimitiveAttribute.TEXCOORD_x
 
    A scene: TODO
    A node: TODO
@@ -22,10 +61,14 @@ Reference:
 
 
 Note:
-1. glTF uses a right-hand coordinate system. +Y as UP, +Z as FORWARD, +X as LEFT.
-2. All units in flTF are meters and all angles are in radians.
+1. glTF uses a right-hand coordinate system(same as E3D). +Y as UP, +Z as FORWARD, +X as LEFT.
+   glTF texture UV coordinate system: origin at leftTop, RIGHTWARD as +u ,DOWNWARD as +v.(same as E3D)
+2. All units in glTF are meters and all angles are in radians.
 3. Positive rotation is counter_colockwise.
 4. All buffer data defined by glTF are in little endian byte order.
+
+TODO:
+1. NOW it supports baseColorTexture ONLY.
 
 Journal:
 2022-12-14: Creates THIS file.
@@ -39,6 +82,20 @@ Journal:
 	4. Add E3D_glLoadMeshes()
 2022-12-19:
 	1. Add glElementSize()
+2022-12-22:
+	1. Add E3D_glMaterial(), E3D_glImage(), E3D_glTextureInfo(),
+	       E3D_glNormalTextureInfo(), E3D_glOcclusionTextureInfo(),
+	       E3D_glPBRMetallicRoughness(), E3D_glSampler(), E3D_glTexture()
+	2. Add E3D_glLoadMaterials()
+2022-12-23:
+	1. Add E3D_glLoadTextureInfo()
+	2. Add E3D_glLoadPBRMetaRough()
+2022-12-24:
+	1. Add E3D_glLoadTextures()
+	2. Add E3D_glLoadImages()
+2022-12-28:
+	1. E3D_glLoadImages(): If jpeg/png image data embedded in uri, then decode it
+	   and read in to imgbuf.
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -57,6 +114,7 @@ Midas Zhou
 #include "egi_image.h"
 #include "egi_cstring.h"
 #include "egi_utils.h"
+#include "egi_bjp.h"
 
 #include "e3d_vector.h"
 #include "e3d_glTF.h"
@@ -261,6 +319,146 @@ E3D_glAccessor::E3D_glAccessor()
 }
 
 
+		/*-------------------------------
+		        Class E3D_glImage
+		-------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_glImage::E3D_glImage()
+{
+	/* Init */
+	bufferViewIndex=-1;
+
+	imgbuf=NULL;
+}
+
+/*--------------------
+   The destructor
+--------------------*/
+E3D_glImage::~E3D_glImage()
+{
+	if(imgbuf)
+	    egi_imgbuf_free(imgbuf);
+}
+
+
+		/*------------------------------------
+        		Class E3D_glSampler
+		------------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_glSampler::E3D_glSampler()
+{
+	/* Init */
+	wrapS=10497;
+	wrapT=10497;
+}
+
+		/*------------------------------------
+        		Class E3D_glTexture
+		------------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_glTexture::E3D_glTexture()
+{
+	/* Init */
+	samplerIndex=-1;
+	imageIndex=-1;
+}
+
+
+		/*------------------------------------
+        		Class E3D_glTextureInfo
+		------------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_glTextureInfo::E3D_glTextureInfo()
+{
+	/* Init */
+	index=-1;
+	texCoord=0;
+}
+
+
+	/*------------------------------------
+   	    Class E3D_glNormalTextureInfo
+	------------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_glNormalTextureInfo::E3D_glNormalTextureInfo()
+{
+	/* Init */
+	index=-1;
+	texCoord=0;
+	scale=1.0;
+}
+
+
+	/*-------------------------------------
+   	    Class E3D_glOcclusionTextureInfo
+	-------------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_glOcclusionTextureInfo::E3D_glOcclusionTextureInfo()
+{
+	/* Init */
+	index=-1;
+	texCoord=0;
+	strength=1.0;
+}
+
+
+		/*------------------------------------------
+			Class E3D_glPBRMetallicRoughness
+		------------------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_glPBRMetallicRoughness::E3D_glPBRMetallicRoughness()
+{
+	/* Init */
+	baseColorFactor_defined=false;
+	baseColorFactor.assign(1.0,1.0,1.0,1.0);
+
+	//baseColorTexture_defined=false;   baseColorTexture.index as token
+
+	metallicFactor=1.0;
+	roughnessFactor=1.0;
+}
+
+
+		/*-----------------------------------
+        		Class E3D_glMaterial
+		-----------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_glMaterial::E3D_glMaterial()
+{
+	/* Init */
+	emissiveFactor.assign(0.0,0.0,0.0);
+	alphaMode="OPAQUE";
+	alphaCutoff=0.5;
+	doubleSided=false;
+
+}
+
+
+
 /*--------------------------------------------------
 Extract Json objects from a Json obj array descript.
 Each object is written within a pair of {}.
@@ -344,8 +542,9 @@ int E3D_glExtractJsonObjects(const string & Jarray, vector<string> & Jobjs)
 
 
 /*-------------------------------------------------------------------
-Read Json keyw and value in a string, it search to get the KEY in the
+Read Json key and value in a string, it searchs to get the KEY in the
 first pair of "" ,then extract VALUE after the colon :.
+Continously call the function to read out all top_level key/value pairs.
 
 glTF Top_Level Json keywords:
   scene, scenes, nodees, meshes, accessors, bufferViews, buffers
@@ -381,6 +580,10 @@ Note: 1. Returned strvalue is the string after token ':', it also includes the
 @strval:	Value of the key as returned.
 		1. If the VALUE is a string, then " " are stripped.
 		2. If the VALUE is Json object or array, then {} OR [] keeps in strval.
+		   TODO: if scalars in [], strip []?,  Example: "Color" : [0.263, 0.443, 0.312]
+			 OR if string in []: "Color": [ "magenta", "blue", "cyan" ]
+		   OK,keep it!
+
 		3. Or if scalar, no stok/etok.
 		4. Or true, false, null.
 
@@ -777,14 +980,34 @@ int E3D_glLoadBuffers(const string & Jbuffers, vector <E3D_glBuffer> & glBuffers
 		if(glBuffers[k].uri.size()>0) {
 			/* Buffer data MAY alternatively be embedded in the glTF file via data: URI with base64 encoding. */
 			/* data:application/octet-stream;base64... etc. */
-			if( strstr(glBuffers[k].uri.c_str(), "data:") )  {
-				egi_dpstd(DBG_RED"Buffer data is embedded in Json file, NOT supported yet!\n"DBG_RESET);
+			 /* Example "data:application/octet-stream;base64,r21jvDmktTfnQru7x3VOvGektTdsifq7p8gpvBHxuDfo..." */
+			if( strncmp(glBuffers[k].uri.c_str(), "data:application/octet-stream;base64", 36)==0 )  {
+				egi_dpstd(DBG_YELLOW"Buffer data is embedded in Json file!\n"DBG_RESET);
+				try {
+					glBuffers[k].data=new unsigned char[glBuffers[k].byteLength];
+				}
+        			catch ( std::bad_alloc ) {
+		                	egi_dpstd("Fail to allocate glBuffers[%d].data!\n", k);
+                			return -1;
+        			}
+				/* Decode base64 into data. Frome after ...;base64, */
+				const char *pt=strstr(glBuffers[k].uri.c_str(), "base64,");
+				int datasize;
+				datasize=egi_decode_base64(0, pt+7, strlen(pt+7), (char *)glBuffers[k].data);
+				if(datasize!=glBuffers[k].byteLength) {
+					egi_dpstd(DBG_RED"glBuffers[%d].byteLength=%d: Decode base64 get WRONG datasize=%d\n"DBG_RESET,
+							k, glBuffers[k].byteLength, datasize);
+					return -1;
+					//exit(1);
+				}
+				egi_dpstd(DBG_YELLOW"Succeed to decode base64 string to glBuffers[%d].data.\n"DBG_RESET,k);
 			}
 			/* A data file URI */
 			else {
 				glBuffers[k].fmap=egi_fmap_create(glBuffers[k].uri.c_str(), 0, PROT_READ, MAP_SHARED);
 				if(glBuffers[k].fmap==NULL) {
 				    egi_dpstd(DBG_RED"Fail to fmap uri: %s\n"DBG_RESET, glBuffers[k].uri.c_str());
+				    //exit(1);
 				}
 				else {
 				    /* Check data length */
@@ -1066,7 +1289,7 @@ Note:
 1. Actually there is ALWAYS one glPrimitiveAttribute in "primitives"
 
 TODO:
-1. NOW assume there is only one "attribute" in each "primitive". --0K, yes in {} pair.
+1. XXX NOW assume there is only one "attribute" in each "primitive". --0K, yes in {} pair.
 2. NOW assume there is only one set of TEXCOORD, and it's TEXCOORD_0.
 
 Return:
@@ -1078,7 +1301,7 @@ int E3D_glLoadPrimitiveAttributes(const string & JPAttributes, E3D_glPrimitiveAt
 	vector<string>  JPAObjs; /* Json description for n JPAttribute, each included in a pair of { } */
 	string Jitem;	/* Json description for a E3D_glAccessor. */
 
-	int nj=0;	/* Items in JAObjs  ---- ALWAYS 1 ----  */
+	int nj=0;	/* Items in JPAObjs  ---- ALWAYS 1 ----  */
 
 	char *pstr=NULL;
 	string key;
@@ -1094,14 +1317,15 @@ int E3D_glLoadPrimitiveAttributes(const string & JPAttributes, E3D_glPrimitiveAt
 	/* Get size ---- SHOULD BE 1 --- */
 	nj=JPAObjs.size();
 	egi_dpstd(DBG_GREEN"Totally %d glPrimitiveAttribute Json objects found.\n"DBG_RESET, nj);
+	if(nj<1) return 0;
 
-	/* XXX Resize glAccessors, which is empty NOW. */
+	/* XXX Resize glPAttributes, which assumes as empty NOW. */
 	//glPAttributes.resize(nj);
 
 	/* Parse Json object of glPrimitiveAttribute item by itme */
 	//for(int k=0; k<nj; k++) {
 	for(int k=0; k<1; k++)  {   /* There is ONE attribute in each Jprimitive */
-		/* Json descript for the accessor */
+		/* Json descript for  PrimitiveAttribuess */
 		pstr=(char *)JPAObjs[k].c_str();
 		//printf("pstr: %s\n", pstr);
 
@@ -1165,7 +1389,7 @@ JPrimitives Example:
           },
           "indices": 7,
           "material": 0,
-          "mode": 4
+          "mode": 4      <------ If NOT defined, mode=4 as default.
         },
 	{
 	...
@@ -1197,13 +1421,14 @@ int E3D_glLoadPrimitives(const string & JPrimitives, vector<E3D_glPrimitive> & g
 	/* Get size */
 	nj=JPObjs.size();
 	egi_dpstd(DBG_GREEN"Totally %d glPrimitvie Json objects found.\n"DBG_RESET, nj);
+	if(nj<1) return 0;
 
-	/* Resize glAccessors, which is empty NOW. */
+	/* Resize glPrimitives, which assume as empty NOW. */
 	glPrimitives.resize(nj);
 
 	/* Parse Json object of glPrimitive item by itme */
 	for(int k=0; k<nj; k++) {
-		/* Json descript for the accessor */
+		/* Json descript for a primitive */
 		pstr=(char *)JPObjs[k].c_str();
 		//printf("pstr: %s\n", pstr);
 
@@ -1240,7 +1465,7 @@ int E3D_glLoadPrimitives(const string & JPrimitives, vector<E3D_glPrimitive> & g
 	} /*END for() */
 
 	/* OK */
-	return 1;
+	return nj;
 }
 
 /*------------------------------------------------
@@ -1254,7 +1479,7 @@ members, vector capacity growth is NOT allowed here!
 @glMeshes: To pass out Vector <E3D_glMesh>
 
 JMeshes Example:
-  "meshes" :  <<--- This part NOT included in JAccessors --->>
+  "meshes" :  <<--- This part NOT included in JMeshes --->>
   [
     {
       "name": "Head",
@@ -1279,9 +1504,7 @@ JMeshes Example:
 
 
 TODO:
-XXX 1. NOW assume there is only one "primitive in each "mesh".
-2. NOW assume there is only one "attribue" in each "primitive". --0K, yes in {} pair.
-3. NOW assume there is only one set of TEXCOORD, and it's TEXCOORD_0.
+1. NOW assume there is only one set of TEXCOORD, and it's TEXCOORD_0.
 
 Return:
 	>0	OK, number of E3D_glMesh loaded.
@@ -1291,7 +1514,7 @@ int E3D_glLoadMeshes(const string & JMeshes, vector <E3D_glMesh> & glMeshes)
 {
 	vector<string>  JMObjs; /* Json description for n Jmeshes, each included in a pair of { } */
 	string Jitem;	/* Json description for a E3D_glMesh. */
-	int nj=0;	/* Items in JAObjs */
+	int nj=0;	/* Items in JMObjs */
 
 	char *pstr=NULL;
 	string key;
@@ -1308,12 +1531,12 @@ int E3D_glLoadMeshes(const string & JMeshes, vector <E3D_glMesh> & glMeshes)
 	nj=JMObjs.size();
 	egi_dpstd(DBG_GREEN"Totally %d glMesh Json objects found.\n"DBG_RESET, nj);
 
-	/* Resize glAccessors, which is empty NOW. */
+	/* Resize glMeshes, which assume as empty NOW. */
 	glMeshes.resize(nj);
 
 	/* Parse Json object of glMesh item by itme */
 	for(int k=0; k<nj; k++)  {
-		/* Json descript for the accessor */
+		/* Json descript for a mesh */
 		pstr=(char *)JMObjs[k].c_str();
 		//printf("pstr: %s\n", pstr);
 
@@ -1366,6 +1589,557 @@ E3D_glPrimitiveAttribute
 		/* TODO Check data integrity */
 
 	} /*END for() */
+
+	/* OK */
+	return nj;
+}
+
+
+/*-------------------------------------------------------------
+Parse JTexInfo and load data to glTexInfo   (<-----NOT ARRYA!)
+
+	 !!! --- CAUTION --- !!!
+glTexInfo SHOULD be inited.
+
+@JTexInfo: Json description for glTF key of E3D_TextureInfo type,
+	   "baseColorTexture", "emissiveTexture" eg.
+@glTexInfo: To pass out value.
+
+JTexInfo Example: ( NOT ARRAY! )
+  "baseColorTexture" :  <<--- This part NOT included in JTexInfo --->>
+   {
+            "index" : 1
+			   (<----- texCoord NOT defined, default=0)
+   }
+
+
+Return:
+	>0	Ok number of E3D_glTextureInfo loaded.
+	<0	Fails
+---------------------------------------------------------------*/
+int E3D_glLoadTextureInfo(const string & JTexInfo, E3D_glTextureInfo & glTexInfo)
+{
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	if(JTexInfo.empty())
+		return -1;
+
+	/* Json descript for a textureinfo */
+	pstr=(char *)JTexInfo.c_str();
+	//printf("pstr: %s\n", pstr);
+
+/*----------------------------------------------------
+	int  index;
+	int  texCoord;
+	//Extensions
+	//extras
+----------------------------------------------------*/
+
+	/* Read and parse key/value pairs */
+	while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+		//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+		if(!key.compare("index")) {
+			glTexInfo.index=atoi(value.c_str());
+			if(glTexInfo.index<0) {
+				egi_dpstd(DBG_RED"Error index<0! in: %s\n"DBG_RESET, value.c_str());
+				glTexInfo.index=0;
+			}
+		}
+		else if(!key.compare("texCoord")) {
+			glTexInfo.texCoord=atoi(value.c_str());
+			if(glTexInfo.texCoord<0) {
+				egi_dpstd(DBG_RED"Error texCoord<0! in: %s\n"DBG_RESET, value.c_str());
+				glTexInfo.texCoord=0;
+			}
+		}
+		else
+			egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+	}
+
+	/* TODO Check data integrity */
+
+	/* OK */
+	return 1;
+}
+
+/*------------------------------------------------
+Parse JMetaRough and load data to glPBRMetaRough   (<-----NOT ARRYA!)
+
+	 !!! --- CAUTION --- !!!
+InputglPBRMetaRough SHOULD be inited.
+
+@JMetaRough: Json description for glTF key "pbrMetallicRoughness".
+@glPBRMetaRough: To pass out Vector <E3D_glPBRmetallicRoughness>
+
+JMetaRough Example: ( NOT ARRAY! )
+
+  "pbrMetallicRoughness" :  <<--- This part NOT included in JMetaRough --->>
+   {
+       "baseColorTexture" : {
+              "index" : 1
+        },
+        "metallicFactor" : 0,
+        "roughnessFactor" : 0.7913385629653931
+   }
+
+Example 2:
+   {
+       "baseColorFactor" : [
+           0.7686280012130737,
+           0.6705880165100098,
+           0.37254899740219116,
+           1
+        ],
+        "metallicFactor" : 0,
+        "roughnessFactor" : 0.7440944910049438
+    }
+
+Return:
+	>0	OK, number of E3D_glMaterial loaded. (ALWAYS 1)
+	<0	Fails
+-------------------------------------------------*/
+int E3D_glLoadPBRMetaRough(const string & JMetaRough, E3D_glPBRMetallicRoughness & glPBRMetaRough)
+{
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	if(JMetaRough.empty())
+		return -1;
+
+	/* Json descript for a PBRMetallicRoughness */
+	pstr=(char *)JMetaRough.c_str();
+	//printf("pstr: %s\n", pstr);
+
+/*----------------------------------------------------
+	E3D_Vector 		baseColorFactor; (number [4])
+				strValue example: [0.2223, 0.3454, 0.8612, 1 ]  --[]included
+	E3D_glTextureInfo 	baseColorTexture;
+        float 			metallicFactor;
+        float 			roughnessFactor;
+	//Extensions
+	//extras
+----------------------------------------------------*/
+
+	/* Read and parse key/value pairs */
+	while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+		//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+		if(!key.compare("baseColorFactor")) {
+			/* Set token*/
+			glPBRMetaRough.baseColorFactor_defined=true;
+			/* Read numer [4] */
+			sscanf(value.c_str()+1, "%f,%f,%f,%f", /* +1, pass the '[' */
+				&glPBRMetaRough.baseColorFactor.x, &glPBRMetaRough.baseColorFactor.y,
+				&glPBRMetaRough.baseColorFactor.z, &glPBRMetaRough.baseColorFactor.w
+			);
+		}
+		else if(!key.compare("baseColorTexture")) {
+			if( E3D_glLoadTextureInfo(value, glPBRMetaRough.baseColorTexture)<1 )
+				egi_dpstd(DBG_RED"Fail to load glPBRMetaRough.baseColorTextrue in: %s\n"DBG_RESET, value.c_str());
+			//else  /* XXX ok, glPBRMetaRough.index<0 as undefined! */
+			//	glPBRMetaRough.baseColorTexture_defined=true;
+		}
+		else if(!key.compare("metallicFactor")) {
+			sscanf(value.c_str(),"%f", &glPBRMetaRough.metallicFactor);
+		}
+		else if(!key.compare("roughnessFactor")) {
+			sscanf(value.c_str(),"%f", &glPBRMetaRough.roughnessFactor);
+		}
+		else
+			egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+	}
+
+	/* TODO Check data integrity */
+
+	/* OK */
+	return 1;
+}
+
+
+/*------------------------------------------------
+Parse JMaterials and load data to glMaterials.
+
+	 !!! --- CAUTION --- !!!
+Input glMaterials SHOULD be empty! Since it has pointer
+members, vector capacity growth is NOT allowed here!
+
+@JMaterials: Json description for glTF key 'materials'.
+@glMaterials: To pass out Vector <E3D_glMaterial>
+
+JMaterials Example:
+  "materials" :  <<--- This part NOT included in JMaterials --->>
+   [
+        {
+            "doubleSided" : true,
+            "name" : "CGTGband",
+            "pbrMetallicRoughness" : {
+                "baseColorFactor" : [
+                    0.4357537428533221,
+                    0.3463456348538666,
+                    0.5372945773729394,
+                    1
+                ],
+                "metallicFactor" : 0
+            }
+        },
+	... ...
+        {
+            "doubleSided" : true,
+            "name" : "gris",
+            "pbrMetallicRoughness" : {
+                "baseColorTexture" : {
+                    "index" : 1
+                },
+                "metallicFactor" : 0,
+                "roughnessFactor" : 0.5372945773723535
+            }
+        },
+	... ...
+   ]
+
+
+Return:
+	>0	OK, number of E3D_glMaterial loaded.
+	<0	Fails
+-------------------------------------------------*/
+int E3D_glLoadMaterials(const string & JMaterials, vector <E3D_glMaterial> & glMaterials)
+{
+	vector<string>  JMObjs; /* Json description for n JMaterial, each included in a pair of { } */
+	string Jitem;	/* Json description for a E3D_glMaterial. */
+	int nj=0;	/* Items in JMObjs */
+
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	/* Check input */
+	if(!glMaterials.empty())
+		egi_dpstd(DBG_YELLOW"Input glMaterials SHOULD be empty, it will be cleared/resized!\n"DBG_RESET);
+
+	/* Extract all Json material objects and put to JMObjs */
+	E3D_glExtractJsonObjects(JMaterials, JMObjs);
+
+	/* Get JMObjs.size */
+	nj=JMObjs.size();
+	egi_dpstd(DBG_GREEN"Totally %d glMaterial Json objects found.\n"DBG_RESET, nj);
+
+	/* Resize glMaterials, which assume as empty NOW. */
+	glMaterials.resize(nj);
+
+	/* Parse Json object of glMaterial item by itme */
+	for(int k=0; k<nj; k++)  {
+		/* Json descript for a material */
+		pstr=(char *)JMObjs[k].c_str();
+		//printf("pstr: %s\n", pstr);
+
+
+/*-------------------------------------------------------
+  string  name;
+  E3D_glPBRMetallicRoughness      pbrMetallicRoughness;
+  E3D_glNormalTextureInfo         normalTexture;
+  E3D_glOcclusionTextureInfo      occlutionTexture;
+  E3D_glTextureInfo               emissiveTexture;
+
+  E3D_Vector emissiveFactor;
+
+  string alphaMode;
+  float alpahCutoff;
+
+  bool  doubleSided;
+
+  //extensions
+  //extras
+--------------------------------------------------------*/
+
+		/* Read and parse key/value pairs */
+		while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+			//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+			if(!key.compare("name")) {
+				glMaterials[k].name=value;
+			}
+			else if(!key.compare("pbrMetallicRoughness")) {
+				/* Load pbrMetallicRoughness */
+				if( E3D_glLoadPBRMetaRough(value, glMaterials[k].pbrMetallicRoughness)<1 )
+					egi_dpstd(DBG_RED"glMaterials[%d]: Fail to load pbrMetallicRoughness in: %s\n"DBG_RESET, k, value.c_str());
+				else
+					 glMaterials[k].pbrMetallicRoughness_defined=true;
+			}
+			else if(!key.compare("emissiveTexture")) {
+                        	if( E3D_glLoadTextureInfo(value, glMaterials[k].emissiveTexture)<1 )
+                                	egi_dpstd(DBG_RED"glMaterials[%d]: Fail to load emissiveTexture in: %s\n"DBG_RESET, k, value.c_str());
+			}
+			else if(!key.compare("alphaMode")) {
+				glMaterials[k].alphaMode=value;
+			}
+			else if(!key.compare("alphaCutoff")) {
+				glMaterials[k].alphaCutoff=atof(value.c_str());
+			}
+			else if(!key.compare("doubleSided")) {
+				glMaterials[k].doubleSided=true;
+			}
+			else
+				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+		}
+
+		/* TODO Check data integrity */
+
+	} /*END for() */
+
+	/* OK */
+	return nj;
+}
+
+
+/*------------------------------------------------
+Parse JTextures and load data to glTextures.
+
+	 !!! --- CAUTION --- !!!
+Input glTextures SHOULD be empty! Since it has pointer
+members, vector capacity growth is NOT allowed here!
+
+@JTextures: Json description for glTF key 'textures'.
+@glTextures: To pass out Vector <E3D_glTexture>
+
+JTextures Example:
+  "textures" :  <<--- This part NOT included in JTextures --->>
+   [
+        {
+            "sampler" : 0,
+            "source" : 0
+        },
+        {
+            "sampler" : 0,
+            "source" : 0
+        },
+        {
+            "sampler" : 0,
+            "source" : 1
+        },
+	... ...
+   ]
+
+
+Return:
+	>0	OK, number of E3D_glTexture loaded.
+	<0	Fails
+-------------------------------------------------*/
+int E3D_glLoadTextures(const string & JTextures, vector <E3D_glTexture> & glTextures)
+{
+	vector<string>  JTObjs; /* Json description for n JTexture, each included in a pair of { } */
+	string Jitem;	/* Json description for a E3D_glTexture. */
+	int nj=0;	/* Items in JTObjs */
+
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	/* Check input */
+	if(!glTextures.empty())
+		egi_dpstd(DBG_YELLOW"Input glTextures SHOULD be empty, it will be cleared/resized!\n"DBG_RESET);
+
+	/* Extract all Json texture objects and put to JMObjs */
+	E3D_glExtractJsonObjects(JTextures, JTObjs);
+
+	/* Get JTObjs.size */
+	nj=JTObjs.size();
+	egi_dpstd(DBG_GREEN"Totally %d glTexture Json objects found.\n"DBG_RESET, nj);
+
+	/* Resize glTextures, which assume as empty NOW. */
+	glTextures.resize(nj);
+
+	/* Parse Json object of glTexture item by itme */
+	for(int k=0; k<nj; k++)  {
+		/* Json descript for a texture */
+		pstr=(char *)JTObjs[k].c_str();
+		//printf("pstr: %s\n", pstr);
+
+/*-------------------------------------------------------
+  string name;
+  int  samplerIndex; (Json name "sampler")
+  int  imageIndex;   (Json name "source")
+  //extensions
+  //extras
+--------------------------------------------------------*/
+
+		/* Read and parse key/value pairs */
+		while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+			//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+			if(!key.compare("name")) {
+				glTextures[k].name=value;
+			}
+			else if(!key.compare("sampler")) {
+				glTextures[k].samplerIndex=atoi(value.c_str());
+			}
+			else if(!key.compare("source")) {
+				glTextures[k].imageIndex=atoi(value.c_str());
+			}
+			else
+				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+		}
+
+		/* TODO Check data integrity */
+
+	} /*END for() */
+
+	/* OK */
+	return nj;
+}
+
+
+/*------------------------------------------------
+Parse JImages and load data to glImages.
+
+	 !!! --- CAUTION --- !!!
+Input glImages SHOULD be empty! Since it has pointer
+members, vector capacity growth is NOT allowed here!
+
+@JImages: Json description for glTF key 'images'.
+@glImages: To pass out Vector <E3D_glImage>
+
+JImages Example:
+  "images" :  <<--- This part NOT included in JTextures --->>
+   [
+        {
+            "bufferView" : 16,
+            "mimeType" : "image/jpeg",
+            "name" : "fish"
+        },
+        {
+            "bufferView" : 25,
+            "mimeType" : "image/jpeg",
+            "name" : "head"
+        },
+	... ...
+   ]
+
+
+Return:
+	>0	OK, number of E3D_glImage loaded.
+	<0	Fails
+-------------------------------------------------*/
+int E3D_glLoadImages(const string & JImages, vector <E3D_glImage> & glImages)
+{
+	vector<string>  JIObjs; /* Json description for n JImage, each included in a pair of { } */
+	string Jitem;	/* Json description for a E3D_glImage. */
+	int nj=0;	/* Items in JIObjs */
+
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	/* 1. Check input */
+	if(!glImages.empty())
+		egi_dpstd(DBG_YELLOW"Input glImages SHOULD be empty, it will be cleared/resized!\n"DBG_RESET);
+
+	/* 2. Extract all Json Image objects and put to JMObjs */
+	E3D_glExtractJsonObjects(JImages, JIObjs);
+
+	/* 3. Get JIObjs.size */
+	nj=JIObjs.size();
+	egi_dpstd(DBG_GREEN"Totally %d glImage Json objects found.\n"DBG_RESET, nj);
+
+	/* 4. Resize glTextures, which assume as empty NOW. */
+	glImages.resize(nj);
+
+	/* 5. Parse Json object of glTexture item by itme */
+	for(int k=0; k<nj; k++)  {
+		/* 5.1 Json descript for the accessor */
+		pstr=(char *)JIObjs[k].c_str();
+		//printf("pstr: %s\n", pstr);
+
+/*-------------------------------------------------------
+  string  name;
+  string  uri;
+  string  mimeType;   (Allowed values: image/jpeg, image/png)
+  int     bufferViewIndex; (Json name "bufferView")
+
+  //extensions
+  //extras
+--------------------------------------------------------*/
+
+		/* 5.2 Read and parse key/value pairs */
+		while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+			//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+			if(!key.compare("name")) {
+				glImages[k].name=value;
+			}
+			else if(!key.compare("uri")) {
+				glImages[k].uri=value;
+			}
+			else if(!key.compare("mimeType")) {
+				glImages[k].mimeType=value;
+			}
+			else if(!key.compare("bufferView")) {
+				glImages[k].bufferViewIndex=atoi(value.c_str());
+			}
+			else
+				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+		}
+
+		/* TODO Check data integrity */
+
+	} /*END for() */
+
+	/* 6. Load image into imgbuf */
+	for(size_t k=0; k<glImages.size(); k++) {
+	   /* 6.1 URI is defined */
+	   if(glImages[k].uri.size()>0) {
+	   	/* 6.1.1 URI is embedded with image data.
+		   Example: "uri" : "data:image/png;base64,Rw0KG....
+		 	    "uri" : "data:image/jpeg;base64,fg5Bw....
+		 */
+		if( strncmp(glImages[k].uri.c_str(), "data:image/png;base64,", 22)==0
+		    || strncmp(glImages[k].uri.c_str(), "data:image/jpeg;base64,", 23)==0  ) {
+			const char *pt=strstr(glImages[k].uri.c_str(), "base64,");
+			char *data=NULL;
+			int datasize;
+                        try {
+	                       data=new char[strlen(pt+7)]; //actually use 2/3 size */
+                        }
+                        catch ( std::bad_alloc ) {
+                                egi_dpstd("glImges[%d]:Fail to allocate data for base64 decoding!\n", k);
+                                return -1;
+                        }
+
+			/* Decode base64 */
+ 			datasize=egi_decode_base64(0, pt+7, strlen(pt+7), data);
+
+			/* Read imgbuf from png data */
+			if( strncmp(glImages[k].uri.c_str(), "data:image/png;base64,", 22)==0 )
+				glImages[k].imgbuf=egi_imgbuf_readPngBuffer((const unsigned char *)data, (unsigned long)datasize);
+			/* Read imgbuf from jpeg data */
+			else
+				glImages[k].imgbuf=egi_imgbuf_readJpgBuffer((const unsigned char *)data, (unsigned long)datasize);
+
+			/* Free data */
+			delete []data;
+
+			if(glImages[k].imgbuf==NULL) {
+			        egi_dpstd(DBG_RED"glImages[%d]:Fail to read imgbuf from uri embedded data!\n"DBG_RESET, k);
+				//return -1;
+			}
+
+		}
+		/* 6.1.2 URI refers to an external image file. */
+		else {
+			glImages[k].imgbuf=egi_imgbuf_readfile(glImages[k].uri.c_str());
+			if(glImages[k].imgbuf==NULL) {
+			    egi_dpstd(DBG_RED"glImages[%d]: Fail to read imgbuf from uri: %s\n"DBG_RESET, k, glImages[k].uri.c_str());
+			    //return -1;
+			}
+		}
+	   }
+	   /* 6.2 URI is not defined */
+	   #if 0 /* Try to load imgbuf from bufferView data if mimeType is "image/jpeg" OR "image/png" */
+	   else {
+			/* See at E3D_TriMesh::loadGLTF() 4a. */
+	   }
+	   #endif
+
+	} /* End for(k) */
+
 
 	/* OK */
 	return nj;

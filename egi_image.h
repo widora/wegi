@@ -56,6 +56,7 @@ EGI_IMGBUF*	egi_imgbuf_createLinkFBDEV(const FBDEV *fbdev);
 void 		egi_imgbuf_freeLinkFBDEV(EGI_IMGBUF **imgbuf);
 
 EGI_IMGBUF*	egi_imgbuf_readfile(const char* fpath);
+//EGI_IMGBUF*	egi_imgbuf_readJpegBuffer(const unsigned char *buff, unsigned long buffsize); see in egi_bjp.c
 EGI_IMGBUF*	egi_imgbuf_blockCopy( const EGI_IMGBUF *ineimg, int px, int py, int height, int width );
 EGI_IMGBUF* 	egi_imgbuf_rotBlockCopy( EGI_IMGBUF *eimg, EGI_IMGBUF *oimg, int height, int width,	/* mutex_lock eimg only! */
                                   	 int px, int py, int angle);

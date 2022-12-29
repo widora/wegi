@@ -25,6 +25,13 @@ Discobolus.obj -s 0.2 -a 15  (-X 40)
 budda.obj  -c -s .3 -A 2 -X -120 -y 50 -a 15
 cats.obj -y -100 -X -10 -a -15 -b
 
+Example:
+   ./test_trimesh sculpture.gltf -s 600 -c -Z 90 -y 50 -P -a 5 -t
+    Init: obj COORD/ORIGIN align/coincides with global COORD/ORIGIN.
+    Rotation: First rotate 90Deg along (obj/global) Y axis (default -A 1), then rotate 90Deg along Z axis,
+	      finally translate +50 along Y axis.
+    Note:  Option sequences DO NOT matters, it doesn't affect results!
+
 	option_1:  Perspective
 Bust_man.obj -s 10 -z 500 -c -y -10 -X -10 -b
 cube.obj -z 650 -c -w    !!!--- Perspective view at angle=95 to demo hiding failure,  -a 10 to diminish. ---!!!
@@ -34,7 +41,7 @@ cube.obj -c -s 1.75 -X 160 -P -T cubetexture3.png -a 5 -D
 teapot.obj -c -s 1.5 -X 195 -r		!!! --- Gouraud test --- !!!
 teapot.obj -r -s 3.25 -X -160 -a 25 -P  // Lighting Computation Demo
 jaguar.obj -c -s 5 -X -170 -T texture_jaguar.png -P -a 10
-head_man04.obj -c -s 18 -X 180 -P -y 30       !!! --- Gouraud test --- !!!
+head_man04.obj -c -s 18 -X 180 -P -y 30 -t       !!! --- Gouraud test --- !!!
 dog.obj -c -s 400 -X -175 -T texdog.png -a 5 -P -b
 mingren.obj -c -s 4 -A 0 -Y 90 -X 90 -x -15 -T texmingren.png -a 10 -f 0.25
 boat.obj -c -s 100 -X -P -y -50
@@ -137,6 +144,10 @@ volumes.obj -c -s 60 -A 2 -X 95 -Z -90 -y -250 -m -P -F (-C) -t -a -3 -l -M zoom
 	---- BVH skeleton motion file ----
 walk.bvh -s 3 -Z 90 -Y -15 -x 250 -y 100 -a -5 -t -P -p 0 -M walk.mot
 LETS_NOTE  turnkick -s 5 -X 180 -Y 90 -y 300 -a -5 -P -p 0 -l
+
+	---- glTF TriMesh -----
+doggy.gltf -s 165 -c -X 95 -A 2 -t
+rabbit.gltf -s 4000 -c -X 180 -a 0 -t
 
 
 	----- Test FLOAT_EPSILON -----
@@ -374,7 +385,7 @@ void print_help(const char *name)
 	printf("-Z:    Z delta angle for display\n");
 	printf("-T:    Texture image file(jpg,png).\n");
 	printf("-f:    Texture resize factor.\n");
-	printf("-a:    delt angle for each move/rotation. angle += (5.0+da) \n If with '-i', then it is clipping step with percentage of dobj");
+	printf("-a:    delt angle for each move/rotation. angle += (5.0+da) \n If with '-i', then it is clipping step with percentage of dobj\n");
 	printf("-p:    Pause mseconds, -p 0 no pause.\n");
         exit(0);
 }
@@ -401,10 +412,12 @@ int main(int argc, char **argv)
 #ifdef LETS_NOTE
 	EGI_16BIT_COLOR	  bkgScreenColor=WEGI_COLOR_GRAY2; //BLACK;
 #else
-	EGI_16BIT_COLOR	  bkgScreenColor=WEGI_COLOR_GRAY; //GRAYB;//GRAY3;//GREEN; //GRAY5; // DARKPURPLE
+	EGI_16BIT_COLOR	  bkgScreenColor=WEGI_COLOR_DARKPURPLE; //GRAY;
 #endif
 	//EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(0xF0CCA8);//WEGI_COLOR_PINK;
-	EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(WEGI_COLOR_PINK);
+//	EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(WEGI_COLOR_PINK);//grassgreen
+//	EGI_16BIT_COLOR   faceColor=COLOR_24TO16BITS(COLOR_BurlyWood);//lightBlue
+	EGI_16BIT_COLOR   faceColor=COLOR_BurlyWood;
 	EGI_16BIT_COLOR	  wireColor=WEGI_COLOR_BLACK; //DARKGRAY;
 	EGI_16BIT_COLOR	  aabbColor=WEGI_COLOR_LTBLUE;
 	EGI_16BIT_COLOR	  fontColor=WEGI_COLOR_GREEN;
@@ -682,6 +695,11 @@ int main(int argc, char **argv)
 	/* 0. Set global light vector */
 	float vang=45.0; /*  R=1.414, angle for vector(x,y) of vLight  */
 	float dvang=5; //2.5;  /* Delta angle for vangle */
+
+	/* Ambient light(nondirectional) */
+	gv_ambLight.assign(0.75, 0.75, 0.75);
+	//gv_ambLight.assign(1.0, 1.0, 1.0);
+
 if( adjustLight_on ) {  /* For Portrait.. */
 	gv_vLight.assign(1, -1, 1); //2); //4);
 	gv_vLight.normalize();
@@ -701,12 +719,14 @@ else {	/* For Landscape */
 	   // gv_vLight.assign(-1, 1.5, 0); // (1, 1.5, 0);
 	   gv_vLight.assign(1,1,1);
 	   gv_vLight.normalize();
-	   //gv_auxLight.assign(-1, -1, 1);
-	   gv_auxLight.assign(-1,-1, 0);
-	   //gv_auxLight.assign(0,0,0.25);
+	   gv_vLight *=0.5;
+
+	   gv_auxLight.assign(-1, -1, 1);
+	   //gv_auxLight.assign(-1,-1, 0);
+	   //gv_auxLight.assign(0,0,0.1);
 	   //gv_auxLight.assign(0,0, 0.75);
 	   gv_auxLight.normalize();
-	   gv_auxLight *=0.5;
+	   gv_auxLight *=0.25;
 	}
 
 	//E3D_Vector vLight(-0.5, 1, 1);
@@ -721,7 +741,7 @@ else {	/* For Landscape */
 	cout<< "Read obj file '"<< fobj <<"' into E3D_TriMesh... \n";
 	E3D_TriMesh	meshModel(fobj);
 
-#else /* TEST: Primitive volumes */
+#else /* TEST: Primitive volumes/BMTree/skeletons/glTF/... */
 	cout<<"Create primitive volumes...\n";
 
   #if  TEST_BMTREE
@@ -763,7 +783,7 @@ else {	/* For Landscape */
 //	E3D_TestCompound  meshModel(50); /* xxx -c -s 1.5 -Y -90 -A 2 -P -a 10 -p 0 -l ;;;;  -c -s .7 -Y -90 -A 2 -a 10 -p 0 -P -l */
 
 	E3D_TriMesh meshModel;
-	meshModel.loadGLTF("/tmp/doggy.gltf");
+	meshModel.loadGLTF(fobj); //"/tmp/doggy.gltf"); //doggy.gltf -s 165 -c -X 95 -A 2 -t
 	meshModel.defMaterial.kd.vectorRGB(faceColor);
 
   #endif
@@ -896,7 +916,7 @@ else {	/* For Landscape */
 		meshModel.computeAllVtxNormals();
 	}
 
-  #if 1   /* 4. Draw mesh wireframe. */
+  #if 0  /* 4. Draw mesh wireframe. */
 	cout<< "Draw wireframe..."<<endl;
         fb_clear_workBuff(&gv_fb_dev, bkgScreenColor); //DARKPURPLE);
   gv_fb_dev.zbuff_on=false;
@@ -1149,6 +1169,13 @@ if(TEST_BMTREE) { /* Running case */
 	workMesh->cloneMesh(meshModel);
 #endif
 
+	#if 0 /* Check indices */
+	if( workMesh->checkTriangleIndices()<0 ) {
+		printf("workMesh indices error! after CloneMesh.\n");
+		exit(1);
+	}
+	#endif
+
 	egi_dpstd("workMesh: %d Triangles, %zu TriGroups, %zu Materials, %s, defMateril.img_kd is '%s'.\n",
 				workMesh->triCount(), workMesh->triGroupList.size(),
 				workMesh->mtlList.size(),
@@ -1240,6 +1267,13 @@ if(TEST_BMTREE) { /* Running case */
 	cout << "Transform workMesh...\n";
 	//workMesh->transformMesh(RTYmat*RTXmat, ScaleMat); /* Here, scale ==1 */
 	workMesh->transformMesh(VRTmat, ScaleMat); /* Here, scale ==1 */
+
+	#if 0 /* TEST:------------*/
+        if( workMesh->checkTriangleIndices()<0 ) {
+                printf("workMesh indices error after transformMesh!\n");
+                exit(1);
+        }
+	#endif
 #endif
 
 #if TEST_MULTIOBJ    //////////////////  Add more objs into the scene (before omat_adjust)  /////////////////
@@ -1444,12 +1478,18 @@ if(1) {
 		workMesh->shadeType=E3D_FLAT_SHADING;
 #endif
 
-
         /* Before rendering, re_compute clippling matrix items in projMatrix, in case dv changed etc. */
 	E3D_RecomputeProjMatrix(projMatrix);
 
         cout << "Render mesh ... angle=" << angle <<endl;
+
 #if 1	/* Render workMesh */
+	#if 1 /* TEST:------------*/
+        if( workMesh->checkTriangleIndices()<0 ) {
+                printf("workMesh indices error before renderMesh!\n");
+                exit(1);
+        }
+	#endif
 //workMesh->shadeType=E3D_FLAT_SHADING;
        	RenderTriCnt=workMesh->renderMesh(&gv_fb_dev, projMatrix);
 	printf("workMesh->renderMesh OK!\n");

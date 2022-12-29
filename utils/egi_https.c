@@ -82,6 +82,9 @@ Jurnal:
 	1. Add https_easy_mURLDownload()
 2022-10-28:
 	1.easy_callback_writeToFile(): Let it return wittren bytes, evenif !=size*nmemb.
+2022-12-25:
+	1. https_curl_request(): get redirected URL and assign renew string request=data, then try again.
+		input string requset will be modified accordingly.
 
 TODO:
 XXX 1. fstat()/stat() MAY get shorter/longer filesize sometime? Not same as doubleinfo, OR curl BUG?
@@ -460,6 +463,7 @@ Note: You must have installed ca-certificates before call curl https, or
 		   }
 
 @data:		TODO: if any more data needed
+		To pass redirected URL.
 @get_callback:   If NULL use easy_callback_copyToBuffer() and https_easy_buff[]
 
 		!!! CURL will disable egi tick timer? !!!
@@ -467,7 +471,7 @@ Return:
 	0	Ok
 	<0	Fails
 --------------------------------------------------------------------------------*/
-int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const char *request, char *reply_buff,
+int https_curl_request( int opt, unsigned int trys, unsigned int timeout, char *request, char *reply_buff,
 			void *data, curlget_callback_t get_callback )
 {
 	int i;
@@ -477,6 +481,7 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 	double doubleinfo=0;
 	long   longinfo=0;
 	struct curl_slist *header=NULL;
+	char   *rdURL=NULL; /* Redirected URL */
 
  /* Try Max. sessions. TODO: tm_delay() not accurate, delay time too short!  */
  for(i=0; i<trys || trys==0; i++)
@@ -504,7 +509,7 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout); //EGI_CURL_TIMEOUT);	 /* set timeout */
 	if(get_callback) {
 	    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, get_callback);     /* set write_callback */
-	    curl_easy_setopt(curl, CURLOPT_WRITEDATA, reply_buff); 		 /* set data dest for write_callback */
+	    curl_easy_setopt(curl, CURLOPT_WRITEDATA, reply_buff); 	     /* set data dest for write_callback */
 	}
 	else {
 	    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, easy_callback_copyToBuffer);
@@ -514,9 +519,13 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 
 	/* User options */
         if(HTTPS_ENABLE_REDIRECT & opt) {
-        	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); /* Enable redirect */
-                curl_easy_setopt(curl, CURLOPT_AUTOREFERER, 1L);
+		/* Note: DO NOT set FOLLOWLOCATION if want to read out new URL after perform */
+        	 //curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); /* Enable redirect */
+
+                 curl_easy_setopt(curl, CURLOPT_AUTOREFERER, 1L);
+
 //               curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3);
+
         }
 
 	/* TODO:  unsupported compression method may produce corrupted data! */
@@ -559,6 +568,27 @@ int https_curl_request( int opt, unsigned int trys, unsigned int timeout, const 
 			ret=-2;
 			goto CURL_CLEANUP; //continue; /* retry ... */
 		}
+		/* Redirect code: 30x */
+		if(longinfo/100 == 3) {
+		   /* Get redirected URL. TODO: It always fails!  HK2022-12-25 */
+		   if(HTTPS_ENABLE_REDIRECT & opt) {
+			egi_dpstd("Start to read redirected URL...\n");
+			rdURL=NULL;
+			if( CURLE_OK==curl_easy_getinfo(curl, CURLINFO_REDIRECT_URL, &rdURL) && rdURL ) {
+				/* pass out rdURL to data */
+				strncpy(data, rdURL, EGI_URL_MAX-1);
+				/* Renew requrest */
+				strncpy(request, rdURL, EGI_URL_MAX-1);
+				//request=data; if NOT want to modify request.
+
+				/* Retry curl perform with updated URL */
+				if(trys>1) trys-=1;
+				ret=-1;
+			}
+			else
+				egi_dpstd(DBG_RED"Fail to read redirection URL!\n"DBG_RESET);
+		   }
+		}
 	}
 
 #if 0 ///////////////// Decompressed data lenght MAY NOT same as doubleinfo size ///////////////
@@ -598,6 +628,8 @@ CURL_CLEANUP:
 	curl_easy_cleanup(curl);
 	curl=NULL;
   	curl_global_cleanup();
+
+	rdURL=NULL;
 
 	/* if succeeds --- OK --- */
 	if(ret==0)

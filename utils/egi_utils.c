@@ -48,6 +48,9 @@ Journal
 	1. Add egi_append_file()
 2022-09-20:
 	1. Add egi_create_array2D(), egi_free_array2D()
+2022-12-20:
+	1. Add _base64_to_u6()
+	1. Add egi_decode_base64()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -1445,7 +1448,7 @@ char ** egi_alloc_search_files(const char* path, const char* fext,  int *pcount 
 
 /* Base64 element table */
 #define BASE64_ETABLE_MAX	12
-static const char BASE64_ETABLE[BASE64_ETABLE_MAX][65]=
+static const char BASE64_ETABLE[BASE64_ETABLE_MAX][65]=  /* 64=2^6, to coded in 6bits unit. */
 {
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/+",
@@ -1463,9 +1466,128 @@ static const char BASE64_ETABLE[BASE64_ETABLE_MAX][65]=
 
 static const char HEXBIT_TABLE[]="0123456789abcdef";
 
+/*--------------------------------------------------
+ Convert each byte of base64 into 6bits unit
+
+Return:
+	0-63:	ok
+	>63:	Fails
+-----------------------------------------------------*/
+unsigned char _base64_to_u6(char c)  /* Default type=0 */
+{
+   switch(c) {
+	case 'A': return 0;  case 'B': return 1; case 'C': return 2; case 'D': return 3;
+	case 'E': return 4;  case 'F': return 5; case 'G': return 6; case 'H': return 7;
+	case 'I': return 8;  case 'J': return 9; case 'K': return 10; case 'L': return 11;
+	case 'M': return 12;  case 'N': return 13; case 'O': return 14; case 'P': return 15;
+	case 'Q': return 16;  case 'R': return 17; case 'S': return 18; case 'T': return 19;
+	case 'U': return 20;  case 'V': return 21; case 'W': return 22; case 'X': return 23;
+	case 'Y': return 24;  case 'Z': return 25;
+
+	case 'a': return 26;  case 'b': return 27; case 'c': return 28; case 'd': return 29;
+	case 'e': return 30;  case 'f': return 31; case 'g': return 32; case 'h': return 33;
+	case 'i': return 34;  case 'j': return 35; case 'k': return 36; case 'l': return 37;
+	case 'm': return 38;  case 'n': return 39; case 'o': return 40; case 'p': return 41;
+	case 'q': return 42;  case 'r': return 43; case 's': return 44; case 't': return 45;
+	case 'u': return 46;  case 'v': return 47; case 'w': return 48; case 'x': return 49;
+	case 'y': return 50;  case 'z': return 51;
+
+	case '0': return 52;  case '1': return 53; case '2': return 54; case '3': return 55;
+	case '4': return 56;  case '5': return 57; case '6': return 58; case '7': return 59;
+	case '8': return 60;  case '9': return 61;
+
+	case '+': return 62;  case '/': return 63;
+//	case '/': return 62;  case '+': return 63;
+
+	default:
+	  return 65; /* >63 */
+   }
+
+}
+
+/*------------------------------------------------------------------------------------------
+Decode input base64 string into data.
+Every 4bytes input base64 data will be converted to 3bytes data.
+
+Ignore RFC2045 requirements:
+ "
+   (5)  (Soft Line Breaks) The Quoted-Printable encoding
+      	REQUIRES that encoded lines be no more than 76
+      	characters long.  If longer lines are to be encoded
+      	with the Quoted-Printable encoding, "soft" line breaks
+      	must be used.  An equal sign as the last character on a
+      	encoded line indicates such a non-significant ("soft")
+      	line break in the encoded text.
+ "
+
+@type: 	Type of BASE64_ETAB, index of it. default 0;
+	TODO: Ignored here.
+@buff:	Input base64 string.
+@size:  Input data size.
+@data:	Output data.
+	Note: The caller MUST allocate enought space for data!
+
+Return:
+	<0	Fails
+	>=0	Length of output base64 data.
+----------------------------------------------------------------------------------------*/
+int egi_decode_base64(int type, const char *buff, unsigned int size, char *data)
+{
+	int i,j, n,m;
+	int ret=0;	/* Length of decoded base64 data */
+	char u6[4];	/* 6bits unit */
+
+	n=size/4;	/* every 4_byte buff convert to 3_byte data */
+	m=size%4;	/* remaining byte */
+
+	if(data==NULL || size==0 || buff==NULL)
+		return -1;
+
+	/* ERROR */
+	if(m) return -1;
+
+	/* check type number, or use default as 0 */
+	//TODO: if( type<0 || type > BASE64_ETABLE_MAX-1 )
+	type=0;
+
+	/* Decode every 4_byte buff */
+	for(i=0; i<n-1; i++) {
+		/* Every byte to 6bits */
+		for(j=0;j<4;j++)
+		     u6[j]=_base64_to_u6(buff[i*4+j]);
+		/* Convert to 3byte data */
+		data[i*3]=(u6[0]<<2) + (u6[1]>>4);
+		data[i*3+1]=(u6[1]<<4) + (u6[2]>>2);
+		data[i*3+2]=(u6[2]<<6) + u6[3];
+	}
+
+	/* The last 4_byte buff, MAYBE with padding */
+	for(j=0;j<4;j++) {
+                u6[j]=_base64_to_u6(buff[(n-1)*4+j]);
+		if(u6[j]>63)
+		   break;/* See as padding */
+	}
+	/* Convert to 1byte or 2byte or 3byte data. */
+	if(j==2) /* 1byte data */
+	    data[(n-1)*3]=(u6[0]<<2) + (u6[1]>>4);
+	if(j==3) { /* 2byte data */
+	    data[(n-1)*3]=(u6[0]<<2) + (u6[1]>>4);
+	    data[(n-1)*3+1]=(u6[1]<<4) + (u6[2]>>2);
+	}
+	if(j==4) { /* 3byte data, no padding  */
+	    data[(n-1)*3]=(u6[0]<<2) + (u6[1]>>4);
+	    data[(n-1)*3+1]=(u6[1]<<4) + (u6[2]>>2);
+	    data[(n-1)*3+2]=(u6[2]<<6) + u6[3];
+	}
+
+	/* OK */
+	if(j==0)j=1; /* j=0 OR j=1: encoding ERROR */
+	return  (n-1)*3+(j-1);
+}
 
 /*--------------------------------------------------------------------------------------------------
 Encode input data to base64 string without any line breaks.
+Every 3bytes input data will be converted to 4bytes base64 data.
 
 Ignore RFC2045 requirements:
  "
@@ -1505,6 +1627,7 @@ int egi_encode_base64(int type, const unsigned char *data, unsigned int size, ch
 
 	/* Encode n*3_bytes of input data */
 	for(i=0; i<n; i++) {
+		/* Input 6bits data, output 1byte char. */
 		buff[4*i+0]=BASE64_ETABLE[type][ data[3*i]>>2 ];					/*  first 6bits of data[0] */
 		buff[4*i+1]=BASE64_ETABLE[type][ ((data[3*i]&0x3)<<4) + (data[3*i+1]>>4) ];		/*  2bits of data[0] AND 4bits of data[1] */
 		buff[4*i+2]=BASE64_ETABLE[type][ ((data[3*i+1]&0x0F)<<2) + (data[3*i+2]>>6) ];	/*  4bits of data[1] AND 2bits of data[2] */

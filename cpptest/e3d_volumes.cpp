@@ -115,7 +115,7 @@ E3D_Cuboid::E3D_Cuboid(float dx, float dy, float dz): E3D_TriMesh()
 
 	/* 8. Assign the ONLY triGroup */
 	triGroupList.resize(1);
-	triGroupList[0].tcnt=tcnt; /* 12 triangles */
+	triGroupList[0].tricnt=tcnt; /* 12 triangles */
 	triGroupList[0].stidx=0;
 	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
 	triGroupList[0].name="default";
@@ -201,7 +201,7 @@ E3D_Tetrahedron::E3D_Tetrahedron(float s, float h): E3D_TriMesh(), side(s), heig
 
 	/* 8. Assign the ONLY triGroup */
 	triGroupList.resize(1);
-	triGroupList[0].tcnt=tcnt; /* 4 triangles */
+	triGroupList[0].tricnt=tcnt; /* 4 triangles */
 	triGroupList[0].stidx=0;
 	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
 	triGroupList[0].name="default";
@@ -289,7 +289,7 @@ E3D_Pyramid::E3D_Pyramid(float s, float h): E3D_TriMesh(), side(s), height(h)
 
 	/* 8. Assign the ONLY triGroup */
 	triGroupList.resize(1);
-	triGroupList[0].tcnt=tcnt; /* 6 triangles */
+	triGroupList[0].tricnt=tcnt; /* 6 triangles */
 	triGroupList[0].stidx=0;
 	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
 	triGroupList[0].name="default";
@@ -400,7 +400,7 @@ E3D_ABone::E3D_ABone(float s, float l): E3D_TriMesh(), side(s), len(l)
 
 	/* 8. Assign the ONLY triGroup */
 	triGroupList.resize(1);
-	triGroupList[0].tcnt=tcnt; /* 12 triangles */
+	triGroupList[0].tricnt=tcnt; /* 12 triangles */
 	triGroupList[0].stidx=0;
 	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
 	triGroupList[0].name="default";
@@ -580,7 +580,7 @@ f 10 12 11
 
 	/* Assign the ONLY triGroup */
 	triGroupList.resize(1);
-	triGroupList[0].tcnt=20; /* 20 triangles */
+	triGroupList[0].tricnt=20; /* 20 triangles */
 	triGroupList[0].stidx=0;
 	triGroupList[0].etidx=0+20; /* Caution!!! etidx is NOT the end index! */
 	triGroupList[0].name="default";
@@ -814,7 +814,7 @@ f 10 12 11
 
 	/* Reassign the ONLY triGroup */
 	triGroupList.resize(1);
-	triGroupList[0].tcnt=tcnt; /* 20 triangles */
+	triGroupList[0].tricnt=tcnt; /* 20 triangles */
 	triGroupList[0].stidx=0;
 	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
 	triGroupList[0].name="default";
@@ -999,7 +999,7 @@ E3D_TestCompound::E3D_TestCompound(float s) :E3D_TriMesh(), side(s)
 
 	/* 16. Assign the ONLY triGroup */
 	triGroupList.resize(1);
-	triGroupList[0].tcnt=tcnt;
+	triGroupList[0].tricnt=tcnt;
 	triGroupList[0].stidx=0;
 	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
 	triGroupList[0].name="TestCompound";
@@ -1110,7 +1110,7 @@ E3D_TestSkeleton::E3D_TestSkeleton(E3D_BMatrixTree &bmtree) :E3D_TriMesh()
 
 	/* 16. Assign the ONLY triGroup */
 	triGroupList.resize(1);
-	triGroupList[0].tcnt=tcnt;
+	triGroupList[0].tricnt=tcnt;
 	triGroupList[0].stidx=0;
 	triGroupList[0].etidx=0+tcnt; /* Caution!!! etidx is NOT the end index! */
 	triGroupList[0].name="TestSkeleton";

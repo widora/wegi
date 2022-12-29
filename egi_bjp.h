@@ -167,8 +167,12 @@ int show_jpg( const char* fpath, const unsigned char *inbuff, unsigned long insi
 
 int egi_imgbuf_loadjpg(const char* fpath, EGI_IMGBUF *egi_imgbuf);
 int egi_imgbuf_loadpng(const char* fpath, EGI_IMGBUF *egi_imgbuf);
+
 int egi_imgbuf_savejpg(const char* fpath,  EGI_IMGBUF *eimg, int quality);
 int egi_imgbuf_savepng(const char* fpath, EGI_IMGBUF *egi_imgbuf);
+
+EGI_IMGBUF* egi_imgbuf_readJpgBuffer(const unsigned char *inbuff, unsigned long insize);
+EGI_IMGBUF* egi_imgbuf_readPngBuffer(const unsigned char *inbuff, unsigned long insize);
 
 /* roaming picture in a window */
 int egi_roampic_inwin(const char *path, FBDEV *fb_dev, int step, int ntrip,

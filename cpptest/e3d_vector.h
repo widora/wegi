@@ -150,12 +150,37 @@ void  E3D_transform_vectors( E3D_Vector *vts, unsigned int vcnt, const E3D_RTMat
 #define E3D_Point E3D_Vector
 
 /*-----------------------------
+	Class: E4D_Vector
+4D Vector.
+-----------------------------*/
+class E4D_Vector {
+public:
+	float x,y,z;
+	float w;
+
+	/* Constructor */
+	E4D_Vector();
+	E4D_Vector(float ix, float iy, float iz, float iw);
+
+	/* Destructor */
+	~E4D_Vector();
+
+	/* Vector operator: zero */
+	void zero(void);
+
+	/* Vector assign */
+	void assign(float nx, float ny, float nz, float nw);
+};
+
+
+/*-----------------------------
 	Class: E3D_Vector
 3D Vector.
 -----------------------------*/
 class E3D_Vector {
 public:
 	float x,y,z;
+//XXX	float w;
 
 	/* Constructor */
 	E3D_Vector();

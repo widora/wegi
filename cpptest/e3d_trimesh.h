@@ -379,7 +379,8 @@ enum {
 
 //typedef struct E3D_RenderVertex	 E3DS_RenderVertex;
 struct E3D_RenderVertex {
-	E3D_Vector	pt;	/* Vertex position */
+	E3D_Vector	spt;    /* Vertex position, for original space XYZ. */
+	E3D_Vector	pt;	/* Vertex position, After projecting, this value will be changed/updated. */
 	E3D_Vector	normal;	/* Vertex normal, if applys */
 	E3D_Vector	color;	/* RGB each [0 1] */
 	float 		u,v;	/* Texture map coordinate */
@@ -521,7 +522,9 @@ public:
 	string map_ks;
 
 	/* Texture imgbuf. TODO: here or at triGroup??? ---OK, HERE! */
+	/* CAUTION: pointer MUST be inited to NULL */
 	EGI_IMGBUF *img_kd; /* img_ka, img_ks */
+	EGI_IMGBUF *img_ke;
 
 	int end;
 };
@@ -558,14 +561,24 @@ public:
 	vector<PivotFrame> kframes;
 };
 
-/*-------------------------------------------------------
-        Class: E3D_TriMesh
+/*--------------------------------------------------------------
+        	Class: E3D_TriMesh
 
 Refrence:
 "3D Math Primer for Graphics and Game Development"
                         by Fletcher Dunn, Ian Parberry
 
--------------------------------------------------------*/
+Note:
+1. In texture mapping, you'll have to separate a mesh by
+moving triangles with different uv values(one vtx has more
+than 1 uv value in this case) OR by moving vertice (more
+than 1 veritces have the same XYZ values in this case).
+So for the first case, triList[].vtx[].uv applys, and for
+the second case, vtxList[].uv applys.
+In E3D_TriMesh::renderMesh(), it reads UV from triList[].vtx[].uv.
+
+
+---------------------------------------------------------------*/
 class E3D_TriMesh {
 
 /* Friend Classes */
@@ -587,8 +600,8 @@ public:
 		/* Vector as point coord. */
 		E3D_Vector pt;
 
-		/* Ref Coord. ? */
-		float u,v;
+		/* Texture Coord UV */
+		float u,v;  /* See class Note 1 */
 
 		/* Normal vector. Normalized!
 		 * Note:
@@ -619,7 +632,10 @@ public:
 		/* Struct Vertx */
 		struct Vertx {
 			int   index;	/* index as of vtxList[] */
-			float u,v;	/* Ref coord. for texture. */
+			float u,v;	/* Texture coord UV. see class note 1. In textrue mapping, when we need
+					   to keep vertex welded(Only 1 vertex for 1 XYZ value), we'll have to sparate triangles
+					   with different uv values.
+					 */
 			E3D_Vector vn;  /* Vertex normal, Normalized!
 					 * 1. Init all 0! Check normal.isZero() to see if they are empty/invalid.
 					 * 2. If each vertex has ONLY one normal value, then save to vtxList[].normal instead.
@@ -665,6 +681,7 @@ public:
 	/* Note:
 	 *	1. All TriGroups are under the same object/global COORD!
 	 *	2. For vector application: !!!--- Caution for Pointer Memebers if any ---!!!
+	 *	3. No pointer member!
 	 */
 	class TriGroup {
 	public:
@@ -730,10 +747,11 @@ public:
 		//EGI_IMGBUF *img_kd;  // NOW only diffuse.  ka, ks ...
 
 		/* Define group include triangles from triList[] to triList[] */
-		unsigned int	tcnt;  		/* Total trianlges in the group */
+		//unsigned int	tcnt;  		/* Total trianlges in the group */
+		unsigned int	tricnt;  	/* Total trianlges in the group */  // HK2022-12-22, rename, to avoid conflict with TriMesh.tcnt.
 		unsigned int	stidx;  	/* Start/Begin index of triList[] */
 		unsigned int	etidx;  	/* End index of triList[], NOT incuded!!!
-				 		 * !!! CAUTION !!!  eidx=sidex+tcnt !!!
+				 		 * !!! CAUTION !!!  eidx=sidex+tricnt !!!
 						 */
 	};
 
@@ -781,6 +799,7 @@ public:
 	/* TEST FUNCTIONS: */
 	void setVtxCount(int cnt);
 	void setTriCount(int cnt);
+	int checkTriangleIndices() const;
 
 	/* Function: Count vertices and triangles */
 	int vtxCount() const;
@@ -959,7 +978,7 @@ public:
 					 */
 	EGI_16BIT_COLOR  bkFaceColor;  /* Faceback face color for flat/gouraud/wire shading.
 					 * Default as 0(BLACK).
-					 * --- OBOSELE: Use defMaterial ---
+					 * XXX --- OBOSELE: Use defMaterial ---
 					 */
 	EGI_16BIT_COLOR	wireFrameColor; /* Color for wire frame
 					 * Default as 0(BLACK).
@@ -1015,6 +1034,9 @@ public:
 	/* Destructor. destroy all E3D_TriMesh in TriMeshList[] */
 	~E3D_Scene();
 
+	/* Default ProjeMatrix  HK2022-12-29 */
+	E3DS_ProjMatrix projMatrix;
+
 	/* Import .obj into TriMeshList */
 	void importObj(const char *fobj);
 	/* Add instance */
@@ -1022,6 +1044,7 @@ public:
         void addMeshInstance(E3D_MeshInstance &refInstance, string pname=" ");
 	/* Clear instance list. ONLY clear meshInstanceList! */
 	void clearMeshInstanceList();
+
 
 	/* Render Scene */
 	void renderScene(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) const;

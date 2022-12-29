@@ -51,7 +51,7 @@ extern char https_easy_buff[];
 //static size_t easy_callback_copyToBuffer(void *ptr, size_t size, size_t nmemb, void *userp);
 
 int https_curl_request(int opt, unsigned int trys, unsigned int timeout,
-		       const char *request, char *reply_buff, void *data,
+		       char *request, char *reply_buff, void *data,
 			curlget_callback_t get_callback);
 
 //static size_t easy_callback_writeToFile(void *ptr, size_t size, size_t nmemb, void *stream);
