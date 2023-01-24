@@ -254,7 +254,7 @@ public:
 	EGI_16BIT_COLOR  color16Bits() const;
 
 	/* Print */
-	void print(const char *name);
+	void print(const char *name) const;
 
 	/* Transform */
 	void transform(const E3D_RTMatrix  &RTMatrix);

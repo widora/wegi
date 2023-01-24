@@ -96,6 +96,10 @@ Journal:
 2022-12-28:
 	1. E3D_glLoadImages(): If jpeg/png image data embedded in uri, then decode it
 	   and read in to imgbuf.
+2023-01-03:
+	1. E3D_glPrimitiveAttributes: multiple texcoord[] and color[]
+2023-01-04:
+	1. Add E3D_glLoadNormalTextureInfo()
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -219,8 +223,10 @@ E3D_glPrimitiveAttribute::E3D_glPrimitiveAttribute()
         normalAccIndex=-1;
         tangentAccIndex=-1;
 
-        texcoord=-1;;
-        color=-1;
+	for(int k=0; k<PRIMITIVE_ATTR_MAX_TEXCOORD; k++)
+        	texcoord[k]=-1;
+	for(int k=0; k<PRIMITIVE_ATTR_MAX_COLOR; k++)
+	        color[k]=-1;
 	//joints_0;
 	//weights_0;
 }
@@ -1002,7 +1008,7 @@ int E3D_glLoadBuffers(const string & Jbuffers, vector <E3D_glBuffer> & glBuffers
 				}
 				egi_dpstd(DBG_YELLOW"Succeed to decode base64 string to glBuffers[%d].data.\n"DBG_RESET,k);
 			}
-			/* A data file URI */
+			/* A data file */
 			else {
 				glBuffers[k].fmap=egi_fmap_create(glBuffers[k].uri.c_str(), 0, PROT_READ, MAP_SHARED);
 				if(glBuffers[k].fmap==NULL) {
@@ -1342,6 +1348,7 @@ int color;		( Json name "COLOR_0" )
 --------------------------------------------------*/
 
 		/* Read and parse key/value pairs */
+		unsigned int nn;
 		while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
 			//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
 			if(!key.compare("POSITION"))
@@ -1350,11 +1357,16 @@ int color;		( Json name "COLOR_0" )
 				glPAttributes.normalAccIndex=atoi(value.c_str());
 			else if(!key.compare("TANGENT"))
 				glPAttributes.tangentAccIndex=atoi(value.c_str());
-			/* TODO: Assume always TEXCOORD_0 */
-			else if(!key.compare("TEXCOORD_0"))
-				glPAttributes.texcoord=atoi(value.c_str());
-			else if(!key.compare("COLOR_0"))
-				glPAttributes.color=atoi(value.c_str());
+			else if(!key.compare(0,9,"TEXCOORD_")) {
+				nn=atoi(key.c_str()+9);
+				if(nn>=0 && nn<PRIMITIVE_ATTR_MAX_TEXCOORD)
+					glPAttributes.texcoord[nn]=atoi(value.c_str());
+			}
+			else if(!key.compare(0,6,"COLOR_")) {
+				nn=atoi(key.c_str()+6);
+				if(nn>=0 && nn<PRIMITIVE_ATTR_MAX_COLOR)
+					glPAttributes.color[nn]=atoi(value.c_str());
+			}
 			else
 				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
 		}
@@ -1644,14 +1656,15 @@ int E3D_glLoadTextureInfo(const string & JTexInfo, E3D_glTextureInfo & glTexInfo
 			glTexInfo.index=atoi(value.c_str());
 			if(glTexInfo.index<0) {
 				egi_dpstd(DBG_RED"Error index<0! in: %s\n"DBG_RESET, value.c_str());
-				glTexInfo.index=0;
+				glTexInfo.index=0; //set as 0
 			}
 		}
 		else if(!key.compare("texCoord")) {
 			glTexInfo.texCoord=atoi(value.c_str());
-			if(glTexInfo.texCoord<0) {
-				egi_dpstd(DBG_RED"Error texCoord<0! in: %s\n"DBG_RESET, value.c_str());
-				glTexInfo.texCoord=0;
+			if(glTexInfo.texCoord<0 || glTexInfo.texCoord>PRIMITIVE_ATTR_MAX_TEXCOORD-1 ) {  /* HK2023-01-03 */
+				egi_dpstd(DBG_RED"Error texCoord! out of limit [0 %d]: %s\n"DBG_RESET,
+									PRIMITIVE_ATTR_MAX_TEXCOORD-1, value.c_str());
+				glTexInfo.texCoord=0; //set as 0
 			}
 		}
 		else
@@ -1663,6 +1676,82 @@ int E3D_glLoadTextureInfo(const string & JTexInfo, E3D_glTextureInfo & glTexInfo
 	/* OK */
 	return 1;
 }
+
+
+/*-------------------------------------------------------------
+Parse JTexInfo and load data to glNormalTexInfo   (<-----NOT ARRYA!)
+
+	 !!! --- CAUTION --- !!!
+glNormalTexInfo SHOULD be inited.
+
+@JNormalTexInfo: Json description for glTF key of "normalTextrue",
+@glNormalTexInfo: To pass out value.
+
+JNormalTexInfo Example: ( NOT ARRAY! )
+  "normalTexture" :  <<--- This part NOT included in JTexInfo --->>
+   {
+            "index" : 1
+			   (<----- texCoord NOT defined, default=0)
+			   (<----- scale NOT defined, defautl=1.0);
+   }
+
+
+Return:
+	>0	Ok number of E3D_glNormalTextureInfo loaded.
+	<0	Fails
+---------------------------------------------------------------*/
+int E3D_glLoadNormalTextureInfo(const string & JNormalTexInfo, E3D_glNormalTextureInfo & glNormalTexInfo)
+{
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	if(JNormalTexInfo.empty())
+		return -1;
+
+	/* Json descript for a textureinfo */
+	pstr=(char *)JNormalTexInfo.c_str();
+	//printf("pstr: %s\n", pstr);
+
+/*----------------------------------------------------
+	int  index;
+	int  texCoord;
+	int  scale;
+	//Extensions
+	//extras
+----------------------------------------------------*/
+
+	/* Read and parse key/value pairs */
+	while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+		//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+		if(!key.compare("index")) {
+			glNormalTexInfo.index=atoi(value.c_str());
+			if(glNormalTexInfo.index<0) {
+				egi_dpstd(DBG_RED"Error index<0! in: %s\n"DBG_RESET, value.c_str());
+				glNormalTexInfo.index=0; //set as 0
+			}
+		}
+		else if(!key.compare("texCoord")) {
+			glNormalTexInfo.texCoord=atoi(value.c_str());
+			if(glNormalTexInfo.texCoord<0 || glNormalTexInfo.texCoord>PRIMITIVE_ATTR_MAX_TEXCOORD-1 ) {
+				egi_dpstd(DBG_RED"Error texCoord! out of limit [0 %d]: %s\n"DBG_RESET,
+									PRIMITIVE_ATTR_MAX_TEXCOORD-1, value.c_str());
+				glNormalTexInfo.texCoord=0; //set as 0
+			}
+		}
+		else if(!key.compare("scale")) {
+			glNormalTexInfo.scale=atof(value.c_str());
+		}
+		else
+			egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+	}
+
+	/* TODO Check data integrity */
+
+	/* OK */
+	return 1;
+}
+
 
 /*------------------------------------------------
 Parse JMetaRough and load data to glPBRMetaRough   (<-----NOT ARRYA!)
@@ -1869,6 +1958,10 @@ int E3D_glLoadMaterials(const string & JMaterials, vector <E3D_glMaterial> & glM
 			else if(!key.compare("emissiveTexture")) {
                         	if( E3D_glLoadTextureInfo(value, glMaterials[k].emissiveTexture)<1 )
                                 	egi_dpstd(DBG_RED"glMaterials[%d]: Fail to load emissiveTexture in: %s\n"DBG_RESET, k, value.c_str());
+			}
+			else if(!key.compare("normalTexture")) {
+				if( E3D_glLoadNormalTextureInfo(value, glMaterials[k].normalTexture)<1 )
+					egi_dpstd(DBG_RED"glMaterials[%d]: Fail to load normalTextrue in: %s\n"DBG_RESET, k, value.c_str());
 			}
 			else if(!key.compare("alphaMode")) {
 				glMaterials[k].alphaMode=value;
@@ -2121,14 +2214,21 @@ int E3D_glLoadImages(const string & JImages, vector <E3D_glImage> & glImages)
 				//return -1;
 			}
 
+			/* A dataURI */
+			glImages[k].IsDataURI=true;
+
 		}
 		/* 6.1.2 URI refers to an external image file. */
 		else {
+			/* TODO, relative file path */
 			glImages[k].imgbuf=egi_imgbuf_readfile(glImages[k].uri.c_str());
 			if(glImages[k].imgbuf==NULL) {
 			    egi_dpstd(DBG_RED"glImages[%d]: Fail to read imgbuf from uri: %s\n"DBG_RESET, k, glImages[k].uri.c_str());
 			    //return -1;
 			}
+
+			/* A dataURI */
+                        glImages[k].IsDataURI=false;
 		}
 	   }
 	   /* 6.2 URI is not defined */

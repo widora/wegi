@@ -4732,6 +4732,10 @@ Interpolate to get a pixel from an EGI_IMBUF with given u,v[0 1] value.
 @color,alpha:   Pointer to pass out color/alpha as result.
 		If NULL, ignore.
 
+Note:
+		!!! --- CAUTION --- !!!
+1.  It will render incorrect image if uv are NOT within [0 1].
+
 Return:
 	0	OK
 	<0	Fails
@@ -4757,13 +4761,24 @@ int egi_imgbuf_uvToPixel(EGI_IMGBUF *imgbuf, float u, float v,
 
 	int imgw=imgbuf->width;
 	int imgh=imgbuf->height;
+	float umax=1.0*(imgw-1)/imgw;
+	float vmax=1.0*(imgh-1)/imgh;
 
 	float ftmp;
 	int Wl, Wr, Hu, Hd; /* left/right width index, upper/down heigth index */
 
-	/* Check u/v */
-	if(u<0.0f || u>1.0f) return -1;
+#if 0	/* Check u/v */
+	if(u<0.0f || u>1.0f)  return -1;
 	if(v<0.0f || v>1.0f) return -1;
+#endif
+	if(u<0.0f || u>1.0f || v<0.0f || v>1.0f)
+		egi_dpstd("u(%f) or v(%f) NOT in [0 1]! \n",u,v);
+
+	/* HK2023-01-24 */
+	if(u<0.0f) u+=floorf(u); else if(u>1.0) u-=floorf(u);
+	if(u>umax) u=umax;
+	if(v<0.0f) v+=floorf(v); else if(v>1.0) v-=floorf(v);
+	if(v>vmax) v=vmax;
 
 	/* Get f15_ratio for interpolatoin. */
 	int f15_ratioX=roundf((modff(u*imgw, &ftmp)*(1<<15)));

@@ -367,7 +367,6 @@ int 			egi_color_YUYV2YUV(const unsigned char *src, unsigned char *dest, int w, 
 EGI_16BIT_COLOR 	egi_color_HSV2RGB(const EGI_HSV_COLOR *hsv);
 int 			egi_color_RGB2HSV(EGI_16BIT_COLOR color, EGI_HSV_COLOR *hsv);
 
-
 /***  EGI COLOR BANDMAP and Functions
  * Note/Pitfalls:
  * 	1. _pickColor(map,pos): returns color value of the bands[], pos is located within [bands[].pos ~ bans[].pos+len-1].

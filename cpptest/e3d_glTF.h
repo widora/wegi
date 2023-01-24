@@ -109,6 +109,7 @@ int E3D_glLoadMeshes(const string & JMeshes, vector <E3D_glMesh> & glMeshes);
 
 int E3D_glLoadMaterials(const string & JMaterials, vector <E3D_glMaterial> & glMaterials);
 int E3D_glLoadTextureInfo(const string & JTexInfo, E3D_glTextureInfo & glTexInfo);  //<--- NOT ARRAY!
+int E3D_glLoadNormalTextureInfo(const string & JNormalTexInfo, E3D_glNormalTextureInfo & glNormalTexInfo);  //<--- NOT ARRAY!
 int E3D_glLoadPBRMetaRough(const string & JMetaRough, E3D_glPBRMetallicRoughness & glPBRMetaRough);  //<--- NOT ARRAY!
 int E3D_glLoadTextures(const string & JTextures, vector <E3D_glTexture> & glTextures);
 int E3D_glLoadImages(const string & JImages, vector <E3D_glImage> & glImages);
@@ -161,13 +162,18 @@ WEIGHTS_n   VEC4           float	See Skinned Mesh Attributes
 	int tangentAccIndex;
 
 	/* following are also accessor indices */
-	int texcoord; //_0; //[3];
-				    /* 1. TODO: NOW ONLY TEXCOORD_0 applys, assume it's for TEXTURE COORDINATES.
+#define	PRIMITIVE_ATTR_MAX_TEXCOORD 8
+	int texcoord[PRIMITIVE_ATTR_MAX_TEXCOORD];
+				    /* 1. XXX TODO: NOW ONLY TEXCOORD_0 applys, assume it's for TEXTURE COORDINATES.
+				       1. The index corresponds to E3D_glXXXXTextureInfo.texcoord
 				       2. crosscheck at E3D_TriMesh::loadGLTF() at 11.3.4
 				       3.  			!!!--- NOTE ---!!!
 				 	   glTF also defines UV origin at leftTop of the image, SAME as E3D.
 				    */
-	int color; //_0; //[3];
+#define	PRIMITIVE_ATTR_MAX_COLOR 8
+	int color[PRIMITIVE_ATTR_MAX_COLOR];
+
+#define	PRIMITIVE_ATTR_MAX_JOINTS 8
 //	int joints_0; //[3];
 //	int weights_0; //[3];
 
@@ -380,7 +386,9 @@ public:
 	string  name;	  /* Required:No,Jobject name */
 	string 	uri;  	  /* Required:No, MUST NOT be defined when bufferView is defined.
 			     Instead of referencing an external file, this field MAY contain a data:-URI.
+			     If uri in glTF file contains embedded data, then THIS uri will be empty.
 			   */
+	bool    IsDataURI;  /* If it's a dataURI */
 
 	string 	mimeType; /* Required:No, MUST be defined when bufferView is defined
 			   * Allowed values: image/jpeg, image/png
@@ -396,6 +404,8 @@ public:
 	 EGI_IMGBUF *imgbuf;  /* EGI_IMGBUF of the image
 				 		!!!--- CAUTION ---!!!
 				 Ownership transfers in E3D_TriMesh::loadGLTF(): mtlList[].img_kd=glImages[].imgbuf;
+				 1. E3D_glLoadImages(): Load from data:-URI or an external file.
+				 2. loadGLTF(): Load from glBufferViews[].data.
 				*/
 };
 
@@ -468,6 +478,7 @@ public:
 				   A mesh primitive MUST have the corresponding texture coordinate attributes for
 				   the material to be applicable to it.
 				   default=0;
+				   CrossCheck at E3D_TriMesh::loadGLTF() at 11.3.4.
 				 */
 
         //extensions
@@ -477,6 +488,7 @@ public:
 /*---------------------------------------
    Class E3D_glNormalTextureInfo
 
+The tangent space normalTexture.
 ---------------------------------------*/
 class E3D_glNormalTextureInfo {
 public:
@@ -485,7 +497,7 @@ public:
         /* Destructor */
         //~E3D_glNormalTextureInfo();
 
-	int	index;		/* Required:Yes,  the index of the texture <0 as invalid, init-1 */
+	int	index;		/* Required:Yes,  the index of the texture. <0 as invalid, init-1 */
 	int 	texCoord;	/* Required:No,  The set index of texture's TEXCOORD attribute
 				   used for texture coordinate mapping.
 				   Default=0;

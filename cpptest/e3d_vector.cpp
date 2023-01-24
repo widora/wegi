@@ -402,7 +402,7 @@ EGI_16BIT_COLOR  E3D_Vector::color16Bits() const
 /*----------------
    Print vector
 ----------------*/
-void E3D_Vector::print(const char *name=NULL)
+void E3D_Vector::print(const char *name=NULL) const
 {
      	//printf("V(%f, %f, %f)\n",x,y,z);
 	printf("Vector %s:(%f, %f, %f)\n", name?name:"", x,y,z);
@@ -537,34 +537,47 @@ Return:
 ---------------------------------------------------------------------*/
 bool E3D_computeBarycentricCoord(const E3D_Vector vt[3], const E3D_Vector &pt, float bc[3])
 {
-	/* Outer side vectors */
-	E3D_Vector e0=vt[1]-vt[0];  //v01
-	E3D_Vector e1=vt[2]-vt[1]; //v12
-	E3D_Vector e2=vt[0]-vt[2]; //v20
+	E3D_Vector e0,e1,e2;
+	E3D_Vector env;
+	float demon;
+	E3D_Vector d0,d1,d2;
+	float t0,t1,t2;
+
+	/* Side vectors */
+	e0=vt[1]-vt[0];  //v01
+	e1=vt[2]-vt[1];  //v12
+	e2=vt[0]-vt[2];  //v20
 
 	/* Normal vector (not necesary to be normalized) */
-	E3D_Vector nv=E3D_vector_crossProduct(e0, e1);
-	float demon=nv*nv;
-	if(demon==0.0f) {
-		egi_dpstd(DBG_RED"%s: denom == 0.0f!\n"DBG_RESET, __func__);
+	env=E3D_vector_crossProduct(e0, e1);
+	demon=env*env;
+	if( demon < VPRODUCT_NEARZERO) {
+		egi_dpstd(DBG_RED"%s: denom ~= 0.0f! degenerated triangle.\n"DBG_RESET, __func__);
 		return false;
 	}
 
 	/* Inner side vectors */
-	E3D_Vector d0=pt-vt[0];
-	E3D_Vector d1=pt-vt[1];
-	E3D_Vector d2=pt-vt[2];
+	d0=pt-vt[0];
+	d1=pt-vt[1];
+	d2=pt-vt[2];
 
 	/* Areas */
 	//demon/2
-	float t0=E3D_vector_crossProduct(e0, d1)*nv; // /2;
-	float t1=E3D_vector_crossProduct(e1, d2)*nv; // /2;
-	float t2=E3D_vector_crossProduct(e2, d0)*nv; // /2;
+	t0=E3D_vector_crossProduct(e0, d1)*env; // /2;
+	t1=E3D_vector_crossProduct(e1, d2)*env; // /2;
+	t2=E3D_vector_crossProduct(e2, d0)*env; // /2;
 
 	/* Barycentric coordinates */
+	#if 0
 	bc[0]=t0/demon;
 	bc[1]=t1/demon;
 	bc[2]=t2/demon;
+	#endif
+
+	/* Right sequrence vt[0]->vt[2] to bc[0]-bc[2]  HK2022-12-30 :>>> */
+	bc[2]=t0/demon;
+	bc[0]=t1/demon;
+	bc[1]=t2/demon;
 
 	return true;
 }

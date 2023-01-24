@@ -377,6 +377,16 @@ Journal:
 	1. E3D_TriMesh::loadGLTF(): Assign mtlList[].img_ke.
 2022-12-29:
 	1. E3D_shadeTriangle(): Matrix/Interpolation to get pixel uv.
+2022-12-30:
+	1. E3D_shadeTriangle(): BarycentricCoord to get pixel uv.
+	2. E3D_shadeTriangle(): Test bilinear_interpolation.
+2022-12-31:
+	1. E3D_Materia:: Add memeber triListUV_ke for mapping img_ke.
+2023-01-03:
+	1. E3D_TriMesh::loadGLTF(): Multiple texcoord for img_ke/ke in 11.3.4
+	2. E3D_TriMesh::renderMesh(): Apply mtlList[ ].triListUV_ke[i].uv
+2023-01-20:
+	1. E3D_shadeTriangle( ) BarycentricCoord: Apply TBN and img_kn.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -502,6 +512,8 @@ void E3D_Material::setDefaults()
 	/* Pointers MUST set as NULL */
 	img_kd=NULL;
 	img_ke=NULL;
+	img_kn=NULL;
+	kn_scale=1.0f;
 }
 
 
@@ -520,8 +532,12 @@ of the materail
 -----------------------------*/
 E3D_Material::~E3D_Material()
 {
-	/* Free imgbuf, and reset img_kd to NULL. */
+	/* Free imgbuf, and reset img_kd to NULL.
+	 * Note: egi_imgbuf_free2() make sure to release img_x ONLY once!
+	 */
 	egi_imgbuf_free2(&img_kd);
+	egi_imgbuf_free2(&img_ke);
+	egi_imgbuf_free2(&img_kn);
 }
 
 /*----------------------------
@@ -536,12 +552,22 @@ void E3D_Material::print()
 	cout<<"illum: "<< illum <<endl;
 	ka.print("ka");
 	kd.print("kd");
+	ke.print("ke");
 	ks.print("ks");
+	Ss.print("Ss");
+	Sd.print("Sd");
+	cout<<"Ns: "<< Ns <<endl;
 	cout<<"d: "<< d <<endl;
+	/* Note: map_x will be empty if image data is contained/embedded in glTF uri */
 	cout<<"map_kd: "<< map_kd <<endl;
 	cout<<"img_kd is "<< (img_kd==NULL?"NULL!":"loaded.") <<endl;
-//	cout<<"map_ka: "<< map_ka <<endl;
-//	cout<<"map_ks: "<< map_ks <<endl;
+	cout<<"map_ke: "<< map_ke <<endl;
+	cout<<"img_ke is "<< (img_ke==NULL?"NULL!":"loaded.") <<endl;
+	cout<<"map_kn: "<< map_ke <<endl;
+	cout<<"img_kn is "<< (img_kn==NULL?"NULL!":"loaded.") <<endl;
+
+	cout<<"triListUV_ke is "<<(triListUV_ke.empty()?"empty!":"loaded.")<<endl;
+	cout<<"triListUV_kn is "<<(triListUV_kn.empty()?"empty!":"loaded.")<<endl;
 
 	cout<<"------------------------"<<endl;
 	cout<<endl;
@@ -2317,9 +2343,11 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 				return -1;
 
 			egi_dpstd(DBG_GREEN"Totally %zu E3D_glBuffers loaded.\n"DBG_RESET, glBuffers.size());
+			char strtmp[128];
+			size_t strlen;
 			for(size_t k=0; k<glBuffers.size(); k++) {
-				char strtmp[128];
-				glBuffers[k].uri.copy(strtmp,64,0);
+				strlen=glBuffers[k].uri.copy(strtmp,64,0);
+				strtmp[strlen]='\0';
 				if(glBuffers[k].uri.size()>64) 	strcpy(strtmp+64, "...");
 				printf("glBuffers[%zu]: byteLength=%d, uri='%s'\n", k, glBuffers[k].byteLength, strtmp);
 				/* Check buffer data */
@@ -2384,9 +2412,14 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 					printf("   POSITION(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.positionAccIndex);
 					printf("   NORMAL(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.normalAccIndex);
 					printf("   TANGENT(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.tangentAccIndex);
-					// TODO: TEXCOORD_n  COLOR_n
-					printf("   TEXCOORD_0(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.texcoord);
-					printf("   COLOR_0(AccIndex)%d\n",glMeshes[k].primitives[j].attributes.color);
+				     for(int in=0; in<PRIMITIVE_ATTR_MAX_TEXCOORD; in++) {
+					if(glMeshes[k].primitives[j].attributes.texcoord[in]>-1)
+					   printf("   TEXCOORD_%d=(AccIndex)%d\n",in, glMeshes[k].primitives[j].attributes.texcoord[in]);
+				     }
+				     for(int in=0; in<PRIMITIVE_ATTR_MAX_COLOR; in++) {
+					if(glMeshes[k].primitives[j].attributes.color[in]>-1)
+					   printf("   COLOR_%d=(AccIndex)%d\n",in, glMeshes[k].primitives[j].attributes.color[in]);
+				     }
 				}
 			}
 		}
@@ -2426,9 +2459,25 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 				printf("    metallicFactor: %f\n",glMaterials[k].pbrMetallicRoughness.metallicFactor);
 				printf("    roughnessFactor: %f\n",glMaterials[k].pbrMetallicRoughness.roughnessFactor);
 				printf("    metallicRoughnessTexture: TODO\n");
-				printf("normalTexture: TODO\n");
+
+				printf("emissiveTexture: %s\n", glMaterials[k].emissiveTexture.index>-1?"":"None");
+				if(glMaterials[k].emissiveTexture.index>-1) {
+					printf("         index:%d,  texCoord:%d\n",
+						glMaterials[k].emissiveTexture.index,
+						glMaterials[k].emissiveTexture.texCoord
+					);
+				}
+
+				printf("normalTexture: %s\n", glMaterials[k].normalTexture.index>-1?"":"None");
+				if(glMaterials[k].normalTexture.index>-1) {
+					printf("         index:%d,  texCoord:%d, scale:%f\n",
+						glMaterials[k].normalTexture.index,
+						glMaterials[k].normalTexture.texCoord,
+						glMaterials[k].normalTexture.scale
+					);
+				}
+
 				printf("occlutionTexture: TODO\n");
-				printf("emissiveTexture: TODO\n");
 			}
 
 		}
@@ -2452,12 +2501,19 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 				printf(DBG_RED"E3D_glLoadImages() fails!\n"DBG_RESET);
 			}
 
-/* TODO: image maybe embedded in URI  */
 			printf(DBG_GREEN"Totally %zu E3D_glImages loaded.\n"DBG_RESET, glImages.size());
+                        char strtmp[128];
+			size_t strlen;
 			for(size_t k=0; k<glImages.size(); k++) {
+				/* HK2023-01-03 */
+				strlen=glImages[k].uri.copy(strtmp, 64, 0);
+				strtmp[strlen]='\0';
+				if(glImages[k].uri.size()>64) strcpy(strtmp+64, "...");
+
 				printf(DBG_MAGENTA"\n    --- image_%d---\n"DBG_RESET, k);
 				printf("name: %s\n", glImages[k].name.c_str());
-				printf("uri: %s\n", glImages[k].uri.c_str());
+				printf("uri: %s\n", strtmp);
+				printf("IsDataURI: %s\n", glImages[k].IsDataURI?"Yes":"No");
 				printf("mimeType: %s\n", glImages[k].mimeType.c_str());
 				printf("bufferView(Index): %d\n", glImages[k].bufferViewIndex);
 			}
@@ -2719,6 +2775,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 	 */
 	int baseColorTextureIndex;
 	int emissiveTextureIndex;
+	int normalTextureIndex;
 	/* resize mtlList */
 	mtlList.resize(glMaterials.size());
 	/* Assign mtlList[] */
@@ -2753,9 +2810,19 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 			mtlList[k].img_ke=glImages[glTextures[emissiveTextureIndex].imageIndex].imgbuf;
 			glImages[glTextures[emissiveTextureIndex].imageIndex].imgbuf=NULL;
 
-		  	/* TODO: Assign triGroupList[].vtx.u/v in 11.3.4 */
+		  	/* XXXTODO: Assign triGroupList[].vtx.u/v in 11.3.4 ---OK */
 		}
+		/* Assign mtlList[].img_kn HK2023-01-04 */
+		normalTextureIndex=glMaterials[k].normalTexture.index;
+		if(normalTextureIndex>=0 && glTextures[normalTextureIndex].imageIndex>=0 ) {
 
+			/*---- !!! CAUTION !!! Ownership transfers. ---*/
+			mtlList[k].img_kn=glImages[glTextures[normalTextureIndex].imageIndex].imgbuf;
+			glImages[glTextures[normalTextureIndex].imageIndex].imgbuf=NULL;
+
+			/* Assign kn_scale HK2023-01-24 */
+			mtlList[k].kn_scale=glMaterials[k].normalTexture.scale;
+		}
 	}
 
 	/* 11. Load vtxList[], triList[] and triGroupList[] */
@@ -2909,41 +2976,47 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 			int materialIndex=glMeshes[m].primitives[n].materialIndex;  //materialIndex = THIS.mtlID
 			if( materialIndex >-1 && materialIndex<(int)glMaterials.size() ) { //same index glMaterials[]-->THIS.mtlList[]
 				egi_dpstd(DBG_YELLOW"Assign triGroupList[].mtlID...\n"DBG_YELLOW);
+
+				/* 11.3.4.1 Assign triGroupList[].mtlID */
 				//if( glMeshes[m].primitives[n].materialIndex < (int)glMaterials.size() )
 				triGroupList[tgCount].mtlID=materialIndex; //glMeshes[m].primitives[n].materialIndex;
 
+///////////////////////////////////////////  uv for img kd  ///////////////////////////////////////////
+				/* 11.3.4.1A Check img_kd */
                     		/* see 10a. for mtList[].img_kd=glImages[].imgbuf */
 				if(mtlList[materialIndex].img_kd==NULL) /* NOW: glImages[].imgbuf is NULL! */
  				        egi_dpstd(DBG_RED"mtList[materialIndex=%d].img_kd==NULL! Ignore triList[].vtx[].u/v .\n"DBG_YELLOW,
 							materialIndex);
 
-				/* Assign triList[].vtx.u/v */
+				/* 11.3.4.2 Assign triList[].vtx.u/v */
 		                else if(  mtlList[materialIndex].img_kd!=NULL &&
 				     //glMaterials[materialIndex].pbrMetallicRoughness.baseColorTexture_defined) {
 				     glMaterials[materialIndex].pbrMetallicRoughness.baseColorTexture.index>=0 ) {
-				        egi_dpstd(DBG_YELLOW"Assign triList[].vtx[].u/v...\n"DBG_YELLOW);
+				        egi_dpstd(DBG_YELLOW"Assign uv for img_kd, to triList[].vtx[].uv...\n"DBG_YELLOW);
 
                    			int textureIndex=glMaterials[materialIndex].pbrMetallicRoughness.baseColorTexture.index;
-					/* If texture image exists */
+
+					/* 11.3.4.2.1 If texture image exists */
                    			if(textureIndex>=0 && glTextures[textureIndex].imageIndex>=0 ) {
                         			/* see 10a. for mtList[].img_kd=glImages[].imgbuf */
-						//if(mtList[materialIndex].img_kd==NULL) /* NOW: glImages[].imgbuf is NULL! */
+						//if(mtList[materialIndex].img_kd==NULL) /* NOW: glImages[].imgbuf is NULL! Ownership changed.*/
+					    /* 11.3.4.2.1.1  HK2023-01-03 */
+					    int nn=glMaterials[materialIndex].pbrMetallicRoughness.baseColorTexture.texCoord;
+					    //assume nn is OK, integrity checked in E3D_glLoadTextureInfo()
+					    int texcoord=glMeshes[m].primitives[n].attributes.texcoord[nn]; //as Accessors index
 
-						/* TODO: Here assume as TEXCOORD_0:
-						   glMaterials[k].pbrMetallicRoughness.baseColorTexture.texCoord =default=0
-						 */
-					    int texcoord=glMeshes[m].primitives[n].attributes.texcoord; //texcoord as Accessors index
+					    /* 11.3.4.2.1.2 */
 					    if( texcoord >-1 && texcoord < (int)glAccessors.size() ) {
 
-egi_dpstd(DBG_YELLOW"Read texture u/v from glAccessors[texcoord=%d], type: count=%d, elemsize=%d\n"DBG_RESET,
-				texcoord, glAccessors[texcoord].count, glAccessors[texcoord].elemsize);
+egi_dpstd(DBG_YELLOW"Read img_kd u/v from glAccessors[texcoord(accindx)=%d], elemtype: %s, count=%d, elemsize=%d\n"DBG_RESET,
+				texcoord, glAccessors[texcoord].type.c_str(), glAccessors[texcoord].count, glAccessors[texcoord].elemsize);
 
-						/* TODO: byteStripe of glAccessors[].data NOT considered */
+						/* 11.3.4.2.1.2.1 TODO: byteStripe of glAccessors[].data NOT considered */
 						fdat=(float *)glAccessors[texcoord].data;
 
 						/* Check element type */
 						if(glAccessors[texcoord].type.compare("VEC2")) {
-							egi_dpstd(DBG_RED"glAccessors[texcoord=%d].type:'%s', it's is NOT VEC2!\n"DBG_RESET,
+							egi_dpstd(DBG_RED"Critical: glAccessors[texcoord=%d].type:'%s', it's is NOT VEC2!\n"DBG_RESET,
 									texcoord, glAccessors[texcoord].type.c_str());
 
 							/* Clear vtxList/triList */
@@ -2952,6 +3025,7 @@ egi_dpstd(DBG_YELLOW"Read texture u/v from glAccessors[texcoord=%d], type: count
 							return -1;
 						}
 
+						/* 11.3.4.2.1.2.2 */
 			                        /* Get component size. component types: float, unsinged byte normalized, unsinged short normalized. */
                         			int compsize=glAccessors[texcoord].elemsize/2; /* for VEC2, number_of_components=2 */
 						int compmax=(1<<(compsize<<3))-1; /* component max. value */
@@ -2960,17 +3034,26 @@ egi_dpstd(DBG_YELLOW"Read texture u/v from glAccessors[texcoord=%d], type: count
 
 			egi_dpstd("Vertice in this primitive: %d\n", vtxCount-Vsdx);
 
-					    	/* Texture coord: VEC2 float Textrue coordinates */
+					    	/* 11.3.4.2.1.2.3 Texture coord: VEC2 float Textrue coordinates */
 						/* Get and assign vtxList[].u/v */
 						for(int j=Vsdx; j<vtxCount; j++) {  /* traverse vertice index in this primitive */
-
 						    if(compsize==4) {  //component type: float
 							 vtxList[j].u=fdat[fcnt*2];
 							/* Hahaha... same UV coord direction as EGI E3D :) */
 							 vtxList[j].v=fdat[fcnt*2+1];
-//							printf("vtxList[%d].u/v:%f,%f\n",j,vtxList[j].u,vtxList[j].v);
+
+			//				printf("vtxList[%d].u/v:%f,%f\n",j,vtxList[j].u,vtxList[j].v);
+
+			/* TEST: ---------- */
+			if(vtxList[j].u>1.0f || vtxList[j].v>1.0f || vtxList[j].u<0.0f || vtxList[j].v<0.0f)
+				egi_dpstd("For img_kd triList[].vtx[].uv: vtxList[].u/v(%f,%f) is NOT within [0 1]!\n",vtxList[j].u,vtxList[j].v);
+
+							/* Try to adjust u/v to within [0 1]; TODO sampler */
+							//if(vtxList[j].u<0.0f) vtxList[j].u += 1.0;
+							//if(vtxList[j].v<0.0f) vtxList[j].v += 1.0;
 						    }
 						    else if(compsize<4) { //component type: unsinged byte normalized, unsinged short normalized
+							egi_dpstd(DBG_CYAN"TexCoordUV component type NOT float!\n"DBG_RESET);
 							/* componet: u */
 							for(int kk=0; kk<compsize; kk++) {
 							   uind=0;
@@ -2994,8 +3077,9 @@ egi_dpstd(DBG_YELLOW"Read texture u/v from glAccessors[texcoord=%d], type: count
 
 						} /* End for(j) */
 
-						/* TODO: NOW E3D_TriMesh::renderMesh() reads UV from triList[].vtx[].u/v */
+						/* 11.3.4.2.1.2.4  TODO: NOW E3D_TriMesh::renderMesh() reads UV from triList[].vtx[].u/v */
 						int vtxind;
+				  		/* For img_kd: Store uv at triList[].vtx[].u/v  nn--- see 11.3.4.2.1.1 */
 						for(int j=Tsdx; j<triCount; j++) {
 						   for(int jj=0; jj<3; jj++) {
 							vtxind=triList[j].vtx[jj].index;
@@ -3006,27 +3090,271 @@ egi_dpstd(DBG_YELLOW"Read texture u/v from glAccessors[texcoord=%d], type: count
 							triList[j].vtx[jj].v=vtxList[vtxind].v;
 						   }
 						}
-
-
 					    }
 					}
-				}
-			}
 
+				} /* END 11.3.4.2 Assign img_kd : triList[].vtx[].u/v */
+
+///////////////////////////////////////////  uv for img_ke  ///////////////////////////////////////////
+
+				/* 11.3.4.1A Check img_ke */
+                    		/* see 10a. for mtList[].img_ke=glImages[].imgbuf */
+				if(mtlList[materialIndex].img_ke==NULL) /* NOW: glImages[].imgbuf is NULL! */
+ 				        egi_dpstd(DBG_RED"mtList[materialIndex=%d].img_ke==NULL! Ignore triList[].vtx[].u/v .\n"DBG_YELLOW,
+							materialIndex);
+
+				/* 11.3.4.2 Assign mtList[].triListUV_ke */
+		                else if(  mtlList[materialIndex].img_ke!=NULL &&
+				     glMaterials[materialIndex].emissiveTexture.index>=0 ) {
+
+					/* 11.3.4.2.0 Resize mtList[].triListUV_ke to tcnt */
+					mtlList[materialIndex].triListUV_ke.resize(tcnt); //NOW: tcnt==triCount
+
+				        egi_dpstd(DBG_YELLOW"Assign uv for img_ke, to mtList[].triListUV_ke...\n"DBG_YELLOW);
+
+                   			int textureIndex=glMaterials[materialIndex].emissiveTexture.index;
+
+					/* 11.3.4.2.1 If texture image exists */
+                   			if(textureIndex>=0 && glTextures[textureIndex].imageIndex>=0 ) {
+                        		    /* see 10a. for mtList[].img_kd=glImages[].imgbuf */
+					    //if(mtList[materialIndex].img_kd==NULL) /* NOW: glImages[].imgbuf is NULL! Ownership changed.*/
+					    /* 11.3.4.2.1.1  HK2023-01-03 */
+					    int nn=glMaterials[materialIndex].emissiveTexture.texCoord;
+					    //assume nn is OK, integrity checked in E3D_glLoadTextureInfo()
+					    int texcoord=glMeshes[m].primitives[n].attributes.texcoord[nn]; //as Accessors index
+					    if(texcoord<0)
+					    	egi_dpstd(DBG_RED"--- img_ke texcoord(accIndex)=%d<0!\n"DBG_RESET,texcoord);
+					    /* 11.3.4.2.1.2 */
+					    if( texcoord >-1 && texcoord < (int)glAccessors.size() ) {
+
+egi_dpstd(DBG_YELLOW"Read img_ke u/v from glAccessors[texcoord(accindx)=%d], elemtype: %s, count=%d, elemsize=%d\n"DBG_RESET,
+				texcoord, glAccessors[texcoord].type.c_str(), glAccessors[texcoord].count, glAccessors[texcoord].elemsize);
+
+						/* 11.3.4.2.1.2.1 TODO: byteStripe of glAccessors[].data NOT considered */
+						fdat=(float *)glAccessors[texcoord].data;
+
+						/* Check element type */
+						if(glAccessors[texcoord].type.compare("VEC2")) {
+							egi_dpstd(DBG_RED"Critical: glAccessors[texcoord=%d].type:'%s', it's is NOT VEC2!\n"DBG_RESET,
+									texcoord, glAccessors[texcoord].type.c_str());
+
+							/* Clear vtxList/triList */
+							vcnt=0; tcnt=0;  triGroupList.clear();
+
+							return -1;
+						}
+
+						/* 11.3.4.2.1.2.2 */
+			                        /* Get component size. component types: float, unsinged byte normalized, unsinged short normalized. */
+                        			int compsize=glAccessors[texcoord].elemsize/2; /* for VEC2, number_of_components=2 */
+						int compmax=(1<<(compsize<<3))-1; /* component max. value */
+						float invcompmax=1.0/compmax;
+						int fcnt=0; //count vertices in this primitive
+
+			egi_dpstd("Vertice in this primitive: %d\n", vtxCount-Vsdx);
+
+					    	/* 11.3.4.2.1.2.3 Texture coord: VEC2 float Textrue coordinates */
+						/* Get and assign vtxList[].u/v */
+						for(int j=Vsdx; j<vtxCount; j++) {  /* traverse vertice index in this primitive */
+						    if(compsize==4) {  //component type: float
+							 vtxList[j].u=fdat[fcnt*2];
+							/* Hahaha... same UV coord direction as EGI E3D :) */
+							 vtxList[j].v=fdat[fcnt*2+1];
+
+			//				printf("vtxList[%d].u/v:%f,%f\n",j,vtxList[j].u,vtxList[j].v);
+
+				/* TEST: ---------- */
+				if(vtxList[j].u>1.0f || vtxList[j].v>1.0f || vtxList[j].u<0.0f || vtxList[j].v<0.0f)
+					egi_dpstd("For triListUV_ke: vtxList[].u/v(%f,%f) is NOT within [0 1]!\n",vtxList[j].u,vtxList[j].v);
+
+							/* Try to adjust u/v to within [0 1]; TODO sampler */
+							//if(vtxList[j].u<0.0f) vtxList[j].u += 1.0;
+							//if(vtxList[j].v<0.0f) vtxList[j].v += 1.0;
+						    }
+						    else if(compsize<4) { //component type: unsinged byte normalized, unsinged short normalized
+							egi_dpstd(DBG_CYAN"TexCoordUV component type is NOT float!\n"DBG_RESET);
+							/* componet: u */
+							for(int kk=0; kk<compsize; kk++) {
+							   uind=0;
+                                                	   utmp=glAccessors[texcoord].data[(fcnt*2)*compsize+kk];  //1byte incremental
+							   /* little endian */
+                                                	   uind += utmp<<(kk<<3); //kk*8
+							}
+							vtxList[j].u=uind*invcompmax;
+
+							/* component: v */
+							for(int kk=0; kk<compsize; kk++) {
+							   uind=0;
+                                                	   utmp=glAccessors[texcoord].data[(fcnt*2+1)*compsize+kk];
+							   /* little endian */
+                                                	   uind += utmp<<(kk<<3); //kk*8
+							}
+							vtxList[j].v=uind*invcompmax;
+						    }
+
+						    fcnt++; /* count vertices */
+
+						} /* End for(j) */
+
+						/* 11.3.4.2.1.2.4  TODO: NOW E3D_TriMesh::renderMesh() reads UV from triList[].vtx[].u/v */
+						int vtxind;
+				  		/* For img_ke: Store uv mtlList[].triListUV_ke  nn--- see 11.3.4.2.1.1 */
+						for(int j=Tsdx; j<triCount; j++) {
+						   for(int jj=0; jj<3; jj++) {
+							vtxind=triList[j].vtx[jj].index;
+							if(vtxind<0 || vtxind>=vtxCount)
+								return -1;
+
+							/* triGroupUV corresponding to triList[].vtx[] */
+							mtlList[materialIndex].triListUV_ke[j].u[jj]=vtxList[vtxind].u;
+							mtlList[materialIndex].triListUV_ke[j].v[jj]=vtxList[vtxind].v;
+						   }
+						}
+					    }
+					}
+
+				} /* END 11.3.4.2 Assign uv for img_ke */
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+///////////////////////////////////////////  uv for img_kn HK2022-01-24  ///////////////////////////////////////////
+
+				/* 11.3.4.1A Check img_kn */
+                    		/* see 10a. for mtList[].img_kn=glImages[].imgbuf */
+				if(mtlList[materialIndex].img_kn==NULL) /* NOW: glImages[].imgbuf is NULL! */
+ 				        egi_dpstd(DBG_RED"mtList[materialIndex=%d].img_kn==NULL! Ignore triList[].vtx[].u/v .\n"DBG_YELLOW,
+							materialIndex);
+
+				/* 11.3.4.2 Assign mtList[].triListUV_kn */
+		                else if(  mtlList[materialIndex].img_kn!=NULL &&
+				     glMaterials[materialIndex].normalTexture.index>=0 ) {
+
+					/* 11.3.4.2.0 Resize mtList[].triListUV_kn to tcnt */
+					mtlList[materialIndex].triListUV_kn.resize(tcnt); //NOW: tcnt==triCount
+
+				        egi_dpstd(DBG_YELLOW"Assign uv for img_kn, to mtList[].triListUV_kn...\n"DBG_YELLOW);
+
+                   			int textureIndex=glMaterials[materialIndex].normalTexture.index;
+
+					/* 11.3.4.2.1 If texture image exists */
+                   			if(textureIndex>=0 && glTextures[textureIndex].imageIndex>=0 ) {
+                        		    /* see 10a. for mtList[].img_kn=glImages[].imgbuf */
+					    //if(mtList[materialIndex].img_kn==NULL) /* NOW: glImages[].imgbuf is NULL! Ownership changed.*/
+					    /* 11.3.4.2.1.1 */
+					    int nn=glMaterials[materialIndex].normalTexture.texCoord;
+					    //assume nn is OK, integrity checked in E3D_glLoadTextureInfo()
+					    int texcoord=glMeshes[m].primitives[n].attributes.texcoord[nn]; //as Accessors index
+					    if(texcoord<0)
+					    	egi_dpstd(DBG_RED"--- img_kn texcoord(accIndex)=%d<0!\n"DBG_RESET,texcoord);
+					    /* 11.3.4.2.1.2 */
+					    if( texcoord >-1 && texcoord < (int)glAccessors.size() ) {
+
+egi_dpstd(DBG_YELLOW"Read img_kn u/v from glAccessors[texcoord(accindx)=%d], elemtype: %s, count=%d, elemsize=%d\n"DBG_RESET,
+				texcoord, glAccessors[texcoord].type.c_str(), glAccessors[texcoord].count, glAccessors[texcoord].elemsize);
+
+						/* 11.3.4.2.1.2.1 TODO: byteStripe of glAccessors[].data NOT considered */
+						fdat=(float *)glAccessors[texcoord].data;
+
+						/* Check element type */
+						if(glAccessors[texcoord].type.compare("VEC2")) {
+							egi_dpstd(DBG_RED"Critical: glAccessors[texcoord=%d].type:'%s', it's is NOT VEC2!\n"DBG_RESET,
+									texcoord, glAccessors[texcoord].type.c_str());
+
+							/* Clear vtxList/triList */
+							vcnt=0; tcnt=0;  triGroupList.clear();
+
+							return -1;
+						}
+
+						/* 11.3.4.2.1.2.2 */
+			                        /* Get component size. component types: float, unsinged byte normalized, unsinged short normalized. */
+                        			int compsize=glAccessors[texcoord].elemsize/2; /* for VEC2, number_of_components=2 */
+						int compmax=(1<<(compsize<<3))-1; /* component max. value */
+						float invcompmax=1.0/compmax;
+						int fcnt=0; //count vertices in this primitive
+
+			egi_dpstd("Vertice in this primitive: %d\n", vtxCount-Vsdx);
+
+					    	/* 11.3.4.2.1.2.3 Texture coord: VEC2 float Textrue coordinates */
+						/* Get and assign vtxList[].u/v */
+						for(int j=Vsdx; j<vtxCount; j++) {  /* traverse vertice index in this primitive */
+						    if(compsize==4) {  //component type: float
+							 vtxList[j].u=fdat[fcnt*2];
+							/* Hahaha... same UV coord direction as EGI E3D :) */
+							 vtxList[j].v=fdat[fcnt*2+1];
+
+			//				printf("vtxList[%d].u/v:%f,%f\n",j,vtxList[j].u,vtxList[j].v);
+
+				/* TEST: ---------- uv NOT within [0 1] */
+				if(vtxList[j].u>1.0f || vtxList[j].v>1.0f || vtxList[j].u<0.0f || vtxList[j].v<0.0f)
+					egi_dpstd("For triListUV_kn: vtxList[].u/v(%f,%f) is NOT within [0 1]!\n",vtxList[j].u,vtxList[j].v);
+
+							/* Try to adjust u/v to within [0 1]; TODO sampler */
+							//if(vtxList[j].u<0.0f) vtxList[j].u += 1.0;
+							//if(vtxList[j].v<0.0f) vtxList[j].v += 1.0;
+
+						    }
+						    else if(compsize<4) { //component type: unsinged byte normalized, unsinged short normalized
+							egi_dpstd(DBG_CYAN"TexCoordUV component type is NOT float!\n"DBG_RESET);
+							/* componet: u */
+							for(int kk=0; kk<compsize; kk++) {
+							   uind=0;
+                                                	   utmp=glAccessors[texcoord].data[(fcnt*2)*compsize+kk];  //1byte incremental
+							   /* little endian */
+                                                	   uind += utmp<<(kk<<3); //kk*8
+							}
+							vtxList[j].u=uind*invcompmax;
+
+							/* component: v */
+							for(int kk=0; kk<compsize; kk++) {
+							   uind=0;
+                                                	   utmp=glAccessors[texcoord].data[(fcnt*2+1)*compsize+kk];
+							   /* little endian */
+                                                	   uind += utmp<<(kk<<3); //kk*8
+							}
+							vtxList[j].v=uind*invcompmax;
+						    }
+
+						    fcnt++; /* count vertices */
+
+						} /* End for(j) */
+
+						/* 11.3.4.2.1.2.4  TODO: NOW E3D_TriMesh::renderMesh() reads UV from triList[].vtx[].u/v */
+						int vtxind;
+				  		/* For img_kn: Store uv mtlList[].triListUV_kn  nn--- see 11.3.4.2.1.1 */
+						for(int j=Tsdx; j<triCount; j++) {
+						   for(int jj=0; jj<3; jj++) {
+							vtxind=triList[j].vtx[jj].index;
+							if(vtxind<0 || vtxind>=vtxCount)
+								return -1;
+
+							/* triGroupUV corresponding to triList[].vtx[] */
+							mtlList[materialIndex].triListUV_kn[j].u[jj]=vtxList[vtxind].u;
+							mtlList[materialIndex].triListUV_kn[j].v[jj]=vtxList[vtxind].v;
+						   }
+						}
+					    }
+					}
+
+				} /* END 11.3.4.2 Assign uv for img_kn */
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+			}  /* END 11.3.4 */
 
 #if 0 /* TEST: Hide triGroup which has no baseColorFactor defined ------------------- */
 			if(triGroupList[tgCount].mtlID>-1) {
 			    if(!glMaterials[triGroupList[tgCount].mtlID].pbrMetallicRoughness.baseColorFactor_defined)
                         	triGroupList[tgCount].hidden=true;
 			}
-			/* OR has noe mtlID, USUally not */
+			/* OR has no mtlID, USUally not */
 			if(triGroupList[tgCount].mtlID<0)
 				triGroupList[tgCount].hidden=true;
 #endif //---------------------------------------------------------------------------
 
 			/* tgCount incremental at last! */
 			tgCount +=1;
-		}
+
+		} /* END if(mode==4 && accIndex>=0 ) */
 
 	    } /* for(n) */
 
@@ -3749,7 +4077,7 @@ egi_dpstd("Clone triList[]...\n");
 	defMaterial=tmesh.defMaterial;
 
 #if 1   /* To avoid free/release imgbuf pointers in mtlList[] and triGroupList[],
-	 * clone those data ONLY ONCE !!!
+	 * clone those data ONLY ONCE !!! and the Original objects SHOULD NOT be released before
 	 */
 	/* Clone material list: mtlList[] */
 	if( mtlList.size()<1 && tmesh.mtlList.size()>0 ) {
@@ -4788,6 +5116,9 @@ TODO:
     for lighting vector.(NOW is triList[].normal, vpts[] NOT applied.)
 XXX 2. Case TEXTURE_MAPPING:  Apply pixz for each pixel, (NOW use same pixz value,
     as Z of the centroid, for all pixels in a triangle)
+2. A E3D_shadeVertex() to transform/color all vtxList[] to under EyeCoord at first,
+   It can avoid to repeat computing a same vertex which belongs to several trianlges.
+
 ---------------------------------------------------------------------*/
 
 ///////////////   Apply triGroupList[] and Material color/map     ///////////////////
@@ -4828,8 +5159,9 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 	/* Defualt texture map */
 	EGI_IMGBUF *imgKd=NULL; /* NOW: Diffuse map.  TODO others: imgKa, imgKs */
 
-	/* triGroup Material */
-	E3D_Material tgmtl;
+	/* triGroup Material. !!!CAUTION!!! Note img_x owner, reset NULL before endfunc, see P3. */
+	E3D_Material tgmtl;  //mtlList[].triListUV_ke/_ks NOT included
+	//tgmtl.kn_scale will be updated for each triangle, Example in case backface_on: tgmtl.kn_scale=-mtlList[].kn_scale
 
 	/* Scene, NOT applied yet. */
 	E3D_Scene scene;
@@ -5064,7 +5396,7 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		/* G2.3.6.1 Each triangle with 3 vertices, assign to rvtx[].pt */
 		rnp=3;
 		rvtx[0].pt=vpts[0]; rvtx[1].pt=vpts[1]; rvtx[2].pt=vpts[2]; //This will be projected/updated.
-		rvtx[0].spt=vpts[0]; rvtx[1].spt=vpts[1]; rvtx[2].spt=vpts[2]; //This keeps unchanged.
+		//rvtx[0].spt=vpts[0]; rvtx[1].spt=vpts[1]; rvtx[2].spt=vpts[2]; //This keeps unchanged.
 
 		/* Assign rvtx[].normal at G2.3.6.3 */
 ////
@@ -5116,7 +5448,8 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 			if(actShadeType==E3D_TEXTURE_MAPPING) {
 			    for(int m=0; m<3; m++) {
 
-				/* OK, Apply E3D uv CoordSsystem.  XXX Notice E3D uv origin at leftTop, while .obj at leftBottom */
+				/* OK, Apply E3D uv CoordSystem.  XXX Notice E3D uv origin at leftTop, while .obj at leftBottom */
+				/* img_kd/baseColor uv */
 				rvtx[m].u=triList[i].vtx[m].u;
 				rvtx[m].v=triList[i].vtx[m].v;  /* HK2022-12-26 */
 
@@ -5124,6 +5457,38 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 				rvtx[m].u=vtxList[ triList[i].vtx[m].index ].u;
 				rvtx[m].v=vtxList[ triList[i].vtx[m].index ].v;
 				#endif
+
+				/* img_ke texcoord ue,ve  HK2022-12-31 */
+				if(tgmtl.img_ke) {
+					/* img_ke has its own textureCoord. Note: tgmtl has NO triListUV_x copied. */
+					if(mtlList[ triGroupList[n].mtlID ].triListUV_ke.size()>0) {
+						rvtx[m].ue=mtlList[ triGroupList[n].mtlID ].triListUV_ke[i].u[m]; //tgmtl.triListUV_ke[n].u[m];
+						rvtx[m].ve=mtlList[ triGroupList[n].mtlID ].triListUV_ke[i].v[m]; // tgmtl.triListUV_ke[n].v[m];
+					}
+					else { /* img_ke use same TexCoord as kd's */
+						rvtx[m].ue=rvtx[m].u;
+						rvtx[m].ve=rvtx[m].v;
+					}
+				}
+
+				/* img_kn texcoord un,vn HK2023-1-20 */
+				if(tgmtl.img_kn) {
+				     /* img_kn has its own textureCoord. Note: tgmtl has NO triListUV_x copied. */
+                                        if(mtlList[ triGroupList[n].mtlID ].triListUV_kn.size()>0) {
+                                                rvtx[m].un=mtlList[ triGroupList[n].mtlID ].triListUV_kn[i].u[m]; //tgmtl.triListUV_ke[n].u[m];
+                                                rvtx[m].vn=mtlList[ triGroupList[n].mtlID ].triListUV_kn[i].v[m]; // tgmtl.triListUV_ke[n].v[m];
+                                        }
+                                        else { /* img_kn use same TexCoord as kd's */
+                                                rvtx[m].un=rvtx[m].u;
+                                                rvtx[m].vn=rvtx[m].v;
+                                        }
+
+					/* Flip kn_scale for Backface HK2023-01-24 */
+					if(IsBackface)
+						tgmtl.kn_scale=-1.0*mtlList[ triGroupList[n].mtlID ].kn_scale;
+					else
+						tgmtl.kn_scale=mtlList[ triGroupList[n].mtlID ].kn_scale;
+				}
 
 			    }
 			}
@@ -5797,8 +6162,10 @@ if( testRayTracing==true &&  BackFacingLight==false
 	/* P2. Free */
 	free(pXYZ);
 
-	/* P3. TODO:  reset tgmtl.img_kd to NULL, NOT the Ownership */
+	/* P3. TODO:  reset tgmtl.img_x to NULL, as it's NOT the Ownership of img_x */
 	tgmtl.img_kd=NULL;
+	tgmtl.img_ke=NULL;
+	tgmtl.img_kn=NULL;
 
 	/* P4. Return totally triangles rendered actually */
 	egi_dpstd(DBG_YELLOW"RenderTriCnt=%d\n"DBG_RESET, RenderTriCnt);
@@ -7323,6 +7690,12 @@ TODO:
 E3D_Lighting
 
 @mtl:		Surface material.
+				!!!--- NOTICED ---!!!
+		This is ONLY to pass ns, kd,ke,ks..etc
+		Other memebers are unnecesary,such as triListUV_ke, img_x...
+		So the Caller can just setup a temporary E3D_Material mtl,
+		and assign necessary memebers to it.
+
 @normal:	Surface normal. (Unit Vector)
 //@view:		View direction, from object to eye! (Unit Vector)
 @dl:		Distance from lighting source to the pixel.
@@ -7344,10 +7717,13 @@ EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, 
 //	E3D_Vector Sd=mtl.Sd; /* Default 0.8 0.8 0.8 */
 
 	/* Attenuation factor for light intensity */
-	float atten=1.0;  /* TODO */
+	float atten=1.0;  /* 0.9 for glmutex  TODO */
 
 	/* glossiness, smaller for wider and brighter. Default 0.0 */
 	float mgls=mtl.Ns; /* mtl->Ns as the specular exponent */
+
+//TEST: ---------
+//	mgls=3.0;
 
 	E3D_Vector Cs,Cd,Ca,Ce;	/* Components */
 	E3D_Vector Cres; 	/* Compound */
@@ -7364,10 +7740,10 @@ EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, 
 	else
 	     toLight=-gv_auxLight;
 
-	/* Init as zeros */
-	Cs.zero(); Cd.zero(); Ca.zero();
+	/* Init as zeros at begin */
+	Cs.zero(); Cd.zero(); Ca.zero(); Ce.zero();
 
- //    if(i==0)
+//     if(i==0)
      { /* Once only */
 	/* Component 1: Phong specular reflection  Cs=max(v*r,0)^mgls*Ss(x)Ms */
 	/* Light Refection vector, mirror of toLight along normal. */
@@ -7392,19 +7768,24 @@ EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, 
 //	Ca.print("Ca");
 
 	/* Component 4: Self-emission Ce=Me HK2022-10-24 */
-	Ce = mtl.ke;
-     }
+	Ce = mtl.ke*0.25; /* atten for ke */
+     } /* Ca,Ce=zeros for other cases */
 
 	/* Result */
 	Cres=atten*(Cs+Cd)+Ca+Ce; /* HK2022-10-24 */
 
 	//uint8_t  R=roundf(Cres.x*255); G=roundf(Cres.y*255); B=roundf(Cres.z*255);
-	R+=roundf(Cres.x*255); if(R>255)R=255; else if(R<0)R=0;
-	G+=roundf(Cres.y*255); if(G>255)G=255; else if(G<0)G=0;
-	B+=roundf(Cres.z*255); if(B>255)B=255; else if(B<0)B=0;
+	R+=roundf(Cres.x*255); //if(R>255)R=255; else if(R<0)R=0;
+	G+=roundf(Cres.y*255); //if(G>255)G=255; else if(G<0)G=0;
+	B+=roundf(Cres.z*255); //if(B>255)B=255; else if(B<0)B=0;
 	//egi_dpstd("seecolor: RGB 0x%02X%02X%02X\n", R,G,B);
 
    } /* END for()*/
+
+        if(R>255)R=255; else if(R<0)R=0;
+        if(G>255)G=255; else if(G<0)G=0;
+        if(B>255)B=255; else if(B<0)B=0;
+
 
 	return COLOR_RGB_TO16BITS(R,G,B);
 }
@@ -7436,6 +7817,7 @@ TODO:
 XXX 1. For clipping a polygon and input more than 3 RenderVerteice.
 2. If ONE or TWO vertices are JUST ON the zc plane, and others are outside,
    then the clipped ploygon will be a degenerated shape, as a point or a line.
+3. Consider multiple UV values in rvts[]: ue/ve, un/vn.
 
 Return:
 	>0  Number of edges clipped.
@@ -7569,6 +7951,23 @@ int E3D_ZNearClipTriangle(float zc, struct E3D_RenderVertex rvts[], int &np, int
 
 ////////////////////////////   Triangle Shader   ////////////////////////////////////
 
+
+/***
+  Copy necesary members from mtl to pmtl
+  This function to be called by E3D_shadeTriangle() ONLY.
+ */
+void  selectCopyMaterilParams(E3D_Material &pmtl, const E3D_Material &mtl)
+{
+	pmtl.ka=mtl.ka;
+	pmtl.kd=mtl.kd;
+ 	pmtl.ks=mtl.ks;
+	pmtl.ke=mtl.ke;
+	pmtl.Ss=mtl.Ss;
+	pmtl.Sd=mtl.Sd;
+	pmtl.Ns=mtl.Ns;
+	pmtl.d=mtl.d;
+}
+
 /*----------------------------------------------------------------------
 Shade and render a triangle to fb_dev.
 
@@ -7581,7 +7980,9 @@ Shade and render a triangle to fb_dev.
 Note:
 1. Sequence of xyz0-xyz2 MUST NOT be shifted, as they MUST keep same sequenece
    as UVs and Normals.
-
+		!!! --- CAUTION --- !!!
+2. egi_imgbuf_uvToPixel(,u,v,,) will render incorrect image if uv NOT within [0 1].
+3. NOW Only basecolor(img_kd) use alpha value.
 
 TODO:
 XXX 0. Call E3D_computeBarycentricCoord()?? ---NOPE!
@@ -7600,8 +8001,8 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 		return;
 
 	/* 1. Material for pixel. kd will be updated for each pixel! */
-	E3D_Material pmtl=mtl;
-	pmtl.img_kd=NULL;	/* DO NOT own/hold img_kd! */
+	E3D_Material pmtl;
+	selectCopyMaterilParams(pmtl, mtl); /* Without img_x and triGroupUVs */
 
 	/* 2. Get vetex coordinates */
 	//int x0=roundf(rvtx[0].pt.x);
@@ -8195,13 +8596,14 @@ return;
 
 void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3D_Material &mtl, const E3D_Scene &scene )
 {
+	printf("MatrixUV\n");
 
 	if(fb_dev==NULL)
 		return;
 
 	/* 1. Material for pixel. kd will be updated for each pixel! */
-	E3D_Material pmtl=mtl;
-	pmtl.img_kd=NULL;	/* DO NOT own/hold img_kd! */
+	E3D_Material pmtl=mtl;  /* DO NOT own/hold img_kd! reset NULL at last. */
+//	selectCopyMaterilParams(pmtl, mtl); /* Without img_x and triGroupUVs */
 
 	/* 2. Get vetex coordinates */
 	int x0=roundf(rvtx[0].pt.x);
@@ -8242,7 +8644,7 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
  	struct float_Matrix matIXYZ;
 	matIXYZ.nr=3; matIXYZ.nc=3; matIXYZ.pmat=Ixyzmat;
 
-
+#if 0//////////////////////////////////
 	/* Get imgbuf */
 	imgbuf=mtl.img_kd;
 
@@ -8259,14 +8661,14 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 		u1=rvtx[1].u; v1=rvtx[1].v;
 		u2=rvtx[2].u; v2=rvtx[2].v;
 
-#if 1		/* Check input u/v. TODO: Reasoning... */
+        #if 1	/* Check input u/v. TODO: Reasoning... */
 		if( u0<0.0 || u0>1.0 ) u0=-floorf(u0)+u0;
 		if( v0<0.0 || v0>1.0 ) v0=-floorf(v0)+v0;
 		if( u1<0.0 || u1>1.0 ) u1=-floorf(u1)+u1;
 		if( v1<0.0 || v1>1.0 ) v1=-floorf(v1)+v1;
 		if( u2<0.0 || u2>1.0 ) u2=-floorf(u2)+u2;
 		if( v2<0.0 || v2>1.0 ) v2=-floorf(v2)+v2;
-#endif
+	#endif
 
 		/* Assign uvmat[3x3] */
 		uvmat[0]=u0; uvmat[1]=v0; uvmat[2]=1.0f;
@@ -8286,18 +8688,18 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 
 		/* matT = matIXYZ*matUV */
 		Matrix_Multiply(&matIXYZ, &matUV, &matT);
-
 	}
+#endif /////////////////////////////
 
 	int x;    /* x of a pixel */
+	float z;  /* z of a pixel */
 	EGI_16BIT_COLOR color;	  /* draw_dot() pixel color */
 	E3D_Vector pnormal;	/* As pixel normal */
 
-	/* As for 2D vetex */
-	struct {
-		//int x; int y; //float z;
-		float x; float y; float z;
-	} points[3];
+	E3D_Vector points[3];   /* projected XYZ for Triangle's 3 vertices */
+	E3D_Vector vpts[3];	/* unprojected XYZ for Triangle's 3 vertices */
+	E3D_Vector vptud[3];
+	E3D_Vector vpt;		/* unprojected xyz */
 
 	points[0].x=x0; points[0].y=y0; points[0].z=z0;
 	points[1].x=x1; points[1].y=y1; points[1].z=z1;
@@ -8328,12 +8730,62 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 	struct float_Matrix matPxyz;
 	matPxyz.nr=1; matPxyz.nc=3; matPxyz.pmat=ptxyz;
 
-
         /* Cal nl, nr. just after collinear checking! */
         for(i=1; i<3; i++) {
                 if(points[i].x < points[nl].x) nl=i;
                 if(points[i].x > points[nr].x) nr=i;
         }
+
+	/* Reverse_project to get vpts */
+	for(i=0; i<3; i++)
+		vpts[i]=points[i];
+	reverse_projectPoints(vpts, 3, scene.projMatrix);
+
+	/* Get imgbuf */
+	imgbuf=mtl.img_kd;
+
+	if( imgbuf==NULL || imgbuf->imgbuf==NULL ) {
+		//egi_dpstd("Input EGI_IMBUG is NULL!\n"); ---OK
+	}
+	else {
+		/* Get image size */
+		imgw=imgbuf->width;
+		imgh=imgbuf->height;
+
+		/* Get uv coordinates for texture mapping. */
+		u0=rvtx[0].u; v0=rvtx[0].v;
+		u1=rvtx[1].u; v1=rvtx[1].v;
+		u2=rvtx[2].u; v2=rvtx[2].v;
+
+        #if 1	/* Check input u/v. TODO: Reasoning... */
+		if( u0<0.0 || u0>1.0 ) u0=-floorf(u0)+u0;
+		if( v0<0.0 || v0>1.0 ) v0=-floorf(v0)+v0;
+		if( u1<0.0 || u1>1.0 ) u1=-floorf(u1)+u1;
+		if( v1<0.0 || v1>1.0 ) v1=-floorf(v1)+v1;
+		if( u2<0.0 || u2>1.0 ) u2=-floorf(u2)+u2;
+		if( v2<0.0 || v2>1.0 ) v2=-floorf(v2)+v2;
+	#endif
+
+		/* Assign uvmat[3x3] */
+		uvmat[0]=u0; uvmat[1]=v0; uvmat[2]=1.0f; //1.0f;
+		uvmat[3]=u1; uvmat[4]=v1; uvmat[5]=2.0f; //1.0f;
+		uvmat[6]=u2; uvmat[7]=v2; uvmat[8]=4.0f; //1.0f;
+
+		/* Assign xyzmat[3x3] */
+		xyzmat[0]=vpts[0].x; xyzmat[1]=vpts[0].y; xyzmat[2]=vpts[0].z;
+		xyzmat[3]=vpts[1].x; xyzmat[4]=vpts[1].y; xyzmat[5]=vpts[1].z;
+		xyzmat[6]=vpts[2].x; xyzmat[7]=vpts[2].y; xyzmat[8]=vpts[2].z;
+
+		/* Inverse matXYZ*/
+		if( Matrix_Inverse(&matXYZ, &matIXYZ)==NULL ) {
+			egi_dpstd("Fail to inverse matrix_XYZ!\n");
+			return;
+		}
+
+		/* matT = matIXYZ*matUV */
+		Matrix_Multiply(&matIXYZ, &matUV, &matT);
+	}
+
 
 	/* ---- TODO; case 1,2,3 ----- */
 
@@ -8364,15 +8816,23 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 	//for( i=0; i< points[nm].x-points[nl].x; i++)
 	for( i=0; i< points[nm].x-points[nl].x+1; i++)
 	{
+                /* Cal. x */
+                x=points[nl].x+i;
+
+		/* yu,yd */
 		yu=roundf(klr*i+points[nl].y);
 		yd=roundf(klm*i+points[nl].y);
 		//egi_dpstd("nm-nl: yu=%d, yd=%d\n", yu,yd);
 
-                /* Cal. x */
-                x=points[nl].x+i;
-
+		/* zu,zd */
 		zu=points[nl].z+(points[nr].z-points[nl].z)*i/(points[nr].x-points[nl].x);
 		zd=points[nl].z+(points[nm].z-points[nl].z)*i/(points[nm].x-points[nl].x);
+
+		/* vptud[0] as u, vptud[1] as d */
+		vptud[0].x=x; vptud[0].y=yu; vptud[0].z=zu;
+		vptud[1].x=x; vptud[1].y=yd; vptud[1].z=zd;
+		/* reverse project vptud[] */
+		reverse_projectPoints(vptud, 2, scene.projMatrix);
 
 		if(yu>yd) {
 			kstart=roundf(yd);
@@ -8385,18 +8845,21 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 
 		for(k=kstart; k<=kend; k++) {
 
-			ptxyz[0]=i+points[nl].x;   		//X
-			ptxyz[1]=k;				//Y
-			ptxyz[2]=zd+(zu-zd)*(k-yd)/(yu-yd); 	//Z
+			/* Set pixz */
+			z = zd+(zu-zd)*(k-yd)/(yu-yd);
+			fb_dev->pixz=z;
+
+			/* reverse_project current pixel xyz */
+			vpt.x=x; vpt.y=k; vpt.z=z;
+			reverse_projectPoints(&vpt, 1, scene.projMatrix);
+			/* Assign matPxyz.ptxyz */
+			ptxyz[0]=vpt.x; ptxyz[1]=vpt.y; ptxyz[2]=vpt.z;
 
 			/* matPuv =matPxyz*matT */
 			if( Matrix_Multiply(&matPxyz, &matT, &matPuv)==NULL ) {
 				egi_dpstd("Fail to do matPuv =matPxyz*matT!\n");
 				//return;
 			}
-
-			/* Set pixz */
-			fb_dev->pixz = ptxyz[2];
 
 			/* TODO */
 			pnormal=rvtx[0].normal;
@@ -8445,27 +8908,44 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 	ymu=klr*(i-1)+points[nl].y; //ymu=yu; yu MAYBE replaced by yd!
 	for( i=0; i< points[nr].x-points[nm].x+1; i++)
 	{
+                /* x */
+                x=points[nm].x+i;
+
+		/* yu, yd */
 		yu=roundf(klr*i+ymu);
 		yd=roundf(kmr*i+points[nm].y);
 		//egi_dpstd("nr-nm: yu=%d, yd=%d\n", yu,yd);
 
-                /* Cal. x */
-                x=points[nm].x+i;
-
+		/* zu,zd */
 		zu=points[nl].z+(points[nr].z-points[nl].z)*(points[nm].x-points[nl].x+i)/(points[nr].x-points[nl].x);
 		zd=points[nm].z+(points[nr].z-points[nm].z)*i/(points[nr].x-points[nm].x);
+
+		/* vptud[0] as u, vptud[1] as d */
+		vptud[0].x=x; vptud[0].y=yu; vptud[0].z=zu;
+		vptud[1].x=x; vptud[1].y=yd; vptud[1].z=zd;
+		/* reverse project vptud[] */
+		reverse_projectPoints(vptud, 2, scene.projMatrix);
 
 		if(yu>yd) { kstart=roundf(yd); kend=roundf(yu); }
 		else	  { kstart=roundf(yu); kend=roundf(yd); }
 
 		for(k=kstart; k<=kend; k++) {
-			/* ptxyz */
-			ptxyz[0]=i+points[nm].x;
-			ptxyz[1]=k;
-			ptxyz[2]=zd+(zu-zd)*(k-yd)/(yu-yd);
 
 			/* Set pixz */
-			fb_dev->pixz = ptxyz[2];
+			z=zd+(zu-zd)*(k-yd)/(yu-yd);
+			fb_dev->pixz = z;
+
+			/* reverse_project current pixel xyz */
+			vpt.x=x; vpt.y=k; vpt.z=z;
+			reverse_projectPoints(&vpt, 1, scene.projMatrix);
+			/* Assign matPxyz.ptxyz */
+			ptxyz[0]=vpt.x; ptxyz[1]=vpt.y; ptxyz[2]=vpt.z;
+
+			/* matPuv =matPxyz*matT */
+			if( Matrix_Multiply(&matPxyz, &matT, &matPuv)==NULL ) {
+				egi_dpstd("Fail to do matPuv =matPxyz*matT!\n");
+				//return;
+			}
 
                         /* TODO */
                         pnormal=rvtx[0].normal;
@@ -8517,19 +8997,26 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 		} /* End: for(i) */
 	} /* End: draw left part */
 
+        /* Reset to NULL, as NOT the owner. */
+        pmtl.img_kd=NULL;
+        pmtl.img_ke=NULL;
+        pmtl.img_kn=NULL;
 }
 
-#else  /////////////////////////// Interpolation to get uv ///////////////////////////////////
+#elif 0  /////////////////////////// Interpolation to get uv ///////////////////////////////////
 
+#define UV3D_INTERPOLATE 1
 void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3D_Material &mtl, const E3D_Scene &scene )
 {
+	printf("InterpUV\n");
 
 	if(fb_dev==NULL)
 		return;
 
 	/* 1. Material for pixel. kd will be updated for each pixel! */
-	E3D_Material pmtl=mtl;
-	pmtl.img_kd=NULL;	/* DO NOT own/hold img_kd! */
+
+	E3D_Material pmtl=mtl;   /* DO NOT own/hold img_kd! reset at last! */
+//	selectCopyMaterilParams(pmtl, mtl); /* Without img_x and triGroupUVs */
 
 	/* 2. Get vetex coordinates */
 	int x0=roundf(rvtx[0].pt.x);
@@ -8564,15 +9051,15 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 		imgh=imgbuf->height;
 	}
 
-	int x;    /* x of a pixel */
+	int x;    /* z of a pixel */
+	float z;  /* z of a pixel */
 	EGI_16BIT_COLOR color;	  /* draw_dot() pixel color */
 	E3D_Vector pnormal;	/* As pixel normal */
 
-	/* As for 2D vetex */
-	struct {
-		//int x; int y; //float z;
-		float x; float y; float z;
-	} points[3];
+	E3D_Vector points[3];   /* projected XYZ for Triangle's 3 vertices */
+	E3D_Vector vpts[3];	/* unprojected XYZ for Triangle's 3 vertices */
+	E3D_Vector vptud[3];
+	E3D_Vector vpt;		/* unprojected xyz */
 
 	points[0].x=x0; points[0].y=y0; points[0].z=z0;
 	points[1].x=x1; points[1].y=y1; points[1].z=z1;
@@ -8593,6 +9080,7 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 
 	float Uu,Ud, Vu,Vd, Umu,Vmu;
 	E3D_Vector Normu,Normd;
+	float ftmp;
 
 	float zu,zd; /* Z value for start-end point */
 
@@ -8605,6 +9093,11 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
                 if(points[i].x > points[nr].x) nr=i;
         }
 
+	/* Reverse_project to get vpts */
+	for(i=0; i<3; i++)
+		vpts[i]=points[i];
+	reverse_projectPoints(vpts, 3, scene.projMatrix);
+
 	/* ---- TODO; case 1,2,3 ----- */
 
 	/* ---- Case 4 ---: As a true triangle. */
@@ -8615,18 +9108,31 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 	/* Ruled out (points[nr].x == points[nl].x), as nl==nr.  */
 	//if(nl==nr) return;
 
-	//if(nl!=nr)
+	//if(nl!=nr) {
 	        klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
 
+		#if !UV3D_INTERPOLATE
 		kulr=(rvtx[nr].u-rvtx[nl].u)/(points[nr].x-points[nl].x);
 		kvlr=(rvtx[nr].v-rvtx[nl].v)/(points[nr].x-points[nl].x);
-	//else
+		#else
+		/* UV in unprojected space */
+		kulr=(rvtx[nr].u-rvtx[nl].u)/(vpts[nr].x-vpts[nl].x);
+		kvlr=(rvtx[nr].v-rvtx[nl].v)/(vpts[nr].x-vpts[nl].x);
+		#endif
+	// } else
 	//       klr=1000000.0;
 
 	if(points[nm].x != points[nl].x) {
 		klm=1.0*(points[nm].y-points[nl].y)/(points[nm].x-points[nl].x);
+
+		#if !UV3D_INTERPOLATE
 		kulm=(rvtx[nm].u-rvtx[nl].u)/(points[nm].x-points[nl].x);
 		kvlm=(rvtx[nm].v-rvtx[nl].v)/(points[nm].x-points[nl].x);
+		#else
+		/* UV in unprojected space */
+		kulm=(rvtx[nm].u-rvtx[nl].u)/(vpts[nm].x-vpts[nl].x);
+		kvlm=(rvtx[nm].v-rvtx[nl].v)/(vpts[nm].x-vpts[nl].x);
+		#endif
 	}
 	else {
 		klm=1000000.0;
@@ -8635,8 +9141,15 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 
 	if(points[nr].x != points[nm].x) {
 		kmr=1.0*(points[nr].y-points[nm].y)/(points[nr].x-points[nm].x);
+
+		#if !UV3D_INTERPOLATE
 		kumr=(rvtx[nr].u-rvtx[nm].u)/(points[nr].x-points[nm].x);
 		kvmr=(rvtx[nr].v-rvtx[nm].v)/(points[nr].x-points[nm].x);
+		#else
+		/* UV in unprojected space */
+		kumr=(rvtx[nr].u-rvtx[nm].u)/(vpts[nr].x-vpts[nm].x);
+		kvmr=(rvtx[nr].v-rvtx[nm].v)/(vpts[nr].x-vpts[nm].x);
+		#endif
 	}
 	else {
 		kmr=1000000.0;
@@ -8655,15 +9168,29 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 		yd=roundf(klm*i+points[nl].y);
 		//egi_dpstd("yu=%f, yd=%f\n", yu,yd);
 
-		/* Uu,Ud, Vu,Vd: Note UVu is on lr line */
+		/* zu,zd */
+		zu=points[nl].z+(points[nr].z-points[nl].z)*i/(points[nr].x-points[nl].x);
+		zd=points[nl].z+(points[nm].z-points[nl].z)*i/(points[nm].x-points[nl].x);
+
+		/* Uu,Ud, Vu,Vd ---- Note UVu is on lr line */
+		#if !UV3D_INTERPOLATE
 		Uu=kulr*i+rvtx[nl].u;
 		Ud=kulm*i+rvtx[nl].u;
 		Vu=kvlr*i+rvtx[nl].v;
 		Vd=kvlm*i+rvtx[nl].v;
+		#else
+		/* UV in unprojected space */
+		/* vptud[0] as u, vptud[1] as d */
+		vptud[0].x=x; vptud[0].y=yu; vptud[0].z=zu;
+		vptud[1].x=x; vptud[1].y=yd; vptud[1].z=zd;
+		/* reverse project vptud[] */
+		reverse_projectPoints(vptud, 2, scene.projMatrix);
 
-		/* zu,zd */
-		zu=points[nl].z+(points[nr].z-points[nl].z)*i/(points[nr].x-points[nl].x);
-		zd=points[nl].z+(points[nm].z-points[nl].z)*i/(points[nm].x-points[nl].x);
+		Uu=kulr*(vptud[0].x-vpts[nl].x)+rvtx[nl].u;
+		Ud=kulm*(vptud[1].x-vpts[nl].x)+rvtx[nl].u;
+		Vu=kvlr*(vptud[0].x-vpts[nl].x)+rvtx[nl].v;
+		Vd=kvlm*(vptud[1].x-vpts[nl].x)+rvtx[nl].v;
+		#endif
 
 		if(yu>yd) {
 			kstart=roundf(yd);
@@ -8678,20 +9205,39 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 
 			/* (x,y)=(x,k) */
 
-			/* */
+			/* Set pixz */
+			z = zd+(zu-zd)*(k-yd)/(yu-yd);
+			fb_dev->pixz=z; /* NOT reverse */
+
+			#if UV3D_INTERPOLATE/* reverse_project current pixel xyz */
+			vpt.x=x; vpt.y=k; vpt.z=z;
+			reverse_projectPoints(&vpt, 1, scene.projMatrix);
+			#endif
 
 			/* Interpolate to get UV  */
 			if(yu<yd) { /* k  u-->d */
+
+				#if !UV3D_INTERPOLATE
 				u=Uu+(Ud-Uu)*(k-yu)/(yd-yu);
 				v=Vu+(Vd-Vu)*(k-yu)/(yd-yu);
+				#else
+				//u=Uu+(Ud-Uu)*(vpt.y-vptud[0].y)/(vptud[1].y-vptud[0].y); /* vptud[0] for u, [1] for d */
+				//v=Vu+(Vd-Vu)*(vpt.y-vptud[0].y)/(vptud[1].y-vptud[0].y);
+				ftmp=(vpt.y-vptud[0].y)/(vptud[1].y-vptud[0].y);
+				u=Uu+(Ud-Uu)*ftmp;
+				v=Vu+(Vd-Vu)*ftmp;
+				#endif
 			}
 			else {  /* k  d-->u */
+				#if !UV3D_INTERPOLATE
 				u=Ud+(Uu-Ud)*(k-yd)/(yu-yd);
 				v=Vd+(Vu-Vd)*(k-yd)/(yu-yd);
+				#else
+				ftmp=(vpt.y-vptud[1].y)/(vptud[0].y-vptud[1].y);
+				u=Ud+(Uu-Ud)*ftmp;
+				v=Vd+(Vu-Vd)*ftmp;
+				#endif
 			}
-
-			/* Set pixz */
-			fb_dev->pixz = zd+(zu-zd)*(k-yd)/(yu-yd);
 
 			/* TODO */
 			pnormal=rvtx[0].normal;
@@ -8738,8 +9284,14 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 
 	/* Draw right part, i value frome left part. */
 	ymu=klr*(i-1)+points[nl].y; //ymu=yu; yu MAYBE replaced by yd!
-	Umu=kulr*(i-1)+rvtx[nl].u;
-	Vmu=kvlr*(i-1)+rvtx[nl].v;
+	#if !UV3D_INTERPOLATE
+	Umu=kulr*(i-1)+rvtx[nl].u; //==Uu
+	Vmu=kvlr*(i-1)+rvtx[nl].v; /==Vu
+	#else
+	Umu=Uu;  /* u on lr line. Use UV result of left_part. */
+	Vmu=Vu;
+	#endif
+
 	for( i=0; i< points[nr].x-points[nm].x+1; i++)
 	{
                 /* x */
@@ -8750,35 +9302,68 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 		yd=roundf(kmr*i+points[nm].y);
 		//egi_dpstd("yu=%f, yd=%f\n", yu,yd);
 
+		/* zu, zd */
+		zu=points[nl].z+(points[nr].z-points[nl].z)*(points[nm].x-points[nl].x+i)/(points[nr].x-points[nl].x);
+		zd=points[nm].z+(points[nr].z-points[nm].z)*i/(points[nr].x-points[nm].x);
+
 		/* Uu,Ud, Vu,Vd. NOT necessary to be Uu>Ud OR Vu>Vd */
 		/* Note: UVu is on lr line */
+		#if !UV3D_INTERPOLATE
 		Uu=kulr*i+Umu;
 		Ud=kumr*i+rvtx[nm].u;
 		Vu=kvlr*i+Vmu;
 		Vd=kvmr*i+rvtx[nm].v;
+		#else
+		/* UV in unprojected space */
+		/* vptud[0] as u, vptud[1] as d */
+		vptud[0].x=x; vptud[0].y=yu; vptud[0].z=zu;
+		vptud[1].x=x; vptud[1].y=yd; vptud[1].z=zd;
+		/* reverse project vptud[] */
+		reverse_projectPoints(vptud, 2, scene.projMatrix);
 
-		/* zu, zd */
-		zu=points[nl].z+(points[nr].z-points[nl].z)*(points[nm].x-points[nl].x+i)/(points[nr].x-points[nl].x);
-		zd=points[nm].z+(points[nr].z-points[nm].z)*i/(points[nr].x-points[nm].x);
+		Uu=kulr*(vptud[0].x-vpts[nm].x)+Umu;
+		Ud=kumr*(vptud[1].x-vpts[nm].x)+rvtx[nm].u;
+		Vu=kvlr*(vptud[0].x-vpts[nm].x)+Vmu;
+		Vd=kvmr*(vptud[1].x-vpts[nm].x)+rvtx[nm].v;
+		#endif
 
 		if(yu>yd) { kstart=roundf(yd); kend=roundf(yu); }
 		else	  { kstart=roundf(yu); kend=roundf(yd); }
 
 		for(k=kstart; k<=kend; k++) {
 
+			/* Set pixz */
+			z=zd+(zu-zd)*(k-yd)/(yu-yd);
+			fb_dev->pixz=z; /* Not reverse */
+
+			#if UV3D_INTERPOLATE/* reverse_project current pixel xyz */
+			vpt.x=x; vpt.y=k; vpt.z=z;
+			reverse_projectPoints(&vpt, 1, scene.projMatrix);
+			#endif
+
 			/* Interpolate to get UV  */
 			if(yu<yd) {
-				u=Uu+(Ud-Uu)*(k-yu)/(yd-yu);
-				v=Vu+(Vd-Vu)*(k-yu)/(yd-yu);
+				#if !UV3D_INTERPOLATE
+				//u=Uu+(Ud-Uu)*(k-yu)/(yd-yu);
+				//v=Vu+(Vd-Vu)*(k-yu)/(yd-yu);
+				ftmp=(k-yu)/(yd-yu);
+				#else
+				ftmp=(vpt.y-vptud[0].y)/(vptud[1].y-vptud[0].y); //vptud[0] as u, [1] as d
+				#endif
+				u=Uu+(Ud-Uu)*ftmp;
+				v=Vu+(Vd-Vu)*ftmp;
 			}
 			else {
-				u=Ud+(Uu-Ud)*(k-yd)/(yu-yd);
-				v=Vd+(Vu-Vd)*(k-yd)/(yu-yd);
+				#if !UV3D_INTERPOLAT
+				//u=Ud+(Uu-Ud)*(k-yd)/(yu-yd);
+				//v=Vd+(Vu-Vd)*(k-yd)/(yu-yd);
+				ftmp=(k-yd)/(yu-yd);
+				#else
+				ftmp=(vpt.y-vptud[1].y)/(vptud[0].y-vptud[1].y);
+				#endif
+				u=Ud+(Uu-Ud)*ftmp;
+				v=Vd+(Vu-Vd)*ftmp;
 			}
-
-
-			/* Set pixz */
-			fb_dev->pixz = zd+(zu-zd)*(k-yd)/(yu-yd);
 
                         /* TODO */
                         pnormal=rvtx[0].normal;
@@ -8824,6 +9409,623 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 		} /* End: for(i) */
 	} /* End: draw left part */
 
+	/* Reset to NULL, as NOT the owner. */
+	pmtl.img_kd=NULL;
+	pmtl.img_ke=NULL;
+	pmtl.img_kn=NULL;
 }
+
+#else  /////////////////////////  BarycentricCoord ///////////////////////////////////////
+
+#define BILINEAR_INTERPOLATION  1	   /* 1 --- call egi_imgbuf_uvToPixel(), 0 --- get nearest color at imgbuf[locimg]  */
+#define COMPUTE_BARYCENTRIC_BY_FUNCTION 0  /* 1 --- call 3D_computeBarycentricCoord(), 0 --- Codes */
+void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3D_Material &mtl, const E3D_Scene &scene )
+{
+	printf("Barycenter\n");
+
+	if(fb_dev==NULL)
+		return;
+
+	/* 1. Material for pixel. kd will be updated for each pixel! */
+	E3D_Material pmtl; /* this is for E3D_seeColor(pmtl, pnormal, 0), to pass params for each pixel. */
+	selectCopyMaterilParams(pmtl, mtl); /* Without img_x and triGroupUVs */
+
+	/* 2. Get vetex coordinates */
+	int x0=roundf(rvtx[0].pt.x);
+	int y0=roundf(rvtx[0].pt.y);
+//	float z0=-rvtx[0].pt.z; /* Views from -z ----> +z  */
+	float z0=rvtx[0].pt.z;
+
+	int x1=roundf(rvtx[1].pt.x);
+	int y1=roundf(rvtx[1].pt.y);
+//	float z1=-rvtx[1].pt.z; /* Views from -z ----> +z  */
+	float z1=rvtx[1].pt.z;
+
+	int x2=roundf(rvtx[2].pt.x);
+	int y2=roundf(rvtx[2].pt.y);
+//	float z2=-rvtx[2].pt.z; /* Views from -z ----> +z  */
+	float z2=rvtx[2].pt.z;
+
+	/* 3. Check input imgbuf */
+	EGI_IMGBUF *imgbuf=NULL;  /* Basecolor */
+	int imgw=0;
+	int imgh=0;
+
+	/* pixel uv */
+	float u,v;
+
+	/* Get imgbuf */
+	imgbuf=mtl.img_kd;
+
+	if( imgbuf==NULL || imgbuf->imgbuf==NULL ) {
+		//egi_dpstd("Input EGI_IMBUG is NULL!\n"); ---OK
+	}
+	else {
+		/* Get image size */
+		imgw=imgbuf->width;
+		imgh=imgbuf->height;
+	}
+
+	int x;    /* z of a pixel */
+	float z;  /* z of a pixel */
+	EGI_16BIT_COLOR color;	  /* draw_dot() pixel color */
+	EGI_8BIT_ALPHA alpha;
+	E3D_Vector pnormal;	/* As pixel normal */
+
+	E3D_Vector points[3];   /* projected XYZ for Triangle's 3 vertices */
+	E3D_Vector vpts[3];	/* unprojected XYZ for Triangle's 3 vertices */
+	E3D_Vector vpt;		/* unprojected xyz */
+
+	points[0].x=x0; points[0].y=y0; points[0].z=z0;
+	points[1].x=x1; points[1].y=y1; points[1].z=z1;
+	points[2].x=x2; points[2].y=y2; points[2].z=z2;
+
+	int i, k, kstart, kend;
+	int nl=0,nr=0;  /* left and right point index */
+	int nm; 	/* mid point index */
+
+	float klr,klm,kmr;     /* Line slop */
+
+	/* use float type */  /* <-------------- */
+	float yu=0;
+	float yd=0;
+	float ymu=0;
+
+	float zu,zd; /* Z value for start-end point */
+
+	#if !COMPUTE_BARYCENTRIC_BY_FUNCTION
+	/* For barycentricCoord */
+        E3D_Vector e0,e1,e2;
+        E3D_Vector env; /* normal */
+        float demon;
+        E3D_Vector d0,d1,d2;
+        float t0,t1,t2;
+	#endif
+
+	float bc[3];  /* barycentric coordinates, for img mapping  */
+	float ftmp;
+
+	/* Imgbuf pixel data offset */
+	long int locimg;
+
+        /* Cal nl, nr. just after collinear checking! */
+        for(i=1; i<3; i++) {
+                if(points[i].x < points[nl].x) nl=i;
+                if(points[i].x > points[nr].x) nr=i;
+        }
+
+	/* Reverse_project to get vpts */
+	for(i=0; i<3; i++) {
+		vpts[i]=points[i];
+	}
+	reverse_projectPoints(vpts, 3, scene.projMatrix);
+
+	/* e0e1e2. OK, barcentric and tangent TBN all need it */
+        e0=vpts[1]-vpts[0];
+        e1=vpts[2]-vpts[1];
+        e2=vpts[0]-vpts[2];
+
+	#if !COMPUTE_BARYCENTRIC_BY_FUNCTION
+	/* barycentricCoord init */
+        /* Side vectors */
+        //e0=vpts[1]-vpts[0];
+        //e1=vpts[2]-vpts[1];
+        //e2=vpts[0]-vpts[2];
+        /* Normal vector (not necesary to be normalized) */
+        env=E3D_vector_crossProduct(e0, e1);
+        demon=env*env;
+        if( demon < VPRODUCT_NEARZERO) {
+                egi_dpstd(DBG_RED"%s: denom ~= 0.0f! degenerated triangle.\n"DBG_RESET, __func__);
+                return;
+        }
+	#endif
+
+	/* Compute tangent/bitangent/Normal vectors for TBN Coord. HK2023-01-04 */
+	E3D_Vector Tv,Bv,Nv;
+	E3D_RTMatrix matTBN;
+
+	/* TODO:  use rvtx[].un/vn. ---- NOW assume un/vn same as u/v!(Normally they are!) */
+	if(mtl.img_kn != NULL) {
+	       /* Noted: (rvtx[1].v-rvtx[0].v)*(vpts[2]-vpts[0]) = (rvtx[0].v-rvtx[1].v)*e2 */
+	       Tv=( (rvtx[2].v-rvtx[0].v)*e0 - (rvtx[0].v-rvtx[1].v)*e2 ) / \
+			( (rvtx[1].u-rvtx[0].u)*(rvtx[2].v-rvtx[0].v) - (rvtx[2].u-rvtx[0].u)*(rvtx[1].v-rvtx[0].v) );
+
+	       /* Noted: (rvtx[1].u-rvtx[0].u)*(vpts[2]-vpts[0]) = (rvtx[0].u-rvtx[1].u)*e2 */
+	       Bv=( (rvtx[2].u-rvtx[0].u)*e0 - (rvtx[0].u-rvtx[1].u)*e2 ) / \
+			( (rvtx[2].u-rvtx[0].u)*(rvtx[1].v-rvtx[0].v) - (rvtx[1].u-rvtx[0].u)*(rvtx[2].v-rvtx[0].v) );
+
+		/* Normalize TvBv */
+	      	Tv.normalize();
+	      	Bv.normalize();  Bv*=-1.0f;  /* flips y/v */
+
+		/* Compute Nv */
+		Nv=E3D_vector_crossProduct(Tv,Bv);
+		//Nv *= -1.0f;
+		//Nv=E3D_vector_crossProduct(Bv,Tv); /* uxv */
+		Nv.normalize();
+
+		/* RTMatrix for TBN, as relative to Eye/global COORD. */
+		matTBN.pmat[0]=Tv.x; matTBN.pmat[1]=Tv.y; matTBN.pmat[2]=Tv.z;
+		matTBN.pmat[3]=Bv.x; matTBN.pmat[4]=Bv.y; matTBN.pmat[5]=Bv.z;
+		//matTBN.pmat[0]=Bv.x; matTBN.pmat[1]=Bv.y; matTBN.pmat[2]=Bv.z;
+		//matTBN.pmat[3]=Tv.x; matTBN.pmat[4]=Tv.y; matTBN.pmat[5]=Tv.z;
+		matTBN.pmat[6]=Nv.x; matTBN.pmat[7]=Nv.y; matTBN.pmat[8]=Nv.z;
+	}
+
+
+        /* --- Case 1 ---: All points are the SAME! */
+        if(x0==x1 && x1==x2 && y0==y1 && y1==y2) {
+//              egi_dpstd("the Tri degenerates into a point!\n");
+		return;
+
+		/* z */
+		z=(z0+z1+z2)*0.333333;
+		fb_dev->pixz= -z; /* View from -z ---> +z */
+
+		/* Update pmtl.kd, and set alpah */
+		u=(rvtx[0].u+rvtx[1].u+rvtx[2].u)*0.333333;
+		v=(rvtx[0].v+rvtx[1].v+rvtx[2].v)*0.333333;
+		if( egi_imgbuf_uvToPixel(imgbuf, u, v, &color, &alpha)==0 ) {
+			pmtl.kd.vectorRGB(color);
+		}
+
+		/* Material.ke updated */
+		if( mtl.img_ke ) {  //mtl! pmtl has NOT img_x copied.
+			u=(rvtx[0].ue+rvtx[1].ue+rvtx[2].ue)*0.333333;
+			v=(rvtx[0].ve+rvtx[1].ve+rvtx[2].ve)*0.333333;
+			if( egi_imgbuf_uvToPixel(mtl.img_ke, u, v, &color, NULL)==0 )
+				pmtl.ke.vectorRGB(color);
+		}
+
+		/* See the pixel color */
+		color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+		fbset_color2(fb_dev, color);
+		/* Set alpha. TODO:  */
+		if(imgbuf->alpha)
+	 		fb_dev->pixalpha=alpha;
+               	draw_dot(fb_dev, x0, y0);
+
+		return;
+	}
+
+	/* ---- TODO; 2,3 ----- */
+        /* --- Case 2 ---: All points are collinear as a vertical line. */
+        if(nl==nr) {
+		return;
+	}
+
+        /* ---- Case 3 ---: All points are collinear as an oblique/horizontal line. */
+        /* Note:
+         *      1. You may skip case_3, to let Case_4 draw the line, however it draws ONLY discrete
+         *         dots for a steep line.
+         *      2. Color of the midpoint of the line will be ineffective!
+         *         TODO: NEW algrithm for interpolation color at a three_point line.
+         */
+        if( (x0-x1)*(y2-y1)==(y0-y1)*(x2-x1) || (x1-x2)*(y0-y2)==(y1-y2)*(x0-x2) )
+        {
+		return;
+	}
+
+	/* ---- Case 4 ---: As a true triangle. */
+
+	/* Get x_mid point index, NOW: nl != nr. */
+	nm=3-nl-nr;
+
+	/* Ruled out (points[nr].x == points[nl].x), as nl==nr.  */
+	//if(nl==nr) return;
+
+	//if(nl!=nr) {
+	        klr=1.0*(points[nr].y-points[nl].y)/(points[nr].x-points[nl].x);
+
+	// } else
+	//       klr=1000000.0;
+
+	if(points[nm].x != points[nl].x) {
+		klm=1.0*(points[nm].y-points[nl].y)/(points[nm].x-points[nl].x);
+	}
+	else {
+		klm=1000000.0;
+	}
+
+	if(points[nr].x != points[nm].x) {
+		kmr=1.0*(points[nr].y-points[nm].y)/(points[nr].x-points[nm].x);
+	}
+	else {
+		kmr=1000000.0;
+	}
+
+	/* Draw left part  */
+	//for( i=0; i< points[nm].x-points[nl].x; i++)
+	for( i=0; i< points[nm].x-points[nl].x+1; i++)
+	{
+                /* x */
+                x=points[nl].x+i;
+
+		/* yu,yd */
+		yu=klr*i+points[nl].y;
+		yd=klm*i+points[nl].y;
+		//egi_dpstd("yu=%f, yd=%f\n", yu,yd);
+
+		/* zu,zd */
+		zu=points[nl].z+(points[nr].z-points[nl].z)*i/(points[nr].x-points[nl].x);
+		zd=points[nl].z+(points[nm].z-points[nl].z)*i/(points[nm].x-points[nl].x);
+
+		if(yu>yd) {
+			kstart=roundf(yd);
+			kend=roundf(yu);
+		}
+		else	  {
+			kstart=roundf(yu);
+			kend=roundf(yd);
+		}
+
+		for(k=kstart; k<=kend; k++) {
+			/* (x,y)=(x,k) */
+
+			/* z */
+			if(yu>yd)  /* yd-->yu */
+				z = zd+(zu-zd)*(k-yd)/(yu-yd);
+			else /* yu-->yd */
+				z = zu+(zd-zu)*(k-yu)/(yd-yu);
+
+			/* Assign vpt */
+			vpt.x=x; vpt.y=k; vpt.z=z;
+
+			/* Set pixz */
+			//fb_dev->pixz= round(-z); /* not reverse_project,  View from -z ---> +z */
+			E3D_computeBarycentricCoord(points, vpt, bc);
+			fb_dev->pixz= -roundf(z0*bc[0]+z1*bc[1]+z2*bc[2]); /* not reverse_project,  View from -z ---> +z */
+
+			/* Reverse project for vpt */
+			reverse_projectPoints(&vpt, 1, scene.projMatrix);
+
+	           #if COMPUTE_BARYCENTRIC_BY_FUNCTION
+			/* Call E3D_computeBarycentricCoord */
+			if( E3D_computeBarycentricCoord(vpts, vpt, bc)==false ) {
+				//continue;
+				//go on...
+			}
+		   #else /* Compute barycentricCoord init */
+		        /* Inner side vectors */
+		        d0=vpt-vpts[0];
+        		d1=vpt-vpts[1];
+        		d2=vpt-vpts[2];
+		        /* Areas */
+        		t0=E3D_vector_crossProduct(e0, d1)*env;
+        		t1=E3D_vector_crossProduct(e1, d2)*env;
+        		t2=E3D_vector_crossProduct(e2, d0)*env;
+			/* bc[] */
+        		bc[2]=t0/demon;
+        		bc[0]=t1/demon;
+        		bc[1]=t2/demon;
+		    #endif
+
+/* TEST: ----- */
+			if(bc[0]!=bc[0] || bc[1]!=bc[1] || bc[2]!=bc[2])
+				continue;
+
+#if 0
+			if(bc[0]!=bc[0]) egi_dpstd(" bc[0]=%f! t0t1t2:%f,%f,%f demon:%f\n", bc[0], t0,t1,t2, demon);
+			if(bc[1]!=bc[1]) egi_dpstd(" bc[1]=%f! t0t1t2:%f,%f,%f demon:%f\n", bc[1], t0,t1,t2, demon);
+
+			if(bc[0]+bc[1]+bc[2]>1.001 || bc[0]+bc[1]+bc[2]<0.98)
+				printf("bc[]: %f,%f,%f\n", bc[0],bc[1],bc[2]);
+			else if(bc[0]<0.0f || bc[0]>1.0f || bc[1]<0.0f || bc[1]>1.0f || bc[2]<0.0f || bc[2]>1.0f )
+				printf("bc[]: %f,%f,%f\n", bc[0],bc[1],bc[2]);
+#endif
+
+                        /* Normalize bc[] */
+                        //if(bc[0]<0.0f)bc[0]=-bc[0]; if(bc[1]<0.0f)bc[1]=-bc[1];
+                        if(bc[0]<0.0f)bc[0]=0.0f; if(bc[1]<0.0f)bc[1]=0.0f;
+                        ftmp=bc[0]+bc[1];
+                        if(ftmp>1.0f+0.001) {
+                                //egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+                                bc[0]=bc[0]/ftmp; bc[1]=bc[1]/ftmp;
+                        }
+                        if(bc[0]<0.0f)bc[0]=0.0f; else if(bc[0]>1.0f)bc[0]=1.0f;
+                        if(bc[1]<0.0f)bc[1]=0.0f; else if(bc[1]>1.0f)bc[1]=1.0f;
+                        bc[2]=1.0-bc[0]-bc[1];
+                        if(bc[2]<0.0f) bc[2]=0.0f;
+
+//			printf("bc[]: %f, %f, %f\n", bc[0],bc[1],bc[2]);
+			u=bc[0]*rvtx[0].u+bc[1]*rvtx[1].u+bc[2]*rvtx[2].u;
+			v=bc[0]*rvtx[0].v+bc[1]*rvtx[1].v+bc[2]*rvtx[2].v;
+
+			/* Pixel normal.  Apply img_kn HK2023-01-20 */
+			if( mtl.img_kn ) { //mtl! pmtl has NO img_x copied!
+                                if( egi_imgbuf_uvToPixel(mtl.img_kn, u, v, &color, NULL)==0 ) {  //TODO, use uv,vn
+                                        //pmtl.kn.vectorRGB(color);
+					pnormal.vectorRGB(color);
+
+					/* Convert from [0 1] to [-1 1] */
+					//pmtl.kn = pmtl.kn*2.0f -1.0f;
+					E3D_Vector tpv(1.0f,1.0f,1.0f);
+					pnormal = pnormal*2.0f -tpv;
+					pnormal *= mtl.kn_scale; /* HK2023-01-24 */
+					pnormal.transform(matTBN);
+                                }
+
+//				pnormal.print("pnormal");
+			}
+			else {  /* interpolate rvtx[].normal  */
+				pnormal=bc[0]*rvtx[0].normal+bc[1]*rvtx[1].normal+bc[2]*rvtx[2].normal;
+			}
+
+			/* Pixel color */
+			if(imgbuf==NULL) {  /* Use default material kd */
+ 				/* See the pixel color */
+    				color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+				fbset_color2(fb_dev, color);
+                         	draw_dot(fb_dev, x, k);
+			}
+			else { /* imgbuf!=NULL */
+
+				/* Get mapped pixel and draw_dot */
+
+			#if BILINEAR_INTERPOLATION //////////////// Bilinear Interpolation //////////////////
+				/* Update pmtl.kd, and set alpah */
+				if( egi_imgbuf_uvToPixel(imgbuf, u, v, &color, &alpha)==0 ) {
+					pmtl.kd.vectorRGB(color);
+				}
+				//pmtl.kd.print("kd");
+
+				/* Material.ke updated */
+				if( mtl.img_ke ) {  //mtl! pmtl has NO img_x copied!
+					u=bc[0]*rvtx[0].ue+bc[1]*rvtx[1].ue+bc[2]*rvtx[2].ue;
+					v=bc[0]*rvtx[0].ve+bc[1]*rvtx[1].ve+bc[2]*rvtx[2].ve;
+
+					if( egi_imgbuf_uvToPixel(mtl.img_ke, u, v, &color, NULL)==0 )
+						pmtl.ke.vectorRGB(color);
+
+					//pmtl.ke.print("ke");
+				}
+
+    				/* See the pixel color */
+				//printf("seeColor1\n");
+    			    	color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+				fbset_color2(fb_dev, color);
+				/* Set alpha. TODO:  */
+	    			if(imgbuf->alpha)
+	  		 		fb_dev->pixalpha=alpha;
+
+				/* Draw dot */
+                       		draw_dot(fb_dev, x, k);
+			#else ////////////////////////////////////////////////////////
+        	                /* image data location */
+                	        locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
+#if 1 /* TEST: ---- */
+				if(locimg >imgh*imgw-1) locimg=imgh*imgw-1;
+#endif
+				if( locimg>=0 && locimg < imgh*imgw ) {
+		            		//fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+
+	    				/* Material.kd updated */
+    					pmtl.kd.vectorRGB(imgbuf->imgbuf[locimg]);
+
+#if 1 /* TEST img_ke: -------------- HK2022-12-28 */
+					/* Material.ke updated */
+					if( mtl.img_ke && egi_imgbuf_uvToPixel(mtl.img_ke, u, v, &color, NULL)==0 )
+						pmtl.ke.vectorRGB(color);
+#endif
+
+    				    	/* See the pixel color */
+    				    	color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+			    		fbset_color2(fb_dev, color);
+			    		/* Set alpha. TODO:  */
+	    		    		if(imgbuf->alpha)
+	  			 		fb_dev->pixalpha=imgbuf->alpha[locimg];
+
+
+                            		draw_dot(fb_dev, x, k);
+				}
+			#endif ////////////////////////////////////////////////////////
+
+			}
+
+		} /* End: for(i) */
+	} /* End: draw left part */
+
+	/* Draw right part, i value frome left part. */
+	ymu=klr*(i-1)+points[nl].y; //ymu=yu; yu MAYBE replaced by yd!
+	for( i=0; i< points[nr].x-points[nm].x+1; i++)
+	{
+                /* x */
+                x=points[nm].x+i;
+
+		/* yu,yd */
+		yu=klr*i+ymu;
+		yd=kmr*i+points[nm].y;
+		//egi_dpstd("yu=%f, yd=%f\n", yu,yd);
+
+		/* zu, zd */
+		zu=points[nl].z+(points[nr].z-points[nl].z)*(points[nm].x-points[nl].x+i)/(points[nr].x-points[nl].x);
+		zd=points[nm].z+(points[nr].z-points[nm].z)*i/(points[nr].x-points[nm].x);
+
+		/* kstar,kend */
+		if(yu>yd) { kstart=roundf(yd); kend=roundf(yu); }
+		else	  { kstart=roundf(yu); kend=roundf(yd); }
+
+		for(k=kstart; k<=kend; k++) {
+
+			/* z */
+			if(yu>yd)  /* yd-->yu */
+				z = zd+(zu-zd)*(k-yd)/(yu-yd);
+			else /* yu-->yd */
+				z = zu+(zd-zu)*(k-yu)/(yd-yu);
+
+			/* Assign vpt */
+			vpt.x=x; vpt.y=k; vpt.z=z;
+
+			/* Set pixZ */
+			//fb_dev->pixz= round(-z); /* NOT reverse. View from -z ---> +z */
+			E3D_computeBarycentricCoord(points, vpt, bc); /* bc for pixZ */
+			fb_dev->pixz= -roundf(z0*bc[0]+z1*bc[1]+z2*bc[2]); /* not reverse_project,  View from -z ---> +z */
+
+			/* reverse_project vpt */
+			reverse_projectPoints(&vpt, 1, scene.projMatrix);
+
+	          #if COMPUTE_BARYCENTRIC_BY_FUNCTION
+		   	/* E3D_computeBarycentricCoord, bc for img */
+			if( E3D_computeBarycentricCoord(vpts, vpt, bc)==false )
+					continue;
+		  #else /* Compute barycentricCoord */
+		        /* Inner side vectors */
+		        d0=vpt-vpts[0];
+        		d1=vpt-vpts[1];
+        		d2=vpt-vpts[2];
+		        /* Areas */
+        		t0=E3D_vector_crossProduct(e0, d1)*env;
+        		t1=E3D_vector_crossProduct(e1, d2)*env;
+        		t2=E3D_vector_crossProduct(e2, d0)*env;
+			/* bc[] */
+        		bc[2]=t0/demon;
+        		bc[0]=t1/demon;
+        		bc[1]=t2/demon;
+		  #endif
+
+/* TEST: ----- */
+			if(bc[0]!=bc[0] || bc[1]!=bc[1] || bc[2]!=bc[2])
+				continue;
+
+#if 0
+			if(bc[0]+bc[1]+bc[2]>1.001 || bc[0]+bc[1]+bc[2]<0.98 )
+				printf("bc[]: %f,%f,%f\n", bc[0],bc[1],bc[2]);
+			else if(bc[0]<0.0f || bc[0]>1.0f || bc[1]<0.0f || bc[1]>1.0f || bc[2]<0.0f || bc[2]>1.0f )
+				printf("bc[]: %f,%f,%f\n", bc[0],bc[1],bc[2]);
+#endif
+
+                        /* Normalize bc[] */
+                        //if(bc[0]<0.0f)bc[0]=-bc[0]; if(bc[1]<0.0f)bc[1]=-bc[1];
+                        if(bc[0]<0.0f)bc[0]=0.0f; if(bc[1]<0.0f)bc[1]=0.0f;
+                        ftmp=bc[0]+bc[1];
+                        if(ftmp>1.0f+0.001) {
+                                //egi_dpstd("a+b>1.0! a=%e, b=%e\n",a,b);
+                                bc[0]=bc[0]/ftmp; bc[1]=bc[1]/ftmp;
+                        }
+                        if(bc[0]<0.0f)bc[0]=0.0f; else if(bc[0]>1.0f)bc[0]=1.0f;
+                        if(bc[1]<0.0f)bc[1]=0.0f; else if(bc[1]>1.0f)bc[1]=1.0f;
+                        bc[2]=1.0-bc[0]-bc[1];
+                        if(bc[2]<0.0f) bc[2]=0.0f;
+
+//			printf("bc[]: %f, %f, %f\n", bc[0],bc[1],bc[2]);
+			u=bc[0]*rvtx[0].u+bc[1]*rvtx[1].u+bc[2]*rvtx[2].u;
+			v=bc[0]*rvtx[0].v+bc[1]*rvtx[1].v+bc[2]*rvtx[2].v;
+
+                        /* Pixel normal */
+			/* pxiel normal.  Apply img_kn HK2023-01-20 */
+			if( mtl.img_kn ) { //mtl! pmtl has NO img_x copied!
+                                if( egi_imgbuf_uvToPixel(mtl.img_kn, u, v, &color, NULL)==0 ) {  //TODO, use uv,vn
+                                        //pmtl.kn.vectorRGB(color);
+					pnormal.vectorRGB(color);
+
+					/* Convert from [0 1] to [-1 1] */
+					//pmtl.kn = pmtl.kn*2.0f -1.0f;
+					E3D_Vector tpv(1.0f,1.0f,1.0f);
+					pnormal = pnormal*2.0f -tpv;
+					pnormal *= mtl.kn_scale; /* HK2023-01-24 */
+					pnormal.transform(matTBN);
+                                }
+//				pnormal.print("pnormal");
+			}
+			else {  /* interpolate rvtx[].normal  */
+				pnormal=bc[0]*rvtx[0].normal+bc[1]*rvtx[1].normal+bc[2]*rvtx[2].normal;
+			}
+
+
+			/* Pixel color */
+			if(imgbuf==NULL) {  /* Use default material kd */
+ 				/* See the pixel color */
+    				color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+				fbset_color2(fb_dev, color);
+                         	draw_dot(fb_dev, x, k);
+			}
+			else { /* imgbuf!=NULL */
+				/* Get mapped pixel and draw_dot */
+
+			#if BILINEAR_INTERPOLATION //////////////// Bilinear Interpolation //////////////////
+				/* Update pmtl.kd, and set alpah */
+				if( egi_imgbuf_uvToPixel(imgbuf, u, v, &color, &alpha)==0 ) {
+					pmtl.kd.vectorRGB(color);
+				}
+				//pmtl.kd.print("kd");
+
+				/* Material.ke updated */
+				if( mtl.img_ke ) {  //mtl! pmtl has NOT img_x copied.
+					u=bc[0]*rvtx[0].ue+bc[1]*rvtx[1].ue+bc[2]*rvtx[2].ue;
+					v=bc[0]*rvtx[0].ve+bc[1]*rvtx[1].ve+bc[2]*rvtx[2].ve;
+
+					if( egi_imgbuf_uvToPixel(mtl.img_ke, u, v, &color, NULL)==0 )
+						pmtl.ke.vectorRGB(color);
+
+					//pmtl.ke.print("ke");
+				}
+
+    				/* See the pixel color */
+				//printf("seeColor2\n");
+    			    	color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+				fbset_color2(fb_dev, color);
+				/* Set alpha. TODO:  */
+	    			if(imgbuf->alpha)
+	  		 		fb_dev->pixalpha=alpha;
+
+				/* Draw dot */
+                       		draw_dot(fb_dev, x, k);
+			#else ////////////////////////////////////////////////////////
+
+        	                /* image data location */
+                	        locimg=(roundf(v*imgh))*imgw+roundf(u*imgw); /* roundf */
+#if 1 /* TEST: ---- */
+				if(locimg >imgh*imgw-1) locimg=imgh*imgw-1;
+#endif
+				if( locimg>=0 && locimg < imgh*imgw ) {
+
+		            		//fbset_color2(fb_dev,imgbuf->imgbuf[locimg]);
+
+    			    		/* Material.kd updated */
+    			    		pmtl.kd.vectorRGB(imgbuf->imgbuf[locimg]);
+
+#if 1 /* TEST img_ke: -------------- HK2022-12-28 */
+					/* Material.ke updated */
+					if( mtl.img_ke && egi_imgbuf_uvToPixel(mtl.img_ke, u, v, &color, NULL)==0 )
+						pmtl.ke.vectorRGB(color);
+#endif
+
+	    				/* See the pixel color */
+    					color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
+					fbset_color2(fb_dev, color);
+			    		/* Set alpha */
+	    		    		if(imgbuf->alpha)
+	  					fb_dev->pixalpha=imgbuf->alpha[locimg];
+
+                            		draw_dot(fb_dev, x, k);
+				}
+			#endif ////////////////////////////////////////////////////////
+
+			}
+		} /* End: for(i) */
+	} /* End: draw left part */
+
+}
+
 #endif /////////////////////////////////////////////////////////////////////
 

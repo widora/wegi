@@ -344,6 +344,7 @@ void E3D_draw_coordNavIcon2D(FBDEV *fbdev, int size, const E3D_RTMatrix &RTmatri
 EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, float dl);
 
 /* Shade and render triangle to FBDEV */
+void  selectCopyMaterilParams(E3D_Material &pmtl, const E3D_Material &mtl); /* This is for E3D_shadeTriangle() */
 void E3D_shadeTriangle(FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3D_Material &mtl, const E3D_Scene &scene);
 
 /*  Clip triangle wit near plane of the view_frustum. */
@@ -379,11 +380,16 @@ enum {
 
 //typedef struct E3D_RenderVertex	 E3DS_RenderVertex;
 struct E3D_RenderVertex {
-	E3D_Vector	spt;    /* Vertex position, for original space XYZ. */
+//	E3D_Vector	spt;    /* Vertex position, for original space XYZ. */
+
 	E3D_Vector	pt;	/* Vertex position, After projecting, this value will be changed/updated. */
-	E3D_Vector	normal;	/* Vertex normal, if applys */
+	E3D_Vector	normal;	/* Vertex normal, if applys. fliped if backface_on. */
 	E3D_Vector	color;	/* RGB each [0 1] */
-	float 		u,v;	/* Texture map coordinate */
+	float 		u,v;	/* Texture map coordinate for kd */
+
+	/* For multiple UV values, OR same as kd u,v */
+	float		ue,ve;  /* Texture map coordinate for ke */
+	float 		un,vn;  /* Texture map coordinate for kn */
 };
 
 
@@ -516,17 +522,39 @@ public:
 			   */
 	//float       Tr;   /* as for Transparency of the material, default 0.0,  */
 
-	/* Textrue/Maps */
+	/* Textrue/Maps. MAYBE NOT be presented if imgbuf are loaded from uri embedded data. */
 	string map_kd;  /* Map file path ---> img_kd */
 	string map_ka;
 	string map_ks;
-
-	/* Texture imgbuf. TODO: here or at triGroup??? ---OK, HERE! */
-	/* CAUTION: pointer MUST be inited to NULL */
-	EGI_IMGBUF *img_kd; /* img_ka, img_ks */
-	EGI_IMGBUF *img_ke;
+	string map_ke;
+	string map_kn;
 
 	int end;
+
+	/* Texture imgbuf. TODO: here or at triGroup??? ---OK, HERE! */
+
+	/*** 		!!! ---- CAUTION --- !!!
+	 	 To avoid unexpected release of img_x.
+	  1. pointer MUST be inited to NULL.
+	  2. E3D_shadeTriangle(): tmp. pmtl NOT owner of img_x! set to NULL.
+	  3. E3d_TriMesh::renderMesh(): tgmtl NOT Owner of img_x! reset to NULL at last .
+	*/
+	EGI_IMGBUF *img_kd; /* Diffuse/baseColor texture, TEXCOORD is at E3D_TriMesh.triGroupList[].vtx[].u/v */
+	EGI_IMGBUF *img_ke;  /* Emissive texutre */
+
+	EGI_IMGBUF *img_kn;  /* Normal texture. TODO: 16BIT color for TBN normalTexture compuation NOT accurate enough! */
+	float	    kn_scale;  /* Default 1.0f HK2023-01-24 */
+
+	/*** For multiple UVs. Othewise same UV values as img_kd's. */
+	/* TexCoord UVs for a triangle */
+	class TriUVs {
+	public:
+		float u[3],v[3];  /* uv[0-1] corresponds to triangle vtx[0-1] */
+	};
+
+	vector<TriUVs> triListUV_ke; //triGroupUV_ke;   /* Mapping img_ke, Corresponds to E3D_TriMesh:: triList[].vtx[].u/v XXX triGroupList[].vtx[0-3] */
+	vector<TriUVs> triListUV_kn; //triGroupUV_kn;
+
 };
 
 
@@ -601,7 +629,7 @@ public:
 		E3D_Vector pt;
 
 		/* Texture Coord UV */
-		float u,v;  /* See class Note 1 */
+		float u,v;  /* See class Note 1. DO NOT use this value, it's for temp. store ONLY? see loadGLTF() */
 
 		/* Normal vector. Normalized!
 		 * Note:
@@ -633,7 +661,7 @@ public:
 		struct Vertx {
 			int   index;	/* index as of vtxList[] */
 			float u,v;	/* Texture coord UV. see class note 1. In textrue mapping, when we need
-					   to keep vertex welded(Only 1 vertex for 1 XYZ value), we'll have to sparate triangles
+					   to keep vertex welded(Only 1 vertex for 1 XYZ value), we'll have to separate triangles
 					   with different uv values.
 					 */
 			E3D_Vector vn;  /* Vertex normal, Normalized!
