@@ -7,6 +7,13 @@ published by the Free Software Foundation.
 Reference:
 glTF 2.0 Specification (The Khronos® 3D Formats Working Group)
 
+	      --- Mapping from glTF to E3D ---
+
+     glMesh ---> E3D_TriMesh
+glPrimitive ---> E3D_TriMesh.TriGroup
+     glNode ---> E3D_MeshInstance
+    glScene ---> E3D_Scene
+
 Note:
 1. This is for E3D_TriMesh::loadGLTF(). search 'loadGLTF' to do crosscheck.
 2. glTF also defines texture UV origin at leftTop of image, and same
@@ -29,12 +36,14 @@ Midas Zhou
 #include <string.h>
 #include <vector>
 #include "egi_debug.h"
-#include "e3d_vector.h"
 #include "egi.h"
 #include "egi_fbgeom.h"
 #include "egi_color.h"
 #include "egi_image.h"
 #include "egi_cstring.h"
+#include "egi_utils.h"
+#include "e3d_vector.h"
+#include "e3d_animate.h"
 
 using namespace std;
 
@@ -79,6 +88,7 @@ int glElementSize(string etype, int ctype);
 
 /* Classes */
 class E3D_glPrimitiveAttribute;
+class E3D_glMorphTarget;
 class E3D_glPrimitive;
 class E3D_glMesh;
 class E3D_glNode;
@@ -95,6 +105,13 @@ class E3D_glOcclusionTextureInfo;
 class E3D_glPBRMetallicRoughness;
 class E3D_glMaterial;
 
+class E3D_glAnimChanSampler;
+class E3D_glAnimChanTarget;
+class E3D_glAnimChannel;
+class E3D_glAnimation;
+
+class E3D_glNode;
+class E3D_glScene;
 
 /* Non Class Functions */
 char* E3D_glReadJsonKey(const char *pstr, string & key, string & strval);
@@ -104,6 +121,7 @@ int E3D_glLoadBuffers(const string & Jbuffers, vector<E3D_glBuffer> & glBuffers)
 int E3D_glLoadBufferViews(const string & JBufferViews, vector <E3D_glBufferView> & glBufferViews);
 int E3D_glLoadAccessors(const string & JAccessors, vector <E3D_glAccessor> & glAccessors);
 int E3D_glLoadPrimitiveAttributes(const string & JPAttributes, E3D_glPrimitiveAttribute & glPAttributes);  //<--- NOT ARRAY!
+int E3D_glLoadMorphTargets(const string & JTargets, vector<E3D_glMorphTarget> & glTargets);
 int E3D_glLoadPrimitives(const string & JPrimitives, vector <E3D_glPrimitive> & glPrimitives);
 int E3D_glLoadMeshes(const string & JMeshes, vector <E3D_glMesh> & glMeshes);
 
@@ -113,6 +131,15 @@ int E3D_glLoadNormalTextureInfo(const string & JNormalTexInfo, E3D_glNormalTextu
 int E3D_glLoadPBRMetaRough(const string & JMetaRough, E3D_glPBRMetallicRoughness & glPBRMetaRough);  //<--- NOT ARRAY!
 int E3D_glLoadTextures(const string & JTextures, vector <E3D_glTexture> & glTextures);
 int E3D_glLoadImages(const string & JImages, vector <E3D_glImage> & glImages);
+
+int E3D_glLoadAnimChanSamplers(const string & JAnimChanSamplers, vector <E3D_glAnimChanSampler> & glAnimChanSamplers);
+int E3D_glLoadAnimChanTarget(const string & JAnimChanTarget, E3D_glAnimChanTarget & glAnimChanTarget);   //<--- NOT ARRAY!
+int E3D_glLoadAnimChannels(const string & JAnimChannels, vector <E3D_glAnimChannel> & glAnimChannels);
+int E3D_glLoadAnimations(const string & JAnimations, vector <E3D_glAnimation> & glAnimations);
+
+int E3D_glLoadNodes(const string & JNodes, vector <E3D_glNode> & glNodes);
+int E3D_glLoadScenes(const string & JScenes, vector <E3D_glScene> & glScenes);
+
 
 
 /*-------------------------------
@@ -155,7 +182,10 @@ WEIGHTS_n   VEC4           float	See Skinned Mesh Attributes
 */
 
 	/* The value of the property is the index of an accessor that contains the data.
-	 * Default =-1 as invalid.
+	 * Init/Default =-1 as invalid.
+         *
+         *    		!!! --- CAUTION --- !!!
+	 *     Cross-check to E3D_glMorphTarget memebers!
 	 */
 	int positionAccIndex;  /* Index of accessor, holding data of vertex position XYZ */
 	int normalAccIndex;    /* Index of accessor, holdingg data of Normalized XYZ vertex normals */
@@ -174,10 +204,49 @@ WEIGHTS_n   VEC4           float	See Skinned Mesh Attributes
 	int color[PRIMITIVE_ATTR_MAX_COLOR];
 
 #define	PRIMITIVE_ATTR_MAX_JOINTS 8
-//	int joints_0; //[3];
-//	int weights_0; //[3];
+
+	/*** For sknned mesh.
+	 *   Each attribute refers to an accessor that provides one data element for each vertex of the mesh.
+	 */
+	int joints_0; //TODO _n;
+				  /*** Refers to an accessor that contains the indices of the joints that should have an influence
+				       on the vertex during the skinning process.
+				       For each vertex,it has usually 4 influencing joints, so the accessor type is VEC4.
+				   */
+
+	int weights_0; //TODO _n;
+				  /*** Refers to an accessor that provides information about how strongly each
+				       joint should influence each vertex. ALSO the accessor type is VEC4.
+				   */
 
 };
+
+
+/*---------------------------------------
+   Class E3D_glMorphTarget
+Mesh morph target.
+---------------------------------------*/
+class E3D_glMorphTarget {
+public:
+        /* Constructor */
+	E3D_glMorphTarget();
+	/* Destructor */
+
+        /***   		       !!! --- CAUTION --- !!!
+	 *     Cross-check and refert to  E3D_glPrimitiveAttribute memebers.
+	 * 1. Init/Default =-1 as invalid.
+	 * 2. POSITION accessor MUST have its min and max properties defined.
+	 * 3. Displacements for POSITION,NORMAL and TANGENT attributes MUST be applied before any transformation matrice
+         *    affecting the mesh vertices such as skinning or node transftorms.
+	 *
+         */
+	int positionAccIndex;    /* POSITION: Index of accessor for XYZ displacements, accessort type: VE3, component type: float */
+	int normalAccIndex;      /* NORMAL:   Index of accessor for vtx normal displacements, accessort type: VE3, component type: float */
+	int tangentAccIndex;     /* TANGENT:   Index of accessor for vtx tangent displacements, accessort type: VE3, component type: float */
+	int texcoord[PRIMITIVE_ATTR_MAX_TEXCOORD];   /* TEXCOORD_n:  Refer to E3D_glPrimitiveAttribute memebers */
+	int color[PRIMITIVE_ATTR_MAX_COLOR];	     /* COLOR_n:  Refer to E3D_glPrimitiveAttribute memebers */
+};
+
 
 /*-------------------------------------------------
         Class E3D_glPrimitive (Mesh Primitive)
@@ -202,10 +271,14 @@ public:
 					     0--Points, 1--Lines, 2--Line_Loop, 3--Line_Strip, 4--Triangles
 					     5--Triangle_strip, 6--Triangle_fan
 					   */
-	//targets;			   /* Required:No, An array of morph targets */
+
+	/* targets */
+	vector<E3D_glMorphTarget> morphs;  /* Json name 'targets', Required:No, An array of mesh morph targets */
+
 	//extensions;
 	//extras;
 };
+
 
 /*-------------------------------
         Class E3D_glMesh
@@ -223,24 +296,139 @@ public:
 
 	/* The value of the property is the index of an accessor that contains the data.*/
 	vector<E3D_glPrimitive>  primitives;   /* An array of primitives, each defining geometry to be rendered */
-	//weights; /* Array of weights to be applied to the morph target */
+
+	/* TBD&TODO  All primitives in a mesh MUST share the same weights array!!!   */
+	vector<float> mweights; /*** Array of weights to be applied to the morph target,
+			        * The number of array elements MUST match the number of morph targets in primitives[].targets.
+			        * Example: to compute vertex position for a mesh primitive:
+				  renderedPrimitive[i].POSITION = primitives[i].attributes.POSITION
+								 + weights[0] * primitives[i].targets[0].POSITION
+  								 + weights[1] * primitives[i].targets[1].POSITION +
+  								 + weights[2] * primitives[i].targets[2].POSITION + ...
+			        */
+
 	//extensions;
 	//extras;
 };
 
+
+enum E3D_NODE_TYPE {
+	glNode_Node   =0,
+	glNode_Mesh   =1,
+	glNode_Camera =2,
+	glNode_Skin   =3,
+};
+
+
+
+
+
 /*-------------------------------
         Class E3D_glNode
+
+Note:
+1. When the node contains skin, all mesh.primitives MUST contain JOINTS_0 and WEIGHTS_0 attributes.
 --------------------------------*/
 class E3D_glNode {
 public:
         /* Constructor */
-        //E3D_glNode();
+        E3D_glNode();
         /* Destructor */
         //~E3D_glNode();
 
-	E3D_glMesh	mesh;
+	/* Functions */
+	void print();
+
+	enum E3D_NODE_TYPE type;  /* Default as glNode_Node */
+
+	/* name          string        The user-defined name of this node-object. */
+	string name;
+
+	/* children	integer[1-*]  The indices of this node's children. */
+	vector<int>	children;     /* As the indices of nodes list */
+
+	/* camera 	integer       The index of the camera referenced by this node. */
+	int cameraIndex;		/* Init to -1 */
+
+	/* skin          integer       The index of the skin referenced by this node. */
+	int skinIndex;			/* Init to -1, When defined, mesh MUST also be defined.  */
+
+	/* mesh		integer       The index of the mesh in this node. */
+	int meshIndex;			/* Init to -1 */
+
+
+	/*** Note for matrix and TRS:
+	   0. Node matrix/TRS is presetting Transform matrix, for the node-object's initial position/orientation.
+	   1. "When matrix is defined, it MUST be decomposable to TRS properties."
+	   2. "When a node is targeted for animation (referenced by an animation.channel.target),
+	       only TRS properties MAY be present; matrix MUST NOT be present."
+	   3. TRS application order: "first the scale is applied to the vertices, then the rotation, and then the translation."
+	      >>>>>  pxyz*MatScale*MatRotation*MatTranslation = pxyz*MatScale*(MatRotation*MatTranslation) = pxy*MatScale*RTMat <<<<
+	*/
+
+	/* matrix	number[16]    A floating-point 4x4 transformation matrix stored in column-major order.
+				      default: [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1] */
+	E3D_RTMatrix    matrix;		/* pmat[4*3] in 4 row, 3 colums. in row-major order, init as identity. */
+	bool		matrix_defined;  /* If matrix is defined */
+
+	/* rotation      number[4]     The nodes's unit quaternion rotation in the order(x,y,z,w), where w is the scalar.
+				      default [0,0,0,1]  (Note: for quaternion rotation, (-x,-y,-z,-w) same as (x,y,z,w) ) */
+	/* translation   number[3]     The node's translation along the x,y, and z axes. */
+	/* qt: rotation_quaternion + translationXYZ. Default identity. */
+	E3D_Quatrix qt;
+
+	/* scale         number[3]     The node's non-uniform scale, given as the scaling factor along the x,y and z axes. */
+	//float scaleX, scaleY, scaleZ;   /* Default 1,1,1 */
+	E3D_RTMatrix    scaleMat;       /* Scale matrix with scaleXYZ only */
+	bool 		SRT_defined;   /* If scale and/or rotation and/or translation is defined */
+
+
+	E3D_RTMatrix pmat;      /* Presetting Transform matrix, for the object's initial position/orientation
+				 * 1. If matrix is present, then pmat=matrix
+				 *    Else pmat=MatScale*(MatRotation*MatTranslation)=scaleMat*qt.toMatrix
+				 * 2. Computed in E3D_glLoadNodes()
+			 	*/
+	E3D_RTMatrix amat;     /* Acting/animating mat, normally interpolated from animQts.
+				* See at E3D_Scene::renderSceneNode() and E3D_Scene::interpNodeAmats()
+				*/
+	E3D_RTMatrix gmat;    /*** Globalizing transform matrix, to transform coordinates under this node COORD to under Global COORD
+				 * See at E3D_Scene::renderSceneNode()  <-----
+				 *    node->gmat=node->amat*node->pmat*(node->parent->gmat)
+						!!!--- CAUTION ---!!!
+				 *    Apply gmat ONLY after immediate whole tree computation!
+				 */
+
+	/* weights       number[1-*]   The weights of the instantiated morph target.(when defined, mesh MUST also be defined) */
+	//TODO: vector<int> weightIndices;
+
+	E3D_AnimQuatrices  animQts; /* Animating Quatrices for KeyFrames, interpolate to assign to amat!
+                                     * TBD&TODO: check and normalize quaternion before converting to/from matrix. ???
+                                     */
+
+
+	//extensions
+	//extras
 };
 
+/*-------------------------------
+        Class E3D_glScene
+--------------------------------*/
+class E3D_glScene {
+public:
+        /* Constructor */
+        //E3D_glScene();
+        /* Destructor */
+        //~E3D_glScene();
+
+	/* name          string        The user-defined name of this scene */
+	string name;
+
+        /* nodes     integer[1-*]  The indices of this node's children. */
+        vector<int>     rootNodeIndices;     /* As the indices of root node */
+
+	//extensions
+	//extras
+};
 
 
 /*-----------------------------------
@@ -433,6 +621,154 @@ public:
 	//extensions
 	//extras
 };
+
+
+
+enum {
+	AnimInterpolation_Linear  =0,
+	AnimInperpolation_Step    =1,
+	AnimInterpolation_Cubicspline  =2,
+};
+
+/*---------------------------------------
+   Class E3D_glAnimChanSampler
+Animation Channel Sampler
+---------------------------------------*/
+class E3D_glAnimChanSampler {
+public:
+        /* Constructor */
+        E3D_glAnimChanSampler();
+        /* Destructor */
+        //~E3D_glAnimChanSampler();
+
+
+	int     input;   	    /* The index of an accessor containing keyframe timestamps
+				     * The accessor MUST be of scalar type with floating-point components.
+				     * Required Yes,  Init to -1, as invalid
+				     */
+	int     interpolation;      /* Interpolation algorithm. Default "LINEAR"(0), others "STEP"(1), "CUBICSPLINE"(2)
+				     * Default 0. */
+	int 	output;		    /* The index of an accessor containing keyframe output
+				     * Required Yes,  Init to -1, as invalid
+				     */
+
+	//extensions
+	//extras
+};
+
+
+/*---------------------------------------
+   Class E3D_glAnimTarget
+Animation channel target
+---------------------------------------*/
+class E3D_glAnimChanTarget {
+public:
+        /* Constructor */
+	E3D_glAnimChanTarget();
+        /* Destructor */
+
+	int    node;	/* The index of the node to animate, when undefinde the
+			 * animated object MAY be defined by an extension
+			 */
+
+	string path;    /* Then name of the node's TRS property
+			 * Required: YES,   'weights', 'translation'[x,y,z], 'rotation'[X,Y,Z,W], 'scale'[X,Y,Z]
+		                Path        Accessor_type     Component_type
+				-------------------------------------------------------
+			     translation     VEC3                 float
+			     rotation        VEC4                 float/signed byte normalized/unsinged byte normalized/...
+			     scale           VEC3                 float
+
+			     weights         SCALAR               float/signed byte normalized/unsinged byte normalized/....
+			 */
+
+	int pathType; 	 /* According to abov path, Init to -1, <0 invalid */
+#define ANIMPATH_WEIGHTS     	0
+#define ANIMPATH_TRANSLATION    1
+#define ANIMPATH_ROTATION       2
+#define ANIMPATH_SCALE          3
+/* Check max value of pathTypeMAX, see loadGLTF() 12.1 */
+
+	//extensions
+	//extras
+};
+
+
+/*---------------------------------------
+   Class E3D_glAnimChannel
+Animation channel
+
+Example:
+  Application sequence for E3D is pxyz*ScaleMat*RotMat*TransMat
+
+            "channels" : [
+                {
+                    "sampler" : 0,
+                    "target" : {
+                        "node" : 64,
+                        "path" : "translation"
+                    }
+                },
+                {
+                    "sampler" : 1,
+                    "target" : {
+                        "node" : 64,
+                        "path" : "rotation"
+                    }
+                },
+                {
+                    "sampler" : 2,
+                    "target" : {
+                        "node" : 64,
+                        "path" : "scale"
+                    }
+                },
+		....
+	     ]
+
+---------------------------------------*/
+class E3D_glAnimChannel {
+public:
+        /* Constructor */
+        /* Destructor */
+
+	int                  samplerIndex;  /* Required: YES.  The index of a animSampler */
+
+	E3D_glAnimChanTarget target;	/* The descriptor of the animated property */
+
+
+
+	//extensions
+	//extras
+};
+
+
+/*----------------------------------------------------------
+   Class E3D_glAnimation
+Animation
+
+Note:
+1. Animation data wil be loaded into glNodes.animQts
+------------------------------------------------------------*/
+class E3D_glAnimation {
+public:
+        /* Constructor */
+        /* Destructor */
+
+	string  name;
+
+	vector<E3D_glAnimChannel>       channels;  /* Note: Different channels of the same animation
+						      MUST NOT have the same targets(means same node and path)
+						   */
+
+	vector<E3D_glAnimChanSampler>   samplers;
+
+	//extensions
+	//extras
+};
+
+
+
 
 
 /*---------------------------------------

@@ -93,7 +93,8 @@ Journal:
 	   will return all 0s afterward. In this case, it needs to re_open the pcm handler.
 2022-03-31:
 	1. Test egi_getset_ctl_elemValue()
-
+2023-02-23:
+	1. Let go for stream_unknown ...
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -146,7 +147,7 @@ enum {
 bool	Is_StreamHeader;	/* Indicate a new round of stream transission,
 				 * set in http_header_callback(), reset in http_download_callback().
 				 */
-const char *strStreamType[STREAM_LIMIT]={"Unknown","audio/aac", "audio/mpeg"};
+const char *strStreamType[STREAM_LIMIT]={"Unknown","audio/aac", "audio/mpeg", "text/html"};
 char strStreamName[128]="Unknown";
 char strStreamTitle[128]="Untitled";
 
@@ -458,8 +459,9 @@ size_t http_download_callback(void *ptr, size_t size, size_t nmemb, void *data)
 		printf("TEXT_HTML: %s\n", (char *)ptr);
 		return chunk_size;
 	}
-	else if(stream_type!=STREAM_AUDIO_MPEG) {
-		egi_dpstd(DBG_YELLOW"stream_type is NOT audio_mpeg, ignore it!"DBG_RESET);
+	//else if(stream_type!=STREAM_AUDIO_MPEG) {
+	else if(stream_type!=STREAM_AUDIO_MPEG && stream_type!=STREAM_UNKNOWN) {  //HK2023-02-23
+		egi_dpstd(DBG_YELLOW"stream_type is '%s', NOT audio_mpeg, ignore it!"DBG_RESET, strStreamType[stream_type]);
 		return chunk_size;
 	}
 
@@ -1160,7 +1162,8 @@ INIT_BUFFER:
    *    OR it conflicts with http_download_callback() size check!
    */
   while( ringbuff->datasize < INIT_BUFFER_SIZE ) {
-	if( ringbuff->datasize>0 && stream_type!=STREAM_AUDIO_MPEG) {
+	//if( ringbuff->datasize>0 && stream_type!=STREAM_AUDIO_MPEG) {
+	if( ringbuff->datasize>0 && (stream_type!=STREAM_AUDIO_MPEG && stream_type !=STREAM_UNKNOWN) ) { // HK2023-02-23
 		printf("Stream type %s, NOT supported yet!\n", strStreamType[stream_type]);
 //		exit(1);
 	}

@@ -21,6 +21,8 @@ Journal:
 2022-12-17:
 	1. Test E3D glTF functions:
 	   E3D_glReadJsonKey(), E3D_glExtractJsonObjects(), E3D_glLoadBuffers()
+2023-02-13:
+	1. Test E3D_glLoadNodes()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -41,7 +43,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "e3d_volumes.h"
 #include "e3d_animate.h"
 #include "e3d_glTF.h"
-
+#include "e3d_scene.h"
 
 using namespace std;
 
@@ -70,12 +72,12 @@ int main(void)
 #endif
 
 #if 1  /////////////////////
-int main(void)
+int main(int argc, char **argv)
 {
 	cout << "Hello, this is C++!\n" << endl;
 
 
-#if 1 //////////////// E3D glTF  ////////////////
+#if 0 //////////////// E3D_TriMesh:: loadglTF()  ////////////////
 int cnt=0;
 
 while(1) {
@@ -90,6 +92,80 @@ while(1) {
 
 exit(0);
 #endif
+
+#if 1 //////////////// E3D_Scene:: loadglTF()  ////////////////
+int cnt=0;
+
+//while(1)
+{
+	E3D_Scene scene;
+	scene.loadGLTF(argv[1]);
+
+	cnt++;
+	printf(" --- cnt=%d ---\n", cnt);
+	//usleep(100000);
+	//sleep(2);
+
+	exit(0);
+ }
+
+exit(0);
+#endif
+
+#if 0 //////////////// E3D glTF: functions  ////////////////
+        char *pjson;
+        string key;
+        string strValue;
+
+	vector<E3D_glNode> glNodes;
+	vector<E3D_glScene> glScenes;
+
+        /* Mmap glTF Json file */
+        EGI_FILEMMAP *fmap;
+        fmap=egi_fmap_create(argv[1], 0, PROT_READ, MAP_SHARED);
+        if(fmap==NULL)
+                return -1;
+
+        /* Parse Top_Level glTF Jobject arrays, and load to respective glObjects */
+        pjson=fmap->fp;
+        while( (pjson=E3D_glReadJsonKey(pjson, key, strValue)) ) {
+		if(!key.compare("nodes")) {
+                        /* Load glNodes as per Json descript */
+                        if( E3D_glLoadNodes(strValue, glNodes)<0 )
+                                return -1;
+
+		}
+		else if(!key.compare("scenes")) {
+			if( E3D_glLoadScenes(strValue, glScenes)<0 )
+				return -1;
+		}
+
+	}
+
+
+	#if 0/* Print glNodes */
+	for(size_t k=0;  k<glNodes.size(); k++) {
+		printf("\n       ---- glNodes[%d] ----\n", k);
+		glNodes[k].print();
+	}
+	#endif
+
+	/* Print glScenes */
+	 for(size_t k=0;  k<glScenes.size(); k++) {
+                printf("\n       ---- glScenes[%d] ----\n", k);
+		if(!glScenes[k].name.empty())
+		    printf("Scene name: %s\n",glScenes[k].name.c_str());
+                printf("Root node indices: ");
+		for(size_t kk=0; kk<glScenes[k].rootNodeIndice.size(); kk++)
+			printf("%d ",glScenes[k].rootNodeIndice[kk]);
+		printf("\n");
+        }
+
+
+
+exit(0);
+#endif
+
 
 #if 0 ////////////////  E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh)  ////////////////
 	E3D_BMatrixTree  bmtree("test.bvh");

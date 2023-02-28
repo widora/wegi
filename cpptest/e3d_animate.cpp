@@ -50,6 +50,8 @@ Journal:
 	1. E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh): Test for SecondLife(avatar_) BVH.
 2022-11-29/20:
 	1. E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh): Test for Adobe Mixamo BVH. (variable CHANNELS(6/3))
+2023-02-23:
+	1. Add E3D_AnimQuatrices::insertSRT().
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -72,23 +74,32 @@ void E3D_AnimQuatrices::print(const char *name) const
 		printf("  --- %s ---\n",name);
 
 	for(size_t k=0; k<ts.size(); k++) {
-		printf("Seq%zu: t=%f, quat[%f (%f, %f, %f)], txyz(%f,%f,%f).\n",
+		printf("Seq%zu: t=%f, quat[%f (%f, %f, %f)], txyz(%f,%f,%f), sxyz(%f,%f,%f).\n",
 			k, ts[k],
+
 			qts[k].q.w,  qts[k].q.x, qts[k].q.y, qts[k].q.z,
-			qts[k].tx, qts[k].ty, qts[k].tz );
+			qts[k].tx, qts[k].ty, qts[k].tz,
+			qts[k].sx, qts[k].sy, qts[k].sz  /* HK2023-02-23 */
+		);
 	}
 }
 
 /*----------------------------------------
 Insert/save quatrix at time point t
-@t:    [0 1] Time point for the quatrix.
+
+	 !!!--- CAUTION ---!!!
+If frame t already exists(t==ts[k]), then
+REPLACE/UPDATE its qts[] value.
+
+
+@t:    [0 1] Time point for the quatrix. ---NOT necessary!
 @qt:   The quatrix to be inserted.
 -----------------------------------------*/
 void E3D_AnimQuatrices::insert(float t, const E3D_Quatrix &qt)
 {
 	bool ImBig=false;
 
-#if 0	/* TODO: Limit??? necessary??? */
+#if 0	/* TODO: Limit??? necessary??? GLTF t --seconds! */
 	if( t<0.0f || t>1.0 )
 		return;
 #endif
@@ -112,7 +123,7 @@ void E3D_AnimQuatrices::insert(float t, const E3D_Quatrix &qt)
 			else if(t>ts[k])
 				continue;
 			else { /* t==ts[k], replace it! */
-				ts[k]=t;
+				// ts[k]=t; NOT necessary HK2023-02-23
 				qts[k]=qt;
 				return; /* ---------> */
 			}
@@ -129,7 +140,7 @@ void E3D_AnimQuatrices::insert(float t, const E3D_Quatrix &qt)
 				continue;
 			}
 			else { /* t==ts[k], replace it! here k==0 */
-				ts[k]=t;
+				// ts[k]=t; NOT necessary HK2023-02-23
 				qts[k]=qt;
 				return;  /* --------> */
 			}
@@ -140,6 +151,191 @@ void E3D_AnimQuatrices::insert(float t, const E3D_Quatrix &qt)
 	ts.push_back(t);
 	qts.push_back(qt);
 
+}
+
+/*----------------------------------------
+Insert/save Scale/Rotation/Translation
+at time point t.
+
+         !!!--- CAUTION ---!!!
+If frame t already exists (t==ts[k]), then
+REPLACE/UPDATE part(s) of its qts[] (Scale
+,Rotation,Translation) accordingly.
+
+
+@t:     Time point for the quatrix. ---NOT necessary to be [0 1]
+@toks:  A string combination of 'S','R','T', stands for
+        inserting Scale/Rotation/Translation respectively.
+@sxyz:  Scale X,Y,Z
+@q:     Rotation in quarternion. (x,y,z,w)
+@txyz:  Translation X,Y,Z
+-----------------------------------------*/
+void E3D_AnimQuatrices::insertSRT(float t, const char *toks,
+				   const E3D_Vector &sxyz, const E3D_Quaternion &q, const E3D_Vector &txyz)
+{
+	bool ImBig=false;
+	bool S_on=false, R_on=false, T_on=false;
+	E3D_Quatrix qt;
+	int k;
+
+#if 0	/* TODO: Limit??? necessary??? GLTF t --seconds! */
+	if( t<0.0f || t>1.0 )
+		return;
+#endif
+
+	/***               !!!--- CAUTION ---!!!
+	 * Operator '=' NOT reloaded for E3D_Quaternion and E3D_Quatrix yet!
+	 */
+
+	/* 0. Parse toks */
+	if(toks==NULL) return;
+	k=0;
+	while(toks[k]) {
+		if(toks[k]=='S')
+			S_on=true;
+		else if(toks[k]=='R')
+			R_on=true;
+		else if(toks[k]=='T')
+                        T_on=true;
+
+		/* Max 3 toks */
+		k++;
+		if(k==3) break;
+	}
+	/* No effect */
+	if(!S_on && !R_on && !T_on)
+		return;
+
+	/* 1. No element in vecotr */
+	if(ts.empty()) {
+
+		/* Set qt accordingly */
+		if(S_on) {
+		      qt.sx=sxyz.x; qt.sy=sxyz.y; qt.sz=sxyz.z;
+		}
+		if(R_on) {
+		      qt.q=q;
+		}
+		if(T_on) {
+		      qt.tx=txyz.x; qt.ty=txyz.y; qt.tz=txyz.z;
+		}
+
+		/* Push back to qts */
+		ts.push_back(t);
+		qts.push_back(qt);
+		return;
+	}
+
+	/* 2. Insert between two qts in ascending order of ts */
+	for(size_t k=0; k<ts.size(); k++) {
+		/* 2.1 */
+		if(ImBig) {
+			/* 2.1.1 Insert between two qts, before k */
+			if(t<ts[k]) {
+				/* 2.1.1.1 Set qt accordingly */
+				if(S_on) {
+		      			qt.sx=sxyz.x; qt.sy=sxyz.y; qt.sz=sxyz.z;
+				}
+				if(R_on) {
+		      			qt.q=q;
+				}
+				if(T_on) {
+		      			qt.tx=txyz.x; qt.ty=txyz.y; qt.tz=txyz.z;
+				}
+
+				/* 2.1.1.2 Insert qt at t */
+				ts.insert(ts.begin()+k,t);
+				qts.insert(qts.begin()+k, qt);
+				return; /* ---------> */
+			}
+			/* 2.1.2 */
+			else if(t>ts[k])
+				continue;
+			/* 2.1.3 */
+			else { /* t==ts[k], replace/update part(s) of it! */
+				/* 2.1.3.1 Copy first */
+				qt=qts[k];
+
+				/* 2.1.3.2 Modify part(s) of qt accordingly */
+				if(S_on) {
+		      			qt.sx=sxyz.x; qt.sy=sxyz.y; qt.sz=sxyz.z;
+				}
+				if(R_on) {
+		      			qt.q=q;
+				}
+				if(T_on) {
+		      			qt.tx=txyz.x; qt.ty=txyz.y; qt.tz=txyz.z;
+				}
+
+				/* 2.1.3.3 Update qt */
+				//ts[k]=t; NOT necessary HK2023-02-23
+				qts[k]=qt;
+				return; /* ---------> */
+			}
+		}
+		/* 2.2 */
+		else {  /* ImSmall, ---- this should happen ONLY once as we set ImBig=false at beginning */
+			/* 2.2.1 Insert before k=0 */
+			if(t<ts[k]) { /* here k==0, as we assume ImBig=false at beginning */
+				/* 2.2.1.1 Set qt accordingly */
+				if(S_on) {
+		      			qt.sx=sxyz.x; qt.sy=sxyz.y; qt.sz=sxyz.z;
+				}
+				if(R_on) {
+		      			qt.q=q;
+				}
+				if(T_on) {
+		      			qt.tx=txyz.x; qt.ty=txyz.y; qt.tz=txyz.z;
+				}
+
+				/* 2.2.1.2 Insert qt at t */
+				ts.insert(ts.begin()+k,t);
+				qts.insert(qts.begin()+k, qt);
+				return;  /* --------> */
+			}
+			/* 2.2.2 */
+			else if(t>ts[k]) {
+				ImBig=true;
+				continue;
+			}
+			/* 2.2.3 */
+			else { /* t==ts[k], replace/update part(s) of it! here k==0 */
+				/* 2.2.3.1 Copy first */
+				qt=qts[k];
+
+				/* 2.2.3.2 Modify part(s) of qt accordingly */
+				if(S_on) {
+		      			qt.sx=sxyz.x; qt.sy=sxyz.y; qt.sz=sxyz.z;
+				}
+				if(R_on) {
+		      			qt.q=q;
+				}
+				if(T_on) {
+		      			qt.tx=txyz.x; qt.ty=txyz.y; qt.tz=txyz.z;
+				}
+
+				/* 2.2.3.3 Update qt */
+				// ts[k]=t; NOT necessary HK2023-02-23
+				qts[k]=qt;
+				return;  /* --------> */
+			}
+		}
+	}
+
+	/* 3. NOW, it gets to the end. */
+	/* 3.1 Set qt accordingly */
+	if(S_on) {
+	      qt.sx=sxyz.x; qt.sy=sxyz.y; qt.sz=sxyz.z;
+	}
+	if(R_on) {
+	      qt.q=q;
+	}
+	if(T_on) {
+	      qt.tx=txyz.x; qt.ty=txyz.y; qt.tz=txyz.z;
+	}
+	/* 3.2 Push back at end of qts[] */
+	ts.push_back(t);
+	qts.push_back(qt);
 }
 
 

@@ -381,7 +381,7 @@ public:
 	/* Set part of Translation TxTyTz in pmat[] */
 	void setTranslation( const E3D_Vector &tv );
 
-	/* Set part of Translation TxTyTz in pmat[] */
+	/* Set part of scaleXYZ in pmat[] */
 	void setScaleXYZ( float sx, float sy, float sz);
 
 	/* Set part of Translation TxTyTz in pmat[] */
@@ -456,13 +456,15 @@ public:
 
 /*-----------------------------------------------
        		Class: E3D_Quatrix
-Quaternion+Translation(Tx,Ty,Tx)
+Quaternion+Translation(Tx,Ty,Tx) +Scale(Sx,Sy,Sz)
 -----------------------------------------------*/
 class E3D_Quatrix {
 public:
 	E3D_Quaternion  q;  //NOT qt, qt for quatrix.  HK2022-11-03
 	float 		tx, ty, tz;
+	float           sx, sy, sz;  /* HK2023-02-23..TODO NOW ONLY apply to E3D_Quatrix(), identity(), print() */
 
+//TODO  int   interpType; /* LINEAR, STEP, CUBICSPLINE */
 
 	/* Constructor */
 	E3D_Quatrix();
@@ -487,7 +489,7 @@ public:
 
 	/* Functions */
 	void toMatrix(E3D_RTMatrix &mat) const;
-	void fromMatrix(const E3D_RTMatrix &mat);
+	void fromMatrix(const E3D_RTMatrix &mat); //No scale
 
 	/* Functions: interpolation */
 	void interp(const E3D_Quatrix &qt0, const E3D_Quatrix &qt1, float rt);
@@ -629,6 +631,7 @@ A,B,C,D:   A=n/r; B=n/t; C=(f+n)/(f-n); D=-2fn/(f-n);
 	  // f=dfar, n=dnear
 
 };
+void print_ProjMatrix(const E3DS_ProjMatrix &projMatrix);
 
 void E3D_InitProjMatrix(E3DS_ProjMatrix &projMatrix, int type, int winW, int winH, int dnear, int dfar, int dv);
 void E3D_RecomputeProjMatrix(E3DS_ProjMatrix &projMatrix); /* Recompute clipping matrix items: A,B,C,D... */

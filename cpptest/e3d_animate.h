@@ -29,14 +29,43 @@ Midas Zhou
 
 
 /*---------------------------------
+   Class E3D_AnimMorphWeights
+    ( Animating morph weights )
+---------------------------------*/
+class E3D_AnimMorphWeights {
+public:
+	/* Time point and corresponding morph weights */
+	vector<float>		ts;	/* seconds, sort in Ascending Order.  */
+					/* For GLTF: seconds  */
+
+	vector<vector<float> >	mwt;    /* weight for mesh morph!  (NOT for skinned mesh)
+					 * Each element size(mwt[].size) size MUST be same as mesh.
+					 */
+        /* Constructor */
+        /* Destructor */
+
+	/* Function: print */
+	void print(const char *name=NULL) const;
+
+	/* Function: insert and save quatrix at time point t */
+	void insert(float t, const vector<float> weights);
+
+	/* Function: interpolate at time point t and return result to weights */
+	void interp(float t, vector<float> &weights) const;
+};
+
+
+/*---------------------------------
    Class E3D_AnimQuatrices
    ( Animating quatrices )
 ---------------------------------*/
 class E3D_AnimQuatrices {
 public:
 	/* Time point and corresponding Quatrix */
-	vector<float>		ts;	/* time points, [0 1], sort in Ascending Order */
+	vector<float>		ts;	/* time points, seconds OR [0 1], sort in Ascending Order.  */
+					/* For GLTF: seconds  */
 	vector<E3D_Quatrix>  	qts;    /* Quatrix at the time point */
+
 
         /* Constructor */
         //E3D_AnimQuatrices ();
@@ -50,9 +79,14 @@ public:
 	/* Function: insert and save quatrix at time point t */
 	void insert(float t, const E3D_Quatrix &qt);
 
+	/* Functions: insert/update part(s) of quatrix at time point t */
+	void insertSRT(float t, const char *toks, const E3D_Vector &sxyz, const E3D_Quaternion &q, const E3D_Vector &txyz);
+
 	/* Function: interpolate at time point t and return result to qt */
 	void interp(float t, E3D_Quatrix &qt) const;
 };
+
+
 
 
 /*---------------------------------------------------
@@ -89,7 +123,7 @@ struct _BoneMatrix_TreeNode {
 				 */
 
 
-	E3D_RTMatrix pmat;	/* Presetting Transform matrix, for the object's initial orientation.
+	E3D_RTMatrix pmat;	/* Presetting Transform matrix, for the object's initial position/orientation.
 				 * 1. For node COORD Frame: transform from its parent COORD to this COORD
 							!!! --- THIS IS IMPORTANT --- !!!
 				      		        Conception for creating a new bone
@@ -122,7 +156,7 @@ struct _BoneMatrix_TreeNode {
 
 	E3D_RTMatrix gmat;	/* Globalizing transform matrix, to transform coordinates under this node COORD to under Global COORD
 				 *		--- CAUTION ---
-				 *  Usually gmat is correct ONLY after immediate whole tree computation.
+				 *  Apply gmat ONLY after immediate whole tree computation.
 				 *  E3D_BMatrixTree::updateTreeGmats() OR updateNodePtrList()
 				 */
 

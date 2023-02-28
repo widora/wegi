@@ -103,6 +103,10 @@ Journal:
 	1. E3D_Quaternion::normalize()
 2022-12-23:
 	1. Add Class E4D_Vector,  ::E4D_Vector(), ::assign() ::zero().
+2023-02-20:
+	1. Add print_ProjMatrix()
+2023-02-23:
+	1. E3D_Quatrix add member for scale: sx,sy,sz, and modify E3D_Quatrix::E3D_Quatrix() and E3D_Quatrix::print()
 
 TODO:
 1. acos(x)/asin(x) will return NaN if x is little bit out of [-1.0 1.0] ???
@@ -405,7 +409,7 @@ EGI_16BIT_COLOR  E3D_Vector::color16Bits() const
 void E3D_Vector::print(const char *name=NULL) const
 {
      	//printf("V(%f, %f, %f)\n",x,y,z);
-	printf("Vector %s:(%f, %f, %f)\n", name?name:"", x,y,z);
+	printf("Vector '%s':(%f, %f, %f)\n", name?name:"", x,y,z);
 };
 
 
@@ -1083,7 +1087,7 @@ void E3D_RTMatrix::setTranslation( const E3D_Vector &tv )
 
 
 /*--------------------------------------------
-   Set part of Translation TxTyTz in pmat[]
+   Set part of scaleXYZ in pmat[]
 --------------------------------------------*/
 void E3D_RTMatrix::setScaleXYZ( float sx, float sy, float sz)
 {
@@ -1629,6 +1633,28 @@ E3D_RTMatrix operator* (const E3D_RTMatrix &ma, const E3D_RTMatrix &mb)
 	mc.pmat[9] =ma.pmat[9]*mb.pmat[0] + ma.pmat[10]*mb.pmat[3] + ma.pmat[11]*mb.pmat[6] +mb.pmat[9];
 	mc.pmat[10] =ma.pmat[9]*mb.pmat[1] + ma.pmat[10]*mb.pmat[4] + ma.pmat[11]*mb.pmat[7] +mb.pmat[10];
 	mc.pmat[11] =ma.pmat[9]*mb.pmat[2] + ma.pmat[10]*mb.pmat[5] + ma.pmat[11]*mb.pmat[8] +mb.pmat[11];
+
+ /*** For scale matrix, ONLY pmat[0],pmat[4], pmat[8] is !=0.0
+
+	// Rotation
+	mc.pmat[0]=ma.pmat[0]*Sx;
+	mc.pmat[1]=ma.pmat[1]*Sy;
+	mc.pmat[2]=ma.pmat[2]*Sz;
+
+	mc.pmat[3]=ma.pmat[3]*Sx;
+	mc.pmat[4]=ma.pmat[4]*Sy;
+	mc.pmat[5]=ma.pmat[5]*Sz;
+
+	mc.pmat[6]=ma.pmat[6]*Sx;
+	mc.pmat[7]=ma.pmat[7]*Sy;
+	mc.pmat[8]=ma.pmat[8]*Sz;
+
+	// Translation
+	mc.pmat[9]=ma.pmat[9]*Sx;
+	mc.pmat[10]=ma.pmat[10]*Sy;
+	mc.pmat[11]=ma.pmat[11]*Sz;
+
+*/
 
 	return mc;
 }
@@ -2639,6 +2665,7 @@ E3D_Quatrix::E3D_Quatrix()
 {
 	//q.identity();
 	tx=ty=tz=0.0f;
+	sx=sy=sz=1.0f;  /* HK2023-02-23 */
 }
 
 
@@ -2649,6 +2676,8 @@ void E3D_Quatrix::identity()
 {
 	q.identity();
 	tx=ty=tz=0.0f;
+
+	sx=sy=sz=1.0f;  /* HK2023-02-23 */
 }
 
 /*---------------------------
@@ -2656,7 +2685,11 @@ void E3D_Quatrix::identity()
 ---------------------------*/
 void E3D_Quatrix::print(const char *name) const
 {
-        printf("Quatrix %s: q[%f (%f, %f, %f)], t(%f,%f,%f).\n", name?name:"", q.w,q.x,q.y,q.z, tx,ty,tz);
+
+        printf("   <<< Quatrix '%s' >>>\n",name?name:"");
+        printf("q[%f (%f, %f, %f)], t(%f,%f,%f), scale(%f,%f,%f).\n", q.w,q.x,q.y,q.z, tx,ty,tz, sx,sy,sz); /* HK2023-02-23 */
+
+        //printf("Quatrix %s: q[%f (%f, %f, %f)], t(%f,%f,%f).\n", name?name:"", q.w,q.x,q.y,q.z, tx,ty,tz);
 }
 
 /*--------------------------
@@ -2766,11 +2799,24 @@ void E3D_Quatrix::interp(const E3D_Quatrix &qt0, const E3D_Quatrix &qt1, float r
 	tx=qt0.tx+(qt1.tx-qt0.tx)*rt;
 	ty=qt0.ty+(qt1.ty-qt0.ty)*rt;
 	tz=qt0.tz+(qt1.tz-qt0.tz)*rt;
+
+	/* TODO: Interp Scale */
 }
 
 
 
 /////////////////////////   Projection Matrix   /////////////////////////
+
+void print_ProjMatrix(const E3DS_ProjMatrix &projMat)
+{
+	printf("   --- ProjMatrix ---\n");
+	printf("type: %d\n", projMat.type);
+	printf("winW/H: %d/%d\n", projMat.winW, projMat.winH);
+	printf("dnear: %d; dfar: %d\n", projMat.dnear, projMat.dfar);
+	printf("r,l,t,b:  %f,%f,%f,%f\n", projMat.r, projMat.l, projMat.t, projMat.b);
+	printf("aa,bb,cc,dd:  %f,%f,%f,%f\n", projMat.aa, projMat.bb, projMat.cc, projMat.dd);
+	printf("A,B,C,D:  %f,%f,%f,%f\n", projMat.A, projMat.B, projMat.C, projMat.D);
+}
 
 /*---------------------------------------------------------
 Initialize an E3DS_ProjMatrix struct with given parameters.

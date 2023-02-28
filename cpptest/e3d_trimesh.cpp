@@ -190,7 +190,7 @@ Journal:
 2021-08-28:
       >>>> Add triangle vertex normals: triList[].vtx[].vn  for GOURAUD shading <<<<
 	1. E3D_TriMesh(const char *fobj)
-	   Read OBJ vertex noramls into
+	   Read OBJ vertex normals into
 		1.1 TriMesh::triList[].vtx[].vn   <-----
 	    OR  1.2 TriMesh::vtxList[].normal	  <-----
 	2. renderMesh()
@@ -387,6 +387,13 @@ Journal:
 	2. E3D_TriMesh::renderMesh(): Apply mtlList[ ].triListUV_ke[i].uv
 2023-01-20:
 	1. E3D_shadeTriangle( ) BarycentricCoord: Apply TBN and img_kn.
+2023-02-15:
+	1. Add E3D_TriMesh::vtxCapacity(), and E3D_TriMesh::triCapacity()
+2023-02-19:
+	1. XXX E3D_TriMesh:: Add memeber 'objScaleMat'. --- NOPE!
+2023-02-20:
+	1. E3D_TriMesh::renderMesh(): Normalize rvtx[].normals before apply
+	   rvtx[] to E3D_shadeTriangle().
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -412,6 +419,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "egi_matrix.h"
 
 #include "e3d_trimesh.h"
+#include "e3d_scene.h"
 #include "e3d_glTF.h"
 
 using namespace std;
@@ -512,6 +520,7 @@ void E3D_Material::setDefaults()
 	/* Pointers MUST set as NULL */
 	img_kd=NULL;
 	img_ke=NULL;
+	ke_factor=0.5f;
 	img_kn=NULL;
 	kn_scale=1.0f;
 }
@@ -544,9 +553,11 @@ E3D_Material::~E3D_Material()
 Print out main vars/paramters
 of the materail
 -----------------------------*/
-void E3D_Material::print()
+void E3D_Material::print(const char *uname) const
 {
 	cout<<"------------------------"<<endl;
+	if(uname)
+	    printf("Material '%s'\n", uname);
 	cout<<"Material name: "<< name <<endl;
 
 	cout<<"illum: "<< illum <<endl;
@@ -1176,6 +1187,9 @@ int E3D_TriMesh::checkTriangleIndices() const
 --------------------------------*/
 int E3D_TriMesh::vtxCount() const { return vcnt; };
 int E3D_TriMesh::triCount() const { return tcnt; };
+int E3D_TriMesh::vtxCapacity() const { return vCapacity; };
+int E3D_TriMesh::triCapacity() const { return tCapacity; };
+
 
 /*-----------------
    Get AABB size
@@ -1396,18 +1410,19 @@ E3D_TriMesh::E3D_TriMesh()
  nt:    Init memspace for triList[]
 
 	!!! WARNING !!!
-     vcnt/tcnt reset as 0!
+     vcnt/tcnt set to 0!
  --------------------------------------*/
 E3D_TriMesh::E3D_TriMesh(int nv, int nt)
 {
         /* Init other params */
 	initVars();
 
-	/* Check input */
-	if(nv<=0) nv=TRIMESH_GROW_SIZE;
-	if(nt<=0) nt=TRIMESH_GROW_SIZE;
+	/* Check input. nv,nt can be 0! */
+	if(nv<0) nv=TRIMESH_GROW_SIZE;
+	if(nt<0) nt=TRIMESH_GROW_SIZE;
 
 	/* Init vtxList[] */
+    if(nv>0) {  /* HK2023-02-15  nv can be 0! */
 	vCapacity=0;  /* 0 before alloc */
 	try {
 		vtxList= new Vertex[nv]; //();	/* Call constructor to setDefault. TODO: NOT necessary! also call constructor. */
@@ -1416,10 +1431,12 @@ E3D_TriMesh::E3D_TriMesh(int nv, int nt)
 		egi_dpstd("Fail to allocate Vertex[]!\n");
 		return;
 	}
+     }
 	vcnt=0;
 	vCapacity=nv;
 
 	/* Init triList[] */
+    if(nt>0) {  /* HK2023-02-15  nt can be 0! */
 	tCapacity=0;  /* 0 before alloc */
 	try {
 		triList= new Triangle[nt]; //();
@@ -1428,6 +1445,7 @@ E3D_TriMesh::E3D_TriMesh(int nv, int nt)
 		egi_dpstd("Fail to allocate Triangle[]!\n");
 		return;
 	}
+     }
 	tcnt=0;
 	tCapacity=nt;
 
@@ -2286,6 +2304,11 @@ Note:
    	mesh's primitie[0] triGroup name: "BOX_0"
    	mesh's primitie[1] triGroup name: "BOX_1"
 
+              !!! --- NOTICED --- !!!
+4. glTF nodes/scenes/animation are all ignored, so hierarchy
+   information such as relative position/orientation between
+   triGroups are also ignored.
+
 
 @fgl:	Path to a glTF Json file.
 
@@ -2708,7 +2731,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 //////////////////////// END: load glTF file to glBuffers/glBufferViews/glAccessors/glMeshes... ////////////////////
 //exit(0);
 
-	/* 5. Count all trianlges and vertices */
+	/* 5. Count all trianlges and vertices and triGroups for all meshes. */
 	for(size_t j=0; j<glMeshes.size(); j++) {
 		int accIndex;
 		for(size_t i=0; i<glMeshes[j].primitives.size(); i++) {
@@ -2729,7 +2752,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 	}
 	egi_dpstd(DBG_CYAN"triCount=%d, vtxCount=%d, tgCount=%d\n\n"DBG_RESET, triCount, vtxCount, tgCount);
 
-        /* 6. Clear vtxList[] and triList[], E3D_TriMesh() may allocate them.  */
+        /* 6. Clear/delete vtxList[] and triList[], E3D_TriMesh() may allocate them.  */
         if(vCapacity>0) {
                 delete [] vtxList; vtxList=NULL;
                 vCapacity=0;
@@ -2771,7 +2794,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 
 
 	/* 10a. Load Materils. TODO: NOW, all meshes are merged into just ONE(this) E3D_TriMesh.
-	 * Note: one glMaterial maps to one mtlList.
+	 * Note: one glMaterial maps to one item of mtlList.
 	 */
 	int baseColorTextureIndex;
 	int emissiveTextureIndex;
@@ -2908,7 +2931,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 			}
 		}
 
-		/* 11.3 Read glMesh.primitivies.indices into triList[] */
+		/* 11.3 Read glMesh.primitivies.indices into triList[] and update new TriGroupList[] item */
 		accIndex=glMeshes[m].primitives[n].indicesAccIndex;
 		if( mode==4 && accIndex>=0 ) {
 			/* 11.3.0 Check data */
@@ -2959,7 +2982,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 				triCount++;
 			}
 
-			/* 11.3.3 Update TriGroupList. One meshes.primitive for one triGroup */
+			/* 11.3.3 Update TriGroupList[tgCount]. One meshes.primitive for one triGroup */
 		        triGroupList[tgCount].tricnt=glAccessors[accIndex].count/3; //HK2022-12-22: tricnt replaces tcnt
         		triGroupList[tgCount].stidx=Tsdx;
         		triGroupList[tgCount].etidx=Tsdx+glAccessors[accIndex].count/3; /* Caution!!! etidx is NOT the end index! */
@@ -2977,7 +3000,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 			if( materialIndex >-1 && materialIndex<(int)glMaterials.size() ) { //same index glMaterials[]-->THIS.mtlList[]
 				egi_dpstd(DBG_YELLOW"Assign triGroupList[].mtlID...\n"DBG_YELLOW);
 
-				/* 11.3.4.1 Assign triGroupList[].mtlID */
+				/* 11.3.4.1 Assign triGroupList[].mtlID, as per primitive.materialIndex. */
 				//if( glMeshes[m].primitives[n].materialIndex < (int)glMaterials.size() )
 				triGroupList[tgCount].mtlID=materialIndex; //glMeshes[m].primitives[n].materialIndex;
 
@@ -3362,6 +3385,26 @@ egi_dpstd(DBG_YELLOW"Read img_kn u/v from glAccessors[texcoord(accindx)=%d], ele
 
 	egi_dpstd(DBG_CYAN"Count %d triangles, %d vertices, and %d triGroups \n"DBG_RESET, triCountBk, vtxCountBk, tgCountBk);
 	egi_dpstd(DBG_CYAN"Totally read %d triangles, %d vertices, and %d triGroups \n"DBG_RESET, triCount, vtxCount, tgCount);
+	egi_dpstd(DBG_CYAN"tCapacity=%d, vCapacity=%d\n"DBG_RESET, tCapacity, vCapacity);
+
+        /* TEST: ---- check results */
+	#if 0  /* vtx UVs */
+        for(int j=0; j < tcnt; j++) {
+        	for(size_t jj=0; jj<3; jj++) {
+                	printf("triList[%d].vtx[%d].u/v:%f,%f\n",
+                               j, jj, triList[j].vtx[jj].u, triList[j].vtx[jj].v);
+                }
+        }
+	#endif
+
+	#if 1 /* vtx Normals */
+        for(int j=0; j < vcnt; j++) {
+		//vtxList[j].normal.normalize();
+                printf("vtxList[%d].normal: %f,%f,%f\n",
+                        j, vtxList[j].normal.x, vtxList[j].normal.y,vtxList[j].normal.z);
+        }
+        #endif
+
 
 	/* Free */
 	egi_fmap_free(&fmap);
@@ -3441,7 +3484,7 @@ int E3D_TriMesh::moreTriListCapacity(size_t more)
                 triNewList=new Triangle[tCapacity+more]; /* triangles */
         }
         catch ( std::bad_alloc ) {
-                egi_dpstd("Fail to allocate Triangle[]!\n");
+                egi_dpstd(DBG_RED"Fail to allocate Triangle[]!\n"DBG_RESET);
                 return -1;
         }
         tCapacity += more;
@@ -4015,11 +4058,11 @@ void E3D_TriMesh::cloneMesh(const E3D_TriMesh &tmesh)
 {
 	/* Check Memspace */
 	if( tmesh.vcnt > vCapacity ) {
-		egi_dpstd("tmesh.vcnt > vCapacity! vCapacity is NOT enough!\n");
+		egi_dpstd(DBG_RED"tmesh.vcnt(%d) > vCapacity(%d)! vCapacity is NOT enough!\n"DBG_RESET, tmesh.vcnt, vCapacity);
 		return;
 	}
 	if( tmesh.tcnt > tCapacity ) {
-		egi_dpstd("tmesh.tcnt > tCapacity! tCapacity is NOT enough!\n");
+		egi_dpstd(DBG_RED"tmesh.tcnt(%d) > tCapacity(%d)! tCapacity is NOT enough!\n"DBG_RESET, tmesh.tcnt, tCapacity);
 		return;
 	}
 
@@ -4506,6 +4549,7 @@ bool E3D_TriMesh::rayHitFace(const E3D_Ray &ray, int rgindx, int rtindx,
 
 			/* 3.0 Cal. trinormal */
 			trinormal=triList[i].normal*nvRotMat;
+			trinormal.normalize(); /* HK2023-02-20 nvRotMat/omat/objmat may include scaleMat  */
 
 			/* 3.1 Pick out triangles backfacing the Ray */
 			vProduct=ray.vd*trinormal;
@@ -4685,6 +4729,7 @@ bool E3D_TriMesh::rayBlocked(const E3D_Ray &ray) const
 		for(i=triGroupList[n].stidx; i<triGroupList[n].etidx; i++) {
 			/* 3.0 Cal. trinormal */
 			trinormal=triList[i].normal*nvRotMat;
+			trinormal.normalize(); /* HK2023-02-20 nvRotMat/omat/objmat may include scaleMat */
 
 			/* 3.1 DO NOT Pick out triangles backfacing the Ray */
 
@@ -4803,6 +4848,7 @@ void E3D_TriMesh::drawMeshWire(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) 
 	    /* 2.2 Light RotMat */
 	    nvRotMat = tgRTMat;
  	    nvRotMat.zeroTranslation(); /* !!! */
+
 	    /* 2.3 TriGroup (original) pivot, under object COORD. */
 	    tgOxyz = triGroupList[n].pivot;
 
@@ -4839,6 +4885,7 @@ void E3D_TriMesh::drawMeshWire(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) 
 		 *	 Consider frustrum projection.
 		 */
 		trinormal=triList[i].normal*nvRotMat;
+		trinormal.normalize(); /* HK2023-02-20 nvRotMat/omat/objmat may include scaleMat */
 	        vProduct=vView*trinormal; //(triList[i].normal*nvRotMat); // *(-1.0f); // -vView as *(-1.0f);
 
 		/* Note:
@@ -5018,6 +5065,10 @@ Note:
   This functions works ONLY WHEN original AABB is aligned with
   the global_coord! otherwise is NOT possible to get vpt[8]!
 
+TODO:
+1. To applye scaleMat: scaleMat may be included in VRTMatrix, BUT any
+   operation for normals will be invalid!
+
 @fbdev:		Pointer to FB device.
 @VRTmatrix:	View_Coord transform matrix, from same as Global_Coord
 		to expected view position.
@@ -5110,6 +5161,12 @@ Note:
    If the mesh has NO vertex normal data, then triangle face
    normal will be used, so it's same effect as E3D_FLAT_SHADING
    in this case.
+2. Before apply rvtx[] to E3D_shadeTriangle(), make sure that rvtx[].normals
+   are normalized!
+		---- BE CAUTIOUIS! ---
+3. NOW matrix in the function may include scale factors,
+   Such as triGroupList[].omat, objmat, any normals that is computed
+   from such matrix SHOULD be normalized!
 
 TODO:
 1. Case TEXTURE_MAPPING: Apply vtxList[].normal OR triList[].vtx[].vn
@@ -5163,7 +5220,7 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 	E3D_Material tgmtl;  //mtlList[].triListUV_ke/_ks NOT included
 	//tgmtl.kn_scale will be updated for each triangle, Example in case backface_on: tgmtl.kn_scale=-mtlList[].kn_scale
 
-	/* Scene, NOT applied yet. */
+	/* Scene, NOT applied yet. NOW for E3D_shadeTriangle(..., scene) ONLY */
 	E3D_Scene scene;
 	scene.projMatrix=projMatrix;
 
@@ -5196,7 +5253,9 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 	actShadeType=shadeType;
 
 	const char *strShadeSub=NULL;
-	if(shadeType==E3D_GOURAUD_SHADING) {
+
+	/* To test HasVertexNormal */
+	if(shadeType==E3D_GOURAUD_SHADING || shadeType==E3D_TEXTURE_MAPPING ) {
 		/* Each vertex in vxtList has normal value.  Triangles are weleded at the vertex. */
 	        if(vtxList[ triList[i].vtx[0].index ].normal.isZero()==false) {
 			HasVertexNormal=true;
@@ -5251,11 +5310,12 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		imgKd=mtlList[ triGroupList[n].mtlID ].img_kd;
 
 		tgmtl = mtlList[ triGroupList[n].mtlID ];  /* TODO: operator '=' is NOT overloaded, see P3.  */
-	    }
+	   }
 
 	    /* G2.1A Check imgKd, reset actShadeType in case of E3D_TEXTURE_MAPPING */
 	    /* TODO: imgKd to be cancelled, and use tgmtl instead.  */
 	    if( shadeType==E3D_TEXTURE_MAPPING ) {
+
 		if( imgKd==NULL || triGroupList[n].ignoreTexture ) {
 			if(HasVertexNormal)
 				actShadeType=E3D_GOURAUD_SHADING;
@@ -5265,15 +5325,35 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		else if(imgKd!=NULL)
 			actShadeType=E3D_TEXTURE_MAPPING;
 	    }
-	    egi_dpstd(DBG_GREEN"Reset actShadeType to %s\n"DBG_RESET, E3D_ShadeTypeName[actShadeType]);
+
+	    /* Check if shadeType is invalid. shadeType CANNOT be modified in read_only object function. */
+	    if(shadeType<0 || shadeType>E3D_TEXTURE_MAPPING )
+		   actShadeType=E3D_TEXTURE_MAPPING;
+
+	    /* TEST: ------ */
+	    egi_dpstd(DBG_GREEN"Input shadeType is %s, actShadeType is set to %s\n"DBG_RESET,
+				E3D_ShadeTypeName[shadeType], E3D_ShadeTypeName[actShadeType] );
 
 	    /* G2.2 Extract TriGroup transformation matrix 'tgRTmat', and rotation pivot 'tgOxyz'. */
 	    /* G2.2.1 To combine RTmatrix to get tgRTmat:  Pxyz(at TriGroup Coord) * TriGroup--->object * object--->Global */
-	    tgRTMat = triGroupList[n].omat*objmat;
+	    tgRTMat = triGroupList[n].omat*objmat;  /* objmat MAY also integrate with scaleMat */
+	    //tgRTMat = triGroupList[n].omat*objScaleMat*objmat; /* objScaleMat MUST sx=sy=sz??? */
 
-	    /* G2.2.2 nvRotMat for lighting computatoin, without translation component. */
+	    /* G2.2.2 nvRotMat for lighting computatoin, without translation component and scaleMat. */
 	    nvRotMat = tgRTMat;
+	    //nvRotMat = triGroupList[n].omat*objmat;;  /* HK2023-02-19 */
  	    nvRotMat.zeroTranslation(); /* !!! */
+
+	    /*** 				!!!---  CAUTION ---!!!
+	     * Since nvRotMat(omat/objmat) may incude sacleMat, any normal that is computed from/with nvRotMat MUST be normalized
+	     * before applying to further operation!
+	     * XXX Example:
+	     * XXX		 rvtx[k].normal=vtxList[x].normal*nvRotMat;
+	     * XXX		 rvtx[k].normal.normalize(); <------  IF NOT! Lighting calucation will be incorrect.
+	     *
+	     * ---> OK see G2.3.6.4 Normalize rvtx[].normal before calling E3D_shadeTriangle().
+	     */
+
 	    /* G2.2.3 Get TriGroup (original) pivot 'tgOxyz, under object COORD. */
 	    tgOxyz = triGroupList[n].pivot;
 
@@ -5358,6 +5438,7 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		 *	 Consider frustrum projection.
 		 */
 		trinormal=triList[i].normal*nvRotMat;
+	        trinormal.normalize(); /* nvRotMat may include scaleMat */
 	        vProduct=vView*trinormal; //(triList[i].normal*nvRotMat); // *(-1.0f); // -vView as *(-1.0f);
 
 		/* Note:
@@ -5402,6 +5483,8 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 ////
 		/* G2.3.6.2 IF(actShadeType==E3D_FLAT_SHADING) */
 		if(actShadeType==E3D_FLAT_SHADING) {
+			/* XXX Assign trinormal to face, no need! */
+
 			/* Clip with the near plane of the viewFrustum */
 			E3D_ZNearClipTriangle(projMatrix.dnear, rvtx, rnp, 0);
 		}
@@ -5409,17 +5492,31 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		else if(actShadeType==E3D_TEXTURE_MAPPING || actShadeType==E3D_GOURAUD_SHADING) {
 			/* Case_A: Use vtxList[ triList[i].vtx[k].index ].normal.  vertices are welded. */
 			if(vtxList[ triList[i].vtx[0].index ].normal.isZero()==false) {
-				egi_dpstd("Case_A\n");
+				egi_dpstd("nCase_A\n");
+
+			  #if 0 /* TEST: */
+				for(int k=0; k<3; k++) {
+				   egi_dpstd(DBG_YELLOW"triList[%d]: vtxList[%d].normal: %f,%f,%f\n"DBG_RESET, i, triList[i].vtx[k].index,
+				   vtxList[ triList[i].vtx[k].index ].normal.x,
+				   vtxList[ triList[i].vtx[k].index ].normal.y,
+				   vtxList[ triList[i].vtx[k].index ].normal.z );
+				}
+			  #endif
+
 				/* Assign rvtx[].normal */
 				for(int k=0; k<3; k++) {
 					rvtx[k].normal=vtxList[ triList[i].vtx[k].index ].normal*nvRotMat;
 					if(IsBackface) rvtx[k].normal=-rvtx[k].normal;
 					//if(IsBackface) rvtx[k].normal=-0.85*rvtx[k].normal; /* darken */
+
+					/* Normalize, for nvRotMat MAY include scaleMat */
+					//rvtx[k].normal.normalize(); OK, see G2.3.6.4
 				}
+
 			}
 			/* Case_B: Use triList[].vtx[].vn;   vertices are NOT welded. */
 			else if(triList[i].vtx[0].vn.isZero()==false) {
-				egi_dpstd("Case_B\n");
+				egi_dpstd("nCase_B\n");
 				/* Assign rvtx[].normal */
 				for(int k=0; k<3; k++) {
 				    #if 1
@@ -5430,18 +5527,24 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 					if(IsBackface) rvtx[k].normal=-rvtx[k].normal;
 					//if(IsBackface) rvtx[k].normal=-0.85*rvtx[k].normal; /* darken */
 				}
+
+				/* Normalize, for nvRotMat MAY include scaleMat */
+				//rvtx[k].normal.normalize();  OK, see G2.3.6.4
 			}
 			/* Case_C: Use face normal triList[].normal. FLAT_SHADING
 			 * Noticed that triList[].normal will NOT read from obj file.
 			 */
 			else {
-				egi_dpstd("Case_C\n");
+				egi_dpstd("nCase_C\n");
 				/* Assign rvtx[].normal */
 				for(int k=0; k<3; k++) {
 					rvtx[k].normal=triList[i].normal*nvRotMat;
 					if(IsBackface) rvtx[k].normal=-rvtx[k].normal;
 					//if(IsBackface) rvtx[k].normal=-0.85*rvtx[k].normal; /* darken */
 				}
+
+				/* Normalize, for nvRotMat MAY include scaleMat */
+				//rvtx[k].normal.normalize();  OK, see G2.3.6.4
 			}
 
 			/* Vertex uv */
@@ -5452,6 +5555,7 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 				/* img_kd/baseColor uv */
 				rvtx[m].u=triList[i].vtx[m].u;
 				rvtx[m].v=triList[i].vtx[m].v;  /* HK2022-12-26 */
+//	printf("triList[%d].vtx[%d].u/v: %f,%f\n", i, m, triList[i].vtx[m].u, triList[i].vtx[m].v );
 
 				#if 0 ////////// NOT vtx uv /////////////
 				rvtx[m].u=vtxList[ triList[i].vtx[m].index ].u;
@@ -5499,6 +5603,11 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		/* TODO more cases: for VTXNORMAL_ON|VTXCOLOR_ON|VTXUV_ON */
 
 		if(rnp>3) egi_dpstd(DBG_YELLOW"After clipping rnp=%d\n"DBG_RESET, rnp);
+		if(rnp==0) egi_dpstd(DBG_YELLOW"After clipping rnp=0!\n"DBG_RESET);
+
+		/* G2.3.6.4 Normalize rvtx[].normal before calling E3D_shadeTriangle() */
+		for(int kr=0; kr<rnp; kr++)
+			rvtx[kr].normal.normalize();
 
 #if TEST_Y_CLIPPING /* TEST: Rotate object -axisZ back to position axisY ---------------- */
         /* 1. Reverse bkMat */
@@ -6871,6 +6980,8 @@ E3D_TriMesh::E3D_TriMesh(const E3D_TriMesh &smesh, float r)
 }
 
 
+#if 0 /////////////////////// move to e3d_scene.h 2023-02-09 ////////////////////////////////////
+
 		 /*----------------------------------------------
        		        Class E3D_MeshInstance :: Functions
 			      Instance of E3D_TriMesh.
@@ -7277,6 +7388,8 @@ void E3D_Scene::renderScene(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 
 	egi_dpstd(DBG_BLUE"Total %d instances are out of view frustum!\n"DBG_RESET, outcnt);
 }
+#endif //////////////////////////////////////////////////////////////////////////////////////
+
 
 
 ////////////////////////////////////  E3D_Draw Function  ////////////////////////////////////////
@@ -7696,7 +7809,7 @@ E3D_Lighting
 		So the Caller can just setup a temporary E3D_Material mtl,
 		and assign necessary memebers to it.
 
-@normal:	Surface normal. (Unit Vector)
+@normal:	Surface normal. (Unit Vector / normalized!)
 //@view:		View direction, from object to eye! (Unit Vector)
 @dl:		Distance from lighting source to the pixel.
 
@@ -7768,7 +7881,8 @@ EGI_16BIT_COLOR E3D_seeColor(const E3D_Material &mtl, const E3D_Vector &normal, 
 //	Ca.print("Ca");
 
 	/* Component 4: Self-emission Ce=Me HK2022-10-24 */
-	Ce = mtl.ke*0.25; /* atten for ke */
+	//Ce = mtl.ke*0.25; /* atten for ke,  GLTF mark demo. */
+	Ce = mtl.ke*mtl.ke_factor;
      } /* Ca,Ce=zeros for other cases */
 
 	/* Result */
@@ -7953,7 +8067,7 @@ int E3D_ZNearClipTriangle(float zc, struct E3D_RenderVertex rvts[], int &np, int
 
 
 /***
-  Copy necesary members from mtl to pmtl
+  Copy necesary members from mtl to pmtl.  Without img_x and triGroupUVs!
   This function to be called by E3D_shadeTriangle() ONLY.
  */
 void  selectCopyMaterilParams(E3D_Material &pmtl, const E3D_Material &mtl)
@@ -7966,6 +8080,8 @@ void  selectCopyMaterilParams(E3D_Material &pmtl, const E3D_Material &mtl)
 	pmtl.Sd=mtl.Sd;
 	pmtl.Ns=mtl.Ns;
 	pmtl.d=mtl.d;
+
+	pmtl.ke_factor=mtl.ke_factor;
 }
 
 /*----------------------------------------------------------------------
@@ -9421,13 +9537,21 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 #define COMPUTE_BARYCENTRIC_BY_FUNCTION 0  /* 1 --- call 3D_computeBarycentricCoord(), 0 --- Codes */
 void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3D_Material &mtl, const E3D_Scene &scene )
 {
-	printf("Barycenter\n");
+	egi_dpstd("Barycenter\n");
+
+#if 0 /* TEST: -------- */
+	mtl.print();
+
+	rvtx[0].normal.print("rvtx[0].normal");
+	rvtx[1].normal.print("rvtx[1].normal");
+	rvtx[2].normal.print("rvtx[2].normal");
+#endif
 
 	if(fb_dev==NULL)
 		return;
 
 	/* 1. Material for pixel. kd will be updated for each pixel! */
-	E3D_Material pmtl; /* this is for E3D_seeColor(pmtl, pnormal, 0), to pass params for each pixel. */
+	E3D_Material pmtl; /* PixelMaterial, this is for E3D_seeColor(pmtl, pnormal, 0), to pass params for each pixel. NO img_x/UVs */
 	selectCopyMaterilParams(pmtl, mtl); /* Without img_x and triGroupUVs */
 
 	/* 2. Get vetex coordinates */
@@ -9458,7 +9582,8 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 	imgbuf=mtl.img_kd;
 
 	if( imgbuf==NULL || imgbuf->imgbuf==NULL ) {
-		//egi_dpstd("Input EGI_IMBUG is NULL!\n"); ---OK
+		//egi_dpstd(DBG_RED"Input EGI_IMBUG is NULL!\n"DBG_RESET); // ---OK
+		//abort();
 	}
 	else {
 		/* Get image size */
@@ -9764,12 +9889,19 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 					pnormal *= mtl.kn_scale; /* HK2023-01-24 */
 					pnormal.transform(matTBN);
                                 }
-
-//				pnormal.print("pnormal");
+				//pnormal.print("pnormal");
 			}
 			else {  /* interpolate rvtx[].normal  */
 				pnormal=bc[0]*rvtx[0].normal+bc[1]*rvtx[1].normal+bc[2]*rvtx[2].normal;
 			}
+
+#if 0 /* TEST: ----- */
+			printf("bc[012]: %f,%f,%f\n", bc[0],bc[1],bc[2]);
+			rvtx[0].normal.print("rvtx[0].normal");
+			rvtx[1].normal.print("rvtx[1].normal");
+			rvtx[2].normal.print("rvtx[2].normal");
+			pnormal.print("pnormal");
+#endif
 
 			/* Pixel color */
 			if(imgbuf==NULL) {  /* Use default material kd */
@@ -9802,6 +9934,7 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 
     				/* See the pixel color */
 				//printf("seeColor1\n");
+				//pmtl.print("pmtl"); pnormal.print("pnromal");
     			    	color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
 				fbset_color2(fb_dev, color);
 				/* Set alpha. TODO:  */

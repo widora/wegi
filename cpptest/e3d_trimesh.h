@@ -286,12 +286,14 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include <string.h>
 #include <vector>
 #include "egi_debug.h"
-#include "e3d_vector.h"
 #include "egi.h"
 #include "egi_fbgeom.h"
 #include "egi_color.h"
 #include "egi_image.h"
 #include "egi_cstring.h"
+
+#include "e3d_vector.h"
+//#include "e3d_scene.h"
 
 using namespace std;
 
@@ -383,7 +385,9 @@ struct E3D_RenderVertex {
 //	E3D_Vector	spt;    /* Vertex position, for original space XYZ. */
 
 	E3D_Vector	pt;	/* Vertex position, After projecting, this value will be changed/updated. */
-	E3D_Vector	normal;	/* Vertex normal, if applys. fliped if backface_on. */
+	E3D_Vector	normal;	/* Vertex normal, if applys. fliped if backface_on.
+				 * SHOULD be normalized before apply to E3D_shadeTriangle().
+				 */
 	E3D_Vector	color;	/* RGB each [0 1] */
 	float 		u,v;	/* Texture map coordinate for kd */
 
@@ -452,8 +456,7 @@ public:
 	void setDefaults();
 
 	/* Print out */
-	void print();
-
+	void print(const char *uname=NULL) const;
 
 		      /* !!!--- Caution for Pointer Memebers ---!!! */
 
@@ -471,6 +474,7 @@ public:
  * 3. TODO: If one map_kd(/ks/kd) file is referred/used by more than ONE material, it will be
  *    loaded into img_kd(/ks/ka) for each material respectively!  Seems redundant....
  * 4. Normally, Ns is set as 0.0, and Ks is Zero, If ks is NOT Zero, then Ns should >0.0f, otherwise it may appear too bright!
+   5. !!!--- CROSS CHECK ---!!! :  selectCopyMaterilParams()
  */
 
 public:
@@ -538,10 +542,12 @@ public:
 	  1. pointer MUST be inited to NULL.
 	  2. E3D_shadeTriangle(): tmp. pmtl NOT owner of img_x! set to NULL.
 	  3. E3d_TriMesh::renderMesh(): tgmtl NOT Owner of img_x! reset to NULL at last .
+          4. Crosscheck E3D_Scene::~E3D_Scene(): They should be reset to NULL onebyone!
+             Modify the codes accordingly if following pointer list updated.
 	*/
 	EGI_IMGBUF *img_kd; /* Diffuse/baseColor texture, TEXCOORD is at E3D_TriMesh.triGroupList[].vtx[].u/v */
-	EGI_IMGBUF *img_ke;  /* Emissive texutre */
-
+	EGI_IMGBUF *img_ke;  /* Emissive texture */
+	float	    ke_factor;   /* Ke factor HK2023-02-21, Default 0.5f */
 	EGI_IMGBUF *img_kn;  /* Normal texture. TODO: 16BIT color for TBN normalTexture compuation NOT accurate enough! */
 	float	    kn_scale;  /* Default 1.0f HK2023-01-24 */
 
@@ -589,7 +595,20 @@ public:
 	vector<PivotFrame> kframes;
 };
 
-/*--------------------------------------------------------------
+
+/*-----------------------------------------------------
+	     Class E3D_MeshMorphTarget
+
+------------------------------------------------------*/
+class E3D_MeshMorphTarget {
+public:
+	vector<E3D_Vector> positions;  /* Its size MUST be same as the morphed vertices */
+	vector<E3D_Vector> normals;
+	//TODO tangent, texcoord,color...
+};
+
+
+/*-----------------------------------------------------------------
         	Class: E3D_TriMesh
 
 Refrence:
@@ -598,15 +617,18 @@ Refrence:
 
 Note:
 1. In texture mapping, you'll have to separate a mesh by
-moving triangles with different uv values(one vtx has more
-than 1 uv value in this case) OR by moving vertice (more
-than 1 veritces have the same XYZ values in this case).
-So for the first case, triList[].vtx[].uv applys, and for
-the second case, vtxList[].uv applys.
-In E3D_TriMesh::renderMesh(), it reads UV from triList[].vtx[].uv.
+   moving triangles with different uv values(one vtx has more
+   than 1 uv value in this case) OR by moving vertice (more
+   than 1 veritces have the same XYZ values in this case).
+   So for the first case, triList[].vtx[].uv applys, and for
+   the second case, vtxList[].uv applys.
+   In E3D_TriMesh::renderMesh(), it reads UV from triList[].vtx[].uv.
 
-
----------------------------------------------------------------*/
+2. E3D_TriMesh::loadGLTF()  No animation data, all glMeshes merged
+   into one E3D_TriMesh, one primitive for one TriGroup.
+3. E3D_Scene::loadGLTF() with animation data, one glMesh for one
+   E3D_TriMesh, one primitive for one TriGroup.
+------------------------------------------------------------------*/
 class E3D_TriMesh {
 
 /* Friend Classes */
@@ -629,7 +651,10 @@ public:
 		E3D_Vector pt;
 
 		/* Texture Coord UV */
-		float u,v;  /* See class Note 1. DO NOT use this value, it's for temp. store ONLY? see loadGLTF() */
+		float u,v;  /*** See class Note 1.
+			     *			!!!--- CAUTION ---!!!
+			     * DO NOT use this value, it's for temp. store ONLY? see E3D_Scene::loadGLTF(), E3D_TriMesh::loadGLTF().
+			     */
 
 		/* Normal vector. Normalized!
 		 * Note:
@@ -705,11 +730,23 @@ public:
 
 	/* :: Class Material --- See Class E3D_Material */
 
+	/* :: Class MorphTarget HK2023-02-27 */
+	class  MorphTarget {
+	public:
+		/* each_itme.size MUST be same as THIS.mweights.size */
+		vector<E3D_Vector> positions;  /* Vertex position */
+		vector<E3D_Vector> normals;    /* Vertex normal ... */
+		//TODO tangent, texcoord,color...
+	};
+
 	/* :: Class TriGroup, NOT for editting!!!  */
 	/* Note:
 	 *	1. All TriGroups are under the same object/global COORD!
 	 *	2. For vector application: !!!--- Caution for Pointer Memebers if any ---!!!
 	 *	3. No pointer member!
+	 *      4. For glTF, one glMesh.primitive converts to one TriGroup.
+	 *      5. For glTF, pivot/omat is not used. glMesh.primitive can morph ONLY, while glMesh can
+		   transform by (joints)nodes hierarchically.
 	 */
 	class TriGroup {
 	public:
@@ -781,6 +818,11 @@ public:
 		unsigned int	etidx;  	/* End index of triList[], NOT incuded!!!
 				 		 * !!! CAUTION !!!  eidx=sidex+tricnt !!!
 						 */
+
+		vector<MorphTarget>   morphs;   /* morphtarget list. HK2023-02-27
+						 * 1. morphs.size MUST be same as the morphed vertices.
+						 * 2. Refer to glMesh.primitive.morphs
+						 */
 	};
 
 	/* :: Class OptimationParameters */
@@ -832,6 +874,8 @@ public:
 	/* Function: Count vertices and triangles */
 	int vtxCount() const;
 	int triCount() const;
+	int vtxCapacity() const; /* HK2023-02-15 */
+	int triCapacity() const;
 
 	/* Function: Get AABB size */
 	float AABBxSize();
@@ -933,7 +977,8 @@ public:
 
 	bool rayBlocked(const E3D_Ray &ray) const;
 
-private:
+//private:
+public:		/* HK2023-02-16  E3D_Scene::loadGLTF() need direct access to modify. */
 	/* All members inited at E3D_TriMesh() */
 	E3D_Vector 	vtxscenter;	/* Center of all vertices, NOT necessary to be sAABB center! */
 
@@ -958,13 +1003,19 @@ private:
 					 * Free by 'delete [] triList', in ~E3D_TriMesh()
 					 */
 
+
 public:
+	vector<float>  mweights;	/* Morph weights, to apply for TriGroup.morphs HK2023-02-27
+					   Refer to glMesh.mweights
+					 */
+
 	int		instanceCount;	/* Instance counter */
 
 	AABB		aabbox;		/* Axially aligned bounding box */
 	//int mcnt;
 //TODO	E3D_RTMatrix    VRTMat;		/* Combined Rotation/Translation Matrix. */
-	E3D_RTMatrix    objmat;		/* Orientation/Position of the TriMesh object relative to Global/System COORD.
+	E3D_RTMatrix    objmat;		/* Rotation/Translation Matrix.  !!! --- MAY include scale factors --- !!!
+					 * Orientation/Position of the TriMesh object relative to Global/System COORD.
 					 * 1. Init as identity() in initVars().
 					 * 2. moveAabbCenterToOrigin() will reset objmat.pmat[9-11] all as 0.0!
 					 * ??? Necessary ???  NOW an *.obj file contains only 1 object with N triGroups.
@@ -980,12 +1031,22 @@ public:
 					 *    TODO: NOT good to replace/restore E3D_TRIMESH.objmat in E3D_MeshInstacne::renderMeshInstance().
 					 */
 
+	// E3D_RTMatrix   objScaleMat;
+					 /* ONLY scale paramers in the pmat[].
+					  * Apply sequence:  pxyz*objScaleMat*objmat
+					  * 		   !!! --- CAUTION --- !!!
+					  * Scale matrix SHOULD NOT be used for normal vector operations!
+					  * ONLY a uniform scale operation(ScaleX=ScaleY=ScaleZ) for vertices can keep face normals unchanged!
+					  */
+
 	E3D_Material	defMaterial;	/* Default material:
 					 * 1. If mtlList[] is empty, then use this as default material
 					 * 2. defMaterial.img_kd re_assigned to textureImg in E3D_TriMesh::readTextureImage()
 				         */
 
-	vector<E3D_Material>  mtlList;	/* Material list. */
+	vector<E3D_Material>  mtlList;	/* Material list.
+					 * Note: For glTF object, materials of all (Tri)Meshes are grouped together.
+					 */
 	vector<TriGroup>  triGroupList;	/* trimesh group array
 					 * 1. At least one TriGroup, including all triangles.
 					 * 2. If there's NO triGroup explictly defined in .obj file, then all mesh belongs to
@@ -993,7 +1054,7 @@ public:
 					 *    otherwise use defMaterial.
 					 */
 
-	E3D_SHADE_TYPE   shadeType;	/* Rendering/shading type, default as FLAT_SHADING */
+	enum E3D_SHADE_TYPE   shadeType;	/* Rendering/shading type, default as FLAT_SHADING : >>>>>> */
 	EGI_IMGBUF 	*textureImg;	/* Texture imgbuf
 					 * 1. E3D_TriMesh::readTextureImage() to read image, and then
 					 *    assign it to defMaterial.img_kd.
@@ -1017,6 +1078,7 @@ public:
 };
 
 
+#if 0 /////////////////////// move to e3d_scene.h 2023-02-09 ////////////////////////////////////
 /*----------------------------------------------
         Class: E3D_MeshInstance
 Instance of E3D_TriMesh.
@@ -1095,5 +1157,8 @@ public:
 private:
 
 };
+#endif  ///////////////////////////////////////////////////////////////////
+
+
 
 #endif

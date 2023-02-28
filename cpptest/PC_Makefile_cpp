@@ -53,9 +53,14 @@ E3D_OBJS = e3d_vector.o
 E3D_OBJS += e3d_trimesh.o
 E3D_OBJS += e3d_volumes.o
 E3D_OBJS += e3d_animate.o
+E3D_OBJS += e3d_glTF.o
+E3D_OBJS += e3d_scene.o
+
 
 ### TODO depending file list
 DEP_FILES = e3d_trimesh.h e3d_trimesh.cpp e3d_vector.h e3d_vector.cpp e3d_volumes.h e3d_volumes.cpp  e3d_animate.h e3d_animate.cpp
+DEP_FILES += e3d_glTF.h e3d_glTF.cpp
+DEP_FILES += e3d_scene.h e3d_scene.cpp
 
 CPP=gcc
 
@@ -105,6 +110,26 @@ ifeq ($(EGILIB),static)
 else
 	$(CPP) -o e3d_animate.o  e3d_animate.cpp $(CPPFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
 endif
+
+###  E3D_Scene  ###
+e3d_scene.o:  e3d_scene.h e3d_scene.cpp
+ifeq ($(EGILIB),static)
+	$(CPP) -c -o e3d_scene.o e3d_scene.cpp $(CPPFLAGS) $(LDFLAGS) \
+-Wl,-Bstatic -legi -Wl,-Bdynamic $(LIBS)
+else
+	$(CPP) -o e3d_scene.o  e3d_scene.cpp $(CPPFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
+endif
+
+###  E3D_glTF  ###
+e3d_scene.o:  e3d_glTF.h e3d_glTF.cpp
+ifeq ($(EGILIB),static)
+	$(CPP) -c -o e3d_glTF.o e3d_glTF.cpp $(CPPFLAGS) $(LDFLAGS) \
+-Wl,-Bstatic -legi -Wl,-Bdynamic $(LIBS)
+else
+	$(CPP) -o e3d_glTF.o  e3d_glTF.cpp $(CPPFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
+endif
+
+
 
 
 all:    $(APPS)

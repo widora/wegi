@@ -14,11 +14,12 @@ Reference:
    http://gltf.com, https://www.cgtrader.com
 3. Relations of top_leve glTF array.
 
-   Scene ---> node ---> mesh(s) ---> accessor(s) ---> bufferView(s) ---> buffer(s)
-		    	    |
-			    | ---> material(s) ---> texture(s) ---> image(s) ---> bufferViews(s)
-							|
-							|---> sampler(s)
+
+   Scene ---> rootnodes ---> node ---> mesh(s) ---> accessor(s) ---> bufferView(s) ---> buffer(s)
+	                      |          |
+	            node/camera/..       | ---> material(s) ---> texture(s) ---> image(s) ---> bufferViews(s)
+					  			     |
+								     |---> sampler(s)
 
 
 	       |---> mesh(s) ....
@@ -49,8 +50,16 @@ glPrimitive ---------> glMaterials ---> glPBRMetallicRoughness ---> glTextrueInf
 		      				                        |
                                                                         |--->glPrimitiveAttribute.TEXCOORD_x
 
-   A scene: TODO
-   A node: TODO
+
+  	(((  ----- Animation Roadmap  ----- )))
+
+glAnimation ---> glAnimChannels  ---> glAnimChanTarget ---> node and TRS type.
+		                |
+                  	        |---> glAnimChanSampler ---> accessor indices for keyframe timestamps and TRS data.
+
+
+   A scene: Containing a list of rootnodes.
+   A node: a node can be a node, or a camera, or a mesh, and it's provided with matrix to define its orientation/position.
    A mesh: To define its primitives and attributes relating to accessors.
         data relating to accessors:
 	primitive: indices, materials   (all accessor_indices)
@@ -100,6 +109,22 @@ Journal:
 	1. E3D_glPrimitiveAttributes: multiple texcoord[] and color[]
 2023-01-04:
 	1. Add E3D_glLoadNormalTextureInfo()
+2023-02-12:
+	1. Add E3D_glNode::E3D_glNode()
+	2. Add E3D_glAnimSampler::E3D_glAnimSampler()
+2023-02-13:
+	1. Add E3D_glLoadNodes()
+	2. Add E3D_glNode::print()
+2023-02-14:
+	1. Add Class E3D_glScene and E3D_glLoadScenes()
+2023-02-22:
+	1. Add E3D_glAnimChanSampler,E3D_glAnimChanTarget,E3D_glAnimChannel,E3D_glAnimation
+	2. Add E3D_glLoadAnimations(), E3D_glLoadAnimChanSamplers(), E3D_glLoadAnimChannels(), E3D_glLoadAnimChanTarget()
+2023-02-27:
+	1. E3D_glLoadMeshes(): Read 'weights'
+	2. Add class E3D_glMorphTarget.
+	3. Add E3D_glLoadMorphTargets().
+	4. E3D_glLoadPrimitives(): Load morphs/targets
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -244,11 +269,33 @@ E3D_glPrimitive::E3D_glPrimitive()
    indicesAccIndex=-1;
    materialIndex=-1;
    mode=4;   /* 4--Triangles */
-   //targets
+
    //extensions;
    //extras;
 }
 
+
+		/*-------------------------------------
+                         Class E3D_glMorphTarget
+                -------------------------------------*/
+
+/*---------------------------------------
+   Class E3D_glMorphTarget
+Mesh morph target.
+---------------------------------------*/
+E3D_glMorphTarget::E3D_glMorphTarget()
+{
+	/* Init index of accessor */
+        positionAccIndex=-1;
+        normalAccIndex=-1;
+        tangentAccIndex=-1;
+
+	for(int k=0; k<PRIMITIVE_ATTR_MAX_TEXCOORD; k++)
+        	texcoord[k]=-1;
+	for(int k=0; k<PRIMITIVE_ATTR_MAX_COLOR; k++)
+	        color[k]=-1;
+
+}
 
 		/*-------------------------------
         		Class E3D_glBuffer
@@ -302,6 +349,59 @@ E3D_glBufferView::E3D_glBufferView()
 
 	data=NULL; /* NOT the Owner */
 }
+
+
+		/*-------------------------------
+        		Class E3D_glNode
+		--------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_glNode::E3D_glNode()
+{
+	/* Init */
+	type=glNode_Node;
+
+	cameraIndex=-1;  /* -1 as none */
+	skinIndex=-1;
+	meshIndex=-1;
+
+	//matrix   identity
+	matrix_defined=false;
+
+	//qrot	   identity
+	//transX=transY=transZ=0.0f;
+	/* NOTE: qt = qrot+transXYZ  */
+	SRT_defined=false;
+
+	//scaleX=scaleY=scaleZ=1.0f;
+	/* Note: scaleMat has scaleXYZ only */
+}
+
+/*-----------------------
+   E3D_glNode::print()
+-----------------------*/
+void E3D_glNode::print()
+{
+	printf("Node name: %s\n", name.c_str());
+	printf("Type=%d\n", type);
+	printf("Number of children: %d\n", children.size());
+	if(children.size()>0) {
+		printf("Children list: \n     [");
+		for(size_t k=0; k<children.size(); k++)
+			printf("%d, ", children[k]);
+		printf("]\n");
+	}
+
+	printf("cameraIndex=%d, skinIndex=%d, meshIndex=%d\n", cameraIndex, skinIndex, meshIndex);
+
+	matrix.print("matrix");
+	qt.print("qt(Rotation+Translation)");
+	scaleMat.print("scaleMatrix");
+
+}
+
 
 
 		/*-------------------------------
@@ -363,6 +463,38 @@ E3D_glSampler::E3D_glSampler()
 	wrapS=10497;
 	wrapT=10497;
 }
+
+
+		/*------------------------------------
+        		Class E3D_glAnimChanSampler
+		------------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_glAnimChanSampler::E3D_glAnimChanSampler()
+{
+	/* Init */
+	input=-1;
+	interpolation=AnimInterpolation_Linear;
+	output=-1;
+
+}
+
+		/*------------------------------------
+        		Class E3D_glAnimChanTarget
+		------------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_glAnimChanTarget::E3D_glAnimChanTarget()
+{
+	/* Init */
+	pathType=-1;
+}
+
+
 
 		/*------------------------------------
         		Class E3D_glTexture
@@ -588,7 +720,7 @@ Note: 1. Returned strvalue is the string after token ':', it also includes the
 		2. If the VALUE is Json object or array, then {} OR [] keeps in strval.
 		   TODO: if scalars in [], strip []?,  Example: "Color" : [0.263, 0.443, 0.312]
 			 OR if string in []: "Color": [ "magenta", "blue", "cyan" ]
-		   OK,keep it!
+		   -----OK,keep it!
 
 		3. Or if scalar, no stok/etok.
 		4. Or true, false, null.
@@ -1381,6 +1513,98 @@ int color;		( Json name "COLOR_0" )
 
 
 /*------------------------------------------------
+Parse JTargeets and load data to glTargets
+
+	 !!! --- CAUTION --- !!!
+Input glTargets SHOULD be empty! Since it has pointer
+members, vector capacity growth is NOT allowed here!
+
+@JTargets: Json description for glTF key 'targets'.
+@glTargets: To pass out Vector <E3D_glTargets>
+
+JTargets Example:
+  "targets": <<--- This part NOT included in JPRrimitives --->>
+      [
+            {
+                "POSITION" : 5,
+                "NORMAL" : 6
+            },
+            {
+                "POSITION" : 7,
+                "NORMAL" : 8
+            },
+            {
+                "POSITION" : 9,
+                "NORMAL" : 10
+            },
+	...
+      ]
+
+Return:
+	>0	OK, number of E3D_glTarget loaded.
+	<0	Fails
+-------------------------------------------------*/
+int E3D_glLoadMorphTargets(const string & JTargets, vector<E3D_glMorphTarget> & glTargets)
+{
+	vector<string>  JTObjs; /* Json description for n JTarget, each included in a pair of { } */
+	string Jitem;	/* Json description for a E3D_glMorphTarget. */
+
+	int nj=0;	/* Items in JTargets */
+
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	/* Check  */
+	if(!glTargets.empty())
+		egi_dpstd(DBG_YELLOW"Input glTargets SHOULD be empty, it will be cleared/resized!\n"DBG_RESET);
+
+	/* Extract all Json morph target objects and put to JTObjs */
+	E3D_glExtractJsonObjects(JTargets, JTObjs);
+
+	/* Get size */
+	nj=JTObjs.size();
+	egi_dpstd(DBG_GREEN"Totally %d glMorphTarget Json objects found.\n"DBG_RESET, nj);
+	if(nj<1) return 0;
+
+	/* Resize glTargets, which assume as empty NOW. */
+	glTargets.resize(nj);
+
+	/* Parse Json object of glTarget item by itme */
+	for(int k=0; k<nj; k++) {
+		/* Json descript for a target */
+		pstr=(char *)JTObjs[k].c_str();
+		//printf("pstr: %s\n", pstr);
+
+/*--------------------------------------------------------------------
+  int positionAccIndex;    (Json name "POSITION")
+  int normalAccIndex;	   (Json name "NORMAL")
+//TODO  int tangentAccIndex;	   (Json name "TANGENT")
+//TODO  int texcoord[];	   (Json name "TEXCOORD_n")
+//TODO  int color[]	   (Json name "COLOR_n")
+---------------------------------------------------------------------*/
+
+		/* Read and parse key/value pairs */
+		while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+			//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+			if(!key.compare("POSITION"))
+				 glTargets[k].positionAccIndex=atoi(value.c_str());
+			if(!key.compare("NORMAL"))
+				 glTargets[k].normalAccIndex=atoi(value.c_str());
+			else
+				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+		}
+
+		/* TODO Check data integrity */
+
+	} /*END for() */
+
+	/* OK */
+	return nj;
+}
+
+
+/*------------------------------------------------
 Parse JPrimitives and load data to glPrimitives
 
 	 !!! --- CAUTION --- !!!
@@ -1468,6 +1692,10 @@ int E3D_glLoadPrimitives(const string & JPrimitives, vector<E3D_glPrimitive> & g
 				 glPrimitives[k].materialIndex=atoi(value.c_str());
 			else if(!key.compare("mode"))
 				 glPrimitives[k].mode=atoi(value.c_str());
+			else if(!key.compare("targets")) {
+				if( E3D_glLoadMorphTargets(value, glPrimitives[k].morphs)<1 )
+					egi_dpstd(DBG_RED"Fail to load morph targets in: %s\n"DBG_RESET, value.c_str());
+			}
 			else
 				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
 		}
@@ -1556,7 +1784,7 @@ int E3D_glLoadMeshes(const string & JMeshes, vector <E3D_glMesh> & glMeshes)
 E3D_glMesh
 	string name;
         vector<E3D_glPrimitive>  primitives;   -----> glTF Json name "primitives"
-	//weights;
+	vector<float> weights;
 	//extensions;
 	//extras;
 
@@ -1593,6 +1821,21 @@ E3D_glPrimitiveAttribute
 				/* Load primitives */
 				if( E3D_glLoadPrimitives(value, glMeshes[k].primitives)<1 )
 					egi_dpstd(DBG_RED"Fail to load glPrimitives in: %s\n"DBG_RESET, value.c_str());
+			}
+			else if(!key.compare("weights")) {
+                                char *tmpstr=new char[value.size()+1];
+                                if(tmpstr==NULL) return -1;
+                                strncpy(tmpstr,value.c_str(),value.size());
+
+                                char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
+                                while(pt!=NULL) {
+                                        glMeshes[k].mweights.push_back(atof(pt));
+
+                                        pt=strtok(NULL, ",");
+                                }
+
+                                /* Free */
+                                delete [] tmpstr;
 			}
 			else
 				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
@@ -2239,6 +2482,795 @@ int E3D_glLoadImages(const string & JImages, vector <E3D_glImage> & glImages)
 	   #endif
 
 	} /* End for(k) */
+
+
+	/* OK */
+	return nj;
+}
+
+
+/*------------------------------------------------
+Parse JNodes and load data to glNodes
+
+	 !!! --- CAUTION --- !!!
+Input glNodes SHOULD be empty! Since it has pointer
+members, vector capacity growth is NOT allowed here!
+
+@JNodes: Json description for glTF key 'nodes'.
+@glNodes: To pass out Vector <E3D_glNode>
+
+JNodes Example:
+  "nodes": <<--- This part NOT included in JNodes --->>
+   [
+        {
+            "children": [
+                1
+            ],
+            "rotation": [
+                -0.0,
+                -0.0,
+                -0.0,
+                -1.0
+            ]
+        },
+        {
+            "children": [
+                2
+            ]
+        },
+        {
+            "mesh": 0,
+            "rotation": [
+                -0.0,
+                -0.0,
+                -0.0,
+                -1.0
+            ]
+        },
+        {
+            "mesh": 1
+        }
+    ]
+
+    -----  CAUTION -----
+    "mesh" and "skin: MAY show at same time!
+
+   TODO: see case " if(!key.compare("skin")) "
+        {
+            "mesh" : 0,
+            "name" : "aerobatic_plane.2",
+            "skin" : 0
+        },
+   ...
+
+Return:
+	>0	OK, number of E3D_glNodes loaded.
+	<0	Fails
+-------------------------------------------------*/
+int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
+{
+	vector<string>  JNObjs; /* Json description for n JNodes, each included in a pair of { } */
+	string Jitem;	/* Json description for a E3D_glNode. */
+
+	int nj=0;	/* Items in JNObjs  */
+
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	/* Check  */
+	if(!glNodes.empty())
+		egi_dpstd(DBG_YELLOW"Input glNodes SHOULD be empty, it will be cleared/resized!\n"DBG_RESET);
+
+	/* Extract all Json node objects and put to JNObjs */
+	E3D_glExtractJsonObjects(JNodes, JNObjs);
+
+	/* Get size */
+	nj=JNObjs.size();
+	egi_dpstd(DBG_GREEN"Totally %d glNode Json objects found.\n"DBG_RESET, nj);
+	if(nj<1) return 0;
+
+	/* Resize glNodes, which assume as empty NOW. */
+	glNodes.resize(nj);
+
+	/* Parse Json object of glNodes item by itme */
+	for(int k=0; k<nj; k++) {
+		/* Json descript for a node */
+		pstr=(char *)JNObjs[k].c_str();
+		//printf("pstr: %s\n", pstr);
+
+/*--------------------------------------------------------------------
+   int   cameraIndex;       (Json name "camera")
+   vector<int>  children;   (Json name "children")
+   int   skinIndex;         (Json name "skin")
+   int   meshIndex;         (Json name "mesh")
+   E3D_RTMatrix   matrix;   (Json name "matrix", in column_major order)
+
+   E3D_Quatrix     qt;
+			    (qt.quaterion,  Json name "rotation"   number[4]float)
+			    (qt.translaton, Json name "translation"  number[3]float)
+   E3D_RTMatrix  scaleMat;  (scaleMat-scaleXYZ: Jsone name "scale"  number[3]float)
+
+   //weights TODO
+   string     name;         (Json name "name")
+
+   //extensions;
+   //extras;
+---------------------------------------------------------------------*/
+
+		/* Read and parse key/value pairs */
+		while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+			//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+			if(!key.compare("name")) {
+				glNodes[k].name=value;
+			}
+			else if(!key.compare("children")) {
+				char *tmpstr=new char[value.size()+1];
+				if(tmpstr==NULL) return -1;
+				strncpy(tmpstr,value.c_str(),value.size());
+
+				char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
+				while(pt!=NULL) {
+					glNodes[k].children.push_back(atoi(pt));
+
+					pt=strtok(NULL, ",");
+				}
+
+				/* Free */
+				delete [] tmpstr;
+			}
+			else if(!key.compare("camera")) {
+				glNodes[k].cameraIndex=atoi(value.c_str());
+				/* Set type. default as glNode_Node */
+				glNodes[k].type = glNode_Camera;
+			}
+			else if(!key.compare("skin")) {
+				glNodes[k].skinIndex=atoi(value.c_str());
+				/* TODO: Set type. see NOTE. */
+				if( glNodes[k].type<0 )
+				   glNodes[k].type = glNode_Skin;
+			}
+			else if(!key.compare("mesh")) {
+				glNodes[k].meshIndex=atoi(value.c_str());
+				/* Set type */
+				glNodes[k].type = glNode_Mesh;
+			}
+			else if(!key.compare("matrix")) {
+				/* set matrix_defined */
+				glNodes[k].matrix_defined=true;
+
+				int idx=0;
+
+				float data[4*4];
+				for(int j=0; j<16; j++)
+					data[j]=0.0f;
+
+                                char *tmpstr=new char[value.size()+1];
+                                if(tmpstr==NULL) return -1;
+                                strncpy(tmpstr,value.c_str(),value.size());
+
+                                char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
+                                while(pt!=NULL && idx<16 ) {
+					data[idx]=atof(pt);
+					idx++;
+
+                                        pt=strtok(NULL, ",");
+                                }
+
+		#if 0 /* TEST: --------- */
+				printf(" ==== data[4*4] ====\n");
+				for(int j=0; j<16; j++)
+					printf("%f ", data[j]);
+				printf("\n");
+		#endif
+
+				/* Extract pmat[] rotation_part(3*3) from 4*4 matrix */
+				for(int j=0; j<3; j++)  {
+				   for(int jj=0; jj<3; jj++)
+                                       glNodes[k].matrix.pmat[j*3+jj]=data[j*4+jj];
+				}
+
+				/* Conver from column-major to row-major */
+				glNodes[k].matrix.transpose();
+
+				/* Extract pamt[] translation_part (xyz) */
+				for(int j=0; j<3; j++)
+					glNodes[k].matrix.pmat[3*3+j]=data[4*3+j];
+
+				/* Free */
+                                delete [] tmpstr;
+			}
+			else if(!key.compare("rotation")) {   /* value example: [0.0, 0.7071067, -0.7071068, 0.0]  */
+				/* set SRT_defined */
+				glNodes[k].SRT_defined=true;
+
+				int idx=0;
+
+				float data[4]; /* quaterion: x,y,z,w */
+				for(int j=0; j<4; j++)
+					data[j]=0.0f;
+
+                                char *tmpstr=new char[value.size()+1];
+                                if(tmpstr==NULL) return -1;
+                                strncpy(tmpstr,value.c_str(),value.size());
+
+                                char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
+                                while(pt!=NULL && idx<4 ) {
+					data[idx]=atof(pt);
+					idx++;
+
+                                        pt=strtok(NULL, ",");
+                                }
+
+				/* Set E3D_Quatrix qt.quaterion */
+				glNodes[k].qt.q.x=data[0];
+				glNodes[k].qt.q.y=data[1];
+				glNodes[k].qt.q.z=data[2];
+				glNodes[k].qt.q.w=data[3];
+
+				/* Free */
+				delete [] tmpstr;
+			}
+			else if(!key.compare("translation")) {
+				/* set SRT_defined */
+				glNodes[k].SRT_defined=true;
+
+				int idx=0;
+
+				float data[3]; /* translation x,y,z */
+				for(int j=0; j<3; j++)
+					data[j]=0.0f;
+
+                                char *tmpstr=new char[value.size()+1];
+                                if(tmpstr==NULL) return -1;
+                                strncpy(tmpstr,value.c_str(),value.size());
+
+                                char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
+                                while(pt!=NULL && idx<3) {
+					data[idx]=atof(pt);
+					idx++;
+
+                                        pt=strtok(NULL, ",");
+                                }
+
+				/* Set E3D_Quatrix qt.translation */
+				glNodes[k].qt.tx=data[0];
+ 				glNodes[k].qt.ty=data[1];
+				glNodes[k].qt.tz=data[2];
+
+				/* Free */
+				delete [] tmpstr;
+
+			}
+			else if(!key.compare("scale")) {
+				/* set SRT_defined */
+				glNodes[k].SRT_defined=true;
+
+				int idx=0;
+
+				float data[3]; /* scale sx,sy,sz */
+				for(int j=0; j<3; j++)
+					data[j]=1.0f;
+
+                                char *tmpstr=new char[value.size()+1];
+                                if(tmpstr==NULL) return -1;
+                                strncpy(tmpstr,value.c_str(),value.size());
+
+                                char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
+                                while(pt!=NULL && idx<3) {
+					data[idx]=atof(pt);
+					idx++;
+
+                                        pt=strtok(NULL, ",");
+                                }
+
+				/* Set scale matrix */
+				glNodes[k].scaleMat.setScaleXYZ(data[0],data[1],data[2]);
+
+				/* Free */
+				delete [] tmpstr;
+
+			}
+			else
+				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+		}
+
+		/* TODO Check data integrity */
+
+		/* Compute pmat */
+		if(glNodes[k].SRT_defined) {
+			E3D_RTMatrix RTmat;
+			glNodes[k].qt.toMatrix(RTmat);
+			glNodes[k].pmat=glNodes[k].scaleMat*RTmat;
+		}
+		else if(glNodes[k].matrix_defined) {
+			glNodes[k].pmat=glNodes[k].matrix;
+		}
+
+	} /*END for() */
+
+
+	/* OK */
+	return nj;
+}
+
+
+/*------------------------------------------------
+Parse JScenes and load data to glScenes
+
+	 !!! --- CAUTION --- !!!
+Input glScenes SHOULD be empty! If it has pointer
+members, vector capacity growth is NOT allowed here!
+
+@JScenes: Json description for glTF key 'scenes'.
+@glScenes: To pass out Vector <E3D_glScene>
+
+JScenes Example:
+  "scenes": <<--- This part NOT included in JScenes --->>
+   [
+    	{
+	      "nodes": [ 3 ]
+        }
+	{
+	      "nodes": [4,5]
+	}
+	....
+    ]
+
+
+Return:
+	>0	OK, number of E3D_glScene loaded.
+	<0	Fails
+-------------------------------------------------*/
+int E3D_glLoadScenes(const string & JScenes, vector <E3D_glScene> & glScenes)
+{
+
+	vector<string>  JSObjs; /* Json description for n JScene, each included in a pair of { } */
+	string Jitem;	/* Json description for a E3D_glScenes. */
+
+	int nj=0;	/* Items in JScenes  */
+
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	/* Check  */
+	if(!glScenes.empty())
+		egi_dpstd(DBG_YELLOW"Input glScenes SHOULD be empty, it will be cleared/resized!\n"DBG_RESET);
+
+	/* Extract all Json node objects and put to JSObjs */
+	E3D_glExtractJsonObjects(JScenes, JSObjs);
+
+	/* Get size */
+	nj=JSObjs.size();
+	egi_dpstd(DBG_GREEN"Totally %d glScene Json objects found.\n"DBG_RESET, nj);
+	if(nj<1) return 0;
+
+	/* Resize glScenes, which assume as empty NOW. */
+	glScenes.resize(nj);
+
+	/* Parse Json object of glScenes item by itme */
+	for(int k=0; k<nj; k++) {
+		/* Json descript for a scene */
+		pstr=(char *)JSObjs[k].c_str();
+		//printf("pstr: %s\n", pstr);
+
+/*--------------------------------------------------------------------
+   string          name;	       (Json name "name")
+   vector<int>     rootNodeIndice;     (Json name "nodes")
+
+   //extensions;
+   //extras;
+---------------------------------------------------------------------*/
+
+		/* Read and parse key/value pairs */
+		while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+			//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+			if(!key.compare("name")) {
+				glScenes[k].name=value;
+			}
+			else if(!key.compare("nodes")) {
+				char *tmpstr=new char[value.size()+1];
+				if(tmpstr==NULL) return -1;
+				strncpy(tmpstr,value.c_str(),value.size());
+
+				char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
+				while(pt!=NULL) {
+					glScenes[k].rootNodeIndices.push_back(atoi(pt));
+
+					pt=strtok(NULL, ",");
+				}
+
+				/* Free */
+				delete [] tmpstr;
+			}
+			else
+				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+		}
+
+		/* TODO Check data integrity */
+
+	} /*END for() */
+
+
+	/* OK */
+	return nj;
+}
+
+
+
+/*------------------------------------------------
+Parse JAnimChanTarget and load data to glAnimTarget
+
+@JAnimChanTarget: Json description for glTF key 'target'.
+@glAnimChanTarget: To pass out
+
+JAnimChanTarget Example:
+  "target": <<--- This part NOT included in JAnimations --->>
+    {
+           "node": 2,
+           "path": "rotation"
+    }
+
+Return:
+	>0	OK, number of E3D_glAnimChanTarget loaded.(ALWAYS 1)
+	<0	Fails
+-------------------------------------------------*/
+int E3D_glLoadAnimTarget(const string & JAnimChanTarget, E3D_glAnimChanTarget & glAnimChanTarget)
+{
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	if(JAnimChanTarget.empty())
+		return -1;
+
+	/* Json descript for a AnimChanTarget */
+	pstr=(char *)JAnimChanTarget.c_str();
+	//printf("pstr: %s\n", pstr);
+
+/*----------------------------------------------------
+	int     node;   (Json name "node")
+	string  path;   (Json name "path")
+	//Extensions
+	//extras
+----------------------------------------------------*/
+
+	/* Read and parse key/value pairs */
+	while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+		//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+		if(!key.compare("node")) {
+			glAnimChanTarget.node=atoi(value.c_str());
+		}
+		else if(!key.compare("path")) {
+			/* save path name */
+			glAnimChanTarget.path=value;
+			/* path type */
+			if(!value.compare("weights"))
+				glAnimChanTarget.pathType=ANIMPATH_WEIGHTS;
+			else if(!value.compare("translation"))
+                                glAnimChanTarget.pathType=ANIMPATH_TRANSLATION;
+			else if(!value.compare("rotation"))
+                                glAnimChanTarget.pathType=ANIMPATH_ROTATION;
+			else if(!value.compare("scale"))
+                                glAnimChanTarget.pathType=ANIMPATH_SCALE;
+			else
+				egi_dpstd(DBG_YELLOW"Undefined path name: '%s'\n"DBG_RESET, value.c_str());
+		}
+		else
+			egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+	}
+
+	/* TODO Check data integrity */
+
+	/* OK */
+	return 1;
+}
+
+
+/*------------------------------------------------
+Parse JAnimChanSamplers and load data to glAnimChanSamplers
+
+	 !!! --- CAUTION --- !!!
+Input glAnimChanSamplers SHOULD be empty! If it has pointer
+members, vector capacity growth is NOT allowed here!
+
+@JAnimChanSamplers: Json description for glTF key 'sampler'.
+@glAnimChanSamplers: To pass out Vector <E3D_glAnimChanSampler>
+
+JAnimChanSampler Example:
+  "samplers": <<--- This part NOT included in JAnimations --->>
+   [
+      {
+           "input": 6,
+           "interpolation": "LINEAR",
+           "output": 7
+       },
+       {
+           "input": 8,
+           "interpolation": "LINEAR",
+           "output": 9
+       }
+    ]
+
+Return:
+	>0	OK, number of E3D_glAnimChanSamplers loaded.
+	<0	Fails
+-------------------------------------------------*/
+int E3D_glLoadAnimChanSamplers(const string & JAnimChanSamplers, vector <E3D_glAnimChanSampler> & glAnimChanSamplers)
+{
+	vector<string>  JAObjs; /* Json description for n JAnimChanSamplers, each included in a pair of { } */
+	string Jitem;	/* Json description for a E3D_glAnimChanSampler. */
+
+	int nj=0;	/* Items in JAnimChanSamplers */
+
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	/* Check  */
+	if(!glAnimChanSamplers.empty())
+		egi_dpstd(DBG_YELLOW"Input glAnimChanSamplers SHOULD be empty, it will be cleared/resized!\n"DBG_RESET);
+
+	/* Extract all Json node objects and put to JAObjs */
+	E3D_glExtractJsonObjects(JAnimChanSamplers, JAObjs);
+
+	/* Get size */
+	nj=JAObjs.size();
+	egi_dpstd(DBG_GREEN"Totally %d glAnimChanSampler Json objects found.\n"DBG_RESET, nj);
+	if(nj<1) return 0;
+
+	/* Resize glAnimChanSamplers, which assume as empty NOW. */
+	glAnimChanSamplers.resize(nj);
+
+	/* Parse Json object of glAnimChanSamplers item by itme */
+	for(int k=0; k<nj; k++) {
+		/* Json descript for a animChanSampler */
+		pstr=(char *)JAObjs[k].c_str();
+		//printf("pstr: %s\n", pstr);
+
+/*--------------------------------------------------------------------
+  int  input;			(Json name "input")
+  int  interpolation;		(Json name "interpolation")
+  int  output;			(Json name "output")
+
+   //extensions;
+   //extras;
+---------------------------------------------------------------------*/
+
+		/* Read and parse key/value pairs */
+		while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+			//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+			if(!key.compare("input")) {
+				glAnimChanSamplers[k].input=atoi(value.c_str());
+			}
+			if(!key.compare("interpolation")) {
+				glAnimChanSamplers[k].interpolation=atoi(value.c_str());
+			}
+			if(!key.compare("output")) {
+				glAnimChanSamplers[k].output=atoi(value.c_str());
+			}
+			else
+				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+		}
+
+		/* TODO Check data integrity */
+
+	} /*END for() */
+
+	/* OK */
+	return nj;
+}
+
+
+/*------------------------------------------------
+Parse JAnimChannels and load data to glAnimChannels
+
+	 !!! --- CAUTION --- !!!
+Input glAnimChannels SHOULD be empty! If it has pointer
+members, vector capacity growth is NOT allowed here!
+
+@JAnimChannels: Json description for glTF key 'channels'.
+@glAnimChannels: To pass out Vector <E3D_glAnimChannel>
+
+JAnimChannels Example:
+  "channels": <<--- This part NOT included in JAnimations --->>
+     [
+           {
+               "sampler": 0,
+               "target": {
+                   "node": 2,
+                   "path": "rotation"
+               }
+           },
+           {
+               "sampler": 1,
+               "target": {
+                   "node": 0,
+                   "path": "translation"
+               }
+           }
+   ]
+
+Return:
+	>0	OK, number of E3D_glAnimChannels loaded.
+	<0	Fails
+-------------------------------------------------*/
+int E3D_glLoadAnimChannels(const string & JAnimChannels, vector <E3D_glAnimChannel> & glAnimChannels)
+{
+	vector<string>  JAObjs; /* Json description for n JAnimChannel, each included in a pair of { } */
+	string Jitem;	/* Json description for a E3D_glAnimChannel. */
+
+	int nj=0;	/* Items in JAnimChannels */
+
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	/* Check  */
+	if(!glAnimChannels.empty())
+		egi_dpstd(DBG_YELLOW"Input glAnimChannels SHOULD be empty, it will be cleared/resized!\n"DBG_RESET);
+
+	/* Extract all Json node objects and put to JAObjs */
+	E3D_glExtractJsonObjects(JAnimChannels, JAObjs);
+
+	/* Get size */
+	nj=JAObjs.size();
+	egi_dpstd(DBG_GREEN"Totally %d glAnimChannel Json objects found.\n"DBG_RESET, nj);
+	if(nj<1) return 0;
+
+	/* Resize glAnimChannels, which assume as empty NOW. */
+	glAnimChannels.resize(nj);
+
+	/* Parse Json object of glAnimChannels item by itme */
+	for(int k=0; k<nj; k++) {
+		/* Json descript for a animChannel */
+		pstr=(char *)JAObjs[k].c_str();
+		//printf("pstr: %s\n", pstr);
+
+/*--------------------------------------------------------------------
+  int  samplerIndex;			(Json name "sampler")
+  E3D_glAnimChanTarget target;	        (Json name "target")
+
+   //extensions;
+   //extras;
+---------------------------------------------------------------------*/
+
+		/* Read and parse key/value pairs */
+		while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+			//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+			if(!key.compare("sampler")) {
+				glAnimChannels[k].samplerIndex=atoi(value.c_str());
+			}
+			else if(!key.compare("target")) {
+                                if( E3D_glLoadAnimTarget(value, glAnimChannels[k].target)<1 )
+                                        egi_dpstd(DBG_RED"glAnimChannels[%d]: Fail to load target in: %s\n"DBG_RESET, k, value.c_str());
+			}
+			else
+				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+		}
+
+		/* TODO Check data integrity */
+
+	} /*END for() */
+
+	/* OK */
+	return nj;
+}
+
+/*------------------------------------------------
+Parse JAnimations and load data to glAnimations
+
+	 !!! --- CAUTION --- !!!
+Input glAnimations SHOULD be empty! If it has pointer
+members, vector capacity growth is NOT allowed here!
+
+@JAnimations: Json description for glTF key 'animations'.
+@glAnimations: To pass out Vector <E3D_glAnimation>
+
+JAnimations Example:
+  "animations": <<--- This part NOT included in JAnimations --->>
+    [
+        {
+            "channels": [
+                {
+                    "sampler": 0,
+                    "target": {
+                        "node": 2,
+                        "path": "rotation"
+                    }
+                },
+                {
+                    "sampler": 1,
+                    "target": {
+                        "node": 0,
+                        "path": "translation"
+                    }
+                }
+            ],
+            "samplers": [
+                {
+                    "input": 6,
+                    "interpolation": "LINEAR",
+                    "output": 7
+                },
+                {
+                    "input": 8,
+                    "interpolation": "LINEAR",
+                    "output": 9
+                }
+            ]
+        }
+   ]
+
+Return:
+	>0	OK, number of E3D_glAnimations loaded.
+	<0	Fails
+-------------------------------------------------*/
+int E3D_glLoadAnimations(const string & JAnimations, vector <E3D_glAnimation> & glAnimations)
+{
+
+	vector<string>  JAObjs; /* Json description for n JAnimation, each included in a pair of { } */
+	string Jitem;	/* Json description for a E3D_glAnimation. */
+
+	int nj=0;	/* Items in JAnimations */
+
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	/* Check  */
+	if(!glAnimations.empty())
+		egi_dpstd(DBG_YELLOW"Input glAnimations SHOULD be empty, it will be cleared/resized!\n"DBG_RESET);
+
+	/* Extract all Json node objects and put to JAObjs */
+	E3D_glExtractJsonObjects(JAnimations, JAObjs);
+
+	/* Get size */
+	nj=JAObjs.size();
+	egi_dpstd(DBG_GREEN"Totally %d glAnimation Json objects found.\n"DBG_RESET, nj);
+	if(nj<1) return 0;
+
+	/* Resize glAnimations, which assume as empty NOW. */
+	glAnimations.resize(nj);
+
+	/* Parse Json object of glAnimations item by itme */
+	for(int k=0; k<nj; k++) {
+		/* Json descript for a animation */
+		pstr=(char *)JAObjs[k].c_str();
+		//printf("pstr: %s\n", pstr);
+
+/*--------------------------------------------------------------------
+   string          name;	       	        (Json name "name")
+   vector<E3D_glAnimChannel>       channels;    (Json name "channels")
+   vector<E3D_glAnimChanSampler>   samplers;    (Json name "samplers")
+
+
+   //extensions;
+   //extras;
+---------------------------------------------------------------------*/
+
+		/* Read and parse key/value pairs */
+		while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+			//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+			if(!key.compare("name")) {
+				glAnimations[k].name=value;
+			}
+			else if(!key.compare("channels")) {
+                                if( E3D_glLoadAnimChannels(value, glAnimations[k].channels)<1 )
+                                        egi_dpstd(DBG_RED"glAnimations[%d]: Fail to load channels in: %s\n"DBG_RESET, k, value.c_str());
+			}
+			else if(!key.compare("samplers")) {
+                                if( E3D_glLoadAnimChanSamplers(value, glAnimations[k].samplers)<1 )
+                                        egi_dpstd(DBG_RED"glAnimations[%d]: Fail to load samplers in: %s\n"DBG_RESET, k, value.c_str());
+			}
+			else
+				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+		}
+
+		/* TODO Check data integrity */
+
+	} /*END for() */
 
 
 	/* OK */
