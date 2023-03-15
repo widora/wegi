@@ -107,6 +107,9 @@ Journal:
 	1. Add print_ProjMatrix()
 2023-02-23:
 	1. E3D_Quatrix add member for scale: sx,sy,sz, and modify E3D_Quatrix::E3D_Quatrix() and E3D_Quatrix::print()
+2023-03-11:
+	1. E3D_RTMatrix::operator +=(ma), operator *(float a)
+	2. Non-class: E3D_RTMatrix operator* (float a, const E3D_RTMatrix & ma)
 
 TODO:
 1. acos(x)/asin(x) will return NaN if x is little bit out of [-1.0 1.0] ???
@@ -126,6 +129,11 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "e3d_vector.h"
 
 //using namespace std;
+
+/* Global vector/matrix HK2023-03-05 */
+const E3D_Vector    _zeroVector;  //Constructor default (0.0f, 0.0f, 0.0f);
+const E3D_RTMatrix  _identityMat; //Construct default
+const E3D_Quatrix   _identityQt;  //Construct default
 
 		/*---------------------------------
 	   	   Class E3D_Vector :: Functions
@@ -858,12 +866,46 @@ void E3D_RTMatrix::identity()
         pmat[9]=0;    pmat[10]=0;   pmat[11]=0;    /* txyz=0 */
 }
 
+
+/*----------------------------------------------
+Operator '=' with one operand
+-----------------------------------------------*/
+E3D_RTMatrix & E3D_RTMatrix::operator =(const E3D_RTMatrix & ma)
+{
+	/*** Note:
+	 * Rotation Matrix:
+	   pmat[0,1,2]: m11, m12, m13
+	   pmat[3,4,5]: m21, m22, m23
+	   pmat[6,7,8]: m31, m32, m33
+	 * Translation:
+	   pmat[9,10,11]: tx,ty,tz
+	 */
+	for(int i=0; i<12; i++)
+		pmat[i]=ma.pmat[i];
+
+	return *this;
+}
+
+/*----------------------------------------------
+Operator '+=' with one operand
+-----------------------------------------------*/
+E3D_RTMatrix & E3D_RTMatrix::operator +=(const E3D_RTMatrix & ma)
+{
+        for(int i=0; i<12; i++)
+                pmat[i] += ma.pmat[i];
+
+	return *this;
+}
+
+
 /*----------------------------------------------
 Multiply a matrix with a float
-m=m*a;
+ma=m*a;
 -----------------------------------------------*/
-E3D_RTMatrix & E3D_RTMatrix:: operator * (float a)
+E3D_RTMatrix E3D_RTMatrix::operator *(float a) const
 {
+	E3D_RTMatrix fmat;
+
 	/*** Note:
 	 * Rotation Matrix:
 	   pmat[0,1,2]: m11, m12, m13
@@ -874,10 +916,20 @@ E3D_RTMatrix & E3D_RTMatrix:: operator * (float a)
 	 */
 
 	for(int i=0; i<12; i++)
-		pmat[i] *= a;
+		fmat.pmat[i] = pmat[i]*a;
 
-	return *this;
+	return fmat;
 }
+
+/*----------------------------------------------
+Multiply a matrix with a float
+m=m*a;
+-----------------------------------------------*/
+E3D_RTMatrix operator *(float a, const E3D_RTMatrix & ma)
+{
+	return ma*a;
+}
+
 
 /*--------------------------
    Overload operator '*='

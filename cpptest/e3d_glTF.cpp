@@ -14,21 +14,22 @@ Reference:
    http://gltf.com, https://www.cgtrader.com
 3. Relations of top_leve glTF array.
 
+   data ---> accessorIndex ---> accessor(s) ---> bufferView(s) ---> buffer(s)accessor(s) ---> bufferView(s)
 
-   Scene ---> rootnodes ---> node ---> mesh(s) ---> accessor(s) ---> bufferView(s) ---> buffer(s)
-	                      |          |
-	            node/camera/..       | ---> material(s) ---> texture(s) ---> image(s) ---> bufferViews(s)
-					  			     |
-								     |---> sampler(s)
-
+   Scene ---> rootnodes ---> node ---> mesh(s) ---> primitive(s) --->primitiveAttribute ---> positionAccIndex,normalAccIndex,tangentAccIndex,
+	                      |          		|			      (other AccIndex: texcoord, color, skin_joints_x/weights_x...)
+		(type: mesh/node/camera/skin )	        |
+	            		                        | ---> material(s) ---> texture(s) ---> image(s) ---> bufferViews(s)
+										   |
+										   |---> sampler(s)
 
 	       |---> mesh(s) ....
 	       |
-	       |---> camera(s)
+	       |---> camera(s) ...
 	       |
    Scene ---> node(s) --->  skin(s) ---> accesors(s)
 	       |
-	       |---> node(s)
+	       |---> node(s) ...
 
 
 
@@ -53,9 +54,23 @@ glPrimitive ---------> glMaterials ---> glPBRMetallicRoughness ---> glTextrueInf
 
   	(((  ----- Animation Roadmap  ----- )))
 
-glAnimation ---> glAnimChannels  ---> glAnimChanTarget ---> node and TRS type.
+glAnimation ---> glAnimChannels  ---> glAnimChanTarget ---> node and TRS/Morph type.
 		                |
-                  	        |---> glAnimChanSampler ---> accessor indices for keyframe timestamps and TRS data.
+                  	        |---> glAnimChanSampler ---> accessor indices for keyframe timestamps and TRS/Morph data.
+
+
+
+  	(((  ----- Skin Roadmap  ----- )))
+
+Scene ---> node(type: skin) ----> glMesh_index ---> glMesh ---> primitive(s) --->primitiveAttribute ---> AccIndex for skin joints_x/weights_x
+		 	   |
+		           |----> glSkin_index ---> glSkin ---> ( continue see following)
+
+
+  ---> glSkin ----> joints(a skeleton/a set of nodes) ----> nodes  ----> node gmat  -------->>>>>((( glNode.jointMat=invMat*gmat )))
+        |
+        |----> inverseBindMatrices (to convert vertices under joint node's  COORD space) ---> node.invMat (see above)
+
 
 
    A scene: Containing a list of rootnodes.
@@ -75,6 +90,7 @@ Note:
 2. All units in glTF are meters and all angles are in radians.
 3. Positive rotation is counter_colockwise.
 4. All buffer data defined by glTF are in little endian byte order.
+5. glTF colume-major is E3D row-major order.
 
 TODO:
 1. NOW it supports baseColorTexture ONLY.
@@ -125,6 +141,15 @@ Journal:
 	2. Add class E3D_glMorphTarget.
 	3. Add E3D_glLoadMorphTargets().
 	4. E3D_glLoadPrimitives(): Load morphs/targets
+2023-03-08:
+	1. Add E3D_glSkin
+	2. Add E3D_glLoadSkins()
+2023-03-13:
+	1. Set terminating NULL to tmpstr:
+               char *tmpstr=new char[value.size()+1];
+               if(tmpstr==NULL) return -1;
+               tmpstr[value.size()]='\0';
+
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -156,6 +181,12 @@ using namespace std;
  */
 string glPrimitiveModeName[]={"Points", "Lines", "Line_Loop", "Line_Strip", "Triangles", "Triangle_strip", "Triangle_fan", "Unknown"};
 //vector<string> glPrimitiveTopologyMode(7);
+
+/* Referene instances */
+const vector<E3D_glNode>  _empty_glNodes;
+
+/* glNode Type list */
+const char *_strNodeTypes[] = {"node","mesh","camera","skin"};
 
 /*-----------------------------------------
 Return byte size of the element:
@@ -252,8 +283,10 @@ E3D_glPrimitiveAttribute::E3D_glPrimitiveAttribute()
         	texcoord[k]=-1;
 	for(int k=0; k<PRIMITIVE_ATTR_MAX_COLOR; k++)
 	        color[k]=-1;
-	//joints_0;
-	//weights_0;
+
+	/* skin */
+	joints_0=-1;
+	weights_0=-1;
 }
 
 
@@ -272,6 +305,18 @@ E3D_glPrimitive::E3D_glPrimitive()
 
    //extensions;
    //extras;
+}
+
+		/*-------------------------------
+		        Class E3D_glMesh
+		-------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_glMesh::E3D_glMesh()
+{
+    skinIndex=-1;
 }
 
 
@@ -367,6 +412,10 @@ E3D_glNode::E3D_glNode()
 	skinIndex=-1;
 	meshIndex=-1;
 
+	/* For skin */
+	IsJoint=false;
+	jointSkinIndex=-1;
+
 	//matrix   identity
 	matrix_defined=false;
 
@@ -402,6 +451,21 @@ void E3D_glNode::print()
 
 }
 
+
+
+		/*-------------------------------
+        		Class E3D_glSkin
+		--------------------------------*/
+
+/*--------------------
+   The constructor
+--------------------*/
+E3D_glSkin::E3D_glSkin()
+{
+	/* Init */
+	invbMatsAccIndex=-1;
+	skeleton=-1;
+}
 
 
 		/*-------------------------------
@@ -491,7 +555,7 @@ E3D_glAnimChanSampler::E3D_glAnimChanSampler()
 E3D_glAnimChanTarget::E3D_glAnimChanTarget()
 {
 	/* Init */
-	pathType=-1;
+	pathType=ANIMPATH_UNKNOWN; //-1;
 }
 
 
@@ -1310,6 +1374,8 @@ JAccessors Example:
     ...
   ]
 
+Note:
+TODO: To check integrity of data type/count/data_length... etc
 
 Return:
 	>0	OK, number of E3D_glAccessor loaded.
@@ -1396,7 +1462,7 @@ int E3D_glLoadAccessors(const string & JAccessors, vector <E3D_glAccessor> & glA
 			//OK, save elemsize as <0.
 		}
 
-		/* TODO Check data integrity */
+		/* TODO ------> Check data integrity */
 
 	} /*END for() */
 
@@ -1499,6 +1565,13 @@ int color;		( Json name "COLOR_0" )
 				if(nn>=0 && nn<PRIMITIVE_ATTR_MAX_COLOR)
 					glPAttributes.color[nn]=atoi(value.c_str());
 			}
+			/* HK2023-03-08: TODO NOW only suppports one primitive has one skin */
+			else if(!key.compare(0,8,"JOINTS_0")) {
+				glPAttributes.joints_0=atoi(value.c_str());
+			}
+			else if(!key.compare(0,9,"WEIGHTS_0")) {
+                                glPAttributes.weights_0=atoi(value.c_str());
+                        }
 			else
 				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
 		}
@@ -1825,6 +1898,8 @@ E3D_glPrimitiveAttribute
 			else if(!key.compare("weights")) {
                                 char *tmpstr=new char[value.size()+1];
                                 if(tmpstr==NULL) return -1;
+				tmpstr[value.size()]=0;
+
                                 strncpy(tmpstr,value.c_str(),value.size());
 
                                 char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
@@ -2432,7 +2507,7 @@ int E3D_glLoadImages(const string & JImages, vector <E3D_glImage> & glImages)
 			char *data=NULL;
 			int datasize;
                         try {
-	                       data=new char[strlen(pt+7)]; //actually use 2/3 size */
+	                       data=new char[strlen(pt+7)](); //actually use 2/3 size HK2023-03-13 */
                         }
                         catch ( std::bad_alloc ) {
                                 egi_dpstd("glImges[%d]:Fail to allocate data for base64 decoding!\n", k);
@@ -2456,6 +2531,9 @@ int E3D_glLoadImages(const string & JImages, vector <E3D_glImage> & glImages)
 			        egi_dpstd(DBG_RED"glImages[%d]:Fail to read imgbuf from uri embedded data!\n"DBG_RESET, k);
 				//return -1;
 			}
+			else
+			   egi_dpstd(DBG_GREEN"glImages[%d]: OK to read imgbuf from uri embedded data, image W*H=%d*%d\n"DBG_RESET,
+						k, glImages[k].imgbuf->width, glImages[k].imgbuf->height);
 
 			/* A dataURI */
 			glImages[k].IsDataURI=true;
@@ -2469,6 +2547,9 @@ int E3D_glLoadImages(const string & JImages, vector <E3D_glImage> & glImages)
 			    egi_dpstd(DBG_RED"glImages[%d]: Fail to read imgbuf from uri: %s\n"DBG_RESET, k, glImages[k].uri.c_str());
 			    //return -1;
 			}
+			else
+			   egi_dpstd(DBG_GREEN"glImages[%d]: OK to ead imgbuf from uri: '%s', image W*H=%d*%d\n"DBG_RESET,
+						k, glImages[k].uri.c_str(), glImages[k].imgbuf->width, glImages[k].imgbuf->height);
 
 			/* A dataURI */
                         glImages[k].IsDataURI=false;
@@ -2532,15 +2613,23 @@ JNodes Example:
         }
     ]
 
-    -----  CAUTION -----
-    "mesh" and "skin: MAY show at same time!
+Note:
+    !!!-----  CAUTION -----!!!
+    1. For a skin_node, key "skin" may appear after "mesh"!
 
-   TODO: see case " if(!key.compare("skin")) "
         {
+            "skin" : 0
+            "name" : "mesh_plane",
             "mesh" : 0,
-            "name" : "aerobatic_plane.2",
+        },
+		--- OR ---
+	{
+            "mesh" : 0,
+            "name" : "mesh_robot",
             "skin" : 0
         },
+
+
    ...
 
 Return:
@@ -2607,6 +2696,8 @@ int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
 			else if(!key.compare("children")) {
 				char *tmpstr=new char[value.size()+1];
 				if(tmpstr==NULL) return -1;
+				tmpstr[value.size()]=0;
+
 				strncpy(tmpstr,value.c_str(),value.size());
 
 				char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
@@ -2624,16 +2715,29 @@ int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
 				/* Set type. default as glNode_Node */
 				glNodes[k].type = glNode_Camera;
 			}
-			else if(!key.compare("skin")) {
+			else if(!key.compare("skin")) {  /* XXX NOPE!  Assum a skin_node, then 'skin' ALWAYS appears before 'mesh' */
 				glNodes[k].skinIndex=atoi(value.c_str());
-				/* TODO: Set type. see NOTE. */
-				if( glNodes[k].type<0 )
-				   glNodes[k].type = glNode_Skin;
+
+				/* CAUTION! 'mesh' may appear ahead of 'skin'  HK2023-03-09 */
+				if(glNodes[k].type == glNode_Mesh ) {
+					glNodes[k].skinMeshIndex=glNodes[k].meshIndex;
+					glNodes[k].meshIndex=-1; /* NOT a mesh node */
+				}
+				glNodes[k].type = glNode_Skin;
 			}
 			else if(!key.compare("mesh")) {
-				glNodes[k].meshIndex=atoi(value.c_str());
-				/* Set type */
-				glNodes[k].type = glNode_Mesh;
+				/* This is a skin node
+				   Already set as a skin node, then paresed as skinMeshIndex
+				 */
+				if( glNodes[k].type == glNode_Skin ) {
+					glNodes[k].skinMeshIndex=atoi(value.c_str());
+				}
+				/* This is a mesh node */
+				else {
+					glNodes[k].meshIndex=atoi(value.c_str());
+					/* Set type */
+					glNodes[k].type = glNode_Mesh;
+				}
 			}
 			else if(!key.compare("matrix")) {
 				/* set matrix_defined */
@@ -2647,6 +2751,8 @@ int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
 
                                 char *tmpstr=new char[value.size()+1];
                                 if(tmpstr==NULL) return -1;
+				tmpstr[value.size()]=0;
+
                                 strncpy(tmpstr,value.c_str(),value.size());
 
                                 char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
@@ -2671,7 +2777,7 @@ int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
 				}
 
 				/* Conver from column-major to row-major */
-				glNodes[k].matrix.transpose();
+				//glNodes[k].matrix.transpose(); Hi dude! THis is a fog! hahahaha...HK2023-03-03
 
 				/* Extract pamt[] translation_part (xyz) */
 				for(int j=0; j<3; j++)
@@ -2692,6 +2798,8 @@ int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
 
                                 char *tmpstr=new char[value.size()+1];
                                 if(tmpstr==NULL) return -1;
+				tmpstr[value.size()]=0;
+
                                 strncpy(tmpstr,value.c_str(),value.size());
 
                                 char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
@@ -2723,6 +2831,8 @@ int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
 
                                 char *tmpstr=new char[value.size()+1];
                                 if(tmpstr==NULL) return -1;
+				tmpstr[value.size()]=0;
+
                                 strncpy(tmpstr,value.c_str(),value.size());
 
                                 char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
@@ -2754,6 +2864,8 @@ int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
 
                                 char *tmpstr=new char[value.size()+1];
                                 if(tmpstr==NULL) return -1;
+				tmpstr[value.size()]=0;
+
                                 strncpy(tmpstr,value.c_str(),value.size());
 
                                 char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
@@ -2796,6 +2908,121 @@ int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
 
 
 /*------------------------------------------------
+Parse JSkins and load data to glSkins
+
+	 !!! --- CAUTION --- !!!
+Input glSkins SHOULD be empty! If it has pointer
+members, vector capacity growth is NOT allowed here!
+
+@JSkins: Json description for glTF key 'skins'.
+@glSkins: To pass out Vector <E3D_glSkin>
+
+JSkins Example:
+  "skins": <<--- This part NOT included in JSkins --->>
+    [
+        {
+            "inverseBindMatrices" : 23,
+            "joints" : [
+                42,
+                39,
+     		... ...
+                55,
+                54
+            ],
+            "name" : "robot"
+        }
+    ]
+
+
+Return:
+	>0	OK, number of E3D_glScene loaded.
+	<0	Fails
+-------------------------------------------------*/
+int E3D_glLoadSkins(const string & JSkins, vector <E3D_glSkin> & glSkins)
+{
+	vector<string>  JSObjs; /* Json description for n JSkins, each included in a pair of { } */
+	string Jitem;	/* Json description for a E3D_glSkin. */
+
+	int nj=0;	/* Items in JSkins  */
+
+	char *pstr=NULL;
+	string key;
+	string value;
+
+	/* Check  */
+	if(!glSkins.empty())
+		egi_dpstd(DBG_YELLOW"Input glSkins SHOULD be empty, it will be cleared/resized!\n"DBG_RESET);
+
+	/* Extract all Json node objects and put to JSObjs */
+	E3D_glExtractJsonObjects(JSkins, JSObjs);
+
+	/* Get size */
+	nj=JSObjs.size();
+	egi_dpstd(DBG_GREEN"Totally %d glSkin Json objects found.\n"DBG_RESET, nj);
+	if(nj<1) return 0;
+
+	/* Resize glSkins, which assume as empty NOW. */
+	glSkins.resize(nj);
+
+	/* Parse Json object of glSkins item by itme */
+	for(int k=0; k<nj; k++) {
+		/* Json descript for a skin */
+		pstr=(char *)JSObjs[k].c_str();
+		//printf("pstr: %s\n", pstr);
+
+/*--------------------------------------------------------------------
+   string          name;	         (Json name "name")
+   int 		   invbMatsAccIndex;     (Json name "inverseBindMatrices")
+   int             skeleton		 (Json name "skeleton")
+   vector<int>     joints;               (Json name "joints")
+
+   //extensions;
+   //extras;
+---------------------------------------------------------------------*/
+
+		/* Read and parse key/value pairs */
+		while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
+			//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+			if(!key.compare("name")) {
+				glSkins[k].name=value;
+			}
+			else if(!key.compare("inverseBindMatrices")) {
+				glSkins[k].invbMatsAccIndex=atoi(value.c_str());
+			}
+			else if(!key.compare("skeleton")) {
+				glSkins[k].skeleton=atoi(value.c_str());
+			}
+			else if(!key.compare("joints")) {
+				char *tmpstr=new char[value.size()+1];
+				if(tmpstr==NULL) return -1;
+				tmpstr[value.size()]='\0';
+
+				strncpy(tmpstr,value.c_str(),value.size());
+
+				char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */
+				while(pt!=NULL) {
+					glSkins[k].joints.push_back(atoi(pt));
+
+					pt=strtok(NULL, ",");
+				}
+
+				/* Free */
+				delete [] tmpstr;
+			}
+			else
+				egi_dpstd(DBG_YELLOW"Undefined key found!\n key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+		}
+
+		/* TODO Check data integrity */
+
+	} /*END for() */
+
+	/* OK */
+	return nj;
+}
+
+
+/*------------------------------------------------
 Parse JScenes and load data to glScenes
 
 	 !!! --- CAUTION --- !!!
@@ -2824,7 +3051,6 @@ Return:
 -------------------------------------------------*/
 int E3D_glLoadScenes(const string & JScenes, vector <E3D_glScene> & glScenes)
 {
-
 	vector<string>  JSObjs; /* Json description for n JScene, each included in a pair of { } */
 	string Jitem;	/* Json description for a E3D_glScenes. */
 
@@ -2872,6 +3098,8 @@ int E3D_glLoadScenes(const string & JScenes, vector <E3D_glScene> & glScenes)
 			else if(!key.compare("nodes")) {
 				char *tmpstr=new char[value.size()+1];
 				if(tmpstr==NULL) return -1;
+				tmpstr[value.size()]=0;
+
 				strncpy(tmpstr,value.c_str(),value.size());
 
 				char *pt=strtok(tmpstr+1, ","); /* +1 to get rid of '[' */

@@ -52,19 +52,212 @@ Journal:
 	1. E3D_BMatrixTree::E3D_BMatrixTree(const char *fbvh): Test for Adobe Mixamo BVH. (variable CHANNELS(6/3))
 2023-02-23:
 	1. Add E3D_AnimQuatrices::insertSRT().
+2023-02-28:
+	1. Add E3D_AnimMorphWeights::insert() and E3D_AnimMorphWeights::interp()
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
 ------------------------------------------------------------------*/
 #include "e3d_animate.h"
+#include <vector>
 #include <sstream> //istringstrem
+#include <iostream> //ifstream
+#include <fstream>
 
 using namespace std;
+
+		/*--------------------------------
+  		       Class E3D_AnimMorphwts
+   		    ( Animating morph weights )
+		---------------------------------*/
+/*----------------------
+	Print
+-----------------------*/
+void E3D_AnimMorphWeights::print(const char *name) const
+{
+	if(name)
+		printf("  --- %s ---\n",name);
+
+	for(size_t k=0; k<ts.size(); k++) {
+		printf("Seq%zu: t=%f \n  %d weights: [ ", k, ts[k], mmsize);
+		for(size_t kk=0; kk<mwts[k].size(); kk++) {
+			printf("%f, ", mwts[k][kk]);
+		} printf("]\n");
+	}
+}
+
+/*----------------------------------------
+Insert/save morph weights at time point t.
+
+	 !!!--- CAUTION ---!!!
+If frame t already exists(t==ts[k]), then
+REPLACE/UPDATE its mwt[] value.
+
+@t:         Time point, [0 1] OR Seconds
+@weights:   morph weights for targets
+	    It size MUST be same as target numbers.
+------------------------------------------------*/
+void E3D_AnimMorphWeights::insert(float t, const vector<float> weights)
+{
+	bool ImBig=false;
+
+	/* Check size */
+	if(weights.size()<1)
+		return;
+
+#if 0	/* TODO: Limit??? necessary??? GLTF t --seconds! */
+	if( t<0.0f || t>1.0 )
+		return;
+#endif
+
+	/* 1. No element in vecotr */
+	if(ts.empty() ) {
+		ts.push_back(t);
+		mwts.push_back(weights);
+		mmsize=weights.size();   /* First assign */
+		return;
+	}
+
+	/* 1a. Check size */
+	if(weights.size()!=mmsize) {
+		egi_dpstd(DBG_RED"weights.size:%zu != mmsize:%zu\n", weights.size(), mmsize);
+		return;
+	}
+
+	/* 2. Insert between two mwt in ascending order of ts */
+	for(size_t k=0; k<ts.size(); k++) {
+		if(ImBig) {
+			/* Insert between two qts, before k */
+			if(t<ts[k]) {
+				ts.insert(ts.begin()+k,t);
+				mwts.insert(mwts.begin()+k, weights);
+				return; /* ---------> */
+			}
+			else if(t>ts[k])
+				continue;
+			else { /* t==ts[k], replace it! */
+				// ts[k]=t; NOT necessary HK2023-02-23
+				mwts[k]=weights;
+				return; /* ---------> */
+			}
+		}
+		else {  /* ImSmall, ---- this should happen ONLY once as we set ImBig=false at beginning */
+			/* Insert before k=0 */
+			if(t<ts[k]) { /* here k==0, as we assume ImBig=false at beginning */
+				ts.insert(ts.begin()+k,t);
+				mwts.insert(mwts.begin()+k, weights);
+				return;  /* --------> */
+			}
+			else if(t>ts[k]) {
+				ImBig=true;
+				continue;
+			}
+			else { /* t==ts[k], replace it! here k==0 */
+				// ts[k]=t; NOT necessary HK2023-02-23
+				mwts[k]=weights;
+
+				return;  /* --------> */
+			}
+		}
+	}
+
+	/* 3. NOW, it gets to the end. */
+	ts.push_back(t);
+	mwts.push_back(weights);
+
+}
+
+
+/*----------------------------------------------
+Interpolate by time point t to get corresponding
+morph weights.
+
+1. "Before and after the provided input range, output MUST be clamped to the nearest end of the input range". --glTF Spek2.0
+
+Note:
+1. If ts.size()==0, return 0s vector.
+2. If t<ts[0], then weights=mwts[0].
+   If t>ts[last], then qt=mwts[last]
+
+@t:    [0 1] OR seconds, Time point for the quatrix.
+@qt:   Returned morph weights.
+-----------------------------------------------*/
+void E3D_AnimMorphWeights::interp(float t, vector<float> &weights) const
+{
+	bool ImBig=false;
+	size_t k;
+	float rt;
+
+#if 0	/* TODO: Limit??? necessary??? */
+	if( t<0.0f || t>1.0 )
+		return;
+#endif
+
+	/* Check mwts */
+	if(mmsize<1 || mwts.size()<1) {
+		egi_dpstd(DBG_RED"mmsize<1 OR mwts.size<1\n"DBG_RESET);
+		return;
+	}
+
+	/* Check wegiths.size() */
+	if(weights.empty() || weights.size()!=mmsize )
+		weights.resize(mmsize);
+
+	/* 1. No element in vecotr, return 0 vector. */
+	if(ts.empty()) {
+		egi_dpstd("No element in ts[]/animQts[]!\n");
+		weights.assign(weights.size(), 0.0f);
+		return;
+	}
+//	egi_dpstd("ts.size()=%zu\n", ts.size());
+
+	/* 2. Interpolate between two mwts in ascending order of ts */
+	for(k=0; k<ts.size(); k++) {
+		if(ImBig) {
+			/* Interpolate between two mwts, before k */
+			if(t<ts[k]) {
+				rt=(t-ts[k-1])/(ts[k]-ts[k-1]);
+				for(size_t j=0; j<mmsize; j++)
+					weights[j]=mwts[k-1][j]+rt*(mwts[k][j]-mwts[k-1][j]);
+
+				return; /* ---------> */
+			}
+			else if(t>ts[k])
+				continue;
+			else { /* t==ts[k] */
+				rt=(t-ts[k-1])/(ts[k]-ts[k-1]);
+				for(size_t j=0; j<mmsize; j++)
+					weights[j]=mwts[k-1][j]+rt*(mwts[k][j]-mwts[k-1][j]);
+
+				return; /* ---------> */
+			}
+		}
+		else {  /* ImSmall, ---- this should happen ONLY once as we set ImBig=false at beginning */
+			/* Interpolate at before k=0 */
+			if(t<ts[k]) { /* here k==0, as we assume ImBig=false at beginning */
+				weights=mwts[k]; /* Same as the first mwts[] */
+				return;  /* --------> */
+			}
+			else if(t>ts[k]) {
+				ImBig=true;
+				continue;
+			}
+			else { /* t==ts[k], assign it. */
+				weights=mwts[k]; //weights.assign(mwts[k].begin(), mwts[k].end());
+				return;  /* --------> */
+			}
+		}
+	}
+
+	/* 3. NOW, it gets to the end, same as the last qts[]. */
+	weights=mwts[k-1];
+}
 
 		/*---------------------------------
   		       Class E3D_AnimQuatrices
    		       ( Animating quatrices )
 		---------------------------------*/
+
 /*----------------------
 	Print
 -----------------------*/
@@ -344,6 +537,9 @@ Interpolate by time point t to get corresponding
 Quatrix.
 
 Note:
+1. "Before and after the provided input range, output MUST be clamped to the nearest end of the input range". --glTF Spek2.0
+
+Note:
 1. If ts.size()==0, return identity.
 2. If t<ts[0], then qt=qts[0].
    If t>ts[last], then qt=qts[last]
@@ -362,7 +558,7 @@ void E3D_AnimQuatrices::interp(float t, E3D_Quatrix &qt) const
 		return;
 #endif
 
-	egi_dpstd("....in...\n");
+//	egi_dpstd("....in...\n");
 
 	/* 1. No element in vecotr, return identity. */
 	if(ts.empty()) {  /* Hello! Haaa ... HK2022-11-04 */
@@ -370,9 +566,9 @@ void E3D_AnimQuatrices::interp(float t, E3D_Quatrix &qt) const
 		qt.q.identity();
 		return;
 	}
-	egi_dpstd("ts.size()=%zu\n", ts.size());
+//	egi_dpstd("ts.size()=%zu\n", ts.size());
 
-	/* 2. Insert between two qts in ascending order of ts */
+	/* 2. Interpolate between two qts in ascending order of ts */
 	for(k=0; k<ts.size(); k++) {
 		if(ImBig) {
 			/* Interpolate between two qts, before k */
@@ -383,7 +579,7 @@ void E3D_AnimQuatrices::interp(float t, E3D_Quatrix &qt) const
 			}
 			else if(t>ts[k])
 				continue;
-			else { /* t==ts[k], replace it! */
+			else { /* t==ts[k] */
 				qt=qts[k];
 				return; /* ---------> */
 			}
@@ -391,14 +587,18 @@ void E3D_AnimQuatrices::interp(float t, E3D_Quatrix &qt) const
 		else {  /* ImSmall, ---- this should happen ONLY once as we set ImBig=false at beginning */
 			/* Interpolate at before k=0 */
 			if(t<ts[k]) { /* here k==0, as we assume ImBig=false at beginning */
-				qt=qts[k]; /* Same as the first qts[] */
+			     #if 1  /* Clamped */
+				qt=qts[k]; /* Same as the first qts[] ... TODO: OR identity??? */
+			     #else
+				qt=_identityQt;
+			     #endif
 				return;  /* --------> */
 			}
 			else if(t>ts[k]) {
 				ImBig=true;
 				continue;
 			}
-			else { /* t==ts[k], replace it! here k==0 */
+			else { /* t==ts[k], here k==0 */
 				qt=qts[k];
 				return;  /* --------> */
 			}
@@ -409,6 +609,8 @@ void E3D_AnimQuatrices::interp(float t, E3D_Quatrix &qt) const
 	qt=qts[k-1];
 
 }
+
+
 
 
 		/*---------------------------------

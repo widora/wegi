@@ -105,7 +105,14 @@ class E3D_Vector;
 class E3D_RTMatrix;
 class E3D_Ray;
 class E3D_Plane;
+class E3D_Quatrix;
 struct E3D_ProjectFrustum;
+
+
+/* Global vector/matrix */
+extern const E3D_Vector    _zeroVector;
+extern const E3D_RTMatrix  _identityMat;
+extern const E3D_Quatrix   _identityQt;
 
 /* NON_Class Functions: E3D_Vector */
 float E3D_vector_magnitude(const E3D_Vector &v); // OBSOLETE, see E3D_Vector::module()
@@ -128,6 +135,7 @@ bool E3D_RayIntersectPlane(const E3D_Ray &rad, const E3D_Plane &plane, E3D_Vecto
 
 
 /* NON_Class Functions: E3D_RTMatrix */
+E3D_RTMatrix operator* (float a, const E3D_RTMatrix & ma);
 E3D_RTMatrix operator* (const E3D_RTMatrix &ma, const E3D_RTMatrix &mb);
 E3D_RTMatrix operator+ (const E3D_RTMatrix &ma, const E3D_RTMatrix &mb);
 void E3D_getCombRotation(const E3D_RTMatrix &ma, const E3D_RTMatrix &mb, E3D_RTMatrix &mc);
@@ -226,7 +234,7 @@ public:
 	/* Vector operator '+' with two operands */
 	E3D_Vector operator +(const E3D_Vector &v) const;
 
-	/* Vector operator '*' with a scalar at right! (left see below) */
+	/* Vector operator '*' with a scalar at right! (left see non-class function) */
 	E3D_Vector operator *(float a) const;
 
 	/* Vector operator '/' with a scalar at right. */
@@ -351,8 +359,19 @@ public:
 	/* Matrix identity: Zero Translation and Zero Rotation */
 	void identity();
 
-	/* Multiply a matrix with a float */
-	E3D_RTMatrix & operator * (float a);
+	/* Operator '+' with two operands */
+//	E3D_RTMatrix operator +(const E3D_RTMatrix & ma) const;
+	/* Operator '*' with two operands */
+//see NON-CLASS function
+
+	/* Overload operator '=' */
+	E3D_RTMatrix & operator =(const E3D_RTMatrix & ma);
+
+	/*  Overload operator '+=' for one operand, two operand see '+' at non-class function. */
+	E3D_RTMatrix & operator +=(const E3D_RTMatrix & ma);
+
+	/* Multiply a matrix with a float at right, left see non-class function. */
+	E3D_RTMatrix operator *(float a) const;   /* ma=(*this)*a */
 
         /* Overload operator '*=', TODO to test. */
         E3D_RTMatrix & operator *=(const E3D_RTMatrix & ma);

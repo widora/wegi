@@ -29,6 +29,7 @@ Note:
 		 P'xyz = Pxyz*RTMatrix. ( Pxyz is row vector here.  NOT column vector! )
 		 P'xyz = Pxyz*Ma*Mb*Mc = Pxyz*(Ma*Mb*Mc)
    and notice the sequence of Ma*Mb*Mc as affect to Pxyz.
+   So glTF column-major order correspondes with E3D row-major order.
 
 1. E3D default as Right_Hand coordinating system.
    1.1 Screen XY plane sees the Origin at the upper_left corner, +X axis at the upper side,
@@ -394,6 +395,10 @@ Journal:
 2023-02-20:
 	1. E3D_TriMesh::renderMesh(): Normalize rvtx[].normals before apply
 	   rvtx[] to E3D_shadeTriangle().
+2023-03-01:
+	1. E3D_TriMesh::renderMesh() G2.2.3A: Backup vtxList and apply morph weights.
+2023-03-02:
+	1. E3D_TriMesh::renderMesh(): Add tvncase to mark triVtxNormal case.
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -498,7 +503,10 @@ void E3D_Material::setDefaults()
 {
 	illum=0;
 	d=1.0;
-	Ns=0.0;
+	Ns=0; //15;
+
+	doubleSided=false;
+
 	//Tr=0.0;
 	kd.vectorRGB(COLOR_24TO16BITS(0xF0CCA8)); /* Default kd */
 //	kd.vectorRGB(WEGI_COLOR_PINK);
@@ -520,7 +528,9 @@ void E3D_Material::setDefaults()
 	/* Pointers MUST set as NULL */
 	img_kd=NULL;
 	img_ke=NULL;
-	ke_factor=0.5f;
+
+	ke_factor=1.0f; //0.5f;
+
 	img_kn=NULL;
 	kn_scale=1.0f;
 }
@@ -572,10 +582,29 @@ void E3D_Material::print(const char *uname) const
 	/* Note: map_x will be empty if image data is contained/embedded in glTF uri */
 	cout<<"map_kd: "<< map_kd <<endl;
 	cout<<"img_kd is "<< (img_kd==NULL?"NULL!":"loaded.") <<endl;
+	if(img_kd) {
+	   if(!img_kd->imgbuf)
+		printf(" --- ERROR! imgbuf is NULL! ---\n");
+	   else
+	   	printf("img_kd W*H: %d*%d\n", img_kd->width, img_kd->height);
+	}
 	cout<<"map_ke: "<< map_ke <<endl;
 	cout<<"img_ke is "<< (img_ke==NULL?"NULL!":"loaded.") <<endl;
+	if(img_ke) {
+	   if(!img_ke->imgbuf)
+		printf(" --- ERROR! imgbuf is NULL! ---\n");
+	   else
+	   	printf("img_ke W*H: %d*%d\n", img_ke->width, img_ke->height);
+	}
+
 	cout<<"map_kn: "<< map_ke <<endl;
 	cout<<"img_kn is "<< (img_kn==NULL?"NULL!":"loaded.") <<endl;
+	if(img_kn) {
+	   if(!img_kn->imgbuf)
+		printf(" --- ERROR! imgbuf is NULL! ---\n");
+	   else
+	   	printf("img_kn W*H: %d*%d\n", img_kn->width, img_kn->height);
+	}
 
 	cout<<"triListUV_ke is "<<(triListUV_ke.empty()?"empty!":"loaded.")<<endl;
 	cout<<"triListUV_kn is "<<(triListUV_kn.empty()?"empty!":"loaded.")<<endl;
@@ -2524,7 +2553,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 				printf(DBG_RED"E3D_glLoadImages() fails!\n"DBG_RESET);
 			}
 
-			printf(DBG_GREEN"Totally %zu E3D_glImages loaded.\n"DBG_RESET, glImages.size());
+			printf(DBG_GREEN"Totally %zu E3D_glImages need to load.\n"DBG_RESET, glImages.size());
                         char strtmp[128];
 			size_t strlen;
 			for(size_t k=0; k<glImages.size(); k++) {
@@ -3397,7 +3426,7 @@ egi_dpstd(DBG_YELLOW"Read img_kn u/v from glAccessors[texcoord(accindx)=%d], ele
         }
 	#endif
 
-	#if 1 /* vtx Normals */
+	#if 0 /* vtx Normals */
         for(int j=0; j < vcnt; j++) {
 		//vtxList[j].normal.normalize();
                 printf("vtxList[%d].normal: %f,%f,%f\n",
@@ -3431,6 +3460,9 @@ void E3D_TriMesh:: initVars()
 	wireFrameColor=WEGI_COLOR_BLACK;
 	faceNormalLen=0;
 	testRayTracing=false;
+
+	//skinIndex=-1;	/* <0, no skin applys to the mesh */
+	skinON=false;
 }
 
 /*---------------------
@@ -3939,7 +3971,7 @@ void E3D_TriMesh::updateAllTriNormals()
 
 	   triList[i].normal=E3D_vector_crossProduct(v01,v12);
 	   if( triList[i].normal.normalize() <0 ) {
-		egi_dpstd(DBG_RED"Triangle triList[%d] error! or degenerated!\n"DBG_RESET, i);
+		egi_dpstd(DBG_RED"Triangle triList[%d] error or degenerated: \n"DBG_RESET, i);
 		vtxList[vtxIndex[0]].pt.print(NULL);
 		vtxList[vtxIndex[1]].pt.print(NULL);
 		vtxList[vtxIndex[2]].pt.print(NULL);
@@ -5167,6 +5199,10 @@ Note:
 3. NOW matrix in the function may include scale factors,
    Such as triGroupList[].omat, objmat, any normals that is computed
    from such matrix SHOULD be normalized!
+4. Before rendering the trimesh, make sure all triangle face normals
+   are computed, they'are used to check if it's IsBackFace for the viewer.
+   If face normals are NOT computed,as those vector are 0s as inited, then
+   IsBackFace is ALWAYS false and BackFaceOn=false will be ignored.
 
 TODO:
 1. Case TEXTURE_MAPPING: Apply vtxList[].normal OR triList[].vtx[].vn
@@ -5231,6 +5267,18 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 	E3D_Vector	tgOxyz;		   /* TriGroup origin/pivot XYZ */
 	E3D_RTMatrix	nvRotMat;	   /* RTmatrix(rotation component only) for light product, to be zeroTranslation() */
 
+	/* To mark triangle vertex normal case */
+	enum triVtxNormal_Case {
+		triVtxNormal_CaseA=1,  /* Case_A: Use vtxList[ triList[i].vtx[k].index ].normal. this normal is shared by other triangle.vtx. */
+		triVtxNormal_CaseB=2,  /* Case_B: Use triList[].vtx[].vn; each triangle.vtx has its OWN normal value. */
+		triVtxNormal_CaseC=3,  /* Case_C: Use face normal triList[].normal. FLAT_SHADING */
+	};
+	enum triVtxNormal_Case  tvncase;
+
+	/* For glTF morph targets */
+	vector<E3D_TriMesh::Vertex> tgVtxBackup; /* To backup trigroup vertex data of vtxList, before applying morph on vtxList */
+
+
 	/* For backward_ray_tracing shadow */
 	float *pXYZ=NULL;
 	size_t capacity=1024*3; /* capacity for pXYZ*/
@@ -5283,6 +5331,11 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		egi_dpstd("triGroupList[%d]: '%s' is set as hidden!\n", n, triGroupList[n].name.c_str());
 		continue;
 	    }
+	    else if( triGroupList[n].tricnt==0 ) { /* HK2023-03-02 */
+                egi_dpstd("triGroupList[%d]: '%s' is Empty!\n", n, triGroupList[n].name.c_str());
+                continue;
+            }
+
 	    egi_dpstd("Rendering triGroupList[%d]: '%s' , ", n, triGroupList[n].name.c_str());
 
 	    /* G2.1 Get material color(kd) and map(img_kd). Get E3D_Material for the triGroup  */
@@ -5312,6 +5365,10 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		tgmtl = mtlList[ triGroupList[n].mtlID ];  /* TODO: operator '=' is NOT overloaded, see P3.  */
 	   }
 
+/* For glScene : -------------------- HK2023-03-11 */
+//	   triGroupList[n].backFaceOn = mtlList[ triGroupList[n].mtlID ].doubleSided;
+
+
 	    /* G2.1A Check imgKd, reset actShadeType in case of E3D_TEXTURE_MAPPING */
 	    /* TODO: imgKd to be cancelled, and use tgmtl instead.  */
 	    if( shadeType==E3D_TEXTURE_MAPPING ) {
@@ -5340,7 +5397,7 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 	    //tgRTMat = triGroupList[n].omat*objScaleMat*objmat; /* objScaleMat MUST sx=sy=sz??? */
 
 	    /* G2.2.2 nvRotMat for lighting computatoin, without translation component and scaleMat. */
-	    nvRotMat = tgRTMat;
+	    nvRotMat = tgRTMat;  /* Any light vector multiplied with nvRotMat has to be normalized! */
 	    //nvRotMat = triGroupList[n].omat*objmat;;  /* HK2023-02-19 */
  	    nvRotMat.zeroTranslation(); /* !!! */
 
@@ -5356,6 +5413,193 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 
 	    /* G2.2.3 Get TriGroup (original) pivot 'tgOxyz, under object COORD. */
 	    tgOxyz = triGroupList[n].pivot;
+
+	    /* G2.2.3X Backup vtxList before applying morph and skinning on it.
+		--------> CROSS-CHECK G2.4 Restore to vtxlist
+
+		(For triMesh loaded from glTF: vertices of a trigroup DO NOT share with other trigoup)
+	     */
+	    if( skinON || mweights.size()>0 ) {  /* --------> CROSS-CHECK G2.4 Restore to vtxlist */
+		printf(DBG_YELLOW" ------ BACKUP triGroup vtx --------\n"DBG_RESET);
+
+		/* G2.2.3X.1 Resize tgVtxBackup */
+		tgVtxBackup.resize(triGroupList[n].vtxcnt);
+
+		/* G2.2.3X.2 Backup triGroup vertices */
+		for(size_t sk=0; sk<triGroupList[n].vtxcnt; sk++) {
+			 tgVtxBackup[sk]=vtxList[ triGroupList[n].stvtxidx+sk];
+		}
+	    }
+
+
+	    //////////////////////////  Vertex Morph Computation ///////////////////////
+
+	    /* G2.2.3A Vertex Morph computation */
+	    if( mweights.size()>0 && triGroupList[n].morphs.size()>0
+	    	&& mweights.size()==triGroupList[n].morphs.size() ) {
+
+#if 1 /* TEST: --------------- */
+	printf("mweights: ");
+	for(size_t kn=0; kn<mweights.size(); kn++)
+		printf("%f, ",mweights[kn]);
+	printf("\n");
+#endif
+
+		/* G2.2.3A.3 Appy morph weights on all vertices in the triGroup */
+		for(size_t kw=0; kw<triGroupList[n].morphs.size(); kw++) {
+		   /* Morph vertex POSITION */
+		   if(triGroupList[n].morphs[kw].positions.size()>0
+			&& triGroupList[n].morphs[kw].positions.size()==triGroupList[n].vtxcnt ) { /* here positions is vecotr<E3D_Vector> */
+
+			/* Add weight*POSITION to vertex XYZ */
+		   	for(size_t sk=0; sk<triGroupList[n].vtxcnt; sk++) {
+				vtxList[triGroupList[n].stvtxidx+sk].pt += mweights[kw]*triGroupList[n].morphs[kw].positions[sk];
+		    	}
+		   }
+		   else {
+//  printf(DBG_YELLOW" ------ NO match: triGroupList[%d].morphs[%d].positions.size=%d, triGroupList[%d].vtxcnt=%d --------\n"DBG_RESET,
+//			n, kw, triGroupList[n].morphs[kw].positions.size(), n, triGroupList[n].vtxcnt);
+		   }
+
+		   /* Morph vertex NORMAL */
+		   if(triGroupList[n].morphs[kw].normals.size()>0
+			&& triGroupList[n].morphs[kw].normals.size()==triGroupList[n].vtxcnt ) { /* MUST be same */
+			/* Add weight*NORMAL to vertex normal */
+		   	for(size_t sk=0; sk<triGroupList[n].vtxcnt; sk++) {
+				vtxList[triGroupList[n].stvtxidx+sk].normal += mweights[kw]*triGroupList[n].morphs[kw].normals[sk];
+		    	}
+		   }
+		}
+	    } /* END if() */
+	    ////////////////////////// END Morph /////////////////////
+
+
+	    //////////////////////////  Vertex Skin Computation ///////////////////////
+ #define DEBUG_SSKIN 0
+
+	    /*** G2.2.3AA Vertex Skinning computation
+	     *  Note:
+	     *	    1. Mesh skinning as per glTF2.0, and it MUST be vtx normal caseA.
+	     *	    2. Vertices in one triGroup MUST NOT share with other triGroup.
+	     *      3. Here we should update vxt_positions, vtx_normals and triface_normals.
+	     */
+	    if( skinON && triGroupList[n].skins.size()==triGroupList[n].vtxcnt && glNodes!=NULL ) {
+	    	   egi_dpstd(DBG_GREEN"start skinning ...\n"DBG_RESET);
+
+ #if DEBUG_SSKIN /* TEST: ---------- */
+ printf(DBG_MAGENTA" inverseBindMatrices for glNodes[0-2]: \n"DBG_RESET);
+	(*glNodes)[0].invbMat.print();
+	(*glNodes)[1].invbMat.print();
+	(*glNodes)[2].invbMat.print();
+ printf(DBG_MAGENTA" amat for glNodes[0-2]: \n"DBG_RESET);
+	(*glNodes)[0].amat.print();
+	(*glNodes)[1].amat.print();
+        (*glNodes)[2].amat.print();
+ printf(DBG_MAGENTA" pmat for glNodes[0-2]: \n"DBG_RESET);
+	(*glNodes)[0].pmat.print();
+	(*glNodes)[1].pmat.print();
+        (*glNodes)[2].pmat.print();
+ printf(DBG_MAGENTA" gmat for glNodes[0-2]: \n"DBG_RESET);
+        (*glNodes)[0].gmat.print();
+	(*glNodes)[1].gmat.print();
+	(*glNodes)[2].pmat.print();
+
+ printf(DBG_MAGENTA" triGroupList[0].skins[3].jointNodes[0]=%d\n"DBG_RESET, triGroupList[0].skins[3].jointNodes[0]);
+ printf(DBG_MAGENTA" (*glNodes)[triGroupList[0].skins[3].jointNodes[0]].jointMat "DBG_RESET);
+       (*glNodes)[triGroupList[0].skins[3].jointNodes[0]].jointMat.print();
+#endif
+
+		/* G2.2.3AA.1 Skinning for all triGroup vertices */
+		E3D_RTMatrix skinMat;
+	   	for(size_t sk=0; sk<triGroupList[n].vtxcnt; sk++) {
+
+#if DEBUG_SSKIN /* TEST: ---------- */
+printf("vtx[%d] (%f, %f, %f), with skin weights: [%f, %f, %f, %f]\n", sk,
+			vtxList[triGroupList[n].stvtxidx+sk].pt.x,
+			vtxList[triGroupList[n].stvtxidx+sk].pt.y,
+			vtxList[triGroupList[n].stvtxidx+sk].pt.z,
+			triGroupList[n].skins[sk].weights[0], triGroupList[n].skins[sk].weights[1],
+			triGroupList[n].skins[sk].weights[2], triGroupList[n].skins[sk].weights[3] );
+#endif
+
+		    /* G2.2.3AA.1.1  Compute skinMat for each vertex */
+		    skinMat = triGroupList[n].skins[sk].weights[0]*(*glNodes)[triGroupList[n].skins[sk].jointNodes[0]].jointMat;
+		    /* weihts[1-3]*-- */
+		    for(int kw=1; kw<4; kw++) {
+		        if(triGroupList[n].skins[sk].weights[kw] > VPRODUCT_NEARZERO ) { /* The joint weights MUST NOT be negative */
+		           skinMat += triGroupList[n].skins[sk].weights[kw]*(*glNodes)[triGroupList[n].skins[sk].jointNodes[kw]].jointMat;
+			}
+		    }
+
+		    /* G2.2.3AA.1.2 Update vertex position */
+		    vtxList[triGroupList[n].stvtxidx+sk].pt = vtxList[triGroupList[n].stvtxidx+sk].pt*skinMat;
+
+		    /* G2.2.3AA.1.3 Update vertex normal */
+		    /* Note: we CAN NOT depend on vnRotMat to update normals, since it MUST compute vnRotMat for each vxtNormal! */
+		    skinMat.zeroTranslation(); /* MUST zero translations. */
+		    vtxList[triGroupList[n].stvtxidx+sk].normal = vtxList[triGroupList[n].stvtxidx+sk].normal*skinMat;
+		    vtxList[triGroupList[n].stvtxidx+sk].normal.normalize();
+
+#if DEBUG_SSKIN /* TEST: -------- */
+		    printf("skinMat[%d]: ",sk);
+				skinMat.print();
+		    printf("Aft skinning ");
+				vtxList[triGroupList[n].stvtxidx+sk].pt.print(NULL);
+		    printf("     ------\n");
+#endif
+		} /* End for() */
+
+		/*** G2.2.3AA.2  update faceNormal triList[].normal
+		 * Following is copying from updateAllTriNormals(), noticed that E3D_TriMesh::renderMesh() is const.
+		 */
+		{
+		        E3D_Vector  v01, v12;
+		        E3D_Vector  normal;
+		        int vtxIndex[3];
+
+		        for(size_t ik=0; ik<triGroupList[n].tricnt; ik++) {
+			   /* Get vtx indinces of a triangle */
+		           for(int jk=0; jk<3; jk++) {
+                		//vtxIndex[jk]=triList[triGroupList[n].stvtxidx+ik].vtx[jk].index;
+                		vtxIndex[jk]=triList[triGroupList[n].stidx+ik].vtx[jk].index;
+		                if(vtxIndex[jk]<0) {
+                		        egi_dpstd("!!!WARNING!!! triList[%d].vtx[%d].index <0!\n", ik,jk);
+                        		vtxIndex[jk]=0;
+                		}
+           		   }
+
+			   /* Compute face normal */
+		           v01=vtxList[vtxIndex[1]].pt-vtxList[vtxIndex[0]].pt;
+		           v12=vtxList[vtxIndex[2]].pt-vtxList[vtxIndex[1]].pt;
+           		   triList[triGroupList[n].stidx+ik].normal=E3D_vector_crossProduct(v01,v12);/* normalize it at G2.3.5 */
+		      }
+		}
+
+	    }
+	    else if( glNodes==NULL ) {
+
+	    }
+	    ////////////////////////// END Skin /////////////////////
+
+
+	    /* G2.2.3B Check triangle vtx normal case */
+            /* Case_A: Use vtxList[ triList[x].vtx[k].index ].normal.  vertices are welded. */
+            if(vtxList[ triList[triGroupList[n].stidx].vtx[0].index ].normal.isZero()==false) {
+	    	tvncase=triVtxNormal_CaseA;
+                egi_dpstd("nCase_A\n");
+	    }
+	    /* Case_B: Use triList[].vtx[].vn;   vertices are NOT welded. */
+	    else if(triList[0].vtx[0].vn.isZero()==false) {
+                egi_dpstd("nCase_B\n");
+	    	tvncase=triVtxNormal_CaseB;
+	    }
+            /* Case_C: Use face normal triList[].normal. FLAT_SHADING
+             * Noticed that triList[].normal will NOT read from obj file.
+             */
+            else {
+                egi_dpstd("nCase_C\n");
+		tvncase=triVtxNormal_CaseC;
+	    }
 
 	    /* G2.3 Traverse and render all triangles in the triGroupList[n]
 	     *  TODO: sorting, render Tris from near to far field.... */
@@ -5451,10 +5695,13 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 			//egi_dpstd("triList[%d] vProduct=%e >=0 \n",i, vProduct);
 
 			/* If backFaceOn: To display back side (with specified color) ... */
-			if( !backFaceOn && !triGroupList[n].backFaceOn)
+			if( !backFaceOn && !triGroupList[n].backFaceOn) {
+				//egi_dpstd(DBG_RED"IsBackface, ignored!\n"DBG_RESET);
 		                continue;
-			else if(triGroupList[n].backFaceOn)
+			}
+			else if(triGroupList[n].backFaceOn) {
 				egi_dpstd(DBG_GREEN"triGroupList[%d].backFaceOn!\n"DBG_RESET, n);
+			}
 
 			/* To flip vProduct and trinormal */
 			trinormal=-trinormal;
@@ -5464,6 +5711,10 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 			fbdev->zbuff_IgnoreEqual=false; /* OK to redraw on same zbuff level */
 			//egi_dpstd("triList[%d] vProduct=%f \n",i, vProduct);
 		}
+
+/* TEST: ---------- */
+if(IsBackface)
+	egi_dpstd(DBG_ORANGE"---IsBacFace---\n"DBG_RESET);
 
 		/* Note: In E3D_Scene::renderScene(), instances completely out of the view frustum will be picked out. */
 
@@ -5491,9 +5742,9 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		/* G2.3.6.3 IF(actShadeType==E3D_TEXTURE_MAPPING), assign rvtx[].normal depending on CaseA/B/C. */
 		else if(actShadeType==E3D_TEXTURE_MAPPING || actShadeType==E3D_GOURAUD_SHADING) {
 			/* Case_A: Use vtxList[ triList[i].vtx[k].index ].normal.  vertices are welded. */
-			if(vtxList[ triList[i].vtx[0].index ].normal.isZero()==false) {
-				egi_dpstd("nCase_A\n");
-
+			//if(vtxList[ triList[i].vtx[0].index ].normal.isZero()==false) {
+			if(tvncase==triVtxNormal_CaseA) {
+				egi_dpstd("snCase_A\n");
 			  #if 0 /* TEST: */
 				for(int k=0; k<3; k++) {
 				   egi_dpstd(DBG_YELLOW"triList[%d]: vtxList[%d].normal: %f,%f,%f\n"DBG_RESET, i, triList[i].vtx[k].index,
@@ -5506,7 +5757,9 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 				/* Assign rvtx[].normal */
 				for(int k=0; k<3; k++) {
 					rvtx[k].normal=vtxList[ triList[i].vtx[k].index ].normal*nvRotMat;
-					if(IsBackface) rvtx[k].normal=-rvtx[k].normal;
+					if(IsBackface) {
+						rvtx[k].normal=-rvtx[k].normal;
+					}
 					//if(IsBackface) rvtx[k].normal=-0.85*rvtx[k].normal; /* darken */
 
 					/* Normalize, for nvRotMat MAY include scaleMat */
@@ -5515,8 +5768,9 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 
 			}
 			/* Case_B: Use triList[].vtx[].vn;   vertices are NOT welded. */
-			else if(triList[i].vtx[0].vn.isZero()==false) {
-				egi_dpstd("nCase_B\n");
+			//else if(triList[i].vtx[0].vn.isZero()==false) {
+			else if(tvncase==triVtxNormal_CaseB) {
+				egi_dpstd("snCase_B\n");
 				/* Assign rvtx[].normal */
 				for(int k=0; k<3; k++) {
 				    #if 1
@@ -5534,8 +5788,8 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 			/* Case_C: Use face normal triList[].normal. FLAT_SHADING
 			 * Noticed that triList[].normal will NOT read from obj file.
 			 */
-			else {
-				egi_dpstd("nCase_C\n");
+			else {  /* tvnCase==triVtxNormal_CaseC */
+				egi_dpstd("snCase_C\n");
 				/* Assign rvtx[].normal */
 				for(int k=0; k<3; k++) {
 					rvtx[k].normal=triList[i].normal*nvRotMat;
@@ -5603,10 +5857,11 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		/* TODO more cases: for VTXNORMAL_ON|VTXCOLOR_ON|VTXUV_ON */
 
 		if(rnp>3) egi_dpstd(DBG_YELLOW"After clipping rnp=%d\n"DBG_RESET, rnp);
-		if(rnp==0) egi_dpstd(DBG_YELLOW"After clipping rnp=0!\n"DBG_RESET);
+		else if(rnp==0) egi_dpstd(DBG_YELLOW"After clipping rnp=0!\n"DBG_RESET);
+		//else  egi_dpstd(DBG_YELLOW"After clipping rnp=%d\n"DBG_RESET, rnp);
 
 		/* G2.3.6.4 Normalize rvtx[].normal before calling E3D_shadeTriangle() */
-		for(int kr=0; kr<rnp; kr++)
+		for(int kr=0; kr<rnp; kr++)   /* NOT for E3D_FLAT_SHADING, which uses trinormal */
 			rvtx[kr].normal.normalize();
 
 #if TEST_Y_CLIPPING /* TEST: Rotate object -axisZ back to position axisY ---------------- */
@@ -5698,6 +5953,8 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 		/* G2.3.9.4 Draw triangles with specified shading type. */
 		switch( actShadeType ) {
 		   case E3D_FLAT_SHADING:
+			trinormal.print(NULL);
+
 			/* Compute lighting color */
 			fbdev->pixcolor=E3D_seeColor(tgmtl, trinormal, 0); /* material, normal, dl */
 
@@ -6110,6 +6367,8 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
     #endif
   		       E3D_shadeTriangle(fbdev, rvtx, tgmtl, scene); /* fbdev, rvtx[3], mtl, scene */
 
+
+
 #endif //////////////////////////////////////////////////////////////
 
 			break;
@@ -6241,12 +6500,49 @@ if( testRayTracing==true &&  BackFacingLight==false
 }
 #endif /* END: ---------- back_tracing shadow */
 
+
+    #if 0 /* Test draw wires */
+	fbset_color2(fbdev, WEGI_COLOR_RED); //YELLOW);
+
+        /* Notice: Viewing from z- --> z+ */
+        fbdev->flipZ=true;
+	fbdev->zbuff_on=false;
+
+        /* E3D_draw lines 0-1, 1-2, 2-3, 3-0 */
+        E3D_draw_line(fbdev, vpts[0], vpts[1]);
+        E3D_draw_line(fbdev, vpts[1], vpts[2]);
+        E3D_draw_line(fbdev, vpts[0], vpts[2]);
+
+        /* Reset flipZ */
+	fbdev->zbuff_on=true;
+        fbdev->flipZ=false;
+    #endif
+
+
+
 		/* Count total triangles rendered actually */
 		RenderTriCnt++;
 
 	} /* END for(j) 4.A Rendering clipped triangles */
 
+
+
 	   } /* End for(i) traverse trigroup::triangles */
+
+	   /* G2.4 After morph, restore tgVtxBackup to vtxList
+	      <---------- CROSS-CHECK G2.2.3A  Backup vtxList
+	    */
+	   //if( mweights.size()>0 && triGroupList[n].morphs.size()>0
+	   //	&& mweights.size()==triGroupList[n].morphs.size() ) {
+	   if( skinON || mweights.size()>0 ) {
+printf(DBG_YELLOW" ------ RESTORE triGroup vtx --------\n"DBG_RESET);
+
+		/* Restore triGroup vertices */
+		for(size_t sk=0; sk<triGroupList[n].vtxcnt; sk++) {
+		     vtxList[ triGroupList[n].stvtxidx+sk]=tgVtxBackup[sk];
+		}
+	   }
+
 
 	} /* End G2.  for(n)  traverse trigroups */
 
@@ -9670,18 +9966,23 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 	E3D_RTMatrix matTBN;
 
 	/* TODO:  use rvtx[].un/vn. ---- NOW assume un/vn same as u/v!(Normally they are!) */
+	/* !!!--- NOTICED ---!!!  EGI 16bits color NOT good for normal texture, lost detail precision. */
 	if(mtl.img_kn != NULL) {
-	       /* Noted: (rvtx[1].v-rvtx[0].v)*(vpts[2]-vpts[0]) = (rvtx[0].v-rvtx[1].v)*e2 */
+	       /* Noted: (rvtx[1].v-rvtx[0].v)*(vpts[2]-vpts[0]) = (rvtx[0].v-rvtx[1].v)*e2
+		*	 e0=vpts[1]-vpts[0]
+		*/
 	       Tv=( (rvtx[2].v-rvtx[0].v)*e0 - (rvtx[0].v-rvtx[1].v)*e2 ) / \
 			( (rvtx[1].u-rvtx[0].u)*(rvtx[2].v-rvtx[0].v) - (rvtx[2].u-rvtx[0].u)*(rvtx[1].v-rvtx[0].v) );
 
-	       /* Noted: (rvtx[1].u-rvtx[0].u)*(vpts[2]-vpts[0]) = (rvtx[0].u-rvtx[1].u)*e2 */
+	       /* Noted: (rvtx[1].u-rvtx[0].u)*(vpts[2]-vpts[0]) = (rvtx[0].u-rvtx[1].u)*e2
+			 e0=vpts[1]-vpts[0]
+		*/
 	       Bv=( (rvtx[2].u-rvtx[0].u)*e0 - (rvtx[0].u-rvtx[1].u)*e2 ) / \
 			( (rvtx[2].u-rvtx[0].u)*(rvtx[1].v-rvtx[0].v) - (rvtx[1].u-rvtx[0].u)*(rvtx[2].v-rvtx[0].v) );
 
 		/* Normalize TvBv */
 	      	Tv.normalize();
-	      	Bv.normalize();  Bv*=-1.0f;  /* flips y/v */
+	      	Bv.normalize();  Bv*=-1.0f;  /* flips y/v TBD&TODO, see latern. */
 
 		/* Compute Nv */
 		Nv=E3D_vector_crossProduct(Tv,Bv);
@@ -9698,9 +9999,9 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 	}
 
 
-        /* --- Case 1 ---: All points are the SAME! */
+        /* TODO: --- Case 1 ---: All points are the SAME! */
         if(x0==x1 && x1==x2 && y0==y1 && y1==y2) {
-//              egi_dpstd("the Tri degenerates into a point!\n");
+		egi_dpstd(DBG_MAGENTA"Degenerated into a point.\n"DBG_RESET);
 		return;
 
 		/* z */
@@ -9736,6 +10037,7 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 	/* ---- TODO; 2,3 ----- */
         /* --- Case 2 ---: All points are collinear as a vertical line. */
         if(nl==nr) {
+		egi_dpstd(DBG_MAGENTA"Degenerated into a vline.\n"DBG_RESET);
 		return;
 	}
 
@@ -9748,8 +10050,10 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
          */
         if( (x0-x1)*(y2-y1)==(y0-y1)*(x2-x1) || (x1-x2)*(y0-y2)==(y1-y2)*(x0-x2) )
         {
+		egi_dpstd(DBG_MAGENTA"Degenerated into a line.\n"DBG_RESET);
 		return;
 	}
+
 
 	/* ---- Case 4 ---: As a true triangle. */
 
@@ -9934,7 +10238,8 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 
     				/* See the pixel color */
 				//printf("seeColor1\n");
-				//pmtl.print("pmtl"); pnormal.print("pnromal");
+				//pmtl.print("pmtl");
+				//pnormal.print("pnromal");
     			    	color=E3D_seeColor(pmtl, pnormal, 0); /* (mtl, normal, dl) */
 				fbset_color2(fb_dev, color);
 				/* Set alpha. TODO:  */

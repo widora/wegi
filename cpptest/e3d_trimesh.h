@@ -295,6 +295,12 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "e3d_vector.h"
 //#include "e3d_scene.h"
 
+/* TODO: Cross reference */
+class E3D_glNode;		/* Cross referece */
+
+#include "e3d_glTF.h"
+//#include "e3d_animate.h"
+
 using namespace std;
 
 #define TEST_PERSPECTIVE  	1
@@ -481,6 +487,9 @@ public:
 	/* Material name */
 	string name;	  /* Material name */
 
+	/* Double sided */
+	bool doubleSided;  /* For glScene, whether the material is doubleSided. TODO: E3D_TriMesh  on TriGroup OR Mesh */
+
 	/* Colors: To keep same as obj file */
 	E3D_Vector ka;  /* ambient color [0 1] ---> (RGB) [0 255] */
 	//EGI_16BIT_COLOR acolor;
@@ -547,7 +556,7 @@ public:
 	*/
 	EGI_IMGBUF *img_kd; /* Diffuse/baseColor texture, TEXCOORD is at E3D_TriMesh.triGroupList[].vtx[].u/v */
 	EGI_IMGBUF *img_ke;  /* Emissive texture */
-	float	    ke_factor;   /* Ke factor HK2023-02-21, Default 0.5f */
+	float	    ke_factor;   /* Ke factor HK2023-02-21, Default 1.0f; //0.5f */
 	EGI_IMGBUF *img_kn;  /* Normal texture. TODO: 16BIT color for TBN normalTexture compuation NOT accurate enough! */
 	float	    kn_scale;  /* Default 1.0f HK2023-01-24 */
 
@@ -704,6 +713,7 @@ public:
 					 * 1. Check vtxList[i].normal first.     (For smooth/Gouraud shading, see transformAllVtxNormals())
 					 * 2. Check triList[j].vtx[k].vn then.   (NOT smoothed/welded, see transformAllTriNormals() )
 					 * 3. Check triList[].normal          ( ----> THIS see updateAllTriNormals()/transformAllTriNormals() )
+					 # 4. Before rending the tirmesh, face normal values MUST be computed, they are for backface checking.
 
 			   		----- E3D_TriMesh(const char *fobj) reads normals -----
 			4. If vtxNormalIndex omitted in face descript line: 'f x/x':
@@ -737,6 +747,28 @@ public:
 		vector<E3D_Vector> positions;  /* Vertex position */
 		vector<E3D_Vector> normals;    /* Vertex normal ... */
 		//TODO tangent, texcoord,color...
+	};
+
+
+	/* :: Class VtxSkinData HK2023-03-08 */
+	class  VtxSkinData {    /* skindata for a vertex */
+	public:
+		/* Each array NORMALLY should have 4 itmes, as each vtx has MAX.4 influencing joints. */
+		vector<float>  weights;  /* weight value for each joint
+					    Refer to E3D_Scene::loadGLTF() 11.3.3A
+					  */
+
+		#if 0 ///////////////////////////////
+		vector<unsigned int>  joints;   /* index of glSkins.joints[], NOT index of glNode[]!!!
+						   * glnodeIndex=glSkins.joints[index]
+						   */
+		#endif //////////////////////////////
+
+		vector<unsigned int>  jointNodes;  /* Index of glNode[], which is a joint to the skin: glNode.IsJoint==true
+						    * It's converted from index of glSkins.joints[],for it's easier
+						    * to access to glNode[jointNodes].jointMat.
+						    * Refer to E3D_Scene::loadGLTF() 11.3.3A
+						    */
 	};
 
 	/* :: Class TriGroup, NOT for editting!!!  */
@@ -816,13 +848,47 @@ public:
 		unsigned int	tricnt;  	/* Total trianlges in the group */  // HK2022-12-22, rename, to avoid conflict with TriMesh.tcnt.
 		unsigned int	stidx;  	/* Start/Begin index of triList[] */
 		unsigned int	etidx;  	/* End index of triList[], NOT incuded!!!
-				 		 * !!! CAUTION !!!  eidx=sidex+tricnt !!!
+				 		 * !!!--- CAUTION ---!!!  eidx=sidex+tricnt !!!
 						 */
 
+		/* For glTF trigourp/primitive: vertices of a trigroup(primitive) DO NO share with other trigroup. */
+		unsigned int	      vtxcnt;    /* Total vertice in a trigroup/primitive */
+		unsigned int  	      stvtxidx;  /* Index of vtxList for the first vertex in this group */
+		unsigned int	      edvtxidx;   /* Index of vtxList for the end/last vertex in this group,
+						  * !!!--- CAUTION ---!!! edvtxidx=stvtxidx+vtxcnt !!!
+						  */
+
 		vector<MorphTarget>   morphs;   /* morphtarget list. HK2023-02-27
-						 * 1. morphs.size MUST be same as the morphed vertices.
-						 * 2. Refer to glMesh.primitive.morphs
+						 * 1. morphs.size MUST be same as mweights.size
+						 * 2. morphs.item.size MUST be same as vtxcnt:
+						      triGroupList[n].morphs[kw].positions(normals).size()==triGroupList[n].vtxcnt
+						 * 3. Refer to glMesh.primitive.morphs
+						 * 4. Refer to E3D_Scene::loadGLTF() 11.3.4: Load morph weights from glMesh.primitive.
+
+		                                  renderedPrimitive[i].POSITION = primitives[i].attributes.POSITION
+                	                                                 + weights[0] * primitives[i].targets[0].POSITION
+                        	                                         + weights[1] * primitives[i].targets[1].POSITION
+                                	                                 + weights[2] * primitives[i].targets[2].POSITION
+									 + ...
 						 */
+
+		vector<VtxSkinData>   skins;    /* Skin data.  HK2023-03-08
+						 * 1. skins[].itme.size() USUALLY to be 4, as MAX.4 influencing joints for each vtx.
+						 * 2. skins[].size() MUST be vtxcnt
+						      triGroupList[n].skins.size()==triGroupList[n].vtxcnt
+						   3. Refter to E3D_Scene::loadGLTF() 11.3.3A
+						 */
+
+#if 0 ////////////////////////////////////////////////////////////////////
+		vector<E3D_RTMatrix> skinMats;  /* Skinmats, each vtx has an E3D_RTMatrix as skinmat
+						 * skinMats.size() MUST be vtxcnt
+						 * Each vertex has 4 weights and 4 influencing joints(index of glNode).
+						 *  eahc skinMat = weights[0]*gNodes[joints[0]].jointMat + weights[1]*gNodes[joints[1]].jointMat
+							     + weights[2]*gNodes[joints[2]].jointMat + weights[3]*gNodes[joints[3]].jointMat.
+						 *  TODO: Refer to E3D_Scene::loadGLTF(). for above computation.
+						 */
+#endif //////////////////////////////////////////////////////////////////
+
 	};
 
 	/* :: Class OptimationParameters */
@@ -1003,10 +1069,30 @@ public:		/* HK2023-02-16  E3D_Scene::loadGLTF() need direct access to modify. */
 					 * Free by 'delete [] triList', in ~E3D_TriMesh()
 					 */
 
-
 public:
+	bool	skinON;			/* Init as false, If ture, triGroupLists[].skins will apply in renderMesh() */
+
+#if 0 //////////// XXX For Skin ////////////////////
+	int	skinIndex; 		/* TODO: NOW one mesh allows ONLY one skin, so skinIndex to be -1(no skin) or 0! HK2023-03-08
+					 * Init to -1. <0 as no skin applys the mesh.
+					 * Ref. to glNode.skinIndex, when glNode.type=skin
+					 * A skin defines influencing JOINTs and their WEIGHTs for subjected mesh(primitives/triGrops)
+					 * TODO: A mesh MAY have more than 1 skin defined!?XXX
+				 	 */
+
+	E3D_glSkin & glSkin;		/* Reference to a glSkin */
+#endif /////////////////////////////////////////////
+
+	//vector<E3D_glNode> & glNodes;  F INIT~
+	vector<E3D_glNode> *glNodes;	/* Reference to glNodes
+					 * skinning computation in renderMesh() needs glNodes.joinMat,
+					   OR
+        TBD&TODO:  vector<E3D_RTMatrix> nodeJointMats; ---- To update for each animation frame before renderMesh.
+					 */
+
+
 	vector<float>  mweights;	/* Morph weights, to apply for TriGroup.morphs HK2023-02-27
-					   Refer to glMesh.mweights
+					   1. Refer to E3D_Scene::loadGLTF() 11.-1.7: Assign mweights with glMesh[].mweights
 					 */
 
 	int		instanceCount;	/* Instance counter */

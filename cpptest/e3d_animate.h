@@ -25,21 +25,35 @@ Midas Zhou
 #include <vector>
 #include <string>
 
-#include "e3d_trimesh.h"
+//#include "e3d_trimesh.h"
+#include "e3d_vector.h"
+
+
+/* Classes */
+class E3D_AnimMorphWeights;
+class E3D_AnimQuatrices;
+class E3D_glNodeAnimData;
+struct _BoneMatrix_TreeNode;
+class E3D_BMatrixTree;
 
 
 /*---------------------------------
    Class E3D_AnimMorphWeights
     ( Animating morph weights )
+
+NO pointer memeber!
 ---------------------------------*/
 class E3D_AnimMorphWeights {
 public:
 	/* Time point and corresponding morph weights */
-	vector<float>		ts;	/* seconds, sort in Ascending Order.  */
-					/* For GLTF: seconds  */
+	vector<float>		ts;	 /* seconds, sort in Ascending Order.  */
+					 /* For GLTF: seconds  */
 
-	vector<vector<float> >	mwt;    /* weight for mesh morph!  (NOT for skinned mesh)
-					 * Each element size(mwt[].size) size MUST be same as mesh.
+	size_t 			mmsize;	 /*  For each mwts[].size()
+					  *  To assign when insert first mwts[].
+					  */
+	vector<vector<float> >	mwts;    /* weights for mesh morph!  (NOT for skinned mesh)
+					 * Each element size mwts[].size) MUST be same as mesh.mweights.size()
 					 */
         /* Constructor */
         /* Destructor */
@@ -58,6 +72,8 @@ public:
 /*---------------------------------
    Class E3D_AnimQuatrices
    ( Animating quatrices )
+
+No pointer member!
 ---------------------------------*/
 class E3D_AnimQuatrices {
 public:
@@ -87,6 +103,17 @@ public:
 };
 
 
+/*---------------------------------------
+	Class E3D_glNodeAnimData
+
+Animation data for a glNode
+---------------------------------------*/
+class E3D_glNodeAnimData
+{
+	int node;		  /* glNode index, ref. to E3D_Scene::glNodes */
+	E3D_AnimQuatrices         animQts; 	/* TRS */
+	E3D_AnimMorphWeights      animMorphwts; /* Morph */
+};
 
 
 /*---------------------------------------------------

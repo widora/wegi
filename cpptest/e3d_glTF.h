@@ -111,7 +111,11 @@ class E3D_glAnimChannel;
 class E3D_glAnimation;
 
 class E3D_glNode;
+class E3D_glSkin;
 class E3D_glScene;
+
+/* via */
+const extern vector<E3D_glNode>  _empty_glNodes;
 
 /* Non Class Functions */
 char* E3D_glReadJsonKey(const char *pstr, string & key, string & strval);
@@ -138,6 +142,7 @@ int E3D_glLoadAnimChannels(const string & JAnimChannels, vector <E3D_glAnimChann
 int E3D_glLoadAnimations(const string & JAnimations, vector <E3D_glAnimation> & glAnimations);
 
 int E3D_glLoadNodes(const string & JNodes, vector <E3D_glNode> & glNodes);
+int E3D_glLoadSkins(const string & JSkins, vector <E3D_glSkin> & glSkins);
 int E3D_glLoadScenes(const string & JScenes, vector <E3D_glScene> & glScenes);
 
 
@@ -160,6 +165,8 @@ public:
 
 /*** Primitive Attribute Memebers
 
+	(---- Ref. glTF2.0 Spek 3.7.2.1. Overview ----)
+
 Name 	  Accessor	Component      Note
 	   Type(s)       Type(s)
 --------------------------------------------------
@@ -179,6 +186,7 @@ WEIGHTS_n   VEC4           float	See Skinned Mesh Attributes
 			   unsigned byte normalized
 			   unsigned short normalized
 
+(Others ref. to: MAT2,MAT3,MAT4...)
 */
 
 	/* The value of the property is the index of an accessor that contains the data.
@@ -205,20 +213,28 @@ WEIGHTS_n   VEC4           float	See Skinned Mesh Attributes
 
 #define	PRIMITIVE_ATTR_MAX_JOINTS 8
 
-	/*** For sknned mesh.
-	 *   Each attribute refers to an accessor that provides one data element for each vertex of the mesh.
+	/*** For skinned primitive mesh.
+	 *   1. A skin defines influencing JOINTs and their WEIGHTs for subjected mesh(primitives).
+	 *   2. Each attribute refers to an accessor that provides one data element for each vertex of the primitive.
+	 *   3. TODO: NOW only support Max. 1 skin for a primitive.
 	 */
-	int joints_0; //TODO _n;
-				  /*** Refers to an accessor that contains the indices of the joints that should have an influence
-				       on the vertex during the skinning process.
-				       For each vertex,it has usually 4 influencing joints, so the accessor type is VEC4.
+//	int jonits[PRIMITIVE_ATTR_MAX_JOINTS];
+	int joints_0; //TODO _n;  // Json name "JOINTS_n", 
+				  /*** 1 .Refers to an accessor that contains the indices of the joints that should have an influence
+				          on the vertex during the skinning process.  (joints_n ref. to skin_n)
+				       2. For each vertex,it has usually 4 influencing joints, so the accessor type is VEC4.
+				       3. "The joint weights for each vertex MUST NOT be negative.
+				           Joints MUST NOT contain more than one non-zero weight for a given vertex. "
+				       4. init to -1<0, as invalid.
+				       5. accessor componentType must be: unsigned byte or unsigned short.
 				   */
-
-	int weights_0; //TODO _n;
-				  /*** Refers to an accessor that provides information about how strongly each
-				       joint should influence each vertex. ALSO the accessor type is VEC4.
+//	int weights[PRIMITIVE_ATTR_MAX_JOINTS]
+	int weights_0; //TODO _n; // Json name "WEIGHT_n", as companying with above joints_n
+				  /*** 1. Refers to an accessor that provides information about how strongly each
+				          joint should influence each vertex. ALSO the accessor type is VEC4.
+				       2. init to -1<0, as invalid.
+				       3. accessor componentType must be: float, or normalized unsigned byte, or normalized unsigned short
 				   */
-
 };
 
 
@@ -258,6 +274,8 @@ public:
         /* Destructor */
         //~E3D_glPrimitive();
 
+	/* ----- !glPrimitve has NO name! ----- */
+
 	E3D_glPrimitiveAttribute  attributes;
 	int		 indicesAccIndex;  /* the index of the accessor that contains the vertex indices.
 					    * When defined, the accessor MUST have SCALAR type and an unsigned integer component type.
@@ -286,7 +304,7 @@ public:
 class E3D_glMesh {
 public:
         /* Constructor */
-        //E3D_glMesh();
+        E3D_glMesh();
         /* Destructor */
         //~E3D_glMesh();
 
@@ -299,13 +317,20 @@ public:
 
 	/* TBD&TODO  All primitives in a mesh MUST share the same weights array!!!   */
 	vector<float> mweights; /*** Array of weights to be applied to the morph target,
+				* If(mweights.empty()),no morph for the mesh
+				* Json name "weights"
 			        * The number of array elements MUST match the number of morph targets in primitives[].targets.
 			        * Example: to compute vertex position for a mesh primitive:
 				  renderedPrimitive[i].POSITION = primitives[i].attributes.POSITION
 								 + weights[0] * primitives[i].targets[0].POSITION
   								 + weights[1] * primitives[i].targets[1].POSITION +
   								 + weights[2] * primitives[i].targets[2].POSITION + ...
+				* See 11.-1.7 of E3D_Scene::loadGLTF()
 			        */
+
+	int skinIndex;		/* index of glSkins[], ONLY if the mesh has been skinned.
+				 * init to -1.
+				 */
 
 	//extensions;
 	//extras;
@@ -318,16 +343,13 @@ enum E3D_NODE_TYPE {
 	glNode_Camera =2,
 	glNode_Skin   =3,
 };
-
-
-
-
+extern const char*  _strNodeTypes[];
 
 /*-------------------------------
         Class E3D_glNode
 
 Note:
-1. When the node contains skin, all mesh.primitives MUST contain JOINTS_0 and WEIGHTS_0 attributes.
+   1. When the node contains skin, mesh[skinMeshIndexmesh].primitives MUST all contain JOINTS_0 and WEIGHTS_0 attributes.
 --------------------------------*/
 class E3D_glNode {
 public:
@@ -344,17 +366,26 @@ public:
 	/* name          string        The user-defined name of this node-object. */
 	string name;
 
-	/* children	integer[1-*]  The indices of this node's children. */
+	/* children nodes     integer[1-*]  The indices of this node's children. */
 	vector<int>	children;     /* As the indices of nodes list */
 
-	/* camera 	integer       The index of the camera referenced by this node. */
-	int cameraIndex;		/* Init to -1 */
+/* For camera_node ONLY */
+	/* camera_node 	 integer       The index of the camera referenced by this node. */
+	int cameraIndex;		/* Init to -1, if>=0, node type is glNode_camera */
 
-	/* skin          integer       The index of the skin referenced by this node. */
-	int skinIndex;			/* Init to -1, When defined, mesh MUST also be defined.  */
-
-	/* mesh		integer       The index of the mesh in this node. */
-	int meshIndex;			/* Init to -1 */
+/* For skin_node ONLY, binding with a mesh. */
+	/* skin_node       integer       The index of the skin referenced by this node. */
+	int skinIndex;			/* Init to -1, When defined, skinMeshIndex MUST also be defined.
+					 * index to glSkins[]
+					 * If >=0, node type is glNode_skin.
+					 */
+	int skinMeshIndex;              /* Init to -1, index of a mesh binding with above skinning.  HK2023-03-08
+					 * index to glMeshes[]
+					 * To be set by E3D_glLoadNodes()
+					 */
+/* For mesh_node ONLY */
+	/* (mesh_node)	 integer       The index of the mesh for this node. */
+	int meshIndex;			/* Init to -1, if>=0, node type is glNode_mesh */
 
 
 	/*** Note for matrix and TRS:
@@ -367,7 +398,9 @@ public:
 	*/
 
 	/* matrix	number[16]    A floating-point 4x4 transformation matrix stored in column-major order.
-				      default: [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1] */
+				      default: [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]
+	   Note: glTF colume-major is E3D row-major order.
+	*/
 	E3D_RTMatrix    matrix;		/* pmat[4*3] in 4 row, 3 colums. in row-major order, init as identity. */
 	bool		matrix_defined;  /* If matrix is defined */
 
@@ -375,15 +408,15 @@ public:
 				      default [0,0,0,1]  (Note: for quaternion rotation, (-x,-y,-z,-w) same as (x,y,z,w) ) */
 	/* translation   number[3]     The node's translation along the x,y, and z axes. */
 	/* qt: rotation_quaternion + translationXYZ. Default identity. */
-	E3D_Quatrix qt;
+	E3D_Quatrix 	qt;
 
 	/* scale         number[3]     The node's non-uniform scale, given as the scaling factor along the x,y and z axes. */
 	//float scaleX, scaleY, scaleZ;   /* Default 1,1,1 */
 	E3D_RTMatrix    scaleMat;       /* Scale matrix with scaleXYZ only */
-	bool 		SRT_defined;   /* If scale and/or rotation and/or translation is defined */
+	bool 		SRT_defined;   /* If scale and/or rotation and/or translation is defined in glTF Json descript */
 
 
-	E3D_RTMatrix pmat;      /* Presetting Transform matrix, for the object's initial position/orientation
+	E3D_RTMatrix pmat;      /* Presetting Transform matrix, for the object's initial position/orientation, OR local transform.
 				 * 1. If matrix is present, then pmat=matrix
 				 *    Else pmat=MatScale*(MatRotation*MatTranslation)=scaleMat*qt.toMatrix
 				 * 2. Computed in E3D_glLoadNodes()
@@ -391,24 +424,107 @@ public:
 	E3D_RTMatrix amat;     /* Acting/animating mat, normally interpolated from animQts.
 				* See at E3D_Scene::renderSceneNode() and E3D_Scene::interpNodeAmats()
 				*/
-	E3D_RTMatrix gmat;    /*** Globalizing transform matrix, to transform coordinates under this node COORD to under Global COORD
+	E3D_RTMatrix gmat;    /*** Globalizing transform matrix, to transform coordinates from under this node COORD to under Global COORD
 				 * See at E3D_Scene::renderSceneNode()  <-----
 				 *    node->gmat=node->amat*node->pmat*(node->parent->gmat)
 						!!!--- CAUTION ---!!!
-				 *    Apply gmat ONLY after immediate whole tree computation!
+				 *    To apply gmat ONLY after immediate whole tree computation!
 				 */
 
-	/* weights       number[1-*]   The weights of the instantiated morph target.(when defined, mesh MUST also be defined) */
-	//TODO: vector<int> weightIndices;
 
-	E3D_AnimQuatrices  animQts; /* Animating Quatrices for KeyFrames, interpolate to assign to amat!
+
+			/* ===== SKinning data (ONLY if type==glNode_Skin ) ====== (HK2023-03-05) */
+
+
+       	 /* Note:
+	  * 1. TDB&TODO: NOW assume ONE node can ONLY belong to one skeleton(a set of joints).
+	  *    If more than 1 set of joints(skeleton) refer to the same node(as in glSkins), ONLY the first set will apply.
+	  */
+
+	bool	    IsJoint;	/* ONLY if this node is joint of a skin. --- ALSO ref. to skinIndex in above.
+				 * Default: false
+				 * Ref. to E3D_Scene::loadGLTF() 9.
+				 */
+	int	    jointSkinIndex;   /* Index of gSkins[] to which this joint belongs, init to -1. */
+
+	E3D_RTMatrix invbMat;   /* inverseBindMatrix, to transform vertices to under this node's COORD
+				 * Ref. to E3D_Scene::loadGLTF() 9.
+				 * This matrix is taken from E3D_glSkin, ONLY if this node is a joint of the skin.
+				 *		!!!--- CAUTION ---!!!
+				 *  TDB&TODO: NOW one node can ONLY be a joint of ONE skin. If more than one skin
+				 *  has this node as its joint, then you should update/revise invbMat case by case
+				 *  in computing skinning.
+				 */
+	E3D_RTMatrix jointMat;  /* jointMat=invMat*gmat, matrix to bind vertices to the transformation of this node.
+				 * As one skin vertex will be affected by max.4 jointMats, so jontMats of all glNodes
+				 * SHOULD be resolved before (shading vertices/)rendering a mesh.
+				 */
+
+
+
+					/* ===== Animation data ====== */
+
+
+	//vector<E3D_AnimQuatrices> animQtsArray;
+	E3D_AnimQuatrices       animQts;
+				    /* Animating Quatrices for KeyFrames, interpolate to assign to amat!
                                      * TBD&TODO: check and normalize quaternion before converting to/from matrix. ???
+				       Ref. E3D_Scene::loadGLTF() 12.: Load animation data into glNodes.animQts and glNodes.animMorphWts
                                      */
 
+
+	/* ------ Morph weigts for mesh nodes ------ */
+
+	/* TODO weights       number[1-*]   The weights of the instantiated morph target.(when defined, mesh MUST also be defined)
+	 			       The number of array elements MUST match the number of morph targets of the referenced mesh.
+        			     */
+//	vector<int> weightIndices;
+
+/* 	vector<float>     pmwts      Note: init position morph weights are loaded into E3D_TriMesh.mwegiths */
+
+//	vector<vector<float> > amwtsArray;   /* Maybe more than 1 animation  */
+	vector<float>     amwts;
+					     /* Acting morph weights for node mesh, normally interpolated from animMorphwts
+					       Ref. E3D_Scene::renderSceneNode() and E3D_Scene::interpNodeAmwts()
+					     */
+
+//	vector<E3D_AnimMorphWeights> animMorphwtsArray;
+       E3D_AnimMorphWeights animMorphwts;
+					    /* Animating morph weights for KeyFrames, it applys to node's mesh.primitives
+					       Ref. E3D_Scene::loadGLTF() 12.: Load animation data into glNodes.animQts and glNodes.animMorphWts
+					     */
+	//extensions
+	//extras
+};
+
+
+/*-------------------------------
+        Class E3D_glSkin
+--------------------------------*/
+class E3D_glSkin {
+public:
+        /* Constructor */
+	E3D_glSkin();
+        /* Destructor */
+
+	/* name          string        The user-defined name of this scene */
+	string name;
+
+	/* inverseBindMatrices  integer  The index of the accessor contains float-point 4x4 matrices(accessor type MAT4)
+	 * Its accessor.count property MUST be greater than or equal to the number of joints.size().
+	 */
+	int invbMatsAccIndex;  /* Required: NO.  Init to -1. <0 as undefined, then all invbMats are identity. */
+
+	/* skeleton     integer    the index of the node used as a skeleton root */
+	int skeleton;          /* Required: NO. init to -1 */
+
+	/* joints     integer[1-*]    indices of skeleton nodes, used as joints in this skin */
+	vector<int>   joints;	/* Required: YES.  */
 
 	//extensions
 	//extras
 };
+
 
 /*-------------------------------
         Class E3D_glScene
@@ -453,6 +569,13 @@ VEC4		4
 MAT2		4
 MAT3		9
 MAT4		16
+
+
+        !!! --- CAUTION --- !!!
+
+Accessors of matrix type have data stored in column-major order.
+(glTF column-major order == E3D row_major order )
+
 ----------------------------------*/
 class E3D_glAccessor {
 public:
@@ -489,7 +612,11 @@ public:
 	 *  To be linked/assigned NOT in E3D_glLoadAccessors()
 	 */
 	const unsigned char *data;
+	int     byteStride;		/* THIS IS SAME AS glBufferViews[bufferViewIndex].byteStride
+					 * Assigned in E3D_Scene::loadGLTF() 4.
+					 */
 };
+
 
 /*-------------------------------
         Class E3D_glBuffer
@@ -540,7 +667,7 @@ public:
 
 					    !!!--- CAUTION ---!!!
 				    byteStride is ONLY for vertex attribute data.
-				    (unless such layout is explicitly enabled by an extension).
+				    (OR unless such layout is explicitly enabled by an extension).
 				  */
 
 	/* The hint representing the intended GPU buffer type to use with this buffer view */
@@ -656,6 +783,15 @@ public:
 	//extras
 };
 
+enum E3D_ANIMPATH_TYPE {
+	ANIMPATH_UNKNOWN       =-1,
+	ANIMPATH_WEIGHTS       =0,
+	ANIMPATH_TRANSLATION   =1,
+	ANIMPATH_ROTATION      =2,
+	ANIMPATH_SCALE         =3,
+};
+/* Check max value of pathTypeMAX, see loadGLTF() 12.1 (12.1.2) */
+
 
 /*---------------------------------------
    Class E3D_glAnimTarget
@@ -682,12 +818,15 @@ public:
 			     weights         SCALAR               float/signed byte normalized/unsinged byte normalized/....
 			 */
 
-	int pathType; 	 /* According to abov path, Init to -1, <0 invalid */
-#define ANIMPATH_WEIGHTS     	0
-#define ANIMPATH_TRANSLATION    1
-#define ANIMPATH_ROTATION       2
-#define ANIMPATH_SCALE          3
+	enum E3D_ANIMPATH_TYPE pathType; 	 /* According to abov path, Init to -1, <0 invalid */
+
+#if 0  /* enum E3D_ANIMPATH_TYPE */
+   #define ANIMPATH_WEIGHTS     	0
+   #define ANIMPATH_TRANSLATION    1
+   #define ANIMPATH_ROTATION       2
+   #define ANIMPATH_SCALE          3
 /* Check max value of pathTypeMAX, see loadGLTF() 12.1 */
+#endif
 
 	//extensions
 	//extras
@@ -761,7 +900,7 @@ public:
 						      MUST NOT have the same targets(means same node and path)
 						   */
 
-	vector<E3D_glAnimChanSampler>   samplers;
+	vector<E3D_glAnimChanSampler>   samplers;  /*  list of samplers, to be referred by channels[].samplerIndex */
 
 	//extensions
 	//extras
@@ -940,6 +1079,7 @@ public:
 	//bool	emissiveFactor_defined;
 	E3D_Vector emissiveFactor;	/* Required:No,  the factors for the emissive color of the material
 				  	   number [3], default [0.0, 0.0 ,0.0]
+
 				 	*/
 
 	string alphaMode;	/* Required:No, The alpah rendering mode of the material, default "OPAQUE"

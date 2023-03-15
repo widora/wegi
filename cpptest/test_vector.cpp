@@ -76,6 +76,22 @@ int main(int argc, char **argv)
 {
 	cout << "Hello, this is C++!\n" << endl;
 
+#if 1 ////////////////////////////////
+	char *pstr=new char[20];
+	char *pstr2=new char[10]();
+
+	printf("pstr: ");
+	for(int i=0; i<20; i++)
+		printf("%d ",pstr[i]);
+	printf("\n");
+
+	printf("pstr2: ");
+	for(int i=0; i<10; i++)
+		printf("%d ",pstr2[i]);
+	printf("\n");
+exit(0);
+#endif /////////////////////////////////
+
 
 #if 0 //////////////// E3D_TriMesh:: loadglTF()  ////////////////
 int cnt=0;
