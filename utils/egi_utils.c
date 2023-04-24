@@ -316,7 +316,8 @@ EGI_FILEMMAP * egi_fmap_create(const char *fpath, off_t resize, int prot, int fl
 		return NULL;
 
         /* Open file */
-        fmap->fd=open(fpath, O_CREAT|O_RDWR, S_IRUSR|S_IWUSR);
+//        fmap->fd=open(fpath, O_CREAT|O_RDWR, S_IRUSR|S_IWUSR);
+        fmap->fd=open(fpath, prot&PROT_WRITE ? (O_CREAT|O_RDWR): O_RDONLY, S_IRUSR|S_IWUSR); /* HK2023-03-23 */
         if(fmap->fd<0) {
                 printf("%s: Fail to open input file '%s'. ERR:%s\n", __func__, fpath, strerror(errno));
 		free(fmap);

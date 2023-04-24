@@ -76,7 +76,7 @@ int main(int argc, char **argv)
 {
 	cout << "Hello, this is C++!\n" << endl;
 
-#if 1 ////////////////////////////////
+#if 0 ////////////////////////////////
 	char *pstr=new char[20];
 	char *pstr2=new char[10]();
 
@@ -92,8 +92,52 @@ int main(int argc, char **argv)
 exit(0);
 #endif /////////////////////////////////
 
+#if 0 ////////////////  E3D_Quatrix::toMatrix()  ////////////////
+E3D_Quatrix qa,qb,qc;
+qa.setRotation('X', MATH_PI/4.0);
+qa.setTranslation(10,20,30);
+//qa.setScaleXYZ(1,2,3);
+//qa.sx=1.0; qa.sy=2.0; qa.sz=3.0;
+qa.sx=5.0; qa.sy=10.0; qa.sz=25.0;
 
-#if 0 //////////////// E3D_TriMesh:: loadglTF()  ////////////////
+qb=qa;
+qb.inverse();
+
+
+E3D_RTMatrix mata,matb;
+qa.toMatrix(mata);
+qb.toMatrix(matb);
+
+mata=mata*matb;
+mata.print();
+
+exit(0);
+#endif
+
+
+#if 1 //////////////// E3D_TriMesh:: loadGLB()  ////////////////
+int cnt=0;
+
+//while(1)
+{
+	E3D_Scene scene;
+	if( strstr(argv[1],".glb") )
+	   scene.loadGLB(argv[1]);
+	else
+	   scene.loadGLTF(argv[1]);
+
+	cnt++;
+	printf(" --- cnt=%d ---\n", cnt);
+	//usleep(100000);
+	//sleep(2);
+
+	exit(0);
+ }
+
+exit(0);
+#endif
+
+#if 0 //////////////// E3D_TriMesh:: loadGLTF()  ////////////////
 int cnt=0;
 
 while(1) {
@@ -109,7 +153,7 @@ while(1) {
 exit(0);
 #endif
 
-#if 1 //////////////// E3D_Scene:: loadglTF()  ////////////////
+#if 0 //////////////// E3D_Scene:: loadGLTF()  ////////////////
 int cnt=0;
 
 //while(1)
@@ -293,6 +337,27 @@ exit(0);
   exit(0);
 #endif
 
+#if 0 //////////////// Qaternion fromMatrix(MatWithScale) HK2023-04-19 ////////////////
+        E3D_Quaternion quat;
+        E3D_RTMatrix mat;
+ /***
+   Example:
+        0.000000  0.000000  0.327751
+        0.327751  0.000000  0.000000
+        0.000000  0.327751  0.000000
+   Result:
+        quat[0.500000 (-0.163875, -0.163875, -0.163875)]
+ */
+	mat.pmat[0]=0.0; 	mat.pmat[1]=0.0; 	mat.pmat[2]=0.327751;
+	mat.pmat[3]=0.327751; 	mat.pmat[4]=0.0; 	mat.pmat[5]=0.0;
+	mat.pmat[6]=0.0; 	mat.pmat[7]=0.327751; 	mat.pmat[8]=0.0;
+
+	quat.fromMatrix(mat);
+	mat.print("mat");
+	quat.print("quat");
+
+exit(0);
+#endif
 
 #if 0 ////////////////  E3D_Quaternion  ////////////////
 

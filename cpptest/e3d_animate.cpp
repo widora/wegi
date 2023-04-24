@@ -54,6 +54,8 @@ Journal:
 	1. Add E3D_AnimQuatrices::insertSRT().
 2023-02-28:
 	1. Add E3D_AnimMorphWeights::insert() and E3D_AnimMorphWeights::interp()
+2023-04-06:
+	1. Add E3D_AnimQuatrices::tsmin/tsmax and E3D_AnimQuatrices::E3D_AnimQuatrices()
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -257,6 +259,14 @@ void E3D_AnimMorphWeights::interp(float t, vector<float> &weights) const
   		       Class E3D_AnimQuatrices
    		       ( Animating quatrices )
 		---------------------------------*/
+
+/*----------------------
+     Constructor
+-----------------------*/
+E3D_AnimQuatrices::E3D_AnimQuatrices()
+{
+	tsmax=tsmin=0.0f;
+}
 
 /*----------------------
 	Print
@@ -553,7 +563,7 @@ void E3D_AnimQuatrices::interp(float t, E3D_Quatrix &qt) const
 	size_t k;
 	float rt;
 
-#if 0	/* TODO: Limit??? necessary??? */
+#if 0	/* OK, t maybe<0; XXXTODO: Limit??? necessary??? */
 	if( t<0.0f || t>1.0 )
 		return;
 #endif
@@ -563,7 +573,8 @@ void E3D_AnimQuatrices::interp(float t, E3D_Quatrix &qt) const
 	/* 1. No element in vecotr, return identity. */
 	if(ts.empty()) {  /* Hello! Haaa ... HK2022-11-04 */
 		egi_dpstd("No element in ts[]/animQts[]!\n");
-		qt.q.identity();
+		//qt.q.identity();
+		qt.identity(); /* HK2023-03-26 */
 		return;
 	}
 //	egi_dpstd("ts.size()=%zu\n", ts.size());

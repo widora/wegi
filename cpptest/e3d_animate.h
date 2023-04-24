@@ -55,6 +55,10 @@ public:
 	vector<vector<float> >	mwts;    /* weights for mesh morph!  (NOT for skinned mesh)
 					 * Each element size mwts[].size) MUST be same as mesh.mweights.size()
 					 */
+
+	float tsmin;			/* HK2023-04-07 */
+	float tsmax;
+
         /* Constructor */
         /* Destructor */
 
@@ -83,8 +87,12 @@ public:
 	vector<E3D_Quatrix>  	qts;    /* Quatrix at the time point */
 
 
+	float tsmin;			/* HK2023-04-06 */
+	float tsmax;
+
+
         /* Constructor */
-        //E3D_AnimQuatrices ();
+        E3D_AnimQuatrices ();
 
         /* Destructor */
         //~E3D_AnimQuatrices ();

@@ -3522,7 +3522,7 @@ int cstr_get_html_attribute(const char *str, const char *name, char *value)
 	/* Add '=' after name */
 	len=strlen(name);
 	if(len > sizeof(sname)-2) {
-		egi_dpstd("Attribute name too long! limit to %d bytes.", sizeof(sname)-2);
+		egi_dpstd("Attribute name too long! limit to %zu bytes.", sizeof(sname)-2);
 		*value=0;
 		return -3;
 	}

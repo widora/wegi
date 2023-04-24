@@ -330,6 +330,7 @@ public:
 
 	int skinIndex;		/* index of glSkins[], ONLY if the mesh has been skinned.
 				 * init to -1.
+				 * TBD&TODO: NOW assume one mesh has NO MORE THAN one skin defined.
 				 */
 
 	//extensions;
@@ -345,12 +346,14 @@ enum E3D_NODE_TYPE {
 };
 extern const char*  _strNodeTypes[];
 
-/*-------------------------------
+/*---------------------------------------------------------------
         Class E3D_glNode
 
 Note:
-   1. When the node contains skin, mesh[skinMeshIndexmesh].primitives MUST all contain JOINTS_0 and WEIGHTS_0 attributes.
---------------------------------*/
+   1. When the node contains skin, mesh[skinMeshIndexmesh].primitives
+      MUST contain JOINTS_0 and WEIGHTS_0 attributes.
+   2. A skin_node associate a glMesh and a glSkin.
+-------------------------------------------------------------------*/
 class E3D_glNode {
 public:
         /* Constructor */
@@ -369,11 +372,11 @@ public:
 	/* children nodes     integer[1-*]  The indices of this node's children. */
 	vector<int>	children;     /* As the indices of nodes list */
 
-/* For camera_node ONLY */
+/* For <<<camera_node>>> ONLY */
 	/* camera_node 	 integer       The index of the camera referenced by this node. */
 	int cameraIndex;		/* Init to -1, if>=0, node type is glNode_camera */
 
-/* For skin_node ONLY, binding with a mesh. */
+/* For <<<skin_node>>> ONLY, binding with a mesh. */
 	/* skin_node       integer       The index of the skin referenced by this node. */
 	int skinIndex;			/* Init to -1, When defined, skinMeshIndex MUST also be defined.
 					 * index to glSkins[]
@@ -383,7 +386,7 @@ public:
 					 * index to glMeshes[]
 					 * To be set by E3D_glLoadNodes()
 					 */
-/* For mesh_node ONLY */
+/* For <<<mesh_node>>> ONLY */
 	/* (mesh_node)	 integer       The index of the mesh for this node. */
 	int meshIndex;			/* Init to -1, if>=0, node type is glNode_mesh */
 
@@ -401,7 +404,9 @@ public:
 				      default: [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]
 	   Note: glTF colume-major is E3D row-major order.
 	*/
-	E3D_RTMatrix    matrix;		/* pmat[4*3] in 4 row, 3 colums. in row-major order, init as identity. */
+	E3D_RTMatrix    matrix;		/* pmat[4*3] in 4 row, 3 colums. in row-major order, init as identity.
+					 * SHOULD BE decomposable to TRS properties! say it can convert to a quatrix!
+					 */
 	bool		matrix_defined;  /* If matrix is defined */
 
 	/* rotation      number[4]     The nodes's unit quaternion rotation in the order(x,y,z,w), where w is the scalar.
@@ -412,7 +417,10 @@ public:
 
 	/* scale         number[3]     The node's non-uniform scale, given as the scaling factor along the x,y and z axes. */
 	//float scaleX, scaleY, scaleZ;   /* Default 1,1,1 */
-	E3D_RTMatrix    scaleMat;       /* Scale matrix with scaleXYZ only */
+	E3D_RTMatrix    scaleMat;       /* Scale matrix with scaleXYZ only, interim param, it integrates into pmat. see pmat.
+					 * 		--- NO MORE USE! ---
+					 * Integrated into qt.sx/sy/sz.
+					 */
 	bool 		SRT_defined;   /* If scale and/or rotation and/or translation is defined in glTF Json descript */
 
 
@@ -420,6 +428,7 @@ public:
 				 * 1. If matrix is present, then pmat=matrix
 				 *    Else pmat=MatScale*(MatRotation*MatTranslation)=scaleMat*qt.toMatrix
 				 * 2. Computed in E3D_glLoadNodes()
+				 * 3. If SRT_defined, try to use qt in some cases, for pmat MAY integrated with scaleMat.
 			 	*/
 	E3D_RTMatrix amat;     /* Acting/animating mat, normally interpolated from animQts.
 				* See at E3D_Scene::renderSceneNode() and E3D_Scene::interpNodeAmats()
@@ -431,6 +440,7 @@ public:
 				 *    To apply gmat ONLY after immediate whole tree computation!
 				 */
 
+//	E3D_Vector NOxyz  <<<--->>>  gmat.tx/ty/tz As node local origin under global COORD.
 
 
 			/* ===== SKinning data (ONLY if type==glNode_Skin ) ====== (HK2023-03-05) */
@@ -447,10 +457,20 @@ public:
 				 */
 	int	    jointSkinIndex;   /* Index of gSkins[] to which this joint belongs, init to -1. */
 
+
 	E3D_RTMatrix invbMat;   /* inverseBindMatrix, to transform vertices to under this node's COORD
+				 *
+				 *		--- Implementation note ---
+				 * "The fourth row of each matrix MUST be set to [0.0, 0.0, 0.0, 1.0].
+                                 *  The matrix defining how to pose the skin’s geometry for use with the joints
+				 *  (also known as “Bind Shape Matrix”) should be premultiplied to mesh data or
+				 *  to Inverse Bind Matrices."
+				 *
+				 * It MAY integrated with ScaleMat!
 				 * Ref. to E3D_Scene::loadGLTF() 9.
+				 *
 				 * This matrix is taken from E3D_glSkin, ONLY if this node is a joint of the skin.
-				 *		!!!--- CAUTION ---!!!
+				 *		   !!!--- CAUTION ---!!!
 				 *  TDB&TODO: NOW one node can ONLY be a joint of ONE skin. If more than one skin
 				 *  has this node as its joint, then you should update/revise invbMat case by case
 				 *  in computing skinning.
@@ -465,11 +485,15 @@ public:
 					/* ===== Animation data ====== */
 
 
-	//vector<E3D_AnimQuatrices> animQtsArray;
-	E3D_AnimQuatrices       animQts;
+	vector<E3D_AnimQuatrices> animQtsStacks;  /* HK2023-04-06. Array of animation data, One stack for a set of animation data. */
+	//E3D_AnimQuatrices       animQts;
 				    /* Animating Quatrices for KeyFrames, interpolate to assign to amat!
                                      * TBD&TODO: check and normalize quaternion before converting to/from matrix. ???
-				       Ref. E3D_Scene::loadGLTF() 12.: Load animation data into glNodes.animQts and glNodes.animMorphWts
+				       Ref. E3D_Scene::loadGLTF()/loadGLB 12.: Load animation data into glNodes.animQtsStacks.
+				        :glNodes[node].animQts.insertSRT("S,R,T")
+					       				!!!--- NOTICE --!!!
+				        Allocate capacity: glNodes[ka].animQtsStacks.resize(animTotal), though there may
+					be NO RTS animation data at all! see E3D_Scene::loadGLTF/loadGLB() 12.
                                      */
 
 
@@ -477,21 +501,23 @@ public:
 
 	/* TODO weights       number[1-*]   The weights of the instantiated morph target.(when defined, mesh MUST also be defined)
 	 			       The number of array elements MUST match the number of morph targets of the referenced mesh.
+					TBD&TODO: For what???
         			     */
 //	vector<int> weightIndices;
+/* XXX 	vector<float>     pmwts      Note: init position morph weights are loaded into E3D_TriMesh.mwegiths */
 
-/* 	vector<float>     pmwts      Note: init position morph weights are loaded into E3D_TriMesh.mwegiths */
-
-//	vector<vector<float> > amwtsArray;   /* Maybe more than 1 animation  */
 	vector<float>     amwts;
-					     /* Acting morph weights for node mesh, normally interpolated from animMorphwts
+					     /* Acting morph weights for node mesh, normally interpolated from animMorphwtsStacks[]
 					       Ref. E3D_Scene::renderSceneNode() and E3D_Scene::interpNodeAmwts()
 					     */
 
-//	vector<E3D_AnimMorphWeights> animMorphwtsArray;
-       E3D_AnimMorphWeights animMorphwts;
+	vector<E3D_AnimMorphWeights> animMorphwtsStacks;  /* HK2023-04-07 */
+//       E3D_AnimMorphWeights animMorphwts;
 					    /* Animating morph weights for KeyFrames, it applys to node's mesh.primitives
-					       Ref. E3D_Scene::loadGLTF() 12.: Load animation data into glNodes.animQts and glNodes.animMorphWts
+					       Ref. E3D_Scene::loadGLTF()/loadLGB 12.: Load animation data into glNodes.animMorphwtsStacks.
+					       				!!!--- NOTICE --!!!
+					        Allocate capacity: glNodes[ka].animMorphwtsStacks.resize(animTotal), though there may
+						be NO morph data at all! see E3D_Scene::loadGLTF/loadGLB() 12.
 					     */
 	//extensions
 	//extras
@@ -513,7 +539,14 @@ public:
 	/* inverseBindMatrices  integer  The index of the accessor contains float-point 4x4 matrices(accessor type MAT4)
 	 * Its accessor.count property MUST be greater than or equal to the number of joints.size().
 	 */
-	int invbMatsAccIndex;  /* Required: NO.  Init to -1. <0 as undefined, then all invbMats are identity. */
+	int invbMatsAccIndex;  /* Required: NO.  Init to -1. <0 as undefined, then all invbMats are identity.
+				 An accessor referenced by inverseBindMatrices MUST have floating-point components
+			         of "MAT4" type. The number of elements of the accessor referenced by inverseBindMatrices
+				 MUST greater than or equal to the number of joints elements. The fourth row of each matrix
+				 MUST be set to [0.0, 0.0, 0.0, 1.0].
+				The matrix defining how to pose the skin’s geometry for use with the joints (also known as “Bind Shape Matrix”)
+				should be premultiplied to mesh data or to Inverse Bind Matrices.
+				*/
 
 	/* skeleton     integer    the index of the node used as a skeleton root */
 	int skeleton;          /* Required: NO. init to -1 */
@@ -613,7 +646,7 @@ public:
 	 */
 	const unsigned char *data;
 	int     byteStride;		/* THIS IS SAME AS glBufferViews[bufferViewIndex].byteStride
-					 * Assigned in E3D_Scene::loadGLTF() 4.
+					 * Assigned in E3D_Scene::loadGLTF/loadGLB(): 4.Link buffersViews.data to accessors.data
 					 */
 };
 
@@ -632,8 +665,10 @@ public:
 	string 	     uri;  /* URI to the resource. OR maybe base64 encoded data ebedded in glTF. */
 	int 	     byteLength;
 
-	EGI_FILEMMAP *fmap;   /* MMAP to an underlying file */
- 	unsigned char *data;  /* 1. If fmap!=NULL, then data=fmap->fp.
+	EGI_FILEMMAP *fmap;   /* MMAP to an underlying file, then fmap will be MMAP of whole GLB file! */
+	bool          GLBstored;  /* True: Is the ONLY GLB BIN buffer */
+ 	unsigned char *data;  /* 1. If fmap!=NULL, then data=fmap->fp, OR for GLB stored: data=fmap->fp+fmap->fp+28+chunk0_length;
+				    (see at loadGLB(): Case glTF Jobject: buffers )  HK2023-02-22
 				    Else data should be allocated by new [], see in ~E3D_glBuffer().
 				 2. THIS is the data OWNER.
 				 3. All buffer data defined by glTF are in little endian byte order.
@@ -675,7 +710,7 @@ public:
 
 
 	/* Pointer to the data in buffer. THIS is NOT the data Owner.
-	 *  To be linked/assigned NOT in E3D_glLoadAccessors()
+	 *  To be linked/assigned in E3D_Scene::loadGLTF/loadGLB(): 3. Link buffers.data to bufferViews.data
 	 */
 	const unsigned char *data;
 
@@ -818,7 +853,7 @@ public:
 			     weights         SCALAR               float/signed byte normalized/unsinged byte normalized/....
 			 */
 
-	enum E3D_ANIMPATH_TYPE pathType; 	 /* According to abov path, Init to -1, <0 invalid */
+	enum E3D_ANIMPATH_TYPE pathType; 	 /* According to above path, Init to -1, <0 invalid */
 
 #if 0  /* enum E3D_ANIMPATH_TYPE */
    #define ANIMPATH_WEIGHTS     	0
@@ -954,6 +989,7 @@ public:
 				   the material to be applicable to it.
 				   default=0;
 				   CrossCheck at E3D_TriMesh::loadGLTF() at 11.3.4.
+				   as index of glMeshes[].primitives[].attributes.texcoord[texCoord], see E3D_glPrimitiveAttribute
 				 */
 
         //extensions

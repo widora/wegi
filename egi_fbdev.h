@@ -227,6 +227,7 @@ void    fb_filo_off(FBDEV *dev);
 void    fb_filo_flush(FBDEV *dev);
 void    fb_filo_dump(FBDEV *dev);
 void	fb_position_rotate(FBDEV *dev, unsigned char pos);
+void 	fb_gammaCorrect(FBDEV *fb_dev, float gampow);
 
 #ifdef __cplusplus
  }

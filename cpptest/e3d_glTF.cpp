@@ -6,6 +6,7 @@ published by the Free Software Foundation.
               --- EGI 3D glTF Classes and Functions ---
 
 This is for E3D_TriMesh::loadGLTF().
+GLTF generator: Khronos glTF Blender I/O v3.3.32
 
 Reference:
 1. glTF 2.0 Specification (The Khronos® 3D Formats Working Group)
@@ -28,6 +29,8 @@ Reference:
 	       |---> camera(s) ...
 	       |
    Scene ---> node(s) --->  skin(s) ---> accesors(s)
+	       |	      |
+	       |	      |---> associated mesh
 	       |
 	       |---> node(s) ...
 
@@ -62,9 +65,12 @@ glAnimation ---> glAnimChannels  ---> glAnimChanTarget ---> node and TRS/Morph t
 
   	(((  ----- Skin Roadmap  ----- )))
 
+Assocaite glSkin with glMesh: each vertex of the mesh is bound to Max.4 joints(COORD) with respective weights.
+When a joint node moves, it also affect the bound vertices by their weight values.
+
 Scene ---> node(type: skin) ----> glMesh_index ---> glMesh ---> primitive(s) --->primitiveAttribute ---> AccIndex for skin joints_x/weights_x
 		 	   |
-		           |----> glSkin_index ---> glSkin ---> ( continue see following)
+		           |----> glSkin_index ---> glSkin ---> ( continued as following)
 
 
   ---> glSkin ----> joints(a skeleton/a set of nodes) ----> nodes  ----> node gmat  -------->>>>>((( glNode.jointMat=invMat*gmat )))
@@ -90,10 +96,21 @@ Note:
 2. All units in glTF are meters and all angles are in radians.
 3. Positive rotation is counter_colockwise.
 4. All buffer data defined by glTF are in little endian byte order.
-5. glTF colume-major is E3D row-major order.
+5. glTF colume-major order is E3D row-major order.
+
+Source of free 3D models for testing:
+gltfs.com
+sketchfab.com
+free3d.com
+cgmodel.com
+turbosquid.com
+mixamo.com
+cgtrade.com
+
 
 TODO:
-1. NOW it supports baseColorTexture ONLY.
+1. XXX NOW it supports baseColorTexture ONLY.
+2. Read glb file.
 
 Journal:
 2022-12-14: Creates THIS file.
@@ -229,11 +246,11 @@ int glElementSize(string etype, int ctype)
 		case 5122:
 			bytes=2; break;
 		case 5123:
-			bytes=2; break;
+			bytes=sizeof(unsigned short); break;
 		case 5125:
-			bytes=4; break;
+			bytes=sizeof(unsigned int); break;
 		case 5126:
-			bytes=4; break;
+			bytes=sizeof(float); break;
 		default: /* Errors */
 		     bytes=-1; break;
 	}
@@ -355,6 +372,7 @@ E3D_glBuffer::E3D_glBuffer()
 	byteLength=0;
 	fmap=NULL;
 	data=NULL;
+	GLBstored=false; /* HK2023-03-22 */
 }
 
 /*--------------------
@@ -364,13 +382,18 @@ E3D_glBuffer::~E3D_glBuffer()
 {
 	if(fmap!=NULL) {
 		egi_fmap_free(&fmap);
-	        egi_dpstd("Freed fmap of uri: %s.\n", uri.c_str());
+
+		/* For GLBstored BIN buffer, uri is empty. HK2023-03-22 */
+		if(GLBstored)
+		    egi_dpstd("Freed fmap of GLB file!\n");
+		else
+	            egi_dpstd("Freed fmap of uri: %s.\n", uri.c_str());
 
 		/* data=fmap->fp */
 		data=NULL;
 	}
 	/* data != fmap->fp */
-	else if(data!=NULL) {
+	else if(data!=NULL ) {
 		delete [] data;
 	}
 }
@@ -435,7 +458,7 @@ void E3D_glNode::print()
 {
 	printf("Node name: %s\n", name.c_str());
 	printf("Type=%d\n", type);
-	printf("Number of children: %d\n", children.size());
+	printf("Number of children: %zu\n", children.size());
 	if(children.size()>0) {
 		printf("Children list: \n     [");
 		for(size_t k=0; k<children.size(); k++)
@@ -486,6 +509,7 @@ E3D_glAccessor::E3D_glAccessor()
 
 	elemsize=0;
 	data=NULL; /* NOT the Owner */
+	byteStride=0;
 }
 
 
@@ -500,6 +524,7 @@ E3D_glImage::E3D_glImage()
 {
 	/* Init */
 	bufferViewIndex=-1;
+	IsDataURI=false;	/* HK2023-03-22 */
 
 	imgbuf=NULL;
 }
@@ -1200,7 +1225,6 @@ int E3D_glLoadBuffers(const string & Jbuffers, vector <E3D_glBuffer> & glBuffers
 					egi_dpstd(DBG_RED"glBuffers[%d].byteLength=%d: Decode base64 get WRONG datasize=%d\n"DBG_RESET,
 							k, glBuffers[k].byteLength, datasize);
 					return -1;
-					//exit(1);
 				}
 				egi_dpstd(DBG_YELLOW"Succeed to decode base64 string to glBuffers[%d].data.\n"DBG_RESET,k);
 			}
@@ -1209,7 +1233,7 @@ int E3D_glLoadBuffers(const string & Jbuffers, vector <E3D_glBuffer> & glBuffers
 				glBuffers[k].fmap=egi_fmap_create(glBuffers[k].uri.c_str(), 0, PROT_READ, MAP_SHARED);
 				if(glBuffers[k].fmap==NULL) {
 				    egi_dpstd(DBG_RED"Fail to fmap uri: %s\n"DBG_RESET, glBuffers[k].uri.c_str());
-				    //exit(1);
+				    return -1;
 				}
 				else {
 				    /* Check data length */
@@ -2510,7 +2534,7 @@ int E3D_glLoadImages(const string & JImages, vector <E3D_glImage> & glImages)
 	                       data=new char[strlen(pt+7)](); //actually use 2/3 size HK2023-03-13 */
                         }
                         catch ( std::bad_alloc ) {
-                                egi_dpstd("glImges[%d]:Fail to allocate data for base64 decoding!\n", k);
+                                egi_dpstd("glImges[%zu]:Fail to allocate data for base64 decoding!\n", k);
                                 return -1;
                         }
 
@@ -2528,11 +2552,11 @@ int E3D_glLoadImages(const string & JImages, vector <E3D_glImage> & glImages)
 			delete []data;
 
 			if(glImages[k].imgbuf==NULL) {
-			        egi_dpstd(DBG_RED"glImages[%d]:Fail to read imgbuf from uri embedded data!\n"DBG_RESET, k);
+			        egi_dpstd(DBG_RED"glImages[%zu]:Fail to read imgbuf from uri embedded data!\n"DBG_RESET, k);
 				//return -1;
 			}
 			else
-			   egi_dpstd(DBG_GREEN"glImages[%d]: OK to read imgbuf from uri embedded data, image W*H=%d*%d\n"DBG_RESET,
+			   egi_dpstd(DBG_GREEN"glImages[%zu]: OK to read imgbuf from uri embedded data, image W*H=%d*%d\n"DBG_RESET,
 						k, glImages[k].imgbuf->width, glImages[k].imgbuf->height);
 
 			/* A dataURI */
@@ -2544,11 +2568,11 @@ int E3D_glLoadImages(const string & JImages, vector <E3D_glImage> & glImages)
 			/* TODO, relative file path */
 			glImages[k].imgbuf=egi_imgbuf_readfile(glImages[k].uri.c_str());
 			if(glImages[k].imgbuf==NULL) {
-			    egi_dpstd(DBG_RED"glImages[%d]: Fail to read imgbuf from uri: %s\n"DBG_RESET, k, glImages[k].uri.c_str());
+			    egi_dpstd(DBG_RED"glImages[%zu]: Fail to read imgbuf from uri: %s\n"DBG_RESET, k, glImages[k].uri.c_str());
 			    //return -1;
 			}
 			else
-			   egi_dpstd(DBG_GREEN"glImages[%d]: OK to ead imgbuf from uri: '%s', image W*H=%d*%d\n"DBG_RESET,
+			   egi_dpstd(DBG_GREEN"glImages[%zu]: OK to ead imgbuf from uri: '%s', image W*H=%d*%d\n"DBG_RESET,
 						k, glImages[k].uri.c_str(), glImages[k].imgbuf->width, glImages[k].imgbuf->height);
 
 			/* A dataURI */
@@ -2732,7 +2756,7 @@ int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
 				if( glNodes[k].type == glNode_Skin ) {
 					glNodes[k].skinMeshIndex=atoi(value.c_str());
 				}
-				/* This is a mesh node */
+				/* This is a mesh node, OR 'mesh' ahead of 'skin', see above else if(!key.compare("skin")) */
 				else {
 					glNodes[k].meshIndex=atoi(value.c_str());
 					/* Set type */
@@ -2776,8 +2800,10 @@ int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
                                        glNodes[k].matrix.pmat[j*3+jj]=data[j*4+jj];
 				}
 
-				/* Conver from column-major to row-major */
-				//glNodes[k].matrix.transpose(); Hi dude! THis is a fog! hahahaha...HK2023-03-03
+				/* Conver from column-major to row-major:
+				  //glNodes[k].matrix.transpose(); Hi dude! THis is a fog! hahahaha...HK2023-03-03
+				  Note: glTF column-major is E3D row-major
+				*/
 
 				/* Extract pamt[] translation_part (xyz) */
 				for(int j=0; j<3; j++)
@@ -2815,6 +2841,7 @@ int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
 				glNodes[k].qt.q.y=data[1];
 				glNodes[k].qt.q.z=data[2];
 				glNodes[k].qt.q.w=data[3];
+				//glNodes[k].qt.q.normalize(); /* XXX HK2023-04-02 */
 
 				/* Free */
 				delete [] tmpstr;
@@ -2879,6 +2906,11 @@ int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
 				/* Set scale matrix */
 				glNodes[k].scaleMat.setScaleXYZ(data[0],data[1],data[2]);
 
+				/* Set scales to qt! HK2023-04-19 */
+				glNodes[k].qt.sx=data[0];
+				glNodes[k].qt.sy=data[1];
+				glNodes[k].qt.sz=data[2];
+
 				/* Free */
 				delete [] tmpstr;
 
@@ -2891,9 +2923,13 @@ int E3D_glLoadNodes(const string & JNodes, vector<E3D_glNode> & glNodes)
 
 		/* Compute pmat */
 		if(glNodes[k].SRT_defined) {
+			#if 0 /* !!!scale in pmat, then qt.fromMatrix(pmat) qt.q is NOT unit quaterion  */
 			E3D_RTMatrix RTmat;
 			glNodes[k].qt.toMatrix(RTmat);
-			glNodes[k].pmat=glNodes[k].scaleMat*RTmat;
+			glNodes[k].pmat=glNodes[k].scaleMat*RTmat; /* !!! */
+			#else
+			glNodes[k].qt.toMatrix(glNodes[k].pmat);
+			#endif
 		}
 		else if(glNodes[k].matrix_defined) {
 			glNodes[k].pmat=glNodes[k].matrix;
@@ -2993,6 +3029,8 @@ int E3D_glLoadSkins(const string & JSkins, vector <E3D_glSkin> & glSkins)
 				glSkins[k].skeleton=atoi(value.c_str());
 			}
 			else if(!key.compare("joints")) {
+			       egi_dpstd(DBG_MAGENTA">>key: %s, value: %s\n"DBG_RESET, key.c_str(), value.c_str());
+
 				char *tmpstr=new char[value.size()+1];
 				if(tmpstr==NULL) return -1;
 				tmpstr[value.size()]='\0';
@@ -3268,14 +3306,14 @@ int E3D_glLoadAnimChanSamplers(const string & JAnimChanSamplers, vector <E3D_glA
 
 		/* Read and parse key/value pairs */
 		while( (pstr=E3D_glReadJsonKey(pstr, key, value)) ) {
-			//egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
+			egi_dpstd("key: %s, value: %s\n", key.c_str(), value.c_str());
 			if(!key.compare("input")) {
 				glAnimChanSamplers[k].input=atoi(value.c_str());
 			}
-			if(!key.compare("interpolation")) {
+			else if(!key.compare("interpolation")) {   /* HAHAHAH......see! HK2023-03-30 */
 				glAnimChanSamplers[k].interpolation=atoi(value.c_str());
 			}
-			if(!key.compare("output")) {
+			else if(!key.compare("output")) {
 				glAnimChanSamplers[k].output=atoi(value.c_str());
 			}
 			else

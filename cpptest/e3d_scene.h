@@ -81,6 +81,7 @@ public:
 
         /* TriGroup omats. refTriMesh::triGroupList[].omat to be ignored then! TODO. */
         vector<E3D_RTMatrix> omats;
+
 };
 
 
@@ -104,6 +105,7 @@ public:
 
 	/* Load glTF into THIS Scene */
 	int loadGLTF(const string & fgl);
+	int loadGLB(const string & fgl);
 
         /* Add instance */
         void addMeshInstance(E3D_TriMesh &refTriMesh, string pname=" ");
@@ -112,20 +114,24 @@ public:
         void clearMeshInstanceList();
 
 	/* === For animation === */
+	void setAnimation(int animIndex); /* Set E3D_Scene::animIndex, limit E3D_Scene::animTotal */
 	void interpNodeAmats(float t);  /* To update value of each THIS.glNodes[].amat by interpolating its glNode.animQts. */
 	void interpNodeAmwts(float t);  /* To update value of each THIS.glNodes[].amwt by interpolating its glNode.animMorphwts. */
 
 	/* Update node's(and its chirdren's) GJmats(gmats+jointMats) */
-	void updateNodeGJmat(size_t node, bool pmatON, const E3D_RTMatrix &parentGmat); /* --- Recursive --- */
+	void updateNodeGJmat(size_t node, bool pmatON, bool animON, const E3D_RTMatrix &parentGmat); /* --- Recursive --- */
 
 	/* Update all nodes' GJmats(gmats+jointMats) for THIS.scenes[scene]
 	    It calls updateNodeGJmat().
 	    It will NOT interp to update amat,amwts etc..
 	 */
-	void updateNodeGJmats(size_t scene, bool pmatON, const E3D_RTMatrix &parentGmat);
+	void updateNodeGJmats(size_t scene, bool pmatON, bool animON, const E3D_RTMatrix &parentGmat);
 
 	/* void updateNodesMwts() is NOT necessary, as a morph takes place under a mesh's local COORD, and is NOT affected
 	 by nodes' hierarchical transformation. */
+
+	/* Compute glNode.invbMat for node and its chirldren. USUALLY for the skeleton(rootJoint) node. */
+	void rebuildNodeInvbMats(size_t node, const E3D_RTMatrix &parentGmat);  /* --- Recursive --- */
 
         /* Render Scene.  To render each mesh instance in meshInstaneList[] */
         void renderScene(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) const;
@@ -148,7 +154,15 @@ public:
 					     */
 
 /* For TEST: ---------- */
-	bool  meshBackFaceOn;		    /* IF true, set all refTriMesh->backFaceOn in renderScene() */
+	bool  meshBackFaceOn;		    /* Default: false.
+					     * See E3D_Scene::renderSceneNode() 2.2.7: assign refTriMesh->backFaceOn=meshBackFaceOn
+					     */
+	bool  skinMeshOff;		    /* Default: false. HK2023-04-18
+					     * If true, DO NOT draw skin mesh, see at E3D_Scene::renderSceneNode() 2.2.8
+					     */
+	bool  skeletonLineOn;		    /* Default: false. HK2023-04-17
+					     * If true, draw skeleton lines for joint_node in renderSceneNode()
+					     */
 
         //vector<E3D_RTMatrix>  ObjMatList;   /* Corresponding to each TriMesh::objmat  NOPE! */
                                               /* Suppose that triMeshList->objmat ALWAYS is an identity matrix,
@@ -177,12 +191,31 @@ public:
 	/* glTF object nodes */
 	vector<E3D_glNode> glNodes;	/* glTF nodes. (type: mesh, skin, camera, node)
 					 * Note:
-					 * 1. A glNode contains animation data.
+					 * 1. A glNode contains animation data at glNodes[].animQts[]. MAYBE more than 1 set of animation data.
 					 *
 					 */
-	/* glTF animation. TODO: Relation between Scenes and Nodes?? */
-	float  tsmax;			/* Max. timestamp value for animation. See loadGLTF() 12.1.10.1a */
-	int    animIndex;		/* Index of animations, maybe more than 1 animation data. */
+	/* glTF animation. TODO: Relation between Scenes and Nodes??
+	   time[0] >= 0.0, and strictly increasing values, i.e., time[n + 1] > time[n].
+	 */
+	float  tsmin;			/* Refere to E3D_Scene::setAnimation(): Update when reset animIndex.
+					 * tsmin MAY be <0.0! Init to 0.0f.  XXX See loadGLTF/GLB() 12.1.10.1a.
+					 * Reset to be the Min of all glNodes[].animQtsStacks[m].qt[].t
+					 * 		!!!--- CAVEAT---!!!
+					 *	ALWAYS call setAnimation() to update it.
+					 */
+	float  tsmax;			/* Refere to E3D_Scene::setAnimation(): Update when reset animIndex.
+					 * Max. timestamp value for animation. Init to be 0.0f. XXX See loadGLTF/GLB() 12.1.10.1a.
+					 * Reset to be the Max. of all glNodes[].animQtsStacks[m].qt[].t
+					 * 		!!!--- CAVEAT---!!!
+					 *	ALWAYS call setAnimation() to update it.
+					 */
+
+	int    animIndex;		/* Index of animations, maybe more than 1 animation data stored. Init to 0.
+					 * 		!!!--- CAVEAT---!!!
+					 *	ALWAYS call setAnimation() to update it.
+					 */
+
+	int    animTotal;		/* Total number of animation sets. HK2023-04-06 */
 
 	/* glTF scenes, defined root node(s) in each glScene, TODO: NOW only glScene[0] is rendered. */
 	vector<E3D_glScene> glScenes;

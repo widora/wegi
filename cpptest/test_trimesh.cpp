@@ -329,6 +329,8 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include "e3d_vector.h"
 #include "e3d_trimesh.h"
 #include "e3d_volumes.h"
+#include "e3d_scene.h"
+
 using namespace std;
 
 
@@ -412,7 +414,7 @@ int main(int argc, char **argv)
 #ifdef LETS_NOTE
 	EGI_16BIT_COLOR	  bkgScreenColor=WEGI_COLOR_GRAY2; //BLACK;
 #else
-	EGI_16BIT_COLOR	  bkgScreenColor=WEGI_COLOR_DARKPURPLE; //GRAY;
+	EGI_16BIT_COLOR	  bkgScreenColor=COLOR_LightSkyBlue; //WEGI_COLOR_DARKPURPLE; //DARKBLUE; //GRAY; //DARKPURPLE;
 #endif
 	//EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(0xF0CCA8);//WEGI_COLOR_PINK;
 //	EGI_16BIT_COLOR	  faceColor=COLOR_24TO16BITS(WEGI_COLOR_PINK);//grassgreen
@@ -697,8 +699,8 @@ int main(int argc, char **argv)
 	float dvang=5; //2.5;  /* Delta angle for vangle */
 
 	/* Ambient light(nondirectional) */
-	gv_ambLight.assign(0.75, 0.75, 0.75);
-	//gv_ambLight.assign(1.0, 1.0, 1.0);
+	//gv_ambLight.assign(0.5, 0.5, 0.5); //for glMutex
+	gv_ambLight.assign(0.65, 0.65, 0.65);
 
 if( adjustLight_on ) {  /* For Portrait.. */
 	gv_vLight.assign(1, -1, 1); //2); //4);
@@ -719,14 +721,14 @@ else {	/* For Landscape */
 	   // gv_vLight.assign(-1, 1.5, 0); // (1, 1.5, 0);
 	   gv_vLight.assign(1,1,1);
 	   gv_vLight.normalize();
-	   gv_vLight *=0.5;
+	   gv_vLight *=0.65; //0.65 for glMutex;
 
 	   gv_auxLight.assign(-1, -1, 1);
 	   //gv_auxLight.assign(-1,-1, 0);
 	   //gv_auxLight.assign(0,0,0.1);
 	   //gv_auxLight.assign(0,0, 0.75);
 	   gv_auxLight.normalize();
-	   gv_auxLight *=0.25;
+	   gv_auxLight *=0.35;
 	}
 
 	//E3D_Vector vLight(-0.5, 1, 1);
@@ -869,10 +871,18 @@ else {	/* For Landscape */
 	if(saveMotion_on) {
 		if(fmotion==NULL)
 			fmotion=MOTION_FILE;
+
 		int ret;
 		ret=egi_imgmotion_saveHeader(fmotion, xres, yres, 50, 1); /* (fpath, width, height, delayms, compress) */
-		if( ret<0 || (ret>0 && !appendMotion_on) )
+		if( ret<0 || (ret>0 && !appendMotion_on) ) {
+			printf(DBG_RED"Fail to save motion header!\n"DBG_RESET);
 			exit(EXIT_FAILURE);
+		}
+		printf(DBG_YELLOW"Succeed to save motion header!\n"DBG_RESET);
+	}
+	else {
+		printf(DBG_GRAY"saveMotion_on is FALSE!\n"DBG_RESET);
+		sleep(2);
 	}
 
 
@@ -1809,8 +1819,8 @@ sportsmen.shadeType=E3D_FLAT_SHADING;
                                         NULL, NULL, NULL, NULL );       /* int *cnt, int *lnleft, int* penx, int* peny */
 if(TEST_GLTF) {
        FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_appfonts.bold, /* FBdev, fontface */
-                                        20, 20,                         /* fw,fh */
-                                        (UFT8_PCHAR)"glTF", 	/* pstr */
+                                        18, 18,                         /* fw,fh */
+                                        (UFT8_PCHAR)"glTF 2.0", 	/* pstr */
                                         300, 1, 0,                      /* pixpl, lines, fgap */
                                         5, 2,           		/* x0,y0, */
                                         WEGI_COLOR_YELLOW, -1, 255,            /* fontcolor, transcolor,opaque */
@@ -1861,10 +1871,13 @@ if(TEST_GLTF) {
 
 /* ---TEST Record Screen: Save screen as a frame of a motion file. ------------------------- */
 	if(saveMotion_on) {
+		printf(DBG_YELLOW"Saving fmotion...\n"DBG_RESET);
 		if( egi_imgmotion_saveFrame(fmotion, fbimg)!=0 ) {
 			exit(-1);
 		}
 	}
+	else
+		printf(DBG_YELLOW"Ignore fmotion...\n"DBG_RESET);
 
 	/* W13. Update angle */
 	if(!test_clipping) {

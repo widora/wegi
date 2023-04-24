@@ -890,7 +890,7 @@ int ering_msg_send(int sockfd, ERING_MSG *emsg,  int msg_type, const void *data,
 
 	/* 1. Check size, Too big may make recv_end data outflow. */
 	if(len > ERING_MSG_DATALEN) {
-		egi_dpstd("Input payload data length (%d) out of capacity (%d)!\n", len, ERING_MSG_DATALEN);
+		egi_dpstd("Input payload data length (%zu) out of capacity (%d)!\n", len, ERING_MSG_DATALEN);
 		return -2;
 	}
 

@@ -29,6 +29,8 @@ Journal
 	1. Add virt_fbdev_updateImg()
 2022-05-16:
 	1. Add fb_block_zbuff()
+2023-04-24:
+	1. Add fb_gammaCorrect()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -1316,4 +1318,58 @@ void fb_position_rotate(FBDEV *dev, unsigned char pos)
 			gv_fb_box.endxy.y=dev->vinfo.xres-1;
 		}
 	}
+}
+
+
+/*------------------------------------------
+Make Gamma correction for RGB data in FBDEV
+buffer
+
+@fb_dev:   Pointer to FBDEV
+@gampow:   Gamma pow value used for correction.
+	   as vo=vi^(gampow) (vo/vi: normalized value)
+	   Normally 2.2 OR 1.0/2.2.
+------------------------------------------*/
+void fb_gammaCorrect(FBDEV *fb_dev, float gampow)
+{
+	static unsigned char LookUpTab[256]; /* Map from RGB value 'index' to Gamma_corrected value 'LookUpTab[index]' */
+	static float GammaPow=0.0f;
+	int i,j;
+	float fn;	/* Normalized value */
+
+	/* Rebuild LookUpTable */
+	if( fabsf(GammaPow-gampow)>0.00001 ) {
+		for(i=0; i<256; i++) {
+			fn=(0.5+i)/256; /* Normalize */
+			fn=powf(fn, gampow);
+			LookUpTab[i]=froundf(fn*256-0.5);
+		}
+
+		/* Remember */
+		GammaPow=gampow;
+	}
+
+
+	/* Make correction for all RGB values in the FrameBuffer */
+	int bytes_per_pixel=fb_dev->vinfo.bits_per_pixel>>3;
+
+	if(bytes_per_pixel!=4) {
+		egi_dpstd(DBG_RED"NOW it ONLY supports FrameBuffer with ARGB color mode!\n"DBG_RESET);
+		return;
+	}
+
+	unsigned int pos;
+	unsigned char color; /* value of R,G,B */
+        for(i=0; i < fb_dev->vinfo.yres; i++) {
+        	for(j=0; j< fb_dev->vinfo.xres; j++) {
+			/* Get position */
+                	pos=i*fb_dev->finfo.line_length+j*bytes_per_pixel;
+
+			/* ARGB:   look up table to modify/replace RGB value. */
+			color=fb_dev->map_bk[pos+1]; color=LookUpTab[color]; fb_dev->map_bk[pos+1]=color; //R
+			color=fb_dev->map_bk[pos+2]; color=LookUpTab[color]; fb_dev->map_bk[pos+2]=color; //G
+			color=fb_dev->map_bk[pos+3]; color=LookUpTab[color]; fb_dev->map_bk[pos+3]=color; //B
+                }
+	}
+
 }

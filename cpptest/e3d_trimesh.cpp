@@ -97,6 +97,7 @@ TODO:
 
 3.2 Given that FBDEV.pixZ is integer type, there will be overlapped/interlaced points along seam of two triangles
     because of Z-depth accuracy.
+    (workround: scale up whole model, to let distance_Z between two point bigger enough, say >1.0.).
 
 XXX 4. Option to display/hide back faces of meshes.
 
@@ -510,7 +511,13 @@ void E3D_Material::setDefaults()
 	//Tr=0.0;
 	kd.vectorRGB(COLOR_24TO16BITS(0xF0CCA8)); /* Default kd */
 //	kd.vectorRGB(WEGI_COLOR_PINK);
+
+#ifdef LETS_NOTE
+	ka.assign(0.5f, 0.5f, 0.5f); //ka.vectorRGB(WEGI_COLOR_GRAY2); /* Default ka */
+#else
 	ka.assign(0.8f, 0.8f, 0.8f); //ka.vectorRGB(WEGI_COLOR_GRAY2); /* Default ka */
+#endif
+
 	ks.assign(0.0f, 0.0f, 0.0f); //vectorRGB(WEGI_COLOR_GRAY); /* Default ks */
 	ke.assign(0.0f, 0.0f, 0.0f);
 
@@ -2404,7 +2411,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 				printf("glBuffers[%zu]: byteLength=%d, uri='%s'\n", k, glBuffers[k].byteLength, strtmp);
 				/* Check buffer data */
 				if(glBuffers[k].byteLength>0 && glBuffers[k].data==NULL) {
-					egi_dpstd(DBG_GREEN"glBuffers[%d].data==NULL, while byteLength>0!\n"DBG_RESET, k);
+					egi_dpstd(DBG_GREEN"glBuffers[%zu].data==NULL, while byteLength>0!\n"DBG_RESET, k);
 					return -1;
 				}
 			}
@@ -2451,7 +2458,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 
 			printf(DBG_GREEN"Totally %zu E3D_glMeshes loaded.\n"DBG_RESET, glMeshes.size());
 			for(size_t k=0; k<glMeshes.size(); k++) {
-				printf(DBG_MAGENTA"\n    --- mesh_%d ---\n"DBG_RESET, k);
+				printf(DBG_MAGENTA"\n    --- mesh_%zu ---\n"DBG_RESET, k);
 				printf("name: %s\n",glMeshes[k].name.c_str());
 				for(size_t j=0; j<glMeshes[k].primitives.size(); j++) {
 					int mode =glMeshes[k].primitives[j].mode;
@@ -2486,7 +2493,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 			printf(DBG_GREEN"Totally %zu E3D_glMaterials loaded.\n"DBG_RESET, glMaterials.size());
 
 			for(size_t k=0; k<glMaterials.size(); k++) {
-				printf(DBG_MAGENTA"\n    --- material_%d ---\n"DBG_RESET, k);
+				printf(DBG_MAGENTA"\n    --- material_%zu ---\n"DBG_RESET, k);
 				printf("name: %s\n",glMaterials[k].name.c_str());
 				printf("doubleSided: %s\n", glMaterials[k].doubleSided ? "True" : "False");
 				printf("alphaMode: %s\n", glMaterials[k].alphaMode.c_str());
@@ -2541,7 +2548,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 
 			printf(DBG_GREEN"Totally %zu E3D_glTextures loaded.\n"DBG_RESET, glTextures.size());
 			for(size_t k=0; k<glTextures.size(); k++) {
-				printf("glTextures[%d]: name'%s', sampler(Index)=%d, image(Index)=%d\n",
+				printf("glTextures[%zu]: name'%s', sampler(Index)=%d, image(Index)=%d\n",
 						k,glTextures[k].name.c_str(), glTextures[k].samplerIndex, glTextures[k].imageIndex);
 			}
 		}
@@ -2562,7 +2569,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 				strtmp[strlen]='\0';
 				if(glImages[k].uri.size()>64) strcpy(strtmp+64, "...");
 
-				printf(DBG_MAGENTA"\n    --- image_%d---\n"DBG_RESET, k);
+				printf(DBG_MAGENTA"\n    --- image_%zu---\n"DBG_RESET, k);
 				printf("name: %s\n", glImages[k].name.c_str());
 				printf("uri: %s\n", strtmp);
 				printf("IsDataURI: %s\n", glImages[k].IsDataURI?"Yes":"No");
@@ -2603,40 +2610,40 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 		/* Check data integrity */
 		index=glBufferViews[k].bufferIndex;
 		if(index<0) {
-			egi_dpstd(DBG_RED"glBufferViews[%d].bufferIndex<0! give up data linking.\n"DBG_RESET, k);
+			egi_dpstd(DBG_RED"glBufferViews[%zu].bufferIndex<0! give up data linking.\n"DBG_RESET, k);
 			//continue;
 			return -1;
 		}
 		/* Check glBuffers[].data */
 		if(glBuffers[index].data==NULL) {
-			egi_dpstd(DBG_RED"glBuffers[%d].data==NULL, give up data lingking.\n"DBG_RESET, k);
+			egi_dpstd(DBG_RED"glBuffers[%zu].data==NULL, give up data lingking.\n"DBG_RESET, k);
 			//continue;
 			return -1;
 		}
 		/* Check offset */
 		offset=glBufferViews[k].byteOffset;
 		if(offset<0) {
-			egi_dpstd(DBG_RED"glBufferViews[%d].byteOffset<0! give up data lingking.\n"DBG_RESET, k);
+			egi_dpstd(DBG_RED"glBufferViews[%zu].byteOffset<0! give up data lingking.\n"DBG_RESET, k);
 			//continue;
 			return -1;
 		}
 		/* Check length */
 		length=glBufferViews[k].byteLength;
 		if(length<0) {
-			egi_dpstd(DBG_RED"glBufferViews[%d].byteLength<0! give up data lingking.\n"DBG_RESET, k);
+			egi_dpstd(DBG_RED"glBufferViews[%zu].byteLength<0! give up data lingking.\n"DBG_RESET, k);
 			//continue;
 			return -1;
 		}
 		/* Check stride, byteStride is ONLY for vertex attribute data */
 		stride=glBufferViews[k].byteStride;
 		if(stride!=0 && (stride<4 || stride>252) ) {   /* byteStride: Minimum: >= 4, Maximum: <= 252 */
-			egi_dpstd(DBG_RED"glBufferViews[%d].byteStride=%d, without[4, 252], give up data lingking.\n"DBG_RESET, k, stride);
+			egi_dpstd(DBG_RED"glBufferViews[%zu].byteStride=%d, without[4, 252], give up data lingking.\n"DBG_RESET, k, stride);
 			//continue;
 			return -1;
 		}
 		/* Check data length. */
 		if(offset+length>glBuffers[index].byteLength) {
-			egi_dpstd(DBG_RED"glBufferViews[%d].byteOffset+byteLength > glBuffers[%d].byteLength, give up data lingking.\n"DBG_RESET,
+			egi_dpstd(DBG_RED"glBufferViews[%zu].byteOffset+byteLength > glBuffers[%d].byteLength, give up data lingking.\n"DBG_RESET,
 					k, index);
 			//continue;
 			return -1;
@@ -2665,28 +2672,28 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 		/* Check data integrity */
 		index=glAccessors[k].bufferViewIndex;
 		if(index<0) {
-			egi_dpstd(DBG_RED"glAccessors[%d].bufferViewIndex<0! give up data linking.\n"DBG_RESET,k);
+			egi_dpstd(DBG_RED"glAccessors[%zu].bufferViewIndex<0! give up data linking.\n"DBG_RESET,k);
 			//continue;
 			return -1;
 		}
 		/* Check offset */
 		offset=glAccessors[k].byteOffset;
 		if(offset<0) {
-			egi_dpstd(DBG_RED"glAccessors[%d].byteOffset<0! give up data linking.\n"DBG_RESET, k);
+			egi_dpstd(DBG_RED"glAccessors[%zu].byteOffset<0! give up data linking.\n"DBG_RESET, k);
 			//continue;
 			return -1;
 		}
 		/* Check count */
 		count=glAccessors[k].count;
 		if(count<0) {
-			egi_dpstd(DBG_RED"glAccessors[%d].count<0! give up data linking.\n"DBG_RESET, k);
+			egi_dpstd(DBG_RED"glAccessors[%zu].count<0! give up data linking.\n"DBG_RESET, k);
 			//continue;
 			return -1;
 		}
 		/* Check element size */
 		esize=glAccessors[k].elemsize; //glElementSize(glAccessors[k].type, glAccessors[k].componentType);
 		if(esize<0) {
-			egi_dpstd(DBG_RED"glAccessors[%d] element bytes<0! give up data linking.\n"DBG_RESET, k);
+			egi_dpstd(DBG_RED"glAccessors[%zu] element bytes<0! give up data linking.\n"DBG_RESET, k);
 			//continue;
 			return -1;
 		}
@@ -2695,7 +2702,8 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 		int compsize=glElementSize("SCALAR", glAccessors[k].componentType); /* SCALAR has 1 component */
 		if(stride>0 && compsize>0) {
 			if(stride%compsize) {
-				egi_dpstd(DBG_RED"glAccessors[%d]: stride(%d)%%compsize(%d)!=0, give up data linking.\n"DBG_RESET, k,stride,compsize);
+				egi_dpstd(DBG_RED"glAccessors[%zu]: stride(%d)%%compsize(%d)!=0, give up data linking.\n"DBG_RESET,
+														 k,stride,compsize);
 				return -1;
 			}
 		}
@@ -2703,13 +2711,13 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 		/* Check length */
 		length=count*esize;
 		if(length<0) {
-			egi_dpstd(DBG_RED"glAccessors[%d] data length<=0! give up data linking.\n"DBG_RESET, k);
+			egi_dpstd(DBG_RED"glAccessors[%zu] data length<=0! give up data linking.\n"DBG_RESET, k);
 			//continue;
 			return -1;
 		}
 		/* Check data length. */
 		if(glBufferViews[index].byteLength < offset+length) {
-			egi_dpstd(DBG_RED"glAccessors[%d].byteOffset+byteLength > glBufferViews[%d].byteLength, give up data lingking.\n"DBG_RESET,
+			egi_dpstd(DBG_RED"glAccessors[%zu].byteOffset+byteLength > glBufferViews[%d].byteLength, give up data lingking.\n"DBG_RESET,
 					k, index);
 			//continue;
 			return -1;
@@ -2720,7 +2728,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 		//		index, glBufferViews[index].byteStride, esize, count);
 	/* bufferView.length >= accessor.byteOffset + EFFECTIVE_BYTE_STRIDE * (accessor.count - 1) + SIZE_OF_COMPONENT * NUMBER_OF_COMPONENTS */
 		if( glBufferViews[index].byteLength < offset+(glBufferViews[index].byteStride-esize)*(count-1)+length ) {
- 		    egi_dpstd(DBG_RED"glBufferViews[%d].byteLength insufficient for glAccessors[%d]! give up data lingking.\n"DBG_RESET, index, k);
+ 		    egi_dpstd(DBG_RED"glBufferViews[%d].byteLength insufficient for glAccessors[%zu]! give up data lingking.\n"DBG_RESET, index, k);
 		    //continue;
 		    return -1;
 		}
@@ -2738,7 +2746,7 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 	    	if(!glImages[k].mimeType.compare("image/jpeg")) {
 			glImages[k].imgbuf=egi_imgbuf_readJpgBuffer(glBufferViews[bvindex].data, glBufferViews[bvindex].byteLength);
 		   	if(glImages[k].imgbuf==NULL) {
-				egi_dpstd(DBG_RED"glImages[%d]: Fail to readJpgBuffer to imgbuf!\n"DBG_RESET, k);
+				egi_dpstd(DBG_RED"glImages[%zu]: Fail to readJpgBuffer to imgbuf!\n"DBG_RESET, k);
 				//return -1;
 		   	}
 	    	}
@@ -2746,12 +2754,12 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
             		//egi_dpstd(DBG_RED"glImages[%d]: mimeType 'image/png' is NOT supported yet.\n"DBG_RESET, k);
 		   	glImages[k].imgbuf=egi_imgbuf_readPngBuffer(glBufferViews[bvindex].data, glBufferViews[bvindex].byteLength);
 		   	if(glImages[k].imgbuf==NULL) {
-				egi_dpstd(DBG_RED"glImages[%d]: Fail to readJpngBuffer to imgbuf!\n"DBG_RESET, k);
+				egi_dpstd(DBG_RED"glImages[%zu]: Fail to readJpngBuffer to imgbuf!\n"DBG_RESET, k);
 				//return -1;
 		   	}
             	}
             	else {
-                	egi_dpstd(DBG_RED"glImages[%d]: mimeType error for '%s'.\n"DBG_RESET, k, glImages[k].mimeType.c_str());
+                	egi_dpstd(DBG_RED"glImages[%zu]: mimeType error for '%s'.\n"DBG_RESET, k, glImages[k].mimeType.c_str());
                 	//return -1;
             	}
 	   }
@@ -2899,11 +2907,11 @@ int E3D_TriMesh::loadGLTF(const string & fgl)
 
 	/* Traverse all meshes and primitives, to load data to vtxList[], triList[], triGroupList[], */
 	for(size_t m=0; m<glMeshes.size(); m++) {
-	    egi_dpstd(DBG_MAGENTA"Read glMeshes[%d]...\n"DBG_RESET, m);
+	    egi_dpstd(DBG_MAGENTA"Read glMeshes[%zu]...\n"DBG_RESET, m);
 	    int  primTriCnt=0;
 
 	    for(size_t n=0; n<glMeshes[m].primitives.size(); n++) {
-	    	egi_dpstd(DBG_GREEN"   Read .primitives[%d]...\n"DBG_RESET, n);
+	    	egi_dpstd(DBG_GREEN"   Read .primitives[%zu]...\n"DBG_RESET, n);
 
 		mode=glMeshes[m].primitives[n].mode;
 		if(mode==4) primTriCnt++;
@@ -5020,6 +5028,7 @@ Note:
 @VRTmatrix:	View_Coord transform matrix, from same as Global_Coord
 		to expected view position. (Combined with ScaleMatrix)
 		OR: --- View_Coord relative to Global_Coord ---.
+
 -----------------------------------------------------------------------*/
 void E3D_TriMesh::drawMeshWire(FBDEV *fbdev, const E3D_RTMatrix &VRTMatrix) const
 {
@@ -5211,7 +5220,12 @@ XXX 2. Case TEXTURE_MAPPING:  Apply pixz for each pixel, (NOW use same pixz valu
     as Z of the centroid, for all pixels in a triangle)
 2. A E3D_shadeVertex() to transform/color all vtxList[] to under EyeCoord at first,
    It can avoid to repeat computing a same vertex which belongs to several trianlges.
+3. XXX img_kn ignored, see G2.3.6.3.4.3. HK2023-04-12.XXX
+   see TEST: Disable img_kn Disable img_kn  HK2023-04-17.
 
+Return:
+	<0	Fails
+	>=0     Total number of triangles rendered.
 ---------------------------------------------------------------------*/
 
 ///////////////   Apply triGroupList[] and Material color/map     ///////////////////
@@ -5297,6 +5311,13 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 	/* drawMeshWire() is diffierent from here in case E3D_WIRE_FRAMING */
 	// drawMeshWire(fbdev, projMatrix); return;
 
+	/* Check whether the triMesh is empty */
+	if(triGroupList.size()<1)  {
+		egi_dpstd(DBG_RED"----- No trigroup found! mesh data is empty? -----\n"DBG_RESET);
+		return -1;
+	}
+
+
 	/* G1. To decidce actual shading type for in case of E3D_GOURAUD_SHADING. */
 	actShadeType=shadeType;
 
@@ -5364,6 +5385,11 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 
 		tgmtl = mtlList[ triGroupList[n].mtlID ];  /* TODO: operator '=' is NOT overloaded, see P3.  */
 	   }
+
+
+#if 1/* TEST: Disable img_kn  HK2023-04-17 */
+	  tgmtl.img_kn=NULL;  /* Notice tgmtl is NOT owner of img */
+#endif
 
 /* For glScene : -------------------- HK2023-03-11 */
 //	   triGroupList[n].backFaceOn = mtlList[ triGroupList[n].mtlID ].doubleSided;
@@ -5475,7 +5501,8 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 
 
 	    //////////////////////////  Vertex Skin Computation ///////////////////////
- #define DEBUG_SSKIN 0
+
+#define DEBUG_SSKIN 0
 
 	    /*** G2.2.3AA Vertex Skinning computation
 	     *  Note:
@@ -5485,6 +5512,7 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
 	     */
 	    if( skinON && triGroupList[n].skins.size()==triGroupList[n].vtxcnt && glNodes!=NULL ) {
 	    	   egi_dpstd(DBG_GREEN"start skinning ...\n"DBG_RESET);
+
 
  #if DEBUG_SSKIN /* TEST: ---------- */
  printf(DBG_MAGENTA" inverseBindMatrices for glNodes[0-2]: \n"DBG_RESET);
@@ -5509,6 +5537,7 @@ int E3D_TriMesh::renderMesh(FBDEV *fbdev, const E3DS_ProjMatrix &projMatrix) con
        (*glNodes)[triGroupList[0].skins[3].jointNodes[0]].jointMat.print();
 #endif
 
+
 		/* G2.2.3AA.1 Skinning for all triGroup vertices */
 		E3D_RTMatrix skinMat;
 	   	for(size_t sk=0; sk<triGroupList[n].vtxcnt; sk++) {
@@ -5522,11 +5551,25 @@ printf("vtx[%d] (%f, %f, %f), with skin weights: [%f, %f, %f, %f]\n", sk,
 			triGroupList[n].skins[sk].weights[2], triGroupList[n].skins[sk].weights[3] );
 #endif
 
+#if 0 /* TEST: strip part of tiger skins ------------  HK2023-04-18 */
+		    int jtnode;
+		     int jj;
+		for(jj=0; jj<1; jj++) {
+		    jtnode=triGroupList[n].skins[sk].jointNodes[jj];
+		    if(jtnode==11 || jtnode==13 || jtnode==14 || jtnode==39 || jtnode==50 || jtnode==27 || jtnode==33
+		       || jtnode==40 || jtnode==51 || jtnode==28 || jtnode==34 )
+			break;
+		}
+		if(jj<1)continue;
+
+#endif
+
 		    /* G2.2.3AA.1.1  Compute skinMat for each vertex */
 		    skinMat = triGroupList[n].skins[sk].weights[0]*(*glNodes)[triGroupList[n].skins[sk].jointNodes[0]].jointMat;
 		    /* weihts[1-3]*-- */
 		    for(int kw=1; kw<4; kw++) {
-		        if(triGroupList[n].skins[sk].weights[kw] > VPRODUCT_NEARZERO ) { /* The joint weights MUST NOT be negative */
+		        //if( fabs(triGroupList[n].skins[sk].weights[kw]) > VPRODUCT_NEARZERO ) { /* The joint weights MUST NOT be negative */
+		        if( triGroupList[n].skins[sk].weights[kw] > VPRODUCT_NEARZERO ) { /* The joint weights MUST NOT be negative */
 		           skinMat += triGroupList[n].skins[sk].weights[kw]*(*glNodes)[triGroupList[n].skins[sk].jointNodes[kw]].jointMat;
 			}
 		    }
@@ -5563,7 +5606,7 @@ printf("vtx[%d] (%f, %f, %f), with skin weights: [%f, %f, %f, %f]\n", sk,
                 		//vtxIndex[jk]=triList[triGroupList[n].stvtxidx+ik].vtx[jk].index;
                 		vtxIndex[jk]=triList[triGroupList[n].stidx+ik].vtx[jk].index;
 		                if(vtxIndex[jk]<0) {
-                		        egi_dpstd("!!!WARNING!!! triList[%d].vtx[%d].index <0!\n", ik,jk);
+                		        egi_dpstd("!!!WARNING!!! triList[%zu].vtx[%d].index <0!\n", ik,jk);
                         		vtxIndex[jk]=0;
                 		}
            		   }
@@ -5741,7 +5784,7 @@ if(IsBackface)
 		}
 		/* G2.3.6.3 IF(actShadeType==E3D_TEXTURE_MAPPING), assign rvtx[].normal depending on CaseA/B/C. */
 		else if(actShadeType==E3D_TEXTURE_MAPPING || actShadeType==E3D_GOURAUD_SHADING) {
-			/* Case_A: Use vtxList[ triList[i].vtx[k].index ].normal.  vertices are welded. */
+			/* G2.3.6.3.1  Case_A: Use vtxList[ triList[i].vtx[k].index ].normal.  vertices are welded. */
 			//if(vtxList[ triList[i].vtx[0].index ].normal.isZero()==false) {
 			if(tvncase==triVtxNormal_CaseA) {
 				egi_dpstd("snCase_A\n");
@@ -5767,7 +5810,7 @@ if(IsBackface)
 				}
 
 			}
-			/* Case_B: Use triList[].vtx[].vn;   vertices are NOT welded. */
+			/* G2.3.6.3.2  Case_B: Use triList[].vtx[].vn;   vertices are NOT welded. */
 			//else if(triList[i].vtx[0].vn.isZero()==false) {
 			else if(tvncase==triVtxNormal_CaseB) {
 				egi_dpstd("snCase_B\n");
@@ -5785,7 +5828,7 @@ if(IsBackface)
 				/* Normalize, for nvRotMat MAY include scaleMat */
 				//rvtx[k].normal.normalize();  OK, see G2.3.6.4
 			}
-			/* Case_C: Use face normal triList[].normal. FLAT_SHADING
+			/* G2.3.6.3.3 Case_C: Use face normal triList[].normal. FLAT_SHADING
 			 * Noticed that triList[].normal will NOT read from obj file.
 			 */
 			else {  /* tvnCase==triVtxNormal_CaseC */
@@ -5801,11 +5844,12 @@ if(IsBackface)
 				//rvtx[k].normal.normalize();  OK, see G2.3.6.4
 			}
 
-			/* Vertex uv */
+			/* G2.3.6.3.4 Vertex uv */
 			if(actShadeType==E3D_TEXTURE_MAPPING) {
 			    for(int m=0; m<3; m++) {
 
-				/* OK, Apply E3D uv CoordSystem.  XXX Notice E3D uv origin at leftTop, while .obj at leftBottom */
+				/* G2.3.6.3.4.1
+				 * OK, Apply E3D uv CoordSystem.  XXX Notice E3D uv origin at leftTop, while .obj at leftBottom */
 				/* img_kd/baseColor uv */
 				rvtx[m].u=triList[i].vtx[m].u;
 				rvtx[m].v=triList[i].vtx[m].v;  /* HK2022-12-26 */
@@ -5816,7 +5860,7 @@ if(IsBackface)
 				rvtx[m].v=vtxList[ triList[i].vtx[m].index ].v;
 				#endif
 
-				/* img_ke texcoord ue,ve  HK2022-12-31 */
+				/* G2.3.6.3.4.2  img_ke texcoord ue,ve  HK2022-12-31 */
 				if(tgmtl.img_ke) {
 					/* img_ke has its own textureCoord. Note: tgmtl has NO triListUV_x copied. */
 					if(mtlList[ triGroupList[n].mtlID ].triListUV_ke.size()>0) {
@@ -5829,7 +5873,7 @@ if(IsBackface)
 					}
 				}
 
-				/* img_kn texcoord un,vn HK2023-1-20 */
+				/* G2.3.6.3.4.3 img_kn texcoord un,vn HK2023-1-20 */
 				if(tgmtl.img_kn) {
 				     /* img_kn has its own textureCoord. Note: tgmtl has NO triListUV_x copied. */
                                         if(mtlList[ triGroupList[n].mtlID ].triListUV_kn.size()>0) {
@@ -6501,23 +6545,57 @@ if( testRayTracing==true &&  BackFacingLight==false
 #endif /* END: ---------- back_tracing shadow */
 
 
-    #if 0 /* Test draw wires */
-	fbset_color2(fbdev, WEGI_COLOR_RED); //YELLOW);
+#if 0 /* Test draw edges */
+	fbset_color2(fbdev, WEGI_COLOR_BLACK); //RED); //YELLOW);
 
         /* Notice: Viewing from z- --> z+ */
         fbdev->flipZ=true;
-	fbdev->zbuff_on=false;
+	//fbdev->zbuff_on=false;
+
+	/* Cover save pixZ pixel */
+	fbdev->zbuff_IgnoreEqual=false;
+
+
+	/* Set pixZ to be Min./Max of them, when flipZ=true/false. HK2023-04-22
+	 * this is to let edge pixZ always prevails pixZ produced in E3D_shadeTriangle(),
+	 * as E3D_draw_line() and E3D_shadeTriangle() may produce different pixZ for the same pixle.
+	 */
+   #if 1
+	float fz;
+	if(fbdev->flipZ)
+		fz=mat_min3f(vpts[0].z, vpts[1].z, vpts[2].z);
+	else
+		fz=mat_max3f(vpts[0].z, vpts[1].z, vpts[2].z);
+	vpts[0].z = vpts[1].z = vpts[2].z = fz;
+   #else
+	if(fbdev->flipZ) {
+		vpts[0].z -=1; vpts[1].z -=1; vpts[2].z -=1;
+	} else {
+
+		vpts[0].z +=0.5; vpts[1].z +=0.5; vpts[2].z +=0.5;
+	}
+   #endif
 
         /* E3D_draw lines 0-1, 1-2, 2-3, 3-0 */
-        E3D_draw_line(fbdev, vpts[0], vpts[1]);
-        E3D_draw_line(fbdev, vpts[1], vpts[2]);
-        E3D_draw_line(fbdev, vpts[0], vpts[2]);
+	if( vpts[0].x>vpts[1].x )
+        	E3D_draw_line(fbdev, vpts[0], vpts[1]);
+	else
+		E3D_draw_line(fbdev, vpts[1], vpts[0]);
+
+	if( vpts[1].x>vpts[2].x )
+	        E3D_draw_line(fbdev, vpts[1], vpts[2]);
+	else
+		E3D_draw_line(fbdev, vpts[2], vpts[1]);
+
+	if( vpts[0].x>vpts[2].x )
+	        E3D_draw_line(fbdev, vpts[0], vpts[2]);
+	else
+		E3D_draw_line(fbdev, vpts[2], vpts[0]);
 
         /* Reset flipZ */
-	fbdev->zbuff_on=true;
+	//fbdev->zbuff_on=true;
         fbdev->flipZ=false;
-    #endif
-
+#endif
 
 
 		/* Count total triangles rendered actually */
@@ -9967,7 +10045,9 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 
 	/* TODO:  use rvtx[].un/vn. ---- NOW assume un/vn same as u/v!(Normally they are!) */
 	/* !!!--- NOTICED ---!!!  EGI 16bits color NOT good for normal texture, lost detail precision. */
+#if 1 /* TEST: ---- */
 	if(mtl.img_kn != NULL) {
+//printf(" img_kn On...\n");
 	       /* Noted: (rvtx[1].v-rvtx[0].v)*(vpts[2]-vpts[0]) = (rvtx[0].v-rvtx[1].v)*e2
 		*	 e0=vpts[1]-vpts[0]
 		*/
@@ -9997,7 +10077,7 @@ void E3D_shadeTriangle( FBDEV *fb_dev, const E3DS_RenderVertex rvtx[3], const E3
 		//matTBN.pmat[3]=Tv.x; matTBN.pmat[4]=Tv.y; matTBN.pmat[5]=Tv.z;
 		matTBN.pmat[6]=Nv.x; matTBN.pmat[7]=Nv.y; matTBN.pmat[8]=Nv.z;
 	}
-
+#endif
 
         /* TODO: --- Case 1 ---: All points are the SAME! */
         if(x0==x1 && x1==x2 && y0==y1 && y1==y2) {

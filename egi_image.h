@@ -47,6 +47,7 @@ void 		egi_imgbuf_cleardata(EGI_IMGBUF *egi_imgbuf); /* free data inside */
 void 		egi_imgbuf_free(EGI_IMGBUF *egi_imgbuf);      /* mutex_lock */
 void 		egi_imgbuf_free2(EGI_IMGBUF **pimg);	      /* mutex_lock */
 int 		egi_imgbuf_init(EGI_IMGBUF *egi_imgbuf, int height, int width,  bool AlphaON);
+int 		egi_imgbuf_gammaCorrect(EGI_IMGBUF *imgbuf, float gampow);
 int 		egi_imgbuf_getColor(EGI_IMGBUF *imgbuf, int px, int py, EGI_16BIT_COLOR *color, EGI_8BIT_ALPHA *alpha);
 int 		egi_imgbuf_addBoundaryBox(EGI_IMGBUF *ineimg, EGI_16BIT_COLOR color, int lw);
 EGI_IMGBUF*	egi_imgbuf_create( int height, int width, unsigned char alpha, EGI_16BIT_COLOR color );
@@ -181,6 +182,7 @@ void egi_imgbuf_mapTriWriteFB3(EGI_IMGBUF *imgbuf, FBDEV *fb_dev,  /* INT x/y, B
 /* EGI_IMGMOTION */
 int egi_imgmotion_saveHeader(const char *fpath, int width, int height, int delayms, int compress);
 int egi_imgmotion_saveFrame(const char *fpath, EGI_IMGBUF *imgbuf);
+int egi_imgmotion_mergeFiles(const char *fd, const char **fs, int n);
 int egi_imgmotion_playFile(const char *fpath, FBDEV *fbdev, int delayms, int x0, int y0);
 
 

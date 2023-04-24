@@ -76,7 +76,7 @@ int main(int argc, char **argv)
 
  /* <<<<<  End of EGI general init  >>>>>> */
 
-#if 0 /* ------------------ TEST: EGI_IMGMOTION  ---------------------*/
+#if 1 /* ------------------ TEST: EGI_IMGMOTION  ---------------------*/
 //int egi_imgmotion_saveHeader(const char *fpath, int width, int height, int delayms, int compress);
 //int egi_imgmotion_appendFrame(const char *fpath, EGI_16BIT_COLOR *imgbuf);
 
@@ -94,10 +94,12 @@ int main(int argc, char **argv)
 	egi_imgmotion_saveFrame("/tmp/test.mtn", NULL); /* Just print header */
   #endif
 
-  #if 1
+  #if 0
 	int delayms=0;
-	if(argc<2)
+	if(argc<2) {
 	     printf("Usage: %s motion_file [delayms] \n", argv[0]);
+	     exit(0);
+	}
 	if(argc>2) {
 		delayms=atoi(argv[2]);
 		printf("delayms=%d\n", delayms);
@@ -108,10 +110,53 @@ int main(int argc, char **argv)
 	exit(0);
   #endif
 
+  #if 1
+        if(argc<3)
+             printf("Usage: %s motion_fdest motion_fsources ...\n", argv[0]);
+
+	egi_imgmotion_mergeFiles(argv[1], (const char**)(&argv[2]), 1);
+
+	exit(0);
+  #endif
+
 #endif
 
+#if 0 /* ------------------ TEST: egi_imgbuf_uvToPixel() HK2023-03-01  ---------------------*/
+//egi_imgbuf_uvToPixel(): u(-6.015172) or v(-1.039500) NOT in [0 1)!
+//egi_imgbuf_uvToPixel(): wrap uv to: (-13.015173,-3.039500)
+	float umax=0.98; /* = 1.0f*(imgW-1)/imgW */
+	float vmax=0.95; /* = 1.0f*(imgH-1)imgH */
+	float u=-6.015172;
+	float v=-1.039500;
+	bool wrapON=false;
 
-#if 1 /* ------------------ TEST: egi_imgbuf_mapTriWriteFB()  ---------------------*/
+	printf("Init uv: (%f,%f)\n",u,v);
+
+        if(u<0.0f || u>1.0f || v<0.0f || v>1.0f) {
+                printf("u(%f) or v(%f) NOT in [0 1)! \n",u,v);
+                wrapON=true;
+        }
+
+	if(wrapON) {
+		printf("u=%f, floorf(u)=%f\n", u, floorf(u));
+		printf("v=%f, floorf(v)=%f\n", u, floorf(v));
+
+        	if(u<0.0f) u-=floorf(u); else if(u>1.0) u-=floorf(u);
+        	if(v<0.0f) v-=floorf(v); else if(v>1.0) v-=floorf(v);
+
+                printf("wrap uv to: (%f,%f)\n", u,v);
+        }
+
+        if(u>umax) u=umax;
+        if(v>vmax) v=vmax;
+
+        printf("Final uv to: (%f,%f), image (umax,vmax): %f,%f\n", u,v, umax,vmax);
+
+
+exit(0);
+#endif
+
+#if 0 /* ------------------ TEST: egi_imgbuf_mapTriWriteFB()  ---------------------*/
    EGI_POINT pts[3];
    int ang=0;
    struct {

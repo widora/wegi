@@ -110,6 +110,15 @@ Journal:
 2023-03-11:
 	1. E3D_RTMatrix::operator +=(ma), operator *(float a)
 	2. Non-class: E3D_RTMatrix operator* (float a, const E3D_RTMatrix & ma)
+2023-03-21:
+	1. E3D_Quatrix::toMatrix(): Integrate sx,sy,sz.
+	2, E3D_Quatrix::interp(): Integrate sx,sy,sz.
+2023-04-03:
+	1. Add E3D_Quatrix::inverse()
+2023-04-04:
+	1 E3D_Quatrix::fromMatrix(): TEST sx,sy,sz extraction.
+2023-04-21:
+	1. E3D_Quatrix::toMatrix(E3D_RTMatrix &rtmat, E3D_RTMatrix &smat).
 
 TODO:
 1. acos(x)/asin(x) will return NaN if x is little bit out of [-1.0 1.0] ???
@@ -1010,7 +1019,6 @@ void E3D_RTMatrix::inverse()
 
 #else //////////////// 4X4 ////////////////////
 
-	/* Inverse Rotation/Scale(NON_translation) component */
 	float _mat16[4*4];
 
 	/* Put 3x3 into 4x4 matrix */
@@ -1034,7 +1042,8 @@ void E3D_RTMatrix::inverse()
    	struct float_Matrix invmat16;
    	invmat16.nr=4; invmat16.nc=4; invmat16.pmat=_invmat16;
 
-	Matrix_Inverse(&mat16, &invmat16);
+	if( !Matrix_Inverse(&mat16, &invmat16) )
+		egi_dpstd(DBG_RED"Matrix_Inverse() failed!\n"DBG_RESET);
 
 	/* Extract 3x3 from 4x4 matrix */
 	for(int i=0; i<3; i++)
@@ -2586,10 +2595,25 @@ void E3D_Quaternion::toMatrix(E3D_RTMatrix &mat) const
 }
 
 
-/*-------------------------------------
+/*-------------------------------------------------------
 Convert RTMatrix rotation component to
 this quaternion.
---------------------------------------*/
+
+Note:
+	!!! --- CAUTION --- !!!
+1. Input tmat should a normalized orthogonal matrix!
+
+   Input mat SHOULD not be integrated with scaleMat,
+   otherwise, the result will be WRONG! also NOT unit quaternion.
+
+   Example:
+	0.000000  0.000000  0.327751
+	0.327751  0.000000  0.000000
+	0.000000  0.327751  0.000000
+   Result:
+	quat[0.500000 (-0.163876, -0.163876, -0.163876)]
+
+--------------------------------------------------------*/
 void E3D_Quaternion::fromMatrix(const E3D_RTMatrix &mat)
 {
 	/*** RTMatrix
@@ -2715,7 +2739,7 @@ void E3D_Quaternion::slerp(const E3D_Quaternion &q0, const E3D_Quaternion &q1, f
 ---------------------------*/
 E3D_Quatrix::E3D_Quatrix()
 {
-	//q.identity();
+	q.identity();
 	tx=ty=tz=0.0f;
 	sx=sy=sz=1.0f;  /* HK2023-02-23 */
 }
@@ -2728,7 +2752,6 @@ void E3D_Quatrix::identity()
 {
 	q.identity();
 	tx=ty=tz=0.0f;
-
 	sx=sy=sz=1.0f;  /* HK2023-02-23 */
 }
 
@@ -2742,6 +2765,19 @@ void E3D_Quatrix::print(const char *name) const
         printf("q[%f (%f, %f, %f)], t(%f,%f,%f), scale(%f,%f,%f).\n", q.w,q.x,q.y,q.z, tx,ty,tz, sx,sy,sz); /* HK2023-02-23 */
 
         //printf("Quatrix %s: q[%f (%f, %f, %f)], t(%f,%f,%f).\n", name?name:"", q.w,q.x,q.y,q.z, tx,ty,tz);
+}
+
+/*-------------------------
+      inverse()
+TODO: TO test
+--------------------------*/
+void  E3D_Quatrix::inverse()
+{
+	E3D_RTMatrix mat;
+
+	toMatrix(mat);
+	mat.inverse();
+	fromMatrix(mat);
 }
 
 /*--------------------------
@@ -2822,21 +2858,95 @@ void E3D_Quatrix::toMatrix(E3D_RTMatrix &mat) const
 	mat.pmat[9]=tx;
 	mat.pmat[10]=ty;
 	mat.pmat[11]=tz;
+
+	/* Scale */
+	E3D_RTMatrix smat;
+	smat.setScaleXYZ(sx,sy,sz);
+
+	/* Integrate scale into mat. sequence: SRT */
+	mat=smat*mat;
 }
 
 
 /*-------------------------------------
-Convert RTMatrix to Quatrix
+Convert quatrix to RTMatrix.
+
+rtmat: rotation+translation matrix.
+smat: scale matrix.
 --------------------------------------*/
-void E3D_Quatrix::fromMatrix(const E3D_RTMatrix &mat)
+void E3D_Quatrix::toMatrix(E3D_RTMatrix &rtmat, E3D_RTMatrix &smat) const
 {
 	/* Rotation */
-	q.fromMatrix(mat);
+	q.toMatrix(rtmat);
 
 	/* Translation */
-	tx=mat.pmat[9];
-	ty=mat.pmat[10];
-	tz=mat.pmat[11];
+	rtmat.pmat[9]=tx;
+	rtmat.pmat[10]=ty;
+	rtmat.pmat[11]=tz;
+
+	/* Scale */
+	smat.identity();
+	smat.pmat[0]=sx;
+	smat.pmat[4]=sy;
+	smat.pmat[8]=sz;
+}
+
+/*-----------------------------------------------
+Convert RTMatrix to Quatrix
+
+Note:
+	!!!--- CAUTION ---!!!
+1. Input tmat should a normalized orthogonal matrix!
+
+   Input mat SHOULD not be integrated with scaleMat,
+   otherwise, the result will be WRONG! also NOT unit quaternion.
+
+   Example:
+	0.000000  0.000000  0.327751
+	0.327751  0.000000  0.000000
+	0.000000  0.327751  0.000000
+   Result:
+	quat[0.500000 (-0.163876, -0.163876, -0.163876)]
+
+2. sx,sy,sz KEEPs unchanged!
+
+-------------------------------------------------*/
+void E3D_Quatrix::fromMatrix(const E3D_RTMatrix &tmat)
+{
+
+#if 0 ///////   ONLY For uniform scaling: sx==sy==sz  ///////////
+	E3D_RTMatrix tmat=mat; // <------- input as mat
+
+	/* Scale */
+	sx=sqrt(tmat.pmat[0]*tmat.pmat[0]+tmat.pmat[3]*tmat.pmat[3]+tmat.pmat[6]*tmat.pmat[6]);
+	sy=sqrt(tmat.pmat[1]*tmat.pmat[1]+tmat.pmat[4]*tmat.pmat[4]+tmat.pmat[7]*tmat.pmat[7]);
+	sz=sqrt(tmat.pmat[2]*tmat.pmat[2]+tmat.pmat[5]*tmat.pmat[5]+tmat.pmat[8]*tmat.pmat[8]);
+
+	if(sx<VPRODUCT_NEARZERO || sy<VPRODUCT_NEARZERO || sz<VPRODUCT_NEARZERO) {
+		egi_dpstd("Fails, sx/sy/sz nearZero!\n");
+		return;
+	}
+
+	tmat.pmat[0] /= sx;
+	tmat.pmat[3] /= sy;
+	tmat.pmat[6] /= sz;
+
+	tmat.pmat[1] /= sx;
+	tmat.pmat[4] /= sy;
+	tmat.pmat[7] /= sz;
+
+	tmat.pmat[2] /= sx;
+	tmat.pmat[5] /= sy;
+	tmat.pmat[8] /= sz;
+#endif ////////////////////////////////////////////////////////
+
+	/* Rotation */
+	q.fromMatrix(tmat);
+
+	/* Translation */
+	tx=tmat.pmat[9];
+	ty=tmat.pmat[10];
+	tz=tmat.pmat[11];
 }
 
 /*-------------------------------------
@@ -2852,7 +2962,10 @@ void E3D_Quatrix::interp(const E3D_Quatrix &qt0, const E3D_Quatrix &qt1, float r
 	ty=qt0.ty+(qt1.ty-qt0.ty)*rt;
 	tz=qt0.tz+(qt1.tz-qt0.tz)*rt;
 
-	/* TODO: Interp Scale */
+	/* Interp Scale */
+	sx=qt0.sx+(qt1.sx-qt0.sx)*rt;
+	sy=qt0.sy+(qt1.sy-qt0.sy)*rt;
+	sz=qt0.sz+(qt1.sz-qt0.sz)*rt;
 }
 
 

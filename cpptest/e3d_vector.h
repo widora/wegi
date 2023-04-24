@@ -495,6 +495,9 @@ public:
 	void identity();
         void print(const char *name=NULL) const;
 
+	/* Functon: inverse */
+	void  inverse();
+
 	/* Function: get rotation angle(radian) */
 	float getRotationAngle() const;
 	E3D_Vector getRotationAxis() const;
@@ -508,6 +511,7 @@ public:
 
 	/* Functions */
 	void toMatrix(E3D_RTMatrix &mat) const;
+	void toMatrix(E3D_RTMatrix &rtmat, E3D_RTMatrix &smat) const;
 	void fromMatrix(const E3D_RTMatrix &mat); //No scale
 
 	/* Functions: interpolation */

@@ -61,6 +61,10 @@ Jurnal
 	1. Add egi_imgbuf_getColor().
 2022-05-08:
 	1. Add egi_imgbuf_blockResetColorAlpha().
+2023-03-06:
+	1. Add egi_imgmotion_mergeFiles()
+2023-04-24:
+	1. Add egi_imgbuf_gammaCorrect()
 
 Midas Zhou
 midaszhou@yahoo.com(Not in use since 2022_03_01)
@@ -282,6 +286,60 @@ int egi_imgbuf_init(EGI_IMGBUF *egi_imgbuf, int height, int width, bool AlphaON)
         /* Retset height and width for imgbuf */
         egi_imgbuf->height=height;
         egi_imgbuf->width=width;
+
+	return 0;
+}
+
+
+/*---------------------------------------------------------
+Gamma correction for imgbuf RGB values.
+
+@imgbuf:	An pointer to EGI_IMGBUF
+@gampow:   Gamma pow value used for correction.
+           as vo=vi^(gampow) (vo/vi: normalized value)
+           Normally 2.2 OR 1.0/2.2.
+
+Return:
+	0	OK
+	<0	Fails
+----------------------------------------------------------*/
+int egi_imgbuf_gammaCorrect(EGI_IMGBUF *imgbuf, float gampow)
+{
+	if(imgbuf==NULL || imgbuf->imgbuf==NULL)
+		return -1;
+
+
+        static unsigned char LookUpTab[256]; /* Map from RGB value 'index' to Gammacorrected value 'LookUpTab[index]' */
+        int i,j;
+        float fn;       /* Normalized value */
+	EGI_16BIT_COLOR color;
+	unsigned char  R,G,B;
+	int pos;
+
+        /* Build LookUpTable */
+        for(i=0; i<256; i++) {
+        	fn=(i+0.5)/256; /* Normalize */
+                fn=powf(fn, gampow);
+                LookUpTab[i]=fn*256-0.5;
+        }
+
+	/* Make Gamma Correction for each RGB */
+	for(i=0; i< imgbuf->height; i++) {
+	   for(j=0; j< imgbuf->width; j++) {
+		pos=i*imgbuf->height+j;
+		color=imgbuf->imgbuf[pos];
+
+		R=COLOR_R8_IN16BITS(color);
+		G=COLOR_G8_IN16BITS(color);
+		B=COLOR_B8_IN16BITS(color);
+
+		R=LookUpTab[R];
+		G=LookUpTab[G];
+		B=LookUpTab[B];
+
+		imgbuf->imgbuf[pos]=COLOR_RGB_TO16BITS(R,G,B);
+	   }
+	}
 
 	return 0;
 }
@@ -565,6 +623,12 @@ EGI_IMGBUF *egi_imgbuf_readfile(const char* fpath)
             }
 	}
 #endif
+	/* TODO: some png file with 0x0 image size HK2023-03-01  */
+	if( eimg->width<1 || eimg->height<1) {
+		egi_dpstd(DBG_RED"Imgbuf size error W*H=%d*%d\n"DBG_RESET, eimg->width, eimg->height);
+		egi_imgbuf_free2(&eimg);
+                return NULL;
+	}
 
 	return eimg;
 }
@@ -4728,13 +4792,13 @@ int  egi_imgbuf_showRBG888( const unsigned char *rgb, int width, int height,
 Interpolate to get a pixel from an EGI_IMBUF with given u,v[0 1] value.
 
 @imgbuf:	An pointer to EGI_IMGBUF.
-@u,v:		Normalized X/Y ratio, all within [0 1].
+@u,v:		Normalized X/Y ratio, all within [0 1).
 @color,alpha:   Pointer to pass out color/alpha as result.
 		If NULL, ignore.
 
 Note:
 		!!! --- CAUTION --- !!!
-1.  It will render incorrect image if uv are NOT within [0 1].
+1.  It will render incorrect image if uv are NOT within [0 1).
 
 Return:
 	0	OK
@@ -4761,26 +4825,44 @@ int egi_imgbuf_uvToPixel(EGI_IMGBUF *imgbuf, float u, float v,
 
 	int imgw=imgbuf->width;
 	int imgh=imgbuf->height;
+
+	if(imgw<=0 || imgh<=0) {
+		egi_dpstd("imgbuf size error!\n");
+		return -1;
+	}
+	int indexMax=imgw*imgh-1;
+
 	float umax=1.0*(imgw-1)/imgw;
 	float vmax=1.0*(imgh-1)/imgh;
+	bool wrapON=false;
 
 	float ftmp;
 	int Wl, Wr, Hu, Hd; /* left/right width index, upper/down heigth index */
 
-#if 0	/* Check u/v */
+	/* 1. Check u/v */
+#if 0
 	if(u<0.0f || u>1.0f)  return -1;
 	if(v<0.0f || v>1.0f) return -1;
 #endif
-	if(u<0.0f || u>1.0f || v<0.0f || v>1.0f)
-		egi_dpstd("u(%f) or v(%f) NOT in [0 1]! \n",u,v);
+	if(u<0.0f || u>1.0f || v<0.0f || v>1.0f) {
+		egi_dpstd("u(%f) or v(%f) NOT in [0 1)! \n",u,v);
+		wrapON=true;
+	}
 
-	/* HK2023-01-24 */
-	if(u<0.0f) u+=floorf(u); else if(u>1.0) u-=floorf(u);
+	/* 2.Unwrap u/v.  HK2023-03-01 :>> Hi */
+	if(wrapON) {
+		if(u<0.0f) u-=floorf(u); else if(u>1.0) u-=floorf(u);
+		if(v<0.0f) v-=floorf(v); else if(v>1.0) v-=floorf(v);
+//		egi_dpstd("wrap uv to: (%f,%f)\n", u,v);
+	}
+
+	/* 3. Max limit for u/v */
+	if(u>umax || v>vmax)
+		egi_dpstd("uv(%f,%f) NOT in UVmax(%f,%f)!\n",u,v,umax,vmax);
 	if(u>umax) u=umax;
-	if(v<0.0f) v+=floorf(v); else if(v>1.0) v-=floorf(v);
 	if(v>vmax) v=vmax;
 
-	/* Get f15_ratio for interpolatoin. */
+	/* 4. Get f15_ratio(fixed point mod) for interpolatoin, and width_index(Wl/Wr), height_index(Hu/Hd) */
 	int f15_ratioX=roundf((modff(u*imgw, &ftmp)*(1<<15)));
 	Wl=ftmp; //roundf(ftmp);
 	Wr=Wl+1;
@@ -4789,23 +4871,45 @@ int egi_imgbuf_uvToPixel(EGI_IMGBUF *imgbuf, float u, float v,
 	Hu=ftmp; //roundf(ftmp);
 	Hd=Hu+1;
 
-	/* Get four pixel as boxing points. */
-	c1=imgbuf->imgbuf[Hu*imgw+Wl];
-	c2=imgbuf->imgbuf[Hu*imgw+Wr];
-	c3=imgbuf->imgbuf[Hd*imgw+Wl];
-	c4=imgbuf->imgbuf[Hd*imgw+Wr];
-	if(imgbuf->alpha) {
-		a1=imgbuf->alpha[Hu*imgw+Wl];
-		a2=imgbuf->alpha[Hu*imgw+Wr];
-		a3=imgbuf->alpha[Hd*imgw+Wl];
-		a4=imgbuf->alpha[Hd*imgw+Wr];
+	/* 5. HK2023-03-01 Check imgbuf[] index. */
+	int index1=Hu*imgw+Wl;
+	int index2=Hu*imgw+Wr;
+	int index3=Hd*imgw+Wl;
+	int index4=Hd*imgw+Wr;
+
+	/* TODO: too big size will force umax,vmax to 1.0000(error!), because of FLOAT precision limit.
+	   imgbuf[] index invalid! u,v=0.984828,0.960500; umax,vmax=1.000000,1.000000; imgW*H=33620482*16843265
+	*/
+	if( index1 > indexMax || index2 > indexMax || index3 > indexMax ||index4 > indexMax ) {
+//		egi_dpstd("imgbuf[] index invalid! u,v=%f,%f; umax,vmax=%f,%f; imgW*H=%d*%d\n",u,v,umax,vmax,imgw,imgh);
 	}
 
+	if(index1 > indexMax)index1=indexMax;
+	if(index2 > indexMax)index2=indexMax;
+	if(index3 > indexMax)index3=indexMax;
+	if(index4 > indexMax)index4=indexMax;
+
+	/* 6. Get four color/alpha values for 4 pixels as boxing points. */
+	c1=imgbuf->imgbuf[index1];
+	c2=imgbuf->imgbuf[index2];
+	c3=imgbuf->imgbuf[index3];
+	c4=imgbuf->imgbuf[index4];
+	if(imgbuf->alpha) {
+		a1=imgbuf->alpha[index1];
+		a2=imgbuf->alpha[index2];
+		a3=imgbuf->alpha[index3];
+		a4=imgbuf->alpha[index4];
+	}
+
+	/* 7. Bilinear interpolate to get color/alpha */
 	egi_16bitColor_interplt4p(c1,c2,c3,c4, a1,a2,a3,a4,
 					f15_ratioX, f15_ratioY, color, alpha);
 
 	return 0;
 }
+
+
+
 
 /* --------------<<<  ALGORITHM_1:  Matrix Mapping   >>>----------------
 
@@ -6504,7 +6608,7 @@ int egi_imgmotion_saveFrame(const char *fpath, EGI_IMGBUF *imgbuf)
         }
 
 #if 1 /* TEST: -------- */
-	egi_dpstd("Motion header: Headsize=%d, Width=%d, Height=%d, frames=%d, delayms=%d.\n",
+	egi_dpstd("Motion header: Headsize=%zu, Width=%d, Height=%d, frames=%d, delayms=%d.\n",
 				  motion.headsize, motion.width, motion.height, motion.frames, motion.delayms );
 #endif
 
@@ -6601,7 +6705,7 @@ int egi_imgmotion_saveFrame(const char *fpath, EGI_IMGBUF *imgbuf)
         		if(ferror(fil))
                 		egi_dperr("Fail to write compressed frame data to '%s'.\n", fpath);
 	                else
-        	        	egi_dpstd("WARNING! fwrite compressed frame data %d itmes of total %d itmess.\n", nwrite, nmemb);
+        	        	egi_dpstd("WARNING! fwrite compressed frame data %d itmes of total %d items.\n", nwrite, nmemb);
                 	ret=-9;
                         goto END_FUNC;
 		}
@@ -6621,6 +6725,154 @@ END_FUNC:
                 egi_dperr("Fail to close file '%s'.\n",fpath);
                 ret=-8;
         }
+
+        return ret;
+}
+
+
+/*----------------------------------------------------
+Merge imgmotion files of fms into fm.
+
+TODO:  Byte order compatibility for reading saved file.
+
+@fd:		Final merged imgmotion file.
+@fs:		A list of Imgmotion files to be merged.
+@n:		Number of files in the list fs.
+
+Return:
+	0	Ok, files(or part) merged.
+	<0	Fails
+---------------------------------------------------*/
+int egi_imgmotion_mergeFiles(const char *fd, const char **fs, int n)
+{
+	int ret=0;
+	int i;
+	FILE *fild=NULL;
+	FILE *fils=NULL;
+	int nmemb;
+	int nread;
+	unsigned int fsize;
+	int datasize;
+	EGI_IMGMOTION  motfd; //={ .width=0, .height=0, .frames=0, .delayms=0,  }; /* fd header */
+	EGI_IMGMOTION  motfs; //={ .width=0, .height=0, .frames=0, .delayms=0,  }; /* fs[] header */
+	int framecnt=0;
+
+	/* 1. Check input */
+	if(fd==NULL || fs==NULL || *fs==NULL || n<1)
+		return -1;
+
+        /* 2. Open file for write */
+        fild=fopen(fd, "r+be"); /* w will truncate to 0 */
+        if(fild==NULL) {
+                egi_dperr("Fail to open file '%s' for appending. \n", fd);
+                return -1;
+        }
+
+	/* 3. Read motion header */
+	nmemb=1;
+	nread=fread((void*)&motfd, sizeof(EGI_IMGMOTION), nmemb, fild);
+        if(nread < nmemb) {
+        	if(ferror(fild))
+                	egi_dperr("Fail to read header of motion from '%s'.\n", fd);
+                else
+                	egi_dpstd("Error! fread header of motion %d itmes of total %d items.\n", nread, nmemb);
+                ret=-3;
+                goto END_FUNC;
+        }
+
+	/* 4. Merge file one by one */
+	for(i=0; i<n; i++) {
+		egi_dpstd("Merge file '%s'...\n",fs[i]);
+
+	        /* 4.1 Open file for read */
+        	fils=fopen(fs[i], "rbe");
+	        if(fils==NULL) {
+        	        egi_dperr("Fail to open file '%s' for reading. \n", fs[i]);
+                	ret=-4;
+			goto END_FUNC;
+        	}
+
+		/* 4.2 Read motion header */
+		nmemb=1;
+		nread=fread((void*)&motfs, sizeof(EGI_IMGMOTION), nmemb, fils);
+        	if(nread < nmemb) {
+        		if(ferror(fils))
+                		egi_dperr("Fail to read header of motion from '%s'.\n", fs[i]);
+                	else
+                		egi_dpstd("Error! fread header of motion %d itmes of total %d items.\n", nread, nmemb);
+                	ret=-3;
+                	goto END_FUNC;
+        	}
+
+		/* 4.3 Check compatiblity */
+		if(motfd.width!=motfs.width || motfd.height!=motfs.height) {
+			egi_dpstd("Width or Height is NOT the same as subject file! '%s' is ignored.\n", fs[i]);
+			if( fclose(fils) !=0 ) {
+	                        egi_dperr("Fail to close file '%s'.\n",fs[i]);
+			}
+			fils=NULL;
+			continue; /* ----------> continue */
+		}
+
+		/* 4.4 TODO: Check fsize for fs */
+
+		/* 4.5 Get fs[i] total frame datasize */
+		fsize=egi_get_fileSize(fs[i]);
+		datasize=fsize-sizeof(EGI_IMGMOTION);
+
+		/* 4.6 Set fils to end of HEADER(start of data) */
+	        if( fseek(fils, sizeof(EGI_IMGMOTION), SEEK_SET) !=0 ) {
+	                egi_dperr("Fail fseek data start.");
+			ret=-4;
+			goto END_FUNC;
+                 }
+
+		/* 4.7 Set fild to end */
+	        if( fseek(fild, 0L, SEEK_END) !=0 ) {
+	                egi_dperr("Fail fseek end.");
+			ret=-4;
+			goto END_FUNC;
+                }
+
+		/* 4.8 Copy frame data to end of fild */
+		if( egi_copy_fileBlock(fils, fild, datasize)!=0 ) {
+			ret=-5;
+                        goto END_FUNC;
+		}
+
+	        /* 4.9 Close fils */
+        	if( fclose(fils) !=0 ) {
+                	egi_dperr("Fail to close file '%s'.\n",fs[i]);
+                	//ret=-8;
+			// ...continue....
+        	}
+		//else
+		fils=NULL; /* Whatever, reset fils to NULL */
+
+		/* Count frames */
+		framecnt += motfs.frames;
+	}
+
+END_FUNC:
+
+	/* E0. Revise motfd.framecnt */
+	motfd.frames +=framecnt;
+        fseek(fild, 0L, SEEK_SET);
+	fwrite((void *)&motfd, sizeof(EGI_IMGMOTION), 1, fild);
+
+	/* E1. Close fils. ONLY if fils is NOT released! */
+	if( fils!=NULL && fclose(fils)!=0 ) {
+                egi_dperr("Fail to close file '%s'.\n",fs[i]);
+		ret=-8;
+	}
+printf("close fils OK\n");
+
+        /* E2. Close fild */
+        if( fclose(fild) !=0 ) {
+                egi_dperr("Fail to close file '%s'.\n",fd);
+                ret=-8;
+        }
+
 
         return ret;
 }
@@ -6670,7 +6922,7 @@ int egi_imgmotion_playFile(const char *fpath, FBDEV *fbdev, int delayms, int x0,
 	memcpy(&motion, fmap->fp, sizeof(EGI_IMGMOTION));
 
 #if 1 /* TEST: -------- */
-	egi_dpstd("Motion header: Headsize=%d, Width=%d, Height=%d, frames=%d, delayms=%d.\n",
+	egi_dpstd("Motion header: Headsize=%zu, Width=%d, Height=%d, frames=%d, delayms=%d.\n",
 				  motion.headsize, motion.width, motion.height, motion.frames, motion.delayms );
 #endif
 

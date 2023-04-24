@@ -1070,26 +1070,13 @@ public:		/* HK2023-02-16  E3D_Scene::loadGLTF() need direct access to modify. */
 					 */
 
 public:
-	bool	skinON;			/* Init as false, If ture, triGroupLists[].skins will apply in renderMesh() */
+	string  	name;		/* Name of the TriMesh. HK2023-04-11 */
 
-#if 0 //////////// XXX For Skin ////////////////////
-	int	skinIndex; 		/* TODO: NOW one mesh allows ONLY one skin, so skinIndex to be -1(no skin) or 0! HK2023-03-08
-					 * Init to -1. <0 as no skin applys the mesh.
-					 * Ref. to glNode.skinIndex, when glNode.type=skin
-					 * A skin defines influencing JOINTs and their WEIGHTs for subjected mesh(primitives/triGrops)
-					 * TODO: A mesh MAY have more than 1 skin defined!?XXX
-				 	 */
+	bool		skinON;		/* Init as false, If ture, triGroupLists[].skins will apply in renderMesh() */
 
-	E3D_glSkin & glSkin;		/* Reference to a glSkin */
-#endif /////////////////////////////////////////////
-
-	//vector<E3D_glNode> & glNodes;  F INIT~
 	vector<E3D_glNode> *glNodes;	/* Reference to glNodes
 					 * skinning computation in renderMesh() needs glNodes.joinMat,
-					   OR
-        TBD&TODO:  vector<E3D_RTMatrix> nodeJointMats; ---- To update for each animation frame before renderMesh.
 					 */
-
 
 	vector<float>  mweights;	/* Morph weights, to apply for TriGroup.morphs HK2023-02-27
 					   1. Refer to E3D_Scene::loadGLTF() 11.-1.7: Assign mweights with glMesh[].mweights
@@ -1098,7 +1085,9 @@ public:
 	int		instanceCount;	/* Instance counter */
 
 	AABB		aabbox;		/* Axially aligned bounding box */
-	//int mcnt;
+
+	E3D_RTMatrix	pmat;		/* For skinning computation, pxyz*pmat*skinmat, HK2023-03-28  */
+
 //TODO	E3D_RTMatrix    VRTMat;		/* Combined Rotation/Translation Matrix. */
 	E3D_RTMatrix    objmat;		/* Rotation/Translation Matrix.  !!! --- MAY include scale factors --- !!!
 					 * Orientation/Position of the TriMesh object relative to Global/System COORD.
