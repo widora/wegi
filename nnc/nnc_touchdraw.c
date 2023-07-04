@@ -63,7 +63,7 @@ midaszhou@yahoo.com(Not in use since 2022_03_01)
 #include <egi_FTsymbol.h>
 #include <endian.h>
 
-#include "digits_data.h"
+#include "digits_imgdata.h"
 #include "nnc_digits.h"
 
 
@@ -185,6 +185,9 @@ int main(int argc, char **argv)
 	double imgdata[8*8]; /* [0-16] Gray value for a 8x8 image */
 	int digit=-1;
 
+	/* Handwritten Digit image, from MNIST or Sklearn data. */
+	EGI_IMGBUF *hdimg=NULL;
+	EGI_IMGBUF *hdsimg=NULL; /* stretched */
 
         const int layer0_nin=64, layer0_nout=20;
         const int layer1_nin=20, layer1_nout=20;
@@ -242,10 +245,10 @@ int main(int argc, char **argv)
 
 START_LOOP:
 
-        /* Clear screen first */
+        /* 1. Clear screen first */
         clear_screen(&gv_fb_dev,WEGI_COLOR_BLACK); //DARKGRAY);
 
-	/* neural network model description */
+	/* 2. Write neural network model description */
 	draw_filled_rect2(&gv_fb_dev, WEGI_COLOR_GRAY2, 0,0, 320-1, 20-1);
        	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
        	                                15, 15, (unsigned char *)"3-Layer Neural Network Demo",
@@ -255,21 +258,38 @@ START_LOOP:
                                	        WEGI_COLOR_WHITE, -1, 255,       /* fontcolor, transcolor,opaque */
                                        	NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
 
-	/* Draw handwriting box */
+	/* 3. Draw handwriting box */
 	fbset_color(WEGI_COLOR_GREEN);
-	//draw_rect(&gv_fb_dev, Lpx[0], Lpy[0], Lpx[3], Lpy[3]);
 	draw_rect(&gv_fb_dev, wbox.startxy.x, wbox.startxy.y, wbox.endxy.x, wbox.endxy.y);
 
-	/* Draw last recsimg */
-	//egi_subimg_writeFB(recimg, &gv_fb_dev, 0, -1, 10, 60);  /* 8x8 image for recognition */
-	egi_subimg_writeFB(recsimg, &gv_fb_dev, 0, -1, 5, 90);  /* Stretched 8x8 image */
+	/* 4. Draw last recsimg at left side */
+	egi_subimg_writeFB(recsimg, &gv_fb_dev, 0, -1, 5, 90);  /* recsimg: Stretched 8x8 image to 64x64 */
 
-	/* Show last digitimg copied from writeBOX */
-	egi_subimg_writeFB(digitimg, &gv_fb_dev, 0, -1, 10, 140); //240-50);
+	/* 5. Show last digitimg copied from writeBOX */
+	egi_subimg_writeFB(digitimg, &gv_fb_dev, 0, -1, 5, 140); //240-50);
 	//egi_subimg_writeFB(digitimg, &gv_fb_dev, 0, -1,  btn_confirm.endxy.x+30+30, btn_confirm.startxy.y);  /* Copy image in writeBox */
 
+	/* 6. Write digits 0-9 beside doutsimg2 */
+	for(k=0; k<10; k++) {
+		char strp[16];
+        	sprintf(strp, "%d", k);
+        	strp[sizeof(strp)-1]=0;
+        	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
+       	                                15, 15,(const unsigned char *)strp,    /* fw,fh, pstr */
+               	                        240, 1, 4,                                  /* pixpl, lines, gap */
+                       	                10+5+10+140, 25+k*22,                                    /* x0,y0, */
+                               	        WEGI_COLOR_WHITE, -1, 255,       /* fontcolor, transcolor,opaque */
+                                       	NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
+	}
 
-#if 0   ///////////////////* Random MNIST handwriten digit image into hdimg */////////////////////
+	/* 7. Draw buttons */
+	draw_filled_rect2(&gv_fb_dev,  WEGI_COLOR_GRAY, btn_confirm.startxy.x, btn_confirm.startxy.y, btn_confirm.endxy.x, btn_confirm.endxy.y);
+	draw_button_frame( &gv_fb_dev, 0, WEGI_COLOR_GRAY, btn_confirm.startxy.x, btn_confirm.startxy.y,
+				   btn_confirm.endxy.x-btn_confirm.startxy.x+1, btn_confirm.endxy.y-btn_confirm.startxy.y+1, 4);
+	write_txt("数字识别", btn_confirm.startxy.x+10, btn_confirm.startxy.y+10, WEGI_COLOR_BLACK);
+
+
+#if 0   ///////////////////* 8. Random MNIST handwriten digit image into hdimg */////////////////////
 	egi_imgbuf_free2(&hdimg);
 	hdimg=egi_imgbuf_createWithoutAlpha(nr, nc, WEGI_COLOR_WHITE); /* nr=nc=28 */
 
@@ -286,26 +306,28 @@ START_LOOP:
 		//hdimg->imgbuf[(k%28)*28+(k/28)] = tcolor;
 	}
 	printf("\n");
+
 	/* Resize to 40x40 to fit in writeBox */
 	egi_imgbuf_resize_update(&hdimg, false, 40, 40);
+
 	/* Draw it into the writeBox */
 	egi_subimg_writeFB(hdimg, &gv_fb_dev, 0, -1, wbox.startxy.x, wbox.startxy.y);
+
 #endif /////////////////////////////////////////////////////////////////////////////////////
 
 
-#if DIGITS_DATASET_TEST  ///////////////////* Read sklearn handwriten digit image into hdimg */////////////////////
+#if DIGITS_DATASET_TEST  ///////////////////* 8A. Read sklearn handwriten digit image into hdimg */////////////////////
 	int nrand;
 	int digitdata[8*8]; /* digit data 8*8  value [0-15] */
-	EGI_IMGBUF *hdimg=NULL;
-	EGI_IMGBUF *hdsimg=NULL;
 
 	egi_imgbuf_free2(&hdimg);
 	hdimg=egi_imgbuf_createWithoutAlpha(8, 8, WEGI_COLOR_WHITE); /* nr=nc=28 */
 
  READ_MNIST:
-	nrand = mat_random_range(DIGITS_DATASIZE); /* random offset to start of a digit data */
-	memcpy(digitdata, &digits_data[nrand][0], 8*8*sizeof(int));
+	nrand = mat_random_range(DIGITS_IMGTOTAL); /* random offset to start of a digit data */
+	memcpy(digitdata, &digits_imgdata[nrand][0], 8*8*sizeof(int));
 
+	/* Fill hdimg according to digitdata[] */
 	for(k=0; k<8*8; k++) {
 		if(k%(8)==0) printf("\n");
 		printf("%d ",digitdata[k]);
@@ -313,82 +335,74 @@ START_LOOP:
          	hdimg->imgbuf[k] = tcolor;
 	}
 	printf("\n");
+
+
+  	/* Display hdsimg in writeBox*/
 	/* Resize to 40x40 to fit in writeBox */
 	egi_imgbuf_free2(&hdsimg);
 	hdsimg=egi_imgbuf_stretch(hdimg, 40, 40);
 	//hdsimg=egi_imgbuf_resize(hdimg, false, 40, 40);
-	/* Draw it into the writeBox */
+
+	/* Draw it into the writeBox, digitimg will grep from fbimg */
 	egi_subimg_writeFB(hdsimg, &gv_fb_dev, 0, -1, wbox.startxy.x+1, wbox.startxy.y+1);
+
 #endif /////////////////////////////////////////////////////////////////////////////////////
 
 
-	/* Draw doutsimg0,doutsimg1,doutsimg2 */
+#if 0	/* XXX NOT HERE! Draw doutsimg0,doutsimg1,doutsimg2---- NOPE! NOT HERE! */
 	egi_subimg_writeFB(doutsimg0, &gv_fb_dev, 0, -1, 10+5+10+35, 35);  /* Stretched  image */
 	egi_subimg_writeFB(doutsimg1, &gv_fb_dev, 0, -1, 10+5+10+70, 35);  /* Stretched  image */
 	egi_subimg_writeFB(doutsimg2, &gv_fb_dev, 0, -1, 10+5+10+105, 35);  /* Stretched  image */
+#endif
 
-	/* Write prediction 0-9 along doutsimg2 */
-	for(k=0; k<10; k++) {
-		char strp[16];
-        	sprintf(strp, "%d", k);
-        	strp[sizeof(strp)-1]=0;
-        	FTsymbol_uft8strings_writeFB(   &gv_fb_dev, egi_sysfonts.bold,          /* FBdev, fontface */
-       	                                15, 15,(const unsigned char *)strp,    /* fw,fh, pstr */
-               	                        240, 1, 4,                                  /* pixpl, lines, gap */
-                       	                10+5+10+140, 25+k*22,                                    /* x0,y0, */
-                               	        WEGI_COLOR_WHITE, -1, 255,       /* fontcolor, transcolor,opaque */
-                                       	NULL, NULL, NULL, NULL);      /* int *cnt, int *lnleft, int* penx, int* peny */
-	}
 
-	/* Draw buttons */
-	draw_filled_rect2(&gv_fb_dev,  WEGI_COLOR_GRAY, btn_confirm.startxy.x, btn_confirm.startxy.y, btn_confirm.endxy.x, btn_confirm.endxy.y);
-	draw_button_frame( &gv_fb_dev, 0, WEGI_COLOR_GRAY, btn_confirm.startxy.x, btn_confirm.startxy.y,
-				   btn_confirm.endxy.x-btn_confirm.startxy.x+1, btn_confirm.endxy.y-btn_confirm.startxy.y+1, 4);
-	write_txt("数字识别", btn_confirm.startxy.x+10, btn_confirm.startxy.y+10, WEGI_COLOR_BLACK);
-
-	/* Draw last digit */
-	if(digit<0)
+#if 0	/* XXX NOT HERE!  Draw last digit */
+	if(digit<0) {
 		write_txt("无法识别", btn_confirm.startxy.x, btn_confirm.startxy.y+60, WEGI_COLOR_YELLOW);
+		sleep(3);
+	}
 	else
 		write_digit(digit, btn_confirm.endxy.x-70, btn_confirm.startxy.y+60,WEGI_COLOR_YELLOW);
+#endif
 
-
-	/* Wait touch down */
+	/* 9. Wait touch down */
 	while(1) {
 
 #if !DIGITS_DATASET_TEST
+		/* W1. Wait touch down */
 		egi_touch_timeWait_press(-1, 0, &touch);
                	egi_touch_fbpos_data(&gv_fb_dev, &touch, 3);
 #endif
-		/* Press: Get start point */
+		/* W2. Press: Get start point */
         	startxy=touch.coord;
         	endxy=startxy;
 
 		/* If in btn_confirm */
-
 #if DIGITS_DATASET_TEST
-		sleep(2);
+		//sleep(1);
+		/* W2. DO NOT check touchdown, JUST DO IT. */
 		if(1) {
 #else
+		/* W2. If touchdown in btn_confirm */
 		if(point_inbox(&startxy, &btn_confirm)) {
 #endif
-			/* Press down */
+			/* W2.1 Draw Pressed button */
 			draw_filled_rect2(&gv_fb_dev,  WEGI_COLOR_GRAY, btn_confirm.startxy.x, btn_confirm.startxy.y,
 						       btn_confirm.endxy.x, btn_confirm.endxy.y);
 			draw_button_frame( &gv_fb_dev, 1, WEGI_COLOR_GRAY, btn_confirm.startxy.x, btn_confirm.startxy.y,
 				   btn_confirm.endxy.x-btn_confirm.startxy.x+1, btn_confirm.endxy.y-btn_confirm.startxy.y+1, 4);
 			write_txt("识别中...", btn_confirm.startxy.x+10, btn_confirm.startxy.y+10, WEGI_COLOR_BLACK);
 
-			/* Grep image in wbox */
+			/* W2.2 Copy image in wbox to digitimg */
 			egi_imgbuf_free2(&digitimg);
 			digitimg=egi_imgbuf_blockCopy(fbimg, wbox.startxy.x+1, wbox.startxy.y+1, wboxH-2, wboxW-2);
 			//egi_subimg_writeFB(digitimg, &gv_fb_dev, 0, -1, 160, wbox.startxy.y-2);
 
-			/* Convert to recimg for nnc */
+			/* W2.3 Convert digitimg to recimg 8x8 for NNC */
 			egi_imgbuf_free2(&recimg);
 			recimg=egi_imgbuf_scale(digitimg, 8, 8);
 
-			/* digitimg: Flip white/black */
+			/* W2.4 digitimg: Flip white/black to display later at left side */
 			for(k=0; k< digitimg->width*digitimg->height; k++) {
 				tcolor=egi_colorLuma_adjust(WEGI_COLOR_WHITE,  (-0.3)*egi_color_getY(digitimg->imgbuf[k]));
 				digitimg->imgbuf[k] = tcolor;
@@ -396,11 +410,11 @@ START_LOOP:
 
 			//egi_subimg_writeFB(recimg, &gv_fb_dev, 0, -1, 35+40+20, wbox.startxy.y-2);
 
-			/* Stretch recimg to 64*64 */
+			/* W2.5 Get recsimg: stretch recimg to 64*64 */
 			egi_imgbuf_free2(&recsimg);
 			recsimg=egi_imgbuf_stretch(recimg, 8*5, 8*5);
 
-			/* Brighten recsimg */
+			/* W3.6 Brighten recsimg */
 			for(k=0; k < recsimg->width*recsimg->height; k++) {
 				tcolor=egi_colorLuma_adjust(recsimg->imgbuf[k],  0.2*egi_color_getY(recsimg->imgbuf[k]));
 				recsimg->imgbuf[k]=tcolor;
@@ -409,13 +423,13 @@ START_LOOP:
 
 
 #if DIGITS_DATASET_TEST
-			/* Grep gray values from digit dataset */
+			/* W3.7 Get gray values from digit dataset */
         		for(k=0; k<8*8; k++) {
                 		imgdata[k] = digitdata[k];
 		        }
 
 #else
-			/* Compute gray values */
+			/* W3.7 Compute gray values */
 			double max=0.0f;
 			for(k=0; k<8*8; k++) {
 				/* convert to 4bits grayscale: [0-15] */
@@ -434,72 +448,74 @@ START_LOOP:
 			}
 #endif
 
-			/* NNC predict */
+			/* W3.8 Do NNC predict */
 			digit=nnc_predictDigit(imgdata, dout);
 
-			/* doutimg0 1x20 */
+			/* W3.9: Produce doutimg0 1x20 */
 			for(k=0; k<20; k++) {
 				//doutimg0->imgbuf[k] = WEGI_COLOR_ORANGE;
 				tcolor=egi_colorLuma_adjust(WEGI_COLOR_YELLOW,  (dout[k]-1.0)*egi_color_getY(WEGI_COLOR_ORANGE));
 				doutimg0->imgbuf[k] = tcolor;
 			}
-			/* stretch to 1*20x20*20*/
+			/* Resize/stretch from 1*20 to 1*20x20*20*/
 			egi_imgbuf_free2(&doutsimg0);
 			doutsimg0=egi_imgbuf_resize(doutimg0, false, 1*20, 20*10); /* width, height */
-			//doutsimg0=egi_imgbuf_stretch(doutimg0, 1*20, 20*20); /* width, height */
+			//doutsimg0=egi_imgbuf_stretch(doutimg0, 1*20, 20*10); /* width, height */
 
-			/* doutimg1 1x20 */
+			/* W3.10 Produce doutimg1 1x20 */
 			for(k=0; k<20; k++) {
 				//doutimg0->imgbuf[k] = WEGI_COLOR_ORANGE;
 				tcolor=egi_colorLuma_adjust(WEGI_COLOR_GREEN,  (dout[k+20]-1.0)*egi_color_getY(WEGI_COLOR_ORANGE));
 				doutimg1->imgbuf[k] = tcolor;
 			}
-			/* stretch to 1*20x20*20*/
+			/* Resize/stretch from 1*20 to 1*20x20*10*/
 			egi_imgbuf_free2(&doutsimg1);
 			doutsimg1=egi_imgbuf_resize(doutimg1, false, 1*20, 20*10); /* width, height */
-			//doutsimg1=egi_imgbuf_stretch(doutimg1, 1*20, 20*20); /* width, height */
+			//doutsimg1=egi_imgbuf_stretch(doutimg1, 1*20, 20*10); /* width, height */
 
-			/* doutimg2 1x10 */
+			/* W3.11 Produce doutimg2 1x10 */
 			for(k=0; k<10; k++) {
 				//doutimg0->imgbuf[k] = WEGI_COLOR_ORANGE;
 				tcolor=egi_colorLuma_adjust(WEGI_COLOR_ORANGE,  (dout[k+20+20]-1.0)*egi_color_getY(WEGI_COLOR_ORANGE));
 				doutimg2->imgbuf[k] = tcolor;
 			}
-			/* stretch to 1*20x10*20*/
+			/* Resize/stretch from 1*10 to 1*20x10*20*/
 			egi_imgbuf_free2(&doutsimg2);
 			doutsimg2=egi_imgbuf_resize(doutimg2, false, 1*20, 10*20); /* width, height */
-			//doutsimg0=egi_imgbuf_stretch(doutimg1, 1*20, 10*20); /* width, height */
+			//doutsimg2=egi_imgbuf_stretch(doutimg2, 1*20, 10*20); /* width, height */
 
 
-//		        printf(" ---- Predict: %d ------\n", nnc_predictDigit(imgdata) );
-			if(digit<0)
-				write_txt("无法识别", btn_confirm.endxy.x+30, btn_confirm.startxy.y, WEGI_COLOR_YELLOW);
+			/* ----- Display/update images shown on screen ----- */
+
+			/* W3.12  Draw last recsimg */
+			egi_subimg_writeFB(recsimg, &gv_fb_dev, 0, -1, 10, 90);  /* Stretched 8x8 image */
+
+			/* W3.13 Show last digitimg copied from writeBOX. BLACK/WHITE flipped. */
+			egi_subimg_writeFB(digitimg, &gv_fb_dev, 0, -1, 10, 140); //240-50);
+
+			/* W3.14 Draw nvlayer output: doutsimg0,doutsimg1,doutsimg2 */
+			egi_subimg_writeFB(doutsimg0, &gv_fb_dev, 0, -1, 10+5+10+35, 35);  /* Stretched  image */
+			egi_subimg_writeFB(doutsimg1, &gv_fb_dev, 0, -1, 10+5+10+70, 35);  /* Stretched  image */
+			egi_subimg_writeFB(doutsimg2, &gv_fb_dev, 0, -1, 10+5+10+105, 35);  /* Stretched  image */
+
+
+		        printf(" ---- Predict: %d ------\n", digit);
+			if(digit<0) {
+				write_txt("无法识别", btn_confirm.startxy.x, btn_confirm.startxy.y+60, WEGI_COLOR_YELLOW);
+				sleep(3);
+			}
 			else
-				write_digit(digit, btn_confirm.endxy.x+30, btn_confirm.startxy.y,WEGI_COLOR_YELLOW);
+				write_digit(digit, btn_confirm.endxy.x-70, btn_confirm.startxy.y+60,WEGI_COLOR_YELLOW);
+
+
+			/* W3.15 Delay */
+			//sleep(1);
+			usleep(500000);
 
 			goto START_LOOP;
 			//exit(0);
 		}
 
-		while (1) {
-                	while(!egi_touch_getdata(&touch));
-                	egi_touch_fbpos_data(&gv_fb_dev, &touch, 3);
-
-	                /* Releasing: confirm the end point */
-        	        if(touch.status==releasing || touch.status==released_hold) {
-                	        break;
-                	}
-
-	                /* Get end point */
-        	        startxy=endxy;
-                	endxy=touch.coord;
-
-			printf("Startxy: %d,%d		Endxy: %d,%d\n", startxy.x, startxy.y, endxy.x, endxy.y );
-
-        	        /* DriectFB Draw Line */
-                	fbset_color(WEGI_COLOR_WHITE); //YELLOW);
-	                draw_wline(&gv_fb_dev, startxy.x, startxy.y, endxy.x, endxy.y, 5); //Pen size: 4,5
-		}
 	}
 
 

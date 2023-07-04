@@ -8,6 +8,9 @@ https://peterroelants.github.io/posts/neural-network-implementation-part05/
 
 Journal:
 2023-05-17: Create the file.
+2023-06-25:
+	1. outpu layer has layer->transfunc defined, results are stored
+           in layer->douts[].
 
 Midas Zhou
 知之者不如好之者好之者不如乐之者
@@ -26,23 +29,22 @@ Midas Zhou
 #include "nnc_digits.h"
 
 
-/*---------------------------------------
-To predict a digit number in a 8x8
-gray image.
+/*------------------------------------------------------
+To predict a digit number in a 8x8 gray image.
 
 @imgdata: 8x8 gray value of an image.
           gray value [0 16]
 
 @dout:	  To pass output data for all layers.
-	  layer0_nout+layer1_nout+layer1_nout
+	  layer0_dout+layer1_dout+layer1_dout
 
 		  !!! CAUTION !!!
 	 //The caller must free mem of dout after use.
 	 The caller MUST allocate enough mem space for it.
 Return:
-	<0 	Fails, or possibility <0.5
+	<0 	Fails, or possibility <threshold
 	[0 9]	OK
-----------------------------------------*/
+------------------------------------------------------*/
 int nnc_predictDigit(double *imgdata, float *dout)
 {
 	int j;
@@ -57,22 +59,20 @@ int nnc_predictDigit(double *imgdata, float *dout)
 
 	int dcnt=0;
 
-	/* Allocate dout */
-	//dout=calloc(layer0_nout+layer1_nout+layer2_nout, sizeof(float));
 	if(dout==NULL)
 		return -1;
 
         /* 1. create an input nvlayer */
         NVCELL *tempcell_input=new_nvcell(layer0_nin, NULL, imgdata, NULL, 0, func_sigmoid); /* input cell */
-        NVLAYER *layer0=new_nvlayer(layer0_nout, tempcell_input);
+        NVLAYER *layer0=new_nvlayer(layer0_nout, tempcell_input, false);
 
         /* 2. create a hidden nvlayer */
         NVCELL *tempcell_hidden=new_nvcell(layer1_nin, layer0->nvcells,NULL,NULL,0, func_sigmoid);//sigmoid); /* input cell */
-        NVLAYER *layer1=new_nvlayer(layer1_nout, tempcell_hidden);
+        NVLAYER *layer1=new_nvlayer(layer1_nout, tempcell_hidden, false);
 
         /* 3. create an output nvlayer */
         NVCELL *tempcell_output=new_nvcell(layer2_nin, layer1->nvcells, NULL,NULL,0, NULL);//ReLU);//sigmoid); /* input cell */
-        NVLAYER *layer2=new_nvlayer(layer2_nout, tempcell_output);
+        NVLAYER *layer2=new_nvlayer(layer2_nout, tempcell_output, true);
 	layer2->transfunc = func_softmax;
 
         /* 4. create an nerve net */
@@ -99,39 +99,35 @@ int nnc_predictDigit(double *imgdata, float *dout)
 		if( (j+1)%8==0 )
 			printf("\n");
 	}
-        printf("\n");
 
-	printf("output of nvlayers[0]: \n");
+	printf("\n output of nvlayers[0]: \n");
 	for(j=0; j< layer0->nc; j++) {  /* all connect to next layer cells */
 		printf("%f ", layer0->nvcells[j]->dout);
 
 		dout[dcnt++]=layer0->nvcells[j]->dout;
 	}
 
-	printf("\n");
-	printf("output of nvlayers[1]: \n");
+	printf("\n output of nvlayers[1]: \n");
 	for(j=0; j< layer1->nc; j++) {   /* all connect to next layer cells */
 		printf("%f ", layer1->nvcells[j]->dout);
 
 		dout[dcnt++]=layer1->nvcells[j]->dout;
 	}
-	printf("\n");
 
-        printf("output of nvlayers[2]: \n");
+	/* !!!--- CAUTION ---!!! outpu layer has layer->transfunc, results stored in layer->douts[] */
+        printf("\n output of nvlayers[2]: \n");
 	float possibility=0.65f;  /* threshold possiblity */
         for(j=0; j< layer2->nc; j++) {
-		if( layer2->nvcells[j]->dout > possibility) {
-			possibility=layer2->nvcells[j]->dout;
+		if( layer2->douts[j] > possibility) {
+			possibility=layer2->douts[j];
 			digit=j;
 		}
-        	printf("%lf ",layer2->nvcells[j]->dout);
+        	printf("%lf ",layer2->douts[j]);
 
-		dout[dcnt++]=layer2->nvcells[j]->dout;
-
+		dout[dcnt++]=layer2->douts[j];
 	}
-        printf("\n");
 
-        printf("Predict: %d \n", digit);
+        printf("\n Predict: %d \n", digit);
 
 	/* Free */
         free_nvcell(tempcell_input);

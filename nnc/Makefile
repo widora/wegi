@@ -88,8 +88,27 @@ all:	$(APPS)
 EGILIB=static
 
 
+### test_train ###
+test_memleak:   test_memleak.c nnc.o actfs.o
+ifeq ($(EGILIB),static)
+	$(CC) test_memleak.c nnc.o actfs.o -o test_memleak  $(CFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
+-Wl,-Bstatic -legi -lesound -Wl,-Bdynamic
+else
+	$(CC) -o test_memleak test_memleak.c $(CFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
+endif
+
+
+### test_train ###
+test_train:   digits_imgdata.h test_train.c nnc.o actfs.o
+ifeq ($(EGILIB),static)
+	$(CC) test_train.c nnc.o actfs.o -o test_train  $(CFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
+-Wl,-Bstatic -legi -lesound -Wl,-Bdynamic
+else
+	$(CC) -o test_train test_train.c $(CFLAGS) $(LDFLAGS) $(LIBS) -legi -lesound
+endif
+
 ### nnc_touchdraw ###
-nnc_touchdraw:   digits_data.h nnc_touchdraw.c  nnc.o actfs.o nnc_digits.o
+nnc_touchdraw:   digits_imgdata.h nnc_touchdraw.c  nnc.o actfs.o nnc_digits.o
 ifeq ($(EGILIB),static)
 	$(CC) nnc_touchdraw.c nnc.o actfs.o nnc_digits.o -o nnc_touchdraw  $(CFLAGS) $(LDFLAGS) -Wl,-Bdynamic $(LIBS) \
 -Wl,-Bstatic -legi -lesound -Wl,-Bdynamic
@@ -138,5 +157,4 @@ endif
 
 clean:
 	rm -rf *.o $(APPS) $(OBJ_IOT)
-	rm -rf nnc_touchdraw
-	rm -rf test_digits
+	rm -rf test_train test_digits nnc_touchdraw

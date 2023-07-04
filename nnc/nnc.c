@@ -34,6 +34,7 @@ Note:
 	   7.2 For outpout layer: derr=dE/du=L'(h)*f'(u) <this is after feedback calculation>
 	       Before feedback calculation, derr=L'(h),to calcluate L'(h) also need t--teacher value
 	8. Final loss/err: err=L(h), L(h) is loss functions. to calcluate L'(h) also need t--teacher value.
+	9. derr: for the current nvcell's dE/dh.
 
 2. Sometimes the err increases monotonously and NERVER converge, it's
    necessary to observe such condition and reset weights and bias
@@ -41,14 +42,28 @@ Note:
 
 3. new_nvlayer() will also alloc nvcells inside, while new_nvnet() will NOT alloc nvlayers inside !!!
 
+4. nvnet_feed_forward() will call nvlayer_mean_loss( nnet->nvlayers[nnet->nl-1], tv, loss_func ) for the output layer
+   and return mean_loss value. If NOT output layer, then return 0.0.
+
+5. For output layer, if it has transfunc defined, the it result should be stored in layer->douts, NOT in nvcell->dout!
+   nvcell->dout stores u value, as nvcell->transfunc is NULL in this case.
+
 Journal:
 2023-05-18:
    1. Add func_softmax(NVLAYER *layer, int token)
    2. Add nvlayer_load_params()
    3. Add nvlayer_link_inputdata()
+2023-06-15:
+   1. Add float func_lossCrossEntropy()
+2023-06-19:
+   1. Add 'douts' for struct nerve_layer, for storing output layer transfunc results.
+   2. nvlayer_mean_loss(): Consider softmax+crossEntropy, its easy to comput combined derivative.
+   3. nvcell_feed_backward(): If nvcell has NULL transfunc, then f(u)=u and f'(u)=1.
+2023-06-25:
+   1. nvnet_mmtupdate_params(nnet, rate): add parameter 'double mfrict'.
 
 Midas Zhou
-midaszhou@yahoo.com
+midaszhou@yahoo.com <---- Not in use.
 -----------------------------------------------------------------------*/
 #include "nnc.h"
 #include "actfs.h"
@@ -68,13 +83,26 @@ static double dlrate=20.0;       	/* default value, learning rate for all nvcell
 static double desp_params=0.00001;	/* small change value for computing numerical gradients of params*/
 static double dmmt_fric=0.75;		/* friction rate for momentum updating algorithm */
 
-/*--------------------------------------
+
+/*---------------------------------------------
  * set parameters for NNC
 @learn_rate:	learn rate
---------------------------------------*/
-void  nnc_set_param(double learn_rate)
+@mfric:		parameter for momentum friction
+---------------------------------------------*/
+void  nnc_set_param(double learn_rate, double mfric)
 {
 	dlrate=learn_rate;
+	dmmt_fric=mfric;
+}
+
+void nnc_set_learnrate(double learn_rate)
+{
+	dlrate=learn_rate;
+}
+
+void nnc_set_mfrict(double mfric)
+{
+	dmmt_fric=mfric;
 }
 
 
@@ -187,11 +215,12 @@ int nvcell_rand_dwv(NVCELL *ncell)
  * Params:
  * 	@nc	number of nerve cells in the layer;
  *	@template_cell	a template cell for layer->nvcells.
+ *	@layerTransfuncDefined	If it's the output layer, and layer->transfunc defined/needed.
  * Return:
  *	pointer to NVLAYER	OK
  *	NULL			fails
 --------------------------------------------------------------------*/
-NVLAYER *new_nvlayer(unsigned int nc, const NVCELL *template_cell)
+NVLAYER *new_nvlayer(unsigned int nc, const NVCELL *template_cell, bool layerTransfuncDefined)
 {
 	int i,j;
 
@@ -219,6 +248,17 @@ NVLAYER *new_nvlayer(unsigned int nc, const NVCELL *template_cell)
 		free(layer);
 		printf("Init a new NVLAYER: fail to calloc layer->nvcells!\n");
 		return NULL;
+	}
+
+	/* calloc douts HK2023-06-19 */
+	if(layerTransfuncDefined) {
+		layer->douts=calloc(nc, sizeof(typeof(*layer->douts)));
+		if(layer->douts==NULL) {
+			free(layer->nvcells);
+			free(layer);
+			printf("Init a new NVLAYER: fail to calloc layer->douts!\n");
+			return NULL;
+		}
 	}
 
 	/* assign nc */
@@ -271,6 +311,8 @@ void free_nvlayer(NVLAYER *layer)
 			free_nvcell(layer->nvcells[i]);
 	}
 
+
+	free(layer->douts); /* HK2023-06-30 */
 	free(layer->nvcells);
 	free(layer);
 	layer=NULL;
@@ -368,7 +410,6 @@ int nvcell_feed_forward(NVCELL *nvcell)
 {
 	int i;
 
-printf("cell feed forward...\n");
 	/* check input param. OK nvcell MAY be NULL, see also 3.  HK2023-05-18 */
 	if(nvcell==NULL )  // || nvcell->transfunc==NULL)
 		return -1;
@@ -409,8 +450,10 @@ printf("cell feed forward...\n");
 	/* 3. Calculate output with transfer/activation function */
 	if(nvcell->transfunc)  /* HK2023-05-18 */
 	     nvcell->dout=(*nvcell->transfunc)(nvcell->dsum, 0, NORMAL_FUNC);  /* f=0 */
-	else
+	else  { /* No transfunc */
+	    /* Example: at output layer, softMax applys on output layer->transfunc at nvlayer_feed_forward() */
 	    nvcell->dout=nvcell->dsum;
+	}
 
 	return 0;
 }
@@ -459,8 +502,8 @@ int nvcell_feed_backward(NVCELL *nvcell)
 	int i;
 
 	/* check input param */
-	if(nvcell==NULL || nvcell->transfunc==NULL)
-			return -1;
+	if(nvcell==NULL) // || nvcell->transfunc==NULL)
+		return -1;
 
 
         /* 1. calculate composite dE/du */
@@ -477,7 +520,10 @@ int nvcell_feed_backward(NVCELL *nvcell)
   /* ----P2: LOSS COMPOSITE for NON_output nvcell : loss composite=dE/du=derr*f'(u)=SUM(dE/du[L+1]*w[L+1])*f'(u);
          here,derr=SUM(dE/du[L+1]*w[L+1]) where E,u,w are of downstream cells,
 	 assume that above derr has already been feeded backed from the next layer cells */
+	if(*nvcell->transfunc)  /* HK2023-06-19 */
 		nvcell->derr *= (*nvcell->transfunc)(nvcell->dsum, nvcell->dout, DERIVATIVE_FUNC);
+	//else  /* No transfunc: f(u)=u, f'(u)=1.  Example: for the output layer, softMax+crossEntropy  */
+	//	nvcell->derr *=1.0;
 //	}
 
 //	printf("%s,--- update dw and v --- \n", __func__ );
@@ -620,8 +666,6 @@ int nvlayer_feed_forward(NVLAYER *layer)
 	int i;
 	int ret;
 
-printf("layer feed forward...\n");
-
 	/* check layer */
 	if(layer==NULL || layer->nvcells==NULL)
 		return -1;
@@ -681,18 +725,44 @@ double nvlayer_mean_loss(NVLAYER *outlayer, const double *tv,
 		return 999999.9;
 	}
 
-	/* for each output nvcell */
-	for(i=0; i< outlayer->nc; i++) {
+	/* 1. For softMax+lossCrossEntropy: softMas as outlayer transfer func.  HK2023-06-19 */
+	if(loss_func==func_lossCrossEntropy ) {
+	    if(outlayer->transfunc == func_softmax) {
+           	/* for each output nvcell */
+           	for(i=0; i< outlayer->nc; i++) {
+			/* sum up each loss, Noticed: softMax()  results stored in outlayer->douts! */
+			//loss += loss_func(outlayer->nvcells[i]->dout, tv[i], NORMAL_FUNC);
+			loss += loss_func(outlayer->douts[i], tv[i], NORMAL_FUNC);
+
+			/* Here we only calc L'(h), and put it in nvcell->derr,
+                 	 * later in nvcell_feed_backward() : derr=L'(h)*f'(u)=derr*f'(u) as dE/du.dE/dh*dh/du
+                 	 */
+			/* For combined function cf(ui)=softmax+crossEntropy: cf'(u)= y[i]-tv[i]  */
+			outlayer->nvcells[i]->derr = outlayer->douts[i]-tv[i]; /* Notice: not in nvcells[]->dout!!! */
+		}
+	    }
+	    else {
+			printf("%s: CrossEntropy MUST combine with sotfMax! \n",__func__);
+			return 999999.9;
+	    }
+	}
+	/* 2. Non_combine functions */
+	else {
+
+	   /* for each output nvcell */
+	   for(i=0; i< outlayer->nc; i++) {
 		/* sum up each loss */
 		loss += loss_func(outlayer->nvcells[i]->dout, tv[i], NORMAL_FUNC);
 
 		/* Here we only calc L'(h), and put it in nvcell->derr,
-                 * later in nvcell_feed_backward() : derr=L'(h)*f'(u)=derr*f'(u) as dE/du.
+                 * later in nvcell_feed_backward() : derr=L'(h)*f'(u)=derr*f'(u) as dE/du.dE/dh*dh/du
                  */
 		outlayer->nvcells[i]->derr = loss_func(outlayer->nvcells[i]->dout, tv[i], DERIVATIVE_FUNC);
+	    }
 	}
 
 	/* get mean loss */
+//	printf("%s: loss=%f\n", __func__, loss);
 	return loss/(outlayer->nc);
 }
 
@@ -778,12 +848,15 @@ double nvnet_feed_forward(NVNET *nnet, const double *tv,
 	if( nnet==NULL || nnet->nl==0)
 		return 999999.9;
 
-	for(i=0; i< nnet->nl; i++)
+	for(i=0; i< nnet->nl; i++) {
+//		printf("%s: nvlayers[%d] feed forward...\n",__func__, i);
 		nvlayer_feed_forward(nnet->nvlayers[i]);
+	}
 
-        /* get final err */
-	if(tv)
+        /* Get final err */
+	if(tv) {
          	return  nvlayer_mean_loss( nnet->nvlayers[nnet->nl-1], tv, loss_func );
+	}
 	else /* HK2023-05-17 */
 		return 0.0f;
 }
@@ -804,8 +877,8 @@ int nvnet_feed_backward(NVNET *nnet)
 	if( nnet==NULL || nnet->nl==0)
 		return -1;
 
-	/* clear derr in all cells,except the output cells */
-	for(i=0; i< nnet->nl-1; i++) {
+	/* clear derr in all cells,except the output cells by  */
+	for(i=0; i< nnet->nl-1; i++) {  /*  ----- CAUTION ----  <nl-1 */
 		/* but leave the output layer, as we already put derr=L'(h) there !!! */
 		for(j=0; j< nnet->nvlayers[i]->nc; j++) {
 			nnet->nvlayers[i]->nvcells[j]->derr=0.0;
@@ -814,6 +887,7 @@ int nvnet_feed_backward(NVNET *nnet)
 
 	/* feed backward from output layer to input layer */
 	for(i=nnet->nl-1; i>=0; i--) {
+//		printf("%s: nvlayers[%d] feed_backward...\n", __func__, i);
 		if(nvlayer_feed_backward(nnet->nvlayers[i]) !=0 ) {
 			printf("%s: nvlayer[%d] feed backward fails!\n",__func__,i);
 			return -2;
@@ -887,14 +961,22 @@ int nvnet_update_params(NVNET *nnet, double rate)
  *  For non_output cells:  dw += -rate*dE/du*h[L-1],
  *       assume derr=dE/du=f'(h)*SUM(dE/du*w)[L-1] already computed by nvnet_feed_backward().
  *
+ *  Parameters updated by Momentum:
+ *	M(i+1) = f*M(i)-r*dE/dP
+ *      P(i+1) = P(i) + M(i+1)
+ *
+ *     where    M: momentum value; P: parameters, weigts, bias etc.
+ *		f: friction;  r: learning rate;  dE/dP: dE/dw, dE/db ..etc.
+ *
  * Params:
  * 	@nnet		nerve net
  *	@rate		learning rate
+ *	@mfrict:	momentum friction parameter
  * Return:
  *		0	OK
  *		<0	fails
 ---------------------------------------------------------------------------*/
-int nvnet_mmtupdate_params(NVNET *nnet, double rate)
+int nvnet_mmtupdate_params(NVNET *nnet, double rate, double mfrict)
 {
 	int i,j,k;
 	int nmp;
@@ -926,20 +1008,25 @@ int nvnet_mmtupdate_params(NVNET *nnet, double rate)
 	nmp=0;
 	for(i=0; i< nnet->nl; i++) {			/* traverse nvlayers */
 	   for(j=0; j< nnet->nvlayers[i]->nc; j++) {	/* traverse nvcells */
+	      /* For each neuron in the network */
 	      cell=nnet->nvlayers[i]->nvcells[j];
 
 	      /* 1. update dw[]  */
 	      for(k=0; k< cell->nin; k++)  {		/* traverse params */
 		if( cell->incells !=NULL && cell->incells[0] != NULL) {
-			/* update momentum dw_mmt[i+1]=fric*dw_mmt[i]-rate*h[L-1]*derr */
-			nnet->mmts[nmp]= dmmt_fric*nnet->mmts[nmp]-rate*(cell->incells[k]->dout)*(cell->derr);
+			/* update momentum dw_mmt[i+1]=fric*dw_mmt[i]-rate*h[L-1]*derr
+			   Notice: dE/dwi=dE/du*du/dwi=dE/du*xi=dE/du*h[L-1]=derr*h[L-1]
+			 */
+			//nnet->mmts[nmp]= dmmt_fric*nnet->mmts[nmp]-rate*(cell->incells[k]->dout)*(cell->derr);
+			nnet->mmts[nmp]= mfrict*nnet->mmts[nmp]-rate*(cell->incells[k]->dout)*(cell->derr);
 			/* update dw, dw[i+1]=dw[i]+dw_mmt[i+i] */
 			cell->dw[k] += nnet->mmts[nmp];
 
 			nmp++;
 		}
 		else if( cell->din !=NULL ) {
-			nnet->mmts[nmp]= dmmt_fric*nnet->mmts[nmp]-rate*(cell->din[k])*(cell->derr);
+			//nnet->mmts[nmp]= dmmt_fric*nnet->mmts[nmp]-rate*(cell->din[k])*(cell->derr);
+			nnet->mmts[nmp]= mfrict*nnet->mmts[nmp]-rate*(cell->din[k])*(cell->derr);
 			cell->dw[k] += -rate*(cell->din[k])*(cell->derr);
 
 			nmp++;
@@ -951,7 +1038,8 @@ int nvnet_mmtupdate_params(NVNET *nnet, double rate)
 	     }  /* end of dw[] nin */
 
 		/* 2. update dv, dv_mmt[i+1]=fric*dv_mmt[i]-rate*(-1.0)*derr */
-		nnet->mmts[nmp]= dmmt_fric*nnet->mmts[nmp]+rate*(cell->derr); /* -rate*(-1.0)*(cell->derr) */
+		//nnet->mmts[nmp]= dmmt_fric*nnet->mmts[nmp]+rate*(cell->derr); /* -rate*(-1.0)*(cell->derr) */
+		nnet->mmts[nmp]= mfrict*nnet->mmts[nmp]+rate*(cell->derr); /* -rate*(-1.0)*(cell->derr) */
 		/* update dv, dv[i+1]=dv[i]+dv_mmt[i+i] */
 		cell->dv += nnet->mmts[nmp];
 
@@ -1074,7 +1162,7 @@ int nvnet_restore_params(NVNET *nnet)
 
 /*----------------------------------------------------------
  * 1. Check gradient of nnet after backpropagation computation
- *    and before updateing params.
+ *    and before updating params.
  *    Check numerical gradient of dE/dw and dE/dv with the
  *    backpropagation gradient respectively.
  * 2. Call this function just after feedback computation!!!
@@ -1085,7 +1173,7 @@ int nvnet_restore_params(NVNET *nnet)
  * Params:
  * 	@nnet		nerve net
  *	@tv		array of teacher value
- *	@loss_func	loff function
+ *	@loss_func	loss function
  * Return:
  *		0	OK
  *		<0	fails
@@ -1338,7 +1426,6 @@ void nvnet_print_params(const NVNET *nnet)
 ------------------------------------------------------------------------------*/
 double func_lossMSE(double out, const double tv, int token)
 {
-
    /* Normal func */
    if(token==NORMAL_FUNC) {
         return (tv-out)*(tv-out);
@@ -1349,6 +1436,72 @@ double func_lossMSE(double out, const double tv, int token)
   }
 
 }
+
+
+/*--------------------- Cross-entropy Loss Function ----------------------------
+ * Cross-entropy Loss Function for each sample: -tv[i]*log(out[i])
+ * For batch samples, the mean loss is:
+ * 		-1/N*SUM{ tv[i]*log(out[i]) }  to be applied by the caller!!
+ * NOTE:
+ *  1. For normal func: it returns: -tv[i]*log(out[i])
+ *  2. For derivative func: it returns:
+ *
+ *   		!!!--- CAUTION ---!!!
+ *   The Caller MUST ensure mem of out/tv as per classes.
+ *
+ * Params:
+ * 	@out		nvcells  output value (possiblity value for each class);
+ *	@tv		teacher's value
+ *xxx	@classes	Number of classes, or array size of out/tv.
+ *	@token		NORMAL_FUNC or DERIVATIVE_FUNC
+ * Return:
+ *	A very big value	fails
+------------------------------------------------------------------------------*/
+double func_lossCrossEntropy(double out, double tv, int token)
+{
+   /* Normal func */
+   if(token==NORMAL_FUNC) {
+//	if(out<0.0001) printf("%s: out=%f, log(out)=%f\n",__func__, out, log(out));
+	return  -tv*log(out);  /* log() is ln() */
+   }
+   /* For Derivative: It MUST combine with softMax or logSoftMax etc.
+	1.  softMax + CorssEntropy:  dE/dh=dE/dz=yi-ti
+        In this case, it compute in nvlayer_mean_loss()
+    */
+   else  {
+	printf("%s: Only support NORMAL_FUNC!\n", __func__);
+	return 999999.0;
+  }
+}
+
+#if 0 ////////////////////////////////////////////
+float func_lossCrossEntropy(float *out, float *tv, int classes, int token)
+{
+   if(out==NULL || tv==NULL)
+	return  999999.0;
+
+   int k;
+   float loss=0.0f;
+
+   /* Normal func */
+   if(token==NORMAL_FUNC) {
+	for(k=0; k<classes; k++) {
+		loss -= tv[k]*log(out[k]);  /* log() is ln() */
+	}
+
+	return loss;
+   }
+   /* For Derivative: It MUST combine with softMax or logSoftMax etc.
+	1.  softMax + CorssEntropy:  dE/dh=dE/dz=yi-ti
+        In this case, it compute in nvlayer_mean_loss()
+    */
+   else  {
+	printf("%s: Only support NORMAL_FUNC!\n", __func__);
+	return 999999.0;
+  }
+
+}
+#endif //////////////////////////////////////////
 
 
 
@@ -1388,9 +1541,16 @@ bool  gradient_isclose(double da, double db)
 
 
 /*--------------------------------------------
+TODO: put into actfs.c
+
 Softmax for NVLAYER: softmax(xi) = e^xi/Sum(e^x)
 This function applys in nvlayer_feed_forward()!
 after tranfer function!
+
+	!!! --- CAUTION --- !!!
+func_softmax is layer transfer function. Results are
+stored in layer->douts[]. NOT in layer->nvcells[].dout!
+
 
 @layer: NVLAYER to apply softmax
 @token:  0 ---normal func; 1 ---derivative func
@@ -1411,18 +1571,30 @@ int func_softmax(NVLAYER *layer, int token)
  	if(token==NORMAL_FUNC) {
         	/* Add up dout */
 	        for(i=0; i< layer->nc; i++) {
-			layer->nvcells[i]->dout = exp(layer->nvcells[i]->dsum);
-			fsum += layer->nvcells[i]->dout;
+			//layer->nvcells[i]->dout = exp(layer->nvcells[i]->dsum);
+			//fsum += layer->nvcells[i]->dout;
+			layer->douts[i] = exp(layer->nvcells[i]->dsum);  //dout==dsum
+			fsum += layer->douts[i];
 		}
 
-//printf("fsum=%f\n", fsum);
+#if 1  /* Test: fsum */
+		if(isnan(fsum))
+			printf("%s: fsum is nan!\n", __func__);
+		else if(isinf(fsum))
+			printf("%s: fsum is inf!\n", __func__);
+		else if(fsum==0.0)
+			printf("%s: fsum ==0.0!\n", __func__);
+#endif
 
 		/* Softmax value */
         	for(i=0; i< layer->nc; i++) {
-			layer->nvcells[i]->dout /= fsum;
+
+			//layer->nvcells[i]->dout /= fsum;  // NOPE! TODO: It will dirt dout! for later chain derivative operation.
+			layer->douts[i] /=fsum; /* Noticed~! softmax is layer transfer function!  result put in layer->douts[] */
+//printf("%s: douts[%d]=%f\n", __func__, i, layer->douts[i]);
 		}
 	}
-	else {  /* ERIVATIVE_FUNC */
+	else {  /* ERIVATIVE_FUNC. */
 		/* TODO
 		   Si = softmax(ai);
 		   Sj = softmax(aj)
@@ -1430,6 +1602,9 @@ int func_softmax(NVLAYER *layer, int token)
 		   If(i==j) DSi/Daj=si*(1-sj)
 		   Else     Dsi/Daj= -si*sj
 		*/
+
+		/* softMax+crossEntropy combined derivative, see in */
+		printf("%s: NO derivative func for sotfmax!",__func__);
 
 	}
 
